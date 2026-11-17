@@ -63,9 +63,12 @@ public sealed class RelationMutationPlan
             if(foreign is null||value is null||cache is null||foreign.Id==cache.Id||source.IsRongyu!=1)throw new InvalidOperationException("传播缓存必须属于冗余消费者的独立字段。");
             var storage=MetadataStoragePolicy.ForTable(catalog,source);var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);
             if(!storage.IsPhysical(foreign)||Enabled(foreign)||!storage.IsPhysical(cache)||cache.IsVirtualColumn!=0||!targetStorage.IsPhysical(value)||value.IsVirtualColumn!=0)throw new InvalidOperationException("传播只写已声明物理缓存，关系ID与目标值不能虚构。");
-            if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||value.LogicalType is not("string" or "int64" or "int32" or "decimal" or "bool" or "date" or "datetime" or "time")||cache.LogicalType!= (definition.Multiple?"string":value.LogicalType)||foreign.LogicalType is not("string" or "int64"))throw new InvalidOperationException("传播缓存与目标值类型不一致。");
-            if(target.TableName=="yz_manager"&&value.ColumnName is "password" or "salt" or "old_password")throw new InvalidOperationException("账号凭据不能成为名称传播值。");
             var scalarLabel=definition.Multiple&&MultiNameStorageColumns.IsPhysicalScalarLabel(source,foreign,target,value,targetStorage);
+            if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||
+                value.LogicalType is not("string" or "int64" or "int32" or "decimal" or "bool" or "date" or "datetime" or "time")&&!scalarLabel||
+                cache.LogicalType!=(definition.Multiple?"string":value.LogicalType)||foreign.LogicalType is not("string" or "int64"))
+                throw new InvalidOperationException("传播缓存与目标值类型不一致。");
+            if(target.TableName=="yz_manager"&&value.ColumnName is "password" or "salt" or "old_password")throw new InvalidOperationException("账号凭据不能成为名称传播值。");
             var suffix=definition.Multiple?"_ids":"_id";if(!foreign.ColumnName.EndsWith(suffix,StringComparison.Ordinal)||definition.Multiple&&(foreign.LogicalType!="string"||value.LogicalType!="string"&&!scalarLabel||foreign.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase")))throw new InvalidOperationException("传播外键形状与声明不一致。");
             if(foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id)throw new InvalidOperationException("传播外键目标与发布关系不一致。");
             var stem=foreign.ColumnName[..^suffix.Length];var expected=stem+"_"+(definition.Multiple&&!value.ColumnName.EndsWith('s')?value.ColumnName+"s":value.ColumnName);

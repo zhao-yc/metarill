@@ -44,6 +44,12 @@ public sealed class GlobalMultipleRelationReadTests
     [InlineData("datetime","2026-11-17T12:34:56.120000","2026-11-17 12:34:56.12")]
     [InlineData("datetime","2026-11-17 12:34:56","2026-11-17 12:34:56")]
     [InlineData("time","-832:04:06.120000","-832:04:06.12")]
+    [InlineData("double","-9.007199254740994E+15","-9007199254740994")]
+    [InlineData("double","-0.0","0")]
+    [InlineData("double","+1E-06","0.000001")]
+    [InlineData("double","1E-07","1e-7")]
+    [InlineData("double","5E-324","5e-324")]
+    [InlineData("double","1.7976931348623157E+308","1.7976931348623157e308")]
     public void Typed_workbook_labels_are_exact(string kind,string input,string expected)
     {
         var value=Metarill.Core.Contracts.MultiValueLabel.Parse(kind,input);
@@ -58,6 +64,9 @@ public sealed class GlobalMultipleRelationReadTests
     [InlineData("datetime","2026-11-17 12:34:56.1234567")]
     [InlineData("time","839:00:00")]
     [InlineData("time","00:00:00.0000001")]
+    [InlineData("double","NaN")]
+    [InlineData("double","1e400")]
+    [InlineData("double","1e-400")]
     public void Invalid_typed_workbook_labels_are_rejected(string kind,string input)=>
         Assert.Throws<Metarill.Core.Contracts.PageImportException>(()=>Metarill.Core.Contracts.MultiValueLabel.Parse(kind,input));
 
@@ -68,6 +77,7 @@ public sealed class GlobalMultipleRelationReadTests
     [InlineData("date","CAST(")]
     [InlineData("datetime","TRIM(TRAILING")]
     [InlineData("time","TRIM(TRAILING")]
+    [InlineData("double","SUBSTRING_INDEX")]
     public void Scalar_label_expression_is_shared_by_queries(string kind,string shape)
     {
         var catalog=Catalog("MultiCheckBoxDatabase",true);

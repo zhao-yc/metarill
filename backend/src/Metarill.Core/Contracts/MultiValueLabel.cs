@@ -9,7 +9,7 @@ public static class MultiValueLabel
     private static readonly string[] DateTimePatterns = ["yyyy-MM-dd HH:mm:ss.FFFFFF", "yyyy-MM-dd'T'HH:mm:ss.FFFFFF"];
 
     /// <summary>可确定为单值、可读且能由原名称反查的逻辑类型。</summary>
-    public static bool IsTyped(string kind) => kind is "int32" or "int64" or "decimal" or "bool" or "date" or "datetime" or "time";
+    public static bool IsTyped(string kind) => kind is "int32" or "int64" or "decimal" or "double" or "bool" or "date" or "datetime" or "time";
     /// <summary>输出精确数值和数据库日历时间。保留 null，不附加时区或区域格式。</summary>
     public static string? Text(string kind, object? value)
     {
@@ -18,6 +18,7 @@ public static class MultiValueLabel
         {
             bool flag => flag ? "true" : "false",
             decimal number => number.ToString("0.############################", CultureInfo.InvariantCulture),
+            double number => ExactNumericValue.FormatDoubleLabel(number),
             DateTime date => date.ToString(kind == "date" ? "yyyy-MM-dd" : DateTimePatterns[0], CultureInfo.InvariantCulture),
             TimeSpan time => SqlTimeValue.Format(time),
             _ => Convert.ToString(value, CultureInfo.InvariantCulture)
@@ -30,6 +31,7 @@ public static class MultiValueLabel
         switch (kind)
         {
             case "decimal" when ExactNumericValue.TryDecimal(text, out var number): return number;
+            case "double" when ExactNumericValue.TryDouble(text, out var floating): return floating;
             case "bool" when bool.TryParse(text, out var flag): return flag;
             case "bool" when text is "0" or "1": return text == "1";
             case "date" when DateTime.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date): return date;

@@ -33,6 +33,25 @@ public static class ExactNumericValue
         var text=value.ToString("R",CultureInfo.InvariantCulture);
         return double.TryParse(text,NumberStyles.Float,CultureInfo.InvariantCulture,out var parsed)&&BitConverter.DoubleToInt64Bits(value)==BitConverter.DoubleToInt64Bits(parsed)?text:value.ToString("G17",CultureInfo.InvariantCulture);
     }
+    /// <summary>多值标签沿原 Web 的常用十进制显示范围，规范化指数并将正负零视为同一名称。</summary>
+    internal static string FormatDoubleLabel(double value)
+    {
+        if(value==0)return "0";
+        if(!Normalize(FormatDouble(value),out var parts))throw new InvalidOperationException("无法规范化有限浮点名称。");
+        var digits=parts.Digits;
+        var exponent=(int)(parts.Power+digits.Length-1);
+        var sign=parts.Negative?"-":"";
+        if(exponent is < -6 or >= 21)
+        {
+            var mantissa=digits.Length==1?digits:digits.Insert(1,".");
+            return sign+mantissa+"e"+exponent.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var point=exponent+1;
+        if(point<=0)return sign+"0."+new string('0',-point)+digits;
+        if(point>=digits.Length)return sign+digits+new string('0',point-digits.Length);
+        return sign+digits.Insert(point,".");
+    }
     /// <summary>只做有界字符串归一：去前导/尾随零后用十进制幂比较，不分配巨大整数或指数数组。</summary>
     private static bool Normalize(string? value,out Parts result)
     {

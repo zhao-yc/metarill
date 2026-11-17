@@ -25,6 +25,8 @@ public sealed class GlobalMultipleFreshCatalogTests
     [InlineData("cross6",1,"date",0)]
     [InlineData("cross7",1,"datetime",1)]
     [InlineData("cross5",1,"time",1)]
+    [InlineData("cross3",0,"double",0)]
+    [InlineData("cross7",1,"double",1)]
     public async Task Global_scalar_labels_publish_both_array_controls(string profile,int sourceMode,string type,int targetMode)
     {
         var catalog=Catalog(profile);

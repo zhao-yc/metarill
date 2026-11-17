@@ -32,6 +32,7 @@ public sealed class DerivedMultiNamesTests
     [InlineData(true,1,true,"int32","list")]
     [InlineData(false,1,false,"decimal","edit")]
     [InlineData(true,0,true,"time","list")]
+    [InlineData(false,1,true,"double","edit")]
     public async Task Derived_scalar_labels_complete_both_array_controls(bool checkbox,int mode,bool automatic,string type,string exportMode)
     {
         const string prefix="derived_integer",ns="Example.DerivedInteger";

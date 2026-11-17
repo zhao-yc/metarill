@@ -33,6 +33,7 @@ public sealed class GlobalMultipleDerivedTargetGenerationTests
     [InlineData(1,true,"int64","int32",true)]
     [InlineData(1,false,"string","datetime",false)]
     [InlineData(0,true,"int64","time",true)]
+    [InlineData(1,false,"string","double",true)]
     public async Task Published_global_derived_scalars_keep_original_array_controls(int mode,bool automatic,string inner,string type,bool projectColumn)
     {
         var catalog=Catalog(mode,automatic,inner);
