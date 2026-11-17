@@ -30,6 +30,8 @@ internal static class GeneratedNonRedundantReadCatalog
     internal static Metarill.Data.Queries.NonRedundantReadPlan Compile(string tableId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.Compile(Snapshot,tableId,outputs,dependencies,deferCascadeNames:true);
     /// <summary>匹配字段只编译一次；主记录和实际关联来源由专用写入计划锁定。</summary>
     internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMatch(string tableId,string field)=>Metarill.Data.Queries.NonRedundantReads.CompileMatch(Snapshot,tableId,field);
+    /// <summary>固定派生多值名称与原候选范围共用静态计划。</summary>
+    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMultiLabel(string tableId,string field,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompileMultiLabel(Snapshot,tableId,field,outputs,dependencies);
 {{derivedHelper}}{{helpers}}}
 
 """;

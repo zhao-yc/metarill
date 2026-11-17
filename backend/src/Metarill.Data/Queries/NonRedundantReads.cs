@@ -88,6 +88,10 @@ public static class NonRedundantReads
     /// <summary>多值显示名称复用单值路径证明，另支持原生 TIME，不扩大精确数据管理的键类型。</summary>
     public static NonRedundantReadPlan CompileMultiLabel(MetadataCatalog metadata,string tableId,string field)=>metadata.DatabaseProvider switch
     {"mysql"=>new(MySqlNonRedundantReadCompiler.CompileMultiLabel(metadata,tableId,field)),_=>throw new NotSupportedException("该数据库尚未完成固定名称读取适配。")};
+    /// <summary>多值名称与候选条件、排序依赖一并冻结。</summary>
+    public static NonRedundantReadPlan CompileMultiLabel(MetadataCatalog metadata,string tableId,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>metadata.DatabaseProvider switch
+    {"mysql"=>new(MySqlNonRedundantReadCompiler.CompileMultiLabel(metadata,tableId,field,outputs,dependencies)),_=>throw new NotSupportedException("该数据库尚未完成固定名称读取适配。")};
+
     /// <summary>生成期取得固定单值名称实际读取的来源物理列；同表其它角色可能形成安全超集，不返回SQL。</summary>
     public static IReadOnlyList<string> CompileSourceDependencies(MetadataCatalog metadata,string tableId,string field)
     {

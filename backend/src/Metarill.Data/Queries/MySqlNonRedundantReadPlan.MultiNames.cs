@@ -13,13 +13,16 @@ public static partial class MySqlNonRedundantReadCompiler
             var scalarLabel=MultiNameStorageColumns.IsDerivedScalarLabel(target,value,storage[target.Id]);
             if(value.LogicalType!="string"&&!scalarLabel)throw new NotSupportedException("多值派生名称类型未支持。");
             // 全局单值路径已证明字符串键的二进制读取；这里不是仅允许int64键的精确管理匹配用途。
-            var prefixForNames=publishedPage is null?"multi_name_":aliasPrefix+"global_array"+publishedArrayScopeCount+++"_";
+            var prefixForNames=publishedPage is null&&publishedArrayScopeCount==0?"multi_name_":aliasPrefix+"array"+publishedArrayScopeCount+"_";
+            publishedArrayScopeCount++;
             var nested=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
-                trackReverse:refreshFields is not null,candidatePage:publishedPage,multiLabel:true).Compile([value.ColumnName],[]);
+                trackReverse:refreshFields is not null,candidatePage:publishedPage,multiLabel:true,cascadeLabelField:value.ColumnName).Compile([value.ColumnName],[]);
             foreach(var pair in nested.Constants)crossConstants.Add(pair.Key,pair.Value);
             if(trackReverse&&nested.RequiresPublishedProjectIdentity)publishedArrayIdentity=true;
-            if(nested.Types[value.ColumnName]!=value.LogicalType||nested.MultiProjections.Count>0||nested.Crosses.Count>0||
-                !nested.Origins.TryGetValue(value.ColumnName,out var valueOrigin)||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(valueOrigin.Column))
+            var cascadeLabel=nested.CascadeLabelOutputs.Contains(value.ColumnName);
+            nested.Origins.TryGetValue(value.ColumnName,out var valueOrigin);
+            if(nested.Types[value.ColumnName]!=value.LogicalType||nested.MultiProjections.Count>0||
+                !cascadeLabel&&(nested.Crosses.Count>0||valueOrigin is null||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(valueOrigin.Column)))
                 throw new NotSupportedException("多选派生名称必须落到已证明的同类型非凭据单值终点。");
             var prefix=" FROM "+Q(target.TableName)+" multi_value";
             if(!nested.From.StartsWith(prefix,StringComparison.Ordinal))throw new InvalidOperationException("多选名称别名域与固定目标不一致。");
@@ -41,8 +44,10 @@ public static partial class MySqlNonRedundantReadCompiler
             var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG("+name+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(global?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(scope.Length==0?"":" AND "+scope)+targetJoins+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
             multiProjections[expression]=new(source,Q(target.TableName),Q(value.ColumnName),scope,targetJoins,name);
             multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(scope.Length==0?"":" AND "+scope)+" AND "+name+" LIKE {parameter} ESCAPE '!')";
-            if(global||scalarLabel&&relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(scope.Length==0?"":" AND "+scope)+" AND "+name+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
-            origin=valueOrigin;return(expression,"string");
+            if(global||cascadeLabel||scalarLabel&&relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(scope.Length==0?"":" AND "+scope)+" AND "+name+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
+            // 维护报告展示发布的逻辑来源字段，物理列清单由嵌套路径单独记录。
+            origin=valueOrigin??new(target.TableName,value.ColumnName);
+            return(expression,"string");
         }
     }
 }

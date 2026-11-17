@@ -12,7 +12,7 @@ public static partial class MySqlNonRedundantReadCompiler
 {
     private sealed partial class Builder
     {
-        private readonly IReadOnlyDictionary<string,NonRedundantCrossTableScope> crossTables;
+        private readonly Dictionary<string,NonRedundantCrossTableScope> crossTables;
         private readonly Dictionary<string,MySqlCrossTableProjection> crossProjections=new(StringComparer.Ordinal);
         private readonly Dictionary<string,IReadOnlyDictionary<string,(string Sql,string Type)>> crossValues=new(StringComparer.Ordinal);
         private readonly Dictionary<string,object?> crossConstants=new(StringComparer.Ordinal);
@@ -55,6 +55,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     var label=selection.Slots[index].ColumnName[..^3]+"_name";if(columns[table.Id].TryGetValue(label,out var declared)&&declared.LogicalType.ToLowerInvariant()!="string")throw new InvalidOperationException("跨表来源显示字段类型与逻辑名称不符。");
                     RequireCrossCondition(target,page,binding.Levels[index].Condition);levels.Add(new(target,display,parent,binding.Levels[index]));
                 }
+                if(trackReverse&&multiLabel)
+                    foreach(var slot in selection.Slots)Use(table,columns[table.Id][slot.ColumnName]);
                 var raw=selection.Slots.ToDictionary(slot=>slot.ColumnName,slot=>owner+"."+Q(slot.ColumnName),StringComparer.Ordinal);var selected=selection.Slots.Select(slot=>Nonempty(raw[slot.ColumnName])).ToArray();
                 var valid=string.Join(" AND ",selection.Slots.Select(slot=>slot.LogicalType=="int64"?"("+raw[slot.ColumnName]+" IS NULL OR "+raw[slot.ColumnName]+">0)":"("+raw[slot.ColumnName]+" IS NULL OR BINARY "+raw[slot.ColumnName]+"=BINARY '' OR BINARY "+raw[slot.ColumnName]+"=BINARY "+PositiveText(raw[slot.ColumnName])+")"));
                 valid="("+valid+") AND ("+string.Join("+",selected.Select(item=>"(CASE WHEN "+item+" THEN 1 ELSE 0 END)"))+")<=1";
@@ -64,10 +66,20 @@ public static partial class MySqlNonRedundantReadCompiler
                     var level=levels[index];var alias="cross"+aliases.Count;aliases.Add("cross:"+key+":"+index,alias);targetAliases[index]=alias;
                     var sourceText="CAST("+raw[selection.Slots[index].ColumnName]+" AS CHAR)";var effective="NULLIF(BINARY "+sourceText+",BINARY '')";
                     if(index+1<levels.Count){var parent=levels[index+1].Parent!;var parentValue=targetAliases[index+1]+"."+Q(parent.ColumnName);var parentText=parent.LogicalType.ToLowerInvariant()=="string"?PositiveText(parentValue):"CASE WHEN "+parentValue+">0 THEN CAST("+parentValue+" AS CHAR) END";effective="COALESCE("+effective+","+parentText+")";}
+                    if(trackReverse&&multiLabel)
+                    {
+                        Touch(alias,"id");
+                        if(level.Parent is {} parent)Touch(alias,parent.ColumnName);
+                        reverse.Add(alias,(level.Table.TableName," FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),effective,"string"));
+                    }
                     var scope=Scope(level.Table,alias,projectScoped:!GlobalCrossTableTarget.Declared(level.Table));
                     if(level.Scope.Condition is{} condition)
                     {
-                        var clause=condition.RenderAccountProjection(new MySqlDatabaseProvider(),"mt_cross_scope_"+alias,field=>alias+"."+Q(field));foreach(var pair in clause.Parameters)crossConstants.Add(pair.Key,pair.Value);if(clause.Sql.Length>0)scope+=(scope.Length==0?"":" AND ")+clause.Sql;
+                        var clause=condition.RenderAccountProjection(new MySqlDatabaseProvider(),"mt_cross_scope_"+(multiLabel?aliasPrefix:"")+alias,field=>
+                        {
+                            if(trackReverse&&multiLabel){Use(level.Table,Column(level.Table,field));Touch(alias,field);}
+                            return alias+"."+Q(field);
+                        });foreach(var pair in clause.Parameters)crossConstants.Add(pair.Key,pair.Value);if(clause.Sql.Length>0)scope+=(scope.Length==0?"":" AND ")+clause.Sql;
                     }
                     joins.Add(" LEFT JOIN "+Q(level.Table.TableName)+" "+alias+" ON BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+effective+(scope.Length==0?"":" AND "+scope));
                 }
@@ -84,6 +96,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     // 来源varchar与目标CAST可能采用不同默认排序规则；逻辑ID显式保持二进制精确比较。
                     if(slot.LogicalType=="string")idExpression="CONVERT(("+idExpression+") USING utf8mb4) COLLATE utf8mb4_bin";
                     result.Add(slot.ColumnName,(idExpression,slot.LogicalType));
+                    if(trackReverse&&multiLabel&&levels[index].Table.IsRongyu==1)Touch(targetAliases[index],levels[index].Name.ColumnName);
                     var label=levels[index].Table.IsRongyu==0?Resolve(levels[index].Table,targetAliases[index],levels[index].Name.ColumnName).Sql:targetAliases[index]+"."+Q(levels[index].Name.ColumnName);
                     result.Add(slot.ColumnName[..^3]+"_name",("CASE WHEN "+string.Join(" OR ",paths.Skip(index))+" THEN "+label+" END","string"));
                 }
