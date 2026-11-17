@@ -45,8 +45,8 @@ public sealed partial class {{page.Name}}ImportRequest
         var columns = Columns(page);
         var crosses=columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>CrossTableWriteCompilation.Resolve(model,table,page,column).Definition).OfType<CrossTableWriteModel>().ToArray();
         var hasCross=crosses.Length>0;
-        var fixedCross=FixedSharedCrossParent(model,table,page,crosses);
-        var fixedCrossReader=fixedCross is null?RedundantFixedCrossBatchReader(model,table,page,crosses):FixedCrossBatchReader(page,fixedCross);
+        var fixedParents=FixedSharedCrossParents(model,table,page,crosses);
+        var fixedCrossReader=fixedParents.Count==0?RedundantFixedCrossBatchReader(model,table,page,crosses):FixedCrossBatchReader(page,fixedParents);
         var hasFixedCross=fixedCrossReader.Length>0;
         var fixedCrossParameter=hasFixedCross?", ReadFixedCrossParent":"";
         var dependency = ImportDependencyCompilation.ForPage(model, table, page);
@@ -281,40 +281,41 @@ public sealed partial class {{page.Name}}ImportRequest
         foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>columns.Any(column=>column.Source.Id==multi.Source.Source.Id)))result.Append(MultiSelectExcelRenderer.Import(model,table,page,multi,dependency));
         return result.ToString();
     }
-    /// <summary>仅为共享稀疏组中由页面固定、从导入列排除的末级控件补足祖先约束。</summary>
-    private static CrossTableWriteModel? FixedSharedCrossParent(GenerationModel model, TableModel table, PageModel page,
+    /// <summary>页面固定的共享末级从工作簿排除，其各自祖先仍须作为同行解析约束。</summary>
+    private static IReadOnlyList<CrossTableWriteModel> FixedSharedCrossParents(GenerationModel model,TableModel table,PageModel page,
         IReadOnlyList<CrossTableWriteModel> imported)
     {
-        if(table.Source.IsRongyu!=0||imported.Count==0)return null;
-        // 同一个父 ID 可同时约束物理列。固定末级仍从唯一逻辑层读取，不能丢掉祖先核对。
-        var parents=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
-        var logicalParents=parents.Where(column=>NonRedundantCrossParentCompilation.Find(model,table,page,column) is not null).ToArray();
-        if(logicalParents is not [var parent]||
-            parents.Length>1&&NonRedundantSelfTreeSubset.ParentTables(model,table,page).Count!=1)return null;
+        if(table.Source.IsRongyu!=0||imported.Count==0)return [];
+        var parents=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToHashSet(StringComparer.Ordinal);
         return SharedCrossTableCompilation.ForPage(model,table,page).Groups
             .Where(group=>group.Plans.Any(plan=>imported.Any(item=>item.Read.Source.Source.Id==plan.Read.Source.Source.Id)))
             .SelectMany(group=>group.Plans)
-            .SingleOrDefault(plan=>plan.Read.Source.Source.Id==parent.Source.Id&&
-                plan.Levels[^1].Id.Source.Id==parent.Source.Id);
+            .Where(plan=>parents.Contains(plan.Read.Source.Source.Id)&&plan.Levels[^1].Id.Source.Id==plan.Read.Source.Source.Id)
+            .ToArray();
     }
 
-    /// <summary>首次读取级联单元格时锁读固定父路径。只校验共享祖先，不把它们当作用户提交字段。</summary>
-    private static string FixedCrossBatchReader(PageModel page, CrossTableWriteModel parent)
+    /// <summary>按固定层位锁读，重合祖先必须一致，且不能成为用户提交字段。</summary>
+    private static string FixedCrossBatchReader(PageModel page,IReadOnlyList<CrossTableWriteModel> parents)
     {
-        var suffix=page.Source.Id+"_"+parent.Read.Source.Source.Id;
-        var ancestors=parent.Levels.Take(parent.Levels.Count-1).Select((level,index)=>
-            $"                    [{Literal(level.Id.JsonName)}]=JsonSerializer.SerializeToElement(path.Path[{index}].Id),");
+        var body=new StringBuilder();
+        foreach(var parent in parents)
+        {
+            var source=parent.Read.Source.Source.Id;
+            body.AppendLine($"            var path{source}=await CrossReader{page.Source.Id}_{source}(actor,true,false).PathAsync({parent.Levels.Count-1},LogicalParentId{page.Source.Id}(request.ParentId),cancellationToken);");
+            foreach(var (level,index) in parent.Levels.Take(parent.Levels.Count-1).Select((level,index)=>(level,index)))
+            {
+                var key=Literal(level.Id.JsonName);
+                var value=$"path{source}.Path[{index}].Id";
+                body.AppendLine($"            if(!fixedIds.TryAdd({key},JsonSerializer.SerializeToElement({value}))&&fixedIds[{key}].GetString()!={value})throw PageImportException.Input(PageImportError.Relation);");
+            }
+        }
         return $$"""
         Task<IReadOnlyDictionary<string,JsonElement>>? fixedCrossParent = null;
         Task<IReadOnlyDictionary<string,JsonElement>> ReadFixedCrossParent() => fixedCrossParent ??= LoadFixedCrossParentAsync();
         async Task<IReadOnlyDictionary<string,JsonElement>> LoadFixedCrossParentAsync()
         {
-            var path=await CrossReader{{suffix}}(actor,true,false)
-                .PathAsync({{parent.Levels.Count-1}},LogicalParentId{{page.Source.Id}}(request.ParentId),cancellationToken);
-            return new Dictionary<string,JsonElement>(StringComparer.Ordinal)
-            {
-{{string.Join("\n",ancestors)}}
-            };
+            var fixedIds=new Dictionary<string,JsonElement>(StringComparer.Ordinal);
+{{body}}            return fixedIds;
         }
 
 """;
@@ -405,6 +406,21 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("        return JsonSerializer.SerializeToElement(candidates[0].Id.ToString(CultureInfo.InvariantCulture));").AppendLine("    }");
         return result.ToString();
     }
+    /// <summary>覆盖键必须已有可执行的单值导入转换，且在来源表可直接按物理值匹配。</summary>
+    internal static bool SupportsScalarOverwriteKey(GenerationModel model,TableModel table,PageModel page,ColumnModel key)
+    {
+        if(key.IsJsonArray||key.IsManagedCascadeName||
+            key.Type is not ("string?" or "int?" or "long?" or "decimal?" or "double?" or "bool?" or "DateTime?" or "TimeSpan?")||
+            !NonRedundantReadCompilation.Physical(model,table,key))return false;
+        return key.Source.ControlKind switch
+        {
+            "" or "Text" or "TextArea" or "Number" or "ConstList" or "ConstDownList" or "CheckBox" or "date" or "date_time" or "time"=>true,
+            "List" or "SelectPage"=>RelationCompilation.ForPage(model,page).Any(relation=>relation.SourceColumn.Source.Id==key.Source.Id),
+            "CascadeTree" when !NonRedundantCrossTableSubset.Declared(key)=>CascadeTreeWriteCompilation.Resolve(model,table,page,key).Definition is not null,
+            _=>false
+        };
+    }
+
     /// <summary>规范化空值、日期、常量标签和数组单元格，再交给生成 DTO 校验。</summary>
     private static string CellExpression(ColumnModel column)
     {

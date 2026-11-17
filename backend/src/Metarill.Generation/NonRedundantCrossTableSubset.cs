@@ -40,7 +40,7 @@ internal static class NonRedundantCrossTableSubset
             // 来源物理归属与路径内逻辑父各自用正式计划校验。额外的物理等值仍取交集。
             var parentColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var pathSupported=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&
-                SupportsScopedPath(plans,parentColumns,parentTables);
+                (parentColumns.Length==0||parentTables.Count==1);
             if((imports||importsFixedPath)&&(!pathSupported||!SupportsImport(model,table,page,plans,importColumns)))
                 return CrossTableExcelRenderer.ImportAcceptancePending;
             if(exports&&(!pathSupported||ExportRenderer.Mode(page) is not ("" or "list" or "edit")))
@@ -50,17 +50,7 @@ internal static class NonRedundantCrossTableSubset
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return "非冗余跨表完整用途未通过："+error.Message;}
     }
 
-    /// <summary>同一父参数只接受已证明的同父表，以及至多一个需要反查的逻辑路径层位。</summary>
-    private static bool SupportsScopedPath(IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> parents,
-        IReadOnlyList<TableModel> parentTables)
-    {
-        if(parents.Count==0)return true;
-        if(parentTables.Count!=1)return false;
-        var slots=plans.SelectMany(plan=>plan.Levels).Select(level=>level.Id.Source.Id).ToHashSet(StringComparer.Ordinal);
-        return parents.Count(parent=>slots.Contains(parent.Source.Id))<=1;
-    }
-
-    /// <summary>先证明导入上下文。首列只能用真实文本、整数或能唯一恢复的逻辑末级。</summary>
+    /// <summary>先证明导入上下文。首列使用已支持的单值或能唯一恢复的逻辑末级。</summary>
     private static bool SupportsImport(GenerationModel model,TableModel table,PageModel page,
         IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> columns)
     {
@@ -71,9 +61,8 @@ internal static class NonRedundantCrossTableSubset
         if(key.IsJsonArray||key.IsManagedCascadeName)return false;
         var dependency=ImportDependencyCompilation.ForPage(model,table,page);
         var match=NonRedundantImportMatchRenderer.Resolve(model,table,page,dependency);
-        if(key.Source.ControlKind=="CascadeTree")
+        if(Declared(key))
             return match is not null&&plans.Any(plan=>plan.Levels[^1].Id.Source.Id==key.Source.Id);
-        return (key.Type is "string?" or "int?" or "long?")&&key.Source.ControlKind is "" or "Text" or "Number"&&
-            NonRedundantReadCompilation.Physical(model,table,key);
+        return ImportRenderer.SupportsScalarOverwriteKey(model,table,page,key);
     }
 }

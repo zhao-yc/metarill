@@ -61,9 +61,9 @@ internal static class RedundantCrossTableSubset
         if(mode!="OverWriteByFirstColumn"||columns.Count==0)return false;
         var key=table.Columns.First(columns.Contains);
         if(key.IsJsonArray||key.IsManagedCascadeName||!NonRedundantReadCompilation.Physical(model,table,key))return false;
-        if(key.Source.ControlKind=="CascadeTree")
+        if(NonRedundantCrossTableSubset.Declared(key))
             return (key.Type is "long?" or "string?")&&plans.Any(plan=>plan.Read.Source.Source.Id==key.Source.Id&&plan.Levels[^1].Id.Source.Id==key.Source.Id);
-        return (key.Type is "long?" or "int?" or "string?")&&key.Source.ControlKind is "" or "Text" or "Number";
+        return ImportRenderer.SupportsScalarOverwriteKey(model,table,page,key);
     }
 
     /// <summary>包内表、候选页及后台必须明确发布于同一项目，不能从空项目推断授权。</summary>

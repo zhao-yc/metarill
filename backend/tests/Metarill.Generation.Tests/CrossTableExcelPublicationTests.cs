@@ -206,7 +206,7 @@ public sealed class CrossTableExcelPublicationTests
     {
         var catalog = ParentScopedCatalog(parentColumn, importMode, exportMode);
         if (importMode == "OverWriteByFirstColumn")
-            catalog.ConfigColumns.Single(column => column.Id == "22").LogicalType = "datetime";
+            catalog.ConfigColumns.Single(column => column.Id == "22").LogicalType = "binary";
         var model = GenerationModel.Create(catalog, "Example.ParentCrossExcel");
         Assert.Contains(GenerationCapabilityAudit.Collect(model), gap => gap.PageId == "201" && gap.Reason == expected);
         Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
@@ -489,9 +489,49 @@ public sealed class CrossTableExcelPublicationTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>首列沿用单值字段原解析器，随后在来源页范围内按强类型当前值匹配。</summary>
+    [Theory]
+    [InlineData(0,"datetime","date_time")]
+    [InlineData(1,"time","time")]
+    [InlineData(0,"decimal","Text")]
+    [InlineData(1,"bool","CheckBox")]
+    [InlineData(0,"self-tree","CascadeTree")]
+    [InlineData(1,"self-tree","CascadeTree")]
+    public async Task Cross_excel_accepts_proven_scalar_first_keys(int redundant,string type,string control)
+    {
+        const string prefix="scalar_excel",ns="Example.MoreScalarCrossExcel";
+        var catalog=redundant==0?NonRedundantMixedCascadeTests.Catalog(prefix,"string","int64"):
+            RedundantMultiNameCacheTests.Published(CascadeMixedRequiredTests.Catalog(prefix));
+        var source=catalog.ConfigPages.Single(page=>page.Id=="201");source.IsImport=source.IsExport=1;
+        source.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+        source.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+        var key=catalog.ConfigColumns.Single(column=>column.Id==(type=="self-tree"?"81":"22"));key.SortNo=-1;
+        if(type!="self-tree"){key.LogicalType=type;key.ControlKind=control;}
+        if(type=="time")key.ColumnType="time(6)";
+        catalog.ConfigColumns.Single(column=>column.Id=="25").Name="地区路径";
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(item=>item.Source.Id=="2");var page=table.Pages.Single(item=>item.Source.Id=="201");
+        Assert.NotEmpty(CrossTableWriteCompilation.ForService(model,table,page));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
+        var import=ImportRenderer.Service(model,table,page);
+        Assert.Contains("PageImportError.MissingOverwriteKey",import);
+        Assert.Contains(type=="self-tree"?"entity.TreeId == key":"entity.Name == key",import);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-more-scalar-cross-excel");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>逐链验证独立控件、较长路径和共享组。精确或父范围只约束当前来源页。</summary>
     [Theory]
     [InlineData("independent",0,"list","OverWriteByFirstColumn")]
+    [InlineData("dual-parent",0,"list","OverWriteByFirstColumn")]
+    [InlineData("dual-parent",0,"edit","OnlyNew")]
     [InlineData("independent",1,"edit","OverWriteByFirstColumn")]
     [InlineData("mixed-parent",1,"edit","OverWriteByFirstColumn")]
     [InlineData("three-branch",0,"edit","OnlyNew")]
@@ -506,13 +546,14 @@ public sealed class CrossTableExcelPublicationTests
         catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
         var page=catalog.ConfigPages.Single(item=>item.Id=="201");
         var primary=catalog.ConfigColumns.Single(column=>column.Id=="25");
-        if(shape=="independent")
+        if(shape is "independent" or "dual-parent")
         {
             var peer=catalog.ConfigColumns.Single(column=>column.Id=="80");
             var path=JsonNode.Parse(peer.ControlDetail)!;
             path["levels"]![0]!["columnPrefix"]="second_country";path["levels"]![1]!["columnPrefix"]="second_area";
             peer.ControlDetail=path.ToJsonString();
             page.WhereSql+=" AND country_id=@parent_id";
+            if(shape=="dual-parent")page.WhereSql+=" AND second_country_id=@parent_id";
             page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(redundant==0?"country_name":"name");
         }
         if(shape=="mixed-parent")
@@ -566,7 +607,8 @@ public sealed class CrossTableExcelPublicationTests
         var source=table.Pages.Single(item=>item.Source.Id==page.Id);
         var plans=CrossTableWriteCompilation.ForService(model,table,source);
         Assert.Equal(shape=="three-branch"?3:shape=="mixed-parent"?1:2,plans.Count);
-        if(shape=="independent")Assert.Empty(SharedCrossTableCompilation.ForPage(model,table,source).Groups);
+        if(shape is "independent" or "dual-parent")Assert.Empty(SharedCrossTableCompilation.ForPage(model,table,source).Groups);
+        if(shape=="dual-parent")Assert.Equal(2,source.Scopes.Count(scope=>scope.Source=="parent"));
         if(shape=="long-path")Assert.Contains(plans,plan=>plan.Levels.Count==4);
         if(page.Extra.ContainsKey("exactDataManageMatchField"))
             Assert.Equal(redundant==0,ExactDataManageCompilation.Resolve(model,table,source)!.Derived);
