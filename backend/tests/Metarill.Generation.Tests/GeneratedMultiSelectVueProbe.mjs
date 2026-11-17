@@ -23,3 +23,17 @@ function fixture(){const f=mountGenerated(source,{}, {id:'9007199254748888',pare
  }finally{if(f.state._alive)f.app.unmount()}
  console.log('通过：原父只读、项目切换/卸载迟到、重复和不完整回执均不写')
 }
+if (process.argv[3]) {
+ const f=fixture()
+ try {
+  const int32=process.argv[3]==='int32',label=int32?-2147483648:'-9007199254740993'
+  ;(await f.open()).confirm([{id:longId,name:label},{id:'2',name:null}]);await f.flush()
+  assert.deepEqual(plain(f.state.entity.targetNames),[String(label),null])
+  assert.deepEqual(plain(f.state.changes),{targetIds:[longId,'2']})
+  f.state.changes={}
+  const reopened=await f.open()
+  reopened.confirm([{id:'2',name:int32?2147483648:9007199254740992}]);await f.flush()
+  assert.deepEqual(plain(f.state.changes),{})
+ } finally {f.app.unmount()}
+ console.log('通过：整数名称转文本，bigint 保留精度，非合同数字回执拒绝')
+}

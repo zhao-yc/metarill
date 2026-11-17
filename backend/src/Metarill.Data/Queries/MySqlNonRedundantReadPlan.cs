@@ -416,19 +416,24 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(HasGlobalRowProject(target))publishedPage=proof.Page;
             }
             var value=Column(target,display);
-            if(value.LogicalType!="string"||value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的字符串标量。");
+            var integerLabel=MultiNameStorageColumns.IsLocalIntegerLabel(table,relation,target,value,storage[target.Id]);
+            if(value.LogicalType!="string"&&!integerLabel||value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
             if(!storage[target.Id].IsPhysical(value))return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage);
             Use(table,relation);
+            if(integerLabel)Use(target,value);
+            // SQL 聚合、名称搜索与分批回读采用同一十进制文本表达式。
+            var columnSql="multi_value."+Q(display);
+            var label=integerLabel?"CAST("+columnSql+" AS CHAR)":columnSql;
             var source=owner+"."+Q(relation.ColumnName);
             // JSON_TYPE只在有效JSON分支求值，损坏历史值与非数组按原空集合处理，不能让JSON_TABLE整页失败。
             var array=Array(source);
             var targetScope=publishedPage is null
                 ?Scope(target,"multi_value",projectScoped:!global)
                 :PublishedScope(target,"multi_value",publishedPage,aliasPrefix+"array"+publishedArrayScopeCount++);
-            var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG(multi_value."+Q(display)+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(relation.ControlKind=="MultiCheckBoxDatabase"||global?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(targetScope.Length==0?"":" AND "+targetScope)+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
-            multiProjections[expression]=new(source,Q(target.TableName),Q(display),targetScope);
+            var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG("+label+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(relation.ControlKind=="MultiCheckBoxDatabase"||global?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(targetScope.Length==0?"":" AND "+targetScope)+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
+            multiProjections[expression]=new(source,Q(target.TableName),Q(display),targetScope,NameExpression:integerLabel?label:null);
             // 名称筛选直接对目标做EXISTS，不先聚合整份名称数组，也不把根记录JOIN成多行。
-            multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(targetScope.Length==0?"":" AND "+targetScope)+" AND multi_value."+Q(display)+" LIKE {parameter} ESCAPE '!')";
+            multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(targetScope.Length==0?"":" AND "+targetScope)+" AND "+label+" LIKE {parameter} ESCAPE '!')";
             if(relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(targetScope.Length==0?"":" AND "+targetScope)+" AND multi_value."+Q(display)+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
             origin=new(target.TableName,value.ColumnName);return(expression,"string");
         }

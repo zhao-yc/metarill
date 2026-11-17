@@ -81,7 +81,12 @@ internal static class MultiSelectFieldRenderer
                         .AppendLine($"        if(cacheRows{index}.Count!=selected.Length)throw new InvalidOperationException(\"派生多选目标当前范围已改变，源记录未保存。\");")
                         .AppendLine($"        var {variable}=cacheRows{index}.ToDictionary(row=>NonRedundantReads.Value<long>(row,\"id\"),row=>NonRedundantReads.Value<string?>(row,{Literal(cache.Value.Source.ColumnName)}));");
                 }
-                else result.AppendLine($"        var {variable} = rows.ToDictionary(row => row.Id, row => row.{value});");
+                else
+                {
+                    // ID 顺序、空值位置和字符串数组类型在保存、传播及回填之间一致。
+                    var label="row."+value+(cache.Value.Type is "int?" or "long?"?"?.ToString(CultureInfo.InvariantCulture)":"");
+                    result.AppendLine($"        var {variable} = rows.ToDictionary(row => row.Id, row => {label});");
+                }
                 result.AppendLine($"        if (refreshNames) {{ entity.{cache.Cache.Property} = JsonSerializer.Serialize(selected.Select(id => {variable}[id]).ToArray()); submitted.Add({Literal(cache.Cache.Source.ColumnName)}); }}");
             }
             result.AppendLine("    }");

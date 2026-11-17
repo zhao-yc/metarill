@@ -60,6 +60,10 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
     private async Task<Dictionary<(long,string),object?>> Targets(RelationCache[] bindings,long[] ids,DbTransaction transaction,string project,CancellationToken token)
     {
         var target=bindings[0].Target;var fields=bindings.Select(binding=>binding.Value).Distinct(StringComparer.Ordinal).ToArray();var result=new Dictionary<(long,string),object?>();
+        // 数组名称在物理取值时转成文本，普通单值数值缓存沿用驱动返回类型。
+        var integerLabels=bindings.Where(binding=>binding.Multiple&&binding.ValueType is ("int32" or "int64"))
+            .Select(binding=>binding.Value).ToHashSet(StringComparer.Ordinal);
+        var values=fields.Select(field=>integerLabels.Contains(field)?"CAST(t."+Q(field)+" AS CHAR)":"t."+Q(field));
         // 同一来源外键使用同一发布页。当前读与写校验及维护沿用同一固定条件。
         var condition=bindings[0].PublishedCondition?.Plan.RenderConstants(session.Provider,"mt_published_target",field=>"t."+Q(field));
         var scope=Scope(target,"t")+(condition is null?"":" AND "+condition.Sql);
@@ -67,7 +71,7 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
         {
             await using var command=Command(transaction);
             if(condition is not null)foreach(var parameter in condition.Parameters)Add(command,parameter.Key,parameter.Value);
-            command.CommandText="SELECT t.`id`,"+string.Join(",",fields.Select(field=>"t."+Q(field)))+" FROM "+Q(target.Name)+" t WHERE "+scope+" AND t.`id` IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@id"+index))+") ORDER BY t.`id` FOR SHARE";Add(command,"project",Project(target,project));for(var index=0;index<batch.Length;index++)Add(command,"id"+index,batch[index]);await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))for(var index=0;index<fields.Length;index++)result[(reader.GetInt64(0),fields[index])]=await reader.IsDBNullAsync(index+1,token)?null:reader.GetValue(index+1);
+            command.CommandText="SELECT t.`id`,"+string.Join(",",values)+" FROM "+Q(target.Name)+" t WHERE "+scope+" AND t.`id` IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@id"+index))+") ORDER BY t.`id` FOR SHARE";Add(command,"project",Project(target,project));for(var index=0;index<batch.Length;index++)Add(command,"id"+index,batch[index]);await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))for(var index=0;index<fields.Length;index++)result[(reader.GetInt64(0),fields[index])]=await reader.IsDBNullAsync(index+1,token)?null:reader.GetValue(index+1);
         }
         return result;
     }

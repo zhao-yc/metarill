@@ -1,10 +1,14 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
 
 internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, PageModel TargetPage, ColumnModel Name, ColumnModel? Names,
-    bool SameParent, string? TargetParentField, IReadOnlyList<TableModel> TargetParents, string ButtonText);
+    bool SameParent, string? TargetParentField, IReadOnlyList<TableModel> TargetParents, string ButtonText)
+{
+    internal bool IntegerLabel => !Name.IsId&&Name.Type is ("int?" or "long?");
+}
 internal sealed record MultiSelectResult(MultiSelectModel? Definition, string? Reason);
 
 /// <summary>编译可证明的冗余与非冗余多选；未覆盖的范围和派生名称不能静默标为支持。</summary>
@@ -52,8 +56,9 @@ internal static class MultiSelectCompilation
             if (!target.IsGlobal && !target.Columns.Any(column => column.Source.ColumnName == "yz_project_id")) return Gap("目标未声明项目归属或明确全局范围。");
             var name = target.Columns.SingleOrDefault(column => column.Source.ColumnName == Value("nameField", "name"));
             // R1全局名称副本必须通过完整发布证明，普通物理Join与任意缓存继续拒绝。
-            var globalCachedName=name is not null&&target.IsGlobal&&Metarill.Core.Metadata.GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,Metarill.Core.Metadata.MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source);
-            if (name is null || GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&!DerivedMultiNamesCompilation.Declared(model,target,name)&&!globalCachedName || name.IsJsonArray || name.Type != "string?" && !name.IsId || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
+            var globalCachedName=name is not null&&target.IsGlobal&&GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source);
+            var integerLabel=name is not null&&SupportsIntegerLabel(model,table,source,target,name);
+            if (name is null || GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&!DerivedMultiNamesCompilation.Declared(model,target,name)&&!globalCachedName || name.IsJsonArray || name.Type != "string?" && !name.IsId&&!integerLabel || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
             if(DerivedMultiNamesCompilation.Declared(model,target,name))DerivedMultiNamesCompilation.Require(model,table,target,targetPage,name);
             if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),new(pageId,name.Source.ColumnName,Value("buttonText"),Value("whereSql"),""),out _))return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
@@ -104,6 +109,11 @@ internal static class MultiSelectCompilation
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }
     }
+
+    /// <summary>生成与数据层使用同一整数终点判断，范围仍由固定目标页证明。</summary>
+    internal static bool SupportsIntegerLabel(GenerationModel model,TableModel table,ColumnModel source,TableModel target,ColumnModel name)=>
+        name.Type is ("int?" or "long?")&&MultiNameStorageColumns.IsLocalIntegerLabel(
+            table.Source,source.Source,target.Source,name.Source,MetadataStoragePolicy.ForTable(model.Catalog,target.Source));
 
     /// <summary>重复键、数组配置或复杂映射值必须拒绝，未知合法键保持在原元数据。</summary>
     private static JsonObject Read(string text)

@@ -6,6 +6,13 @@ function arrayValue(value) {
  return result.slice()
 }
 
+/** 已证明的 int32 标签可按原回读值无损转成名称文本，大整数仍由服务端以字符串返回。 */
+function isSelectionName(row, def) {
+ if (!Object.prototype.hasOwnProperty.call(row, def.nameField)) return false
+ const name = row[def.nameField]
+ return name === null || typeof name === 'string' || (def.int32Name && Number.isInteger(name) && name >= -2147483648 && name <= 2147483647)
+}
+
 /** 元数据编译的字段只承接原弹层props/events，不提供动态目标或SQL入口。 */
 export function createMultiSelectFieldMixin(definitions) {
  const fields = new Map(definitions.map(def => [def.field, Object.freeze({ ...def })]))
@@ -51,7 +58,7 @@ export function createMultiSelectFieldMixin(definitions) {
    /** 原onPopSelect返回完整行；只显式提交ID，名称仅回填显示并由源Service事务重新派生。 */
    receiveMultiSelection(field, rows) {
     const def = fields.get(field); if (!def?.writable || !this.multiSelectionCurrent(field)) return
-    if (!Array.isArray(rows) || rows.length > 200 || rows.some(row => !row || typeof row.id !== 'string' || !/^[1-9][0-9]{0,18}$/.test(row.id) || row.id.length === 19 && row.id > '9223372036854775807' || (!Object.prototype.hasOwnProperty.call(row, def.nameField) || row[def.nameField] !== null && typeof row[def.nameField] !== 'string')) || new Set(rows.map(row => row.id)).size !== rows.length) { this.multiSelectionError = '选择页回调必须是完整且不重复的字符串ID行数组。'; return }
+    if (!Array.isArray(rows) || rows.length > 200 || rows.some(row => !row || typeof row.id !== 'string' || !/^[1-9][0-9]{0,18}$/.test(row.id) || row.id.length === 19 && row.id > '9223372036854775807' || !isSelectionName(row, def)) || new Set(rows.map(row => row.id)).size !== rows.length) { this.multiSelectionError = '选择页回调必须是完整且不重复的字符串ID行数组。'; return }
     const ids = rows.map(row => row.id), names = rows.map(row => row[def.nameField] === null ? null : String(row[def.nameField]))
     this.change(field, ids); this.changes[field] = ids.slice()
     // 原V8确认后立即更新可见名称；非冗余也只作显示，后端不会持久化辅助名。

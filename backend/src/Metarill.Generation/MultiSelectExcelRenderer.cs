@@ -35,6 +35,13 @@ internal static class MultiSelectExcelRenderer
         foreach(var scope in multi.TargetPage.Scopes.Where(scope=>scope.Source=="parent"))result.AppendLine($"            query=query.Where(row=>row.{scope.Column.Property}=={Scope(scope.Column,"targetParentId!")});");
         result.Append(FixedPageConditionCompilation.Apply(multi.TargetPage,"MultiPageCondition"+suffix,"multi_import_"+suffix));
         if(multi.Name.IsId)result.AppendLine("            if(!long.TryParse(item.ToString(),NumberStyles.None,CultureInfo.InvariantCulture,out var key)||key<=0)throw PageImportException.Input(PageImportError.Relation);query=query.Where(row=>row.Id==key);");
+        else if(multi.IntegerLabel)
+        {
+            // Excel 原名称数组按规范十进制文本反查，保留负数和完整 bigint，不经浮点转换。
+            var type=multi.Name.Type=="int?"?"int":"long";
+            result.AppendLine($"            var label=item.ToString();if(!{type}.TryParse(label,NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out var key)||key.ToString(CultureInfo.InvariantCulture)!=label)throw PageImportException.Input(PageImportError.Relation);")
+                .AppendLine($"            query=query.Where(row=>row.{multi.Name.Property}==key);");
+        }
         else result.AppendLine($"            var name=item.ToString();query=query.Where(row=>row.{multi.Name.Property}==name);");
         result.AppendLine("            var matches=await query.OrderBy(row=>row.Id).ForUpdate().Limit(2).ToListAsync(row=>new{row.Id},cancellationToken);")
             .AppendLine("            if(matches.Count!=1)throw PageImportException.Input(PageImportError.Relation);")

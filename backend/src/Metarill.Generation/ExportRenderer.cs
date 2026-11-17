@@ -22,8 +22,10 @@ internal static class ExportRenderer
     private static bool HasFixedRole(GenerationModel model,TableModel table,PageModel page) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is {} role && IncludesColumn(page,role.Source);
     /// <summary>后台名单选输出原辅助名，绝不因普通候选额外要求目标页查询权限。</summary>
     private static FixedRoleAdminNameModel? FixedAdmin(GenerationModel model,TableModel table,PageModel page) => FixedRoleAdminNameCompilation.ForPage(model,table,page) is {} admin && IncludesColumn(page,admin.Source) ? admin : null;
-    /// <summary>非冗余多选导出使用来源已存ID派生的原名称数组，不另读客户端目标。</summary>
-    private static IReadOnlyList<MultiSelectModel> MultiNames(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu==0?MultiSelectCompilation.ForPage(model,table,page).Where(multi=>multi.Names is not null&&IncludesColumn(page,multi.Source)).ToArray():[];
+    /// <summary>非冗余多选投影实时名称，冗余整数名称使用同一来源缓存。均保持 Excel 的文本名称数组。</summary>
+    private static IReadOnlyList<MultiSelectModel> MultiNames(GenerationModel model,TableModel table,PageModel page)=>
+        MultiSelectCompilation.ForPage(model,table,page).Where(multi=>multi.Names is not null&&
+            (table.Source.IsRongyu==0||multi.IntegerLabel)&&IncludesColumn(page,multi.Source)).ToArray();
     /// <summary>含关系名称的导出必须注入真实授权，独立宿主与平台使用同一Service注册合同。</summary>
     internal static bool RequiresAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page => Enabled(page) && (Relations(model, page).Length > 0 || MultiNames(model,table,page).Count>0 || HasFixedRole(model,table,page) || FixedAdmin(model,table,page) is not null));
     /// <summary>沿用 initExport 返回票据，下载入口由宿主统一承接。</summary>
@@ -64,7 +66,8 @@ internal static class ExportRenderer
         if(crossDependencies.Count>0&&(SharedRedundantParentCompilation.Enabled(model,table,page)||
             NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page)))
             result.AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken, locking: false);");
-        if(NonRedundantReadCompilation.Requires(model,table))
+        var logicalReads=NonRedundantReadCompilation.Requires(model,table);
+        if(logicalReads)
         {
             var projection=columns.Concat(dependencies).Concat(crossDependencies).Concat(CascadeTreeExcelRenderer.ExportPlans(model,table,page,columns).Select(plan=>plan.Source)).Concat(table.Columns.Where(column=>column.IsId)).DistinctBy(column=>column.Source.Id).ToArray();
             var plan=NonRedundantReadCompilation.ForPage(model,table,page);var names=projection.Select(column=>column.Source.ColumnName).Concat(multis.Select(multi=>multi.Names!.Source.ColumnName)).Distinct(StringComparer.Ordinal).ToArray();
@@ -82,11 +85,11 @@ internal static class ExportRenderer
         result.AppendLine($"        var query = Order{page.Source.Id}({CascadeTreeQueryCompilation.Call(page,extra:ExactDataManageCompilation.Argument(page,"\"export\""))}, request);")
             .AppendLine($"        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new {table.EntityType}").AppendLine("        {");
         // 目标父依赖只在已有可读字段中取固定列，不因此增加导出的表头或VO字段。
-        foreach (var column in columns.Concat(dependencies).Concat(crossDependencies).Concat(table.Columns.Where(column => column.IsId)).DistinctBy(column => column.Source.Id)) result.AppendLine($"            {column.Property} = entity.{column.Property},");
+        foreach (var column in columns.Concat(dependencies).Concat(crossDependencies).Concat(multis.Select(multi=>multi.Names!)).Concat(table.Columns.Where(column => column.IsId)).DistinctBy(column => column.Source.Id)) result.AppendLine($"            {column.Property} = entity.{column.Property},");
         result.AppendLine("        }, cancellationToken);")
             .AppendLine("        if (entities.Count > maxRows) throw new InvalidOperationException(\"导出记录数量超过服务端上限，请缩小筛选范围后重试。\");");
         }
-        foreach(var multi in multis)result.AppendLine($"        var multiNames{multi.Source.Source.Id}=rawRows.ToDictionary(row=>Metarill.Data.Queries.NonRedundantReads.Value<long>(row,\"id\"),row=>Metarill.Data.Queries.NonRedundantReads.Value<string?>(row,{Literal(multi.Names!.Source.ColumnName)}));");
+        foreach(var multi in logicalReads?multis:[])result.AppendLine($"        var multiNames{multi.Source.Source.Id}=rawRows.ToDictionary(row=>Metarill.Data.Queries.NonRedundantReads.Value<long>(row,\"id\"),row=>Metarill.Data.Queries.NonRedundantReads.Value<string?>(row,{Literal(multi.Names!.Source.ColumnName)}));");
         foreach(var checkbox in checkboxes)result.AppendLine($"        var checkboxNames{checkbox.Source.Source.Id}=await ExportCheckbox{page.Source.Id}_{checkbox.Source.Source.Id}Async(entities,actor,cancellationToken);");
         if (admin is not null) result.AppendLine("        var adminNames = " + FixedRoleAdminNameRenderer.ProjectCall(page,"entities","export") + ";");
         foreach (var relation in relations)
@@ -140,7 +143,11 @@ internal static class ExportRenderer
         foreach (var column in columns)
         {
             var relation = relations.SingleOrDefault(relation => relation.SourceColumn == column);
-            if(multis.SingleOrDefault(multi=>multi.Source.Source.Id==column.Source.Id) is{} multi){result.AppendLine($"            multiNames{multi.Source.Source.Id}[entity.Id],");continue;}
+            if(multis.SingleOrDefault(multi=>multi.Source.Source.Id==column.Source.Id) is{} multi)
+            {
+                result.AppendLine(logicalReads?$"            multiNames{multi.Source.Source.Id}[entity.Id],":$"            entity.{multi.Names!.Property},");
+                continue;
+            }
             if(checkboxes.SingleOrDefault(def=>def.Source.Source.Id==column.Source.Id) is{} checkbox){result.AppendLine($"            checkboxNames{checkbox.Source.Source.Id}[entity.Id],");continue;}
             if(column.Source.ControlKind=="CascadeTree"){result.AppendLine($"            ExcelCascade{column.Property}(entity),");continue;}
             result.AppendLine("            " + (admin?.Source.Source.Id == column.Source.Id ? "adminNames[index]." + FixedRoleAdminNameModel.Property : ValueExpression(table,page,column, relation)) + ",");

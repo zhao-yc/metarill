@@ -27,6 +27,63 @@ public sealed class RedundantMultiNameCacheTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>多选名称使用真整数列时，生成读写、筛选、Excel 和回填保持文本数组。</summary>
+    [Theory]
+    [InlineData(0,"int32",false,"list")]
+    [InlineData(0,"int64",false,"edit")]
+    [InlineData(1,"int32",true,"edit")]
+    [InlineData(1,"int64",false,"list")]
+    public async Task Local_integer_multi_labels_publish_complete_source_paths(int redundant,string type,bool automatic,string exportMode)
+    {
+        const string ns="Example.IntegerMultiLabels";
+        var catalog=Published(Catalog(false));
+        catalog.ConfigTables.Single(item=>item.Id=="2").IsRongyu=redundant;
+        catalog.ConfigColumns.Single(item=>item.Id=="32").LogicalType=type;
+        var source=catalog.ConfigPages.Single(item=>item.Id=="201");source.IsImport=source.IsExport=1;
+        source.Extra["exportMethod"]=JsonSerializer.SerializeToElement(exportMode);
+        var field=catalog.ConfigPageColumns.Single(item=>item.ConfigColumnId=="25");field.IsEdit=field.IsShow=1;
+        field.Extra["isSearch"]=field.Extra["isDetailShow"]=JsonSerializer.SerializeToElement(1);
+        if(automatic)RemoveCache(catalog);
+
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(item=>item.Source.Id=="2");var page=Assert.Single(table.Pages);
+        var relation=Assert.Single(MultiSelectCompilation.ForPage(model,table,page));
+        Assert.True(relation.IntegerLabel);
+        Assert.Equal(automatic,MultiNameStorageCompilation.IsImplicit(model,relation.Names!));
+        Assert.Single(SelectionNameFilterCompilation.ForPage(model,table,page).Bindings);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
+        Assert.Contains(type=="int32"?"int.TryParse(label":"long.TryParse(label",ImportRenderer.Service(model,table,page));
+        var export=ExportRenderer.Service(model,table,page);
+        Assert.Contains(redundant==0?"multiNames25[entity.Id]":"entity.TargetNames,",export);
+        if(redundant==1)Assert.Contains("row.Name?.ToString(CultureInfo.InvariantCulture)",MultiSelectFieldRenderer.Service(model,table,page));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-integer-multi-labels");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(directory,"generated");new CSharpGenerator().Generate(catalog,output,ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            if(redundant==1)
+            {
+                var maintenance=assembly.GetTypes().Single(item=>item.Name=="GeneratedRelationMaintenance").GetProperty("Catalog")!.GetValue(null)!;
+                var plans=(System.Collections.IDictionary)maintenance.GetType().GetProperty("Plans",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(maintenance)!;
+                var plan=plans["2"]!;
+                Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
+                Assert.NotNull(plan.GetType().GetProperty("Read")!.GetValue(plan));
+            }
+            var probe=Path.Combine(NonRedundantApplicationFixture.Root(),"backend/tests/Metarill.Generation.Tests/GeneratedMultiSelectVueProbe.mjs");
+            var start=new System.Diagnostics.ProcessStartInfo("node"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true};
+            foreach(var arg in new[]{probe,output,type})start.ArgumentList.Add(arg);
+            using var process=System.Diagnostics.Process.Start(start)!;
+            var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();
+            using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            try{await process.WaitForExitAsync(timeout.Token);}
+            catch(Exception error){await SharedSourceBuildGate.StopOwnProcessAsync(process,stdout,stderr,error);throw;}
+            Assert.True(process.ExitCode==0,await stdout+await stderr);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>原完整宿主从包内源码构建，缓存字段仍只读，原组件及手写文件经更新保持。</summary>
     [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)][InlineData(true,true)]
     public async Task Full_joined_cache_package_builds_and_preserves_original_runtime_and_handwritten_partial(bool checkbox,bool automatic)
