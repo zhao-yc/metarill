@@ -14,11 +14,11 @@ public static class GlobalDerivedRelationSource
         RequireForeign(catalog,source,foreign);
     }
 
-    /// <summary>沿明确的单值联接证明非凭据字符串终点，并与R1缓存共用活动字段栈，不能重置循环/深度边界。</summary>
+    /// <summary>沿固定单值联接证明非凭据同类型终点；活动字段栈与 R1 缓存共用。</summary>
     internal static void RequireName(MetadataCatalog catalog,TableMetadata source,ColumnMetadata name,ISet<string> resolving)
     {
         RequireTable(catalog,source);var storage=MetadataStoragePolicy.ForTable(catalog,source);
-        if(source.IsRongyu!=0||name.ConfigTableId!=source.Id||name.IsVirtualColumn!=0||name.LogicalType!="string"||name.ControlKind is not("" or "TextArea")||storage.Kind(name)!=MetadataFieldStorage.Join||!Enabled(name)||ExactDataManageValues.IsSensitiveField(name.ColumnName)||!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(c=>c.Id==name.Id),name))throw Invalid();
+        if(source.IsRongyu!=0||name.ConfigTableId!=source.Id||name.IsVirtualColumn!=0||name.LogicalType is not ("string" or "int32" or "int64")||name.ControlKind is not("" or "TextArea")||storage.Kind(name)!=MetadataFieldStorage.Join||!Enabled(name)||ExactDataManageValues.IsSensitiveField(name.ColumnName)||!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(c=>c.Id==name.Id),name))throw Invalid();
         var path=name.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
         if(path.Length<2||path.Length>17||path.Any(string.IsNullOrWhiteSpace))throw Invalid();
         var current=source;GlobalSingleRelationPlan? last=null;
@@ -35,7 +35,13 @@ public static class GlobalDerivedRelationSource
         }
         MetadataValidation.RequireIdentifier(path[^1]);
         var terminal=catalog.ConfigColumns.SingleOrDefault(c=>c.ConfigTableId==current.Id&&c.ColumnName==path[^1])??throw Invalid();
-        if(terminal.LogicalType!="string"||ExactDataManageValues.IsSensitiveField(terminal.ColumnName))throw Invalid();
+        if(terminal.LogicalType!=name.LogicalType||ExactDataManageValues.IsSensitiveField(terminal.ColumnName))throw Invalid();
+        if(name.LogicalType!="string")
+        {
+            // 全局整数只允许终止于明确的真实列，不能通过名称缓存或另一派生别名取得。
+            if(!GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,current),current,terminal))throw Invalid();
+            return;
+        }
         // 常用名称就是上一步已证终点，避免同一递归链被重复展开成指数工作量。
         if(last?.Name.Id==terminal.Id)return;
         if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,MetadataStoragePolicy.ForTable(catalog,current),current,terminal,resolving))throw Invalid();
@@ -79,5 +85,5 @@ public static class GlobalDerivedRelationSource
     /// <summary>沿用原1/true联接标志，任意文本不构成声明。</summary>
     private static bool Enabled(ColumnMetadata column)=>column.Extra.TryGetValue("isJoinColumn",out var value)&&(value.ValueKind==JsonValueKind.True||value.ToString()=="1");
     /// <summary>固定异常只描述能力边界，不回显字段值、SQL或凭据。</summary>
-    private static NotSupportedException Invalid()=>new("全局R0名称要求同目录明确发布的单值关系、固定页面和非凭据字符串终点。");
+    private static NotSupportedException Invalid()=>new("全局R0名称要求同目录明确发布的单值关系、固定页面和非凭据同类型终点。");
 }

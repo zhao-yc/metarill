@@ -20,6 +20,40 @@ public sealed class GlobalMultipleDerivedTargetTests
         if(inner=="string")Assert.Contains("BINARY CAST(multi_name_0.`id` AS CHAR)=BINARY multi_value.`global_target_id`",sql);
         Assert.Equal(before,JsonSerializer.Serialize(c));
     }
+    /// <summary>全局整数终点保持来源项目约束和实际末级依赖；非物理或类型漂移均拒绝。</summary>
+    [Theory]
+    [InlineData(0,"MultiSelectPage","int32","string")]
+    [InlineData(0,"MultiCheckBoxDatabase","int64","int64")]
+    [InlineData(1,"MultiSelectPage","int64","int64")]
+    [InlineData(1,"MultiCheckBoxDatabase","int32","string")]
+    public void Global_derived_integer_plan_preserves_text_and_authority(int mode,string kind,string type,string inner)
+    {
+        var catalog=Catalog(mode,kind,inner);
+        var alias=catalog.ConfigColumns.Single(item=>item.Id=="14");alias.LogicalType=type;
+        alias.Extra["columnFullName"]=JsonSerializer.SerializeToElement("global_target.reference_code");
+        var terminal=new ColumnMetadata{Id="25",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="reference_code",LogicalType=type};
+        catalog.ConfigColumns.Add(terminal);
+        var binding=new RelationCacheDefinition("3","34","1","14","35",true);
+        const string field="global_source_global_target_names";
+        if(mode==0)
+        {
+            var read=MySqlNonRedundantReadCompiler.Compile(catalog,"3",[field]);
+            Assert.Contains("CAST(multi_name_0.`reference_code` AS CHAR)",read.MultiProjections[field].NameExpression);
+            Assert.Contains("b.`yz_project_id`=@project_scope_number",read.Scope);
+        }
+        else
+        {
+            var plan=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+            Assert.Contains(field,plan.MixedSourceColumns["cached_consumer"]);
+            var read=MySqlNonRedundantReadCompiler.CompileRefresh(catalog,"3",[field],[binding]);
+            Assert.True(read.RequiresPublishedProjectIdentity);
+            Assert.Contains(read.Reverse,item=>item.TargetTable=="global_target"&&item.Outputs[field].Contains("reference_code"));
+        }
+        terminal.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+        if(mode==0)Assert.Throws<NotSupportedException>(()=>MySqlNonRedundantReadCompiler.Compile(catalog,"3",[field]));
+        else Assert.Throws<NotSupportedException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));
+    }
+
     /// <summary>两种R1数组缓存都登记中间与终点，保留原200/5000预算及目录身份，物理传播器仍拒绝逻辑值。</summary>
     [Theory][InlineData("MultiSelectPage","int64")][InlineData("MultiSelectPage","string")][InlineData("MultiCheckBoxDatabase","int64")][InlineData("MultiCheckBoxDatabase","string")]
     public async Task Global_r0_array_caches_keep_complete_maintenance_and_published_identity(string kind,string inner)

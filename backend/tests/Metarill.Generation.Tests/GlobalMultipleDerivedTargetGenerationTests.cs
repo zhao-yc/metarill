@@ -25,6 +25,53 @@ public sealed class GlobalMultipleDerivedTargetGenerationTests
         else Assert.DoesNotContain("cached_consumer",maintenance.MixedSourceColumns.Keys);
         Assert.Equal(before,JsonSerializer.Serialize(c));
     }
+    /// <summary>显式全局 R0 目标的整数别名同时接入原多选、数据库复选、Excel 和缓存依赖。</summary>
+    [Theory]
+    [InlineData(0,false,"int64","int32",false)]
+    [InlineData(0,true,"string","int64",true)]
+    [InlineData(1,false,"string","int64",false)]
+    [InlineData(1,true,"int64","int32",true)]
+    public async Task Published_global_derived_integers_keep_original_array_controls(int mode,bool automatic,string inner,string type,bool projectColumn)
+    {
+        var catalog=Catalog(mode,automatic,inner);
+        if(projectColumn)catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",YzProjectId=catalog.YzProjectId,ColumnName="yz_project_id",LogicalType="int64"});
+        catalog.ConfigColumns.Add(new(){Id="17",ConfigTableId="1",YzProjectId=catalog.YzProjectId,Name="显示编号",ColumnName="display_code",LogicalType=type,
+            Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("global_target.reference_code")}});
+        catalog.ConfigColumns.Add(new(){Id="25",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="reference_code",LogicalType=type});
+        catalog.ConfigPageColumns.Add(new(){Id="1017",ConfigPageId="10",ConfigColumnId="17",YzProjectId=catalog.YzProjectId,IsShow=1});
+        foreach(var control in catalog.ConfigColumns.Where(item=>item.Id is "34" or "38"))
+            control.ControlDetail=control.ControlDetail.Replace("global_target_name","display_code",StringComparison.Ordinal);
+        foreach(var cache in catalog.ConfigColumns.Where(item=>item.Id is "35" or "40"))
+        {
+            cache.ColumnName=cache.ColumnName.Replace("global_target_names","display_codes",StringComparison.Ordinal);
+            cache.Extra["columnFullName"]=JsonSerializer.SerializeToElement(cache.Id=="35"?"global_source.display_code":"selected_global_source.display_code");
+        }
+
+        const string ns="Example.GlobalDerivedInteger";
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(item=>item.Source.Id=="3");var page=Assert.Single(table.Pages);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
+        Assert.True(Assert.Single(MultiSelectCompilation.ForPage(model,table,page)).IntegerLabel);
+        Assert.True(Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,page)).DerivedName);
+        if(mode==1)
+        {
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("global_target",maintenance.MixedTargets);
+            Assert.Equal(2,maintenance.MixedSourceColumns["cached_consumer"].Count);
+        }
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-derived-integers");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.CachedConsumerService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Import30Async"));Assert.NotNull(service.GetMethod("Export30Async"));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>四个交叉模型实际生成完整包、严格构建并挂载原Vue，两次更新保持手写业务和全部受管产物。</summary>
     [Theory][InlineData(0,false,"int64")][InlineData(0,true,"string")][InlineData(1,false,"string")][InlineData(1,true,"int64")]
     public async Task Global_r0_array_full_apps_preserve_original_controls_and_runtime(int mode,bool automatic,string inner)

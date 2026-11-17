@@ -30,11 +30,11 @@ public static class GlobalMultipleRelationTarget
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(physical,target,column);
         var nameField=Value("nameField");if(nameField.Length==0)nameField="name";
         var name=columns.SingleOrDefault(column=>column.ColumnName==nameField);
-        // 整数终点只取已发布的物理值。原字符串仍可使用已证明的名称缓存或非冗余派生值。
-        if(name is null||!(name.LogicalType=="string"
-            ?GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name)
-            :MultiNameStorageColumns.IsPhysicalIntegerLabel(owner,foreign,target,name,physical)&&Scalar(name)))
-            throw new NotSupportedException("全局多值名称必须为非凭据物理字符串、物理整数或已证明的字符串名称。");
+        // 多值整数可读取物理列或固定联接名称，发布证明验证实际终点，不开放冗余整数缓存作为终点。
+        var integerLabel=name is not null&&(MultiNameStorageColumns.IsPhysicalIntegerLabel(owner,foreign,target,name,physical)||
+            MultiNameStorageColumns.IsDerivedIntegerLabel(target,name,physical));
+        if(name is null||name.LogicalType!="string"&&!integerLabel||!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name))
+            throw new NotSupportedException("全局多值名称必须为已证明的非凭据字符串或整数。");
         var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");
         if(FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName)).Fields.Any(field=>!Scalar(columns.Single(column=>column.ColumnName==field))))throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");return new(page,name);
     }
