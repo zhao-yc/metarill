@@ -576,7 +576,7 @@ public sealed class CrossTableExcelSharedGenerationTests
         {
             var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,source,page).Groups);
             Assert.Equal(2,group.Plans.Count);
-            Assert.Contains(group.Plans,CrossTableExcelRenderer.RepeatsTarget);
+            Assert.Contains(group.Plans,plan=>plan.Levels.Select(level=>level.Read.Target.Source.Id).Distinct().Count()<plan.Levels.Count);
         }
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-repeated-excel");

@@ -19,29 +19,20 @@ public static class RedundantSharedParents
     public static IReadOnlyDictionary<string,RedundantSharedParentPlan> Compile(MetadataCatalog catalog,string tableId,string pageId)
     {
         var table=catalog.ConfigTables.Single(t=>t.Id==tableId);var page=catalog.ConfigPages.Single(p=>p.Id==pageId&&p.ConfigTableId==tableId);var controls=catalog.ConfigColumns.Where(c=>c.ConfigTableId==tableId&&c.ControlKind=="CascadeTree").ToArray();if(table.IsRongyu!=1||controls.Length==0)return Empty();
-        var independent=controls.Length==1;
-        if(independent&&catalog.DatabaseProvider!="mysql")return Empty();
+        if(catalog.DatabaseProvider!="mysql")return Empty();
         var storage=MetadataStoragePolicy.ForTable(catalog,table);var syntax=FixedConditionPlan.Compile(page.WhereSql,storage.PhysicalColumns.Select(c=>c.ColumnName));var parents=syntax.Terms.Where(t=>t.Values.Any(v=>v.Kind==FixedConditionValueKind.Variable&&(v.Text.Equals("parentId",StringComparison.OrdinalIgnoreCase)||v.Text.Equals("parent_id",StringComparison.OrdinalIgnoreCase)))).ToArray();if(parents.Length==0)return Empty();
-        if(independent&&!IsCrossControl(controls[0]))return Empty();
+        if(!controls.Any(IsCrossControl))return Empty();
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(c=>c.ConfigTableId==tableId));
-        var crossControls=independent?controls:controls.Where(c=>CrossControl(catalog,table,page,c)).ToArray();
+        var crossControls=controls.Where(c=>CrossControl(catalog,table,page,c)).ToArray();
         var branches=crossControls.Select(c=>CompileBranch(catalog,table,page,c,columns,crossControls)).ToArray();
         var remaining=branches.ToList();var groups=new List<Branch[]>();
-        while(remaining.Count>0){var group=new List<Branch>{remaining[0]};remaining.RemoveAt(0);bool changed;do{changed=false;foreach(var other in remaining.ToArray())if(group.Any(b=>b.Ids.Any(id=>other.Ids.Any(candidate=>candidate.ColumnName==id.ColumnName)))){group.Add(other);remaining.Remove(other);changed=true;}}while(changed);if(group.Count>1)groups.Add(group.ToArray());}
-        if(independent)
-        {
-            var branch=branches.Single();
-            // 父字段匹配固定存储槽，再按该层深度截取路径。同一目标表可承担不同层位。
-            if(branch.Levels.Count is <2 or >3)throw Unsupported();
-            groups.Add([branch]);
-        }
+        while(remaining.Count>0){var group=new List<Branch>{remaining[0]};remaining.RemoveAt(0);bool changed;do{changed=false;foreach(var other in remaining.ToArray())if(group.Any(b=>b.Ids.Any(id=>other.Ids.Any(candidate=>candidate.ColumnName==id.ColumnName)))){group.Add(other);remaining.Remove(other);changed=true;}}while(changed);groups.Add(group.ToArray());}
         if(groups.Count==0)return Empty();Realm(catalog,table,page);var sourceProject=storage.PhysicalColumns.SingleOrDefault(c=>c.ColumnName=="yz_project_id");if(GlobalCrossTableTarget.Declared(table)||sourceProject is null||!Scalar(storage,table,sourceProject)||sourceProject.LogicalType is not("string" or "int64"))throw Unsupported();
         if(Exact(page))
         {
             var field=ExactDataManageValues.Field(page.Extra["exactDataManageMatchField"].GetString());
             var exact=columns.SingleOrDefault(column=>ExactDataManageValues.Field(column.ColumnName)==field);
-            if(exact is null||!Scalar(storage,table,exact)||!groups.SelectMany(group=>group)
-                .Any(branch=>branch.Levels.Any(level=>level.TableId==table.Id)))throw Unsupported();
+            if(exact is null||!Scalar(storage,table,exact))throw Unsupported();
             _=ExactDataManageValues.Unrestricted.ReadLogical(exact.LogicalType);
         }
         foreach(var group in groups)Prove(catalog,table,group);
@@ -86,9 +77,9 @@ public static class RedundantSharedParents
         {
             Object(level);if(Extra(level)||Text(level,"idField","id")!="id")throw Unsupported();var target=catalog.ConfigTables.Single(t=>t.TableName==Text(level,"table",""));if(target.IsRongyu is not(0 or 1)||target.IsView!=0||target.IsFunctionTable!=0)throw Unsupported();var prefix=Text(level,"columnPrefix",target.TableName);var key=Text(level,"key",target.TableName);MetadataValidation.RequireIdentifier(prefix);if(!prefixes.Add(prefix)||!keys.Add(key)||prefix is "yz_project" or "insert_manager" or "update_manager" or "insert_user" or "update_user")throw Unsupported();
             var targetColumns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id));var ts=MetadataStoragePolicy.ForTable(catalog,target);var primary=targetColumns.SingleOrDefault(c=>c.ColumnName=="id");var project=targetColumns.SingleOrDefault(c=>c.ColumnName=="yz_project_id");var global=GlobalCrossTableTarget.Declared(target);if(primary is null||primary.LogicalType!="int64"||primary.IsDbNotNull!=1||!Scalar(ts,target,primary)||!global&&(project is null||project.LogicalType is not("string" or "int64")||!Scalar(ts,target,project)))throw Unsupported();
-            var display=targetColumns.Single(c=>c.ColumnName==Text(level,"nameField","name"));if(display.LogicalType!="string"||display.IsVirtualColumn!=0)throw Unsupported();if(!ts.IsPhysical(display)){var read=NonRedundantReads.CompileMatch(catalog,target.Id,display.ColumnName);if(read.OutputTypes[display.ColumnName]!="string"||NonRedundantReads.MatchReadsTable(catalog,target.Id,display.ColumnName,source.TableName))throw Unsupported();}
+            var display=targetColumns.Single(c=>c.ColumnName==Text(level,"nameField","name"));if(display.LogicalType!="string"||display.IsVirtualColumn!=0)throw Unsupported();if(!ts.IsPhysical(display)&&!global){var read=NonRedundantReads.CompileMatch(catalog,target.Id,display.ColumnName);if(read.OutputTypes[display.ColumnName]!="string"||NonRedundantReads.MatchReadsTable(catalog,target.Id,display.ColumnName,source.TableName))throw Unsupported();}
             var parent=previous is null?null:targetColumns.Single(c=>c.ColumnName==Text(level,"parentField",""));if(parent is not null&&(!Scalar(ts,target,parent)||parent.LogicalType is not("string" or "int64")||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=previous!.Id))throw Unsupported();
-            var required=new[]{display.Id}.Concat(parent is null?[]:new[]{parent.Id}).ToArray();var candidates=catalog.ConfigPages.Where(p=>p.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(f=>f.ConfigPageId==p.Id&&f.ConfigColumnId==id&&Readable(f)))).Select(p=>(Page:p,Condition:Condition(p,ts.PhysicalColumns))).Where(x=>x.Condition.Allowed).ToArray();if(candidates.Length!=1)throw Unsupported();var chosen=candidates[0];Realm(catalog,target,chosen.Page);if(global)GlobalCrossTableTarget.Require(catalog,target,chosen.Page);var deleted=targetColumns.SingleOrDefault(c=>c.ColumnName=="delete_no");if(deleted is not null&&(deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0||!ts.IsPhysical(deleted)))throw Unsupported();
+            var required=new[]{display.Id}.Concat(parent is null?[]:new[]{parent.Id}).ToArray();var candidates=catalog.ConfigPages.Where(p=>p.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(f=>f.ConfigPageId==p.Id&&f.ConfigColumnId==id&&Readable(f)))).Select(p=>(Page:p,Condition:Condition(p,ts.PhysicalColumns))).Where(x=>x.Condition.Allowed).ToArray();if(candidates.Length!=1)throw Unsupported();var chosen=candidates[0];Realm(catalog,target,chosen.Page);if(global)GlobalCrossTableTarget.RequireSingleName(catalog,target,chosen.Page,display);var deleted=targetColumns.SingleOrDefault(c=>c.ColumnName=="delete_no");if(deleted is not null&&(deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0||!ts.IsPhysical(deleted)))throw Unsupported();
             var id=sourceColumns.Single(c=>c.ColumnName==prefix+"_id");var name=sourceColumns.Single(c=>c.ColumnName==prefix+"_name");if(id.LogicalType is not("string" or "int64")||id.IsDbNotNull!=0||!sourceStorage.IsPhysical(id)||id.IsVirtualColumn!=0||Join(id)||id.ControlKind.Length>0&&!(id.ControlKind=="CascadeTree"&&controls.Any(c=>c.Id==id.Id))||id.LinkConfigTableId.Length>0&&id.LinkConfigTableId!=target.Id||name.LogicalType!="string"||name.IsDbNotNull!=0||!sourceStorage.IsPhysical(name))throw Unsupported();
             result.Add(new(key,prefix,target.Id,target.TableName,chosen.Page.Id,display.Id,parent?.ColumnName,global?null:project!.LogicalType,deleted is not null,chosen.Page.WhereSql,chosen.Condition.Plan));ids.Add(id);names.Add(name);previous=target;
         }

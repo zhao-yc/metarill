@@ -15,31 +15,16 @@ internal sealed record SharedRedundantParentPath(CrossTableReadModel Read,int In
 internal static class SharedRedundantParentCompilation
 {
     private static readonly ConditionalWeakTable<GenerationModel,ConcurrentDictionary<(string,string),IReadOnlyDictionary<string,RedundantSharedParentPlan>>> ParentPlans=new();
-    /// <summary>识别固定共享链和单链的物理父页。</summary>
-    internal static bool Enabled(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu==1&&page.Scopes.Any(scope=>scope.Source=="parent")&&
-        (SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0||IndependentPlan(model,table,page) is not null);
-
-    /// <summary>单链沿用 Excel 支持的两至三级固定角色，证明失败时保留完整包门槛。</summary>
-    private static CrossTableWriteModel? IndependentPlan(GenerationModel model,TableModel table,PageModel page)
-    {
-        if(model.Catalog.DatabaseProvider!="mysql"||
-            table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").ToArray() is not [var source]||
-            !NonRedundantCrossTableSubset.Declared(source))return null;
-        var plan=CrossTableWriteCompilation.Resolve(model,table,page,source).Definition;
-        if(plan is null||plan.Levels.Count is <2 or >3)return null;
-        return plan;
-    }
+    /// <summary>固定跨表父页使用同一范围证明，独立自树与其它跨表控件各有自己的路径。</summary>
+    internal static bool Enabled(GenerationModel model,TableModel table,PageModel page)=>
+        table.Source.IsRongyu==1&&model.Catalog.DatabaseProvider=="mysql"&&page.Scopes.Any(scope=>scope.Source=="parent")&&
+        CrossTableWriteCompilation.ForService(model,table,page).Count>0;
     /// <summary>同一物理父键只能指向一个已冻结目标角色，不能从不同页或名字借用证明。</summary>
     internal static IReadOnlyList<SharedRedundantParentPath> ForColumn(GenerationModel model,TableModel table,PageModel page,ColumnModel column)
     {
         if(table.Source.IsRongyu!=1||!page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id))return [];
         var shared=SharedCrossTableCompilation.ForPage(model,table,page);
-        var plans=shared.Groups.SelectMany(group=>group.Plans);
-        if(shared.Groups.Count==0)
-        {
-            if(IndependentPlan(model,table,page) is not{} independent)return [];
-            plans=[independent];
-        }
+        var plans=CrossTableWriteCompilation.ForService(model,table,page);
         if(shared.Gaps.Count>0)throw new NotSupportedException("R1父范围的全部共享同伴必须通过完整证明。");
         var paths=plans.SelectMany(plan=>plan.Levels.Select((level,index)=>new SharedRedundantParentPath(plan.Read,index))).ToArray();
         var matches=paths.Where(path=>path.Level.Prefix+"_id"==column.Source.ColumnName).ToArray();
@@ -49,16 +34,14 @@ internal static class SharedRedundantParentCompilation
             var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(column.Source.ControlDetail)))throw new NotSupportedException("R1全局物理父不能替换固定关系覆盖。");
             var single=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,column.Source,target.Source);matches=paths.Where(path=>path.Level.Target.Source.Id==target.Source.Id&&path.Level.Page.Source.Id==single.Page.Id&&path.Level.Name.Source.Id==single.Name.Id).ToArray();
         }
-        var result=matches.DistinctBy(Identity,StringComparer.Ordinal).ToArray();if(result.Length!=1)throw new NotSupportedException("R1跨表父字段缺少唯一固定目标角色。");if(result[0].Level.Target.IsGlobal)GlobalCrossTableTarget.Require(model.Catalog,result[0].Level.Target.Source,result[0].Level.Page.Source);return result;
+        var result=matches.DistinctBy(Identity,StringComparer.Ordinal).ToArray();if(result.Length!=1)throw new NotSupportedException("R1跨表父字段缺少唯一固定目标角色。");if(result[0].Level.Target.IsGlobal)GlobalCrossTableTarget.RequireSingle(model.Catalog,result[0].Level.Target.Source,result[0].Level.Page.Source);return result;
     }
     /// <summary>完整包逐个证明物理父字段，来源项目与后台必须明确发布。</summary>
     internal static void Require(GenerationModel model,TableModel table,PageModel page)
     {
         if(!Enabled(model,table,page)||table.IsGlobal||table.Source.YzProjectId!=model.Catalog.YzProjectId||page.Source.YzProjectId!=model.Catalog.YzProjectId||!model.Catalog.YzAdminTypes.Any(admin=>admin.Id==page.Source.YzAdminTypeId&&admin.YzProjectId==model.Catalog.YzProjectId))throw new NotSupportedException("R1跨表父范围要求普通已发布来源及明确后台。");
-        if(ExactDataManageCompilation.Declared(page)&&
-            (!CrossTableReadCompilation.ForService(model,table,page).Any(read=>CrossTableWriteRenderer.Merged(table,read))||
-                ExactDataManageCompilation.Resolve(model,table,page) is not {Derived:false}))
-            throw new NotSupportedException("R1跨表父范围的精确管理要求同表角色及物理单值范围列。");
+        if(ExactDataManageCompilation.Declared(page)&&ExactDataManageCompilation.Resolve(model,table,page) is not {Derived:false})
+            throw new NotSupportedException("R1跨表父范围的精确管理要求物理单值范围列。");
         var physical=MetadataStoragePolicy.ForTable(model.Catalog,table.Source).PhysicalColumns;
         var plans=ParentPlans.GetValue(model,_=>new()).GetOrAdd((table.Source.Id,page.Source.Id),_=>CompileParents(model,table,page));
         foreach(var scope in page.Scopes.Where(scope=>scope.Source=="parent"))

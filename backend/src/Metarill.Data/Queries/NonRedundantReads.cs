@@ -41,17 +41,16 @@ public static class NonRedundantReads
         SharedCrossTableSparseSelection.CompileAll(table,metadata.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
             .SingleOrDefault(group=>group.Slots.Any(slot=>slot.ColumnName==field||slot.ColumnName[..^3]+"_name"==field));
 
-    /// <summary>只把来源表参与的已声明独立链识别为逻辑精确字段，避免用原始空祖先或不可见末端授权。</summary>
-    public static CrossTableSparseSelection? IndependentSourceRoleExact(MetadataCatalog metadata,TableMetadata table,string field)
+    /// <summary>识别已声明独立链的逻辑精确字段，避免用原始空祖先或不可见末端授权。</summary>
+    public static CrossTableSparseSelection? IndependentCrossExact(MetadataCatalog metadata,TableMetadata table,string field)
     {
         if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table))return null;
         var columns=metadata.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         var members=SharedCrossTableSparseSelection.CompileAll(table,columns).SelectMany(group=>group.Branches)
             .Select(branch=>branch.SourceColumnId).ToHashSet(StringComparer.Ordinal);
         return columns.Where(column=>column.ControlKind=="CascadeTree"&&!members.Contains(column.Id)&&
-                CrossTableStorageColumns.UsesSourceAsTarget(table,column))
-            .Select(column=>CrossTableSparseSelection.Compile(table,column.Id,columns))
-            .SingleOrDefault(path=>path.Slots.Any(slot=>slot.ColumnName==field||slot.ColumnName[..^3]+"_name"==field));
+                CrossTableStorageColumns.ContainsPathField(column,field))
+            .Select(column=>CrossTableSparseSelection.Compile(table,column.Id,columns)).SingleOrDefault();
     }
 
     /// <summary>只编译独立级联范围列及其固定候选路径，启动前核验生成与文件读使用同一逻辑值。</summary>

@@ -489,6 +489,102 @@ public sealed class CrossTableExcelPublicationTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>逐链验证独立控件、较长路径和共享组。精确或父范围只约束当前来源页。</summary>
+    [Theory]
+    [InlineData("independent",0,"list","OverWriteByFirstColumn")]
+    [InlineData("independent",1,"edit","OverWriteByFirstColumn")]
+    [InlineData("mixed-parent",1,"edit","OverWriteByFirstColumn")]
+    [InlineData("three-branch",0,"edit","OnlyNew")]
+    [InlineData("three-branch",1,"list","OverWriteByFirstColumn")]
+    [InlineData("long-path",0,"list","OverWriteByFirstColumn")]
+    [InlineData("long-path",1,"edit","OnlyNew")]
+    public async Task Remaining_fixed_cross_excel_topologies_have_no_publication_gap(string shape,int redundant,string export,string import)
+    {
+        const string prefix="matrix_excel", ns="Example.MatrixExcel";
+        var catalog=shape=="mixed-parent"?RedundantMultiNameCacheTests.Published(CascadeMixedRequiredTests.Catalog(prefix)):
+            SharedCrossTableGenerationTests.Catalog(prefix,"string","int64");
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
+        var page=catalog.ConfigPages.Single(item=>item.Id=="201");
+        var primary=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        if(shape=="independent")
+        {
+            var peer=catalog.ConfigColumns.Single(column=>column.Id=="80");
+            var path=JsonNode.Parse(peer.ControlDetail)!;
+            path["levels"]![0]!["columnPrefix"]="second_country";path["levels"]![1]!["columnPrefix"]="second_area";
+            peer.ControlDetail=path.ToJsonString();
+            page.WhereSql+=" AND country_id=@parent_id";
+            page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(redundant==0?"country_name":"name");
+        }
+        if(shape=="mixed-parent")
+        {
+            catalog.ConfigColumns.Add(new(){Id="9898",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
+                ColumnName="tree_owner_id",LogicalType="int64",LinkConfigTableId="6"});
+            page.WhereSql+=" AND tree_owner_id=@parent_id";
+            page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");
+        }
+        if(shape=="three-branch")
+        {
+            // 第三条短路径的终点也是其它控件的中间层；共享定义仍由同一协调器核验。
+            catalog.ConfigColumns.Single(column=>column.Id=="45").LinkConfigTableId="2";
+            foreach(var control in catalog.ConfigColumns.Where(column=>column.Id is "25" or "80"))
+            {
+                var path=JsonNode.Parse(control.ControlDetail)!;path["levels"]![0]!["table"]=prefix+"_source";
+                control.ControlDetail=path.ToJsonString();
+            }
+            var shorter=JsonNode.Parse(primary.ControlDetail)!;shorter["levels"]!.AsArray().RemoveAt(2);
+            catalog.ConfigColumns.Add(new(){Id="9899",ConfigTableId="2",ColumnName="area_id",Name="短路径",
+                LogicalType="string",ControlKind="CascadeTree",ControlDetail=shorter.ToJsonString(),
+                LinkConfigTableId="4",YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPageColumns.Add(new(){Id="2019899",ConfigPageId="201",ConfigColumnId="9899",YzProjectId=catalog.YzProjectId});
+        }
+        if(shape=="long-path")
+        {
+            // 第三个和第四个角色使用同一张表，最后一层仍有独立物理父键。
+            catalog.ConfigColumns.Add(new(){Id="9897",ConfigTableId="5",ColumnName="parent_place_id",
+                LogicalType="int64",LinkConfigTableId="5",YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPageColumns.Add(new(){Id="5019897",ConfigPageId="501",ConfigColumnId="9897",YzProjectId=catalog.YzProjectId});
+            var path=JsonNode.Parse(primary.ControlDetail)!;
+            path["levels"]![2]!["columnPrefix"]="upper_place";
+            path["levels"]!.AsArray().Add(JsonSerializer.SerializeToNode(new{key="lowerPlace",columnPrefix="place",
+                table=prefix+"_place",parentField="parent_place_id"}));
+            primary.ControlDetail=path.ToJsonString();
+            page.WhereSql+=" AND upper_place_id=@parent_id";
+        }
+        page.IsImport=page.IsExport=1;
+        page.Extra["importMethod"]=JsonSerializer.SerializeToElement(import);
+        page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(export);
+        catalog.ConfigColumns.Single(column=>column.Id=="22").SortNo=-1;
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.ConfigTableId=="2"&&column.ControlKind=="CascadeTree"))
+        {
+            column.Name="路径"+column.Id;
+            var field=catalog.ConfigPageColumns.Single(item=>item.ConfigPageId==page.Id&&item.ConfigColumnId==column.Id);
+            field.IsShow=field.IsEdit=1;
+        }
+
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var source=table.Pages.Single(item=>item.Source.Id==page.Id);
+        var plans=CrossTableWriteCompilation.ForService(model,table,source);
+        Assert.Equal(shape=="three-branch"?3:shape=="mixed-parent"?1:2,plans.Count);
+        if(shape=="independent")Assert.Empty(SharedCrossTableCompilation.ForPage(model,table,source).Groups);
+        if(shape=="long-path")Assert.Contains(plans,plan=>plan.Levels.Count==4);
+        if(page.Extra.ContainsKey("exactDataManageMatchField"))
+            Assert.Equal(redundant==0,ExactDataManageCompilation.Resolve(model,table,source)!.Derived);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-fixed-cross-excel-matrix");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.MatrixExcelSourceService",true)!;
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>未知导入模式即使同页开启可用导出也不能通过发布。</summary>
     [Fact]
     public void R0_cross_excel_rejects_unknown_import_with_or_without_export()

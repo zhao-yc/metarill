@@ -38,7 +38,7 @@ internal sealed class FileCrossParentScope
         }
         if(matches.Count==0)return null;if(matches.Count!=1)throw new NotSupportedException("文件逻辑父范围不能共享稀疏层位。");var match=matches[0];
         var branch=CompileBranch(catalog,table,page,match.Source,match.Selection,match.Level,
-            allowExactSource:CrossTableStorageColumns.UsesSourceAsTarget(table,match.Source));
+            allowExactSource:true);
         // 单控件继续完整数据层证明；共享组在收齐所有同伴范围后一次证明。
         _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],[branch.Binding],[column.ColumnName]);return branch.Scope;
     }

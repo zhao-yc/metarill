@@ -70,7 +70,7 @@ public sealed class FileMetadataContext
             var table=catalog.ConfigTables.Single(table=>table.Id==page.ConfigTableId);var physical=PhysicalColumns(catalog,table);
             var column=ResolveExactColumn(catalog,table,name);
             var group=NonRedundantReads.SharedExactGroup(catalog,table,column.ColumnName);
-            var independent=group is null?NonRedundantReads.IndependentSourceRoleExact(catalog,table,column.ColumnName):null;
+            var independent=group is null?NonRedundantReads.IndependentCrossExact(catalog,table,column.ColumnName):null;
             var cross=group is not null||independent is not null;
             var derived=cross||!physical.Any(item=>item.Id==column.Id);
             exactKinds.Add((catalog.YzProjectId,page.Id),(column,derived,cross));

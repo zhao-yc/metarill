@@ -7,7 +7,7 @@ internal static class NonRedundantSelfTreeSubset
     /// <summary>独立／同表R0目标及独立R1目标树、物理父归属和本页其它关系必须全部可执行，不能丢弃坏同伴字段。</summary>
     internal static bool Supports(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
-        if(table.Source.IsRongyu!=0||table.IsGlobal||ExactDataManageCompilation.Declared(page)||source.Source.ControlKind!="CascadeTree")return false;
+        if(table.Source.IsRongyu!=0||table.IsGlobal||source.Source.ControlKind!="CascadeTree")return false;
         try
         {
             _=ParentTables(model,table,page);
@@ -16,7 +16,11 @@ internal static class NonRedundantSelfTreeSubset
             foreach(var tree in trees.Where(tree=>!NonRedundantCrossTableSubset.Declared(tree)))
                 if(!FixedTarget(model,table,page,tree))return false;
             // 跨表同伴按其实际路径与用途验证；不递归调用Supports，隐藏坏链仍拒绝整个包。
-            if(trees.Any(NonRedundantCrossTableSubset.Declared)&&NonRedundantCrossTableSubset.Reason(model,table,page) is not null)return false;
+            if(trees.Any(NonRedundantCrossTableSubset.Declared))
+            {
+                if(NonRedundantCrossTableSubset.Reason(model,table,page) is not null)return false;
+            }
+            else if(ExactDataManageCompilation.Declared(page))return false;
             _=NonRedundantReadCompilation.ForPage(model,table,page);return true;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return false;}

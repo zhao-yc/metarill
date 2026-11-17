@@ -40,7 +40,6 @@ internal static class NonRedundantCrossTableSubset
             // 来源物理归属与路径内逻辑父各自用正式计划校验。额外的物理等值仍取交集。
             var parentColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var pathSupported=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&
-                CrossTableExcelRenderer.SupportsTargetRoles(model,table,page,plans)&&
                 SupportsScopedPath(plans,parentColumns,parentTables);
             if((imports||importsFixedPath)&&(!pathSupported||!SupportsImport(model,table,page,plans,importColumns)))
                 return CrossTableExcelRenderer.ImportAcceptancePending;

@@ -20,10 +20,15 @@ internal static class RedundantSelfTreeSubset
     {
         try
         {
-            if(table.Source.IsRongyu!=1||table.IsGlobal||table.Source.IsView!=0||table.Source.IsFunctionTable!=0||ExactDataManageCompilation.Declared(page))return "R1自树完整用途要求普通实体及已证明的固定范围。";Realm(model,table,page);
+            if(table.Source.IsRongyu!=1||table.IsGlobal||table.Source.IsView!=0||table.Source.IsFunctionTable!=0)return "R1自树完整用途要求普通实体及已证明的固定范围。";Realm(model,table,page);
             var trees=table.Columns.Where(c=>c.Source.ControlKind=="CascadeTree"&&!NonRedundantCrossTableSubset.Declared(c)).ToArray();if(trees.Length==0||trees.Any(tree=>!FixedTarget(model,table,page,tree)))return "R1自树的当前路径、物理叶子缓存或传播维护尚未取得完整证明。";
             var cross=table.Columns.Any(NonRedundantCrossTableSubset.Declared);if(cross&&RedundantCrossTableSubset.Reason(model,table,page) is{} gap)return gap;
-            if(!cross)Parents(model,table,page);return null;
+            if(!cross)
+            {
+                if(ExactDataManageCompilation.Declared(page))return "独立自树精确数据管理尚需范围证明。";
+                Parents(model,table,page);
+            }
+            return null;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or ArgumentException or JsonException){return "R1自树完整用途未通过："+error.Message;}
     }

@@ -41,14 +41,9 @@ public static class CrossTableStorageColumns
         }
         return result.ToArray();
     }
-    /// <summary>仅在完整固定跨表定义中识别来源表候选层。</summary>
-    public static bool UsesSourceAsTarget(TableMetadata table,ColumnMetadata source)
-    {
-        if(source.ConfigTableId!=table.Id||LevelPrefixes(source).Count==0)return false;
-        using var definition=JsonDocument.Parse(source.ControlDetail);
-        return definition.RootElement.GetProperty("levels").EnumerateArray()
-            .Any(level=>Text(level,"table","")==table.TableName);
-    }
+    /// <summary>在完整固定跨表定义中识别其逻辑 ID 或名称。</summary>
+    public static bool ContainsPathField(ColumnMetadata source,string field)=>
+        LevelPrefixes(source).Any(prefix=>field==prefix+"_id"||field==prefix+"_name");
 
     /// <summary>只使用全局固定层级的结构形状；页覆盖不能改变表结构，系统列前缀不作托管列。</summary>
     internal static IReadOnlyList<string> LevelPrefixes(ColumnMetadata source)

@@ -20,8 +20,7 @@ internal static class SharedGlobalParentCompilation
         if(table.Source.IsRongyu!=0||!page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id))return [];
         var reads=CrossTableReadCompilation.ForService(model,table,page);var logical=reads.SelectMany(read=>read.Levels.Select((level,index)=>(read,level,index))).Where(item=>item.level.Prefix+"_id"==column.Source.ColumnName).ToArray();
         var target=logical.Length>0?logical[0].level.Target:model.Tables.SingleOrDefault(candidate=>candidate.Source.Id==column.Source.LinkConfigTableId);if(target is null||!target.IsGlobal)return [];
-        if(table.IsGlobal||table.Source.YzProjectId!=model.Catalog.YzProjectId||
-            ExactDataManageCompilation.Declared(page)&&!reads.Any(read=>CrossTableWriteRenderer.Merged(table,read)))
+        if(table.IsGlobal||table.Source.YzProjectId!=model.Catalog.YzProjectId)
             throw new NotSupportedException("全局共享父范围要求已发布普通R0来源及原项目身份。");
         var proven=Cache.GetValue(model,_=>new()).GetOrAdd((table.Source.Id,page.Source.Id),_=>Prove(model,table,page,reads));
         var paths=proven.SelectMany(item=>item.Read.Levels.Select((level,index)=>new SharedGlobalParentPath(item.Read,index,item.Shared))).Where(path=>path.Level.Target.Source.Id==target.Source.Id);
@@ -47,9 +46,7 @@ internal static class SharedGlobalParentCompilation
             if(seen.Contains(read.Source.Source.Id))continue;
             var group=groups.SingleOrDefault(candidate=>candidate.Branches.Any(branch=>branch.SourceColumnId==read.Source.Source.Id));
             var shared=group is not null;
-            // 同表角色的独立链也可通过冻结的全局目标层绑定来源父范围。
-            var sourceRole=CrossTableWriteRenderer.Merged(table,read);
-            if(!shared&&!read.Levels.Any(level=>level.Target.IsGlobal&&(level.Target.Source.IsRongyu==0||sourceRole)))continue;
+            if(!shared&&!read.Levels.Any(level=>level.Target.IsGlobal))continue;
             var peers=group is null?[read]:group.Branches.Select(branch=>reads.SingleOrDefault(peer=>peer.Source.Source.Id==branch.SourceColumnId)??throw new InvalidOperationException("全局父范围的共享同伴读取定义缺失。")).ToArray();
             var slots=group?.Slots??CrossTableSparseSelection.Compile(table.Source,read.Source.Source.Id,declared).Slots;
             foreach(var peer in peers)

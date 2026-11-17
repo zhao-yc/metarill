@@ -14,10 +14,8 @@ internal static class RedundantCrossTableSubset
             var companions=table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").ToArray();var trees=companions.Where(NonRedundantCrossTableSubset.Declared).ToArray();
             if(table.Source.IsRongyu!=1||table.IsGlobal||trees.Length==0)return "冗余跨表完整用途要求普通R1来源。";
             if(companions.Where(tree=>!NonRedundantCrossTableSubset.Declared(tree)).Any(tree=>!RedundantSelfTreeSubset.FixedTarget(model,table,page,tree)))return "冗余跨表的自树同伴尚未取得固定物理缓存与传播证明。";
-            if(ExactDataManageCompilation.Declared(page)&&
-                (!CrossTableReadCompilation.ForService(model,table,page).Any(read=>CrossTableWriteRenderer.Merged(table,read))||
-                    ExactDataManageCompilation.Resolve(model,table,page) is not {Derived:false}))
-                return "冗余跨表精确管理要求已证明的来源角色和物理单值范围列。";
+            if(ExactDataManageCompilation.Declared(page)&&ExactDataManageCompilation.Resolve(model,table,page) is not {Derived:false})
+                return "冗余跨表精确管理要求物理单值范围列。";
             if(page.Scopes.Any(scope=>scope.Source=="parent"))SharedRedundantParentCompilation.Require(model,table,page);
             RequireRealm(model,table,page);var bindings=RelationPropagationCompilation.Bindings(model).Concat(RelationPropagationCompilation.DerivedBindings(model)).ToArray();
             var plans=new List<CrossTableWriteModel>(trees.Length);
@@ -44,7 +42,7 @@ internal static class RedundantCrossTableSubset
             var importsFixedPath=ImportRenderer.Enabled(page)&&CrossTableExcelRenderer.HasFixedPath(page);
             if(exportedSlots.Length==0&&importedSlots.Length==0&&!importsFixedPath)return null;
             // 已逐个验证自树同伴的写入、名称缓存和传播。Excel 路径列分别复用各自的解析与导出。
-            var supported=SupportsPathCells(model,table,page,plans);
+            var supported=model.Catalog.DatabaseProvider=="mysql";
             // 列表与详情模式共用原快照和路径读取，祖先ID仍只作为内部投影依赖。
             if(exportedSlots.Length>0&&(!supported||ExportRenderer.Mode(page) is not ("" or "list" or "edit")||
                 exportedSlots.Any(column=>!pathIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ExportAcceptancePending;
@@ -53,14 +51,6 @@ internal static class RedundantCrossTableSubset
             return null;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return "冗余跨表完整用途未通过："+error.Message;}
-    }
-    /// <summary>Excel 共用已经证明的逐层名称读取与传播计划，覆盖单条路径或经统一协调的双路径。</summary>
-    private static bool SupportsPathCells(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans)
-    {
-        // 来源父范围沿用已有物理证明；重复目标的两个分支由共享组统一核验。
-        if(model.Catalog.DatabaseProvider!="mysql"||plans.Count>2||plans.Any(plan=>plan.Levels.Count is <2 or >3)||
-            !CrossTableExcelRenderer.SupportsTargetRoles(model,table,page,plans))return false;
-        return plans.Count==1||SharedCrossTableCompilation.ForSource(model,table,page,plans[0].Read.Source.Source.Id)?.Plans.Count==plans.Count;
     }
     /// <summary>覆盖键取原表排序中的首个导入字段，必须能在来源表上以物理标量匹配。</summary>
     private static bool SupportsImport(GenerationModel model,TableModel table,PageModel page,
