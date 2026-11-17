@@ -113,7 +113,7 @@ public sealed class RepeatedCrossSourceTests
         if(kind=="extra")json["levels"]![1]!["whereSql"]="status=1";
         if(kind=="pathImport"){var page=c.ConfigPages.Single(x=>x.Id=="201");page.IsImport=1;page.Extra["importMethod"]=JsonSerializer.SerializeToElement("unknown");}
         control.ControlDetail=json.ToJsonString();
-        if(kind=="sharedSlots"){var second=JsonSerializer.Deserialize<ColumnMetadata>(JsonSerializer.Serialize(control))!;second.Id="199";second.ColumnName="secondary_place_id";var shared=JsonNode.Parse(second.ControlDetail)!;shared["levels"]![2]!["columnPrefix"]="secondary_place";second.ControlDetail=shared.ToJsonString();c.ConfigColumns.Add(second);c.ConfigPageColumns.Add(new(){Id="201199",YzProjectId=c.YzProjectId,ConfigPageId="201",ConfigColumnId="199"});}
+        if(kind=="sharedSlots"){var second=JsonSerializer.Deserialize<ColumnMetadata>(JsonSerializer.Serialize(control))!;second.Id="199";second.ColumnName="secondary_place_id";var shared=JsonNode.Parse(second.ControlDetail)!;shared["levels"]![2]!["columnPrefix"]="secondary_place";shared["levels"]![0]!["nameField"]="name";second.ControlDetail=shared.ToJsonString();c.ConfigColumns.Add(second);c.ConfigPageColumns.Add(new(){Id="201199",YzProjectId=c.YzProjectId,ConfigPageId="201",ConfigColumnId="199"});}
         var output=Path.Combine(Path.GetTempPath(),"metarill-repeat-source-reject",Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.RepeatSourceReject",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
     }
     /// <summary>混合名称仅改变对应角色的nameField，元数据中的独立业务标识与联接值保持。</summary>

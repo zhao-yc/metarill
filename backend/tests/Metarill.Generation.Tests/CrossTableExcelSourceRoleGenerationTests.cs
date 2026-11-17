@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
@@ -227,6 +228,123 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
                     if(level.Read.Target.Source.Id!="2")runtime.Add(level.Read.Target.Name,target);
                 }
                 runtime.Add(Entity,fields);
+            }
+        });
+    }
+
+    /// <summary>两条分支共用同表祖先或在单个末级使用同表。覆盖到候选行自身时验证实际来源覆盖。</summary>
+    [Theory]
+    [InlineData(1,true,false,false,"list","OnlyNew")]
+    [InlineData(1,false,true,true,"edit","OverWriteByFirstColumn")]
+    [InlineData(1,true,true,true,"list","OverWriteByFirstColumn")]
+    [InlineData(0,true,false,false,"edit","OnlyNew")]
+    [InlineData(0,true,true,true,"list","OverWriteByFirstColumn")]
+    [InlineData(0,true,true,false,"edit","OverWriteByFirstColumn",true)]
+    public Task Shared_source_role_excel_uses_coordinated_paths(int redundant,bool sourceRoot,bool sourceLeaf,bool scoped,string exportMode,string importMode,bool derived=false)
+    {
+        var catalog=SharedCrossTableGenerationTests.Catalog(Prefix,"string","int64");
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        if(sourceRoot)catalog.ConfigColumns.Single(column=>column.Id=="45").LinkConfigTableId="2";
+        if(sourceLeaf)
+        {
+            catalog.ConfigColumns.AddRange([
+                new(){Id="901",ConfigTableId="2",ColumnName="target_area_id",LogicalType="int64",LinkConfigTableId="4",YzProjectId=catalog.YzProjectId},
+                new(){Id="902",ConfigTableId="2",ColumnName="branch_label",Name="分支名称",LogicalType="string",YzProjectId=catalog.YzProjectId}]);
+            foreach(var id in new[]{"901","902"})
+                catalog.ConfigPageColumns.Add(new(){Id="201"+id,ConfigPageId="201",ConfigColumnId=id,YzProjectId=catalog.YzProjectId});
+        }
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "25" or "80"))
+        {
+            var definition=JsonNode.Parse(column.ControlDetail)!;
+            if(sourceRoot)definition["levels"]![0]!["table"]=Prefix+"_source";
+            if(sourceLeaf&&column.Id=="25")
+            {
+                definition["levels"]![2]!["table"]=Prefix+"_source";
+                definition["levels"]![2]!["parentField"]="target_area_id";
+                definition["levels"]![2]!["nameField"]="branch_label";
+                column.LinkConfigTableId="2";
+            }
+            column.ControlDetail=definition.ToJsonString();
+        }
+        if(derived)
+        {
+            // 非冗余同表名称来自独立物理外键，保存后才取得实际名称。
+            var label=catalog.ConfigColumns.Single(column=>column.Id=="902");
+            label.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.name");
+            catalog.ConfigTables.Add(new(){Id="91",TableName=Prefix+"_company",IsRongyu=1,YzProjectId=catalog.YzProjectId});
+            catalog.ConfigColumns.AddRange([
+                new(){Id="911",ConfigTableId="91",ColumnName="id",LogicalType="int64",IsDbNotNull=1,YzProjectId=catalog.YzProjectId},
+                new(){Id="912",ConfigTableId="91",ColumnName="name",LogicalType="string",YzProjectId=catalog.YzProjectId},
+                new(){Id="913",ConfigTableId="91",ColumnName="yz_project_id",LogicalType="int64",YzProjectId=catalog.YzProjectId},
+                new(){Id="903",ConfigTableId="2",ColumnName="company_id",LogicalType="int64",LinkConfigTableId="91",YzProjectId=catalog.YzProjectId}]);
+        }
+        if(scoped)
+        {
+            var candidate=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(sourcePage))!;
+            candidate.Id="202";catalog.ConfigPages.Add(candidate);
+            foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="201"&&field.ConfigColumnId is not ("25" or "80")).ToArray())
+            {
+                var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+                copy.Id+="candidate";copy.ConfigPageId=candidate.Id;catalog.ConfigPageColumns.Add(copy);
+            }
+            sourcePage.WhereSql+=" AND area_id=@parent_id";
+        }
+        var overwrite=importMode=="OverWriteByFirstColumn";
+        var leafKey=redundant==0&&overwrite;
+        Enable(catalog,exportMode,importMode,leafKey);
+        catalog.ConfigColumns.Single(column=>column.Id=="80").Name="备用";
+        var peer=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="80");
+        peer.IsShow=1;peer.IsEdit=1;peer.Extra["isDetailShow"]=JsonSerializer.SerializeToElement(1);
+
+        return Build(catalog,async(assembly,model)=>
+        {
+            var table=model.Tables.Single(table=>table.Source.Id=="2");var page=table.Pages.Single(page=>page.Source.Id=="201");
+            var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,table,page).Groups);
+            Assert.Equal(2,group.Plans.Count);
+            if(derived)Assert.Contains(group.Plans.SelectMany(plan=>plan.Levels),level=>level.Read.DerivedName&&level.Read.Target.Source.Id=="2");
+            if(redundant==0)
+            {
+                var service=assembly.GetType(Namespace+".Generated.Services."+Entity+"Service",true)!;
+                Assert.NotNull(service.GetMethod("Import201Async"));
+                Assert.NotNull(service.GetField("ExportReadPlan201",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
+                if(scoped)Assert.NotNull(service.GetField("LogicalParentPlan201",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
+                if(leafKey)Assert.NotNull(service.GetField("ImportMatchPlan201",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
+                return;
+            }
+            var guard=new CrossTableExcelSharedGenerationTests.StopBeforeExcelWrite();
+            using var runtime=new SharedExcelReadTransport(assembly,Namespace,Entity,guard:guard);
+            var primary=group.Plans.Single(plan=>plan.Read.Source.Source.Id=="25");
+            var warehouse=group.Plans.Single(plan=>plan.Read.Source.Source.Id=="80");
+            var row=new Dictionary<string,object?>{{"Id",11L},{"Name","来源甲"},{"YzProjectId",9007199254740993L}};
+            if(sourceLeaf){row["TargetAreaId"]=11L;row["BranchLabel"]="城甲";}
+            foreach(var level in group.Plans.SelectMany(plan=>plan.Levels))row[level.Id.Property]=11L;
+            runtime.Add(Entity,row);
+            Seed(primary,"国甲","区甲","城甲");Seed(warehouse,"国甲","区甲","仓甲");
+            var rootName=sourceRoot?"来源甲":"国甲";var first=rootName+"/区甲/城甲";var second=rootName+"/区甲/仓甲";
+            var parentId=scoped?"11":null;
+            var exported=await runtime.Export(new PageRequest{ParentId=parentId});
+            var cells=Assert.Single(exported.Rows);
+            Assert.Equal(first,cells[exported.Headers.ToList().IndexOf("级联")]);
+            Assert.Equal(second,cells[exported.Headers.ToList().IndexOf("备用")]);
+            var stopped=await Assert.ThrowsAsync<BusinessRuleException>(()=>runtime.Import([
+                new(){{"名称",overwrite?"来源甲":"新记录"},{"级联",first},{"备用",second}}],parentId));
+            Assert.Same(guard.Stop,stopped);
+            Assert.Equal(overwrite?RecordMutationOperation.Update:RecordMutationOperation.Create,guard.Validation!.Operation);
+            if(overwrite)Assert.Equal(11L,guard.Validation.RecordId);
+            Assert.Empty(runtime.Transport.Commands);
+
+            void Seed(CrossTableWriteModel plan,params string[] names)
+            {
+                var targets=plan.Levels.Select((level,index)=>(level,index))
+                    .Where(item=>item.level.Read.Target.Source.Id!="2"&&(plan==primary||item.index==2));
+                foreach(var (level,index) in targets)
+                {
+                    var target=new Dictionary<string,object?>{{"Id",11L},{"Name",names[index]},{"YzProjectId",9007199254740993L},{"Status",1}};
+                    if(level.Read.Parent is{} parent)target[parent.Property]=11L;
+                    runtime.Add(level.Read.Target.Name,target);
+                }
             }
         });
     }

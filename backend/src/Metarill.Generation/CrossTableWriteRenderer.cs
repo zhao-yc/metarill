@@ -10,7 +10,7 @@ internal static class CrossTableWriteRenderer
     /// <summary>只有来源表参与目标链时，来源的名称、父键和目标SQL条件变化才影响当前图。</summary>
     internal static bool Merged(TableModel table,CrossTableReadModel plan)=>plan.Levels.Any(level=>level.Target.Source.Id==table.Source.Id);
     /// <summary>依赖从固定元数据取得，不使用请求目录；省略关联时仅复核图而保留已存名称。</summary>
-    private static IEnumerable<string> Dependencies(TableModel table,CrossTableWriteModel plan)=>plan.Levels.Where(level=>level.Read.Target.Source.Id==table.Source.Id)
+    internal static IEnumerable<string> Dependencies(TableModel table,CrossTableWriteModel plan)=>plan.Levels.Where(level=>level.Read.Target.Source.Id==table.Source.Id)
         .SelectMany(level=>new[]{level.Read.Name}.Concat(level.Read.Parent is{} parent?new[]{parent}:[]).Concat(level.Read.Page.Scopes.Select(scope=>scope.Column)).Concat(level.Read.Page.Condition is{} condition?condition.Syntax.Fields.Select(field=>table.Columns.Single(column=>column.Source.ColumnName==field)):[]))
         .Concat(plan.Levels.Where(level=>level.Read.Target.Source.Id==table.Source.Id).SelectMany(level=>level.Read.NameDependencies??[]).Select(field=>table.Columns.Single(column=>column.Source.ColumnName==field)))
         .Concat(table.Columns.Where(column=>column.Source.ColumnName is "yz_project_id" or "delete_no")).Select(column=>column.Source.ColumnName).Distinct(StringComparer.Ordinal);
@@ -25,23 +25,27 @@ internal static class CrossTableWriteRenderer
         foreach(var plan in CrossTableWriteCompilation.ForService(model,table,page))
         {
             var suffix=page.Source.Id+"_"+plan.Read.Source.Source.Id;var merged=Merged(table,plan.Read);
+            var shared=SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is not null;
+            var overrideParameter=merged&&shared?$",{table.EntityType}? sourceOverride=null":"";
             output.AppendLine("    /// <summary>最深非空ID决定路径；用户祖先ID与名称不作为可信值，部分选择清空后段。</summary>")
-                .AppendLine($"    private async Task NormalizeCross{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,bool requireTargetList=true{(merged?",bool creating=false":"")})")
+                .AppendLine($"    private async Task NormalizeCross{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,bool requireTargetList=true{(merged?",bool creating=false":"")}{overrideParameter})")
                 .AppendLine("    {").AppendLine("        if(session.CurrentTransaction is null)throw new InvalidOperationException(\"跨表保存必须加入原事务。\");ValidateActor(actor);if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"跨表保存要求当前真实身份。\");var deepest=-1;long? selected=null;");
-            if(merged)output.AppendLine($"        if(!({Trigger(plan)}))return;");
+            // 共享协调器已决定何时读取分支。独立链仍按字段存在性决定是否刷新。
+            if(merged&&!shared)output.AppendLine($"        if(!({Trigger(plan)}))return;");
             for(var index=0;index<plan.Levels.Count;index++)
             {
                 var id=plan.Levels[index].Id;output.AppendLine($"        var text{index}=Convert.ToString(entity.{id.Property},CultureInfo.InvariantCulture);if(!string.IsNullOrWhiteSpace(text{index})){{if(!long.TryParse(text{index},NumberStyles.None,CultureInfo.InvariantCulture,out var key{index})||key{index}<=0||text{index}!=key{index}.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"跨表级联ID须为规范正整数。\");deepest={index};selected=key{index};}}");
             }
-            output.AppendLine($"        var path=deepest<0?null:await CrossReader{suffix}(actor,true,requireTargetList{(merged?",entity,creating":"")}).PathAsync(deepest,selected,cancellationToken);");
+            var sourceArgument=!merged?"":shared?",sourceOverride,creating":",entity,creating";
+            output.AppendLine($"        var path=deepest<0?null:await CrossReader{suffix}(actor,true,requireTargetList{sourceArgument}).PathAsync(deepest,selected,cancellationToken);");
             for(var index=0;index<plan.Levels.Count;index++)
             {
                 var level=plan.Levels[index];var id=level.Id;var name=level.Name;var clear=id.Type=="string?"?$"entity.{id.Property} is null?null:\"\"":"null";var value=id.Type=="string?"?$"path!.Path[{index}].Id":$"long.Parse(path!.Path[{index}].Id,CultureInfo.InvariantCulture)";
                 output.AppendLine($"        if(deepest>={index}){{entity.{id.Property}={value};entity.{name.Property}=path!.Path[{index}].Name;}}else{{entity.{id.Property}={clear};entity.{name.Property}={(id.Type=="string?"?$"entity.{id.Property} is null?null:\"\"":"null")};}}submitted.Add({Literal(id.Source.ColumnName)});submitted.Add({Literal(name.Source.ColumnName)});");
             }
             output.AppendLine("    }");
-            if(table.Source.IsRongyu==0&&SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is not null)continue;
-            output.Append(NonRedundantCrossTableCompilation.PackService(model,table,page,plan));
+            if(table.Source.IsRongyu==0&&shared&&!merged)continue;
+            if(!shared||table.Source.IsRongyu!=0)output.Append(NonRedundantCrossTableCompilation.PackService(model,table,page,plan));
             var check=plan.Levels.SelectMany(level=>table.Source.IsRongyu==0?new[]{level.Id}:new[]{level.Id,level.Name}).Concat(FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>scope.Column)).DistinctBy(column=>column.Source.Id).ToArray();var structure=merged?plan.Levels.Where(level=>level.Read.Target.Source.Id==table.Source.Id).SelectMany(level=>(level.Read.Parent is{} parent?new[]{parent}:[]).Concat((level.Read.NameDependencies??[]).Select(field=>table.Columns.Single(column=>column.Source.ColumnName==field)).Where(column=>column.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&!column.IsSystem))).DistinctBy(column=>column.Source.Id).ToArray():[];
             var projection=string.Join(",",check.Concat(structure).DistinctBy(column=>column.Source.Id).Select(column=>column.Property+"=row."+column.Property));
             output.AppendLine("    /// <summary>读取实际存储的受管字段，数据库截断或触发器改写时在观察者前整笔回滚，不补写修复。</summary>")
@@ -64,7 +68,7 @@ internal static class CrossTableWriteRenderer
         }));
     }
     /// <summary>所有正常DML之后、通知之前仅核验存储，不新增一次修复DML。</summary>
-    internal static string After(GenerationModel model,TableModel table,PageModel page,bool creating,bool importContext=false)=>string.Concat(CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>table.Source.IsRongyu!=0||SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is null).Select(plan=>$"        await VerifyStoredCross{page.Source.Id}_{plan.Read.Source.Source.Id}Async(entity,actor,submitted,{creating.ToString().ToLowerInvariant()},cancellationToken{(importContext?",authorizationOperation != RecordMutationOperation.Import":"")});\n"))+SharedCrossTableSparseRenderer.After(model,table,page);
+    internal static string After(GenerationModel model,TableModel table,PageModel page,bool creating,bool importContext=false)=>string.Concat(CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>table.Source.IsRongyu!=0||Merged(table,plan.Read)||SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is null).Select(plan=>$"        await VerifyStoredCross{page.Source.Id}_{plan.Read.Source.Source.Id}Async(entity,actor,submitted,{creating.ToString().ToLowerInvariant()},cancellationToken{(importContext?",authorizationOperation != RecordMutationOperation.Import":"")});\n"))+SharedCrossTableSparseRenderer.After(model,table,page);
     /// <summary>正常DML后重新读取真实SQL路径，不使用写前覆盖实体或补写；刷新时还须逐级名称一致。</summary>
     private static string FinalPath(TableModel table,PageModel page,CrossTableWriteModel plan)
     {

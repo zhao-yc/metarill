@@ -54,10 +54,20 @@ public sealed class SharedCrossTableSparseMutation
     }
     /// <summary>正常DML后仅核验；原始位及实际完整路径均须与同笔写入的预期相符，不补写修复。</summary>
     public async Task VerifyStoredAsync(IReadOnlyDictionary<string,object?> stored,
-        Func<string,IReadOnlyDictionary<string,object?>,CancellationToken,Task<IReadOnlyDictionary<string,object?>>> readStored,CancellationToken token=default)
+        Func<string,IReadOnlyDictionary<string,object?>,CancellationToken,Task<IReadOnlyDictionary<string,object?>>> readStored,
+        CancellationToken token=default,IReadOnlyCollection<string>? namesResolvedAfterWrite=null,long? sourceId=null)
     {
         ArgumentNullException.ThrowIfNull(readStored);token.ThrowIfCancellationRequested();if(!normalized)throw new InvalidOperationException("共享变更尚未归一化。");var actual=IdValues(stored);_=selection.ReadStored(actual);var wanted=packed??IdValues(raw);if(selection.Slots.Any(s=>!Equals(actual[s.ColumnName],wanted[s.ColumnName])))throw new InvalidOperationException("共享稀疏ID在存储后发生变化，未提交。");
-        if(expected is null)return;if(packed is null)throw new InvalidOperationException("共享预期路径尚未整组打包。");var current=await ReadLogicalAsync(stored,readStored,token);if(fields.Any(f=>!Equals(current[f],expected[f])))throw new InvalidOperationException("共享实际路径或名称与写入预期不一致，未提交。");
+        if(expected is null)return;if(packed is null)throw new InvalidOperationException("共享预期路径尚未整组打包。");var current=await ReadLogicalAsync(stored,readStored,token);// 来源行的派生名从写后真实联接取得。整组仍需核对所有ID及写前可知名称。
+        if(fields.Any(f=>!Equals(current[f],expected[f])&&!IsPendingSourceName(f)))
+            throw new InvalidOperationException("共享实际路径或名称与写入预期不一致，未提交。");
+
+        bool IsPendingSourceName(string field)
+        {
+            if(sourceId is null||!field.EndsWith("_name",StringComparison.Ordinal)||namesResolvedAfterWrite?.Contains(field)!=true)return false;
+            var slot=selection.Slots.Single(item=>item.ColumnName==field[..^5]+"_id");
+            return SharedCrossTableSparseSelection.ParseStoredId(slot,expected[slot.ColumnName])==sourceId;
+        }
     }
     /// <summary>只沿真实独立末端恢复路径；共同物理选择位不重复查询，短控件祖先从另一分支补齐。</summary>
     private async Task<IReadOnlyDictionary<string,object?>> ReadLogicalAsync(IReadOnlyDictionary<string,object?> source,

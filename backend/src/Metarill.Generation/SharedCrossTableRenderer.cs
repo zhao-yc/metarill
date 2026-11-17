@@ -34,9 +34,12 @@ internal static class SharedCrossTableRenderer
                 .AppendLine("        {").AppendLine("            switch(control)").AppendLine("            {");
             foreach(var plan in group.Plans)
             {
-                var columns=plan.Levels.SelectMany(l=>new[]{l.Id,l.Name}).ToArray();output.AppendLine($"                case {Literal(plan.Read.Source.Source.Id)}:")
+                var columns=plan.Levels.SelectMany(l=>new[]{l.Id,l.Name}).ToArray();
+                // 分支副本只承载组内字段，当前来源行保留真实 ID、候选名称和物理父键。
+                var sourceArgument=CrossTableWriteRenderer.Merged(table,plan.Read)?",creating,sourceOverride:entity":"";
+                output.AppendLine($"                case {Literal(plan.Read.Source.Source.Id)}:")
                     .AppendLine("                {").AppendLine($"                    var copy=new {table.EntityType}{{{string.Join(",",columns.Select(c=>c.Property+"=("+c.Type+")input["+Literal(c.Source.ColumnName)+"]"))}}};var local=new HashSet<string>(submitted,StringComparer.Ordinal);")
-                    .AppendLine($"                    await NormalizeCross{page.Source.Id}_{plan.Read.Source.Source.Id}Async(copy,actor,local,token,requireTargetList);return {Dictionary(columns,"copy")};").AppendLine("                }");
+                    .AppendLine($"                    await NormalizeCross{page.Source.Id}_{plan.Read.Source.Source.Id}Async(copy,actor,local,token,requireTargetList{sourceArgument});return {Dictionary(columns,"copy")};").AppendLine("                }");
             }
             output.AppendLine("                default:throw new InvalidOperationException(\"未知共享级联控件。\");").AppendLine("            }").AppendLine("        },cancellationToken);");
             foreach(var c in group.Columns)output.AppendLine($"        entity.{c.Property}=({c.Type})result.Values[{Literal(c.Source.ColumnName)}];");output.AppendLine("        foreach(var field in result.Fields)submitted.Add(field);").AppendLine("    }");

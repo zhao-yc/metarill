@@ -50,7 +50,7 @@ internal static class SharedCrossTableCompilation
                     if (table.Source.IsRongyu==0 && !CrossTableFrontendProof.KeepsStorageDefinition(model, page, control))
                         throw new NotSupportedException("共享R0页级覆盖不能改变固定存储定义。");
                     var read=CrossTableReadCompilation.Resolve(model,table,page,control);if(read.Definition is not{} definition)throw new InvalidOperationException(read.Reason??"共享同伴缺少完整读取链。");
-                    if(definition.Levels.Any(l=>l.Target.Source.Id==table.Source.Id))throw new NotSupportedException("共享级联的来源自参与路径尚需独立聚合证明。");
+
                     if (definition.Levels.Any(level=>level.Target.IsGlobal) && !CrossTableFrontendProof.KeepsStorageDefinition(model, page, control))
                         throw new NotSupportedException("全局共享控制列的页覆盖不能改变固定存储与传播定义。");
                     var levels=new List<CrossTableWriteLevel>();var slots=new List<SharedCrossTableSlot>();
@@ -60,10 +60,21 @@ internal static class SharedCrossTableCompilation
                         if(id is null||name is null||id.IsSystem||name.IsSystem||id.Type is not("string?" or "long?")||name.Type!="string?"||id.IsJsonArray||name.IsJsonArray||id.Source.IsVirtualColumn!=0||name.Source.IsVirtualColumn!=0||!storage.IsPhysical(id.Source)||(table.Source.IsRongyu==1?!storage.IsPhysical(name.Source):storage.Kind(name.Source)!=MetadataFieldStorage.RelationDisplay)||GenerationModel.Enabled(id.Source.Extra,"isJoinColumn"))throw new InvalidOperationException("共享级联要求明确的物理标量ID和缓存。");
                         if(id.Source.Id!=control.Source.Id&&id.Source.ControlKind.Length>0&&!(id.Source.ControlKind=="CascadeTree"&&ids.Contains(id.Source.Id)))throw new InvalidOperationException("共享辅助ID有其它独立控件规则。");
                         if(id.Source.LinkConfigTableId.Length>0&&id.Source.LinkConfigTableId!=level.Target.Source.Id)throw new InvalidOperationException("共享辅助ID关联表不一致。");
-                        if(level.DerivedName&&Metarill.Data.Queries.NonRedundantReads.MatchReadsTable(model.Catalog,level.Target.Source.Id,level.Name.Source.ColumnName,table.Source.TableName))throw new NotSupportedException("共享派生路径不能间接回到当前写入来源。");
+                        if(level.DerivedName&&level.Target.Source.Id!=table.Source.Id&&Metarill.Data.Queries.NonRedundantReads.MatchReadsTable(model.Catalog,level.Target.Source.Id,level.Name.Source.ColumnName,table.Source.TableName))throw new NotSupportedException("共享派生路径不能间接回到当前写入来源。");
                         levels.Add(new(level,id,name));var scope=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{target=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,where=level.Page.Source.WhereSql}))));slots.Add(new(id.Source.ColumnName,name.Source.ColumnName,id.Type=="string?"?"string":"int64",scope));
                     }
                     var plan=new CrossTableWriteModel(definition,levels);if(CrossTableFrontendProof.Reason(model,page,plan) is{} mismatch)throw new InvalidOperationException(mismatch);plans.Add(plan);branches.Add(new(control.Source.Id,slots));
+                }
+                // 分支归一化只能改变组内槽位。来源兼任候选时，候选名称、真实父键和筛选条件必须独立。
+                var sourceRoles=plans.Where(plan=>CrossTableWriteRenderer.Merged(table,plan.Read)).ToArray();
+                if(sourceRoles.Length>0)
+                {
+                    var managed=plans.SelectMany(plan=>plan.Levels).SelectMany(level=>new[]{level.Id,level.Name})
+                        .Select(column=>column.Source.ColumnName).ToHashSet(StringComparer.Ordinal);
+                    if(model.Catalog.DatabaseProvider!="mysql"||plans.Count!=2||plans.Any(plan=>plan.Levels.Count is <2 or >3)||
+                        ExactDataManageCompilation.Declared(page)||plans.SelectMany(plan=>plan.Levels).Any(level=>level.Read.Target.IsGlobal)||
+                        sourceRoles.Any(plan=>CrossTableWriteRenderer.Dependencies(table,plan).Any(managed.Contains)))
+                        throw new NotSupportedException("共享来源角色要求普通固定双路径，候选依赖不能重叠受管槽位。");
                 }
                 if(table.Source.IsRongyu==0)
                 {
