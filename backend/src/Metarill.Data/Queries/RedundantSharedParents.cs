@@ -76,7 +76,7 @@ public static class RedundantSharedParents
         var result=new List<RedundantSharedParentLevel>();var ids=new List<ColumnMetadata>();var names=new List<ColumnMetadata>();var keys=new HashSet<string>(StringComparer.Ordinal);var prefixes=new HashSet<string>(StringComparer.OrdinalIgnoreCase);TableMetadata? previous=null;
         foreach(var level in levels.EnumerateArray())
         {
-            Object(level);if(Extra(level)||Text(level,"idField","id")!="id")throw Unsupported();var target=catalog.ConfigTables.Single(t=>t.TableName==Text(level,"table",""));if(target.Id==source.Id||target.IsRongyu is not(0 or 1)||target.IsView!=0||target.IsFunctionTable!=0)throw Unsupported();var prefix=Text(level,"columnPrefix",target.TableName);var key=Text(level,"key",target.TableName);MetadataValidation.RequireIdentifier(prefix);if(!prefixes.Add(prefix)||!keys.Add(key)||prefix is "yz_project" or "insert_manager" or "update_manager" or "insert_user" or "update_user")throw Unsupported();
+            Object(level);if(Extra(level)||Text(level,"idField","id")!="id")throw Unsupported();var target=catalog.ConfigTables.Single(t=>t.TableName==Text(level,"table",""));if(target.IsRongyu is not(0 or 1)||target.IsView!=0||target.IsFunctionTable!=0)throw Unsupported();var prefix=Text(level,"columnPrefix",target.TableName);var key=Text(level,"key",target.TableName);MetadataValidation.RequireIdentifier(prefix);if(!prefixes.Add(prefix)||!keys.Add(key)||prefix is "yz_project" or "insert_manager" or "update_manager" or "insert_user" or "update_user")throw Unsupported();
             var targetColumns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id));var ts=MetadataStoragePolicy.ForTable(catalog,target);var primary=targetColumns.SingleOrDefault(c=>c.ColumnName=="id");var project=targetColumns.SingleOrDefault(c=>c.ColumnName=="yz_project_id");var global=GlobalCrossTableTarget.Declared(target);if(primary is null||primary.LogicalType!="int64"||primary.IsDbNotNull!=1||!Scalar(ts,target,primary)||!global&&(project is null||project.LogicalType is not("string" or "int64")||!Scalar(ts,target,project)))throw Unsupported();
             var display=targetColumns.Single(c=>c.ColumnName==Text(level,"nameField","name"));if(display.LogicalType!="string"||display.IsVirtualColumn!=0)throw Unsupported();if(!ts.IsPhysical(display)){var read=NonRedundantReads.CompileMatch(catalog,target.Id,display.ColumnName);if(read.OutputTypes[display.ColumnName]!="string"||NonRedundantReads.MatchReadsTable(catalog,target.Id,display.ColumnName,source.TableName))throw Unsupported();}
             var parent=previous is null?null:targetColumns.Single(c=>c.ColumnName==Text(level,"parentField",""));if(parent is not null&&(!Scalar(ts,target,parent)||parent.LogicalType is not("string" or "int64")||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=previous!.Id))throw Unsupported();
@@ -84,7 +84,13 @@ public static class RedundantSharedParents
             var id=sourceColumns.Single(c=>c.ColumnName==prefix+"_id");var name=sourceColumns.Single(c=>c.ColumnName==prefix+"_name");if(id.LogicalType is not("string" or "int64")||id.IsDbNotNull!=0||!sourceStorage.IsPhysical(id)||id.IsVirtualColumn!=0||Join(id)||id.ControlKind.Length>0&&!(id.ControlKind=="CascadeTree"&&controls.Any(c=>c.Id==id.Id))||id.LinkConfigTableId.Length>0&&id.LinkConfigTableId!=target.Id||name.LogicalType!="string"||name.IsDbNotNull!=0||!sourceStorage.IsPhysical(name))throw Unsupported();
             result.Add(new(key,prefix,target.Id,target.TableName,chosen.Page.Id,display.Id,parent?.ColumnName,global?null:project!.LogicalType,deleted is not null,chosen.Page.WhereSql,chosen.Condition.Plan));ids.Add(id);names.Add(name);previous=target;
         }
-        if(ids[^1].Id!=control.Id)throw Unsupported();return new(control,Array.AsReadOnly(result.ToArray()),Array.AsReadOnly(ids.ToArray()),Array.AsReadOnly(names.ToArray()));
+        if(ids[^1].Id!=control.Id)throw Unsupported();
+        // 来源兼任候选时，真实父和名称不能被同一条链的归一化改写。
+        var managed=ids.Concat(names).Select(field=>field.ColumnName).ToHashSet(StringComparer.Ordinal);
+        if(result.Where(level=>level.TableId==source.Id).Any(level=>
+            level.Parent is not null&&managed.Contains(level.Parent)||
+            managed.Contains(sourceColumns.Single(field=>field.Id==level.NameId).ColumnName)))throw Unsupported();
+        return new(control,Array.AsReadOnly(result.ToArray()),Array.AsReadOnly(ids.ToArray()),Array.AsReadOnly(names.ToArray()));
     }
     /// <summary>共享前缀由协调器验证；单链和共享链均由正式数据层证明缓存归属及派生名称。</summary>
     private static void Prove(MetadataCatalog catalog,TableMetadata source,IReadOnlyList<Branch> branches)

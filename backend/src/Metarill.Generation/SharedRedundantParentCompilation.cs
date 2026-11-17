@@ -15,7 +15,7 @@ internal sealed record SharedRedundantParentPath(CrossTableReadModel Read,int In
 internal static class SharedRedundantParentCompilation
 {
     private static readonly ConditionalWeakTable<GenerationModel,ConcurrentDictionary<(string,string),IReadOnlyDictionary<string,RedundantSharedParentPlan>>> ParentPlans=new();
-    /// <summary>识别已有共享链及来源独立于全部目标表的单链物理父页。</summary>
+    /// <summary>识别固定共享链和单链的物理父页。</summary>
     internal static bool Enabled(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu==1&&page.Scopes.Any(scope=>scope.Source=="parent")&&
         (SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0||IndependentPlan(model,table,page) is not null);
 
@@ -26,8 +26,7 @@ internal static class SharedRedundantParentCompilation
             table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").ToArray() is not [var source]||
             !NonRedundantCrossTableSubset.Declared(source))return null;
         var plan=CrossTableWriteCompilation.Resolve(model,table,page,source).Definition;
-        if(plan is null||plan.Levels.Count is <2 or >3||
-            plan.Levels.Any(level=>level.Read.Target.Source.Id==table.Source.Id))return null;
+        if(plan is null||plan.Levels.Count is <2 or >3)return null;
         return plan;
     }
     /// <summary>同一物理父键只能指向一个已冻结目标角色，不能从不同页或名字借用证明。</summary>

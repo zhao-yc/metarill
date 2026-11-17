@@ -137,6 +137,100 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
         });
     }
 
+    /// <summary>使用专用业务父页与不带父参数的原候选页，验证同表目标不会继承来源请求范围。</summary>
+    [Theory]
+    [InlineData(1,1,0,"list","OnlyNew",false)]
+    [InlineData(7,1,1,"edit","OverWriteByFirstColumn",true)]
+    [InlineData(4,1,2,"edit","OverWriteByFirstColumn",false)]
+    [InlineData(1,0,0,"list","OnlyNew",false)]
+    [InlineData(7,0,1,"edit","OverWriteByFirstColumn",true)]
+    [InlineData(4,0,2,"edit","OverWriteByFirstColumn",false)]
+    public Task Scoped_source_role_excel_uses_actual_parent_path(int mask,int redundant,int depth,string exportMode,string importMode,bool leafKey)
+    {
+        var roles=SourceRoles(mask);
+        var catalog=(redundant,roles.Length) switch
+        {
+            (1,1)=>RedundantMultiNameCacheTests.Published(CrossTableSourceGraphTests.Catalog(Prefix,roles[0])),
+            (1,_)=>RedundantRepeatedCrossSourceTests.Catalog(Prefix,mask,"string","int64",true),
+            (0,1)=>NonRedundantCrossSourceTests.Catalog(Prefix,roles[0],"string","int64",false),
+            _=>RepeatedCrossSourceTests.Catalog(Prefix,mask,"string","int64","derived")
+        };
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        var candidate=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(sourcePage))!;
+        candidate.Id="202";
+        catalog.ConfigPages.Add(candidate);
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="201"&&field.ConfigColumnId!="25").ToArray())
+        {
+            var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+            copy.Id+="candidate";copy.ConfigPageId=candidate.Id;catalog.ConfigPageColumns.Add(copy);
+        }
+        var parentColumn=new[]{"country_id","area_id","place_id"}[depth];
+        sourcePage.WhereSql+=" AND "+parentColumn+"=@parent_id";
+        Enable(catalog,exportMode,importMode,leafKey);
+
+        return Build(catalog,async(assembly,model)=>
+        {
+            var source=model.Tables.Single(table=>table.Source.Id=="2");var page=source.Pages.Single(page=>page.Source.Id=="201");
+            var path=Assert.Single(CrossTableWriteCompilation.ForService(model,source,page));
+            Assert.All(path.Levels.Where(level=>level.Read.Target.Source.Id=="2"),level=>Assert.Equal("202",level.Read.Page.Source.Id));
+            if(redundant==0)
+            {
+                var service=assembly.GetType(Namespace+".Generated.Services."+Entity+"Service",true)!;
+                Assert.NotNull(service.GetMethod("Import201Async"));
+                Assert.NotNull(service.GetField("LogicalParentPlan201",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
+                Assert.NotNull(service.GetField("ExportReadPlan201",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
+                if(leafKey)Assert.NotNull(service.GetField("ImportMatchPlan201",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
+                return;
+            }
+
+            var guard=new CrossTableExcelSharedGenerationTests.StopBeforeExcelWrite();
+            using var runtime=new SharedExcelReadTransport(assembly,Namespace,Entity,sourceCondition:true,guard:guard);
+            var physicalParents=Metarill.Data.Queries.RedundantSharedParents.Compile(catalog,"2","201");
+            Assert.Equal(depth+1,Assert.Single(physicalParents).Value.Levels.Count);
+            Seed(11,"甲");
+            Seed(12,"乙");
+            var first=Base(103,"同名");var other=Base(104,"同名");
+            foreach(var level in path.Levels){first[level.Id.Property]=11L;other[level.Id.Property]=12L;}
+            runtime.Add(Entity,first);runtime.Add(Entity,other);
+            var fullPath=string.Join("/",Names("甲"));
+            var exported=await runtime.Export(new PageRequest{ParentId="11"});
+            Assert.Equal(fullPath,Assert.Single(exported.Rows)[exported.Headers.ToList().IndexOf("级联")]);
+            Assert.Equal(0,runtime.ExportLockCount);
+
+            if(depth<2)
+            {
+                var conflict=await Assert.ThrowsAsync<PageImportException>(()=>runtime.Import([
+                    new(){{"名称","跨父"},{"级联",string.Join("/",Names("乙"))}}],"11"));
+                Assert.Equal(PageImportError.Relation,conflict.Code);
+                Assert.Null(guard.Validation);
+            }
+            var overwrite=importMode=="OverWriteByFirstColumn";
+            var row=new Dictionary<string,object?>{{"名称",overwrite?"同名":"追加"}};
+            if(depth<2)row.Add("级联",fullPath);
+            var stopped=await Assert.ThrowsAsync<BusinessRuleException>(()=>runtime.Import([row],"11"));
+            Assert.Same(guard.Stop,stopped);
+            Assert.Equal(overwrite?RecordMutationOperation.Update:RecordMutationOperation.Create,guard.Validation!.Operation);
+            if(overwrite)Assert.Equal(103L,guard.Validation.RecordId);
+            Assert.Empty(runtime.Transport.Commands);
+
+            string[] Names(string label)=>path.Levels.Select((level,index)=>
+                level.Read.Target.Source.Id=="2"&&roles.Length==1?"源"+label:new[]{"国","区","城"}[index]+label).ToArray();
+            void Seed(long id,string label)
+            {
+                var fields=Base(id,"源"+label);var names=Names(label);
+                foreach(var (level,index) in path.Levels.Select((level,index)=>(level,index)))
+                {
+                    var target=level.Read.Target.Source.Id=="2"?fields:new Dictionary<string,object?>
+                        {{"Id",id},{"Name",names[index]},{"YzProjectId",9007199254740993L},{"Status",1}};
+                    target[level.Read.Name.Property]=names[index];
+                    if(level.Read.Parent is{} parent)target[parent.Property]=id;
+                    if(level.Read.Target.Source.Id!="2")runtime.Add(level.Read.Target.Name,target);
+                }
+                runtime.Add(Entity,fields);
+            }
+        });
+    }
+
     /// <summary>使用与生产一致的字段例，测试可按表级顺序选物理文本或逻辑末级为首列。</summary>
     private static void Enable(MetadataCatalog catalog,string exportMode,string importMode,bool leafKey)
     {

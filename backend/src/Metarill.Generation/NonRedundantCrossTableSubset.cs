@@ -49,7 +49,7 @@ internal static class NonRedundantCrossTableSubset
             var sourceRole=plans.Any(plan=>CrossTableWriteRenderer.Merged(table,plan.Read));
             var repeated=plans.Any(CrossTableExcelRenderer.RepeatsTarget);
             var textOverwrite=(hasParent||sourceRole||repeated&&plans.Length==2)&&SupportsTextOverwrite(model,table,page,importColumns);
-            var pathOverwrite=(!hasParent||repeated)&&SupportsOverwrite(model,table,page,plans,importColumns,sourceRole);
+            var pathOverwrite=(!hasParent||repeated||sourceRole)&&SupportsOverwrite(model,table,page,plans,importColumns,sourceRole);
             var overwriteSupported=textOverwrite||pathOverwrite;
             // 固定末级且只开启导入的页面也要审核作用域和覆盖键。
             if((imports||importsFixedPath&&!exports)&&(!pathSupported||!appendImport&&!overwriteSupported))
@@ -71,8 +71,9 @@ internal static class NonRedundantCrossTableSubset
         var paths=plans.Select(plan=>plan.Levels).ToArray();
         if(paths.Length==1)
         {
-            // 两级重复目标也由两个独立物理槽标识根与末级。
-            if(paths[0].Count!=3&&!(paths[0].Count==2&&CrossTableExcelRenderer.RepeatsTarget(plans[0])))return false;
+            // 两级固定角色有各自的根和末级存储槽。
+            if(paths[0].Count!=3&&!(paths[0].Count==2&&(CrossTableExcelRenderer.RepeatsTarget(plans[0])||
+                CrossTableWriteRenderer.Merged(table,plans[0].Read))))return false;
         }
         else
         {

@@ -13,6 +13,7 @@ internal static class RedundantRepeatedCrossSourceCompilation
         {
             if(managed.Contains(role.Name.Source.ColumnName)||role.Parent is{} parent&&managed.Contains(parent.Source.ColumnName))throw new InvalidOperationException("冗余重复来源名称／真实父键与受管槽位重叠，需要聚合协调。");
         }
-        if(page.Condition?.Syntax.Fields.Any(managed.Contains)==true||page.Scopes.Any(scope=>scope.Source=="parent"&&managed.Contains(scope.Column.Source.ColumnName)))throw new InvalidOperationException("冗余重复来源缓存槽位不能兼任来源条件或父范围。");
+        // 固定父等值由父路径校验器绑定。其余条件仍不能用归一化会改写的受管槽位。
+        if(page.Condition?.Syntax.Fields.Any(managed.Contains)==true)throw new InvalidOperationException("冗余重复来源缓存槽位不能兼任来源常量条件。");
     }
 }
