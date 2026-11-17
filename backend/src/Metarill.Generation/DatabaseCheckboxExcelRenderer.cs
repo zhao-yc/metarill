@@ -27,7 +27,7 @@ internal static class DatabaseCheckboxExcelRenderer
                 .AppendLine("        if(cell.ValueKind!=JsonValueKind.Array||cell.GetArrayLength()>DatabaseCheckboxValue.MaximumItems)throw PageImportException.Input(PageImportError.Array);");
             // 原名称数组使用文本；整数反查绑定强类型值，拒绝溢出、前导零和浮点写法。
             var parseLabel=def.IntegerLabel
-                ?$"var label=item.GetString();if(!{(def.Name.Type=="int?"?"int":"long")}.TryParse(label,NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out var name)||name.ToString(CultureInfo.InvariantCulture)!=label)throw PageImportException.Input(PageImportError.Relation);"
+                ?MultiSelectExcelRenderer.ParseIntegerLabel(def.Name,"item.GetString()","name")
                 :"var name=item.GetString();";
             var form="new Dictionary<string,object?>{"+string.Join(",",(def.Conditions?.Forms??[]).Select(binding=>"["+Literal(binding.Variable)+"]=Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(relationContext["+Literal(binding.Column.JsonName)+"],"+Literal(binding.Column.Source.LogicalType)+")"))+"}";
             result.AppendLine($"        var scope=await CheckboxScope{suffix}Async(parentId,actor,{form},true,cancellationToken);")

@@ -13,6 +13,32 @@ public sealed class DerivedMultipleCacheTests
     {
         var c=Catalog(type,parent);var before=JsonSerializer.Serialize(c);var self=SelfTreeCache.Compile(c,"source","foreign");var multi=new RelationCacheDefinition("source","choices","tree","tree_name","choice_names",true);DerivedCrossTableCaches.Validate(c,[self,multi],[]);var plan=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(c,[],[self,multi]);Assert.Contains("tree_name",plan.MixedSourceColumns["ds_source"]);Assert.Contains("choice_names",plan.MixedSourceColumns["ds_source"]);Assert.Contains("ds_tree",plan.MixedTargets);Assert.Contains("ds_company",plan.MixedTargets);Assert.ThrowsAny<Exception>(()=>RelationMutationPlan.Compile(c,[multi]));Assert.Equal(before,JsonSerializer.Serialize(c));
     }
+    /// <summary>多值缓存按实际整数终点重算，跟踪中间映射和末级字段的更新。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage","int32")]
+    [InlineData("MultiCheckBoxDatabase","int64")]
+    public void Derived_integer_cache_keeps_terminal_dependency_and_types(string kind,string type)
+    {
+        var catalog=Catalog("string","int64");
+        var source=catalog.ConfigColumns.Single(item=>item.Id=="choices");source.ControlKind=kind;
+        if(kind=="MultiCheckBoxDatabase")source.ControlDetail="{\"tableId\":\"tree\",\"pageId\":\"201\",\"nameField\":\"name\"}";
+        var label=catalog.ConfigColumns.Single(item=>item.Id=="tree_name");
+        label.LogicalType=type;label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.reference_code");
+        catalog.ConfigColumns.Add(new(){Id="company_code",ConfigTableId="company",ColumnName="reference_code",LogicalType=type});
+        // 本轮只验证数组消费者，移除同一个测试目录里的自树控件与缓存。
+        catalog.ConfigColumns.RemoveAll(item=>item.Id is "foreign" or "cache");
+        var binding=new RelationCacheDefinition("source","choices","tree","tree_name","choice_names",true);
+        var plan=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+        Assert.Contains("choice_names",plan.MixedSourceColumns["ds_source"]);
+        Assert.Contains("ds_company",plan.MixedTargets);
+        var refresh=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,"source",["choice_names"],[binding]);
+        Assert.Equal("string",refresh.Types["choice_names"]);
+        Assert.Matches(@"CAST\(multi_name_\w+.`reference_code` AS CHAR\)",refresh.MultiProjections["choice_names"].NameExpression!);
+        Assert.Contains(refresh.Reverse,item=>item.TargetTable=="ds_company"&&item.Outputs["choice_names"].Contains("reference_code"));
+        catalog.ConfigColumns.Single(item=>item.Id=="company_code").LogicalType="string";
+        Assert.ThrowsAny<Exception>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));
+    }
+
     /// <summary>数组配置及派生终点必须精确；不能让任意页、缓存或未知SQL成为传播依据。</summary>
     [Theory][InlineData("page")][InlineData("type")][InlineData("where")][InlineData("duplicate")][InlineData("cache")][InlineData("name")][InlineData("foreign")][InlineData("credential")]
     public void Broken_multi_cache_never_publishes_partial_authority(string kind)

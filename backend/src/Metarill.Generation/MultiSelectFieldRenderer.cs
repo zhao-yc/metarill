@@ -77,9 +77,11 @@ internal static class MultiSelectFieldRenderer
                 {
                     var filters=new List<string>{"new(\"id\",FixedReadComparison.In,selected.Select(id=>(object?)id).ToArray())"};foreach(var scope in def.TargetPage.Scopes)filters.Add("new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Scope(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+")");
                     var condition=FixedPageConditionCompilation.Bound(def.TargetPage,"MultiPageCondition"+suffix);
+                    var nameExpression=$"NonRedundantReads.Value<{cache.Value.Type}>(row,{Literal(cache.Value.Source.ColumnName)})";
+                    if(cache.Value.Type is "int?" or "long?")nameExpression+="?.ToString(CultureInfo.InvariantCulture)";
                     result.AppendLine($"        var cacheRows{index}=await new NonRedundantReader(session).CurrentRowsAsync(MultiCachePlan{suffix}_{index},new FixedReadFilter[]{{{string.Join(",",filters)}}},new FixedReadOrder[]{{new(\"id\")}},200,cancellationToken,actor.ProjectId,{condition});")
                         .AppendLine($"        if(cacheRows{index}.Count!=selected.Length)throw new InvalidOperationException(\"派生多选目标当前范围已改变，源记录未保存。\");")
-                        .AppendLine($"        var {variable}=cacheRows{index}.ToDictionary(row=>NonRedundantReads.Value<long>(row,\"id\"),row=>NonRedundantReads.Value<string?>(row,{Literal(cache.Value.Source.ColumnName)}));");
+                        .AppendLine($"        var {variable}=cacheRows{index}.ToDictionary(row=>NonRedundantReads.Value<long>(row,\"id\"),row=>{nameExpression});");
                 }
                 else
                 {

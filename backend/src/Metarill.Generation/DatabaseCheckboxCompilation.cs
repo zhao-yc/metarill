@@ -72,10 +72,9 @@ internal static class DatabaseCheckboxCompilation
             }
             if(definition.NameField!=baseline.NameField)return Gap("页级名称覆盖未绑定同一固定读取和缓存。");
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
-            var integerLabel=name is not null&&name.Type is ("int?" or "long?")&&MultiNameStorageColumns.IsPhysicalIntegerLabel(
-                table.Source,source.Source,target.Source,name.Source,MetadataStoragePolicy.ForTable(model.Catalog,target.Source));
+            var integerLabel=name is not null&&MultiSelectCompilation.SupportsIntegerLabel(model,table,source,target,name);
             if(name is null||name.Type!="string?"&&!integerLabel||name.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,name))
-                return Gap("名称必须为已声明的非凭据字符串或已证明的物理整数。");
+                return Gap("名称必须为已声明的非凭据字符串或已证明的整数。");
             var derived=!NonRedundantReadCompilation.Physical(model,target,name);if(!derived&&GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&(!target.IsGlobal||!GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source)))return Gap("物理Join名称仍需独立缓存证明。");
             if(!target.IsGlobal&&!HasIdentity(model,target))return Gap("目标缺少真实项目归属。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);

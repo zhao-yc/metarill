@@ -37,9 +37,7 @@ internal static class MultiSelectExcelRenderer
         if(multi.Name.IsId)result.AppendLine("            if(!long.TryParse(item.ToString(),NumberStyles.None,CultureInfo.InvariantCulture,out var key)||key<=0)throw PageImportException.Input(PageImportError.Relation);query=query.Where(row=>row.Id==key);");
         else if(multi.IntegerLabel)
         {
-            // Excel 原名称数组按规范十进制文本反查，保留负数和完整 bigint，不经浮点转换。
-            var type=multi.Name.Type=="int?"?"int":"long";
-            result.AppendLine($"            var label=item.ToString();if(!{type}.TryParse(label,NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out var key)||key.ToString(CultureInfo.InvariantCulture)!=label)throw PageImportException.Input(PageImportError.Relation);")
+            result.AppendLine("            "+ParseIntegerLabel(multi.Name,"item.ToString()","key"))
                 .AppendLine($"            query=query.Where(row=>row.{multi.Name.Property}==key);");
         }
         else result.AppendLine($"            var name=item.ToString();query=query.Where(row=>row.{multi.Name.Property}==name);");
@@ -47,6 +45,12 @@ internal static class MultiSelectExcelRenderer
             .AppendLine("            if(matches.Count!=1)throw PageImportException.Input(PageImportError.Relation);")
             .AppendLine("            var value=matches[0].Id.ToString(CultureInfo.InvariantCulture);if(selected.Contains(value))throw PageImportException.Input(PageImportError.Relation);selected.Add(value);")
             .AppendLine("        }").AppendLine("        return JsonSerializer.SerializeToElement(selected);").AppendLine("    }");return result.ToString();
+    }
+    /// <summary>原名称数组按规范十进制反查，保留负数及完整 bigint。</summary>
+    internal static string ParseIntegerLabel(ColumnModel label,string input,string result)
+    {
+        var type=label.Type=="int?"?"int":"long";
+        return $"var label={input};if(!{type}.TryParse(label,NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out var {result})||{result}.ToString(CultureInfo.InvariantCulture)!=label)throw PageImportException.Input(PageImportError.Relation);";
     }
     /// <summary>上下文值按声明物理类型绑定，不经浮点数。</summary>
     private static string Scope(ColumnModel column,string value)=>column.Type switch{"string?"=>value,"int?"=>$"int.Parse({value},CultureInfo.InvariantCulture)",_=>$"long.Parse({value},CultureInfo.InvariantCulture)"};

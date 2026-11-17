@@ -111,9 +111,13 @@ internal static class MultiSelectCompilation
     }
 
     /// <summary>生成与数据层使用同一整数终点判断，范围仍由固定目标页证明。</summary>
-    internal static bool SupportsIntegerLabel(GenerationModel model,TableModel table,ColumnModel source,TableModel target,ColumnModel name)=>
-        name.Type is ("int?" or "long?")&&MultiNameStorageColumns.IsPhysicalIntegerLabel(
-            table.Source,source.Source,target.Source,name.Source,MetadataStoragePolicy.ForTable(model.Catalog,target.Source));
+    internal static bool SupportsIntegerLabel(GenerationModel model,TableModel table,ColumnModel source,TableModel target,ColumnModel name)
+    {
+        if(name.Type is not ("int?" or "long?"))return false;
+        var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
+        return MultiNameStorageColumns.IsPhysicalIntegerLabel(table.Source,source.Source,target.Source,name.Source,storage)||
+            MultiNameStorageColumns.IsDerivedIntegerLabel(target.Source,name.Source,storage);
+    }
 
     /// <summary>重复键、数组配置或复杂映射值必须拒绝，未知合法键保持在原元数据。</summary>
     private static JsonObject Read(string text)

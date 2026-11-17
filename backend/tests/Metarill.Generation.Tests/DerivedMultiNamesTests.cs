@@ -24,6 +24,71 @@ public sealed class DerivedMultiNamesTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>固定整数终点参与候选、原 Excel、名称筛选和缓存闭包；真实生成程序集必须可初始化。</summary>
+    [Theory]
+    [InlineData(false,0,true,"int32","list")]
+    [InlineData(false,1,false,"int64","edit")]
+    [InlineData(true,0,false,"int64","edit")]
+    [InlineData(true,1,true,"int32","list")]
+    public async Task Derived_integer_labels_complete_both_array_controls(bool checkbox,int mode,bool automatic,string type,string exportMode)
+    {
+        const string prefix="derived_integer",ns="Example.DerivedInteger";
+        var catalog=Catalog(prefix,automatic);
+        catalog.ConfigTables.Single(item=>item.Id=="2").IsRongyu=mode;
+        var label=catalog.ConfigColumns.Single(item=>item.Id=="32");label.LogicalType=type;
+        label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.reference_code");
+        catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",YzProjectId=catalog.YzProjectId,ColumnName="reference_code",LogicalType=type});
+        if(checkbox)
+        {
+            var control=catalog.ConfigColumns.Single(item=>item.Id=="25");
+            control.ControlKind="MultiCheckBoxDatabase";
+            control.ControlDetail="{\"tableId\":\"3\",\"pageId\":\"301\",\"nameField\":\"name\",\"whereSql\":\"parent_id=@parentId\"}";
+        }
+        var sourcePage=catalog.ConfigPages.Single(item=>item.Id=="201");
+        sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(exportMode);
+        var field=catalog.ConfigPageColumns.Single(item=>item.ConfigPageId=="201"&&item.ConfigColumnId=="25");
+        field.IsEdit=field.IsShow=1;field.Extra["isDetailShow"]=JsonSerializer.SerializeToElement(1);
+        var model=GenerationModel.Create(catalog,ns);
+        var source=model.Tables.Single(item=>item.Source.Id=="2");var page=source.Pages.Single(item=>item.Source.Id=="201");
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
+        var expectedType=type=="int32"?"int?":"long?";
+        if(checkbox)
+        {
+            var def=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,source,page));
+            Assert.True(def.DerivedName);Assert.True(def.IntegerLabel);
+            Assert.Contains($"NonRedundantReads.Value<{expectedType}>",DatabaseCheckboxRenderer.Service(model,source,page));
+        }
+        else
+        {
+            var def=Assert.Single(MultiSelectCompilation.ForPage(model,source,page));
+            Assert.True(def.IntegerLabel);Assert.Single(SelectionNameFilterCompilation.ForPage(model,source,page).Bindings);
+        }
+        if(mode==0||!checkbox)
+            Assert.Contains(type=="int32"?"int.TryParse(label":"long.TryParse(label",ImportRenderer.Service(model,source,page));
+        if(mode==1)
+        {
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("target_names",maintenance.MixedSourceColumns[source.Source.TableName]);
+            Assert.Contains(prefix+"_company",maintenance.MixedTargets);
+        }
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-integer-names");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.DerivedIntegerSourceService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Import201Async"));Assert.NotNull(service.GetMethod("Export201Async"));
+
+            // 联接别名与真实终点类型不一致时，完整功能审计必须拒绝。
+            catalog.ConfigColumns.Single(item=>item.Id=="45").LogicalType="string";
+            Assert.NotEmpty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,ns)));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>没有自树同伴的R1多选也必须独立生成编译，并发布完整物理缓存传播计划。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Redundant_multi_alone_compiles_and_publishes_derived_cache(bool automatic)

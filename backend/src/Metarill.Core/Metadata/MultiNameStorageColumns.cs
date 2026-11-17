@@ -34,6 +34,13 @@ public static class MultiNameStorageColumns
         value.ControlKind is not ("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "MultiList" or "CheckBoxList")&&
         !Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName);
 
+    /// <summary>普通非冗余目标的整数别名必须经过明确联接，实际终点及类型由读取计划核对。</summary>
+    public static bool IsDerivedIntegerLabel(TableMetadata target,ColumnMetadata value,MetadataStoragePlan targetStorage)=>
+        target.IsRongyu==0&&!GlobalCrossTableTarget.Declared(target)&&value.ConfigTableId==target.Id&&
+        value.ColumnName!="id"&&value.LogicalType is ("int32" or "int64")&&value.IsVirtualColumn==0&&
+        value.ControlKind is ("" or "Text" or "TextArea")&&targetStorage.Kind(value)==MetadataFieldStorage.Join&&Enabled(value,"isJoinColumn")&&
+        !Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName);
+
     /// <summary>安全关系由原专用协调器管理，不能自动增加角色缓存或改变权限物理结构。</summary>
     private static bool Protected(TableMetadata table)=>table.TableName is "yz_manager" or "yz_role" or "yz_admin_type"||table.Id is "6031906809708544" or "1692532858499969026" or "1696799308939239425";
     /// <summary>只读取根定义的固定标量名称；坏配置留待正式用途门禁拒绝，不退化为猜列。</summary>

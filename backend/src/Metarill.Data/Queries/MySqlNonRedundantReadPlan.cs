@@ -416,9 +416,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(HasGlobalRowProject(target))publishedPage=proof.Page;
             }
             var value=Column(target,display);
-            var integerLabel=MultiNameStorageColumns.IsPhysicalIntegerLabel(table,relation,target,value,storage[target.Id]);
-            if(value.LogicalType!="string"&&!integerLabel||value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
+            if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
             if(!storage[target.Id].IsPhysical(value))return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage);
+            var integerLabel=MultiNameStorageColumns.IsPhysicalIntegerLabel(table,relation,target,value,storage[target.Id]);
+            if(value.LogicalType!="string"&&!integerLabel)throw new NotSupportedException("多值物理名称类型未支持。");
             Use(table,relation);
             if(integerLabel)Use(target,value);
             // SQL 聚合、名称搜索与分批回读采用同一十进制文本表达式。
