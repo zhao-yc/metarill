@@ -58,13 +58,10 @@ public sealed partial class {{page.Name}}ImportRequest
         if (overwrite && columns.Count == 0) throw new InvalidOperationException("覆盖导入至少需要一个可导入字段。");
         var overwriteKey = overwrite ? table.Columns.First(columns.Contains) : null;
         if (overwriteKey?.IsJsonArray == true) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
-        var redundantCrossOverwrite = overwrite && table.Source.IsRongyu == 1 && (hasCross || CrossTableExcelRenderer.HasFixedPath(page));
+        var crossOverwrite=overwrite&&(hasCross||CrossTableExcelRenderer.HasFixedPath(page));
         var logicalMatch=NonRedundantImportMatchRenderer.Resolve(model,table,page,dependency);
-        // 来源兼任候选时必须显式提交覆盖键，防止用缺失的首列另行匹配同表记录。
-        var sourceRoleOverwrite=overwrite&&(crosses.Any(plan=>CrossTableWriteRenderer.Merged(table,plan.Read))||
-            CrossTableExcelRenderer.HasFixedPath(page)&&CrossTableWriteCompilation.ForService(model,table,page)
-                .Any(plan=>CrossTableWriteRenderer.Merged(table,plan.Read)));
-        var requireExplicitKey=redundantCrossOverwrite||sourceRoleOverwrite||logicalMatch?.Key.Source.ControlKind=="CascadeTree";
+        // 缺失的首列不能由父参数或同一行的其它路径补成覆盖匹配键。
+        var requireExplicitKey=crossOverwrite||logicalMatch?.Key.Source.ControlKind=="CascadeTree";
         // 原追加入口显式固定 MySQL 可重复读，只有单一全局物理名称副本可能使用合并写回。
         var transaction=!overwrite&&GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id)==1
             ?"InScalarCacheImportTransactionAsync":"InTransactionAsync";
@@ -104,9 +101,9 @@ public sealed partial class {{page.Name}}ImportRequest
                 .AppendLine($"                var key = matchValue.Deserialize<{first.BoundaryType}>(JsonOptions);");
             if(logicalMatch is not null)result.Append(NonRedundantImportMatchRenderer.Match(model,table,page,logicalMatch));
             else result.AppendLine($"                var existing = await Scope{page.Source.Id}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"\"import\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(entity => entity.{first.Property} == key).ForUpdate().Limit(2).ToListAsync({OverwriteMatchProjection(table,page,dependency)}, cancellationToken);")
-                .AppendLine(NonRedundantCrossTableSubset.ReportsScopedOverwriteAmbiguity(model,table,page,columns)
+                .AppendLine(crossOverwrite&&table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent")
                     ?$"                if (existing.Count > 1) throw PageImportException.Input(PageImportError.AmbiguousOverwrite, columnName: {Literal(Header(first))});"
-                    :redundantCrossOverwrite
+                    :crossOverwrite
                         ?$"                if (existing.Count > 1) throw PageImportException.Input(PageImportError.AmbiguousPageOverwrite, columnName: {Literal(Header(first))});"
                         :"                if (existing.Count > 1) throw new InvalidOperationException(\"覆盖匹配字段重名，不能确定目标记录。\");");
             if(contextual)

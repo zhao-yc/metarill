@@ -23,6 +23,11 @@ internal static class NonRedundantCrossParentCompilation
     internal static bool Managed(GenerationModel model,TableModel table,PageModel page,ColumnModel column)=>page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id)&&Find(model,table,page,column) is not null;
     /// <summary>存在逻辑父范围才增加私有参数，不改变普通生成源码。</summary>
     internal static bool Enabled(GenerationModel model,TableModel table,PageModel page)=>page.Scopes.Any(scope=>scope.Source=="parent"&&Find(model,table,page,scope.Column) is not null);
+    /// <summary>跨表导出需要验证独立物理父记录仍存在且同项目。纯逻辑父继续由路径 SQL 限定。</summary>
+    internal static bool ChecksPhysicalParentOnExport(GenerationModel model,TableModel table,PageModel page)=>
+        table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent"&&!Managed(model,table,page,scope.Column))&&
+        CrossTableWriteCompilation.ForService(model,table,page).Count>0;
+
     /// <summary>原写事务明确选当前锁读，不能沿用默认快照。</summary>
     internal static string LockArgument(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)?",locking:true":"";
     /// <summary>路径归一化前不先锁祖先；空批次在末尾单独验证真实父记录。</summary>

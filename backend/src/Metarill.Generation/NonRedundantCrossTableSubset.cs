@@ -37,91 +37,44 @@ internal static class NonRedundantCrossTableSubset
             var imports=importColumns.Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id));
             var importsFixedPath=ImportRenderer.Enabled(page)&&CrossTableExcelRenderer.HasFixedPath(page);
             var exports=plans.SelectMany(plan=>plan.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name));
-            // 同一固定链的逻辑父范围支持追加、首列覆盖及列表和详情路径导出。
+            // 来源物理归属与路径内逻辑父各自用正式计划校验。额外的物理等值仍取交集。
             var parentColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
-            var hasParent=parentColumns.Length>0;
-            // 前面的全部写计划已核对来源范围。共享组的固定匹配列由导入和导出各自按动作应用。
-            var independent=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&CrossTableExcelRenderer.SupportsTargetRoles(model,table,page,plans);
-            // 自树写自己的节点；跨表路径仍须证明逻辑父范围，覆盖仍按明确的匹配键与页面范围执行。
-            var pathSupported=independent&&(!hasParent||SupportsScopedPath(model,table,page,plans,parentColumns,parentTables));
-            var appendImport=ImportRenderer.Mode(page) is "" or "OnlyNew";
-            // 来源角色和共享重复目标都可用物理文本首列。固定末级可用逻辑键匹配。
-            var sourceRole=plans.Any(plan=>CrossTableWriteRenderer.Merged(table,plan.Read));
-            var repeated=plans.Any(CrossTableExcelRenderer.RepeatsTarget);
-            var textOverwrite=(hasParent||sourceRole||repeated&&plans.Length==2)&&SupportsTextOverwrite(model,table,page,importColumns);
-            var pathOverwrite=(!hasParent||repeated||sourceRole)&&SupportsOverwrite(model,table,page,plans,importColumns,sourceRole);
-            var overwriteSupported=textOverwrite||pathOverwrite;
-            // 固定末级且只开启导入的页面也要审核作用域和覆盖键。
-            if((imports||importsFixedPath&&!exports)&&(!pathSupported||!appendImport&&!overwriteSupported))
+            var pathSupported=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&
+                CrossTableExcelRenderer.SupportsTargetRoles(model,table,page,plans)&&
+                SupportsScopedPath(plans,parentColumns,parentTables);
+            if((imports||importsFixedPath)&&(!pathSupported||!SupportsImport(model,table,page,plans,importColumns)))
                 return CrossTableExcelRenderer.ImportAcceptancePending;
-            // 末级控件同时是固定父键时不属于导入列，合并发布仍须校验页面实际导入模式。
-            if(exports&&(!pathSupported||((hasParent||sourceRole)&&ExportRenderer.Mode(page) is not ("" or "list" or "edit"))||
-                hasParent&&ImportRenderer.Enabled(page)&&!appendImport&&!overwriteSupported))
+            if(exports&&(!pathSupported||ExportRenderer.Mode(page) is not ("" or "list" or "edit")))
                 return CrossTableExcelRenderer.ExportAcceptancePending;
             return null;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return "非冗余跨表完整用途未通过："+error.Message;}
     }
 
-    /// <summary>父 ID 必须属于已证明的逻辑路径。共享组允许同父表的物理约束继续取交集。</summary>
-    private static bool SupportsScopedPath(GenerationModel model,TableModel table,PageModel page,
-        IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> parents,IReadOnlyList<TableModel> parentTables)
+    /// <summary>同一父参数只接受已证明的同父表，以及至多一个需要反查的逻辑路径层位。</summary>
+    private static bool SupportsScopedPath(IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> parents,
+        IReadOnlyList<TableModel> parentTables)
     {
-        if(parents.Count>1&&(plans.Count==1||parentTables.Count!=1))return false;
-        var paths=plans.Select(plan=>plan.Levels).ToArray();
-        if(paths.Length==1)
-        {
-            // 两级固定角色有各自的根和末级存储槽。
-            if(paths[0].Count!=3&&!(paths[0].Count==2&&(CrossTableExcelRenderer.RepeatsTarget(plans[0])||
-                CrossTableWriteRenderer.Merged(table,plans[0].Read))))return false;
-        }
-        else
-        {
-            var shared=SharedCrossTableCompilation.ForPage(model,table,page);
-            if(shared.Groups is not [var group]||group.Plans.Count!=paths.Length||
-                paths.Any(path=>path.Count is <2 or >3))return false;
-        }
-        // 两种键类型独立验证。共享组本身已经证明了各同伴的共同祖先身份。
-        var levels=paths.SelectMany(path=>path).ToArray();
-        var logicalParents=parents.Where(parent=>levels.Any(level=>level.Id.Source.Id==parent.Source.Id)).ToArray();
-        return logicalParents is [var logicalParent]&&
-            (parents.Count==1||string.IsNullOrWhiteSpace(logicalParent.Source.LinkConfigTableId)||
-                logicalParent.Source.LinkConfigTableId==parentTables[0].Source.Id)&&
-            paths.All(path=>path.Skip(1).All(level=>level.Read.Parent?.Type is "string?" or "long?"))&&
-            levels.All(level=>(level.Id.Type is "string?" or "long?")&&
-                (!level.Read.Target.IsGlobal||level.Read.Target.Source.IsRongyu==0||
-                    plans.Any(plan=>CrossTableWriteRenderer.Merged(table,plan.Read))));
+        if(parents.Count==0)return true;
+        if(parentTables.Count!=1)return false;
+        var slots=plans.SelectMany(plan=>plan.Levels).Select(level=>level.Id.Source.Id).ToHashSet(StringComparer.Ordinal);
+        return parents.Count(parent=>slots.Contains(parent.Source.Id))<=1;
     }
 
-    /// <summary>覆盖可使用表级首个可导入的物理文本字段，条件仍取自同一页面范围。</summary>
-    private static bool SupportsTextOverwrite(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)
+    /// <summary>先证明导入上下文。首列只能用真实文本、整数或能唯一恢复的逻辑末级。</summary>
+    private static bool SupportsImport(GenerationModel model,TableModel table,PageModel page,
+        IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> columns)
     {
-        if(ImportRenderer.Mode(page)!="OverWriteByFirstColumn"||columns.Count==0)return false;
+        var mode=ImportRenderer.Mode(page);
+        if(mode is "" or "OnlyNew")return true;
+        if(mode!="OverWriteByFirstColumn"||columns.Count==0)return false;
         var key=table.Columns.First(columns.Contains);
-        return key.Type=="string?"&&key.Source.ControlKind is "" or "Text"&&
-            NonRedundantReadCompilation.Physical(model,table,key)&&!ImportDependencyCompilation.ForPage(model,table,page).Contextual;
-    }
-
-    /// <summary>新开放的逻辑父范围路径覆盖可给出固定重名提示；原无父及纯标量路径沿各自协议。</summary>
-    internal static bool ReportsScopedOverwriteAmbiguity(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)=>
-        table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent")&&
-        (CrossTableExcelRenderer.HasFixedPath(page)||table.Columns.Any(column=>Declared(column)&&(columns.Contains(column)||ExportRenderer.IncludesColumn(page,column))))&&
-        SupportsTextOverwrite(model,table,page,columns)&&Reason(model,table,page) is null;
-
-    /// <summary>覆盖只接受固定末级单值键。来源角色的固定条件由逻辑匹配计划和物理范围复核共同执行。</summary>
-    private static bool SupportsOverwrite(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> columns,bool sourceRole)
-    {
-        if(ImportRenderer.Mode(page)!="OverWriteByFirstColumn"||(!sourceRole&&page.Condition is not null)||
-            plans.Count is <1 or >2||columns.Count==0||plans.Any(plan=>plan.Levels.Count is <2 or >3||
-                !columns.Any(column=>column.Source.Id==plan.Read.Source.Source.Id)&&
-                !page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==plan.Read.Source.Source.Id)))
-            return false;
-        if(plans.Count==2&&!SharedCrossTableCompilation.ForPage(model,table,page).Groups.Any(group=>group.Plans.Count==2))
-            return false;
-        var key=table.Columns.First(columns.Contains);
-        if(key.Type is not ("string?" or "long?")||plans.Count(plan=>plan.Levels[^1].Id.Source.Id==key.Source.Id)!=1)
-            return false;
+        if(key.IsJsonArray||key.IsManagedCascadeName)return false;
         var dependency=ImportDependencyCompilation.ForPage(model,table,page);
-        return NonRedundantImportMatchRenderer.Resolve(model,table,page,dependency) is {Context.Count:0};
+        var match=NonRedundantImportMatchRenderer.Resolve(model,table,page,dependency);
+        if(key.Source.ControlKind=="CascadeTree")
+            return match is not null&&plans.Any(plan=>plan.Levels[^1].Id.Source.Id==key.Source.Id);
+        return (key.Type is "string?" or "int?" or "long?")&&key.Source.ControlKind is "" or "Text" or "Number"&&
+            NonRedundantReadCompilation.Physical(model,table,key);
     }
 }

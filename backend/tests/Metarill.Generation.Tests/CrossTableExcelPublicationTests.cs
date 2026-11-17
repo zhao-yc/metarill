@@ -197,17 +197,16 @@ public sealed class CrossTableExcelPublicationTests
         }
     }
 
-    /// <summary>数字首列和未知导出模式保留门槛，末级固定父键仍不扩大覆盖范围。</summary>
+    /// <summary>未支持的覆盖键及未知导出模式保留门槛。</summary>
     [Theory]
     [InlineData("area_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ImportAcceptancePending)]
-    [InlineData("country_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ImportAcceptancePending)]
-    [InlineData("place_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ExportAcceptancePending)]
+    [InlineData("place_id", "OverWriteByFirstColumn", "list", CrossTableExcelRenderer.ImportAcceptancePending)]
     [InlineData("country_id", "OnlyNew", "unknown", CrossTableExcelRenderer.ExportAcceptancePending)]
     public void Unverified_R0_parent_paths_keep_publication_gaps(string parentColumn, string importMode, string exportMode, string expected)
     {
         var catalog = ParentScopedCatalog(parentColumn, importMode, exportMode);
         if (importMode == "OverWriteByFirstColumn")
-            catalog.ConfigColumns.Single(column => column.Id == "22").LogicalType = "int64";
+            catalog.ConfigColumns.Single(column => column.Id == "22").LogicalType = "datetime";
         var model = GenerationModel.Create(catalog, "Example.ParentCrossExcel");
         Assert.Contains(GenerationCapabilityAudit.Collect(model), gap => gap.PageId == "201" && gap.Reason == expected);
         Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
@@ -436,23 +435,26 @@ public sealed class CrossTableExcelPublicationTests
         Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
     }
 
-    /// <summary>不支持的混合范围、覆盖键及导入模式继续拒绝发布。</summary>
+    /// <summary>普通和混合级联保留实体首列、实际父范围和两种原导出模式。</summary>
     [Theory]
-    [InlineData("mixed-scoped")]
-    [InlineData("mixed-overwrite")]
-    [InlineData("repeated-source")]
-    [InlineData("overwrite")]
-    public void Unproven_R0_compositions_keep_their_excel_gap(string kind)
+    [InlineData("mixed-scoped","string","OnlyNew","list")]
+    [InlineData("mixed-scoped","int64","OverWriteByFirstColumn","edit")]
+    [InlineData("mixed-overwrite","string","OverWriteByFirstColumn","edit")]
+    [InlineData("overwrite","int32","OverWriteByFirstColumn","list")]
+    public async Task R0_scalar_overwrite_and_mixed_parent_publish_original_excel(string kind,string keyType,string mode,string exportMode)
     {
         var catalog = kind switch
         {
             "mixed-scoped" or "mixed-overwrite" => NonRedundantMixedCascadeTests.Catalog("unproven_mix", "string", "int64"),
-            "repeated-source" => RepeatedCrossSourceTests.Catalog("unproven_repeat", 3, "string", "int64", false),
             _ => NonRedundantCrossTableGenerationTests.Catalog("unproven_overwrite", "string", "int64")
         };
-        // 混合／重复来源夹具本来已发布；该辅助方法会新增后台，只补尚未发布的覆盖导入夹具。
         if (kind == "overwrite") RedundantMultiNameCacheTests.Published(catalog);
-        var importPage = catalog.ConfigPages.Single(page => page.Id == "201"); importPage.IsImport = 1;
+        var importPage = catalog.ConfigPages.Single(page => page.Id == "201"); importPage.IsImport = importPage.IsExport = 1;
+        importPage.Extra["importMethod"]=JsonSerializer.SerializeToElement(mode);
+        importPage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(exportMode);
+        var key=catalog.ConfigColumns.Single(column=>column.Id=="22");key.SortNo=-1;key.LogicalType=keyType;
+        var path=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25");
+        path.IsShow=1;path.IsEdit=1;path.Extra["isDetailShow"]=JsonSerializer.SerializeToElement(1);
         if (kind == "mixed-scoped")
         {
             catalog.ConfigColumns.Add(new()
@@ -462,14 +464,46 @@ public sealed class CrossTableExcelPublicationTests
             });
             importPage.WhereSql += " AND tree_owner_id=@parent_id";
         }
-        if (kind is "overwrite" or "mixed-overwrite") importPage.Extra["importMethod"] = JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
-        if (kind == "repeated-source") importPage.Extra["importMethod"] = JsonSerializer.SerializeToElement("unknown");
-        var model = GenerationModel.Create(catalog, "Example.UnprovenR0Excel");
-        var table = model.Tables.Single(table => table.Source.Id == "2");
-        var page = table.Pages.Single(page => page.Source.Id == "201");
-        Assert.NotEmpty(CrossTableWriteCompilation.ForService(model, table, page));
-        Assert.Equal(CrossTableExcelRenderer.ImportAcceptancePending, NonRedundantCrossTableSubset.Reason(model, table, page));
-        Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
+        const string rootNamespace="Example.ScalarCrossExcel";
+        var model=GenerationModel.Create(catalog,rootNamespace);
+        var table=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=table.Pages.Single(page=>page.Source.Id=="201");
+        Assert.NotEmpty(CrossTableWriteCompilation.ForService(model,table,page));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
+        var import=ImportRenderer.Service(model,table,page);
+        if(mode=="OverWriteByFirstColumn")
+        {
+            Assert.Contains("PageImportError.MissingOverwriteKey",import);
+            Assert.Contains("entity.Name == key",import);
+        }
+        if(kind=="mixed-scoped")
+            Assert.Contains("ValidateParents201Async(request.ParentId, actor, cancellationToken, locking: false)",ExportRenderer.Service(model,table,page));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-scalar-cross-excel");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),rootNamespace);
+            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    /// <summary>未知导入模式即使同页开启可用导出也不能通过发布。</summary>
+    [Fact]
+    public void R0_cross_excel_rejects_unknown_import_with_or_without_export()
+    {
+        var catalog=RepeatedCrossSourceTests.Catalog("unproven_repeat",3,"string","int64",false);
+        var source=catalog.ConfigPages.Single(page=>page.Id=="201");
+        source.IsImport=1;source.Extra["importMethod"]=JsonSerializer.SerializeToElement("unknown");
+        foreach(var export in new[]{0,1})
+        {
+            source.IsExport=export;
+            var model=GenerationModel.Create(catalog,"Example.UnprovenR0Excel");
+            var table=model.Tables.Single(item=>item.Source.Id=="2");
+            var page=table.Pages.Single(item=>item.Source.Id=="201");
+            Assert.Equal(CrossTableExcelRenderer.ImportAcceptancePending,NonRedundantCrossTableSubset.Reason(model,table,page));
+        }
     }
 
     /// <summary>公开R0可用不应扩大内部准备通道；没有Excel用途仍必须拒绝。</summary>
