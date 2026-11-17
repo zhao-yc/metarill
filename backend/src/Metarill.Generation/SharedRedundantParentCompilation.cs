@@ -27,8 +27,7 @@ internal static class SharedRedundantParentCompilation
             !NonRedundantCrossTableSubset.Declared(source))return null;
         var plan=CrossTableWriteCompilation.Resolve(model,table,page,source).Definition;
         if(plan is null||plan.Levels.Count is <2 or >3||
-            plan.Levels.Any(level=>level.Read.Target.Source.Id==table.Source.Id)||
-            plan.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()!=plan.Levels.Count)return null;
+            plan.Levels.Any(level=>level.Read.Target.Source.Id==table.Source.Id))return null;
         return plan;
     }
     /// <summary>同一物理父键只能指向一个已冻结目标角色，不能从不同页或名字借用证明。</summary>

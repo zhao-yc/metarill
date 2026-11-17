@@ -58,7 +58,7 @@ public sealed partial class {{page.Name}}ImportRequest
         if (overwrite && columns.Count == 0) throw new InvalidOperationException("覆盖导入至少需要一个可导入字段。");
         var overwriteKey = overwrite ? table.Columns.First(columns.Contains) : null;
         if (overwriteKey?.IsJsonArray == true) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
-        var redundantCrossOverwrite = overwrite && table.Source.IsRongyu == 1 && (hasCross || RedundantCrossTableSubset.HasFixedPath(page));
+        var redundantCrossOverwrite = overwrite && table.Source.IsRongyu == 1 && (hasCross || CrossTableExcelRenderer.HasFixedPath(page));
         var logicalMatch=NonRedundantImportMatchRenderer.Resolve(model,table,page,dependency);
         // 原追加入口显式固定 MySQL 可重复读，只有单一全局物理名称副本可能使用合并写回。
         var transaction=!overwrite&&GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id)==1

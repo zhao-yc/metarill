@@ -274,22 +274,8 @@ public sealed class CrossTableExcelSharedGenerationTests
     public async Task Independent_repeated_target_roles_publish_original_excel(int redundant,bool derived,string importMode,string exportMode)
     {
         const string prefix="repeated_excel",rootNamespace="Example.RepeatedExcel",entity="RepeatedExcelSource";
-        var catalog=derived?NonRedundantCrossTargetsTests.Catalog(prefix,"string","int64","repeated"):
-            RedundantMultiNameCacheTests.Published(CrossTableNameCacheGenerationTests.Catalog(prefix,"string","int64",false));
-        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
-        var tree=catalog.ConfigColumns.Single(column=>column.Id=="25");
-        if(!derived)
-        {
-            NonRedundantCrossTargetsTests.RepeatTarget(catalog,prefix,"int64");
-            catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="leaf_label",LogicalType="string",ColumnLength="100",YzProjectId=catalog.YzProjectId});
-            catalog.ConfigPageColumns.Add(new(){Id="30138",ConfigPageId="301",ConfigColumnId="38",YzProjectId=catalog.YzProjectId});
-            var config=JsonNode.Parse(tree.ControlDetail)!;
-            config["levels"]![2]!["nameField"]="leaf_label";
-            tree.ControlDetail=config.ToJsonString();
-        }
-        tree.Name="路径";
-        tree.SortNo=-1;
-        catalog.ConfigColumns.Single(column=>column.Id=="22").Name="记录";
+        var catalog=RepeatedTargetExcelCatalog(prefix,redundant,derived);
+        catalog.ConfigColumns.Single(column=>column.Id=="25").SortNo=-1;
         var page=catalog.ConfigPages.Single(page=>page.Id=="201");
         page.IsImport=1;page.IsExport=1;
         page.Extra["importMethod"]=JsonSerializer.SerializeToElement(importMode);
@@ -352,6 +338,184 @@ public sealed class CrossTableExcelSharedGenerationTests
             if(importMode!="OnlyNew")Assert.Equal(103L,guard.Validation.RecordId);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    /// <summary>同一目标表的根和末级可用相同请求ID，但来源筛选和导入只能绑定配置指定的层。</summary>
+    [Theory]
+    [InlineData(1,false,3)]
+    [InlineData(0,false,3)]
+    [InlineData(0,true,2)]
+    [InlineData(1,true,3)]
+    public async Task Repeated_target_roles_bind_the_configured_source_parent(int redundant,bool derived,int depth)
+    {
+        const string prefix="repeated_excel",rootNamespace="Example.ScopedRepeatedExcel",entity="RepeatedExcelSource";
+        var catalog=RepeatedTargetExcelCatalog(prefix,redundant,derived);
+        catalog.ConfigColumns.Single(column=>column.Id==(depth==2?"25":"22")).SortNo=-1;
+        if(depth==2)
+        {
+            var tree=catalog.ConfigColumns.Single(column=>column.Id=="25");
+            var config=JsonNode.Parse(tree.ControlDetail)!;
+            config["levels"]!.AsArray().RemoveAt(1);
+            tree.ControlDetail=config.ToJsonString();
+            catalog.ConfigColumns.Single(column=>column.Id=="35").LinkConfigTableId="3";
+        }
+        var source=catalog.ConfigPages.Single(page=>page.Id=="201");
+        var scopes=new List<(string Page,string Column,string Parent,string Import,string Export)>
+        {
+            ("201","country_id","11","OnlyNew","list"),
+            ("203","place_id","11","OverWriteByFirstColumn","edit"),
+            ("204","place_id","11","OverWriteByFirstColumn","")
+        };
+        if(depth==3)scopes.Add(("202","area_id","21","OverWriteByFirstColumn","list"));
+        else scopes.Add(("205","country_id","11","OverWriteByFirstColumn","edit"));
+        foreach(var scope in scopes.Where(item=>item.Page!="201"))
+        {
+            var page=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(source))!;
+            page.Id=scope.Page;
+            catalog.ConfigPages.Add(page);
+            foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="201").ToArray())
+            {
+                var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+                copy.Id=scope.Page+"_"+field.Id;
+                copy.ConfigPageId=scope.Page;
+                catalog.ConfigPageColumns.Add(copy);
+            }
+        }
+        foreach(var (id,column,_,import,export) in scopes)
+        {
+            var page=catalog.ConfigPages.Single(page=>page.Id==id);
+            page.WhereSql+=$" AND {column}=@parent_id";
+            page.IsImport=1;
+            page.Extra["importMethod"]=JsonSerializer.SerializeToElement(import);
+            if(export.Length==0)continue;
+            page.IsExport=1;
+            page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(export);
+        }
+        var model=GenerationModel.Create(catalog,rootNamespace);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        var importOnly=catalog.ConfigPages.Single(page=>page.Id=="204");
+        importOnly.Extra["importMethod"]=JsonSerializer.SerializeToElement("unknown");
+        Assert.Contains(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,rootNamespace)),
+            gap=>gap.PageId=="204"&&gap.Reason==CrossTableExcelRenderer.ImportAcceptancePending);
+        importOnly.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-scoped-repeated-target-excel");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),rootNamespace);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(rootNamespace+".Generated.Services."+entity+"Service",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            var actor=new RuntimeActor(901,"父范围验证",false,catalog.YzProjectId,"5");
+            foreach(var (id,column,parent,_,export) in scopes)
+            {
+                Assert.NotNull(service.GetMethod("Import"+id+"Async"));
+                Assert.Equal(export.Length>0,service.GetMethod("Export"+id+"Async") is not null);
+                if(redundant==1)
+                {
+                    var plan=Assert.Single(Metarill.Data.Queries.RedundantSharedParents.Compile(catalog,"2",id)).Value;
+                    Assert.Equal(column,plan.ColumnName);
+                    Assert.Equal(column[..^3],plan.Levels[^1].Prefix);
+                    Assert.Equal(column=="place_id"?depth:column=="area_id"?2:1,plan.Levels.Count);
+                    continue;
+                }
+
+                var filters=(List<Metarill.Data.Queries.FixedReadFilter>)service.GetMethod("ReadFilters"+id,
+                    BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,[new PageRequest{ParentId=parent},actor])!;
+                var identity=Assert.Single(filters,filter=>filter.Field is "country_id" or "area_id" or "place_id");
+                Assert.Equal(column,identity.Field);
+                Assert.Equal(parent,identity.Value?.ToString());
+                Assert.NotNull(service.GetField("LogicalParentPlan"+id,BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
+                if(id=="205")
+                {
+                    var match=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                        service.GetField("ImportMatchPlan205",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
+                    Assert.Equal("string",match.OutputTypes["place_id"]);
+                }
+            }
+            if(derived)return;
+            const long project=9007199254740993;
+            var appendGuard=new StopBeforeExcelWrite();
+            using var root=Runtime("201",appendGuard);
+            var conflict=await Assert.ThrowsAsync<PageImportException>(()=>root.Import([
+                new(){{"记录","跨父"},{"路径","国乙/区乙/城乙"}}],"11"));
+            Assert.Equal((PageImportError.Relation,(int?)1,"路径"),(conflict.Code!.Value,conflict.RowNumber,conflict.ColumnName));
+            var appended=await Assert.ThrowsAsync<BusinessRuleException>(()=>root.Import([
+                new(){{"记录","部分路径"},{"路径","国甲/区甲/"}}],"11"));
+            Assert.Same(appendGuard.Stop,appended);
+            Assert.Equal(RecordMutationOperation.Create,appendGuard.Validation!.Operation);
+            if(redundant==0)return;
+
+            var list=await root.Export(new PageRequest{ParentId="11"});
+            Assert.Equal(2,list.Rows.Count);
+            Assert.Empty((await root.Export(new PageRequest{ParentId="14"})).Rows);
+            var overwriteGuard=new StopBeforeExcelWrite();
+            using var middle=Runtime("202",overwriteGuard);
+            var overwritten=await Assert.ThrowsAsync<BusinessRuleException>(()=>middle.Import([
+                new(){{"记录","同名"},{"路径","国甲/区甲/城甲"}}],"21"));
+            Assert.Same(overwriteGuard.Stop,overwritten);
+            Assert.Equal((RecordMutationOperation.Update,103L),(overwriteGuard.Validation!.Operation,overwriteGuard.Validation.RecordId));
+            var leafGuard=new StopBeforeExcelWrite();
+            using var leaf=Runtime("203",leafGuard);
+            var detail=await leaf.Export(new PageRequest{ParentId="11"});
+            Assert.Equal("国甲/区甲/城甲",Assert.Single(detail.Rows)[detail.Headers.ToList().IndexOf("路径")]);
+            Assert.Equal(0,leaf.ExportLockCount);
+            await Assert.ThrowsAsync<InvalidOperationException>(()=>leaf.Export(new PageRequest{ParentId="14"}));
+            var fixedColumn=await Assert.ThrowsAsync<PageImportException>(()=>leaf.Import([
+                new(){{"记录","同名"},{"路径","国甲/区甲/城甲"}}],"11"));
+            Assert.Equal(PageImportError.UnknownHeader,fixedColumn.Code);
+            overwritten=await Assert.ThrowsAsync<BusinessRuleException>(()=>leaf.Import([new(){{"记录","同名"}}],"11"));
+            Assert.Same(leafGuard.Stop,overwritten);
+            Assert.Equal((RecordMutationOperation.Update,103L),(leafGuard.Validation!.Operation,leafGuard.Validation.RecordId));
+            Assert.DoesNotContain("place_id",leafGuard.Validation.SubmittedFields);
+
+            SharedExcelReadTransport Runtime(string pageId,IRecordMutationGuard guard)
+            {
+                var runtime=new SharedExcelReadTransport(assembly,rootNamespace,entity,pageId:pageId,actor:actor,guard:guard);
+                runtime.Add("RepeatedExcelCountry",new Dictionary<string,object?>{{"Id",11L},{"Name","国甲"},{"LeafLabel","城甲"},
+                    {"RepeatedExcelAreaId",21L},{"YzProjectId",project},{"Status",1}});
+                runtime.Add("RepeatedExcelCountry",new Dictionary<string,object?>{{"Id",12L},{"Name","国乙"},{"LeafLabel","城乙"},
+                    {"RepeatedExcelAreaId",22L},{"YzProjectId",project},{"Status",1}});
+                runtime.Add("RepeatedExcelCountry",new Dictionary<string,object?>{{"Id",14L},{"Name","仅根"},{"YzProjectId",project},{"Status",1}});
+                runtime.Add("RepeatedExcelArea",new Dictionary<string,object?>{{"Id",21L},{"Name","区甲"},{"RepeatedExcelCountryId",11L},{"YzProjectId",project},{"Status",1}});
+                runtime.Add("RepeatedExcelArea",new Dictionary<string,object?>{{"Id",22L},{"Name","区乙"},{"RepeatedExcelCountryId",12L},{"YzProjectId",project},{"Status",1}});
+                if(redundant==1)
+                {
+                    Source(101,11,null,null,project);
+                    Source(103,11,21,11,project);
+                    Source(104,12,22,12,project);
+                    Source(105,11,21,11,project+1);
+                }
+                return runtime;
+
+                void Source(long id,long country,long? area,long? leaf,long owner)=>runtime.Add(entity,
+                    new Dictionary<string,object?>{{"Id",id},{"Name","同名"},{"CountryId",country},{"AreaId",area},{"PlaceId",leaf},{"YzProjectId",owner}});
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    /// <summary>级联根和末级共享目标表，固定名称与父字段仍属于各自角色。</summary>
+    private static MetadataCatalog RepeatedTargetExcelCatalog(string prefix,int redundant,bool derived)
+    {
+        var catalog=derived?NonRedundantCrossTargetsTests.Catalog(prefix,"string","int64","repeated"):
+            RedundantMultiNameCacheTests.Published(CrossTableNameCacheGenerationTests.Catalog(prefix,"string","int64",false));
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
+        var tree=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        if(!derived)
+        {
+            NonRedundantCrossTargetsTests.RepeatTarget(catalog,prefix,"int64");
+            catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="leaf_label",LogicalType="string",ColumnLength="100",YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPageColumns.Add(new(){Id="30138",ConfigPageId="301",ConfigColumnId="38",YzProjectId=catalog.YzProjectId});
+            var config=JsonNode.Parse(tree.ControlDetail)!;
+            config["levels"]![2]!["nameField"]="leaf_label";
+            tree.ControlDetail=config.ToJsonString();
+        }
+        tree.Name="路径";
+        catalog.ConfigColumns.Single(column=>column.Id=="22").Name="记录";
+        return catalog;
     }
 
     /// <summary>在真实生成写入的 Mapper 调用前取证，离线测试不模拟 FreeSql 写入。</summary>

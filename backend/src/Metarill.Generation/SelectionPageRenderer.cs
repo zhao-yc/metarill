@@ -22,6 +22,13 @@ internal static class SelectionPageRenderer
         var number = 0;
         foreach (var (column, _) in page.Scopes.Where(scope => scope.Source == "parent"))
         {
+            var redundantParents=SharedRedundantParentCompilation.ForColumn(model,table,page,column);
+            if(redundantParents.Count>0)
+            {
+                // 原多选页同样按父字段的固定角色读取，同一目标表的其它层不能替代。
+                foreach(var parentPath in redundantParents)result.Append(SharedRedundantParentCompilation.Call(parentPath,page,"false"));
+                continue;
+            }
             if(NonRedundantCrossParentCompilation.Managed(model,table,page,column))
             {
                 var path=NonRedundantCrossParentCompilation.Find(model,table,page,column)!.Value;

@@ -31,8 +31,8 @@ public static class RedundantSharedParents
         if(independent)
         {
             var branch=branches.Single();
-            // 一个层号只对应一个目标表，文件父范围与 Excel 使用同一条独立路径。
-            if(branch.Levels.Count is <2 or >3||branch.Levels.Select(level=>level.TableId).Distinct(StringComparer.Ordinal).Count()!=branch.Levels.Count)throw Unsupported();
+            // 父字段匹配固定存储槽，再按该层深度截取路径。同一目标表可承担不同层位。
+            if(branch.Levels.Count is <2 or >3)throw Unsupported();
             groups.Add([branch]);
         }
         if(groups.Count==0)return Empty();Realm(catalog,table,page);var sourceProject=storage.PhysicalColumns.SingleOrDefault(c=>c.ColumnName=="yz_project_id");if(GlobalCrossTableTarget.Declared(table)||sourceProject is null||!Scalar(storage,table,sourceProject)||sourceProject.LogicalType is not("string" or "int64"))throw Unsupported();

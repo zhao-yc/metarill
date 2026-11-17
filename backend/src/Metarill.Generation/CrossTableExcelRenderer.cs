@@ -11,12 +11,17 @@ internal static class CrossTableExcelRenderer
     internal static bool SupportsTargetRoles(TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans)
     {
         if(plans.Any(plan=>plan.Levels.Any(level=>level.Read.Target.Source.Id==table.Source.Id)))return false;
-        if(plans.All(plan=>plan.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()==plan.Levels.Count))
-            return true;
-        // 来源父范围和共享分支需要各自的角色绑定证明。
-        return plans is [var single]&&single.Levels.Count is >=2 and <=3&&
-            !page.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(page);
+        if(!plans.Any(RepeatsTarget))return true;
+        // 重复目标只开放独立单链；来源父范围由各存储方式按实际层位另行证明。
+        return plans is [var single]&&single.Levels.Count is >=2 and <=3&&!ExactDataManageCompilation.Declared(page);
     }
+
+    /// <summary>同一目标表重复出现时，由路径层位区分各自的物理父键。</summary>
+    internal static bool RepeatsTarget(CrossTableWriteModel plan)=>
+        plan.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()!=plan.Levels.Count;
+
+    /// <summary>固定末级列从工作簿排除，导入仍须验证页面绑定的路径。</summary>
+    internal static bool HasFixedPath(PageModel page)=>page.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossTableSubset.Declared(scope.Column));
 
     /// <summary>隐式各级ID只作为读取依赖，不扩大原导出表头。</summary>
     internal static IReadOnlyList<ColumnModel> ExportDependencies(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)=>

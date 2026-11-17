@@ -35,6 +35,7 @@ internal static class NonRedundantCrossTableSubset
             _=NonRedundantReadCompilation.ForPage(model,table,page);var parentTables=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
             var importColumns=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
             var imports=importColumns.Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id));
+            var importsFixedPath=ImportRenderer.Enabled(page)&&CrossTableExcelRenderer.HasFixedPath(page);
             var exports=plans.SelectMany(plan=>plan.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name));
             // 同一固定链的逻辑父范围支持追加、首列覆盖及列表和详情路径导出。
             var parentColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
@@ -44,8 +45,11 @@ internal static class NonRedundantCrossTableSubset
             // 自树写自己的节点；跨表路径仍须证明逻辑父范围，覆盖仍按明确的匹配键与页面范围执行。
             var pathSupported=independent&&(!hasParent||SupportsScopedPath(model,table,page,plans,parentColumns,parentTables));
             var appendImport=ImportRenderer.Mode(page) is "" or "OnlyNew";
-            var scopedOverwrite=hasParent&&pathSupported&&(imports||exports)&&SupportsScopedOverwrite(model,table,page,importColumns);
-            if(imports&&(!pathSupported||!appendImport&&!(hasParent?scopedOverwrite:
+            var scopedOverwrite=hasParent&&pathSupported&&(imports||exports||importsFixedPath)&&
+                (SupportsScopedOverwrite(model,table,page,importColumns)||
+                plans is [var single]&&CrossTableExcelRenderer.RepeatsTarget(single)&&SupportsOverwrite(model,table,page,plans,importColumns));
+            // 固定末级且只开启导入的页面也要审核作用域和覆盖键。
+            if((imports||importsFixedPath&&!exports)&&(!pathSupported||!appendImport&&!(hasParent?scopedOverwrite:
                 SupportsOverwrite(model,table,page,plans,importColumns))))
                 return CrossTableExcelRenderer.ImportAcceptancePending;
             // 末级控件同时是固定父键时不属于导入列，合并发布仍须校验页面的实际导入模式。
@@ -65,7 +69,8 @@ internal static class NonRedundantCrossTableSubset
         var paths=plans.Select(plan=>plan.Levels).ToArray();
         if(paths.Length==1)
         {
-            if(paths[0].Count!=3)return false;
+            // 两级重复目标也由两个独立物理槽标识根与末级。
+            if(paths[0].Count!=3&&!(paths[0].Count==2&&CrossTableExcelRenderer.RepeatsTarget(plans[0])))return false;
         }
         else
         {
@@ -96,7 +101,7 @@ internal static class NonRedundantCrossTableSubset
     /// <summary>新开放的逻辑父范围路径覆盖可给出固定重名提示；原无父及纯标量路径沿各自协议。</summary>
     internal static bool ReportsScopedOverwriteAmbiguity(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)=>
         table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent")&&
-        table.Columns.Any(column=>Declared(column)&&(columns.Contains(column)||ExportRenderer.IncludesColumn(page,column)))&&
+        (CrossTableExcelRenderer.HasFixedPath(page)||table.Columns.Any(column=>Declared(column)&&(columns.Contains(column)||ExportRenderer.IncludesColumn(page,column))))&&
         SupportsScopedOverwrite(model,table,page,columns)&&Reason(model,table,page) is null;
 
     /// <summary>公开覆盖只接受已验收的末级单值键、项目范围和独立或共享级联，不扩张到逻辑祖先或附加上下文。</summary>
