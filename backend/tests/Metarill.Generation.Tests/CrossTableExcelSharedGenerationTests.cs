@@ -116,21 +116,31 @@ public sealed class CrossTableExcelSharedGenerationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
     }
 
-    /// <summary>原父范围的追加、覆盖和导出共用发布的物理父键，固定末级缺席时仍校验共享祖先。</summary>
-    [Fact]
-    public async Task Redundant_parent_cross_excel_uses_the_bound_source_scope()
+    /// <summary>单链和共享链的 Excel 共用发布的物理父键，整条固定末级仍由页面绑定。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Redundant_parent_cross_excel_uses_the_bound_source_scope(bool independent)
     {
         var catalog=SharedRedundantParentGenerationTests.Catalog(Prefix,"string","int64",false,0,false);
+        if(independent)
+        {
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="80");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="80"||field.ConfigPageId=="205");
+            catalog.ConfigPages.RemoveAll(page=>page.Id=="205");
+            catalog.ConfigMenus.RemoveAll(menu=>menu.ConfigPageId=="205");
+        }
         foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId=="91"))
         {field.IsShow=0;field.IsEdit=0;}
         foreach(var (id,name) in new[]{("22","名称"),("25","主路径"),("80","仓库路径")})
         {
+            if(independent&&id=="80")continue;
             catalog.ConfigColumns.Single(column=>column.Id==id).Name=name;
             foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==id))
             {field.IsShow=1;field.IsEdit=1;}
         }
         catalog.ConfigColumns.Single(column=>column.Id=="22").SortNo=-1;
-        foreach(var (id,import,export) in new[]{("203","OverWriteByFirstColumn","list"),("204","OnlyNew","edit"),("206","OnlyNew","list")})
+        foreach(var (id,import,export) in new[]{("202","OnlyNew","list"),("203","OverWriteByFirstColumn","list"),("204",independent?"OverWriteByFirstColumn":"OnlyNew","edit"),("206","OnlyNew","list")})
         {
             var page=catalog.ConfigPages.Single(page=>page.Id==id);
             page.IsImport=1;page.IsExport=1;
@@ -140,18 +150,47 @@ public sealed class CrossTableExcelSharedGenerationTests
         var model=GenerationModel.Create(catalog,Namespace);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
+        if(independent)
+        {
+            var parents=Metarill.Data.Queries.RedundantSharedParents.Compile(catalog,"2","204");
+            Assert.Equal(new[]{"country","area","place"},Assert.Single(parents).Value.Levels.Select(level=>level.Prefix));
+            var leafPage=catalog.ConfigPages.Single(page=>page.Id=="204");
+            var mode=leafPage.Extra["importMethod"];
+            leafPage.Extra["importMethod"]=JsonSerializer.SerializeToElement("unknown");
+            Assert.Contains(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,Namespace)),
+                gap=>gap.Reason==CrossTableExcelRenderer.ImportAcceptancePending);
+            leafPage.Extra["importMethod"]=mode;
+        }
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-parent-excel");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),Namespace);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
-            using var middle=Runtime(assembly,"203");
-            var stopped=new TimeoutException("测试在已匹配、写入前停止。");
-            middle.AfterRead=(entity,limit)=>{if(entity=="SharedExcelSource"&&limit==2)throw stopped;};
             var sameName=new Dictionary<string,object?>{{"名称","同名"},{"主路径","国甲/区甲/城甲"}};
-            var match=await Assert.ThrowsAsync<PageImportException>(()=>middle.Import([sameName],"21"));
-            Assert.Same(stopped,match.InnerException);
+            if(independent)
+            {
+                var appendGuard=new StopBeforeExcelWrite();
+                using var append=Runtime(assembly,"202",appendGuard);
+                var appended=await Assert.ThrowsAsync<BusinessRuleException>(()=>append.Import([
+                    new(){{"名称","追加部分路径"},{"主路径","国甲/区甲/"}}
+                ],"11"));
+                Assert.Same(appendGuard.Stop,appended);
+                Assert.Equal(RecordMutationOperation.Create,appendGuard.Validation!.Operation);
+                Assert.Contains("place_id",appendGuard.Validation.SubmittedFields);
+                var conflict=await Assert.ThrowsAsync<PageImportException>(()=>append.Import([
+                    new(){{"名称","另一根路径"},{"主路径","国乙/区乙/城乙"}}
+                ],"11"));
+                Assert.Equal(PageImportError.Relation,conflict.Code);
+                Assert.Equal(2,append.Transport.Rollbacks);
+            }
+
+            var overwriteGuard=new StopBeforeExcelWrite();
+            using var middle=Runtime(assembly,"203",overwriteGuard);
+            var stopped=await Assert.ThrowsAsync<BusinessRuleException>(()=>middle.Import([sameName],"21"));
+            Assert.Same(overwriteGuard.Stop,stopped);
+            Assert.Equal(RecordMutationOperation.Update,overwriteGuard.Validation!.Operation);
+            Assert.Equal(101L,overwriteGuard.Validation.RecordId);
             Assert.Contains(("SharedExcelSource","ToListAsync",1),middle.ReadCalls);
             Assert.Equal(1,middle.Transport.Rollbacks);
             var export=await middle.Export(new PageRequest{ParentId="21"});
@@ -161,14 +200,30 @@ public sealed class CrossTableExcelSharedGenerationTests
             await Assert.ThrowsAsync<InvalidOperationException>(()=>middle.Export(new PageRequest{ParentId="99"}));
             Assert.Equal(locks,middle.Reads.Count(read=>read.StartsWith("lock:",StringComparison.Ordinal)));
 
-            using var leaf=Runtime(assembly,"204");
+            var leafGuard=new StopBeforeExcelWrite();
+            using var leaf=Runtime(assembly,"204",leafGuard);
             var fixedField=await Assert.ThrowsAsync<PageImportException>(()=>leaf.Import([sameName],"31"));
             Assert.Equal(PageImportError.UnknownHeader,fixedField.Code);
-            var conflict=await Assert.ThrowsAsync<PageImportException>(()=>leaf.Import([
-                new(){{"名称","越界"},{"仓库路径","国乙/区乙/仓乙"}}
-            ],"31"));
-            Assert.Equal((PageImportError.Relation,(int?)1,"仓库路径"),(conflict.Code!.Value,conflict.RowNumber,conflict.ColumnName));
-            Assert.Equal(2,leaf.Transport.Rollbacks);
+            if(independent)
+            {
+                var row=new Dictionary<string,object?>{{"名称","同名"}};
+                stopped=await Assert.ThrowsAsync<BusinessRuleException>(()=>leaf.Import([row],"31"));
+                Assert.Same(leafGuard.Stop,stopped);
+                Assert.Equal(RecordMutationOperation.Update,leafGuard.Validation!.Operation);
+                Assert.Equal(101L,leafGuard.Validation.RecordId);
+                Assert.DoesNotContain("place_id",leafGuard.Validation.SubmittedFields);
+                row["名称"]=" ";
+                var empty=await Assert.ThrowsAsync<PageImportException>(()=>leaf.Import([row],"31"));
+                Assert.Equal((PageImportError.MissingOverwriteKey,(int?)1,"名称"),(empty.Code!.Value,empty.RowNumber,empty.ColumnName));
+            }
+            else
+            {
+                var conflict=await Assert.ThrowsAsync<PageImportException>(()=>leaf.Import([
+                    new(){{"名称","越界"},{"仓库路径","国乙/区乙/仓乙"}}
+                ],"31"));
+                Assert.Equal((PageImportError.Relation,(int?)1,"仓库路径"),(conflict.Code!.Value,conflict.RowNumber,conflict.ColumnName));
+            }
+            Assert.Equal(independent?3:2,leaf.Transport.Rollbacks);
             export=await leaf.Export(new PageRequest{ParentId="31"});
             Assert.Equal("国甲/区甲/城甲",Assert.Single(export.Rows)[export.Headers.ToList().IndexOf("主路径")]);
 
@@ -180,9 +235,9 @@ public sealed class CrossTableExcelSharedGenerationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
 
         // 同名记录横跨不同源父；末级和复合来源条件使用相同数据，避免靠夹具过滤碰巧通过。
-        SharedExcelReadTransport Runtime(Assembly assembly,string pageId)
+        SharedExcelReadTransport Runtime(Assembly assembly,string pageId,IRecordMutationGuard? guard=null)
         {
-            var runtime=new SharedExcelReadTransport(assembly,Namespace,"SharedExcelSource",pageId:pageId);
+            var runtime=new SharedExcelReadTransport(assembly,Namespace,"SharedExcelSource",pageId:pageId,guard:guard);
             const long project=9007199254740993;
             Seed("Country",11,"国甲");Seed("Country",12,"国乙");
             Seed("Area",21,"区甲","SharedExcelCountryId",11);Seed("Area",22,"区乙","SharedExcelCountryId",12);
@@ -201,8 +256,25 @@ public sealed class CrossTableExcelSharedGenerationTests
                 runtime.Add("SharedExcel"+suffix,values);
             }
             void Source(long id,long country,long area,long place,long warehouse,long owner,long projectId)
-                =>runtime.Add("SharedExcelSource",new Dictionary<string,object?>{{"Id",id},{"Name","同名"},{"CountryId",country},
-                    {"AreaId",area},{"PlaceId",place},{"WarehouseId",warehouse},{"OwnerCountryId",owner},{"YzProjectId",projectId}});
+            {
+                var values=new Dictionary<string,object?>{{"Id",id},{"Name","同名"},{"CountryId",country},
+                    {"AreaId",area},{"PlaceId",place},{"OwnerCountryId",owner},{"YzProjectId",projectId}};
+                if(!independent)values["WarehouseId"]=warehouse;
+                runtime.Add("SharedExcelSource",values);
+            }
+        }
+    }
+
+    /// <summary>在真实生成写入的 Mapper 调用前取证，离线测试不模拟 FreeSql 写入。</summary>
+    private sealed class StopBeforeExcelWrite:IRecordMutationGuard
+    {
+        internal BusinessRuleException Stop { get; }=new("测试到达写入前的业务守卫。");
+        internal RecordMutationValidation? Validation { get; private set; }
+        public Task BeforeMutationAsync(RecordMutationPreparation preparation,CancellationToken cancellationToken=default)=>Task.CompletedTask;
+        public Task BeforeWriteAsync(RecordMutationValidation validation,CancellationToken cancellationToken=default)
+        {
+            Validation=validation;
+            throw Stop;
         }
     }
 
@@ -450,14 +522,14 @@ internal sealed class SharedExcelReadTransport:IDisposable
     internal Action<string,int>? AfterRead{get;set;}
     internal int ExportLockCount{get;private set;}
     /// <summary>仅用实际生成Mapper与Service；额外目标list授权、ADO写入和网络访问均拒绝。</summary>
-    internal SharedExcelReadTransport(Assembly assembly,string rootNamespace,string serviceName,bool sourceCondition=false,string pageId="201",RuntimeActor? actor=null,IRuntimeAuthorization? authorization=null)
+    internal SharedExcelReadTransport(Assembly assembly,string rootNamespace,string serviceName,bool sourceCondition=false,string pageId="201",RuntimeActor? actor=null,IRuntimeAuthorization? authorization=null,IRecordMutationGuard? guard=null)
     {
         this.assembly=assembly;this.rootNamespace=rootNamespace;sourceEntity=serviceName;this.sourceCondition=sourceCondition;this.pageId=pageId;this.actor=actor??new(901,"共享Excel解析",false,"9007199254740993","5");
         var orm=(IFreeSql)Proxy(typeof(IFreeSql),(method,args)=>method.Name=="Select"?Select(method.GetGenericArguments()[0]):throw new InvalidOperationException("共享Excel离线读取禁止ORM写入或联网。"));
         provider=new(Transport,orm);Session=new(new(){Provider="mysql",ExpectedDatabase="offline"},orm,provider);
         var mapper=Activator.CreateInstance(assembly.GetType(rootNamespace+".Generated.Mappers."+serviceName+"Mapper",true)!,Session)!;
         serviceType=assembly.GetType(rootNamespace+".Generated.Services."+serviceName+"Service",true)!;
-        service=Activator.CreateInstance(serviceType,Session,mapper,new SnowflakeIdGenerator(951),Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),authorization??new ImportOnly(this.actor))!;
+        service=Activator.CreateInstance(serviceType,Session,mapper,new SnowflakeIdGenerator(951),Array.Empty<IRecordMutationObserver>(),guard is null?Array.Empty<IRecordMutationGuard>():new[]{guard},authorization??new ImportOnly(this.actor))!;
     }
     /// <summary>只向明确生成类型赋值，未知属性不被忽略；键值转换保持精确整数。</summary>
     internal void Add(string entity,IReadOnlyDictionary<string,object?> fields)

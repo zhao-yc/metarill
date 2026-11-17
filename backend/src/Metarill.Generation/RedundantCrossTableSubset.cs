@@ -37,22 +37,27 @@ internal static class RedundantCrossTableSubset
             var imports=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
             var exportedSlots=slots.Where(column=>ExportRenderer.IncludesColumn(page,column)).ToArray();
             var importedSlots=slots.Where(column=>imports.Any(field=>field.Source.Id==column.Source.Id)).ToArray();
-            if(exportedSlots.Length==0&&importedSlots.Length==0)return null;
+            // 固定末级从工作簿排除，但导入仍绑定并验证该跨表路径。
+            var importsFixedPath=ImportRenderer.Enabled(page)&&HasFixedPath(page);
+            if(exportedSlots.Length==0&&importedSlots.Length==0&&!importsFixedPath)return null;
             // 已逐个验证自树同伴的写入、名称缓存和传播。Excel 路径列分别复用各自的解析与导出。
             var supported=SupportsPathCells(model,table,page,plans);
             // 列表与详情模式共用原快照和路径读取，祖先ID仍只作为内部投影依赖。
             if(exportedSlots.Length>0&&(!supported||ExportRenderer.Mode(page) is not ("" or "list" or "edit")||
                 exportedSlots.Any(column=>!pathIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ExportAcceptancePending;
-            if(importedSlots.Length>0&&(!supported||!SupportsImport(model,table,page,plans,imports)||
+            if((importedSlots.Length>0||importsFixedPath)&&(!supported||!SupportsImport(model,table,page,plans,imports)||
                 importedSlots.Any(column=>!pathIds.Contains(column.Source.Id))))return CrossTableExcelRenderer.ImportAcceptancePending;
             return null;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return "冗余跨表完整用途未通过："+error.Message;}
     }
+    /// <summary>判断导入是否还有由源父范围绑定的整条跨表路径。</summary>
+    internal static bool HasFixedPath(PageModel page)=>page.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossTableSubset.Declared(scope.Column));
+
     /// <summary>Excel 共用已经证明的逐层名称读取与传播计划，覆盖单条路径或经统一协调的双路径。</summary>
     private static bool SupportsPathCells(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans)
     {
-        // 来源父范围已由 Reason 中的共享物理父证明验证。路径仍须使用唯一目标角色。
+        // 来源父范围已由 Reason 中的物理父证明验证。路径仍须使用唯一目标角色。
         if(model.Catalog.DatabaseProvider!="mysql"||plans.Count>2)return false;
         if(plans.Any(plan=>plan.Levels.Count is <2 or >3||
             plan.Levels.Any(level=>level.Read.Target.Source.Id==table.Source.Id)||

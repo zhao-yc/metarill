@@ -21,6 +21,26 @@ public sealed class FileRedundantSharedParentScopeTests
             c.ConfigColumns.Single(column=>column.Id=="16").ControlDetail="{}";Assert.Single(registry.PageScope(frozen,frozen.ConfigPages.Single(p=>p.Id=="101")).Crosses);
         }
     }
+    /// <summary>单链复用附件范围入口，根、中层和末级都取实际存储父键。</summary>
+    [Fact]
+    public void Independent_parent_page_uses_the_actual_physical_scope()
+    {
+        var catalog=Catalog("string","int64");
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="16");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="16"||field.ConfigPageId=="104");
+        catalog.ConfigPages.RemoveAll(page=>page.Id=="104");
+        var context=new FileMetadataContext([catalog]);
+        var frozen=context.Catalogs.Single();
+        foreach(var (pageId,column,depth) in new[]{("101","country_id",0),("102","area_id",1),("103","place_id",2)})
+        {
+            var scope=context.PageScope(frozen,frozen.ConfigPages.Single(page=>page.Id==pageId));
+            var path=Assert.Single(scope.Crosses);
+            Assert.Equal(column,Assert.Single(path.StorageNames));
+            Assert.Equal(depth,path.Level);
+            Assert.Empty(scope.Parents);
+        }
+    }
+
     /// <summary>坏同伴、覆盖、范围、身份和缓存名称不能由另一个有效分支补足。</summary>
     [Theory][InlineData("peer")][InlineData("overlay")][InlineData("exact")][InlineData("globalSource")][InlineData("unpublished")][InlineData("parentName")][InlineData("variable")][InlineData("physicalPage")][InlineData("hidden")][InlineData("nameLink")]
     public void Unproven_parent_page_is_closed(string kind)

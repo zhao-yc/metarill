@@ -11,30 +11,52 @@ internal sealed record SharedRedundantParentPath(CrossTableReadModel Read,int In
 {
     internal CrossTableLevelModel Level=>Read.Levels[Index];
 }
-/// <summary>R1来源父范围使用已持久化的物理父键，共享目标链只证明真实父记录的固定可见范围。</summary>
+/// <summary>R1来源父范围使用已持久化的物理父键，单链和共享目标链均验证真实父记录的固定可见范围。</summary>
 internal static class SharedRedundantParentCompilation
 {
     private static readonly ConditionalWeakTable<GenerationModel,ConcurrentDictionary<(string,string),IReadOnlyDictionary<string,RedundantSharedParentPlan>>> ParentPlans=new();
-    /// <summary>不改变普通单控件、R0、自参与及精确权限的既有边界。</summary>
-    internal static bool Enabled(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu==1&&page.Scopes.Any(scope=>scope.Source=="parent")&&SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0;
+    /// <summary>识别已有共享链及来源独立于全部目标表的单链物理父页。</summary>
+    internal static bool Enabled(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu==1&&page.Scopes.Any(scope=>scope.Source=="parent")&&
+        (SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0||IndependentPlan(model,table,page) is not null);
+
+    /// <summary>单链沿用 Excel 支持的两至三级固定角色，证明失败时保留完整包门槛。</summary>
+    private static CrossTableWriteModel? IndependentPlan(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(model.Catalog.DatabaseProvider!="mysql"||
+            table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").ToArray() is not [var source]||
+            !NonRedundantCrossTableSubset.Declared(source))return null;
+        var plan=CrossTableWriteCompilation.Resolve(model,table,page,source).Definition;
+        if(plan is null||plan.Levels.Count is <2 or >3||
+            plan.Levels.Any(level=>level.Read.Target.Source.Id==table.Source.Id)||
+            plan.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()!=plan.Levels.Count)return null;
+        return plan;
+    }
     /// <summary>同一物理父键只能指向一个已冻结目标角色，不能从不同页或名字借用证明。</summary>
     internal static IReadOnlyList<SharedRedundantParentPath> ForColumn(GenerationModel model,TableModel table,PageModel page,ColumnModel column)
     {
-        if(!Enabled(model,table,page)||!page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id))return [];
-        var shared=SharedCrossTableCompilation.ForPage(model,table,page);if(shared.Gaps.Count>0)throw new NotSupportedException("R1父范围的全部共享同伴必须通过完整证明。");
-        var paths=shared.Groups.SelectMany(group=>group.Plans).SelectMany(plan=>plan.Levels.Select((level,index)=>new SharedRedundantParentPath(plan.Read,index))).ToArray();var matches=paths.Where(path=>path.Level.Prefix+"_id"==column.Source.ColumnName).ToArray();
+        if(table.Source.IsRongyu!=1||!page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id))return [];
+        var shared=SharedCrossTableCompilation.ForPage(model,table,page);
+        var plans=shared.Groups.SelectMany(group=>group.Plans);
+        if(shared.Groups.Count==0)
+        {
+            if(IndependentPlan(model,table,page) is not{} independent)return [];
+            plans=[independent];
+        }
+        if(shared.Gaps.Count>0)throw new NotSupportedException("R1父范围的全部共享同伴必须通过完整证明。");
+        var paths=plans.SelectMany(plan=>plan.Levels.Select((level,index)=>new SharedRedundantParentPath(plan.Read,index))).ToArray();
+        var matches=paths.Where(path=>path.Level.Prefix+"_id"==column.Source.ColumnName).ToArray();
         if(matches.Length==0)
         {
             var target=model.Tables.SingleOrDefault(target=>target.Source.Id==column.Source.LinkConfigTableId);if(target is null||!target.IsGlobal)return [];
             var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(column.Source.ControlDetail)))throw new NotSupportedException("R1全局物理父不能替换固定关系覆盖。");
             var single=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,column.Source,target.Source);matches=paths.Where(path=>path.Level.Target.Source.Id==target.Source.Id&&path.Level.Page.Source.Id==single.Page.Id&&path.Level.Name.Source.Id==single.Name.Id).ToArray();
         }
-        var result=matches.DistinctBy(Identity,StringComparer.Ordinal).ToArray();if(result.Length!=1)throw new NotSupportedException("R1共享父字段缺少唯一固定目标角色。");if(result[0].Level.Target.IsGlobal)GlobalCrossTableTarget.Require(model.Catalog,result[0].Level.Target.Source,result[0].Level.Page.Source);return result;
+        var result=matches.DistinctBy(Identity,StringComparer.Ordinal).ToArray();if(result.Length!=1)throw new NotSupportedException("R1跨表父字段缺少唯一固定目标角色。");if(result[0].Level.Target.IsGlobal)GlobalCrossTableTarget.Require(model.Catalog,result[0].Level.Target.Source,result[0].Level.Page.Source);return result;
     }
     /// <summary>完整包逐个证明物理父字段，来源项目与后台必须明确发布。</summary>
     internal static void Require(GenerationModel model,TableModel table,PageModel page)
     {
-        if(!Enabled(model,table,page)||table.IsGlobal||ExactDataManageCompilation.Declared(page)||table.Source.YzProjectId!=model.Catalog.YzProjectId||page.Source.YzProjectId!=model.Catalog.YzProjectId||!model.Catalog.YzAdminTypes.Any(admin=>admin.Id==page.Source.YzAdminTypeId&&admin.YzProjectId==model.Catalog.YzProjectId))throw new NotSupportedException("R1共享父范围要求普通已发布来源及明确后台，精确权限另行证明。");
+        if(!Enabled(model,table,page)||table.IsGlobal||ExactDataManageCompilation.Declared(page)||table.Source.YzProjectId!=model.Catalog.YzProjectId||page.Source.YzProjectId!=model.Catalog.YzProjectId||!model.Catalog.YzAdminTypes.Any(admin=>admin.Id==page.Source.YzAdminTypeId&&admin.YzProjectId==model.Catalog.YzProjectId))throw new NotSupportedException("R1跨表父范围要求普通已发布来源及明确后台，精确权限另行证明。");
         var physical=MetadataStoragePolicy.ForTable(model.Catalog,table.Source).PhysicalColumns;
         var plans=ParentPlans.GetValue(model,_=>new()).GetOrAdd((table.Source.Id,page.Source.Id),_=>CompileParents(model,table,page));
         foreach(var scope in page.Scopes.Where(scope=>scope.Source=="parent"))
@@ -60,7 +82,7 @@ internal static class SharedRedundantParentCompilation
     internal static string Call(SharedRedundantParentPath path,PageModel page,string locking)=>$"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,{locking},false).PathAsync({path.Index},SharedR1ParentKey{page.Source.Id}(parentId),cancellationToken);\n";
     /// <summary>实际存储复核不把R1缓存父键改为R0推导值，钩子或DML逃逸必须回滚。</summary>
     internal static string VerifyCall(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)?$"        await VerifySharedR1Parent{page.Source.Id}Async(entity,actor,parentId,cancellationToken);\n":"";
-    /// <summary>只给新接通的共享R1父页生成私有键解析及写后／删除前实际行复核。</summary>
+    /// <summary>为已证明的R1跨表父页生成私有键解析及写后／删除前实际行复核。</summary>
     internal static string Service(GenerationModel model,TableModel table,PageModel page)
     {
         if(!Enabled(model,table,page))return "";Require(model,table,page);var fields=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).DistinctBy(column=>column.Source.Id).ToArray();var result=new StringBuilder();

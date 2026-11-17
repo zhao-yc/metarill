@@ -11,17 +11,30 @@ namespace Metarill.Data.Queries;
 public sealed record RedundantSharedParentLevel(string Key,string Prefix,string TableId,string TableName,string PageId,string NameId,string? Parent,string? ProjectType,bool SoftDelete,string ConditionDefinition,FixedConditionSqlPlan? Condition);
 /// <summary>来源实际物理父键及其唯一已证明目标角色。</summary>
 public sealed record RedundantSharedParentPlan(string ColumnId,string ColumnName,string LogicalType,string ControlId,IReadOnlyList<RedundantSharedParentLevel> Levels);
-/// <summary>生成与文件运行时共同消费R1共享父定义，不能以R0稀疏编码推导实际父值。</summary>
+/// <summary>生成与文件运行时共用R1物理父定义，覆盖独立单链和共享链。</summary>
 public static class RedundantSharedParents
 {
     private sealed record Branch(ColumnMetadata Control,IReadOnlyList<RedundantSharedParentLevel> Levels,IReadOnlyList<ColumnMetadata> Ids,IReadOnlyList<ColumnMetadata> Names);
-    /// <summary>仅识别真正共享的R1父页；普通物理外键、单控件和R0继续原入口。</summary>
+    /// <summary>单链和共享链采用同一物理槽、目标范围与缓存传播证明；普通物理外键由调用者验证。</summary>
     public static IReadOnlyDictionary<string,RedundantSharedParentPlan> Compile(MetadataCatalog catalog,string tableId,string pageId)
     {
-        var table=catalog.ConfigTables.Single(t=>t.Id==tableId);var page=catalog.ConfigPages.Single(p=>p.Id==pageId&&p.ConfigTableId==tableId);var controls=catalog.ConfigColumns.Where(c=>c.ConfigTableId==tableId&&c.ControlKind=="CascadeTree").ToArray();if(table.IsRongyu!=1||controls.Length<2)return Empty();
+        var table=catalog.ConfigTables.Single(t=>t.Id==tableId);var page=catalog.ConfigPages.Single(p=>p.Id==pageId&&p.ConfigTableId==tableId);var controls=catalog.ConfigColumns.Where(c=>c.ConfigTableId==tableId&&c.ControlKind=="CascadeTree").ToArray();if(table.IsRongyu!=1||controls.Length==0)return Empty();
+        var independent=controls.Length==1;
+        if(independent&&catalog.DatabaseProvider!="mysql")return Empty();
         var storage=MetadataStoragePolicy.ForTable(catalog,table);var syntax=FixedConditionPlan.Compile(page.WhereSql,storage.PhysicalColumns.Select(c=>c.ColumnName));var parents=syntax.Terms.Where(t=>t.Values.Any(v=>v.Kind==FixedConditionValueKind.Variable&&(v.Text.Equals("parentId",StringComparison.OrdinalIgnoreCase)||v.Text.Equals("parent_id",StringComparison.OrdinalIgnoreCase)))).ToArray();if(parents.Length==0)return Empty();
-        var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(c=>c.ConfigTableId==tableId));var crossControls=controls.Where(c=>CrossControl(catalog,table,page,c)).ToArray();var branches=crossControls.Select(c=>CompileBranch(catalog,table,page,c,columns,crossControls)).ToArray();var remaining=branches.ToList();var groups=new List<Branch[]>();
+        if(independent&&!IsCrossControl(controls[0]))return Empty();
+        var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(c=>c.ConfigTableId==tableId));
+        var crossControls=independent?controls:controls.Where(c=>CrossControl(catalog,table,page,c)).ToArray();
+        var branches=crossControls.Select(c=>CompileBranch(catalog,table,page,c,columns,crossControls)).ToArray();
+        var remaining=branches.ToList();var groups=new List<Branch[]>();
         while(remaining.Count>0){var group=new List<Branch>{remaining[0]};remaining.RemoveAt(0);bool changed;do{changed=false;foreach(var other in remaining.ToArray())if(group.Any(b=>b.Ids.Any(id=>other.Ids.Any(candidate=>candidate.ColumnName==id.ColumnName)))){group.Add(other);remaining.Remove(other);changed=true;}}while(changed);if(group.Count>1)groups.Add(group.ToArray());}
+        if(independent)
+        {
+            var branch=branches.Single();
+            // 一个层号只对应一个目标表，文件父范围与 Excel 使用同一条独立路径。
+            if(branch.Levels.Count is <2 or >3||branch.Levels.Select(level=>level.TableId).Distinct(StringComparer.Ordinal).Count()!=branch.Levels.Count)throw Unsupported();
+            groups.Add([branch]);
+        }
         if(groups.Count==0)return Empty();Realm(catalog,table,page);var sourceProject=storage.PhysicalColumns.SingleOrDefault(c=>c.ColumnName=="yz_project_id");if(GlobalCrossTableTarget.Declared(table)||sourceProject is null||!Scalar(storage,table,sourceProject)||sourceProject.LogicalType is not("string" or "int64"))throw Unsupported();
         if(Exact(page))throw Unsupported();foreach(var group in groups)Prove(catalog,table,group);
         var result=new Dictionary<string,RedundantSharedParentPlan>(StringComparer.Ordinal);
@@ -42,9 +55,17 @@ public static class RedundantSharedParents
     /// <summary>自树同伴独立证明物理缓存后不冒充跨表分支；覆盖或坏定义仍使整页关闭。</summary>
     private static bool CrossControl(MetadataCatalog catalog,TableMetadata source,PageMetadata page,ColumnMetadata control)
     {
-        using var json=JsonDocument.Parse(control.ControlDetail);Object(json.RootElement);if(Text(json.RootElement,"sourceMode","crossTable")!="selfTree")return true;
+        if(IsCrossControl(control))return true;
         var overlay=catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Id&&f.ConfigColumnId==control.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(control.ControlDetail)))throw Unsupported();_=SelfTreeCache.Compile(catalog,source.Id,control.Id);return false;
     }
+    /// <summary>按物理字段的表级定义识别跨表路径，拒绝歧义 JSON。</summary>
+    private static bool IsCrossControl(ColumnMetadata control)
+    {
+        using var json=JsonDocument.Parse(control.ControlDetail);
+        Object(json.RootElement);
+        return Text(json.RootElement,"sourceMode","crossTable")!="selfTree";
+    }
+
     /// <summary>完整目标、页面及每个物理ID／缓存先冻结；坏同伴、变化覆盖和额外SQL不能被忽略。</summary>
     private static Branch CompileBranch(MetadataCatalog catalog,TableMetadata source,PageMetadata page,ColumnMetadata control,IReadOnlyList<ColumnMetadata> sourceColumns,IReadOnlyList<ColumnMetadata> controls)
     {
@@ -65,10 +86,10 @@ public static class RedundantSharedParents
         }
         if(ids[^1].Id!=control.Id)throw Unsupported();return new(control,Array.AsReadOnly(result.ToArray()),Array.AsReadOnly(ids.ToArray()),Array.AsReadOnly(names.ToArray()));
     }
-    /// <summary>共同前缀由协调器验证，缓存归属及派生终点复用正式数据层编译器。</summary>
+    /// <summary>共享前缀由协调器验证；单链和共享链均由正式数据层证明缓存归属及派生名称。</summary>
     private static void Prove(MetadataCatalog catalog,TableMetadata source,IReadOnlyList<Branch> branches)
     {
-        _=new SharedCrossTableCoordinator(branches.Select(b=>new SharedCrossTableBranch(b.Control.Id,b.Levels.Select((level,index)=>new SharedCrossTableSlot(b.Ids[index].ColumnName,b.Names[index].ColumnName,b.Ids[index].LogicalType,LevelIdentity(level))).ToArray())).ToArray());
+        if(branches.Count>1)_=new SharedCrossTableCoordinator(branches.Select(b=>new SharedCrossTableBranch(b.Control.Id,b.Levels.Select((level,index)=>new SharedCrossTableSlot(b.Ids[index].ColumnName,b.Names[index].ColumnName,b.Ids[index].LogicalType,LevelIdentity(level))).ToArray())).ToArray());
         var physical=new List<RelationCacheDefinition>();var derived=new List<RelationCacheDefinition>();
         foreach(var uses in branches.SelectMany(b=>b.Ids.Select((id,index)=>(Branch:b,Id:id,Index:index))).GroupBy(x=>x.Id.Id,StringComparer.Ordinal))
         {
@@ -112,5 +133,5 @@ public static class RedundantSharedParents
     /// <summary>不适用的旧路径返回只读空计划，不开放新用途。</summary>
     private static IReadOnlyDictionary<string,RedundantSharedParentPlan> Empty()=>new ReadOnlyDictionary<string,RedundantSharedParentPlan>(new Dictionary<string,RedundantSharedParentPlan>(StringComparer.Ordinal));
     /// <summary>拒绝信息不包含连接或业务内容。</summary>
-    private static NotSupportedException Unsupported()=>new("R1共享父范围尚未取得完整固定元数据证明。");
+    private static NotSupportedException Unsupported()=>new("R1跨表父范围尚未取得完整固定元数据证明。");
 }
