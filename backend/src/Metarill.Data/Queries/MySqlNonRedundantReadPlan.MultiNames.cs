@@ -16,8 +16,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var prefixForNames=publishedPage is null&&publishedArrayScopeCount==0?"multi_name_":aliasPrefix+"array"+publishedArrayScopeCount+"_";
             publishedArrayScopeCount++;
             var nested=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
-                trackReverse:refreshFields is not null,candidatePage:publishedPage,multiLabel:true,cascadeLabelField:value.ColumnName).Compile([value.ColumnName],[]);
-            foreach(var pair in nested.Constants)crossConstants.Add(pair.Key,pair.Value);
+                trackReverse:refreshFields is not null,candidatePage:publishedPage,multiLabel:true,cascadeLabelField:value.ColumnName,
+                cascadeCacheOwner:refreshFields is null?null:new(table,owner)).Compile([value.ColumnName],[]);
+            nested.CopyParametersTo(crossConstants);
             if(trackReverse&&nested.RequiresPublishedProjectIdentity)publishedArrayIdentity=true;
             var cascadeLabel=nested.CascadeLabelOutputs.Contains(value.ColumnName);
             nested.Origins.TryGetValue(value.ColumnName,out var valueOrigin);
@@ -42,7 +43,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 }
             }
             var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG("+name+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(global?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(scope.Length==0?"":" AND "+scope)+targetJoins+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
-            multiProjections[expression]=new(source,Q(target.TableName),Q(value.ColumnName),scope,targetJoins,name);
+            multiProjections[expression]=new(source,Q(target.TableName),Q(value.ColumnName),scope,targetJoins,name,
+                nested.CascadeCacheOwnerFields.Count==0?null:new(owner,nested.CascadeCacheOwnerFields.Order(StringComparer.Ordinal).ToArray()));
             multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(scope.Length==0?"":" AND "+scope)+" AND "+name+" LIKE {parameter} ESCAPE '!')";
             if(global||cascadeLabel||scalarLabel&&relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(scope.Length==0?"":" AND "+scope)+" AND "+name+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
             // 维护报告展示发布的逻辑来源字段，物理列清单由嵌套路径单独记录。

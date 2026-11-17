@@ -28,7 +28,7 @@ internal static class DerivedMultiNamesImportRenderer
 {{(multi.TypedLabel?"            "+MultiSelectExcelRenderer.ParseLabel(multi.Name,"item.ToString()","name"):"")}}
             var filters=new List<FixedReadFilter>{new({{Literal(multi.Name.Source.ColumnName)}},FixedReadComparison.Equal,{{(multi.TypedLabel?"name":"item.ToString()")}})};
 {{string.Join("\n",scopes)}}
-            var matches=await new NonRedundantReader(session).PageAsync(MultiDerivedPlan{{suffix}},filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId{{(multi.TargetPage.Condition is null?"":",condition:"+FixedPageConditionCompilation.Bound(multi.TargetPage,"MultiPageCondition"+suffix))}},currentRead:true);
+            var matches=await new NonRedundantReader(session).PageAsync(MultiDerivedPlan{{suffix}}.BindAccount(actor),filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId{{(multi.TargetPage.Condition is null?"":",condition:"+FixedPageConditionCompilation.Bound(multi.TargetPage,"MultiPageCondition"+suffix))}},currentRead:true);
             if(matches.Records.Count!=1)throw PageImportException.Input(PageImportError.Relation);
             var value=NonRedundantReads.Value<long>(matches.Records[0],"id").ToString(CultureInfo.InvariantCulture);if(selected.Contains(value))throw PageImportException.Input(PageImportError.Relation);selected.Add(value);
         }

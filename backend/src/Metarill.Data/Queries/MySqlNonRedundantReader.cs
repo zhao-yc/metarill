@@ -107,9 +107,28 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);BindCross(count,plan);BindCondition(count,conditionClause);count.CommandText="SELECT COUNT(*)"+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+countFrom+(currentRead?" FOR SHARE":"");if(plan.Crosses.Count==0)total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);else{await using var counted=await count.ExecuteReaderAsync(cancellationToken);if(!await counted.ReadAsync(cancellationToken))throw new InvalidOperationException("跨表计数未返回结果。");RequireValidCross(counted,1);total=counted.GetInt64(0);}}
             await using var read=Command(connection);Bind(read,projectId,filters);BindCross(read,plan);BindCondition(read,conditionClause);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
             // 普通投影分页后批量补名；只有筛选/排序名称数组时使用预编译表达式，不按每行展开根查询。
-            var multis=plan.Outputs.Where(name=>!plan.StorageOutputs.ContainsKey(name)&&plan.MultiProjections.ContainsKey(name)).ToArray();var hidden=new Dictionary<string,string>(StringComparer.Ordinal);var projection=plan.Outputs.Select(name=>(!plan.StorageOutputs.ContainsKey(name)&&plan.MultiProjections.ContainsKey(name)?"NULL":plan.OutputExpression(name))+" AS "+Q(name)).ToList();
-            var ordinal=0;foreach(var name in multis){string alias;do{alias="metarill_multi_input_"+ordinal++;}while(plan.Outputs.Contains(alias,StringComparer.OrdinalIgnoreCase));hidden.Add(name,alias);projection.Add(plan.MultiProjections[name].SourceExpression+" AS "+Q(alias));}
-            var crossInputs=new List<(MySqlCrossTableProjection Plan,Dictionary<string,string> Fields)>();var crossValidityColumns=new List<string>();var used=plan.Outputs.Concat(hidden.Values).Concat(plan.RuleOutputAliases.Values).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var multis=plan.Outputs.Where(name=>!plan.StorageOutputs.ContainsKey(name)&&plan.MultiProjections.ContainsKey(name)).ToArray();
+            var hidden=new Dictionary<string,(string Source,string[] Owners)>(StringComparer.Ordinal);
+            var projection=plan.Outputs.Select(name=>(!plan.StorageOutputs.ContainsKey(name)&&plan.MultiProjections.ContainsKey(name)?"NULL":plan.OutputExpression(name))+" AS "+Q(name)).ToList();
+            var ordinal=0;
+            var used=plan.Outputs.Concat(plan.RuleOutputAliases.Values).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach(var name in multis)
+            {
+                var multi=plan.MultiProjections[name];
+                var source=Input(multi.SourceExpression,"metarill_multi_input_");
+                var owners=multi.Owner is { } owner?owner.Fields.Select(field=>Input(Q(owner.Alias)+"."+Q(field),"metarill_multi_owner_")).ToArray():[];
+                hidden.Add(name,(source,owners));
+            }
+
+            string Input(string expression,string prefix)
+            {
+                string alias;
+                do{alias=prefix+ordinal++;}while(!used.Add(alias));
+                projection.Add(expression+" AS "+Q(alias));
+                return alias;
+            }
+
+            var crossInputs=new List<(MySqlCrossTableProjection Plan,Dictionary<string,string> Fields)>();var crossValidityColumns=new List<string>();
             foreach(var rule in plan.RuleOutputAliases)projection.Add(plan.Expression(rule.Key)+" AS "+Q(rule.Value));
             foreach(var cross in plan.Crosses)
             {
@@ -138,19 +157,46 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
                 }
                 foreach(var input in crossInputs){_=input.Plan.Selection.ReadStored(input.Fields.ToDictionary(pair=>pair.Key,pair=>row[pair.Value],StringComparer.Ordinal));foreach(var alias in input.Fields.Values)row.Remove(alias);}
             }
-            foreach(var name in multis)await PopulateMultiAsync(connection,plan,plan.MultiProjections[name],name,hidden[name],records,projectId,currentRead,cancellationToken);
+            foreach(var name in multis)await PopulateMultiAsync(connection,plan,plan.MultiProjections[name],name,hidden[name].Source,hidden[name].Owners,records,projectId,currentRead,cancellationToken);
             return new FixedReadPage(total,records.Select(row=>(IReadOnlyDictionary<string,object?>)new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(row)).ToArray());
         },cancellationToken);
     }
     /// <summary>每个关系按页合并ID、分批主键读取名称；写回执使用目标当前锁读，不能被旧RR快照覆盖。</summary>
-    private async Task PopulateMultiAsync(DbConnection connection,MySqlNonRedundantReadPlan plan,MySqlMultiProjection projection,string output,string hidden,IReadOnlyList<Dictionary<string,object?>> rows,string projectId,bool currentRead,CancellationToken token)
+    private async Task PopulateMultiAsync(DbConnection connection,MySqlNonRedundantReadPlan plan,MySqlMultiProjection projection,
+        string output,string hidden,string[] ownerColumns,IReadOnlyList<Dictionary<string,object?>> rows,
+        string projectId,bool currentRead,CancellationToken token)
     {
+        if(projection.Owner is null)
+            await PopulateMultiGroupAsync(connection,plan,projection,output,hidden,rows,[],projectId,currentRead,token);
+        else
+        {
+            // 同一个被选 ID 在不同来源归属下可能有不同名称。按完整归属分别当前读。
+            string?[] OwnerValues(Dictionary<string,object?> row)=>ownerColumns
+                .Select(name=>row[name] is {} value?Convert.ToString(value,System.Globalization.CultureInfo.InvariantCulture):null).ToArray();
+            var groups=rows.GroupBy(row=>System.Text.Json.JsonSerializer.Serialize(OwnerValues(row),MultiNamesJson),StringComparer.Ordinal);
+            foreach(var group in groups)
+                await PopulateMultiGroupAsync(connection,plan,projection,output,hidden,group.ToArray(),
+                    OwnerValues(group.First()),projectId,currentRead,token);
+        }
+        foreach(var row in rows)
+            foreach(var owner in ownerColumns)row.Remove(owner);
+    }
+
+    /// <summary>本批归属作为已锁来源值绑定，目标继续使用原批量主键和共享锁。</summary>
+    private async Task PopulateMultiGroupAsync(DbConnection connection,MySqlNonRedundantReadPlan plan,MySqlMultiProjection projection,
+        string output,string hidden,IReadOnlyList<Dictionary<string,object?>> rows,string?[] owners,
+        string projectId,bool currentRead,CancellationToken token)
+    {
+        var ownerSql=projection.Owner is {} scope
+            ?" CROSS JOIN (SELECT "+string.Join(",",scope.Fields.Select((field,index)=>"@multi_owner_"+index+" AS "+Q(field)))+") "+Q(scope.Alias)
+            :"";
         var members=rows.Select(row=>MultiMembers(row[hidden])).ToArray();var ids=members.SelectMany(items=>items).Where(id=>id is not null).Select(id=>long.TryParse(id,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var key)&&key>0&&key.ToString(System.Globalization.CultureInfo.InvariantCulture)==id?(long?)key:null).OfType<long>().Distinct().Order().ToArray();
         var names=new Dictionary<string,string?>(StringComparer.Ordinal);
         foreach(var batch in ids.Chunk(200))
         {
             await using var command=Command(connection);Bind(command,projectId,[]);BindCross(command,plan);for(var index=0;index<batch.Length;index++)Add(command,"multi_id_"+index,batch[index]);
-            command.CommandText="SELECT multi_value.`id`,"+(projection.NameExpression??"multi_value."+projection.TargetName)+" FROM "+projection.TargetTable+" multi_value"+projection.Joins+" WHERE "+(projection.TargetScope.Length==0?"":projection.TargetScope+" AND ")+"multi_value.`id` IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@multi_id_"+index))+") ORDER BY multi_value.`id`"+(currentRead?" FOR SHARE":"");
+            for(var index=0;index<owners.Length;index++)Add(command,"multi_owner_"+index,owners[index] is {} value?value:DBNull.Value);
+            command.CommandText="SELECT multi_value.`id`,"+(projection.NameExpression??"multi_value."+projection.TargetName)+" FROM "+projection.TargetTable+" multi_value"+ownerSql+projection.Joins+" WHERE "+(projection.TargetScope.Length==0?"":projection.TargetScope+" AND ")+"multi_value.`id` IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@multi_id_"+index))+") ORDER BY multi_value.`id`"+(currentRead?" FOR SHARE":"");
             await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))names.Add(reader.GetInt64(0).ToString(System.Globalization.CultureInfo.InvariantCulture),await reader.IsDBNullAsync(1,token)?null:reader.GetString(1));
         }
         for(var index=0;index<rows.Count;index++){rows[index][output]=System.Text.Json.JsonSerializer.Serialize(members[index].Select(id=>id is null?null:names.GetValueOrDefault(id)).ToArray(),MultiNamesJson);rows[index].Remove(hidden);}

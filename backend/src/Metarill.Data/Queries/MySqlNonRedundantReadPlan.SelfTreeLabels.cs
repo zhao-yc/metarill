@@ -138,13 +138,8 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 var scope=Scope(proof.Target,alias,projectScoped:!global);
                 if(proof.Condition is null)return scope;
-                var clause=proof.Condition.RenderConstants(new MySqlDatabaseProvider(),"mt_"+alias,field=>
-                {
-                    Use(proof.Target,Column(proof.Target,field));
-                    return alias+"."+Q(field);
-                });
-                foreach(var pair in clause.Parameters)crossConstants.Add(pair.Key,pair.Value);
-                return scope.Length==0?clause.Sql:scope+" AND "+clause.Sql;
+                var condition=CascadeLabelCondition(proof.Target,proof.Page,proof.Condition,alias,"mt_"+alias);
+                return scope.Length==0?condition:scope+" AND "+condition;
             }
 
             IReadOnlySet<string> ConditionFields()=>FixedConditionPlan.Compile(proof.Page.WhereSql,

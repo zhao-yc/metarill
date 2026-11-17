@@ -79,7 +79,7 @@ internal static class MultiSelectFieldRenderer
                     var condition=FixedPageConditionCompilation.Bound(def.TargetPage,"MultiPageCondition"+suffix);
                     var nameExpression=$"NonRedundantReads.Value<{cache.Value.Type}>(row,{Literal(cache.Value.Source.ColumnName)})";
                     nameExpression=MultiSelectExcelRenderer.LabelText(cache.Value,nameExpression);
-                    result.AppendLine($"        var cacheRows{index}=await new NonRedundantReader(session).CurrentRowsAsync(MultiCachePlan{suffix}_{index},new FixedReadFilter[]{{{string.Join(",",filters)}}},new FixedReadOrder[]{{new(\"id\")}},200,cancellationToken,actor.ProjectId,{condition});")
+                    result.AppendLine($"        var cacheRows{index}=await new NonRedundantReader(session).CurrentRowsAsync(MultiCachePlan{suffix}_{index}.BindAccount(actor),new FixedReadFilter[]{{{string.Join(",",filters)}}},new FixedReadOrder[]{{new(\"id\")}},200,cancellationToken,actor.ProjectId,{condition});")
                         .AppendLine($"        if(cacheRows{index}.Count!=selected.Length)throw new InvalidOperationException(\"派生多选目标当前范围已改变，源记录未保存。\");")
                         .AppendLine($"        var {variable}=cacheRows{index}.ToDictionary(row=>NonRedundantReads.Value<long>(row,\"id\"),row=>{nameExpression});");
                 }

@@ -16,7 +16,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,MySqlCrossTableProjection> crossProjections=new(StringComparer.Ordinal);
         private readonly Dictionary<string,IReadOnlyDictionary<string,(string Sql,string Type)>> crossValues=new(StringComparer.Ordinal);
         private readonly Dictionary<string,object?> crossConstants=new(StringComparer.Ordinal);
-        private sealed record CrossLevel(TableMetadata Table,ColumnMetadata Name,ColumnMetadata? Parent,NonRedundantCrossTableTargetScope Scope);
+        private sealed record CrossLevel(TableMetadata Table,ColumnMetadata Name,ColumnMetadata? Parent,NonRedundantCrossTableTargetScope Scope,PageMetadata Page);
 
         /// <summary>一个控件只生成一条从末层向根的线性联接链，全部用途复用逻辑字段表达式。</summary>
         private (string Sql,string Type) CrossValue(TableMetadata table,string owner,ColumnMetadata source,CrossTableSparseSelection selection,NonRedundantCrossTableScope binding,string name,bool labelPath=false)
@@ -53,7 +53,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     }
                     var slot=columns[table.Id][selection.Slots[index].ColumnName];if(slot.LinkConfigTableId.Length>0&&slot.LinkConfigTableId!=target.Id)throw new InvalidOperationException("跨表来源ID位与目标表声明不一致。");
                     var label=selection.Slots[index].ColumnName[..^3]+"_name";if(columns[table.Id].TryGetValue(label,out var declared)&&declared.LogicalType.ToLowerInvariant()!="string")throw new InvalidOperationException("跨表来源显示字段类型与逻辑名称不符。");
-                    RequireCrossCondition(target,page,binding.Levels[index].Condition);levels.Add(new(target,display,parent,binding.Levels[index]));
+                    RequireCrossCondition(target,page,binding.Levels[index].Condition);levels.Add(new(target,display,parent,binding.Levels[index],page));
                 }
                 if(trackReverse&&labelPath)
                     foreach(var slot in selection.Slots)
@@ -65,6 +65,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var valid=string.Join(" AND ",selection.Slots.Select(slot=>slot.LogicalType=="int64"?"("+raw[slot.ColumnName]+" IS NULL OR "+raw[slot.ColumnName]+">0)":"("+raw[slot.ColumnName]+" IS NULL OR BINARY "+raw[slot.ColumnName]+"=BINARY '' OR BINARY "+raw[slot.ColumnName]+"=BINARY "+PositiveText(raw[slot.ColumnName])+")"));
                 valid="("+valid+") AND ("+string.Join("+",selected.Select(item=>"(CASE WHEN "+item+" THEN 1 ELSE 0 END)"))+")<=1";
                 var targetAliases=new string[levels.Count];
+                var rowConditions=new string?[levels.Count];
                 for(var index=levels.Count-1;index>=0;index--)
                 {
                     var level=levels[index];var alias="cross"+aliases.Count;aliases.Add("cross:"+key+":"+index,alias);targetAliases[index]=alias;
@@ -79,15 +80,16 @@ public static partial class MySqlNonRedundantReadCompiler
                     var scope=Scope(level.Table,alias,projectScoped:!GlobalCrossTableTarget.Declared(level.Table));
                     if(level.Scope.Condition is{} condition)
                     {
-                        var clause=condition.RenderAccountProjection(new MySqlDatabaseProvider(),"mt_cross_scope_"+(multiLabel?aliasPrefix:"")+alias,field=>
-                        {
-                            if(trackReverse&&labelPath){Use(level.Table,Column(level.Table,field));Touch(alias,field);}
-                            return alias+"."+Q(field);
-                        });foreach(var pair in clause.Parameters)crossConstants.Add(pair.Key,pair.Value);if(clause.Sql.Length>0)scope+=(scope.Length==0?"":" AND ")+clause.Sql;
+                        var conditionSql=CascadeLabelCondition(level.Table,level.Page,condition,alias,
+                            "mt_cross_scope_"+(multiLabel?aliasPrefix:"")+alias);
+                        // 缓存可见性从外层已锁来源行取值，校验有效路径时再使用它。
+                        if(cascadeCacheOwner is not null&&condition.Variables.Count>0)
+                            rowConditions[index]=" AND "+conditionSql;
+                        else if(conditionSql.Length>0)scope+=(scope.Length==0?"":" AND ")+conditionSql;
                     }
                     joins.Add(" LEFT JOIN "+Q(level.Table.TableName)+" "+alias+" ON BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+effective+(scope.Length==0?"":" AND "+scope));
                 }
-                var paths=Enumerable.Range(0,levels.Count).Select(deepest=>"("+selected[deepest]+" AND "+string.Join(" AND ",targetAliases.Take(deepest+1).Select(alias=>alias+".`id` IS NOT NULL"))+")").ToArray();
+                var paths=Enumerable.Range(0,levels.Count).Select(deepest=>"("+selected[deepest]+" AND "+string.Join(" AND ",targetAliases.Take(deepest+1).Select((alias,index)=>alias+".`id` IS NOT NULL"+rowConditions[index]))+")").ToArray();
                 var accountScoped=levels.Any(level=>level.Scope.Condition?.Variables.Count>0);
                 var result=new Dictionary<string,(string Sql,string Type)>(StringComparer.OrdinalIgnoreCase);
                 for(var index=0;index<levels.Count;index++)
@@ -117,13 +119,14 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>空文本与null是未选，空格不是规范ID，不依赖数据库忽略尾空格的比较。</summary>
         private static string Nonempty(string expression)=>"("+expression+" IS NOT NULL AND BINARY CAST("+expression+" AS CHAR)<>BINARY '')";
         /// <summary>名称回填和传播用相同来源行范围，目标归属及常量列加入反向依赖。</summary>
-        private string AccountCacheScope(AccountScopedCrossCache account,TableMetadata target,string alias,string owner,bool render)
+        private string AccountCacheScope(AccountScopedCrossCache account,TableMetadata target,string alias,string owner,bool render,
+            TableMetadata? sourceTable=null,string? parameterPrefix=null)
         {
             var predicates=new List<string>();
             foreach(var (targetColumn,sourceColumn) in account.Ownership)
             {
                 Use(target,targetColumn);Touch(alias,targetColumn.ColumnName);
-                Use(root,sourceColumn);
+                Use(sourceTable??root,sourceColumn);
                 if(!render)continue;
                 // 文本和整数使用规范十进制字节，拒绝 NULL、前导零和相邻雪花 ID 的近似匹配。
                 var sourceText="CAST("+owner+"."+Q(sourceColumn.ColumnName)+" AS CHAR)";
@@ -132,7 +135,7 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             if(account.Constants is{} constants)
             {
-                var clause=constants.RenderConstants(new MySqlDatabaseProvider(),"mt_cross_cache_"+alias,field=>
+                var clause=constants.RenderConstants(new MySqlDatabaseProvider(),parameterPrefix??"mt_cross_cache_"+alias,field=>
                 {
                     Use(target,Column(target,field));Touch(alias,field);
                     return alias+"."+Q(field);

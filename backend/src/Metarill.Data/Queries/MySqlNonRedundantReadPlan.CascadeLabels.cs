@@ -5,32 +5,43 @@ namespace Metarill.Data.Queries;
 
 public static partial class MySqlNonRedundantReadCompiler
 {
+    private sealed record CascadeCacheOwner(TableMetadata Table,string Alias);
+
     /// <summary>只保存多值名称实际依赖的级联候选页面，运行时可重新证明字段和条件。</summary>
     public static IReadOnlySet<string> PublishedCascadeLabelPages(MetadataCatalog catalog)
+        =>PublishedCascadeLabelPages(catalog,out _);
+
+    /// <summary>账号缓存额外保留来源页的归属条件，运行时用来重新证明物理行的归属列。</summary>
+    public static IReadOnlySet<string> PublishedCascadeLabelPages(MetadataCatalog catalog,out IReadOnlySet<string> ownershipPages)
     {
         var pages=new HashSet<string>(StringComparer.Ordinal);
-        foreach(var (target,field) in DeclaredMultiNameTargets(catalog).Distinct())
+        var owners=new HashSet<string>(StringComparer.Ordinal);
+        foreach(var (source,target,field) in DeclaredMultiNameTargets(catalog).Distinct())
             try
             {
                 var storage=MetadataStoragePolicy.ForTable(catalog,target);
                 var column=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(item=>item.ConfigTableId==target.Id))
                     .SingleOrDefault(item=>item.ColumnName==field);
-                if(column is {LogicalType:"string"}&&!storage.IsPhysical(column))
-                    pages.UnionWith(CompileMultiLabel(catalog,target.Id,field).CascadeLabelPages);
+                if(column is not {LogicalType:"string"}||storage.IsPhysical(column))continue;
+                var plan=CompileMultiLabel(catalog,target.Id,field);
+                pages.UnionWith(plan.CascadeLabelPages);
+                if(plan.RequiresAccount&&source?.IsRongyu==1)
+                    owners.UnionWith(catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id).Select(page=>page.Id));
             }
             catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
             {
                 // 无效配置由原控件的发布门禁报告，不冻结猜测到的范围。
             }
+        ownershipPages=owners;
         return pages;
     }
 
     /// <summary>发现实际多值控件绑定的目标名称，普通非关联输出仍使用原读取计划。</summary>
-    private static IEnumerable<(TableMetadata Table,string Field)> DeclaredMultiNameTargets(MetadataCatalog catalog)
+    private static IEnumerable<(TableMetadata? Source,TableMetadata Table,string Field)> DeclaredMultiNameTargets(MetadataCatalog catalog)
     {
         foreach(var relation in catalog.ConfigColumns.Where(column=>column.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"))
         {
-            (TableMetadata Table,string Field)? result=null;
+            (TableMetadata? Source,TableMetadata Table,string Field)? result=null;
             try
             {
                 var definition=Definition(relation);
@@ -46,7 +57,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(tableName.Length==0&&relation.ColumnName.EndsWith("_ids",StringComparison.Ordinal))tableName=relation.ColumnName[..^4];
                 var target=catalog.ConfigTables.SingleOrDefault(table=>tableId.Length>0?table.Id==tableId:table.TableName==tableName);
                 if(target is null||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(target))continue;
-                result=(target,field);
+                var source=catalog.ConfigTables.SingleOrDefault(table=>table.Id==relation.ConfigTableId);
+                result=(source,target,field);
             }
             catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
             {
@@ -74,7 +86,7 @@ public static partial class MySqlNonRedundantReadCompiler
         return new(source.Id,scopes.ToArray());
     }
 
-    /// <summary>读页选择与原级联相同。请求相关条件不能进入跨账号共用的名称缓存。</summary>
+    /// <summary>读页选择与原级联相同。只接受原账号等值条件与物理常量。</summary>
     private static (PageMetadata Page,FixedConditionSqlPlan? Condition) CascadeLabelPage(
         MetadataCatalog catalog, TableMetadata target, string name, string parent)
     {
@@ -94,11 +106,14 @@ public static partial class MySqlNonRedundantReadCompiler
         if(candidates.Length!=1)throw new NotSupportedException("级联多值名称要求每级唯一且无父参数的可读页面。");
         var (chosen,syntax)=candidates[0];
         var terms=syntax.Terms.Where(term=>!IsProjectScope(term)).ToArray();
-        if(terms.SelectMany(term=>term.Values).Any(value=>value.Kind==FixedConditionValueKind.Variable))
-            throw new NotSupportedException("级联多值名称的候选节点不能依赖请求账号范围。");
         if(terms.Length==0)return(chosen,null);
         var physical=columns.Where(column=>GlobalPhysicalRelationValue.IsScalar(storage,target,column))
             .ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.OrdinalIgnoreCase);
+        foreach(var term in terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
+            if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||term.Field=="yz_project_id"||
+                !AccountConditionVariables.IsPageField(term.Values[0].Text,term.Field)||
+                !physical.TryGetValue(term.Field,out var type)||type is not("int32" or "int64" or "string"))
+                throw new NotSupportedException("级联多值名称只允许原账号字段的物理等值范围。");
         var condition=FixedConditionPlan.Compile(string.Join(" AND ",terms.Select(term=>term.ToDefinition())),physical.Keys);
         return(chosen,FixedConditionSqlPlan.Compile(condition,physical));
     }
@@ -118,6 +133,27 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly HashSet<string> cascadeLabelOutputs=new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> cascadeLabelPages=new(StringComparer.Ordinal);
         private HashSet<string>? declaredMultiLabelFields;
+        private readonly CascadeCacheOwner? cascadeCacheOwner;
+        private readonly HashSet<string> cascadeCacheOwnerFields=new(StringComparer.Ordinal);
+
+        /// <summary>读候选绑定请求账号。重算缓存绑定来源记录的物理归属，两条路径复用同一候选条件。</summary>
+        private string CascadeLabelCondition(TableMetadata target,PageMetadata page,FixedConditionSqlPlan condition,string alias,string prefix)
+        {
+            if(cascadeCacheOwner is {} owner&&condition.Variables.Count>0)
+            {
+                var proof=AccountScopedCrossCache.Compile(catalog,owner.Table,target,page);
+                cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
+                return AccountCacheScope(proof,target,alias,owner.Alias,render:true,owner.Table,prefix);
+            }
+            var clause=condition.RenderAccountProjection(new MySqlDatabaseProvider(),prefix,field=>
+            {
+                Use(target,Column(target,field));
+                Touch(alias,field);
+                return alias+"."+Q(field);
+            });
+            foreach(var pair in clause.Parameters)crossConstants.Add(pair.Key,pair.Value);
+            return clause.Sql;
+        }
 
         /// <summary>普通选择页只在已绑定的派生名称下读取嵌套级联。精确数据管理保持原范围。</summary>
         private bool AllowsCascadeLabel(TableMetadata table,string alias)

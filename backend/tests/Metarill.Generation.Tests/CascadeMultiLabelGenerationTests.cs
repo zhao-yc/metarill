@@ -30,7 +30,16 @@ public sealed class CascadeMultiLabelGenerationTests
     public Task Joined_cascade_names_compile_in_original_endpoints(string kind,int mode,bool selfTree)=>
         CompileCascadeLabel(kind,mode,selfTree,indirect:true);
 
-    private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect)
+    /// <summary>原请求绑定当前账号，冗余来源独立初始化传播和维护，覆盖两种控件和树形。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,false,true)]
+    [InlineData("MultiCheckBoxDatabase",0,true,false)]
+    [InlineData("MultiSelectPage",1,true,true)]
+    [InlineData("MultiCheckBoxDatabase",1,false,false)]
+    public Task Account_cascade_names_compile_in_original_endpoints(string kind,int mode,bool selfTree,bool indirect)=>
+        CompileCascadeLabel(kind,mode,selfTree,indirect,account:true);
+
+    private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -78,6 +87,14 @@ public sealed class CascadeMultiLabelGenerationTests
         ]);
         catalog.ConfigPageColumns.Add(new(){Id="90192",ConfigPageId="901",ConfigColumnId="92"});
         catalog.ConfigPageColumns.Add(new(){Id="90195",ConfigPageId="901",ConfigColumnId="95",Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
+        if(account)
+        {
+            var page=catalog.ConfigPages.Single(item=>item.Id=="301");
+            catalog.ConfigColumns.Add(new(){Id="scope_node_owner",ConfigTableId=page.ConfigTableId,ColumnName="node_owner_id",LogicalType="int64"});
+            catalog.ConfigColumns.Add(new(){Id="scope_record_owner",ConfigTableId="9",ColumnName="record_owner_id",LogicalType="string",ColumnLength="32"});
+            page.WhereSql+=" AND node_owner_id=@current_yz_manager_id";
+            catalog.ConfigPages.Single(item=>item.Id=="901").WhereSql+=" AND record_owner_id=@current_yz_manager_id";
+        }
         RedundantMultiNameCacheTests.Published(catalog);
 
         var model=GenerationModel.Create(catalog,ns);
@@ -88,6 +105,12 @@ public sealed class CascadeMultiLabelGenerationTests
         try
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            if(account)
+            {
+                var code=File.ReadAllText(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
+                Assert.Contains(".BindAccount(actor)",code);
+                Assert.Contains("记录不属于当前账号的数据范围",code);
+            }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var consumer=assembly.GetType(ns+".Generated.Services.LabelConsumerService",true)!;
             RuntimeHelpers.RunClassConstructor(consumer.TypeHandle);

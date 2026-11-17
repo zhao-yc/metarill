@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
 using Metarill.Data.Queries;
 using Metarill.Data.Relations;
 using Xunit;
@@ -9,8 +10,10 @@ namespace Metarill.Data.Tests;
 public sealed class CascadeMultiLabelReadTests
 {
     /// <summary>自树检查完整祖先链及环路，同一名称可用于筛选并记录根及父变更依赖。</summary>
-    [Fact]
-    public void Self_tree_label_requires_reaching_visible_root()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Self_tree_label_requires_reaching_visible_root(bool account)
     {
         var catalog=DerivedMultipleCacheTests.Catalog("string","int64");
         catalog.ConfigColumns.RemoveAll(column=>column.Id=="cache");
@@ -36,6 +39,7 @@ public sealed class CascadeMultiLabelReadTests
         catalog.ConfigPageColumns.Add(new(){Id="101leaf",ConfigPageId="101",ConfigColumnId="leaf_label"});
         catalog.ConfigPageColumns.Add(new(){Id="201parent",ConfigPageId="201",ConfigColumnId="parent"});
 
+        if(account)AddAccountScope(catalog,"consumer","201");
         var candidate=MySqlNonRedundantReadCompiler.CompileMultiLabel(catalog,"source","leaf_name");
         var sql=candidate.Expression("leaf_name");
         Assert.Contains("WITH RECURSIVE",sql);
@@ -45,7 +49,15 @@ public sealed class CascadeMultiLabelReadTests
         Assert.Contains("delete_no",sql);
         var binding=new RelationCacheDefinition("consumer","label_consumer_fk","source","leaf_label","label_consumer_cache",true);
         var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
-        var reverse=maintenance.Plans["consumer"].Read!.Reverse.Single(item=>item.TargetTable=="ds_tree");
+        var read=maintenance.Plans["consumer"].Read!;
+        if(account)
+        {
+            Assert.True(candidate.RequiresAccount);
+            Assert.Contains("b.`record_owner_id`",read.MultiProjections["picked_leaf_names"].NameExpression!);
+            Assert.Equal(new[]{"record_owner_id"},read.MultiProjections["picked_leaf_names"].Owner!.Fields);
+            Assert.False(read.RequiresAccount);
+        }
+        var reverse=read.Reverse.Single(item=>item.TargetTable=="ds_tree");
         Assert.Contains("parent_node_id",reverse.Outputs["picked_leaf_names"]);
         Assert.Contains("@target_id",reverse.TargetPredicate);
     }
@@ -75,6 +87,68 @@ public sealed class CascadeMultiLabelReadTests
     [InlineData("MultiCheckBoxDatabase")]
     public void Sparse_ancestor_label_is_used_for_array_filter_and_refresh(string kind)
     {
+        var catalog=CrossCatalog(kind);
+        var candidate=MySqlNonRedundantReadCompiler.CompileMultiLabel(catalog,"1","country_name");
+        Assert.Contains("CASE WHEN",candidate.Expression("country_name"));
+        Assert.Contains("LEFT JOIN `b185_country`",candidate.From);
+        Assert.Contains(candidate.Constants.Values,value=>Equals(value,NonRedundantCrossTableReadTests.BlockedTitle));
+        var array=MySqlNonRedundantReadCompiler.Compile(catalog,"9",["selected_country_names"]);
+        var name=array.MultiProjections["selected_country_names"].NameExpression!;
+        Assert.Contains(name+" LIKE {parameter}",array.ArrayNamePredicates["selected_country_names"]);
+
+        catalog.ConfigTables.Single(table=>table.Id=="9").IsRongyu=1;
+        var binding=new RelationCacheDefinition("9","93","1","19","94",true);
+        DerivedCrossTableCaches.Validate(catalog,[binding],[]);
+        var refresh=MySqlNonRedundantReadCompiler.CompileRefresh(catalog,"9",["selected_country_names"],[binding]);
+        Assert.Contains(refresh.Reverse,item=>item.TargetTable=="b185_country"&&item.Outputs["selected_country_names"].Contains("title"));
+        Assert.Contains(refresh.Reverse,item=>item.TargetTable=="b185_place"&&item.Outputs["selected_country_names"].Contains("area_id"));
+        Assert.Contains(refresh.Reverse,item=>item.TargetTable=="b185_source"&&item.Outputs["selected_country_names"].Contains("place_id"));
+    }
+
+    /// <summary>账号读取从可信身份绑定，回填仅依赖来源行归属；任何未证明归属的页面都会阻止缓存发布。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage")]
+    [InlineData("MultiCheckBoxDatabase")]
+    public void Actor_read_and_row_owned_refresh_have_separate_bindings(string kind)
+    {
+        var catalog=CrossCatalog(kind);
+        AddAccountScope(catalog,"9","21");
+        var candidate=MySqlNonRedundantReadCompiler.Compile(catalog,"9",["selected_country_names"]);
+        Assert.True(candidate.RequiresAccount);
+        Assert.Throws<InvalidOperationException>(()=>candidate.Constants);
+        Assert.Contains(9007199254740993L,candidate.BindAccount(new RuntimeActor(9007199254740993L,"甲",true,catalog.YzProjectId,"1")).Constants.Values);
+        Assert.Contains(9007199254740994L,candidate.BindAccount(new RuntimeActor(9007199254740994L,"乙",false,catalog.YzProjectId,"1")).Constants.Values);
+        Assert.True(candidate.RequiresAccount);
+
+        catalog.ConfigTables.Single(table=>table.Id=="9").IsRongyu=1;
+        var binding=new RelationCacheDefinition("9","93","1","19","94",true);
+        var refresh=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]).Plans["9"].Read!;
+        Assert.False(refresh.RequiresAccount);
+        var projection=refresh.MultiProjections["selected_country_names"];
+        Assert.Equal(new[]{"record_owner_id"},projection.Owner!.Fields);
+        Assert.Contains("b.`record_owner_id`",projection.NameExpression!);
+        Assert.Contains(refresh.PhysicalReferences,item=>item.Table=="b185_consumer"&&item.Column.Name=="record_owner_id");
+        Assert.Contains(refresh.Reverse,item=>item.TargetTable=="b185_country"&&item.Outputs["selected_country_names"].Contains("node_owner_id"));
+        var published=MySqlNonRedundantReadCompiler.PublishedCascadeLabelPages(catalog,out var owners);
+        Assert.Contains("21",published);Assert.Contains("901",owners);
+
+        catalog.ConfigPages.Add(new(){Id="902",ConfigTableId="9"});
+        Assert.Throws<InvalidOperationException>(()=>DerivedCrossTableCaches.Validate(catalog,[binding],[]));
+    }
+
+    /// <summary>沿现有测试目录建立来源与节点两侧的独立账号物理列。</summary>
+    internal static void AddAccountScope(MetadataCatalog catalog,string sourceId,string nodePageId)
+    {
+        var nodePage=catalog.ConfigPages.Single(page=>page.Id==nodePageId);
+        catalog.ConfigColumns.Add(new(){Id="node_owner",ConfigTableId=nodePage.ConfigTableId,ColumnName="node_owner_id",LogicalType="int64"});
+        catalog.ConfigColumns.Add(new(){Id="record_owner",ConfigTableId=sourceId,ColumnName="record_owner_id",LogicalType="string",ColumnLength="32"});
+        nodePage.WhereSql=string.Join(" AND ",new[]{nodePage.WhereSql,"node_owner_id=@current_yz_manager_id"}.Where(term=>term.Length>0));
+        catalog.ConfigPages.Add(new(){Id="901",ConfigTableId=sourceId,WhereSql="record_owner_id=@current_yz_manager_id"});
+    }
+
+    /// <summary>普通来源与跨表级联显示目标共用的最小元数据。</summary>
+    internal static MetadataCatalog CrossCatalog(string kind)
+    {
         var catalog=NonRedundantCrossTableReadTests.Catalog("b185","string","int64");
         foreach(var page in catalog.ConfigPages)
             foreach(var column in catalog.ConfigColumns.Where(column=>column.ConfigTableId==page.ConfigTableId&&
@@ -93,20 +167,6 @@ public sealed class CascadeMultiLabelReadTests
                 {["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("selected.country_name")}}
         ]);
 
-        var candidate=MySqlNonRedundantReadCompiler.CompileMultiLabel(catalog,"1","country_name");
-        Assert.Contains("CASE WHEN",candidate.Expression("country_name"));
-        Assert.Contains("LEFT JOIN `b185_country`",candidate.From);
-        Assert.Contains(candidate.Constants.Values,value=>Equals(value,NonRedundantCrossTableReadTests.BlockedTitle));
-        var array=MySqlNonRedundantReadCompiler.Compile(catalog,"9",["selected_country_names"]);
-        var name=array.MultiProjections["selected_country_names"].NameExpression!;
-        Assert.Contains(name+" LIKE {parameter}",array.ArrayNamePredicates["selected_country_names"]);
-
-        catalog.ConfigTables.Single(table=>table.Id=="9").IsRongyu=1;
-        var binding=new RelationCacheDefinition("9","93","1","19","94",true);
-        DerivedCrossTableCaches.Validate(catalog,[binding],[]);
-        var refresh=MySqlNonRedundantReadCompiler.CompileRefresh(catalog,"9",["selected_country_names"],[binding]);
-        Assert.Contains(refresh.Reverse,item=>item.TargetTable=="b185_country"&&item.Outputs["selected_country_names"].Contains("title"));
-        Assert.Contains(refresh.Reverse,item=>item.TargetTable=="b185_place"&&item.Outputs["selected_country_names"].Contains("area_id"));
-        Assert.Contains(refresh.Reverse,item=>item.TargetTable=="b185_source"&&item.Outputs["selected_country_names"].Contains("place_id"));
+        return catalog;
     }
 }

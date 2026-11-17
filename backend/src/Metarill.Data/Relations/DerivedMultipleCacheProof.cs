@@ -11,13 +11,13 @@ internal static class DerivedMultipleCacheProof
     {
         if(foreign.LogicalType!="string"||!foreign.ColumnName.EndsWith("_ids",StringComparison.Ordinal))throw Invalid();
         var global=GlobalCrossTableTarget.Declared(target);if(global){var proof=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);if(proof.Name.Id!=value.Id)throw Invalid();}
-        if(foreign.ControlKind=="MultiCheckBoxDatabase"){RequireCheckbox(catalog,foreign,target,value,cache);RequireValue(catalog,target,value,global);return;}
+        if(foreign.ControlKind=="MultiCheckBoxDatabase"){RequireCheckbox(catalog,foreign,target,value,cache);RequireValue(catalog,source,target,value,global);return;}
         if(foreign.ControlKind!="MultiSelectPage")throw Invalid();using var doc=JsonDocument.Parse(foreign.ControlDetail);var root=doc.RootElement;if(root.ValueKind!=JsonValueKind.Object||root.EnumerateObject().Select(p=>p.Name).Distinct(StringComparer.Ordinal).Count()!=root.EnumerateObject().Count())throw Invalid();
         string Text(string key,string fallback="")=>!root.TryGetProperty(key,out var v)||v.ValueKind==JsonValueKind.Null?fallback:v.ValueKind==JsonValueKind.String?string.IsNullOrWhiteSpace(v.GetString())?fallback:v.GetString()!:throw Invalid();
         var pageId=Text("pageId",foreign.Extra.GetValueOrDefault("linkConfigPageId").ToString());var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==pageId&&p.ConfigTableId==target.Id);if(page is null||page.Extra.GetValueOrDefault("type").ToString()!="2"||Text("nameField","name")!=value.ColumnName||Text("whereSql").Length>0||new[]{"sql","where"}.Any(k=>root.TryGetProperty(k,out _))||Text("tableId") is{Length:>0} tableId&&tableId!=target.Id||Text("table") is{Length:>0} tableName&&tableName!=target.TableName)throw Invalid();
         if(!catalog.ConfigPageColumns.Any(f=>f.ConfigPageId==page.Id&&f.ConfigColumnId==value.Id)||page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||foreign.Extra.GetValueOrDefault("linkConfigPageId").ToString() is{Length:>0} link&&link!=page.Id)throw Invalid();
         var stem=foreign.ColumnName[..^4];if(cache.ColumnName!=stem+"_"+(value.ColumnName.EndsWith('s')?value.ColumnName:value.ColumnName+"s"))throw Invalid();
-        RequireValue(catalog,target,value,global);
+        RequireValue(catalog,source,target,value,global);
     }
     /// <summary>原复选按来源动作授权，目标页只用于关系归属，不借用type=2或目标列表权限。</summary>
     private static void RequireCheckbox(MetadataCatalog catalog,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,ColumnMetadata cache)
@@ -40,12 +40,13 @@ internal static class DerivedMultipleCacheProof
     }
 
     /// <summary>缓存重算只沿已存 ID 读取名称；整数别名必须与物理终点类型相同。</summary>
-    private static void RequireValue(MetadataCatalog catalog,TableMetadata target,ColumnMetadata value,bool global)
+    private static void RequireValue(MetadataCatalog catalog,TableMetadata source,TableMetadata target,ColumnMetadata value,bool global)
     {
         if(value.LogicalType!="string"&&!MultiNameStorageColumns.IsDerivedScalarLabel(
             target,value,MetadataStoragePolicy.ForTable(catalog,target)))throw Invalid();
-        var read=global?NonRedundantReads.Compile(catalog,target.Id,[value.ColumnName]):NonRedundantReads.CompileMultiLabel(catalog,target.Id,value.ColumnName);
-        if(read.OutputTypes[value.ColumnName]!=value.LogicalType)throw Invalid();
+        var read=global?NonRedundantReads.Compile(catalog,target.Id,[value.ColumnName]).MySql:
+            MySqlNonRedundantReadCompiler.CompileMultiLabelForCache(catalog,source,target,value.ColumnName);
+        if(read.Types[value.ColumnName]!=value.LogicalType)throw Invalid();
     }
     /// <summary>异常不包含目录原文或任何连接配置。</summary>
     private static NotSupportedException Invalid()=>new("派生多值缓存缺少固定目标、单值名称或辅助列证明。");

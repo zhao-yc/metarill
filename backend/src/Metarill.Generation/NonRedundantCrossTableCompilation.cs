@@ -34,7 +34,9 @@ internal static class NonRedundantCrossTableCompilation
         BindingArgument(CrossTableWriteCompilation.ForService(model,table,page));
     /// <summary>仅有账号目标的执行入口绑定身份，既有静态查询生成代码保持原样。</summary>
     internal static string BoundPlan(GenerationModel model,TableModel table,PageModel page,string name,string actor="actor")=>
-        BoundPlan(CrossTableWriteCompilation.ForService(model,table,page),name,actor);
+        model.Tables.SelectMany(item=>item.Pages).Any(FixedPageConditionCompilation.HasAccountVariables)
+            ?name+".BindAccount("+actor+")"
+            :BoundPlan(CrossTableWriteCompilation.ForService(model,table,page),name,actor);
 
     internal static string BoundPlan(IReadOnlyList<CrossTableWriteModel>? plans,string name,string actor)=>
         plans?.Any(plan=>plan.Read.Levels.Any(level=>FixedPageConditionCompilation.HasAccountVariables(level.Page)))==true

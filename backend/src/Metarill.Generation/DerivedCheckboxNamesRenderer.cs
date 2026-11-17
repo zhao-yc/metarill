@@ -23,7 +23,7 @@ internal static class DerivedCheckboxNamesRenderer
         if(ids is not null){if(ids.Length==0)return [];filters.Add(new("id",FixedReadComparison.In,ids.Select(id=>(object?)id).ToArray()));}
         if(matchName)filters.Add(new({{Literal(def.Name.Source.ColumnName)}},FixedReadComparison.Equal,name));
         var condition={{(def.Conditions is null?"(FixedConditionSqlPlan?)null":"CheckboxCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"})")}};
-        var rows=await new NonRedundantReader(session).PageAsync(DerivedCheckboxPlan{{suffix}},filters,[{{string.Join(",",def.Order.Select(item=>"new("+Literal(item.Column.Source.ColumnName)+","+(item.Descending?"true":"false")+")"))}}],1,limit,cancellationToken,projectId:actor.ProjectId,condition:condition,currentRead:locking);
+        var rows=await new NonRedundantReader(session).PageAsync(DerivedCheckboxPlan{{suffix}}.BindAccount(actor),filters,[{{string.Join(",",def.Order.Select(item=>"new("+Literal(item.Column.Source.ColumnName)+","+(item.Descending?"true":"false")+")"))}}],1,limit,cancellationToken,projectId:actor.ProjectId,condition:condition,currentRead:locking);
         return rows.Records.Select(row=>new DerivedCheckboxRow{{suffix}}(NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<{{def.Name.Type}}>(row,{{Literal(def.Name.Source.ColumnName)}}))).ToArray();
     }
 
