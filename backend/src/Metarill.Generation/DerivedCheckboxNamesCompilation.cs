@@ -15,7 +15,7 @@ internal static class DerivedCheckboxNamesCompilation
             ?NonRedundantReads.Compile(model.Catalog,def.Target.Source.Id,["id",def.Name.Source.ColumnName],dependencies)
             :NonRedundantReads.CompileGlobalCandidate(model.Catalog,def.Target.Source.Id,def.GlobalPage.Source.Id,["id",def.Name.Source.ColumnName],dependencies);
         if(plan.OutputTypes["id"]!="int64"||plan.OutputTypes[def.Name.Source.ColumnName]!=def.Name.Source.LogicalType||
-            def.TypedLabel&&!def.Target.IsGlobal&&NonRedundantReads.CompileMultiLabel(model.Catalog,def.Target.Source.Id,def.Name.Source.ColumnName)
+            !def.Target.IsGlobal&&NonRedundantReads.CompileMultiLabel(model.Catalog,def.Target.Source.Id,def.Name.Source.ColumnName)
                 .OutputTypes[def.Name.Source.ColumnName]!=def.Name.Source.LogicalType)
             throw new InvalidOperationException("复选名称与固定物理终点类型不一致。");
         // R1不能只开放候选和写入：同一名称数组必须进入统一反向传播及原维护。

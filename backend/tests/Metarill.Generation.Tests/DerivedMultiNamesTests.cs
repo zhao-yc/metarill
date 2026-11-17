@@ -92,6 +92,49 @@ public sealed class DerivedMultiNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>同一公司表参与两个角色，原候选、Excel 和 R1 维护须源自同一固定路径。</summary>
+    [Theory]
+    [InlineData(false,0,"string","int64")]
+    [InlineData(false,1,"int64","string")]
+    [InlineData(true,0,"int64","string")]
+    [InlineData(true,1,"string","string")]
+    public async Task Multi_hop_labels_keep_original_array_endpoints(bool checkbox,int mode,string firstKey,string secondKey)
+    {
+        const string prefix="derived_roles",ns="Example.DerivedRoles";
+        var catalog=Catalog(prefix,automatic:mode==1);
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=mode;
+        catalog.ConfigColumns.Single(column=>column.Id=="37").LogicalType=firstKey;
+        catalog.ConfigColumns.Single(column=>column.Id=="32").Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.supervisor.name");
+        catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",ColumnName="supervisor_id",LogicalType=secondKey,
+            ControlKind="List",LinkConfigTableId="4",ControlDetail="{\"tableId\":\"4\",\"nameField\":\"id\"}"});
+        if(checkbox)
+        {
+            var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
+            control.ControlKind="MultiCheckBoxDatabase";
+            control.ControlDetail="{\"tableId\":\"3\",\"pageId\":\"301\",\"nameField\":\"name\",\"whereSql\":\"parent_id=@parentId\"}";
+        }
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-multi-roles");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var model=GenerationModel.Create(catalog,ns);
+            Assert.Empty(GenerationCapabilityAudit.Collect(model));
+            new FrontendPackager().Validate(catalog);
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var source=assembly.GetType(ns+".Generated.Services.DerivedRolesSourceService",true)!;
+            var target=assembly.GetType(ns+".Generated.Services.DerivedRolesTargetService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(source.TypeHandle);
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(target.TypeHandle);
+            Assert.NotNull(source.GetMethod("Import201Async"));
+            Assert.NotNull(source.GetMethod("Export201Async"));
+            if(mode==1)
+                Assert.Contains(prefix+"_company",MixedRelationPropagationCompilation.ForModel(model).MixedTargets);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>没有自树同伴的R1多选也必须独立生成编译，并发布完整物理缓存传播计划。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Redundant_multi_alone_compiles_and_publishes_derived_cache(bool automatic)
@@ -118,7 +161,7 @@ public sealed class DerivedMultiNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>坏名称、隐藏声明、派生范围和未接线缓存仍须在完整包落盘前拒绝。</summary>
-    [Theory][InlineData("global")][InlineData("hiddenName")][InlineData("credential")][InlineData("array")][InlineData("broken")][InlineData("cycle")][InlineData("stringKey")][InlineData("derivedScope")][InlineData("redundantBadCache")][InlineData("hiddenBad")]
+    [Theory][InlineData("global")][InlineData("hiddenName")][InlineData("credential")][InlineData("array")][InlineData("broken")][InlineData("cycle")][InlineData("decimalKey")][InlineData("derivedScope")][InlineData("redundantBadCache")][InlineData("hiddenBad")]
     public void Invalid_derived_multi_is_rejected_before_staging(string kind)
     {
         var c=Catalog("derived_multi",false);var name=c.ConfigColumns.Single(column=>column.Id=="32");
@@ -129,7 +172,7 @@ public sealed class DerivedMultiNamesTests
         if(kind is "broken" or "hiddenBad")name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("missing.name");
         if(kind=="hiddenBad")c.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="25");
         if(kind=="cycle"){name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("self.name");c.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="self_id",LogicalType="int64",LinkConfigTableId="3",ControlKind="List",ControlDetail="{\"tableId\":\"3\",\"nameField\":\"id\"}"});}
-        if(kind=="stringKey")c.ConfigColumns.Single(column=>column.Id=="37").LogicalType="string";
+        if(kind=="decimalKey")c.ConfigColumns.Single(column=>column.Id=="37").LogicalType="decimal";
         if(kind=="derivedScope")c.ConfigPages.Single(page=>page.Id=="301").WhereSql+=" AND name='X'";
         if(kind=="redundantBadCache"){c.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;c.ConfigColumns.Single(x=>x.Id=="27").IsVirtualColumn=1;}
         var output=Path.Combine(Path.GetTempPath(),"metarill-derived-multi-reject",Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.InvalidDerivedMulti",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));

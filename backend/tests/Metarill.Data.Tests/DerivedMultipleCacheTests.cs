@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Metarill.Core.Metadata;
+using Metarill.Data.Queries;
 using Metarill.Data.Relations;
 using Xunit;
 namespace Metarill.Data.Tests;
@@ -37,6 +38,45 @@ public sealed class DerivedMultipleCacheTests
         Assert.Contains(refresh.Reverse,item=>item.TargetTable=="ds_company"&&item.Outputs["choice_names"].Contains("reference_code"));
         catalog.ConfigColumns.Single(item=>item.Id=="company_code").LogicalType="string";
         Assert.ThrowsAny<Exception>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));
+    }
+
+    /// <summary>相邻高位 ID 必须按规范文本精确匹配，两个同表角色各自保留作用域与反向依赖。</summary>
+    [Theory]
+    [InlineData("string","int64")]
+    [InlineData("int64","string")]
+    [InlineData("string","string")]
+    public void Fixed_multihop_labels_freeze_candidate_and_cache_joins(string firstKey,string secondKey)
+    {
+        var catalog=Catalog("string","int64");
+        catalog.ConfigColumns.RemoveAll(column=>column.Id is "foreign" or "cache");
+        var company=catalog.ConfigColumns.Single(column=>column.Id=="tree_company");
+        company.LogicalType=firstKey;
+        company.ControlKind="List";
+        company.ControlDetail="{\"tableId\":\"company\",\"nameField\":\"id\"}";
+        catalog.ConfigColumns.Add(new(){Id="supervisor",ConfigTableId="company",ColumnName="supervisor_id",LogicalType=secondKey,
+            ControlKind="SelectPage",LinkConfigTableId="company",ControlDetail="{\"tableId\":\"company\",\"nameField\":\"id\"}"});
+        var label=catalog.ConfigColumns.Single(column=>column.Id=="tree_name");
+        label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.supervisor.caption");
+        var binding=new RelationCacheDefinition("source","choices","tree","tree_name","choice_names",true);
+        DerivedCrossTableCaches.Validate(catalog,[binding],[]);
+
+        var candidate=MySqlNonRedundantReadCompiler.Compile(catalog,"tree",["name"]);
+        var fixedLabel=MySqlNonRedundantReadCompiler.CompileMultiLabel(catalog,"tree","name");
+        Assert.Equal(candidate.From,fixedLabel.From);
+        Assert.Contains("LEFT JOIN `ds_company` r0",candidate.From);
+        Assert.Contains("LEFT JOIN `ds_company` r1",candidate.From);
+        Assert.Contains("r0.`yz_project_id`=@project_scope_number",candidate.From);
+        Assert.Contains("r1.`delete_no` IS NULL",candidate.From);
+        Assert.Contains(firstKey=="string"?"BINARY CAST(r0.`id` AS CHAR)=BINARY b.`company_id`":"r0.`id`=b.`company_id`",candidate.From);
+        Assert.Contains(secondKey=="string"?"BINARY CAST(r1.`id` AS CHAR)=BINARY r0.`supervisor_id`":"r1.`id`=r0.`supervisor_id`",candidate.From);
+        Assert.Throws<NotSupportedException>(()=>MySqlNonRedundantReadCompiler.CompileMatch(catalog,"tree","name"));
+
+        var refresh=MySqlNonRedundantReadCompiler.CompileRefresh(catalog,"source",["choice_names"],[binding]);
+        var names=refresh.MultiProjections["choice_names"];
+        Assert.Contains("LEFT JOIN `ds_company` multi_name_0",names.Joins);
+        Assert.Contains("LEFT JOIN `ds_company` multi_name_1",names.Joins);
+        Assert.Contains(refresh.Reverse,item=>item.TargetTable=="ds_company"&&item.Outputs["choice_names"].Contains("supervisor_id"));
+        Assert.Contains(refresh.Reverse,item=>item.TargetTable=="ds_company"&&item.Outputs["choice_names"].Contains("caption"));
     }
 
     /// <summary>数组配置及派生终点必须精确；不能让任意页、缓存或未知SQL成为传播依据。</summary>

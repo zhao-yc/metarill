@@ -176,7 +176,7 @@ public static partial class MySqlNonRedundantReadCompiler
     public static MySqlNonRedundantReadPlan CompileMatch(MetadataCatalog catalog,string tableId,string field)=>
         CompileScalarMatch(catalog,tableId,field,multiLabel:false);
 
-    /// <summary>多选／复选名称的固定联接支持原生 TIME。</summary>
+    /// <summary>多值名称允许原生 TIME 和已证明的规范文本外键，精确数据管理仍只接受原键类型。</summary>
     internal static MySqlNonRedundantReadPlan CompileMultiLabel(MetadataCatalog catalog,string tableId,string field)=>
         CompileScalarMatch(catalog,tableId,field,multiLabel:true);
 
@@ -459,7 +459,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(target is null&&Text(relation,"linkConfigPageId").Length>0)target=PageTarget(Text(relation,"linkConfigPageId"));
             if(target is null){var name=Value(definition,"table");if(name.Length==0)name=Text(relation,"joinTable");if(name.Length==0&&relation.ColumnName.EndsWith("_id",StringComparison.Ordinal))name=relation.ColumnName[..^3];target=tables.Values.SingleOrDefault(table=>table.TableName==name);}
             if(target is null)throw new InvalidOperationException("关联目标缺失或不是同项目实体表。");
-            if(refreshFields is not null&&(id.Length>0&&tables.GetValueOrDefault(id)?.Id!=target.Id||pageId.Length>0&&PageTarget(pageId)?.Id!=target.Id||relation.LinkConfigTableId.Length>0&&relation.LinkConfigTableId!=target.Id||Value(definition,"table") is {Length:>0} named&&named!=target.TableName||Text(relation,"joinTable") is {Length:>0} joined&&joined!=target.TableName||Text(relation,"linkConfigPageId") is {Length:>0} linked&&PageTarget(linked)?.Id!=target.Id))throw new InvalidOperationException("维护关系目标的有效声明相互矛盾。");
+            if((refreshFields is not null||multiLabel)&&(id.Length>0&&tables.GetValueOrDefault(id)?.Id!=target.Id||pageId.Length>0&&PageTarget(pageId)?.Id!=target.Id||relation.LinkConfigTableId.Length>0&&relation.LinkConfigTableId!=target.Id||Value(definition,"table") is {Length:>0} named&&named!=target.TableName||Text(relation,"joinTable") is {Length:>0} joined&&joined!=target.TableName||Text(relation,"linkConfigPageId") is {Length:>0} linked&&PageTarget(linked)?.Id!=target.Id))throw new InvalidOperationException("固定关系目标的有效声明相互矛盾。");
             ValidateTarget(target);return target;
         }
         /// <summary>固定审计目标与业务关系使用相同实体主键约束，不能因固定表名绕过唯一性前提。</summary>
@@ -471,7 +471,12 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>同一路径复用别名，不同角色到同表和自关联分别命名。</summary>
         private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType,bool validatedCrossGlobal=false,bool ordinaryRelation=false,PageMetadata? cachePage=null,AccountScopedCrossCache? account=null)
         {
-            if(matching&&sourceType!="int64")throw new NotSupportedException("精确管理关联键必须与目标主键同为int64，不能借数据库隐式转换匹配。");
+            // 生成的单值控件将物理字符串外键保存为规范整数文本。读联接按同一表示匹配，避免相邻 bigint 被折叠。
+            var fixedTextKey = sourceType=="string" && ordinaryRelation &&
+                relation.ControlKind is ("List" or "SelectPage") && relation.ColumnName.EndsWith("_id",StringComparison.Ordinal) &&
+                storage[relation.ConfigTableId].IsPhysical(relation) && source==ownerAlias+"."+Q(relation.ColumnName);
+            if(matching&&sourceType!="int64"&&!(multiLabel&&fixedTextKey))
+                throw new NotSupportedException("精确管理关联键必须与目标主键同为int64，不能借数据库隐式转换匹配。");
             var global=GlobalCrossTableTarget.Declared(target);
             PageMetadata? publishedPage=cachePage;
             if(global&&!validatedCrossGlobal)
@@ -500,7 +505,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(directSave)directSaveAliases.Add(alias);
             }
             if(refreshFields is not null&&sourceType is not("int64" or "string"))throw new NotSupportedException("维护关系ID必须为int64或规范字符串。");
-            var equality=(refreshFields is not null||global)&&sourceType=="string"?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
+            var equality=(refreshFields is not null||global||fixedTextKey)&&sourceType=="string"?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
             if(refreshFields is not null&&sourceType=="string")
             {
                 // 先以来源的规范整数形式查找目标主键，再用原字节比较排除隐式等值。
