@@ -37,7 +37,8 @@ internal sealed class FileCrossParentScope
             var codec=CrossTableSparseSelection.Compile(table,source.Id,catalog.ConfigColumns.Where(field=>field.ConfigTableId==table.Id));var index=codec.Slots.ToList().FindIndex(slot=>slot.ColumnName==column.ColumnName);if(index>=0)matches.Add((source,codec,index));
         }
         if(matches.Count==0)return null;if(matches.Count!=1)throw new NotSupportedException("文件逻辑父范围不能共享稀疏层位。");var match=matches[0];
-        var branch=CompileBranch(catalog,table,page,match.Source,match.Selection,match.Level);
+        var branch=CompileBranch(catalog,table,page,match.Source,match.Selection,match.Level,
+            allowExactSource:CrossTableStorageColumns.UsesSourceAsTarget(table,match.Source));
         // 单控件继续完整数据层证明；共享组在收齐所有同伴范围后一次证明。
         _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],[branch.Binding],[column.ColumnName]);return branch.Scope;
     }

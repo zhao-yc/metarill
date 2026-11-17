@@ -72,7 +72,6 @@ internal static class SharedCrossTableCompilation
                     var managed=plans.SelectMany(plan=>plan.Levels).SelectMany(level=>new[]{level.Id,level.Name})
                         .Select(column=>column.Source.ColumnName).ToHashSet(StringComparer.Ordinal);
                     if(model.Catalog.DatabaseProvider!="mysql"||plans.Count!=2||plans.Any(plan=>plan.Levels.Count is <2 or >3)||
-                        ExactDataManageCompilation.Declared(page)||
                         sourceRoles.Any(plan=>CrossTableWriteRenderer.Dependencies(table,plan).Any(managed.Contains)))
                         throw new NotSupportedException("共享来源角色要求普通固定双路径，候选依赖不能重叠受管槽位。");
                 }

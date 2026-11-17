@@ -8,6 +8,9 @@ public sealed record FixedReadFilter(string Field,FixedReadComparison Comparison
     internal bool SharedExact {get;private init;}
     /// <summary>服务端共享精确范围必须验证实际完整路径；普通请求筛选继续原逻辑。</summary>
     public static FixedReadFilter ForSharedExact(string field,IReadOnlyList<object?> values)=>
+        ForCrossExact(field,values);
+    /// <summary>固定精确范围从已证明完整逻辑路径匹配，禁止使用原始稀疏值。</summary>
+    public static FixedReadFilter ForCrossExact(string field,IReadOnlyList<object?> values)=>
         new(field,FixedReadComparison.In,values){SharedExact=true};
 }
 public sealed record FixedReadOrder(string Field,bool Descending=false);
@@ -269,7 +272,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     /// <summary>校验完整操作与标量类型；Contains按字面转义，LikePattern保留原LIKE模式。</summary>
     private static string Filter(MySqlNonRedundantReadPlan plan,FixedReadFilter filter,int index)
     {
-        var expression=filter.SharedExact?plan.SharedExactExpression(filter.Field):plan.Expression(filter.Field);var value=filter.Value;var parameter="@filter_"+index;
+        var expression=filter.SharedExact?ExactDataManageSql.CrossExpression(plan,filter.Field):plan.Expression(filter.Field);var value=filter.Value;var parameter="@filter_"+index;
         if(filter.Comparison==FixedReadComparison.In)
         {var items=(IReadOnlyList<object?>)value!;var indexes=Enumerable.Range(0,items.Count).Where(item=>items[item] is not null).ToArray();var member=indexes.Length==0?"":expression+" IN ("+string.Join(",",indexes.Select(item=>parameter+"_"+item))+")";var hasNull=items.Any(item=>item is null);return member.Length==0?hasNull?expression+" IS NULL":"1=0":hasNull?"("+member+" OR "+expression+" IS NULL)":member;}
         if(value is not(null or string or byte[] or long or int or decimal or double or float or bool or DateTime or DateTimeOffset or TimeSpan))throw new InvalidOperationException("固定筛选值必须是受支持的标量。");

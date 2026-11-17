@@ -84,8 +84,8 @@ internal static class GeneratedNonRedundantReadCatalog
         if(ExactDataManageCompilation.Resolve(model,table,page) is {Derived:true} exact)
             result.AppendLine("    /// <summary>匹配计划只含当前范围所需路径，避免锁住无关输出关系。</summary>")
                 .AppendLine($"    private static readonly NonRedundantReadPlan ExactReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog."+
-                    (exact.SharedPlans is null?$"CompileMatch({Literal(table.Source.Id)},{Literal(exact.Column.Source.ColumnName)});":
-                        $"CompileCross({Literal(table.Source.Id)},new string[]{{{Literal(exact.Column.Source.ColumnName)}}},Array.Empty<string>(){NonRedundantCrossTableCompilation.BindingArgument(exact.SharedPlans)});"));
+                    (exact.CrossPlans is null?$"CompileMatch({Literal(table.Source.Id)},{Literal(exact.Column.Source.ColumnName)});":
+                        $"CompileCross({Literal(table.Source.Id)},new string[]{{{Literal(exact.Column.Source.ColumnName)}}},Array.Empty<string>(){NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans)});"));
         if(globalCandidate)
             result.AppendLine($"    private static readonly NonRedundantReadPlan CandidateReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileGlobalCandidate({Literal(table.Source.Id)},{Literal(suffix)},{outputs},{dependencies});");
         result.AppendLine("    /// <summary>生成校验和宿主静态初始化分别编译；普通请求不解释元数据。</summary>")

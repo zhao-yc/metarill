@@ -101,7 +101,7 @@ internal static class FileReferenceReadAuthorization
         {
             if(derivedPlan is null)return null;
             var filters=new List<FixedReadFilter>{new("id",FixedReadComparison.Equal,record),exact.Shared?
-                FixedReadFilter.ForSharedExact(exact.Column.ColumnName,exact.Values):new(exact.Column.ColumnName,FixedReadComparison.In,exact.Values)};
+                FixedReadFilter.ForCrossExact(exact.Column.ColumnName,exact.Values):new(exact.Column.ColumnName,FixedReadComparison.In,exact.Values)};
             var logicalReader=new NonRedundantReader(store.Session);var projectId=project.ToString(CultureInfo.InvariantCulture);
             // 写事务必须看当前授权路径，不能用旧快照中的目标或名称继续授权文件。
             var rows=exact.Shared&&currentRead?

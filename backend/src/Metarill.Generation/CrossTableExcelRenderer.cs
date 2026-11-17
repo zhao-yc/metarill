@@ -10,8 +10,9 @@ internal static class CrossTableExcelRenderer
     /// <summary>固定路径可复用目标表，Excel 以层号区分名称、父键和路径缓存。</summary>
     internal static bool SupportsTargetRoles(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans)
     {
-        if(!plans.Any(RepeatsTarget)&&!plans.Any(plan=>CrossTableWriteRenderer.Merged(table,plan.Read)))return true;
-        if(ExactDataManageCompilation.Declared(page)||plans.Any(plan=>plan.Levels.Count is <2 or >3))return false;
+        var sourceRole=plans.Any(plan=>CrossTableWriteRenderer.Merged(table,plan.Read));
+        if(!sourceRole&&!plans.Any(RepeatsTarget))return true;
+        if(!sourceRole&&ExactDataManageCompilation.Declared(page)||plans.Any(plan=>plan.Levels.Count is <2 or >3))return false;
         // 重复目标的双路径必须属于同一组，且共享槽的完整父链已由组编译器核验。
         return plans.Count==1||plans.Count==2&&
             SharedCrossTableCompilation.ForSource(model,table,page,plans[0].Read.Source.Source.Id)?.Plans.Count==plans.Count;

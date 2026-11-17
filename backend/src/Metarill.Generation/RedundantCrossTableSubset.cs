@@ -14,7 +14,10 @@ internal static class RedundantCrossTableSubset
             var companions=table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").ToArray();var trees=companions.Where(NonRedundantCrossTableSubset.Declared).ToArray();
             if(table.Source.IsRongyu!=1||table.IsGlobal||trees.Length==0)return "冗余跨表完整用途要求普通R1来源。";
             if(companions.Where(tree=>!NonRedundantCrossTableSubset.Declared(tree)).Any(tree=>!RedundantSelfTreeSubset.FixedTarget(model,table,page,tree)))return "冗余跨表的自树同伴尚未取得固定物理缓存与传播证明。";
-            if(ExactDataManageCompilation.Declared(page))return "冗余跨表精确权限的完整用途仍待证明。";
+            if(ExactDataManageCompilation.Declared(page)&&
+                (!CrossTableReadCompilation.ForService(model,table,page).Any(read=>CrossTableWriteRenderer.Merged(table,read))||
+                    ExactDataManageCompilation.Resolve(model,table,page) is not {Derived:false}))
+                return "冗余跨表精确管理要求已证明的来源角色和物理单值范围列。";
             if(page.Scopes.Any(scope=>scope.Source=="parent"))SharedRedundantParentCompilation.Require(model,table,page);
             RequireRealm(model,table,page);var bindings=RelationPropagationCompilation.Bindings(model).Concat(RelationPropagationCompilation.DerivedBindings(model)).ToArray();
             var plans=new List<CrossTableWriteModel>(trees.Length);

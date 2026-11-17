@@ -4,6 +4,8 @@ using System.Text.Json.Nodes;
 using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
+using Metarill.Core.Security;
+using Metarill.Data.Queries;
 using Xunit;
 namespace Metarill.Generation.Tests;
 
@@ -148,7 +150,12 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
     [InlineData(4,0,2,"edit","OverWriteByFirstColumn",false)]
     [InlineData(1,0,1,"list","OverWriteByFirstColumn",true,"4")]
     [InlineData(3,1,2,"edit","OverWriteByFirstColumn",false,"5")]
-    public Task Scoped_source_role_excel_uses_actual_parent_path(int mask,int redundant,int depth,string exportMode,string importMode,bool leafKey,string? globalId=null)
+    [InlineData(1,1,0,"list","OnlyNew",false,null,"scope_key")]
+    [InlineData(1,1,1,"edit","OverWriteByFirstColumn",false,"4","scope_key")]
+    [InlineData(1,0,0,"list","OnlyNew",false,null,"scope_key")]
+    [InlineData(3,0,1,"edit","OverWriteByFirstColumn",true,null,"country_id")]
+    [InlineData(4,0,1,"list","OverWriteByFirstColumn",true,null,"area_name")]
+    public Task Scoped_source_role_excel_uses_actual_parent_path(int mask,int redundant,int depth,string exportMode,string importMode,bool leafKey,string? globalId=null,string? exactField=null)
     {
         var roles=SourceRoles(mask);
         var catalog=(redundant,roles.Length) switch
@@ -171,6 +178,14 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
         var parentColumn=new[]{"country_id","area_id","place_id"}[depth];
         sourcePage.WhereSql+=" AND "+parentColumn+"=@parent_id";
         Enable(catalog,exportMode,importMode,leafKey);
+        var exact=ConfigureExact(catalog,sourcePage,exactField);
+        ColumnMetadata? file=null;
+        if(redundant==0&&exactField is "country_id" or "area_name")
+        {
+            file=new(){Id="904",ConfigTableId="2",ColumnName="attachments",LogicalType="string",ColumnLength="max",
+                ControlKind="FileLibrary",ControlDetail="{\"accessMode\":\"PROTECTED\"}",YzProjectId=catalog.YzProjectId};
+            catalog.ConfigColumns.Add(file);
+        }
 
         return Build(catalog,async(assembly,model)=>
         {
@@ -185,17 +200,29 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
                 Assert.NotNull(service.GetField("LogicalParentPlan201",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
                 Assert.NotNull(service.GetField("ExportReadPlan201",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
                 if(leafKey)Assert.NotNull(service.GetField("ImportMatchPlan201",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
+                if(exact is not null)AssertExactFilters(assembly,exact,exactField!,"11");
+                if(file is not null)
+                {
+                    var registry=new Metarill.Runtime.Files.FileMetadataContext([catalog]);
+                    var method=registry.GetType().GetMethod("DerivedExactPlan",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                    Assert.NotNull(method.Invoke(registry,[catalog,sourcePage,file]));
+                }
                 return;
             }
 
             var guard=new CrossTableExcelSharedGenerationTests.StopBeforeExcelWrite();
-            using var runtime=new SharedExcelReadTransport(assembly,Namespace,Entity,sourceCondition:true,guard:guard);
+            using var runtime=new SharedExcelReadTransport(assembly,Namespace,Entity,sourceCondition:true,actor:exact?.Actor,authorization:exact,guard:guard);
             var physicalParents=Metarill.Data.Queries.RedundantSharedParents.Compile(catalog,"2","201");
             Assert.Equal(depth+1,Assert.Single(physicalParents).Value.Levels.Count);
             Seed(11,"甲");
             Seed(12,"乙");
             var first=Base(103,"同名");var other=Base(104,"同名");
             foreach(var level in path.Levels){first[level.Id.Property]=11L;other[level.Id.Property]=12L;}
+            if(exact is not null)
+            {
+                first["ScopeKey"]="11";other["ScopeKey"]="11";
+                runtime.Add(Entity,new Dictionary<string,object?>(first){["Id"]=105L,["ScopeKey"]="外部范围"});
+            }
             runtime.Add(Entity,first);runtime.Add(Entity,other);
             var fullPath=string.Join("/",Names("甲"));
             var exported=await runtime.Export(new PageRequest{ParentId="11"});
@@ -216,6 +243,7 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
             Assert.Same(guard.Stop,stopped);
             Assert.Equal(overwrite?RecordMutationOperation.Update:RecordMutationOperation.Create,guard.Validation!.Operation);
             if(overwrite)Assert.Equal(103L,guard.Validation.RecordId);
+            if(exact is not null)Assert.Equal(new[]{"export","import"},exact.Operations.Distinct().ToArray());
             Assert.Empty(runtime.Transport.Commands);
 
             string[] Names(string label)=>path.Levels.Select((level,index)=>
@@ -248,7 +276,10 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
     [InlineData(1,true,true,true,"edit","OverWriteByFirstColumn",false,"4")]
     [InlineData(0,true,true,true,"list","OverWriteByFirstColumn",false,"4")]
     [InlineData(0,true,false,true,"edit","OnlyNew",false,"4",true)]
-    public Task Shared_source_role_excel_uses_coordinated_paths(int redundant,bool sourceRoot,bool sourceLeaf,bool scoped,string exportMode,string importMode,bool derived=false,string? globalId=null,bool sparseGlobal=false)
+    [InlineData(1,false,true,true,"edit","OverWriteByFirstColumn",false,null,false,"scope_key")]
+    [InlineData(0,true,true,true,"list","OverWriteByFirstColumn",false,"4",false,"country_id")]
+    [InlineData(0,true,true,false,"edit","OnlyNew",true,null,false,"country_name")]
+    public Task Shared_source_role_excel_uses_coordinated_paths(int redundant,bool sourceRoot,bool sourceLeaf,bool scoped,string exportMode,string importMode,bool derived=false,string? globalId=null,bool sparseGlobal=false,string? exactField=null)
     {
         var catalog=SharedCrossTableGenerationTests.Catalog(Prefix,"string","int64");
         catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
@@ -289,8 +320,9 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
                 new(){Id="913",ConfigTableId="91",ColumnName="yz_project_id",LogicalType="int64",YzProjectId=catalog.YzProjectId},
                 new(){Id="903",ConfigTableId="2",ColumnName="company_id",LogicalType="int64",LinkConfigTableId="91",YzProjectId=catalog.YzProjectId}]);
         }
-        if(scoped)
+        if(scoped||exactField is not null)
         {
+            // 同表候选使用固定候选页，避免以来源页的精确范围作为候选页。
             var candidate=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(sourcePage))!;
             candidate.Id="202";catalog.ConfigPages.Add(candidate);
             foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="201"&&field.ConfigColumnId is not ("25" or "80")).ToArray())
@@ -298,7 +330,7 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
                 var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
                 copy.Id+="candidate";copy.ConfigPageId=candidate.Id;catalog.ConfigPageColumns.Add(copy);
             }
-            sourcePage.WhereSql+=" AND area_id=@parent_id";
+            if(scoped)sourcePage.WhereSql+=" AND area_id=@parent_id";
         }
         var overwrite=importMode=="OverWriteByFirstColumn";
         var leafKey=redundant==0&&overwrite;
@@ -306,6 +338,7 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
         catalog.ConfigColumns.Single(column=>column.Id=="80").Name="备用";
         var peer=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="80");
         peer.IsShow=1;peer.IsEdit=1;peer.Extra["isDetailShow"]=JsonSerializer.SerializeToElement(1);
+        var exact=ConfigureExact(catalog,sourcePage,exactField);
 
         return Build(catalog,async(assembly,model)=>
         {
@@ -323,15 +356,21 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
                 Assert.NotNull(service.GetField("ExportReadPlan201",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
                 if(scoped)Assert.NotNull(service.GetField("LogicalParentPlan201",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
                 if(leafKey)Assert.NotNull(service.GetField("ImportMatchPlan201",BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
+                if(exact is not null)AssertExactFilters(assembly,exact,exactField!,scoped?"11":null);
                 return;
             }
             var guard=new CrossTableExcelSharedGenerationTests.StopBeforeExcelWrite();
-            using var runtime=new SharedExcelReadTransport(assembly,Namespace,Entity,guard:guard);
+            using var runtime=new SharedExcelReadTransport(assembly,Namespace,Entity,actor:exact?.Actor,authorization:exact,guard:guard);
             var primary=group.Plans.Single(plan=>plan.Read.Source.Source.Id=="25");
             var warehouse=group.Plans.Single(plan=>plan.Read.Source.Source.Id=="80");
             var row=new Dictionary<string,object?>{{"Id",11L},{"Name","来源甲"},{"YzProjectId",9007199254740993L}};
             if(sourceLeaf){row["TargetAreaId"]=11L;row["BranchLabel"]="城甲";}
             foreach(var level in group.Plans.SelectMany(plan=>plan.Levels))row[level.Id.Property]=11L;
+            if(exact is not null)
+            {
+                row["ScopeKey"]="11";
+                runtime.Add(Entity,new Dictionary<string,object?>(row){["Id"]=105L,["ScopeKey"]="外部范围",["BranchLabel"]=null});
+            }
             runtime.Add(Entity,row);
             Seed(primary,"国甲","区甲","城甲");Seed(warehouse,"国甲","区甲","仓甲");
             var rootName=sourceRoot?"来源甲":"国甲";var first=rootName+"/区甲/城甲";var second=rootName+"/区甲/仓甲";
@@ -345,6 +384,7 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
             Assert.Same(guard.Stop,stopped);
             Assert.Equal(overwrite?RecordMutationOperation.Update:RecordMutationOperation.Create,guard.Validation!.Operation);
             if(overwrite)Assert.Equal(11L,guard.Validation.RecordId);
+            if(exact is not null)Assert.Equal(new[]{"export","import"},exact.Operations.Distinct().ToArray());
             Assert.Empty(runtime.Transport.Commands);
 
             void Seed(CrossTableWriteModel plan,params string[] names)
@@ -359,6 +399,47 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
                 }
             }
         });
+    }
+
+    /// <summary>范围值只来自测试授权器。范围页与同表候选页不会借用彼此的动作权限。</summary>
+    private static ExcelScope? ConfigureExact(MetadataCatalog catalog,PageMetadata page,string? field)
+    {
+        if(field is null)return null;
+        if(field=="scope_key")catalog.ConfigColumns.Add(new(){Id="905",ConfigTableId="2",ColumnName=field,
+            LogicalType="string",YzProjectId=catalog.YzProjectId});
+        page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(field);
+        catalog.YzAdminTypes.Single(admin=>admin.Id==page.YzAdminTypeId).Extra["exactDataManageMatchField"]=
+            JsonSerializer.SerializeToElement("realName");
+        return new();
+    }
+
+    /// <summary>实际生成的非冗余过滤器分别消费导入和导出动作，范围字段保持为内部依赖。</summary>
+    private static void AssertExactFilters(Assembly assembly,ExcelScope scope,string field,string? parentId)
+    {
+        using var runtime=new SharedExcelReadTransport(assembly,Namespace,Entity,actor:scope.Actor,authorization:scope);
+        foreach(var operation in new[]{"import","export"})
+        {
+            var filters=runtime.ReadFilters(new PageRequest{ParentId=parentId},operation);
+            Assert.Single(filters,filter=>filter.Field==field&&filter.Comparison==FixedReadComparison.In);
+        }
+        Assert.Equal(new[]{"import","export"},scope.Operations);
+    }
+
+    /// <summary>只允许来源的导入和导出权限，检查生成代码传入的实际动作。</summary>
+    private sealed class ExcelScope:IRuntimeAuthorization
+    {
+        internal RuntimeActor Actor {get;}=new(901,"精确范围",false,"9007199254740993","5");
+        internal List<string> Operations {get;}=[];
+        public RuntimeActor RequireActor()=>Actor;
+        public void RequirePagePermission(string page,string operation)
+        {
+            Assert.Equal("201",page);Assert.Contains(operation,new[]{"import","export"});Operations.Add(operation);
+        }
+        public ExactDataManageValues ResolveExactDataManage(string page,string operation,string field)
+        {
+            RequirePagePermission(page,operation);Assert.Equal("real_name",field);
+            return new(true,JsonSerializer.SerializeToElement("11"));
+        }
     }
 
     /// <summary>显式全局候选采用固定状态条件，测试数据使用与来源不同的项目值。</summary>

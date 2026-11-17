@@ -70,14 +70,22 @@ public sealed class FileMetadataContext
             var table=catalog.ConfigTables.Single(table=>table.Id==page.ConfigTableId);var physical=PhysicalColumns(catalog,table);
             var column=ResolveExactColumn(catalog,table,name);
             var group=NonRedundantReads.SharedExactGroup(catalog,table,column.ColumnName);
-            var derived=group is not null||!physical.Any(item=>item.Id==column.Id);
-            exactKinds.Add((catalog.YzProjectId,page.Id),(column,derived,group is not null));
+            var independent=group is null?NonRedundantReads.IndependentSourceRoleExact(catalog,table,column.ColumnName):null;
+            var cross=group is not null||independent is not null;
+            var derived=cross||!physical.Any(item=>item.Id==column.Id);
+            exactKinds.Add((catalog.YzProjectId,page.Id),(column,derived,cross));
             if(!derived)return;
             var scope=PageScope(catalog,page);
             var raw=scope.Crosses.SelectMany(cross=>cross.StorageNames).Distinct(StringComparer.Ordinal).ToArray();
-            IReadOnlyList<NonRedundantCrossTableScope> bindings=group is null?[]:SharedExactBindings(catalog,table,page,group,raw);
-            var match=group is null?NonRedundantReads.CompileMatch(catalog,table.Id,column.ColumnName):
-                NonRedundantReads.CompileSharedExactMatch(catalog,table.Id,column.ColumnName,bindings);
+            IReadOnlyList<NonRedundantCrossTableScope> bindings=[];
+            if(group is not null)bindings=SharedExactBindings(catalog,table,page,group,raw);
+            else if(independent is not null)
+            {
+                var control=catalog.ConfigColumns.Single(field=>field.Id==independent.SourceColumnId);
+                bindings=[FileCrossParentScope.CompileBranch(catalog,table,page,control,independent,0,allowExactSource:true).Binding];
+            }
+            var match=cross?NonRedundantReads.CompileCrossExactMatch(catalog,table.Id,column.ColumnName,bindings):
+                NonRedundantReads.CompileMatch(catalog,table.Id,column.ColumnName);
             if(match.OutputTypes[column.ColumnName]!=column.LogicalType)throw new NotSupportedException("文件来源派生匹配类型不一致。");
             var dependencies=new[]{column.ColumnName}.Concat(scope.ConditionFields).Distinct(StringComparer.Ordinal).ToArray();
             foreach(var file in physical.Where(item=>item.ControlKind=="FileLibrary"))

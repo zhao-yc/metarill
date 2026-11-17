@@ -19,7 +19,8 @@ internal static class NonRedundantCrossTableCompilation
             throw new InvalidOperationException("非冗余跨表页级目标覆盖仍待独立存储证明。");
         var slots=storage.Slots.Select(slot=>slot.ColumnName).ToHashSet(StringComparer.Ordinal);
         // 共享组由精确范围编译器校验；独立链维持原权限能力门槛。
-        if(page.Condition?.Syntax.Fields.Any(slots.Contains)==true||shared is null&&ExactDataManageCompilation.Declared(page))
+        if(page.Condition?.Syntax.Fields.Any(slots.Contains)==true||
+            shared is null&&!CrossTableWriteRenderer.Merged(table,plan)&&ExactDataManageCompilation.Declared(page))
             throw new InvalidOperationException("非冗余跨表来源逻辑条件／精确权限仍待独立接线。");
         _=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
     }

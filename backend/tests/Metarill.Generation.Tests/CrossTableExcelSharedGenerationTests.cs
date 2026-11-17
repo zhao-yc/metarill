@@ -12,6 +12,7 @@ using Metarill.Core.Exports;
 using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
+using Metarill.Data.Queries;
 using Metarill.Data;
 using Xunit;
 namespace Metarill.Generation.Tests;
@@ -1011,6 +1012,11 @@ internal sealed class SharedExcelReadTransport:IDisposable
         requestType.GetProperty("ParentId")!.SetValue(request,parentId);
         return await (Task<string>)method.Invoke(service,[request,actor,CancellationToken.None])!;
     }
+    /// <summary>读取实际生成的精确过滤器，不复制权限筛选逻辑。</summary>
+    internal IReadOnlyList<FixedReadFilter> ReadFilters(PageRequest request,string operation)=>
+        (IReadOnlyList<FixedReadFilter>)serviceType.GetMethod("ReadFilters"+pageId,BindingFlags.Instance|BindingFlags.NonPublic)!
+            .Invoke(service,[request,actor,operation])!;
+
     /// <summary>公开导出方法实际产生原列及单元格，记录导出结束时的锁数。</summary>
     internal async Task<PageExportRequest> Export(PageRequest? request=null)
     {
@@ -1053,6 +1059,18 @@ internal sealed class SharedExcelReadTransport:IDisposable
     /// <summary>只解释status或明确来源模型的三个AND参数比较；括号／运算／字段／值均固定，未知语法拒绝。</summary>
     private Func<object,bool> FixedWhere(Type type,string sql,IReadOnlyDictionary<string,object?> parameters)
     {
+        // 仅处理本测试明确声明的物理精确范围列，检查参数绑定和真实字段读值。
+        const string exactPattern=@"^\x60scope_key\x60 IN \((@[A-Za-z0-9_]+(?:,@[A-Za-z0-9_]+)*)\)$";
+        var exact=Regex.Match(sql,exactPattern);
+        if(exact.Success)
+        {
+            Assert.Equal(sourceEntity,type.Name);
+            var keys=exact.Groups[1].Value.Split(',').Select(key=>key[1..]).ToArray();
+            Assert.Equal(keys.Length,parameters.Count);
+            var accepted=keys.Select(key=>parameters[key]).ToArray();
+            var property=type.GetProperty("ScopeKey")!;
+            return row=>accepted.Contains(property.GetValue(row));
+        }
         const string comparison=@"\x60(status|code|amount)\x60\s*(>=|=)\s*@([A-Za-z0-9_]+)";
         var matches=Regex.Matches(sql,comparison).Cast<Match>().ToArray();var structure=Regex.Replace(Regex.Replace(sql,comparison,"#"),@"\s+","");
         Assert.Matches(@"^\(*#\)*(?:AND\(*#\)*)*$",structure);

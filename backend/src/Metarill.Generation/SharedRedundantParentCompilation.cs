@@ -54,7 +54,11 @@ internal static class SharedRedundantParentCompilation
     /// <summary>完整包逐个证明物理父字段，来源项目与后台必须明确发布。</summary>
     internal static void Require(GenerationModel model,TableModel table,PageModel page)
     {
-        if(!Enabled(model,table,page)||table.IsGlobal||ExactDataManageCompilation.Declared(page)||table.Source.YzProjectId!=model.Catalog.YzProjectId||page.Source.YzProjectId!=model.Catalog.YzProjectId||!model.Catalog.YzAdminTypes.Any(admin=>admin.Id==page.Source.YzAdminTypeId&&admin.YzProjectId==model.Catalog.YzProjectId))throw new NotSupportedException("R1跨表父范围要求普通已发布来源及明确后台，精确权限另行证明。");
+        if(!Enabled(model,table,page)||table.IsGlobal||table.Source.YzProjectId!=model.Catalog.YzProjectId||page.Source.YzProjectId!=model.Catalog.YzProjectId||!model.Catalog.YzAdminTypes.Any(admin=>admin.Id==page.Source.YzAdminTypeId&&admin.YzProjectId==model.Catalog.YzProjectId))throw new NotSupportedException("R1跨表父范围要求普通已发布来源及明确后台。");
+        if(ExactDataManageCompilation.Declared(page)&&
+            (!CrossTableReadCompilation.ForService(model,table,page).Any(read=>CrossTableWriteRenderer.Merged(table,read))||
+                ExactDataManageCompilation.Resolve(model,table,page) is not {Derived:false}))
+            throw new NotSupportedException("R1跨表父范围的精确管理要求同表角色及物理单值范围列。");
         var physical=MetadataStoragePolicy.ForTable(model.Catalog,table.Source).PhysicalColumns;
         var plans=ParentPlans.GetValue(model,_=>new()).GetOrAdd((table.Source.Id,page.Source.Id),_=>CompileParents(model,table,page));
         foreach(var scope in page.Scopes.Where(scope=>scope.Source=="parent"))
@@ -83,10 +87,16 @@ internal static class SharedRedundantParentCompilation
     /// <summary>为已证明的R1跨表父页生成私有键解析及写后／删除前实际行复核。</summary>
     internal static string Service(GenerationModel model,TableModel table,PageModel page)
     {
-        if(!Enabled(model,table,page))return "";Require(model,table,page);var fields=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).DistinctBy(column=>column.Source.Id).ToArray();var result=new StringBuilder();
+        if(!Enabled(model,table,page))return "";Require(model,table,page);
+        // 写前已按真实动作授权。写后以该事务的主键和项目／父键重新核验，避免要求额外详情权限。
+        var exact=ExactDataManageCompilation.Declared(page);
+        var fields=FixedPageQueryCompilation.For(table,page).IdentityScopes.Where(scope=>exact||scope.Source=="parent").Select(scope=>scope.Column).DistinctBy(column=>column.Source.Id).ToArray();
+        var storedQuery=exact?"query":$"Scope{page.Source.Id}(actor,parentId)";
+        var result=new StringBuilder();
         result.AppendLine("    /// <summary>父ID不接受前导零、符号或空白。</summary>").AppendLine($"    private static long SharedR1ParentKey{page.Source.Id}(string? value){{if(!long.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||value!=id.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");return id;}}")
             .AppendLine("    /// <summary>按实际物理父及来源项目复核，目标父保持固定范围和当前锁读。</summary>").AppendLine($"    private async Task VerifySharedR1Parent{page.Source.Id}Async({table.EntityType} entity,RuntimeActor actor,string? parentId,CancellationToken cancellationToken)").AppendLine("    {").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);")
-            .AppendLine($"        var stored=await Scope{page.Source.Id}(actor,parentId).Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>new {table.EntityType}{{Id=row.Id,{string.Join(",",fields.Select(column=>column.Property+"=row."+column.Property))}}},cancellationToken);")
+            .Append(exact?"        var query=mapper.Query();\n"+FixedPageConditionCompilation.Apply(page,"PageCondition"+page.Source.Id,"verify_parent"):"")
+            .AppendLine($"        var stored=await {storedQuery}.Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>new {table.EntityType}{{Id=row.Id,{string.Join(",",fields.Select(column=>column.Property+"=row."+column.Property))}}},cancellationToken);")
             .AppendLine($"        if(stored is null||{string.Join("||",fields.Select(column=>"stored."+column.Property+"!=entity."+column.Property))})throw new InvalidOperationException(\"共享R1实际父归属发生变化，未提交。\");")
             .AppendLine($"        await ValidateParents{page.Source.Id}Async(parentId,actor,cancellationToken);").AppendLine("    }");return result.ToString();
     }

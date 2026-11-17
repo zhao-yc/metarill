@@ -20,7 +20,9 @@ internal static class SharedGlobalParentCompilation
         if(table.Source.IsRongyu!=0||!page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id))return [];
         var reads=CrossTableReadCompilation.ForService(model,table,page);var logical=reads.SelectMany(read=>read.Levels.Select((level,index)=>(read,level,index))).Where(item=>item.level.Prefix+"_id"==column.Source.ColumnName).ToArray();
         var target=logical.Length>0?logical[0].level.Target:model.Tables.SingleOrDefault(candidate=>candidate.Source.Id==column.Source.LinkConfigTableId);if(target is null||!target.IsGlobal)return [];
-        if(table.IsGlobal||table.Source.YzProjectId!=model.Catalog.YzProjectId||ExactDataManageCompilation.Declared(page))throw new NotSupportedException("全局共享父范围要求已发布普通R0来源及原项目身份。");
+        if(table.IsGlobal||table.Source.YzProjectId!=model.Catalog.YzProjectId||
+            ExactDataManageCompilation.Declared(page)&&!reads.Any(read=>CrossTableWriteRenderer.Merged(table,read)))
+            throw new NotSupportedException("全局共享父范围要求已发布普通R0来源及原项目身份。");
         var proven=Cache.GetValue(model,_=>new()).GetOrAdd((table.Source.Id,page.Source.Id),_=>Prove(model,table,page,reads));
         var paths=proven.SelectMany(item=>item.Read.Levels.Select((level,index)=>new SharedGlobalParentPath(item.Read,index,item.Shared))).Where(path=>path.Level.Target.Source.Id==target.Source.Id);
         if(logical.Length>0)paths=paths.Where(path=>path.Level.Prefix+"_id"==column.Source.ColumnName);

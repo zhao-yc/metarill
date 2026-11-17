@@ -7,6 +7,15 @@ namespace Metarill.Data.Queries;
 /// <summary>精确范围集合按固定名称绑定ADO参数，避免ORM的Contains把账号匹配值内联进SQL或日志。</summary>
 public static class ExactDataManageSql
 {
+    /// <summary>共享组用整组有效性，独立路径用本链稀疏约束和可达条件。不可见的原始末端不能授权。</summary>
+    internal static string CrossExpression(MySqlNonRedundantReadPlan plan,string field)
+    {
+        var paths=plan.Crosses.Where(cross=>cross.Selection.Slots.Any(slot=>slot.ColumnName==field||slot.ColumnName[..^3]+"_name"==field)).ToArray();
+        if(paths.Any(path=>path.SharedGroupKey is not null))return plan.SharedExactExpression(field);
+        var path=paths.SingleOrDefault()??throw new InvalidOperationException("精确范围字段缺少固定级联计划。");
+        return "(CASE WHEN ("+path.Validity+") AND ("+path.Reachable+") THEN "+plan.Expression(field)+" END)";
+    }
+
     /// <summary>保持已有七参数方法及写锁语义；已编译的生成程序集无需改变方法绑定。</summary>
     public static ISelect<T> ApplyDerived<T>(ISelect<T> query,DatabaseSession session,NonRedundantReadPlan plan,string field,string parameterPrefix,IReadOnlyList<object?> values,string projectId)where T:class=>
         ApplyDerived(query,session,plan,field,parameterPrefix,values,projectId,true);
@@ -17,8 +26,8 @@ public static class ExactDataManageSql
         if(session.Provider.Name!="mysql")throw new NotSupportedException("派生匹配计划与数据库方言不一致。");
         if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("派生匹配锁定必须加入真实写事务。");
         if(!long.TryParse(projectId,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var project)||project<=0)throw new InvalidOperationException("派生匹配项目标识无效。");
-        var fixedPlan=plan.MySql;var shared=fixedPlan.Crosses.Count>0;
-        var expression=shared?fixedPlan.SharedExactExpression(field):fixedPlan.Expression(field);var provider=session.Provider;
+        var fixedPlan=plan.MySql;var cross=fixedPlan.Crosses.Count>0;
+        var expression=cross?CrossExpression(fixedPlan,field):fixedPlan.Expression(field);var provider=session.Provider;
         if(values.Count==0)return query.Where("1=0");
         var parameters=new Dictionary<string,object?>{{parameterPrefix+"_project_number",project},{parameterPrefix+"_project_text",projectId}};
         var replacements=new Dictionary<string,string>(StringComparer.Ordinal)
@@ -45,7 +54,7 @@ public static class ExactDataManageSql
         // 完整替换参数名，目标页固定条件与不同权限用途的参数互不覆盖。
         sql=Regex.Replace(sql,"@([A-Za-z_][A-Za-z0-9_]*)",match=>replacements.TryGetValue(match.Groups[1].Value,out var name)
             ?provider.ParameterPlaceholder(name):match.Value,RegexOptions.CultureInvariant);
-        if(shared&&locking)query=query.WithTransaction(session.CurrentTransaction);
+        if(cross&&locking)query=query.WithTransaction(session.CurrentTransaction);
         return query.As(outer).Where(sql,parameters);
     }
     /// <summary>只接收生成期固定物理列/前缀；值永不进入SQL语法，空集合固定不匹配。</summary>

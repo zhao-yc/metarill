@@ -36,7 +36,15 @@ public static class RedundantSharedParents
             groups.Add([branch]);
         }
         if(groups.Count==0)return Empty();Realm(catalog,table,page);var sourceProject=storage.PhysicalColumns.SingleOrDefault(c=>c.ColumnName=="yz_project_id");if(GlobalCrossTableTarget.Declared(table)||sourceProject is null||!Scalar(storage,table,sourceProject)||sourceProject.LogicalType is not("string" or "int64"))throw Unsupported();
-        if(Exact(page))throw Unsupported();foreach(var group in groups)Prove(catalog,table,group);
+        if(Exact(page))
+        {
+            var field=ExactDataManageValues.Field(page.Extra["exactDataManageMatchField"].GetString());
+            var exact=columns.SingleOrDefault(column=>ExactDataManageValues.Field(column.ColumnName)==field);
+            if(exact is null||!Scalar(storage,table,exact)||!groups.SelectMany(group=>group)
+                .Any(branch=>branch.Levels.Any(level=>level.TableId==table.Id)))throw Unsupported();
+            _=ExactDataManageValues.Unrestricted.ReadLogical(exact.LogicalType);
+        }
+        foreach(var group in groups)Prove(catalog,table,group);
         var result=new Dictionary<string,RedundantSharedParentPlan>(StringComparer.Ordinal);
         foreach(var term in parents)
         {
