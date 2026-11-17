@@ -265,6 +265,95 @@ public sealed class CrossTableExcelSharedGenerationTests
         }
     }
 
+    /// <summary>同一目标表用于根和末级时，原 Excel 按层还原父键、名称及选择深度。</summary>
+    [Theory]
+    [InlineData(1,false,"OnlyNew","list")]
+    [InlineData(1,false,"OverWriteByFirstColumn","edit")]
+    [InlineData(0,true,"OverWriteByFirstColumn","edit")]
+    [InlineData(1,true,"OnlyNew","list")]
+    public async Task Independent_repeated_target_roles_publish_original_excel(int redundant,bool derived,string importMode,string exportMode)
+    {
+        const string prefix="repeated_excel",rootNamespace="Example.RepeatedExcel",entity="RepeatedExcelSource";
+        var catalog=derived?NonRedundantCrossTargetsTests.Catalog(prefix,"string","int64","repeated"):
+            RedundantMultiNameCacheTests.Published(CrossTableNameCacheGenerationTests.Catalog(prefix,"string","int64",false));
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
+        var tree=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        if(!derived)
+        {
+            NonRedundantCrossTargetsTests.RepeatTarget(catalog,prefix,"int64");
+            catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="leaf_label",LogicalType="string",ColumnLength="100",YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPageColumns.Add(new(){Id="30138",ConfigPageId="301",ConfigColumnId="38",YzProjectId=catalog.YzProjectId});
+            var config=JsonNode.Parse(tree.ControlDetail)!;
+            config["levels"]![2]!["nameField"]="leaf_label";
+            tree.ControlDetail=config.ToJsonString();
+        }
+        tree.Name="路径";
+        tree.SortNo=-1;
+        catalog.ConfigColumns.Single(column=>column.Id=="22").Name="记录";
+        var page=catalog.ConfigPages.Single(page=>page.Id=="201");
+        page.IsImport=1;page.IsExport=1;
+        page.Extra["importMethod"]=JsonSerializer.SerializeToElement(importMode);
+        page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(exportMode);
+        var model=GenerationModel.Create(catalog,rootNamespace);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-repeated-target-excel");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),rootNamespace);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(rootNamespace+".Generated.Services."+entity+"Service",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+            if(derived)
+            {
+                if(redundant==0)Assert.NotNull(service.GetField("ImportMatchPlan201",BindingFlags.NonPublic|BindingFlags.Static)?.GetValue(null));
+                return;
+            }
+
+            var guard=new StopBeforeExcelWrite();
+            using var runtime=new SharedExcelReadTransport(assembly,rootNamespace,entity,guard:guard);
+            const long project=9007199254740993;
+            runtime.Add("RepeatedExcelCountry",new Dictionary<string,object?>{{"Id",11L},{"Name","国甲"},{"LeafLabel","城甲"},
+                {"RepeatedExcelAreaId",21L},{"YzProjectId",project},{"Status",1}});
+            runtime.Add("RepeatedExcelArea",new Dictionary<string,object?>{{"Id",21L},{"Name","区甲"},{"RepeatedExcelCountryId",11L},{"YzProjectId",project},{"Status",1}});
+            foreach(var depth in new[]{0,1,2})
+                runtime.Add(entity,new Dictionary<string,object?>{{"Id",101L+depth},{"Name","记录"+depth},{"YzProjectId",project},
+                    {"CountryId",11L},{"AreaId",depth>=1?21L:null},{"PlaceId",depth==2?11L:null}});
+
+            var export=await runtime.Export();
+            var nameIndex=export.Headers.ToList().IndexOf("记录");
+            var pathIndex=export.Headers.ToList().IndexOf("路径");
+            Assert.True(nameIndex>=0&&pathIndex>=0);
+            var texts=export.Rows.ToDictionary(row=>row[nameIndex]!.ToString()!,row=>row[pathIndex]!.ToString()!);
+            string[] expected=["国甲//","国甲/区甲/","国甲/区甲/城甲"];
+            foreach(var depth in new[]{0,1,2})
+            {
+                Assert.Equal(expected[depth],texts["记录"+depth]);
+                if(importMode=="OverWriteByFirstColumn"&&depth<2)
+                {
+                    // 末级作为覆盖键时，部分路径仍可导出，但不能从根层的同主键推断末级。
+                    var missing=await Assert.ThrowsAsync<PageImportException>(()=>runtime.Import([new(){{"路径",expected[depth]}}]));
+                    Assert.Equal((PageImportError.MissingOverwriteKey,(int?)1,"路径"),(missing.Code!.Value,missing.RowNumber,missing.ColumnName));
+                    continue;
+                }
+                var values=await runtime.Parse(new(){{"路径",expected[depth]}});
+                Assert.Equal("11",values["countryId"].ToString());
+                Assert.Equal(depth>=1?"21":"",values["areaId"].ToString());
+                Assert.Equal(depth==2?"11":"",values["placeId"].ToString());
+            }
+            await Assert.ThrowsAsync<PageImportException>(()=>runtime.Parse(new(){{"路径","国甲/区甲/国甲"}}));
+            Assert.Equal(0,runtime.ExportLockCount);
+            var stopped=await Assert.ThrowsAsync<BusinessRuleException>(()=>runtime.Import([new(){{"路径",expected[2]}}]));
+            Assert.Same(guard.Stop,stopped);
+            Assert.Equal(importMode=="OnlyNew"?RecordMutationOperation.Create:RecordMutationOperation.Update,guard.Validation!.Operation);
+            if(importMode!="OnlyNew")Assert.Equal(103L,guard.Validation.RecordId);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>在真实生成写入的 Mapper 调用前取证，离线测试不模拟 FreeSql 写入。</summary>
     private sealed class StopBeforeExcelWrite:IRecordMutationGuard
     {

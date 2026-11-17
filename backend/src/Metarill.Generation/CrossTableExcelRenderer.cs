@@ -7,6 +7,17 @@ internal static class CrossTableExcelRenderer
 {
     internal const string ImportAcceptancePending="跨表级联无损路径已接生成源头，完整往返及正式事务验收尚待完成，完整包暂不开放该导入用途。";
     internal const string ExportAcceptancePending="跨表级联路径单元格导出尚待完整往返证明，完整包不能开放该导出用途。";
+    /// <summary>来源内自参与另行验证。独立单链可复用目标表，Excel 仍以固定层号区分名称、父键和路径缓存。</summary>
+    internal static bool SupportsTargetRoles(TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans)
+    {
+        if(plans.Any(plan=>plan.Levels.Any(level=>level.Read.Target.Source.Id==table.Source.Id)))return false;
+        if(plans.All(plan=>plan.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()==plan.Levels.Count))
+            return true;
+        // 来源父范围和共享分支需要各自的角色绑定证明。
+        return plans is [var single]&&single.Levels.Count is >=2 and <=3&&
+            !page.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(page);
+    }
+
     /// <summary>隐式各级ID只作为读取依赖，不扩大原导出表头。</summary>
     internal static IReadOnlyList<ColumnModel> ExportDependencies(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)=>
         CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>columns.Any(column=>column.Source.Id==plan.Read.Source.Source.Id)).SelectMany(plan=>plan.Levels.Select(level=>level.Id)).DistinctBy(column=>column.Source.Id).ToArray();

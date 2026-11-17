@@ -27,27 +27,26 @@ internal static class NonRedundantCrossTableSubset
             if(table.Source.IsRongyu!=0||trees.Length==0)return "非冗余跨表完整包要求明确的R0来源。";
             // 自树同伴使用真实自树计划，不当成跨表解析失败；Excel组合仍在下方单独证明。
             if(companions.Where(tree=>!Declared(tree)).Any(tree=>!NonRedundantSelfTreeSubset.FixedTarget(model,table,page,tree)))return "混合自树同伴缺少独立目标的完整读写证明。";
-            var plans=trees.Select(tree=>CrossTableWriteCompilation.Resolve(model,table,page,tree)).ToArray();
-            if(plans.Any(plan=>plan.Definition is null))return "跨表同页完整写入证明缺失，不能忽略隐藏或混合级联。";
+            var plans=trees.Select(tree=>CrossTableWriteCompilation.Resolve(model,table,page,tree).Definition)
+                .OfType<CrossTableWriteModel>().ToArray();
+            if(plans.Length!=trees.Length)return "跨表同页完整写入证明缺失，不能忽略隐藏或混合级联。";
             // 原组件按前缀转换属性，原详情还读取显式属性；两者必须与同一后端JSON字段一致。
-            foreach(var plan in plans.Select(plan=>plan.Definition!))if(CrossTableFrontendProof.Reason(model,page,plan) is{} mismatch)return mismatch;
+            foreach(var plan in plans)if(CrossTableFrontendProof.Reason(model,page,plan) is{} mismatch)return mismatch;
             _=NonRedundantReadCompilation.ForPage(model,table,page);var parentTables=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
             var importColumns=ImportRenderer.Enabled(page)?ImportRenderer.Columns(page):[];
             var imports=importColumns.Any(column=>trees.Any(tree=>tree.Source.Id==column.Source.Id));
-            var exports=plans.SelectMany(plan=>plan.Definition!.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name));
+            var exports=plans.SelectMany(plan=>plan.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name));
             // 同一固定链的逻辑父范围支持追加、首列覆盖及列表和详情路径导出。
             var parentColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var hasParent=parentColumns.Length>0;
             // 前面的全部写计划已核对来源范围。共享组的固定匹配列由导入和导出各自按动作应用。
-            var independent=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&plans.All(plan=>
-                    plan.Definition!.Levels.All(level=>level.Read.Target.Source.Id!=table.Source.Id)&&
-                    plan.Definition.Levels.Select(level=>level.Read.Target.Source.Id).Distinct(StringComparer.Ordinal).Count()==plan.Definition.Levels.Count);
+            var independent=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&CrossTableExcelRenderer.SupportsTargetRoles(table,page,plans);
             // 自树写自己的节点；跨表路径仍须证明逻辑父范围，覆盖仍按明确的匹配键与页面范围执行。
             var pathSupported=independent&&(!hasParent||SupportsScopedPath(model,table,page,plans,parentColumns,parentTables));
             var appendImport=ImportRenderer.Mode(page) is "" or "OnlyNew";
             var scopedOverwrite=hasParent&&pathSupported&&(imports||exports)&&SupportsScopedOverwrite(model,table,page,importColumns);
             if(imports&&(!pathSupported||!appendImport&&!(hasParent?scopedOverwrite:
-                SupportsOverwrite(model,table,page,plans.Select(plan=>plan.Definition!).ToArray(),importColumns))))
+                SupportsOverwrite(model,table,page,plans,importColumns))))
                 return CrossTableExcelRenderer.ImportAcceptancePending;
             // 末级控件同时是固定父键时不属于导入列，合并发布仍须校验页面的实际导入模式。
             if(exports&&(!pathSupported||hasParent&&(ExportRenderer.Mode(page) is not ("" or "list" or "edit")||
@@ -60,10 +59,10 @@ internal static class NonRedundantCrossTableSubset
 
     /// <summary>父 ID 必须属于已证明的逻辑路径。共享组允许同父表的物理约束继续取交集。</summary>
     private static bool SupportsScopedPath(GenerationModel model,TableModel table,PageModel page,
-        IReadOnlyList<CrossTableWriteResult> plans,IReadOnlyList<ColumnModel> parents,IReadOnlyList<TableModel> parentTables)
+        IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> parents,IReadOnlyList<TableModel> parentTables)
     {
         if(parents.Count>1&&(plans.Count==1||parentTables.Count!=1))return false;
-        var paths=plans.Select(plan=>plan.Definition!.Levels).ToArray();
+        var paths=plans.Select(plan=>plan.Levels).ToArray();
         if(paths.Length==1)
         {
             if(paths[0].Count!=3)return false;
