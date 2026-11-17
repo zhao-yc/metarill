@@ -7,10 +7,13 @@ internal static class CrossTableExcelRenderer
 {
     internal const string ImportAcceptancePending="跨表级联无损路径已接生成源头，完整往返及正式事务验收尚待完成，完整包暂不开放该导入用途。";
     internal const string ExportAcceptancePending="跨表级联路径单元格导出尚待完整往返证明，完整包不能开放该导出用途。";
-    /// <summary>固定单链与共享分支可复用目标表，Excel 以层号区分名称、父键和路径缓存。</summary>
+    /// <summary>固定路径可复用目标表，Excel 以层号区分名称、父键和路径缓存。</summary>
     internal static bool SupportsTargetRoles(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans)
     {
-        if(plans.Any(plan=>plan.Levels.Any(level=>level.Read.Target.Source.Id==table.Source.Id)))return false;
+        // 来源兼任候选时沿用已编译的单链写入和写后复核。共享组或附带来源父范围须另有完整证明。
+        if(plans.Any(plan=>CrossTableWriteRenderer.Merged(table,plan.Read)))
+            return plans is [var single] && single.Levels.Count is 2 or 3 &&
+                !page.Scopes.Any(scope=>scope.Source=="parent") && !ExactDataManageCompilation.Declared(page);
         if(!plans.Any(RepeatsTarget))return true;
         if(ExactDataManageCompilation.Declared(page)||plans.Any(plan=>plan.Levels.Count is <2 or >3))return false;
         // 重复目标的双路径必须属于同一组，且共享槽的完整父链已由组编译器核验。

@@ -60,7 +60,9 @@ public sealed partial class {{page.Name}}ImportRequest
         if (overwriteKey?.IsJsonArray == true) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
         var redundantCrossOverwrite = overwrite && table.Source.IsRongyu == 1 && (hasCross || CrossTableExcelRenderer.HasFixedPath(page));
         var logicalMatch=NonRedundantImportMatchRenderer.Resolve(model,table,page,dependency);
-        var requireExplicitKey=redundantCrossOverwrite||logicalMatch?.Key.Source.ControlKind=="CascadeTree";
+        // 来源兼任候选时必须显式提交覆盖键，防止用缺失的首列另行匹配同表记录。
+        var sourceRoleOverwrite=overwrite&&crosses.Any(plan=>CrossTableWriteRenderer.Merged(table,plan.Read));
+        var requireExplicitKey=redundantCrossOverwrite||sourceRoleOverwrite||logicalMatch?.Key.Source.ControlKind=="CascadeTree";
         // 原追加入口显式固定 MySQL 可重复读，只有单一全局物理名称副本可能使用合并写回。
         var transaction=!overwrite&&GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id)==1
             ?"InScalarCacheImportTransactionAsync":"InTransactionAsync";

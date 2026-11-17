@@ -45,17 +45,18 @@ internal static class NonRedundantCrossTableSubset
             // 自树写自己的节点；跨表路径仍须证明逻辑父范围，覆盖仍按明确的匹配键与页面范围执行。
             var pathSupported=independent&&(!hasParent||SupportsScopedPath(model,table,page,plans,parentColumns,parentTables));
             var appendImport=ImportRenderer.Mode(page) is "" or "OnlyNew";
-            // 重复目标沿用物理文本和固定末级两种首列。共享末级若由页面固定，可以省略它的工作簿列。
+            // 来源角色和共享重复目标都可用物理文本首列。固定末级可用逻辑键匹配。
+            var sourceRole=plans.Any(plan=>CrossTableWriteRenderer.Merged(table,plan.Read));
             var repeated=plans.Any(CrossTableExcelRenderer.RepeatsTarget);
-            var textOverwrite=(hasParent||repeated&&plans.Length==2)&&SupportsTextOverwrite(model,table,page,importColumns);
-            var pathOverwrite=(!hasParent||repeated)&&SupportsOverwrite(model,table,page,plans,importColumns);
+            var textOverwrite=(hasParent||sourceRole||repeated&&plans.Length==2)&&SupportsTextOverwrite(model,table,page,importColumns);
+            var pathOverwrite=(!hasParent||repeated)&&SupportsOverwrite(model,table,page,plans,importColumns,sourceRole);
             var overwriteSupported=textOverwrite||pathOverwrite;
             // 固定末级且只开启导入的页面也要审核作用域和覆盖键。
             if((imports||importsFixedPath&&!exports)&&(!pathSupported||!appendImport&&!overwriteSupported))
                 return CrossTableExcelRenderer.ImportAcceptancePending;
-            // 末级控件同时是固定父键时不属于导入列，合并发布仍须校验页面的实际导入模式。
-            if(exports&&(!pathSupported||hasParent&&(ExportRenderer.Mode(page) is not ("" or "list" or "edit")||
-                ImportRenderer.Enabled(page)&&!appendImport&&!overwriteSupported)))
+            // 末级控件同时是固定父键时不属于导入列，合并发布仍须校验页面实际导入模式。
+            if(exports&&(!pathSupported||((hasParent||sourceRole)&&ExportRenderer.Mode(page) is not ("" or "list" or "edit"))||
+                hasParent&&ImportRenderer.Enabled(page)&&!appendImport&&!overwriteSupported))
                 return CrossTableExcelRenderer.ExportAcceptancePending;
             return null;
         }
@@ -105,10 +106,10 @@ internal static class NonRedundantCrossTableSubset
         (CrossTableExcelRenderer.HasFixedPath(page)||table.Columns.Any(column=>Declared(column)&&(columns.Contains(column)||ExportRenderer.IncludesColumn(page,column))))&&
         SupportsTextOverwrite(model,table,page,columns)&&Reason(model,table,page) is null;
 
-    /// <summary>公开覆盖只接受已验收的末级单值键、项目范围和独立或共享级联，不扩张到逻辑祖先或附加上下文。</summary>
-    private static bool SupportsOverwrite(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> columns)
+    /// <summary>覆盖只接受固定末级单值键。来源角色的固定条件由逻辑匹配计划和物理范围复核共同执行。</summary>
+    private static bool SupportsOverwrite(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> columns,bool sourceRole)
     {
-        if(ImportRenderer.Mode(page)!="OverWriteByFirstColumn"||page.Condition is not null||
+        if(ImportRenderer.Mode(page)!="OverWriteByFirstColumn"||(!sourceRole&&page.Condition is not null)||
             plans.Count is <1 or >2||columns.Count==0||plans.Any(plan=>plan.Levels.Count is <2 or >3||
                 !columns.Any(column=>column.Source.Id==plan.Read.Source.Source.Id)&&
                 !page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==plan.Read.Source.Source.Id)))

@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
+using Metarill.Core.Persistence;
 using Xunit;
 namespace Metarill.Generation.Tests;
 
@@ -10,18 +11,32 @@ namespace Metarill.Generation.Tests;
 public sealed class CrossTableExcelSourceRoleGenerationTests
 {
     private const string Prefix="source_excel",Namespace="Example.SourceExcel",Entity="SourceExcelSource";
-    /// <summary>四种重复角色图分别覆盖原同名字段和每角色独立物理名称，实际执行解析与导出。</summary>
+    /// <summary>来源在根、中、末层单次或重复出现时，实际执行生成的导出及导入，写前由守卫记录将要执行的动作。</summary>
     [Theory]
-    [InlineData(3,"string","int64",true)][InlineData(5,"int64","string",true)][InlineData(6,"string","string",true)][InlineData(7,"int64","int64",true)]
-    [InlineData(3,"int64","int64",false)][InlineData(5,"string","string",false)][InlineData(6,"int64","string",false)][InlineData(7,"string","int64",false)]
-    public async Task Repeated_physical_roles_keep_same_ID_and_distinct_role_names(int mask,string type,string parent,bool custom)
+    [InlineData(1,"string","int64",false,"list","OnlyNew",false)]
+    [InlineData(2,"int64","string",false,"edit","OverWriteByFirstColumn",false)]
+    [InlineData(4,"string","string",false,"list","OverWriteByFirstColumn",true)]
+    [InlineData(3,"string","int64",true,"list","OnlyNew",false)]
+    [InlineData(5,"int64","string",true,"edit","OverWriteByFirstColumn",false)]
+    [InlineData(6,"string","string",true,"edit","OnlyNew",false)]
+    [InlineData(7,"int64","int64",true,"list","OverWriteByFirstColumn",true)]
+    [InlineData(3,"int64","int64",false,"edit","OnlyNew",false)]
+    [InlineData(5,"string","string",false,"list","OverWriteByFirstColumn",false)]
+    [InlineData(6,"int64","string",false,"edit","OverWriteByFirstColumn",true)]
+    [InlineData(7,"string","int64",false,"list","OnlyNew",false)]
+    public async Task Physical_source_roles_roundtrip_original_excel(int mask,string type,string parent,bool custom,string exportMode,string importMode,bool leafKey)
     {
-        var catalog=RedundantRepeatedCrossSourceTests.Catalog(Prefix,mask,type,parent,custom);Enable(catalog);
+        var roles=SourceRoles(mask);
+        var catalog=roles.Length==1
+            ? RedundantMultiNameCacheTests.Published(CrossTableSourceGraphTests.Catalog(Prefix,roles[0],type,parent))
+            : RedundantRepeatedCrossSourceTests.Catalog(Prefix,mask,type,parent,custom);
+        Enable(catalog,exportMode,importMode,leafKey);
         await Build(catalog,async(assembly,model)=>
         {
-            using var runtime=new SharedExcelReadTransport(assembly,Namespace,Entity,sourceCondition:true);
+            var guard=new CrossTableExcelSharedGenerationTests.StopBeforeExcelWrite();
+            using var runtime=new SharedExcelReadTransport(assembly,Namespace,Entity,sourceCondition:true,guard:guard);
             var source=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(source.Pages);var plan=Assert.Single(CrossTableWriteCompilation.ForService(model,source,page));
-            Assert.Equal(RepeatedCrossSourceTests.Roles(mask).Length,plan.Levels.Count(level=>level.Read.Target.Source.Id=="2"));
+            Assert.Equal(roles.Length,plan.Levels.Count(level=>level.Read.Target.Source.Id=="2"));
             var names=plan.Levels.Select((level,index)=>level.Read.Target.Source.Id=="2"?(custom?new[]{"国甲","区甲","城甲"}[index]:"源甲"):new[]{"国甲","区甲","城甲"}[index]).ToArray();
             var fields=Base(11,"源甲");foreach(var (level,index) in plan.Levels.Select((level,index)=>(level,index)).Where(item=>item.level.Read.Target.Source.Id=="2"))
             {fields[level.Read.Name.Property]=names[index];if(level.Read.Parent is{} parentColumn)fields[parentColumn.Property]=11L;}
@@ -38,11 +53,11 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
                 if(kind=="status")hidden["Status"]=0;if(kind=="code")hidden["Code"]="d";if(kind=="amount")hidden["Amount"]=0.01m;if(kind=="deleted")hidden["DeleteNo"]=DateTime.UtcNow;if(kind=="project")hidden["YzProjectId"]=2L;runtime.Add(Entity,hidden);
             }
             var paths=new[]{names[0]+"//",names[0]+"/"+names[1]+"/",string.Join("/",names)};
-            for(var depth=0;depth<3;depth++)AssertSlots(await Parse(paths[depth]),depth);
-            if(custom)AssertSlots(await Parse(names[2]),2);
-            else await Assert.ThrowsAsync<PageImportException>(()=>Parse("源甲"));
+            for(var depth=0;depth<3;depth++)await AssertParsedDepth(paths[depth],depth);
+            if(custom||roles.Length==1&&roles[0]!=2)AssertSlots(await Parse(names[2]),2);
+            else if(roles.Length>1)await Assert.ThrowsAsync<PageImportException>(()=>Parse("源甲"));
             await Assert.ThrowsAsync<PageImportException>(()=>Parse("不存在/错误/层级"));
-            var firstRole=RepeatedCrossSourceTests.Roles(mask)[0];if(custom)
+            var firstRole=roles[0];if(custom)
             {var wrong=names.ToArray();wrong[firstRole]="源甲";await Assert.ThrowsAsync<PageImportException>(()=>Parse(string.Join("/",wrong)));}
             for(var depth=0;depth<3;depth++)
             {
@@ -54,37 +69,103 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
             var exported=await runtime.Export(new PageRequest{SelectedIds=["101","102","103"]});
             var nameIndex=exported.Headers.ToList().IndexOf("名称");var pathIndex=exported.Headers.ToList().IndexOf("级联");Assert.True(nameIndex>=0&&pathIndex>=0);
             var cells=exported.Rows.ToDictionary(row=>row[nameIndex]!.ToString()!,row=>row[pathIndex]?.ToString());Assert.Equal(3,cells.Count);
-            for(var depth=0;depth<3;depth++){var name=new[]{"根展示","中展示","叶展示"}[depth];Assert.Equal(paths[depth],cells[name]);AssertSlots(await Parse(cells[name]!),depth);}
+            for(var depth=0;depth<3;depth++)
+            {
+                var name=new[]{"根展示","中展示","叶展示"}[depth];
+                Assert.Equal(paths[depth],cells[name]);await AssertParsedDepth(cells[name]!,depth);
+            }
             Assert.Equal(1,runtime.Snapshots);Assert.Equal(before,runtime.ExportLockCount);Assert.Empty(runtime.Transport.Commands);
             foreach(var field in new[]{"status","code","amount"})Assert.Contains("scope:"+field,runtime.Reads);
+
+            var overwrite=importMode=="OverWriteByFirstColumn";
+            if(overwrite)
+            {
+                var missing=await Assert.ThrowsAsync<PageImportException>(()=>runtime.Import([
+                    leafKey?new(){{"名称","叶展示"},{"级联",paths[1]}}:new(){{"级联",paths[2]}}]));
+                Assert.Equal((PageImportError.MissingOverwriteKey,(int?)1,leafKey?"级联":"名称"),
+                    (missing.Code.GetValueOrDefault(),missing.RowNumber,missing.ColumnName));
+                Assert.Null(guard.Validation);
+            }
+            var importedName=overwrite?"叶展示":"追加";
+            var stopped=await Assert.ThrowsAsync<BusinessRuleException>(()=>runtime.Import([
+                new(){{"名称",importedName},{"级联",overwrite?cells[importedName]:paths[1]}}]));
+            Assert.Same(guard.Stop,stopped);
+            Assert.Equal(overwrite?RecordMutationOperation.Update:RecordMutationOperation.Create,guard.Validation!.Operation);
+            if(overwrite)Assert.Equal(103L,guard.Validation.RecordId);
+            Assert.Empty(runtime.Transport.Commands);
             return;
             Task<Dictionary<string,JsonElement>> Parse(string text)=>runtime.Parse(new Dictionary<string,object?>{{"级联",text}});
+            async Task AssertParsedDepth(string text,int depth)
+            {
+                if(leafKey&&depth<2)
+                {
+                    var error=await Assert.ThrowsAsync<PageImportException>(()=>Parse(text));
+                    Assert.Equal(PageImportError.MissingOverwriteKey,error.Code);
+                }
+                else AssertSlots(await Parse(text),depth);
+            }
         });
     }
-    /// <summary>R0同源的物理／派生／混合名称只证明生成可编译，实际SQL和存储另验。</summary>
-    [Theory][InlineData("physical")][InlineData("derived")][InlineData("mixed")]
-    public Task R0_repeated_source_Excel_compiles_with_original_source_conditions(string mode)
+    /// <summary>非冗余物理、派生、混合名称实际生成；逻辑覆盖与导出保留原页面条件的依赖列。</summary>
+    [Theory]
+    [InlineData(1,"physical","list","OnlyNew",false)]
+    [InlineData(2,"derived","edit","OverWriteByFirstColumn",false)]
+    [InlineData(4,"physical","list","OverWriteByFirstColumn",true)]
+    [InlineData(3,"physical","edit","OverWriteByFirstColumn",true)]
+    [InlineData(5,"derived","list","OverWriteByFirstColumn",false)]
+    [InlineData(7,"mixed","edit","OnlyNew",false)]
+    public Task Sparse_source_role_Excel_compiles_with_original_source_conditions(int mask,string mode,string exportMode,string importMode,bool leafKey)
     {
-        var catalog=RepeatedCrossSourceTests.Catalog(Prefix,7,"string","int64",mode);Enable(catalog);
-        return Build(catalog,(_,model)=>{var source=model.Tables.Single(table=>table.Source.Id=="2");var plan=Assert.Single(CrossTableWriteCompilation.ForService(model,source,Assert.Single(source.Pages)));Assert.Equal(3,plan.Levels.Count(level=>level.Read.Target.Source.Id=="2"));return Task.CompletedTask;});
+        var roles=SourceRoles(mask);
+        var catalog=roles.Length==1
+            ? NonRedundantCrossSourceTests.Catalog(Prefix,roles[0],"string","int64",mode=="derived")
+            : RepeatedCrossSourceTests.Catalog(Prefix,mask,"string","int64",mode);
+        Enable(catalog,exportMode,importMode,leafKey);
+        return Build(catalog,(assembly,model)=>
+        {
+            var source=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(source.Pages);
+            var path=Assert.Single(CrossTableWriteCompilation.ForService(model,source,page));
+            Assert.Equal(roles.Length,path.Levels.Count(level=>level.Read.Target.Source.Id=="2"));
+            var service=assembly.GetType(Namespace+".Generated.Services."+Entity+"Service",true)!;
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            var export=ReadPlan("ExportReadPlan201");
+            Assert.All(new[]{"country_id","area_id","place_id"},column=>Assert.Contains(column,export.OutputTypes.Keys));
+            if(leafKey)Assert.Equal("string",ReadPlan("ImportMatchPlan201").OutputTypes["place_id"]);
+            return Task.CompletedTask;
+            Metarill.Data.Queries.NonRedundantReadPlan ReadPlan(string name)=>Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                service.GetField(name,BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
+        });
     }
-    /// <summary>启用原Excel字段且仅改测试元数据标题；不改生成器／原前端结构来迁就组合。</summary>
-    private static void Enable(MetadataCatalog catalog)
+
+    /// <summary>使用与生产一致的字段例，测试可按表级顺序选物理文本或逻辑末级为首列。</summary>
+    private static void Enable(MetadataCatalog catalog,string exportMode,string importMode,bool leafKey)
     {
         var page=catalog.ConfigPages.Single(page=>page.Id=="201");page.IsImport=1;page.IsExport=1;
+        page.Extra["importMethod"]=JsonSerializer.SerializeToElement(importMode);
+        page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(exportMode);
         foreach(var (id,name) in new[]{("22","名称"),("25","级联")})
-        {catalog.ConfigColumns.Single(column=>column.Id==id).Name=name;var field=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==id);field.IsShow=1;field.IsEdit=1;}
+        {
+            var column=catalog.ConfigColumns.Single(column=>column.Id==id);column.Name=name;
+            if(id==(leafKey?"25":"22"))column.SortNo=-1;
+            var field=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==id);
+            field.IsShow=1;field.IsEdit=1;field.Extra["isDetailShow"]=JsonSerializer.SerializeToElement(1);
+        }
     }
-    /// <summary>每份原模型实际生成并严格编译，手写partial不覆盖，公开Full仍拒绝未验Excel用途。</summary>
+
+    /// <summary>按层位展开同一来源表的候选角色。</summary>
+    private static int[] SourceRoles(int mask)=>Enumerable.Range(0,3).Where(index=>(mask&(1<<index))!=0).ToArray();
+
+    /// <summary>验证公开 Full 的生成门禁、实际编译以及再次生成时对手写 partial 的保护。</summary>
     private static async Task Build(MetadataCatalog catalog,Func<Assembly,GenerationModel,Task> exercise)
     {
-        var before=JsonSerializer.Serialize(catalog);var model=GenerationModel.Create(catalog,Namespace);var proof=CrossTableExcelApplicationPreparer.RequireCurrent(catalog,Namespace);Assert.NotEmpty(proof.Gaps);
+        var before=JsonSerializer.Serialize(catalog);var model=GenerationModel.Create(catalog,Namespace);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-source-role-excel");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var generated=Path.Combine(directory,"generated");
         try
         {
             new CSharpGenerator().Generate(catalog,generated,Namespace);var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var hand=Path.Combine(generated,"Services/"+Entity+"Service.cs");await File.AppendAllTextAsync(hand,"\n// 来源角色Excel手写扩展必须保留。\n");var retained=await File.ReadAllBytesAsync(hand);new CSharpGenerator().Generate(catalog,generated,Namespace);Assert.Equal(retained,await File.ReadAllBytesAsync(hand));
-            Assert.Equal(before,JsonSerializer.Serialize(catalog));Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+            Assert.Equal(before,JsonSerializer.Serialize(catalog));
             await exercise(assembly,model);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

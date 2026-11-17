@@ -73,7 +73,7 @@ public sealed class NonRedundantCrossSourceTests
         if(kind=="derivedParent"){var parent=c.ConfigColumns.Single(x=>x.Id=="88");parent.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);parent.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.id");}
         if(kind=="hiddenName"){var name=c.ConfigPageColumns.Single(x=>x.ConfigColumnId=="92");name.IsShow=0;name.IsEdit=0;}
         if(kind=="extra")json["levels"]![1]!["whereSql"]="status=1";
-        if(kind=="pathImport")c.ConfigPages.Single(x=>x.Id=="201").IsImport=1;
+        if(kind=="pathImport"){var page=c.ConfigPages.Single(x=>x.Id=="201");page.IsImport=1;page.Extra["importMethod"]=JsonSerializer.SerializeToElement("unknown");}
         if(kind=="view")c.ConfigTables.Single(x=>x.Id=="2").IsView=1;
         source.ControlDetail=json.ToJsonString();var output=Path.Combine(Path.GetTempPath(),"metarill-nr-source-reject",Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.NrSourceReject",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
     }

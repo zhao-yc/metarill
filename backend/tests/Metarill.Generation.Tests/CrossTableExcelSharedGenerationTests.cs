@@ -721,7 +721,7 @@ public sealed class CrossTableExcelSharedGenerationTests
     }
 
     /// <summary>在真实生成写入的 Mapper 调用前取证，离线测试不模拟 FreeSql 写入。</summary>
-    private sealed class StopBeforeExcelWrite:IRecordMutationGuard
+    internal sealed class StopBeforeExcelWrite:IRecordMutationGuard
     {
         internal BusinessRuleException Stop { get; }=new("测试到达写入前的业务守卫。");
         internal RecordMutationValidation? Validation { get; private set; }

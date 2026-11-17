@@ -436,7 +436,7 @@ public sealed class CrossTableExcelPublicationTests
         Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
     }
 
-    /// <summary>混合级联的父范围、覆盖及重复来源仍须证明，不能借已发布的普通追加路径绕过。</summary>
+    /// <summary>不支持的混合范围、覆盖键及导入模式继续拒绝发布。</summary>
     [Theory]
     [InlineData("mixed-scoped")]
     [InlineData("mixed-overwrite")]
@@ -463,6 +463,7 @@ public sealed class CrossTableExcelPublicationTests
             importPage.WhereSql += " AND tree_owner_id=@parent_id";
         }
         if (kind is "overwrite" or "mixed-overwrite") importPage.Extra["importMethod"] = JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+        if (kind == "repeated-source") importPage.Extra["importMethod"] = JsonSerializer.SerializeToElement("unknown");
         var model = GenerationModel.Create(catalog, "Example.UnprovenR0Excel");
         var table = model.Tables.Single(table => table.Source.Id == "2");
         var page = table.Pages.Single(page => page.Source.Id == "201");
