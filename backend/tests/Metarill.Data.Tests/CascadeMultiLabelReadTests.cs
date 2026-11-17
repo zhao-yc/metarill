@@ -51,6 +51,24 @@ public sealed class CascadeMultiLabelReadTests
     }
 
 
+    /// <summary>共享祖先名称必须同时核对两个来源分支，冲突不能作为有效名称。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Shared_ancestor_label_uses_both_candidate_branches(bool shortBranch)
+    {
+        var catalog=SharedCrossTableReadTests.Catalog("b187","string","int64",shortBranch);
+        foreach(var page in catalog.ConfigPages)
+            foreach(var member in catalog.ConfigColumns.Where(column=>column.ConfigTableId==page.ConfigTableId&&
+                column.ColumnName is "name" or "country_id" or "area_id"))
+                catalog.ConfigPageColumns.Add(new(){Id=page.Id+member.Id,ConfigPageId=page.Id,ConfigColumnId=member.Id});
+        var plan=MySqlNonRedundantReadCompiler.CompileMultiLabel(catalog,"1","country_name");
+        Assert.Equal(2,plan.Crosses.Count);
+        Assert.Single(plan.Crosses,branch=>branch.RequireRowValidity);
+        Assert.Contains("COALESCE",plan.Expression("country_name"));
+        Assert.Equal(shortBranch?3:4,plan.CascadeLabelPages.Count);
+    }
+
     /// <summary>稀疏祖先名称共用读取与逆向依赖，末级改父和祖先改名均会刷新。</summary>
     [Theory]
     [InlineData("MultiSelectPage")]

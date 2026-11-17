@@ -9,13 +9,33 @@ public static partial class MySqlNonRedundantReadCompiler
     public static IReadOnlySet<string> PublishedCascadeLabelPages(MetadataCatalog catalog)
     {
         var pages=new HashSet<string>(StringComparer.Ordinal);
+        foreach(var (target,field) in DeclaredMultiNameTargets(catalog).Distinct())
+            try
+            {
+                var storage=MetadataStoragePolicy.ForTable(catalog,target);
+                var column=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(item=>item.ConfigTableId==target.Id))
+                    .SingleOrDefault(item=>item.ColumnName==field);
+                if(column is {LogicalType:"string"}&&!storage.IsPhysical(column))
+                    pages.UnionWith(CompileMultiLabel(catalog,target.Id,field).CascadeLabelPages);
+            }
+            catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
+            {
+                // 无效配置由原控件的发布门禁报告，不冻结猜测到的范围。
+            }
+        return pages;
+    }
+
+    /// <summary>发现实际多值控件绑定的目标名称，普通非关联输出仍使用原读取计划。</summary>
+    private static IEnumerable<(TableMetadata Table,string Field)> DeclaredMultiNameTargets(MetadataCatalog catalog)
+    {
         foreach(var relation in catalog.ConfigColumns.Where(column=>column.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"))
         {
+            (TableMetadata Table,string Field)? result=null;
             try
             {
                 var definition=Definition(relation);
                 var field=Value(definition,"nameField");
-                if(!field.EndsWith("_name",StringComparison.Ordinal))continue;
+                if(field.Length==0)field="name";
                 var pageId=Value(definition,"pageId");
                 if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
                 var tableId=Value(definition,"tableId");
@@ -26,27 +46,14 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(tableName.Length==0&&relation.ColumnName.EndsWith("_ids",StringComparison.Ordinal))tableName=relation.ColumnName[..^4];
                 var target=catalog.ConfigTables.SingleOrDefault(table=>tableId.Length>0?table.Id==tableId:table.TableName==tableName);
                 if(target is null||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(target))continue;
-                var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
-                var groups=SharedCrossTableSparseSelection.CompileAll(target,columns);
-                foreach(var control in columns.Where(column=>column.ControlKind=="CascadeTree"&&(CrossTableStorageColumns.ContainsPathField(column,field)||IsSelfTreeLabel(column,field))))
-                {
-                    if(IsSelfTreeLabel(control,field))
-                    {
-                        pages.Add(SelfTreeLabel(catalog,control).Page.Id);
-                        continue;
-                    }
-                    var group=groups.SingleOrDefault(item=>item.Branches.Any(branch=>branch.SourceColumnId==control.Id));
-                    var controls=group is null?[control]:group.Branches.Select(branch=>columns.Single(column=>column.Id==branch.SourceColumnId)).ToArray();
-                    foreach(var member in controls)
-                        foreach(var level in CascadeLabelScope(catalog,member).Levels)pages.Add(level.PageId);
-                }
+                result=(target,field);
             }
             catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
             {
-                // 无法编译的公开控件由生成门禁报告。这里不发布猜测到的候选范围。
+                // 无效控件不改变无关页面的读取权限。
             }
+            if(result is {} candidate)yield return candidate;
         }
-        return pages;
     }
 
     /// <summary>复用固定跨表读取资格，保留每级的唯一可读页、物理条件及原项目范围。</summary>
@@ -109,18 +116,30 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         private readonly string? cascadeLabelField;
         private readonly HashSet<string> cascadeLabelOutputs=new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> cascadeLabelPages=new(StringComparer.Ordinal);
+        private HashSet<string>? declaredMultiLabelFields;
+
+        /// <summary>普通选择页只在已绑定的派生名称下读取嵌套级联。精确数据管理保持原范围。</summary>
+        private bool AllowsCascadeLabel(TableMetadata table,string alias)
+        {
+            if(multiLabel&&output==cascadeLabelField)return true;
+            if(matching||refreshFields is not null||table.Id==root.Id&&alias==rootAlias)return false;
+            declaredMultiLabelFields??=DeclaredMultiNameTargets(catalog).Where(item=>item.Table.Id==root.Id)
+                .Select(item=>item.Field).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            return declaredMultiLabelFields.Contains(output);
+        }
 
         /// <summary>多值名称接入完整稀疏路径。坏存储或共享分支冲突不能进入名称数组、筛选或导入。</summary>
         private (string Sql,string Type)? TryCascadeLabel(TableMetadata table,string owner,ColumnMetadata column)
         {
-            if(table.Id!=root.Id||owner!=rootAlias||column.LogicalType!="string"||
+            if(table.IsRongyu!=0||column.LogicalType!="string"||
                 column.IsVirtualColumn!=0||storage[table.Id].IsPhysical(column)||
                 !column.ColumnName.EndsWith("_name",StringComparison.Ordinal)||ExactDataManageValues.IsSensitiveField(column.ColumnName))
                 return null;
             var field=column.ColumnName;
             var control=columns[table.Id].Values.FirstOrDefault(item=>item.ControlKind=="CascadeTree"&&
                 (CrossTableStorageColumns.ContainsPathField(item,field)||IsSelfTreeLabel(item,field)));
-            if(control is null)return null;
+            if(control is null||!AllowsCascadeLabel(table,owner))return null;
             if(IsSelfTreeLabel(control,field))
             {
                 var leaf=SelfTreeLabelExpression(table,owner,control,column);
@@ -129,22 +148,28 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             var group=SharedCrossGroup(table,control.Id);
             (string Sql,string Type) expression;
+            string[] controls;
             if(group is null)
             {
                 var binding=CascadeLabelScope(catalog,control);
+                cascadeLabelPages.UnionWith(binding.Levels.Select(level=>level.PageId));
                 var selection=CrossTableSparseSelection.Compile(table,control.Id,columns[table.Id].Values);
-                expression=CrossValue(table,owner,control,selection,binding,field);
+                expression=CrossValue(table,owner,control,selection,binding,field,labelPath:true);
+                controls=[control.Id];
             }
             else
             {
-                foreach(var branch in group.Branches)
+                controls=group.Branches.Select(branch=>branch.SourceColumnId).ToArray();
+                foreach(var controlId in controls)
                 {
-                    var member=columns[table.Id].Values.Single(item=>item.Id==branch.SourceColumnId);
-                    crossTables[member.Id]=CascadeLabelScope(catalog,member);
+                    var member=columns[table.Id].Values.Single(item=>item.Id==controlId);
+                    var binding=CascadeLabelScope(catalog,member);
+                    cascadeLabelPages.UnionWith(binding.Levels.Select(level=>level.PageId));
+                    crossTables[member.Id]=binding;
                 }
-                expression=SharedCrossValue(table,owner,group,field);
+                expression=SharedCrossValue(table,owner,group,field,labelPath:true);
             }
-            var validity=string.Join(" AND ",crossProjections.Values.Select(path=>"("+path.Validity+")"));
+            var validity=string.Join(" AND ",controls.Select(controlId=>"("+crossProjections[owner+":"+controlId].Validity+")"));
             cascadeLabelOutputs.Add(output);
             return("CASE WHEN "+validity+" THEN "+expression.Sql+" END",expression.Type);
         }

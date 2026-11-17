@@ -63,6 +63,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("自树多值名称要求物理选择位。");
             var proof=SelfTreeLabel(catalog,control);
             ValidateTarget(proof.Target);
+            cascadeLabelPages.Add(proof.Page.Id);
             if(Text(column,"columnFullName") is {Length:>0} path&&
                 path!=control.ColumnName[..^3]+"."+proof.Name.ColumnName&&path!=control.ColumnName+"."+proof.Name.ColumnName)
                 throw new NotSupportedException("自树名称的已声明来源路径与原控件不符。");
@@ -118,6 +119,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(trackReverse)
             {
                 Use(table,control);
+                Touch(owner,control.ColumnName);
                 Use(proof.Target,Column(proof.Target,"id"));
                 Use(proof.Target,proof.Parent);
                 if(storage[proof.Target.Id].IsPhysical(proof.Name))Use(proof.Target,proof.Name);

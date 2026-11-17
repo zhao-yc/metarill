@@ -15,7 +15,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!sharedSelections.TryGetValue(table.Id,out var groups)){groups=new ReadOnlyDictionary<string,SharedCrossTableSparseSelection>(SharedCrossTableSparseSelection.CompileAll(table,columns[table.Id].Values).SelectMany(g=>g.Branches.Select(b=>(b.SourceColumnId,Group:g))).ToDictionary(x=>x.SourceColumnId,x=>x.Group,StringComparer.Ordinal));sharedSelections.Add(table.Id,groups);}return groups.GetValueOrDefault(source);
         }
         /// <summary>显式绑定所有同伴范围，冲突值使计数和每行读取均失败，不静默选COALESCE的第一个来源。</summary>
-        private (string Sql,string Type) SharedCrossValue(TableMetadata table,string owner,SharedCrossTableSparseSelection group,string name)
+        private (string Sql,string Type) SharedCrossValue(TableMetadata table,string owner,SharedCrossTableSparseSelection group,string name,bool labelPath=false)
         {
             origin=null;var groupKey=owner+":shared:"+group.Branches[0].SourceColumnId;if(!sharedCrossValues.TryGetValue(groupKey,out var merged))
             {
@@ -27,12 +27,12 @@ public static partial class MySqlNonRedundantReadCompiler
                     {
                         var target=tables.Values.Single(t=>t.TableName==levels[index].GetProperty("table").GetString());var slot=branch.Slots[index];var scope=binding.Levels[index];
                         // 同表仍使用独立 SQL 别名。实际父键不能取自本组任何稀疏槽位。
-                        if(target.Id==root.Id&&index>0&&group.Slots.Any(field=>field.ColumnName==Value(levels[index],"parentField")))
+                        if(target.Id==table.Id&&index>0&&group.Slots.Any(field=>field.ColumnName==Value(levels[index],"parentField")))
                             throw new InvalidOperationException("共享来源角色的父键必须独立于整组稀疏槽位。");
                         // 全局目标沿用单链发布／固定条件证明，来源项目与共享同伴页面仍分别核验。
                         if(GlobalCrossTableTarget.Declared(target)){var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==scope.PageId&&p.ConfigTableId==target.Id)??throw new InvalidOperationException("共享全局目标页与实际目标表不符。");GlobalCrossTableTarget.RequireAccountCandidate(catalog,target,page);}if(scopes.TryGetValue(slot.ColumnName,out var old)&&(old.PageId!=scope.PageId||!SameSharedCondition(old.Condition,scope.Condition)))throw new InvalidOperationException("共享稀疏同一槽的候选页或固定条件不一致。");scopes[slot.ColumnName]=scope;
                     }
-                    _=CrossValue(table,owner,control,group.BranchSelection(branch.SourceColumnId),binding,branch.Slots[^1].ColumnName);
+                    _=CrossValue(table,owner,control,group.BranchSelection(branch.SourceColumnId),binding,branch.Slots[^1].ColumnName,labelPath);
                 }
                 var values=group.Branches.Select(b=>crossValues[owner+":"+b.SourceColumnId]).ToArray();var clauses=new List<string>();
                 foreach(var slot in group.Slots)
