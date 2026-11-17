@@ -14,6 +14,26 @@ public sealed class GlobalMultipleRelationReadTests
     {
         var c=Catalog(kind,noProject);var before=JsonSerializer.Serialize(c);var plan=MySqlNonRedundantReadCompiler.Compile(c,"1",["shared_names","tenant_names"]);var expressions=Property<IReadOnlyDictionary<string,string>>(plan,"Expressions");var sql=expressions["shared_names"];Assert.DoesNotContain("multi_value.`yz_project_id`",sql);Assert.Contains("multi_value.`delete_no` IS NULL",sql);Assert.Contains("AS BINARY",sql);Assert.Contains("ORDER BY multi_ids.ordinal",sql);Assert.Contains("multi_value.`yz_project_id`=@project_scope_number",expressions["tenant_names"]);Assert.Contains("b.`yz_project_id`=@project_scope_number",Property<string>(plan,"Scope"));Assert.Contains("LIKE {parameter}",Property<IReadOnlyDictionary<string,string>>(plan,"ArrayNamePredicates")["shared_names"]);Assert.Equal(before,JsonSerializer.Serialize(c));
     }
+    /// <summary>全局整数名称在聚合、分批回读和筛选统一取精确文本；非物理终点仍拒绝。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",false,"int32")]
+    [InlineData("MultiSelectPage",true,"int64")]
+    [InlineData("MultiCheckBoxDatabase",false,"int64")]
+    [InlineData("MultiCheckBoxDatabase",true,"int32")]
+    public void Global_integer_projection_uses_text_for_each_read_path(string kind,bool noProject,string type)
+    {
+        var catalog=Catalog(kind,noProject);
+        var name=catalog.ConfigColumns.Single(column=>column.Id=="22");name.LogicalType=type;
+        var plan=MySqlNonRedundantReadCompiler.Compile(catalog,"1",["shared_names"]);
+        const string label="CAST(multi_value.`name` AS CHAR)";
+        Assert.Contains("JSON_ARRAYAGG("+label+")",plan.Expressions["shared_names"]);
+        Assert.Equal(label,plan.MultiProjections["shared_names"].NameExpression);
+        Assert.Contains(label+" LIKE {parameter}",plan.ArrayNamePredicates["shared_names"]);
+        Assert.Contains("b.`yz_project_id`=@project_scope_number",plan.Scope);
+        name.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+        Assert.Throws<NotSupportedException>(()=>MySqlNonRedundantReadCompiler.Compile(catalog,"1",["shared_names"]));
+    }
+
     /// <summary>原四段复选可通过明确页绑定使用全局目标，不把目标页条件替代原候选条件。</summary>
     [Fact]public void Legacy_checkbox_definition_keeps_explicit_global_binding()
     {

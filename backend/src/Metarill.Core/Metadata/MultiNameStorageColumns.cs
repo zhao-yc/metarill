@@ -25,11 +25,11 @@ public static class MultiNameStorageColumns
         }
         return result;
     }
-    /// <summary>普通项目的多值名称可使用真实整数列，对外仍是按选择顺序排列的文本。</summary>
-    public static bool IsLocalIntegerLabel(TableMetadata source,ColumnMetadata relation,TableMetadata target,ColumnMetadata value,MetadataStoragePlan targetStorage)=>
+    /// <summary>多值名称可使用真实整数列。全局目标须另经固定发布证明。</summary>
+    public static bool IsPhysicalIntegerLabel(TableMetadata source,ColumnMetadata relation,TableMetadata target,ColumnMetadata value,MetadataStoragePlan targetStorage)=>
         relation.ControlKind is ("MultiSelectPage" or "MultiCheckBoxDatabase")&&value.ColumnName!="id"&&value.LogicalType is ("int32" or "int64")&&
         source.IsRongyu is (0 or 1)&&target.IsRongyu is (0 or 1)&&
-        !GlobalCrossTableTarget.Declared(source)&&!GlobalCrossTableTarget.Declared(target)&&
+        !GlobalCrossTableTarget.Declared(source)&&
         value.IsVirtualColumn==0&&!Enabled(value,"isJoinColumn")&&targetStorage.IsPhysical(value)&&
         value.ControlKind is not ("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "MultiList" or "CheckBoxList")&&
         !Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName);

@@ -416,7 +416,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(HasGlobalRowProject(target))publishedPage=proof.Page;
             }
             var value=Column(target,display);
-            var integerLabel=MultiNameStorageColumns.IsLocalIntegerLabel(table,relation,target,value,storage[target.Id]);
+            var integerLabel=MultiNameStorageColumns.IsPhysicalIntegerLabel(table,relation,target,value,storage[target.Id]);
             if(value.LogicalType!="string"&&!integerLabel||value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
             if(!storage[target.Id].IsPhysical(value))return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage);
             Use(table,relation);

@@ -14,6 +14,53 @@ public sealed class GlobalMultipleFreshCatalogTests
         var c=Catalog(profile);var before=JsonSerializer.Serialize(c);var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-multiple-catalog");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{var output=Path.Combine(directory,"application");var model=GenerationModel.Create(c,"Example.GlobalMultipleFresh");Assert.Empty(GenerationCapabilityAudit.Collect(model));Assert.True(new ApplicationPackager().Create(c,output,model.Namespace,NonRedundantApplicationFixture.Root()).FrontendIncluded);foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(output,operation);var probe=NonRedundantApplicationFixture.Start("node",output);foreach(var argument in new[]{Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GlobalMultipleVueProbe.mjs"),output})probe.ArgumentList.Add(argument);await NonRedundantApplicationFixture.RunAsync(probe);Assert.Equal(before,JsonSerializer.Serialize(c));foreach(var path in new[]{"uni_modules/uni-data-checkbox/components/uni-data-checkbox/uni-data-checkbox.vue","common/yzp_runtime/originalSelectionPageMixin.js"})Assert.Equal(File.ReadAllBytes(Path.Combine(NonRedundantApplicationFixture.Root(),"frontend/metarill_uni_admin",path)),File.ReadAllBytes(Path.Combine(output,"frontend",path)));}finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>两种原多值控件绑定已发布整数标签，保持目标页、业务范围和原导入导出。</summary>
+    [Theory]
+    [InlineData("cross3",0,"int32",0)]
+    [InlineData("cross5",0,"int64",1)]
+    [InlineData("cross6",1,"int64",0)]
+    [InlineData("cross7",1,"int32",1)]
+    public async Task Global_integer_labels_publish_both_array_controls(string profile,int sourceMode,string type,int targetMode)
+    {
+        var catalog=Catalog(profile);
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=sourceMode;
+        catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=targetMode;
+        var label=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="3"&&column.ColumnName=="name");label.LogicalType=type;
+        const string ns="Example.GlobalIntegerLabels";
+        var model=GenerationModel.Create(catalog,ns);
+        var source=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(source.Pages);
+        var multi=Assert.Single(MultiSelectCompilation.ForPage(model,source,page),item=>item.Source.Source.Id=="2202");
+        var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,source,page),item=>item.Source.Source.Id=="2204");
+        Assert.True(multi.IntegerLabel);Assert.True(checkbox.IntegerLabel);
+        Assert.Equal("302",multi.TargetPage.Source.Id);Assert.Equal(label.Id,checkbox.Name.Source.Id);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
+        if(sourceMode==1)
+        {
+            var bindings=RelationPropagationCompilation.Bindings(model).Where(item=>item.Target.Source.Id=="3").ToArray();
+            Assert.Equal(3,bindings.Length);
+            Assert.All(bindings,item=>Assert.Equal(label.Id,item.Value.Source.Id));
+        }
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-integer-labels");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetTypes().Single(type=>type.Name=="GsSingleSourceService");
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Import201Async"));Assert.NotNull(service.GetMethod("Export201Async"));
+            if(sourceMode==1)
+            {
+                var maintenance=assembly.GetTypes().Single(type=>type.Name=="GeneratedRelationMaintenance").GetProperty("Catalog")!.GetValue(null)!;
+                var plans=(System.Collections.IDictionary)maintenance.GetType().GetProperty("Plans",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(maintenance)!;
+                var plan=plans["2"]!;
+                Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
+                Assert.NotNull(plan.GetType().GetProperty("Read")!.GetValue(plan));
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>按原自动回传标志，复选首次读取实际表单值，字段变更隔离旧响应。</summary>
     [Theory]
     [InlineData("segment")]
