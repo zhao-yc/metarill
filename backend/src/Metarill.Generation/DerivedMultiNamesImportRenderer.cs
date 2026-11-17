@@ -24,9 +24,9 @@ internal static class DerivedMultiNamesImportRenderer
         var selected=new List<string>();
         foreach(var item in cell.EnumerateArray())
         {
-            if(item.ValueKind is not(JsonValueKind.String or JsonValueKind.Number))throw PageImportException.Input(PageImportError.Relation);
-{{(multi.IntegerLabel?"            "+MultiSelectExcelRenderer.ParseIntegerLabel(multi.Name,"item.ToString()","name"):"")}}
-            var filters=new List<FixedReadFilter>{new({{Literal(multi.Name.Source.ColumnName)}},FixedReadComparison.Equal,{{(multi.IntegerLabel?"name":"item.ToString()")}})};
+            if({{MultiSelectExcelRenderer.InvalidLabelKind(multi.Name,true)}})throw PageImportException.Input(PageImportError.Relation);
+{{(multi.TypedLabel?"            "+MultiSelectExcelRenderer.ParseLabel(multi.Name,"item.ToString()","name"):"")}}
+            var filters=new List<FixedReadFilter>{new({{Literal(multi.Name.Source.ColumnName)}},FixedReadComparison.Equal,{{(multi.TypedLabel?"name":"item.ToString()")}})};
 {{string.Join("\n",scopes)}}
             var matches=await new NonRedundantReader(session).PageAsync(MultiDerivedPlan{{suffix}},filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId{{(multi.TargetPage.Condition is null?"":",condition:"+FixedPageConditionCompilation.Bound(multi.TargetPage,"MultiPageCondition"+suffix))}},currentRead:true);
             if(matches.Records.Count!=1)throw PageImportException.Input(PageImportError.Relation);

@@ -34,6 +34,51 @@ public sealed class GlobalMultipleRelationReadTests
         Assert.Throws<NotSupportedException>(()=>MySqlNonRedundantReadCompiler.Compile(catalog,"1",["shared_names"]));
     }
 
+    /// <summary>精确数值与时间名称可以经原工作簿回读。</summary>
+    [Theory]
+    [InlineData("bool","1","true")]
+    [InlineData("bool","False","false")]
+    [InlineData("decimal","-9007199254740993.1234567800","-9007199254740993.12345678")]
+    [InlineData("decimal","100","100")]
+    [InlineData("date","2026-11-17","2026-11-17")]
+    [InlineData("datetime","2026-11-17T12:34:56.120000","2026-11-17 12:34:56.12")]
+    [InlineData("datetime","2026-11-17 12:34:56","2026-11-17 12:34:56")]
+    [InlineData("time","-832:04:06.120000","-832:04:06.12")]
+    public void Typed_workbook_labels_are_exact(string kind,string input,string expected)
+    {
+        var value=Metarill.Core.Contracts.MultiValueLabel.Parse(kind,input);
+        Assert.Equal(expected,Metarill.Core.Contracts.MultiValueLabel.Text(kind,value));
+    }
+
+    /// <summary>超精度及非法日期时间不能被转成其他现存候选。</summary>
+    [Theory]
+    [InlineData("bool","2")]
+    [InlineData("decimal","0.000000000000000000000000000001")]
+    [InlineData("date","2025-02-29")]
+    [InlineData("datetime","2026-11-17 12:34:56.1234567")]
+    [InlineData("time","839:00:00")]
+    [InlineData("time","00:00:00.0000001")]
+    public void Invalid_typed_workbook_labels_are_rejected(string kind,string input)=>
+        Assert.Throws<Metarill.Core.Contracts.PageImportException>(()=>Metarill.Core.Contracts.MultiValueLabel.Parse(kind,input));
+
+    /// <summary>同一个名称表达式进入投影、数组聚合和名称筛选。</summary>
+    [Theory]
+    [InlineData("bool","CASE WHEN")]
+    [InlineData("decimal","TRIM(TRAILING")]
+    [InlineData("date","CAST(")]
+    [InlineData("datetime","TRIM(TRAILING")]
+    [InlineData("time","TRIM(TRAILING")]
+    public void Scalar_label_expression_is_shared_by_queries(string kind,string shape)
+    {
+        var catalog=Catalog("MultiCheckBoxDatabase",true);
+        catalog.ConfigColumns.Single(column=>column.Id=="22").LogicalType=kind;
+        var plan=MySqlNonRedundantReadCompiler.Compile(catalog,"1",["shared_names"]);
+        var label=plan.MultiProjections["shared_names"].NameExpression!;
+        Assert.Contains(shape,label);
+        Assert.Contains("JSON_ARRAYAGG("+label+")",plan.Expressions["shared_names"]);
+        Assert.Contains(label+" LIKE {parameter}",plan.ArrayNamePredicates["shared_names"]);
+    }
+
     /// <summary>原四段复选可通过明确页绑定使用全局目标，不把目标页条件替代原候选条件。</summary>
     [Fact]public void Legacy_checkbox_definition_keeps_explicit_global_binding()
     {

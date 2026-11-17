@@ -1,6 +1,7 @@
 using System.Data.Common;
 using System.Globalization;
 using System.Text.Json;
+using Metarill.Data.Queries;
 namespace Metarill.Data.Relations;
 
 /// <summary>执行预编译依赖图，所有读写必须加入调用方事务；不调用消费者Service、钩子或文件观察者。</summary>
@@ -60,10 +61,10 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
     private async Task<Dictionary<(long,string),object?>> Targets(RelationCache[] bindings,long[] ids,DbTransaction transaction,string project,CancellationToken token)
     {
         var target=bindings[0].Target;var fields=bindings.Select(binding=>binding.Value).Distinct(StringComparer.Ordinal).ToArray();var result=new Dictionary<(long,string),object?>();
-        // 数组名称在物理取值时转成文本，普通单值数值缓存沿用驱动返回类型。
-        var integerLabels=bindings.Where(binding=>binding.Multiple&&binding.ValueType is ("int32" or "int64"))
-            .Select(binding=>binding.Value).ToHashSet(StringComparer.Ordinal);
-        var values=fields.Select(field=>integerLabels.Contains(field)?"CAST(t."+Q(field)+" AS CHAR)":"t."+Q(field));
+        // 只有名称数组需要文本。普通单值缓存继续使用数据库原标量。
+        var labels=bindings.Where(binding=>binding.Multiple).DistinctBy(binding=>binding.Value)
+            .ToDictionary(binding=>binding.Value,binding=>binding.ValueType,StringComparer.Ordinal);
+        var values=fields.Select(field=>labels.TryGetValue(field,out var type)?MySqlMultiValueLabel.Text("t."+Q(field),type):"t."+Q(field));
         // 同一来源外键使用同一发布页。当前读与写校验及维护沿用同一固定条件。
         var condition=bindings[0].PublishedCondition?.Plan.RenderConstants(session.Provider,"mt_published_target",field=>"t."+Q(field));
         var scope=Scope(target,"t")+(condition is null?"":" AND "+condition.Sql);

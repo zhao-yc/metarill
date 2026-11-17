@@ -721,7 +721,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if (page.Source.IsCopy == 1)
             result.AppendLine("    /// <summary>兼容 V8 POST 复制路由，并单独检查复制权限。</summary>").AppendLine("    [HttpPost(\"copy/{id}\")]")
                 .AppendLine($"    public async Task<R<{page.Name}Vo>> Copy(long id, [FromQuery] string? parentId, CancellationToken cancellationToken) => R<{page.Name}Vo>.Success(await service.Copy{suffix}Async(id, parentId, Actor(\"copy\"), cancellationToken));");
-        result.Append(SelectionPageRenderer.Controller(page));
+        result.Append(SelectionPageRenderer.Controller(model,table,page));
         result.Append(CascadeTreeReadRenderer.Controller(model,table,page));
         result.Append(FixedRoleCheckboxRenderer.Controller(model,table,page)); result.Append(DatabaseCheckboxRenderer.Controller(model,table,page));
         foreach (var catalog in FixedOptionCatalogCompilation.ForPage(model, page))

@@ -10,12 +10,12 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))throw new NotSupportedException("派生多选名称要求已证明来源、R0目标及原多选／数据库复选；其它组合尚未接线。");
             var global=GlobalCrossTableTarget.Declared(target);
-            var integerLabel=MultiNameStorageColumns.IsDerivedIntegerLabel(target,value,storage[target.Id]);
-            if(value.LogicalType!="string"&&!integerLabel)throw new NotSupportedException("多值派生名称类型未支持。");
+            var scalarLabel=MultiNameStorageColumns.IsDerivedScalarLabel(target,value,storage[target.Id]);
+            if(value.LogicalType!="string"&&!scalarLabel)throw new NotSupportedException("多值派生名称类型未支持。");
             // 全局单值路径已证明字符串键的二进制读取；这里不是仅允许int64键的精确管理匹配用途。
             var prefixForNames=publishedPage is null?"multi_name_":aliasPrefix+"global_array"+publishedArrayScopeCount+++"_";
             var nested=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
-                trackReverse:refreshFields is not null,candidatePage:publishedPage).Compile([value.ColumnName],[]);
+                trackReverse:refreshFields is not null,candidatePage:publishedPage,multiLabel:true).Compile([value.ColumnName],[]);
             foreach(var pair in nested.Constants)crossConstants.Add(pair.Key,pair.Value);
             if(trackReverse&&nested.RequiresPublishedProjectIdentity)publishedArrayIdentity=true;
             if(nested.Types[value.ColumnName]!=value.LogicalType||nested.MultiProjections.Count>0||nested.Crosses.Count>0||
@@ -25,7 +25,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!nested.From.StartsWith(prefix,StringComparison.Ordinal))throw new InvalidOperationException("多选名称别名域与固定目标不一致。");
             var targetJoins=nested.From[prefix.Length..];var valueSql=nested.Expression(value.ColumnName);var scope=nested.Scope;
             // 聚合、筛选、分批当前读和维护按同一文本名称计算，终点联接仍保持强类型。
-            var name=integerLabel?"CAST("+valueSql+" AS CHAR)":valueSql;
+            var name=MySqlMultiValueLabel.Text(valueSql,value.LogicalType);
             var source=owner+"."+Q(relation.ColumnName);var array=Array(source);
             if(refreshFields is not null)
             {
@@ -41,7 +41,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG("+name+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(global?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(scope.Length==0?"":" AND "+scope)+targetJoins+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
             multiProjections[expression]=new(source,Q(target.TableName),Q(value.ColumnName),scope,targetJoins,name);
             multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(scope.Length==0?"":" AND "+scope)+" AND "+name+" LIKE {parameter} ESCAPE '!')";
-            if(global||integerLabel&&relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(scope.Length==0?"":" AND "+scope)+" AND "+name+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
+            if(global||scalarLabel&&relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(scope.Length==0?"":" AND "+scope)+" AND "+name+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
             origin=valueOrigin;return(expression,"string");
         }
     }

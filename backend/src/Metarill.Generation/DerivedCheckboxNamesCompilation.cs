@@ -7,7 +7,7 @@ internal static class DerivedCheckboxNamesCompilation
     /// <summary>只签发普通R0目标的单值名称，条件仍限物理标量；R1缓存同时取得完整维护证明。</summary>
     internal static IReadOnlyList<string> Require(GenerationModel model,TableModel owner,DatabaseCheckboxModel def)
     {
-        if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0||def.Target.Source.IsView!=0||def.Target.Source.IsFunctionTable!=0||def.Name.Type is not ("string?" or "int?" or "long?")||def.Name.IsJsonArray)throw new InvalidOperationException("派生复选名称要求已证明来源与普通R0目标的固定单值名称。");
+        if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0||def.Target.Source.IsView!=0||def.Target.Source.IsFunctionTable!=0||def.Name.Type!="string?"&&!Metarill.Core.Contracts.MultiValueLabel.IsTyped(def.Name.Source.LogicalType)||def.Name.IsJsonArray)throw new InvalidOperationException("派生复选名称要求已证明来源与普通R0目标的固定单值名称。");
         var fields=def.Scopes.Select(scope=>scope.Column).Concat(def.Conditions?.Syntax.Fields.Select(field=>def.Target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();
         if(fields.Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,def.Target,column)))throw new InvalidOperationException("派生复选的身份、父及附加条件必须为物理标量。");
         var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(def.Order.Select(item=>item.Column.Source.ColumnName)).Concat(new[]{"id",def.Name.Source.ColumnName}).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -15,7 +15,7 @@ internal static class DerivedCheckboxNamesCompilation
             ?NonRedundantReads.Compile(model.Catalog,def.Target.Source.Id,["id",def.Name.Source.ColumnName],dependencies)
             :NonRedundantReads.CompileGlobalCandidate(model.Catalog,def.Target.Source.Id,def.GlobalPage.Source.Id,["id",def.Name.Source.ColumnName],dependencies);
         if(plan.OutputTypes["id"]!="int64"||plan.OutputTypes[def.Name.Source.ColumnName]!=def.Name.Source.LogicalType||
-            def.IntegerLabel&&!def.Target.IsGlobal&&NonRedundantReads.CompileMatch(model.Catalog,def.Target.Source.Id,def.Name.Source.ColumnName)
+            def.TypedLabel&&!def.Target.IsGlobal&&NonRedundantReads.CompileMultiLabel(model.Catalog,def.Target.Source.Id,def.Name.Source.ColumnName)
                 .OutputTypes[def.Name.Source.ColumnName]!=def.Name.Source.LogicalType)
             throw new InvalidOperationException("复选名称与固定物理终点类型不一致。");
         // R1不能只开放候选和写入：同一名称数组必须进入统一反向传播及原维护。

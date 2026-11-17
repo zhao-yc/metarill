@@ -9,10 +9,10 @@ internal static class DerivedMultiNamesCompilation
     /// <summary>发布时编译目标名称和范围，不能退化为查询IsIgnore实体属性。</summary>
     internal static void Require(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name)
     {
-        if(owner.Source.IsRongyu is not(0 or 1)||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type is not ("string?" or "int?" or "long?")||name.IsJsonArray||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))throw new InvalidOperationException("派生多选名称要求已证明来源、普通R0目标和固定单值名称。");
+        if(owner.Source.IsRongyu is not(0 or 1)||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!Metarill.Core.Contracts.MultiValueLabel.IsTyped(name.Source.LogicalType)||name.IsJsonArray||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))throw new InvalidOperationException("派生多选名称要求已证明来源、普通R0目标和固定单值名称。");
         if(page.Scopes.Select(scope=>scope.Column).Concat(page.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)))throw new InvalidOperationException("派生多选名称的候选身份、父和条件必须是物理标量。");
         // 全局名称路径已由多值固定目标证明，字符串键读取不能误套精确管理的int64专用门槛。
-        var plan=target.IsGlobal?NonRedundantReads.Compile(model.Catalog,target.Source.Id,[name.Source.ColumnName]):NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,name.Source.ColumnName);
+        var plan=target.IsGlobal?NonRedundantReads.Compile(model.Catalog,target.Source.Id,[name.Source.ColumnName]):NonRedundantReads.CompileMultiLabel(model.Catalog,target.Source.Id,name.Source.ColumnName);
         if(plan.OutputTypes[name.Source.ColumnName]!=name.Source.LogicalType)throw new InvalidOperationException("派生多选名称与固定物理终点类型不一致。");
     }
     /// <summary>原Excel按固定名称精确反查，读计划仅静态初始化时编译。</summary>

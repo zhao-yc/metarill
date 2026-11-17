@@ -26,15 +26,15 @@ internal static class DatabaseCheckboxExcelRenderer
             result.AppendLine("        if(cell.ValueKind==JsonValueKind.String){try{cell=JsonSerializer.Deserialize<JsonElement>(cell.GetString()!);}catch(JsonException error){throw PageImportException.Input(PageImportError.Array,inner:error);}}")
                 .AppendLine("        if(cell.ValueKind!=JsonValueKind.Array||cell.GetArrayLength()>DatabaseCheckboxValue.MaximumItems)throw PageImportException.Input(PageImportError.Array);");
             // 原名称数组使用文本；整数反查绑定强类型值，拒绝溢出、前导零和浮点写法。
-            var parseLabel=def.IntegerLabel
-                ?MultiSelectExcelRenderer.ParseIntegerLabel(def.Name,"item.GetString()","name")
+            var parseLabel=def.TypedLabel
+                ?MultiSelectExcelRenderer.ParseLabel(def.Name,"item.ToString()","name")
                 :"var name=item.GetString();";
             var form="new Dictionary<string,object?>{"+string.Join(",",(def.Conditions?.Forms??[]).Select(binding=>"["+Literal(binding.Variable)+"]=Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(relationContext["+Literal(binding.Column.JsonName)+"],"+Literal(binding.Column.Source.LogicalType)+")"))+"}";
             result.AppendLine($"        var scope=await CheckboxScope{suffix}Async(parentId,actor,{form},true,cancellationToken);")
                 .AppendLine("        var selected=new List<string>();")
                 .AppendLine("        foreach(var item in cell.EnumerateArray())")
                 .AppendLine("        {")
-                .AppendLine("            if(item.ValueKind!=JsonValueKind.String)throw PageImportException.Input(PageImportError.Relation);"+parseLabel)
+                .AppendLine($"            if({MultiSelectExcelRenderer.InvalidLabelKind(def.Name,def.TypedLabel&&!def.IntegerLabel)})throw PageImportException.Input(PageImportError.Relation);"+parseLabel)
                 .AppendLine($"            var currentScope=await CheckboxScope{suffix}Async(parentId,actor,{form},true,cancellationToken);")
                 .AppendLine(def.DerivedName?$"            var matches=await DerivedCheckboxRows{suffix}Async(parentId,actor,{form},null,name,true,2,true,cancellationToken);":$"            var matches=await currentScope.Where(row=>row.{def.Name.Property}==name).OrderBy(row=>row.Id).Limit(2).ToListAsync(row=>new{{row.Id}},cancellationToken);")
                 .AppendLine("            if(matches.Count!=1)throw PageImportException.Input(PageImportError.Relation);")

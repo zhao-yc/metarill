@@ -18,7 +18,7 @@ public static class GlobalDerivedRelationSource
     internal static void RequireName(MetadataCatalog catalog,TableMetadata source,ColumnMetadata name,ISet<string> resolving)
     {
         RequireTable(catalog,source);var storage=MetadataStoragePolicy.ForTable(catalog,source);
-        if(source.IsRongyu!=0||name.ConfigTableId!=source.Id||name.IsVirtualColumn!=0||name.LogicalType is not ("string" or "int32" or "int64")||name.ControlKind is not("" or "TextArea")||storage.Kind(name)!=MetadataFieldStorage.Join||!Enabled(name)||ExactDataManageValues.IsSensitiveField(name.ColumnName)||!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(c=>c.Id==name.Id),name))throw Invalid();
+        if(source.IsRongyu!=0||name.ConfigTableId!=source.Id||name.IsVirtualColumn!=0||name.LogicalType!="string"&&!Contracts.MultiValueLabel.IsTyped(name.LogicalType)||name.ControlKind is not("" or "TextArea")||storage.Kind(name)!=MetadataFieldStorage.Join||!Enabled(name)||ExactDataManageValues.IsSensitiveField(name.ColumnName)||!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(c=>c.Id==name.Id),name))throw Invalid();
         var path=name.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
         if(path.Length<2||path.Length>17||path.Any(string.IsNullOrWhiteSpace))throw Invalid();
         var current=source;GlobalSingleRelationPlan? last=null;
@@ -38,7 +38,7 @@ public static class GlobalDerivedRelationSource
         if(terminal.LogicalType!=name.LogicalType||ExactDataManageValues.IsSensitiveField(terminal.ColumnName))throw Invalid();
         if(name.LogicalType!="string")
         {
-            // 全局整数只允许终止于明确的真实列，不能通过名称缓存或另一派生别名取得。
+            // 全局非字符串名称只允许终止于明确的真实列，不能通过名称缓存或另一派生别名取得。
             if(!GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,current),current,terminal))throw Invalid();
             return;
         }

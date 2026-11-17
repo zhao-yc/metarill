@@ -1,4 +1,5 @@
 using System.Text;
+using Metarill.Core.Contracts;
 
 namespace Metarill.Generation;
 
@@ -75,5 +76,44 @@ internal static class SelectionPageRenderer
     }
 
     /// <summary>回读使用目标页list权限与真实Actor，不借用请求项目或来源控件配置。</summary>
-    internal static string Controller(PageModel page) => !Enabled(page) ? "" : $"    /// <summary>多选页已选行整体回读，确认前再次验证当前范围。</summary>\n    [HttpPost(\"selection/selected\")]\n    public async Task<R<IReadOnlyList<{page.Name}Vo>>> SelectionSelected([FromBody] SelectionRowsRequest request, CancellationToken cancellationToken) => R<IReadOnlyList<{page.Name}Vo>>.Success(await service.SelectionSelected{page.Source.Id}Async(request, Actor(\"list\"), cancellationToken));\n";
+    internal static string Controller(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(!Enabled(page))return "";
+        var labels=ExtraTextLabels(model,table,page);
+        if(labels.Length==0)
+            return $"    /// <summary>多选页已选行整体回读，确认前再次验证当前范围。</summary>\n    [HttpPost(\"selection/selected\")]\n    public async Task<R<IReadOnlyList<{page.Name}Vo>>> SelectionSelected([FromBody] SelectionRowsRequest request, CancellationToken cancellationToken) => R<IReadOnlyList<{page.Name}Vo>>.Success(await service.SelectionSelected{page.Source.Id}Async(request, Actor(\"list\"), cancellationToken));\n";
+
+        var fields=string.Join("\n",labels.Select(label=>"            item["+System.Text.Json.JsonSerializer.Serialize(label.JsonName)+
+            "] = "+MultiSelectExcelRenderer.LabelText(label,"row."+label.Property)+";"));
+        return $$"""
+    /// <summary>只在已选回执中转换发布的名称字段，浏览器不会先把高精度值解析成浮点数。</summary>
+    [HttpPost("selection/selected")]
+    public async Task<R<IReadOnlyList<global::System.Text.Json.Nodes.JsonObject>>> SelectionSelected(
+        [FromBody] SelectionRowsRequest request,
+        [FromServices] global::Microsoft.Extensions.Options.IOptions<global::Microsoft.AspNetCore.Mvc.JsonOptions> json,
+        CancellationToken cancellationToken)
+    {
+        var rows = await service.SelectionSelected{{page.Source.Id}}Async(request, Actor("list"), cancellationToken);
+        var response = rows.Select(row =>
+        {
+            var item = global::System.Text.Json.JsonSerializer.SerializeToNode(row, json.Value.JsonSerializerOptions)!.AsObject();
+{{fields}}
+            return item;
+        }).ToArray();
+        return R<IReadOnlyList<global::System.Text.Json.Nodes.JsonObject>>.Success(response);
+    }
+
+""";
+    }
+
+    /// <summary>只使用真实消费者绑定的名称列；其它回执字段和列表接口继续走原 JSON 合同。</summary>
+    private static ColumnModel[] ExtraTextLabels(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(!page.Readable.Any(column=>column.Type is not ("int?" or "long?" or "long")&&
+            MultiValueLabel.IsTyped(column.Source.LogicalType)))return [];
+        return model.Tables.SelectMany(source=>source.Pages.SelectMany(sourcePage=>MultiSelectCompilation.ForPage(model,source,sourcePage)))
+            .Where(definition=>definition.Target.Source.Id==table.Source.Id&&definition.TargetPage.Source.Id==page.Source.Id&&
+                definition.TypedLabel&&!definition.IntegerLabel)
+            .Select(definition=>definition.Name).DistinctBy(column=>column.Source.Id).ToArray();
+    }
 }

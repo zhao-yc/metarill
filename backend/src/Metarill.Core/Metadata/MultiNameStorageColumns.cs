@@ -25,19 +25,19 @@ public static class MultiNameStorageColumns
         }
         return result;
     }
-    /// <summary>多值名称可使用真实整数列。全局目标须另经固定发布证明。</summary>
-    public static bool IsPhysicalIntegerLabel(TableMetadata source,ColumnMetadata relation,TableMetadata target,ColumnMetadata value,MetadataStoragePlan targetStorage)=>
-        relation.ControlKind is ("MultiSelectPage" or "MultiCheckBoxDatabase")&&value.ColumnName!="id"&&value.LogicalType is ("int32" or "int64")&&
+    /// <summary>多值名称可使用真实标量列。全局目标须另经固定发布证明。</summary>
+    public static bool IsPhysicalScalarLabel(TableMetadata source,ColumnMetadata relation,TableMetadata target,ColumnMetadata value,MetadataStoragePlan targetStorage)=>
+        relation.ControlKind is ("MultiSelectPage" or "MultiCheckBoxDatabase")&&value.ColumnName!="id"&&Contracts.MultiValueLabel.IsTyped(value.LogicalType)&&
         source.IsRongyu is (0 or 1)&&target.IsRongyu is (0 or 1)&&
         !GlobalCrossTableTarget.Declared(source)&&
         value.IsVirtualColumn==0&&!Enabled(value,"isJoinColumn")&&targetStorage.IsPhysical(value)&&
         value.ControlKind is not ("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "MultiList" or "CheckBoxList")&&
         !Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName);
 
-    /// <summary>非冗余整数别名必须经过明确联接；全局目标另经完整发布证明。</summary>
-    public static bool IsDerivedIntegerLabel(TableMetadata target,ColumnMetadata value,MetadataStoragePlan targetStorage)=>
+    /// <summary>非冗余标量别名必须经过明确联接；全局目标另经完整发布证明。</summary>
+    public static bool IsDerivedScalarLabel(TableMetadata target,ColumnMetadata value,MetadataStoragePlan targetStorage)=>
         target.IsRongyu==0&&value.ConfigTableId==target.Id&&
-        value.ColumnName!="id"&&value.LogicalType is ("int32" or "int64")&&value.IsVirtualColumn==0&&
+        value.ColumnName!="id"&&Contracts.MultiValueLabel.IsTyped(value.LogicalType)&&value.IsVirtualColumn==0&&
         value.ControlKind is ("" or "Text" or "TextArea")&&targetStorage.Kind(value)==MetadataFieldStorage.Join&&Enabled(value,"isJoinColumn")&&
         !Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName);
 

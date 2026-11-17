@@ -31,7 +31,9 @@ public sealed class GlobalMultipleDerivedTargetGenerationTests
     [InlineData(0,true,"string","int64",true)]
     [InlineData(1,false,"string","int64",false)]
     [InlineData(1,true,"int64","int32",true)]
-    public async Task Published_global_derived_integers_keep_original_array_controls(int mode,bool automatic,string inner,string type,bool projectColumn)
+    [InlineData(1,false,"string","datetime",false)]
+    [InlineData(0,true,"int64","time",true)]
+    public async Task Published_global_derived_scalars_keep_original_array_controls(int mode,bool automatic,string inner,string type,bool projectColumn)
     {
         var catalog=Catalog(mode,automatic,inner);
         if(projectColumn)catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",YzProjectId=catalog.YzProjectId,ColumnName="yz_project_id",LogicalType="int64"});
@@ -51,7 +53,7 @@ public sealed class GlobalMultipleDerivedTargetGenerationTests
         var model=GenerationModel.Create(catalog,ns);
         var table=model.Tables.Single(item=>item.Source.Id=="3");var page=Assert.Single(table.Pages);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
-        Assert.True(Assert.Single(MultiSelectCompilation.ForPage(model,table,page)).IntegerLabel);
+        Assert.True(Assert.Single(MultiSelectCompilation.ForPage(model,table,page)).TypedLabel);
         Assert.True(Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,page)).DerivedName);
         if(mode==1)
         {

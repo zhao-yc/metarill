@@ -30,7 +30,9 @@ public sealed class DerivedMultiNamesTests
     [InlineData(false,1,false,"int64","edit")]
     [InlineData(true,0,false,"int64","edit")]
     [InlineData(true,1,true,"int32","list")]
-    public async Task Derived_integer_labels_complete_both_array_controls(bool checkbox,int mode,bool automatic,string type,string exportMode)
+    [InlineData(false,1,false,"decimal","edit")]
+    [InlineData(true,0,true,"time","list")]
+    public async Task Derived_scalar_labels_complete_both_array_controls(bool checkbox,int mode,bool automatic,string type,string exportMode)
     {
         const string prefix="derived_integer",ns="Example.DerivedInteger";
         var catalog=Catalog(prefix,automatic);
@@ -51,20 +53,20 @@ public sealed class DerivedMultiNamesTests
         var model=GenerationModel.Create(catalog,ns);
         var source=model.Tables.Single(item=>item.Source.Id=="2");var page=source.Pages.Single(item=>item.Source.Id=="201");
         Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
-        var expectedType=type=="int32"?"int?":"long?";
+        var expectedType=type switch{"int32"=>"int?","int64"=>"long?","decimal"=>"decimal?",_=>"TimeSpan?"};
         if(checkbox)
         {
             var def=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,source,page));
-            Assert.True(def.DerivedName);Assert.True(def.IntegerLabel);
+            Assert.True(def.DerivedName);Assert.True(def.TypedLabel);
             Assert.Contains($"NonRedundantReads.Value<{expectedType}>",DatabaseCheckboxRenderer.Service(model,source,page));
         }
         else
         {
             var def=Assert.Single(MultiSelectCompilation.ForPage(model,source,page));
-            Assert.True(def.IntegerLabel);Assert.Single(SelectionNameFilterCompilation.ForPage(model,source,page).Bindings);
+            Assert.True(def.TypedLabel);Assert.Single(SelectionNameFilterCompilation.ForPage(model,source,page).Bindings);
         }
         if(mode==0||!checkbox)
-            Assert.Contains(type=="int32"?"int.TryParse(label":"long.TryParse(label",ImportRenderer.Service(model,source,page));
+            Assert.Contains(type switch{"int32"=>"int.TryParse(label","int64"=>"long.TryParse(label",_=>"MultiValueLabel.Parse"},ImportRenderer.Service(model,source,page));
         if(mode==1)
         {
             var maintenance=MixedRelationPropagationCompilation.ForModel(model);

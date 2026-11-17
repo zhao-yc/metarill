@@ -25,7 +25,7 @@ internal static class ExportRenderer
     /// <summary>非冗余多选投影实时名称，冗余整数名称使用同一来源缓存。均保持 Excel 的文本名称数组。</summary>
     private static IReadOnlyList<MultiSelectModel> MultiNames(GenerationModel model,TableModel table,PageModel page)=>
         MultiSelectCompilation.ForPage(model,table,page).Where(multi=>multi.Names is not null&&
-            (table.Source.IsRongyu==0||multi.IntegerLabel)&&IncludesColumn(page,multi.Source)).ToArray();
+            (table.Source.IsRongyu==0||multi.TypedLabel)&&IncludesColumn(page,multi.Source)).ToArray();
     /// <summary>含关系名称的导出必须注入真实授权，独立宿主与平台使用同一Service注册合同。</summary>
     internal static bool RequiresAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page => Enabled(page) && (Relations(model, page).Length > 0 || MultiNames(model,table,page).Count>0 || HasFixedRole(model,table,page) || FixedAdmin(model,table,page) is not null));
     /// <summary>沿用 initExport 返回票据，下载入口由宿主统一承接。</summary>

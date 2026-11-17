@@ -42,9 +42,9 @@ internal static class DerivedMultipleCacheProof
     /// <summary>缓存重算只沿已存 ID 读取名称；整数别名必须与物理终点类型相同。</summary>
     private static void RequireValue(MetadataCatalog catalog,TableMetadata target,ColumnMetadata value,bool global)
     {
-        if(value.LogicalType!="string"&&!MultiNameStorageColumns.IsDerivedIntegerLabel(
+        if(value.LogicalType!="string"&&!MultiNameStorageColumns.IsDerivedScalarLabel(
             target,value,MetadataStoragePolicy.ForTable(catalog,target)))throw Invalid();
-        var read=global?NonRedundantReads.Compile(catalog,target.Id,[value.ColumnName]):NonRedundantReads.CompileMatch(catalog,target.Id,value.ColumnName);
+        var read=global?NonRedundantReads.Compile(catalog,target.Id,[value.ColumnName]):NonRedundantReads.CompileMultiLabel(catalog,target.Id,value.ColumnName);
         if(read.OutputTypes[value.ColumnName]!=value.LogicalType)throw Invalid();
     }
     /// <summary>异常不包含目录原文或任何连接配置。</summary>

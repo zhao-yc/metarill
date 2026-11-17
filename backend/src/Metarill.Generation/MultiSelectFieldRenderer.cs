@@ -78,7 +78,7 @@ internal static class MultiSelectFieldRenderer
                     var filters=new List<string>{"new(\"id\",FixedReadComparison.In,selected.Select(id=>(object?)id).ToArray())"};foreach(var scope in def.TargetPage.Scopes)filters.Add("new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Scope(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+")");
                     var condition=FixedPageConditionCompilation.Bound(def.TargetPage,"MultiPageCondition"+suffix);
                     var nameExpression=$"NonRedundantReads.Value<{cache.Value.Type}>(row,{Literal(cache.Value.Source.ColumnName)})";
-                    if(cache.Value.Type is "int?" or "long?")nameExpression+="?.ToString(CultureInfo.InvariantCulture)";
+                    nameExpression=MultiSelectExcelRenderer.LabelText(cache.Value,nameExpression);
                     result.AppendLine($"        var cacheRows{index}=await new NonRedundantReader(session).CurrentRowsAsync(MultiCachePlan{suffix}_{index},new FixedReadFilter[]{{{string.Join(",",filters)}}},new FixedReadOrder[]{{new(\"id\")}},200,cancellationToken,actor.ProjectId,{condition});")
                         .AppendLine($"        if(cacheRows{index}.Count!=selected.Length)throw new InvalidOperationException(\"派生多选目标当前范围已改变，源记录未保存。\");")
                         .AppendLine($"        var {variable}=cacheRows{index}.ToDictionary(row=>NonRedundantReads.Value<long>(row,\"id\"),row=>{nameExpression});");
@@ -86,7 +86,7 @@ internal static class MultiSelectFieldRenderer
                 else
                 {
                     // ID 顺序、空值位置和字符串数组类型在保存、传播及回填之间一致。
-                    var label="row."+value+(cache.Value.Type is "int?" or "long?"?"?.ToString(CultureInfo.InvariantCulture)":"");
+                    var label=MultiSelectExcelRenderer.LabelText(cache.Value,"row."+value);
                     result.AppendLine($"        var {variable} = rows.ToDictionary(row => row.Id, row => {label});");
                 }
                 result.AppendLine($"        if (refreshNames) {{ entity.{cache.Cache.Property} = JsonSerializer.Serialize(selected.Select(id => {variable}[id]).ToArray()); submitted.Add({Literal(cache.Cache.Source.ColumnName)}); }}");

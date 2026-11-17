@@ -28,16 +28,16 @@ internal static class MultiSelectExcelRenderer
         }
         if(multi.TargetParents.Count>0)result.AppendLine($"        var targetParentId={targetParent};if(!long.TryParse(targetParentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0)throw PageImportException.Input(PageImportError.Relation);");
         result.AppendLine("        foreach(var item in cell.EnumerateArray())").AppendLine("        {")
-            .AppendLine("            if(item.ValueKind is not(JsonValueKind.String or JsonValueKind.Number))throw PageImportException.Input(PageImportError.Relation);")
+            .AppendLine($"            if({InvalidLabelKind(multi.Name,true)})throw PageImportException.Input(PageImportError.Relation);")
             .AppendLine($"            var query=session.Select<{multi.Target.EntityType}>();");
         if(multi.Target.Columns.Any(column=>column.Source.ColumnName=="delete_no"))result.AppendLine("            query=query.Where(row=>row.DeleteNo==null);");
         if(multi.Target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id") is {} project&&(!multi.Target.IsGlobal||multi.TargetPage.Scopes.Any(scope=>scope.Source=="project")))result.AppendLine($"            query=query.Where(row=>row.{project.Property}=={Scope(project,"actor.ProjectId")});");
         foreach(var scope in multi.TargetPage.Scopes.Where(scope=>scope.Source=="parent"))result.AppendLine($"            query=query.Where(row=>row.{scope.Column.Property}=={Scope(scope.Column,"targetParentId!")});");
         result.Append(FixedPageConditionCompilation.Apply(multi.TargetPage,"MultiPageCondition"+suffix,"multi_import_"+suffix));
         if(multi.Name.IsId)result.AppendLine("            if(!long.TryParse(item.ToString(),NumberStyles.None,CultureInfo.InvariantCulture,out var key)||key<=0)throw PageImportException.Input(PageImportError.Relation);query=query.Where(row=>row.Id==key);");
-        else if(multi.IntegerLabel)
+        else if(multi.TypedLabel)
         {
-            result.AppendLine("            "+ParseIntegerLabel(multi.Name,"item.ToString()","key"))
+            result.AppendLine("            "+ParseLabel(multi.Name,"item.ToString()","key"))
                 .AppendLine($"            query=query.Where(row=>row.{multi.Name.Property}==key);");
         }
         else result.AppendLine($"            var name=item.ToString();query=query.Where(row=>row.{multi.Name.Property}==name);");
@@ -46,12 +46,25 @@ internal static class MultiSelectExcelRenderer
             .AppendLine("            var value=matches[0].Id.ToString(CultureInfo.InvariantCulture);if(selected.Contains(value))throw PageImportException.Input(PageImportError.Relation);selected.Add(value);")
             .AppendLine("        }").AppendLine("        return JsonSerializer.SerializeToElement(selected);").AppendLine("    }");return result.ToString();
     }
-    /// <summary>原名称数组按规范十进制反查，保留负数及完整 bigint。</summary>
-    internal static string ParseIntegerLabel(ColumnModel label,string input,string result)
+    /// <summary>按业务字段类型生成原名称反查的强类型参数。</summary>
+    internal static string ParseLabel(ColumnModel label,string input,string result)
     {
+        if(label.Type is not ("int?" or "long?"))
+            return $"var {result}=({label.Type.TrimEnd('?')})MultiValueLabel.Parse({Literal(label.Source.LogicalType)},{input});";
         var type=label.Type=="int?"?"int":"long";
         return $"var label={input};if(!{type}.TryParse(label,NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out var {result})||{result}.ToString(CultureInfo.InvariantCulture)!=label)throw PageImportException.Input(PageImportError.Relation);";
     }
+    /// <summary>名称以文本传输，保持整数、十进制及日历值的精度。</summary>
+    internal static string LabelText(ColumnModel label,string input)=>label.Source.LogicalType switch
+    {
+        "string" => input,
+        "int32" or "int64" => input+"?.ToString(CultureInfo.InvariantCulture)",
+        _ => "MultiValueLabel.Text("+Literal(label.Source.LogicalType)+","+input+")"
+    };
+    /// <summary>原工作簿名称接收文本或数值，布尔名称另外兼容原始 JSON 布尔标量。</summary>
+    internal static string InvalidLabelKind(ColumnModel label,bool allowNumber)=>
+        "item.ValueKind is not (JsonValueKind.String"+(allowNumber?" or JsonValueKind.Number":"")+
+        (label.Source.LogicalType=="bool"?" or JsonValueKind.True or JsonValueKind.False":"")+")";
     /// <summary>上下文值按声明物理类型绑定，不经浮点数。</summary>
     private static string Scope(ColumnModel column,string value)=>column.Type switch{"string?"=>value,"int?"=>$"int.Parse({value},CultureInfo.InvariantCulture)",_=>$"long.Parse({value},CultureInfo.InvariantCulture)"};
     /// <summary>固定配置只能成为代码字面量。</summary>

@@ -20,7 +20,12 @@ public sealed class GlobalMultipleFreshCatalogTests
     [InlineData("cross5",0,"int64",1)]
     [InlineData("cross6",1,"int64",0)]
     [InlineData("cross7",1,"int32",1)]
-    public async Task Global_integer_labels_publish_both_array_controls(string profile,int sourceMode,string type,int targetMode)
+    [InlineData("cross3",0,"bool",1)]
+    [InlineData("cross5",0,"decimal",1)]
+    [InlineData("cross6",1,"date",0)]
+    [InlineData("cross7",1,"datetime",1)]
+    [InlineData("cross5",1,"time",1)]
+    public async Task Global_scalar_labels_publish_both_array_controls(string profile,int sourceMode,string type,int targetMode)
     {
         var catalog=Catalog(profile);
         catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=sourceMode;
@@ -31,7 +36,7 @@ public sealed class GlobalMultipleFreshCatalogTests
         var source=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(source.Pages);
         var multi=Assert.Single(MultiSelectCompilation.ForPage(model,source,page),item=>item.Source.Source.Id=="2202");
         var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,source,page),item=>item.Source.Source.Id=="2204");
-        Assert.True(multi.IntegerLabel);Assert.True(checkbox.IntegerLabel);
+        Assert.True(multi.TypedLabel);Assert.True(checkbox.TypedLabel);
         Assert.Equal("302",multi.TargetPage.Source.Id);Assert.Equal(label.Id,checkbox.Name.Source.Id);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));new FrontendPackager().Validate(catalog);
         if(sourceMode==1)
@@ -49,6 +54,11 @@ public sealed class GlobalMultipleFreshCatalogTests
             var service=assembly.GetTypes().Single(type=>type.Name=="GsSingleSourceService");
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
             Assert.NotNull(service.GetMethod("Import201Async"));Assert.NotNull(service.GetMethod("Export201Async"));
+            if(!multi.IntegerLabel)
+            {
+                var controller=assembly.GetTypes().Single(type=>type.Name=="GsSingleSharedPage302Controller");
+                Assert.Contains("JsonObject",controller.GetMethod("SelectionSelected")!.ReturnType.ToString());
+            }
             if(sourceMode==1)
             {
                 var maintenance=assembly.GetTypes().Single(type=>type.Name=="GeneratedRelationMaintenance").GetProperty("Catalog")!.GetValue(null)!;

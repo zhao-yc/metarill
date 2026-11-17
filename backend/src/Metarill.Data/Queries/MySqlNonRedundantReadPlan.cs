@@ -173,16 +173,23 @@ public static partial class MySqlNonRedundantReadCompiler
         return new Builder(catalog,tableId,refreshFields:fields.ToHashSet(StringComparer.Ordinal),refreshMultiples:multiple,refreshPaths:paths).Compile(["id",..fields,..multiple.Where(item=>item.Multiple).Select(item=>catalog.ConfigColumns.Single(column=>column.Id==item.ForeignColumnId).ColumnName).Distinct(StringComparer.Ordinal)],[]);
     }
     /// <summary>先完整验证目录，再以专用用途编译单一匹配字段；最终物理列必须仍为非凭据标量。</summary>
-    public static MySqlNonRedundantReadPlan CompileMatch(MetadataCatalog catalog,string tableId,string field)
+    public static MySqlNonRedundantReadPlan CompileMatch(MetadataCatalog catalog,string tableId,string field)=>
+        CompileScalarMatch(catalog,tableId,field,multiLabel:false);
+
+    /// <summary>多选／复选名称的固定联接支持原生 TIME。</summary>
+    internal static MySqlNonRedundantReadPlan CompileMultiLabel(MetadataCatalog catalog,string tableId,string field)=>
+        CompileScalarMatch(catalog,tableId,field,multiLabel:true);
+
+    private static MySqlNonRedundantReadPlan CompileScalarMatch(MetadataCatalog catalog,string tableId,string field,bool multiLabel)
     {
-        Compile(catalog,tableId,[field]);return new Builder(catalog,tableId,true).Compile([field],[]);
+        Compile(catalog,tableId,[field]);return new Builder(catalog,tableId,true,multiLabel:multiLabel).Compile([field],[]);
     }
     /// <summary>构造时消费元数据，最终只保留不可变的表达式文本、类型和项目范围。</summary>
     private sealed partial class Builder
     {
         private readonly MetadataCatalog catalog;
         private readonly string rootAlias,aliasPrefix;
-        private readonly bool matching,trackReverse;
+        private readonly bool matching,trackReverse,multiLabel;
         private readonly PageMetadata? candidatePage;
         private int publishedArrayScopeCount;
         private readonly List<MySqlReverseProjection> customReverse=[];
@@ -218,9 +225,9 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,string> idPredicates=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlMultiProjection> multiProjections=new(StringComparer.Ordinal);
         private readonly HashSet<string> resolving=new(StringComparer.Ordinal);
-        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null)
+        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false)
         {
-            this.rootAlias=rootAlias;this.aliasPrefix=aliasPrefix;this.candidatePage=candidatePage;
+            this.rootAlias=rootAlias;this.aliasPrefix=aliasPrefix;this.candidatePage=candidatePage;this.multiLabel=multiLabel;
             this.crossTables=(crossTables??[]).ToDictionary(scope=>scope.SourceColumnId,StringComparer.Ordinal);
             this.catalog=catalog;this.matching=matching;this.trackReverse=trackReverse||refreshFields is not null;this.deferCascadeNames=deferCascadeNames;this.refreshFields=refreshFields;this.refreshMultiples=refreshMultiples??[];this.refreshPaths=refreshPaths??new Dictionary<string,string>();
             tables=catalog.ConfigTables.Where(table=>(table.YzProjectId.Length==0?catalog.YzProjectId:table.YzProjectId)==catalog.YzProjectId).ToDictionary(table=>table.Id,StringComparer.Ordinal);
@@ -355,7 +362,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         if(matching)
                         {
                             if(Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.ColumnName)||column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList"||column.ColumnName.EndsWith("_ids",StringComparison.Ordinal)||column.LogicalType=="json")throw new NotSupportedException("精确管理匹配路径只能使用非凭据单值列。");
-                            Metarill.Core.Security.ExactDataManageValues.Unrestricted.ReadLogical(column.LogicalType);
+                            if(!multiLabel||column.LogicalType!="time")Metarill.Core.Security.ExactDataManageValues.Unrestricted.ReadLogical(column.LogicalType);
                         }
                         if(refreshFields is not null&&alias!=rootAlias&&(column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList"||column.LogicalType is "json" or "binary"))throw new NotSupportedException("维护派生文件或数组路径需要独立事务合同，未执行部分回填。");
                         Use(table,column);Touch(alias,column.ColumnName);origin=new(table.TableName,column.ColumnName);physicalOriginAlias=alias;
@@ -418,13 +425,11 @@ public static partial class MySqlNonRedundantReadCompiler
             var value=Column(target,display);
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
             if(!storage[target.Id].IsPhysical(value))return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage);
-            var integerLabel=MultiNameStorageColumns.IsPhysicalIntegerLabel(table,relation,target,value,storage[target.Id]);
-            if(value.LogicalType!="string"&&!integerLabel)throw new NotSupportedException("多值物理名称类型未支持。");
+            var scalarLabel=MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id]);
+            if(value.LogicalType!="string"&&!scalarLabel)throw new NotSupportedException("多值物理名称类型未支持。");
             Use(table,relation);
-            if(integerLabel)Use(target,value);
-            // SQL 聚合、名称搜索与分批回读采用同一十进制文本表达式。
-            var columnSql="multi_value."+Q(display);
-            var label=integerLabel?"CAST("+columnSql+" AS CHAR)":columnSql;
+            if(scalarLabel)Use(target,value);
+            var label=MySqlMultiValueLabel.Text("multi_value."+Q(display),value.LogicalType);
             var source=owner+"."+Q(relation.ColumnName);
             // JSON_TYPE只在有效JSON分支求值，损坏历史值与非数组按原空集合处理，不能让JSON_TABLE整页失败。
             var array=Array(source);
@@ -432,7 +437,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 ?Scope(target,"multi_value",projectScoped:!global)
                 :PublishedScope(target,"multi_value",publishedPage,aliasPrefix+"array"+publishedArrayScopeCount++);
             var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG("+label+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(relation.ControlKind=="MultiCheckBoxDatabase"||global?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(targetScope.Length==0?"":" AND "+targetScope)+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
-            multiProjections[expression]=new(source,Q(target.TableName),Q(display),targetScope,NameExpression:integerLabel?label:null);
+            multiProjections[expression]=new(source,Q(target.TableName),Q(display),targetScope,NameExpression:scalarLabel?label:null);
             // 名称筛选直接对目标做EXISTS，不先聚合整份名称数组，也不把根记录JOIN成多行。
             multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(targetScope.Length==0?"":" AND "+targetScope)+" AND "+label+" LIKE {parameter} ESCAPE '!')";
             if(relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(targetScope.Length==0?"":" AND "+targetScope)+" AND "+label+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";

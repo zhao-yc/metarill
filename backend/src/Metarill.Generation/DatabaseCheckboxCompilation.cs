@@ -6,6 +6,7 @@ namespace Metarill.Generation;
 internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Target,ColumnModel Name,ColumnModel Names,IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,IReadOnlyList<TableModel> SourceParents,ColumnModel? SourceParent,bool DerivedName=false,PageModel? GlobalPage=null)
 {
     internal bool IntegerLabel => Name.Type is ("int?" or "long?");
+    internal bool TypedLabel => Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
     internal string Endpoint=>"findNameId"+GenerationModel.Pascal(Source.Source.ColumnName[..^4])+Source.Source.Id;
     internal IEnumerable<ColumnModel> Dependencies=>(Conditions?.Forms.Select(binding=>binding.Column)??[]).Concat(SourceParent is null?[]:[SourceParent]).DistinctBy(column=>column.Source.Id);
 }
@@ -72,9 +73,9 @@ internal static class DatabaseCheckboxCompilation
             }
             if(definition.NameField!=baseline.NameField)return Gap("页级名称覆盖未绑定同一固定读取和缓存。");
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
-            var integerLabel=name is not null&&MultiSelectCompilation.SupportsIntegerLabel(model,table,source,target,name);
-            if(name is null||name.Type!="string?"&&!integerLabel||name.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,name))
-                return Gap("名称必须为已声明的非凭据字符串或已证明的整数。");
+            var scalarLabel=name is not null&&MultiSelectCompilation.SupportsTypedLabel(model,table,source,target,name);
+            if(name is null||name.Type!="string?"&&!scalarLabel||name.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,name))
+                return Gap("名称必须为已声明的非凭据且已证明的标量。");
             var derived=!NonRedundantReadCompilation.Physical(model,target,name);if(!derived&&GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&(!target.IsGlobal||!GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source)))return Gap("物理Join名称仍需独立缓存证明。");
             if(!target.IsGlobal&&!HasIdentity(model,target))return Gap("目标缺少真实项目归属。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);

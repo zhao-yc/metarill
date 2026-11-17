@@ -99,7 +99,7 @@ internal static class DatabaseCheckboxRenderer
     }
     /// <summary>候选与名称数组都保留空值及十进制文本，避免 bigint 在 JavaScript 中丢失精度。</summary>
     internal static string LabelText(DatabaseCheckboxModel def,string expression)=>
-        def.IntegerLabel?expression+"?.ToString(CultureInfo.InvariantCulture)":expression;
+        MultiSelectExcelRenderer.LabelText(def.Name,expression);
 
     /// <summary>已编译条件在类型加载时创建一次，候选请求只提供参数。</summary>
     private static string Declaration(DatabaseCheckboxModel def,string suffix)

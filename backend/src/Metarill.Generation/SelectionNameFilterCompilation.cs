@@ -38,7 +38,7 @@ internal static class SelectionNameFilterCompilation
                 if(target is null||targetPage is null||!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId)&&source.Source.LinkConfigTableId!=target.Source.Id){Gap("目标页不存在或不属于声明目标表。");continue;}
                 if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id")){Gap("目标没有明确项目归属或全局声明。");continue;}
                 var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
-                if(name is null||name.Type!="string?"&&!MultiSelectCompilation.SupportsIntegerLabel(model,table,source,target,name)||
+                if(name is null||name.Type!="string?"&&!MultiSelectCompilation.SupportsTypedLabel(model,table,source,target,name)||
                     !targetPage.Readable.Any(column=>column.Source.Id==name.Source.Id)){Gap("目标名称字段不是已开放读取的受支持标量。");continue;}
                 SelectionNameFilterKind kind;
                 if(table.Source.IsRongyu==0)
