@@ -2,7 +2,7 @@ using System.Data.Common;
 
 namespace Metarill.Data.Queries;
 
-public enum FixedReadComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less, LessOrEqual, Contains, IsNull, IsNotNull, In, JsonArrayAnyContains, JsonArrayHasId, LikePattern }
+public enum FixedReadComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less, LessOrEqual, Contains, IsNull, IsNotNull, In, JsonArrayAnyContains, JsonArrayHasId, LikePattern, IntegerLabelContains }
 public sealed record FixedReadFilter(string Field,FixedReadComparison Comparison,object? Value=null)
 {
     internal bool SharedExact {get;private init;}
@@ -289,8 +289,15 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         }
         if(filter.Comparison==FixedReadComparison.In)
         {if(value is not IReadOnlyList<object?> items||filter.SharedExact&&items.Any(item=>item is null))throw new InvalidOperationException("集合筛选必须使用明确标量列表。");return filter with{Value=Array.AsReadOnly(items.Select(item=>Prepare(plan,new(filter.Field,FixedReadComparison.Equal,item)).Value).ToArray())};}
+        var type=plan.Types[filter.Field];
+        if (filter.Comparison == FixedReadComparison.IntegerLabelContains)
+        {
+            if (type is not ("int32" or "int64") || value is not string)
+                throw new InvalidOperationException("整数名称搜索需要固定整数列及文本关键词。");
+            return filter;
+        }
         if(value is null||filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)return filter;
-        var type=plan.Types[filter.Field];var culture=System.Globalization.CultureInfo.InvariantCulture;
+        var culture=System.Globalization.CultureInfo.InvariantCulture;
         object converted=type switch
         {
             "int64" when value is long or int=>Convert.ToInt64(value,culture),
@@ -339,6 +346,9 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         {if(value is not string||plan.Types[filter.Field]!="string")throw new InvalidOperationException("原LIKE模式仅适用于文本字段。");return expression+" LIKE "+parameter;}
         if(filter.Comparison==FixedReadComparison.Contains)
         {if(value is not string||plan.Types[filter.Field]!="string")throw new InvalidOperationException("字面包含仅适用于文本字段。");return expression+" LIKE "+parameter+" ESCAPE '!'";}
+        // 仅搜索时按十进制文本比较；排序、投影及精确匹配仍使用原整数。
+        if (filter.Comparison == FixedReadComparison.IntegerLabelContains)
+            return "CAST(" + expression + " AS CHAR) LIKE " + parameter + " ESCAPE '!'";
         if(value is null)return filter.Comparison switch{FixedReadComparison.Equal=>expression+" IS NULL",FixedReadComparison.NotEqual=>expression+" IS NOT NULL",_=>throw new InvalidOperationException("范围比较不能使用null。")};
         return expression+(filter.Comparison switch{FixedReadComparison.Equal=>"=",FixedReadComparison.NotEqual=>"<>",FixedReadComparison.Greater=>">",FixedReadComparison.GreaterOrEqual=>">=",FixedReadComparison.Less=>"<",FixedReadComparison.LessOrEqual=>"<=",_=>throw new InvalidOperationException("未知固定筛选操作。")})+parameter;
     }
@@ -356,7 +366,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     {
         Add(command,"project_scope_text",projectId);Add(command,"project_scope_number",long.Parse(projectId,System.Globalization.CultureInfo.InvariantCulture));
         for(var i=0;i<filters.Count;i++)
-        {var filter=filters[i];if(filter.Comparison==FixedReadComparison.In){var items=(IReadOnlyList<object?>)filter.Value!;for(var item=0;item<items.Count;item++)if(items[item] is {} memberValue)Add(command,"filter_"+i+"_"+item,memberValue);continue;}if(filter.Value is null||filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)continue;var value=filter.Comparison==FixedReadComparison.LikePattern?"%"+(string)filter.Value+"%":filter.Comparison is FixedReadComparison.Contains or FixedReadComparison.JsonArrayAnyContains?"%"+((string)filter.Value).Replace("!","!!",StringComparison.Ordinal).Replace("%","!%",StringComparison.Ordinal).Replace("_","!_",StringComparison.Ordinal)+"%":filter.Value;Add(command,"filter_"+i,value);}
+        {var filter=filters[i];if(filter.Comparison==FixedReadComparison.In){var items=(IReadOnlyList<object?>)filter.Value!;for(var item=0;item<items.Count;item++)if(items[item] is {} memberValue)Add(command,"filter_"+i+"_"+item,memberValue);continue;}if(filter.Value is null||filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)continue;var value=filter.Comparison==FixedReadComparison.LikePattern?"%"+(string)filter.Value+"%":filter.Comparison is FixedReadComparison.Contains or FixedReadComparison.JsonArrayAnyContains or FixedReadComparison.IntegerLabelContains?"%"+((string)filter.Value).Replace("!","!!",StringComparison.Ordinal).Replace("%","!%",StringComparison.Ordinal).Replace("_","!_",StringComparison.Ordinal)+"%":filter.Value;Add(command,"filter_"+i,value);}
     }
     /// <summary>无项目列来源必须绑定发布目录身份，不能靠请求参数取得另一项目的全局数据。</summary>
     private static string RequirePlanProject(MySqlNonRedundantReadPlan plan,string? project)

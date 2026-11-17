@@ -28,6 +28,59 @@ public sealed class DerivedRelationNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>业务编号与外键不同，保持联接整数投影、原候选文本及 Excel 精确匹配。</summary>
+    [Theory]
+    [InlineData("int32", "int", "-2000000001", false)]
+    [InlineData("int64", "long", "9007199254740993", true)]
+    public async Task Derived_list_integer_name_compiles_lookup_and_preserves_precision(string logicalType, string clrType, string expected, bool contextual)
+    {
+        var catalog = Catalog("dr_names", contextual);
+        // 客户选公司时仍使用原字符串名称，订单选客户时使用独立的公司编号联接列。
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "45", ConfigTableId = "4", YzProjectId = catalog.YzProjectId, ColumnName = "code", LogicalType = logicalType
+        });
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id = "40145", ConfigPageId = "401", ConfigColumnId = "45", YzProjectId = catalog.YzProjectId
+        });
+        foreach (var column in catalog.ConfigColumns.Where(column => column.Id is "28" or "113"))
+            column.LogicalType = logicalType;
+        catalog.ConfigColumns.Single(column => column.Id == "28").Extra["columnFullName"] = JsonSerializer.SerializeToElement("company.code");
+        var control = catalog.ConfigColumns.Single(column => column.Id == "15");
+        var options = JsonSerializer.Deserialize<Dictionary<string, string>>(control.ControlDetail)!;
+        options["orderBy"] = "status desc, company_name desc";
+        control.ControlDetail = JsonSerializer.Serialize(options);
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-derived-integer-list");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), "Example.IntegerList");
+            var service = await File.ReadAllTextAsync(Path.Combine(directory, "generated/Services/DrNamesOrderService.g.cs"));
+            Assert.Contains("FixedReadComparison.IntegerLabelContains", service);
+            Assert.Contains("FixedReadComparison.Equal, key", service);
+            Assert.Contains("!" + clrType + ".TryParse(label", service);
+            Assert.Contains("""[new("status", true), new("company_name", true), new("id", false)]""", service);
+            var exportCell = Assert.Single(service.Split('\n'), line => line.Contains("entity.CustomerId is null ? null : namesCustomerId.GetValueOrDefault(", StringComparison.Ordinal));
+            Assert.DoesNotContain("??", exportCell);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var type = assembly.GetType("Example.IntegerList.Generated.Services.DrNamesOrderService")!;
+            var readOption = type.GetMethod("ReadDerivedOption101_15", BindingFlags.Static | BindingFlags.NonPublic)!;
+            object number = clrType == "int"
+                ? (object)int.Parse(expected, System.Globalization.CultureInfo.InvariantCulture)
+                : long.Parse(expected, System.Globalization.CultureInfo.InvariantCulture);
+            var row = new Dictionary<string, object?> { ["id"] = 9007199254740995L, ["company_name"] = number };
+            var option = readOption.Invoke(null, [row])!;
+            Assert.Equal(9007199254740995L, (long)option.GetType().GetProperty("Id")!.GetValue(option)!);
+            Assert.Equal(expected, (string)option.GetType().GetProperty("Name")!.GetValue(option)!);
+            Assert.Equal(expected, (string)option.GetType().GetProperty("Text")!.GetValue(option)!);
+            row["company_name"] = null;
+            Assert.Null(option.GetType().GetProperty("Text")!.GetValue(readOption.Invoke(null, [row])));
+            Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog, "Example.IntegerList")));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>实际完整包包含原List组件和只读名称，重新更新保护手写partial。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Full_package_keeps_original_list_and_protects_handwritten_service(bool contextual)

@@ -8,6 +8,12 @@ internal static class DerivedRelationNamesCompilation
 {
     /// <summary>冗余物理缓存继续沿原路径；只识别实际非物理名称。</summary>
     internal static bool Declared(GenerationModel model,RelationModel relation)=>!NonRedundantReadCompilation.Physical(model,relation.Target,relation.NameColumn);
+    /// <summary>普通 List 的联接整数可作为候选名称，仍由已发布的标量计划证明终点。</summary>
+    internal static bool IsIntegerListName(GenerationModel model, TableModel owner, ColumnModel source, TableModel target, ColumnModel name) =>
+        source.Source.ControlKind == "List" && owner.Source.IsRongyu == 0 && !owner.IsGlobal &&
+        target.Source.IsRongyu == 0 && !target.IsGlobal && !name.IsJsonArray &&
+        name.Type is "int?" or "long?" && !NonRedundantReadCompilation.Physical(model, target, name);
+
     /// <summary>隐藏字段也保留表级派生目标证明，仅用于内部最终值校验，不新增公开路由。</summary>
     internal static bool DeclaredSource(GenerationModel model,ColumnModel source)
     {
@@ -33,7 +39,12 @@ internal static class DerivedRelationNamesCompilation
     {
         var target=relation.Target;var name=relation.NameColumn;
         if(relation.SourceColumn.Source.ControlKind=="SelectPage")RequireSelection(model,owner,target,relation.TargetPage,name);
-        if(!SupportedOwner(model,owner)||relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||target.Source.IsRongyu!=0||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||name.Type!="string?"||name.IsJsonArray||relation.ParentBinding?.Declared==true||ExactDataManageCompilation.Declared(relation.TargetPage)||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage))throw new InvalidOperationException("派生名称关系要求普通R0或已发布R1物理来源、普通R0目标及已证明的候选范围。");
+        var integerName = IsIntegerListName(model, owner, relation.SourceColumn, target, name);
+        if(!SupportedOwner(model,owner)||relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||target.Source.IsRongyu!=0||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
+            name.Type != "string?" && !integerName || name.IsJsonArray || relation.ParentBinding?.Declared==true||ExactDataManageCompilation.Declared(relation.TargetPage)||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage))
+            throw new InvalidOperationException("派生名称关系要求普通R0或已发布R1物理来源、普通R0目标及已证明的候选范围。");
+        if (integerName && ForeignValidationRenderer.Target(model, relation.SourceColumn)?.Source.Id != target.Source.Id)
+            throw new InvalidOperationException("整数名称候选必须与来源外键使用同一固定目标。");
         if(target.IsGlobal)
         {
             var proof=owner.Source.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(model.Catalog,owner.Source,relation.SourceColumn.Source,target.Source):GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,relation.SourceColumn.Source,target.Source);
@@ -44,11 +55,15 @@ internal static class DerivedRelationNamesCompilation
             .Concat(relation.TargetPage.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[])
             .Concat(relation.Conditions?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();
         if(fields.Any(column=>!NonRedundantReadCompilation.Physical(model,target,column)||column.IsJsonArray))throw new InvalidOperationException("派生名称候选的身份、父及附加范围必须为已发布物理标量。");
-        var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(new[]{"id",name.Source.ColumnName}).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var orderFields = relation.OptionsOrder?.Select(item => item.Column.Source.ColumnName) ?? [];
+        var dependencies = fields.Select(column => column.Source.ColumnName).Concat(orderFields)
+            .Concat(["id", name.Source.ColumnName]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var plan=NonRedundantReadCompilation.HasGlobalRowProject(target)
             ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,relation.TargetPage.Source.Id,["id",name.Source.ColumnName],dependencies)
             :NonRedundantReads.Compile(model.Catalog,target.Source.Id,["id",name.Source.ColumnName],dependencies);
-        if(plan.OutputTypes["id"]!="int64"||plan.OutputTypes[name.Source.ColumnName]!="string")throw new InvalidOperationException("关系名称必须可编译为固定单值字符串，不能借级联或数组冒充标量。");
+        var labelType = integerName ? name.Type == "int?" ? "int32" : "int64" : "string";
+        if (plan.OutputTypes["id"] != "int64" || plan.OutputTypes[name.Source.ColumnName] != labelType)
+            throw new InvalidOperationException("关系名称必须编译为与声明一致的固定标量。");
         return dependencies;
     }
     /// <summary>普通R0保持原合同；R1只为明确发布、有真实主键／项目的物理消费者开放同一固定候选。</summary>

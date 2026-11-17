@@ -166,7 +166,9 @@ internal static class ExportRenderer
         if (relation is not null)
         {
             var id = IdExpression(column, "entity");
-            return $"{access} is null ? null : names{column.Property}.GetValueOrDefault(({(RelationConditionsCompilation.HasForms(relation)?"CacheKey":"TargetParent")}{column.Property}(entity), {id})) ?? Convert.ToString({access}, CultureInfo.InvariantCulture)";
+            var lookup = $"{access} is null ? null : names{column.Property}.GetValueOrDefault(({(RelationConditionsCompilation.HasForms(relation)?"CacheKey":"TargetParent")}{column.Property}(entity), {id}))";
+            // 联接整数名称缺失时沿原投影留空，防止回退的外键在重导时碰巧命中另一个业务编号。
+            return relation.NameColumn.Type == "string?" ? lookup + $" ?? Convert.ToString({access}, CultureInfo.InvariantCulture)" : lookup;
         }
         if(column.Type=="TimeSpan?")return access+" is {} clock"+column.Property+"?"+TimeFieldCompilation.Value(column)+(TimeFieldCompilation.IsClock(column)?".FormatExport(clock":".Format(clock")+column.Property+"):null";
         if (column.Type == "long") return access + ".ToString(CultureInfo.InvariantCulture)";

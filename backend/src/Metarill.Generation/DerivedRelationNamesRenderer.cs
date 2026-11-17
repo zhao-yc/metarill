@@ -9,6 +9,11 @@ internal static class DerivedRelationNamesRenderer
     internal static string Service(GenerationModel model,TableModel owner,PageModel page,RelationModel relation,bool visible)
     {
         var dependencies=DerivedRelationNamesCompilation.Require(model,owner,page,relation);var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var name=relation.NameColumn.Source.ColumnName;
+        var label = MultiSelectExcelRenderer.LabelText(relation.NameColumn, $"NonRedundantReads.Value<{relation.NameColumn.Type}>(row,{Literal(name)})");
+        var search = relation.NameColumn.Type == "string?" ? "Contains" : "IntegerLabelContains";
+        var order = relation.OptionsOrder is { } ordering
+            ? string.Join(", ", ordering.Select(item => $"new({Literal(item.Column.Source.ColumnName)}, {(item.Descending ? "true" : "false")})"))
+            : $"new({Literal(name)}), new(\"id\")";
         var filters=string.Join("\n",relation.TargetPage.Scopes.Concat(relation.Scopes).DistinctBy(scope=>scope.Column.Source.Id).Select(scope=>"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+ScopeValue(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));"));
         var same=relation.SourceParents.Count>0&&relation.SourceParents.Select(parent=>parent.Source.Id).Order().SequenceEqual(relation.TargetParents.Select(parent=>parent.Source.Id).Order());
         var variables=relation.Conditions is not{} condition?"":RelationConditionsCompilation.Variables(condition,"targetParentId");
@@ -27,6 +32,13 @@ internal static class DerivedRelationNamesRenderer
 {{bind}}
         return(filters,condition);
     }
+    /// <summary>沿原下拉的文本协议回显，整数名称在这里转成完整十进制文本。</summary>
+    private static GeneratedOption ReadDerivedOption{{suffix}}(IReadOnlyDictionary<string,object?> row)
+    {
+        var id = NonRedundantReads.Value<long>(row, "id");
+        var label = {{label}};
+        return new(id, label, id, label);
+    }
     /// <summary>已选和导出按有限批次读取，缓存键仍由调用方的真实父与表单依赖隔离。</summary>
     private async Task<IReadOnlyList<GeneratedOption>> DerivedOptionsRows{{suffix}}Async(string? parentId,string? targetParentId,RuntimeActor actor,IReadOnlyList<long> ids,CancellationToken cancellationToken,IReadOnlyDictionary<string,object?>? formValues=null)
     {
@@ -34,8 +46,8 @@ internal static class DerivedRelationNamesRenderer
         foreach(var batch in ids.Distinct().Chunk(200))
         {
             var filters=scope.Filters.Append(new FixedReadFilter("id",FixedReadComparison.In,batch.Select(id=>(object?)id).ToArray())).ToArray();
-            var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{{suffix}},filters,[new({{Literal(name)}}),new("id")],200,cancellationToken,actor.ProjectId,scope.Condition);
-            result.AddRange(rows.Select(row=>new GeneratedOption(NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<string?>(row,{{Literal(name)}}),NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<string?>(row,{{Literal(name)}}))));
+            var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{{suffix}},filters,[{{order}}],200,cancellationToken,actor.ProjectId,scope.Condition);
+            result.AddRange(rows.Select(ReadDerivedOption{{suffix}}));
         }
         return result;
     }
@@ -48,17 +60,17 @@ internal static class DerivedRelationNamesRenderer
     public Task<IReadOnlyList<GeneratedOption>> Options{{suffix}}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken,string? targetParentId=null)=>{{GlobalCachedSourceCompilation.ReadSession(model)}}.InReadSnapshotAsync<IReadOnlyList<GeneratedOption>>(async()=>
     {
         ArgumentNullException.ThrowIfNull(request);var scope=await DerivedOptionsScope{{suffix}}Async(request.ParentId,targetParentId,actor,cancellationToken,{{form}});
-        var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{{suffix}},scope.Filters,[new({{Literal(name)}}),new("id")],5001,cancellationToken,actor.ProjectId,scope.Condition);
+        var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{{suffix}},scope.Filters,[{{order}}],5001,cancellationToken,actor.ProjectId,scope.Condition);
         if(rows.Count>5000)throw new InvalidOperationException("关联候选超过5000条，请使用分页查询。");
-        return rows.Select(row=>new GeneratedOption(NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<string?>(row,{{Literal(name)}}),NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<string?>(row,{{Literal(name)}}))).ToArray();
+        return rows.Select(ReadDerivedOption{{suffix}}).ToArray();
     },cancellationToken);
     /// <summary>名称关键词先在SQL中筛选和排序，再按同一快照COUNT与分页。</summary>
     public Task<PageResult<GeneratedOption>> OptionsPage{{suffix}}Async(RelationOptionsPageRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>{{GlobalCachedSourceCompilation.ReadSession(model)}}.InReadSnapshotAsync<PageResult<GeneratedOption>>(async()=>
     {
         ArgumentNullException.ThrowIfNull(request);request.Validate();var scope=await DerivedOptionsScope{{suffix}}Async(request.ParentId,request.TargetParentId,actor,cancellationToken,{{form}});
-        if(!string.IsNullOrEmpty(request.Keyword))scope.Filters.Add(new({{Literal(name)}},FixedReadComparison.Contains,request.Keyword));
-        var rows=await new NonRedundantReader(session).PageAsync(DerivedOptionsPlan{{suffix}},scope.Filters,[new({{Literal(name)}}),new("id")],request.PageNo,request.PageSize,cancellationToken,projectId:actor.ProjectId,condition:scope.Condition);
-        var options=rows.Records.Select(row=>new GeneratedOption(NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<string?>(row,{{Literal(name)}}),NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<string?>(row,{{Literal(name)}}))).ToArray();
+        if(!string.IsNullOrEmpty(request.Keyword))scope.Filters.Add(new({{Literal(name)}},FixedReadComparison.{{search}},request.Keyword));
+        var rows=await new NonRedundantReader(session).PageAsync(DerivedOptionsPlan{{suffix}},scope.Filters,[{{order}}],request.PageNo,request.PageSize,cancellationToken,projectId:actor.ProjectId,condition:scope.Condition);
+        var options=rows.Records.Select(ReadDerivedOption{{suffix}}).ToArray();
         return new(options,rows.Total,(rows.Total+request.PageSize-1)/request.PageSize,request.PageNo,request.PageSize);
     },cancellationToken);
     /// <summary>已选回读不使用关键词，逐个核对实际候选范围，缺项整体拒绝。</summary>
@@ -70,10 +82,25 @@ internal static class DerivedRelationNamesRenderer
 
 """);return result.ToString();
     }
-    /// <summary>Excel中文名称或数值ID使用同一范围的当前读，零个或重名均拒绝整批。</summary>
+    /// <summary>Excel按名称类型绑定同一范围的当前读，零个或重名均拒绝整批。</summary>
     internal static string Import(RelationModel relation,PageModel page,ImportDependencyPlan dependency)
     {
         var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var mapped=dependency.Parents.GetValueOrDefault(relation.SourceColumn.Source.Id);
+        var name = relation.NameColumn;
+        var addMatchFilter = name.Type == "string?" ? $$"""
+        if(cell.ValueKind==JsonValueKind.Number)
+        {
+            long id;try{id=cell.GetInt64();}catch(Exception error)when(error is FormatException or OverflowException){throw PageImportException.Input(PageImportError.Number,inner:error);}
+            scope.Filters.Add(new("id",FixedReadComparison.Equal,id));
+        }
+        else scope.Filters.Add(new({{Literal(name.Source.ColumnName)}},FixedReadComparison.Equal,cell.ToString().Trim()));
+""" : $$"""
+        // 数字单元格与文本单元格都表示已配置的业务编号，按实际整数类型反查。
+        if (cell.ValueKind is not (JsonValueKind.Number or JsonValueKind.String))
+            throw PageImportException.Input(PageImportError.Relation);
+        {{MultiSelectExcelRenderer.ParseLabel(name, "cell.ToString().Trim()", "key")}}
+        scope.Filters.Add(new({{Literal(name.Source.ColumnName)}}, FixedReadComparison.Equal, key));
+""";
         return $$"""
     /// <summary>名称只由已发布计划解析，调用方的原导入事务负责整批回滚。</summary>
     private async Task<JsonElement> ImportRelation{{suffix}}Async(JsonElement cell,string? parentId,RuntimeActor actor{{(dependency.Contextual?",IReadOnlyDictionary<string,JsonElement> relationContext":"")}},CancellationToken cancellationToken)
@@ -81,12 +108,7 @@ internal static class DerivedRelationNamesRenderer
         if(cell.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(cell.ToString()))return JsonSerializer.SerializeToElement<object?>(null);
 {{(mapped is null?"":"        if(!relationContext.TryGetValue("+Literal(mapped.JsonName)+",out var targetParent)||targetParent.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(targetParent.ToString()))throw PageImportException.Input(PageImportError.Relation);")}}
         var scope=await DerivedOptionsScope{{suffix}}Async(parentId,{{(mapped is null?"null":"targetParent.ToString()")}},actor,cancellationToken{{RelationConditionsCompilation.ImportArgument(relation)}});
-        if(cell.ValueKind==JsonValueKind.Number)
-        {
-            long id;try{id=cell.GetInt64();}catch(Exception error)when(error is FormatException or OverflowException){throw PageImportException.Input(PageImportError.Number,inner:error);}
-            scope.Filters.Add(new("id",FixedReadComparison.Equal,id));
-        }
-        else scope.Filters.Add(new({{Literal(relation.NameColumn.Source.ColumnName)}},FixedReadComparison.Equal,cell.ToString().Trim()));
+{{addMatchFilter}}
         var rows=await new NonRedundantReader(session).PageAsync(DerivedOptionsPlan{{suffix}},scope.Filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId,condition:scope.Condition,currentRead:true);
         if(rows.Records.Count!=1)throw PageImportException.Input(PageImportError.Relation);
         return JsonSerializer.SerializeToElement(NonRedundantReads.Value<long>(rows.Records[0],"id").ToString(CultureInfo.InvariantCulture));

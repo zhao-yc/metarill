@@ -74,6 +74,23 @@ public sealed class NonRedundantReadTests
         FixedReadOrder[] order=kind=="order"?[new("rogue")]:[];
         await Assert.ThrowsAsync<InvalidOperationException>(()=>reader.ReadPageAsync(plan,filters,order,1,10));
     }
+    /// <summary>整数名称搜索只接受已编译整数列和文本关键词。</summary>
+    [Theory]
+    [InlineData("name", "123")]
+    [InlineData("id", 123)]
+    [InlineData("id", null)]
+    public async Task Integer_label_search_rejects_invalid_operands_before_connecting(string field, object? keyword)
+    {
+        using var session = new DatabaseSession(new DatabaseOptions
+        {
+            ExpectedDatabase = "offline",
+            ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=invalid;Connection Timeout=1"
+        });
+        var plan = Plan(Catalog("mt_read_root", "mt_read_party"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => new MySqlNonRedundantReader(session)
+            .ReadPageAsync(plan, [new(field, FixedReadComparison.IntegerLabelContains, keyword)], [], 1, 10));
+    }
+
     /// <summary>文本或重复统计字段在连接前拒绝，不能让SUM隐式把业务名称转成零。</summary>
     [Theory]
     [InlineData("name")][InlineData("duplicate")]

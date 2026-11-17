@@ -49,7 +49,9 @@ internal static class RelationCompilation
             if (!target.IsGlobal && !target.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))
                 throw new InvalidOperationException("关联目标未声明项目归属或明确的全局范围：" + target.Source.TableName);
             var name = selection?.Name ?? target.Columns.SingleOrDefault(c => c.Source.ColumnName == Mapped("nameField", "name"));
-            if (name is null || name.Type != "string?") continue;
+            if (name is null) continue;
+            var integerName = DerivedRelationNamesCompilation.IsIntegerListName(model, owner, source, target, name);
+            if (name.Type != "string?" && !integerName) continue;
             if (ManagerCredentialCompilation.IsCredential(target,name)) throw new InvalidOperationException("账号凭据不能作为关系名称、候选或导出读取列。");
             var explicitPage = source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
             var targetPage = selection?.TargetPage ?? (!string.IsNullOrWhiteSpace(explicitPage)
@@ -71,17 +73,17 @@ internal static class RelationCompilation
             IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
             var orderBy = Mapped("orderBy");
             if (!string.IsNullOrWhiteSpace(orderBy) && (binding.Binding is not null ||
-                source.Source.ControlKind == "List" && NonRedundantReadCompilation.Physical(model, target, name)))
+                source.Source.ControlKind == "List" && (integerName || NonRedundantReadCompilation.Physical(model, target, name))))
             {
                 try
                 {
-                    // 只为物理标量候选编译原排序，派生或凭据列不能进入 FreeSql 的列表达式。
+                    // 普通候选按物理列排序，整数联接名称由固定 SQL 计划单独处理。
                     var order = GenerationModel.ValidateOrderBy(orderBy, target.Columns).ToList();
                     if (order.Any(item => item.Column.IsJsonArray ||
                         item.Column.Source.ControlKind is "Title" or "Tab" ||
                         ManagerCredentialCompilation.IsCredential(target, item.Column) ||
-                        !NonRedundantReadCompilation.Physical(model, target, item.Column)))
-                        throw new InvalidOperationException("候选排序只支持目标表的非凭据物理标量列。");
+                        !NonRedundantReadCompilation.Physical(model, target, item.Column) && !(integerName && item.Column == name)))
+                        throw new InvalidOperationException("候选排序只支持目标表的非凭据物理标量列及已证明的整数名称。");
 
                     // 原排序不含主键时补稳定次序，避免同值候选在两页之间换位。
                     if (!order.Any(item => item.Column.IsId))
