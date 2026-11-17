@@ -8,6 +8,49 @@ namespace Metarill.Data.Tests;
 
 public sealed class CascadeMultiLabelReadTests
 {
+    /// <summary>自树检查完整祖先链及环路，同一名称可用于筛选并记录根及父变更依赖。</summary>
+    [Fact]
+    public void Self_tree_label_requires_reaching_visible_root()
+    {
+        var catalog=DerivedMultipleCacheTests.Catalog("string","int64");
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="cache");
+        var tree=catalog.ConfigTables.Single(table=>table.Id=="tree");
+        tree.IsRongyu=1;
+        var treeLabel=catalog.ConfigColumns.Single(column=>column.Id=="tree_name");
+        treeLabel.Extra.Clear();
+        var leaf=catalog.ConfigColumns.Single(column=>column.Id=="foreign");
+        leaf.ColumnName="leaf_id";
+        catalog.ConfigTables.Add(new(){Id="consumer",TableName="ds_label_consumer",IsRongyu=1});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="leaf_label",ConfigTableId="source",ColumnName="leaf_name",LogicalType="string"},
+            new(){Id="label_consumer_id",ConfigTableId="consumer",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="label_consumer_project",ConfigTableId="consumer",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="label_consumer_fk",ConfigTableId="consumer",ColumnName="picked_ids",LogicalType="string",ControlKind="MultiSelectPage",
+                LinkConfigTableId="source",ControlDetail="{\"pageId\":\"101\",\"nameField\":\"leaf_name\"}"},
+            new(){Id="label_consumer_cache",ConfigTableId="consumer",ColumnName="picked_leaf_names",LogicalType="string",Extra=new()
+                {["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("picked.leaf_name")}}
+        ]);
+        catalog.ConfigColumns.RemoveAll(column=>column.Id is "choices" or "choice_names");
+        catalog.ConfigTables.Single(table=>table.Id=="source").IsRongyu=0;
+        catalog.ConfigPages.Add(new(){Id="101",ConfigTableId="source",Extra=new(){["type"]=JsonSerializer.SerializeToElement(2)}});
+        catalog.ConfigPageColumns.Add(new(){Id="101leaf",ConfigPageId="101",ConfigColumnId="leaf_label"});
+        catalog.ConfigPageColumns.Add(new(){Id="201parent",ConfigPageId="201",ConfigColumnId="parent"});
+
+        var candidate=MySqlNonRedundantReadCompiler.CompileMultiLabel(catalog,"source","leaf_name");
+        var sql=candidate.Expression("leaf_name");
+        Assert.Contains("WITH RECURSIVE",sql);
+        Assert.Contains("depth<64",sql);
+        Assert.Contains("NOT JSON_CONTAINS",sql);
+        Assert.Contains("parent_key IS NULL",sql);
+        Assert.Contains("delete_no",sql);
+        var binding=new RelationCacheDefinition("consumer","label_consumer_fk","source","leaf_label","label_consumer_cache",true);
+        var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+        var reverse=maintenance.Plans["consumer"].Read!.Reverse.Single(item=>item.TargetTable=="ds_tree");
+        Assert.Contains("parent_node_id",reverse.Outputs["picked_leaf_names"]);
+        Assert.Contains("@target_id",reverse.TargetPredicate);
+    }
+
+
     /// <summary>稀疏祖先名称共用读取与逆向依赖，末级改父和祖先改名均会刷新。</summary>
     [Theory]
     [InlineData("MultiSelectPage")]

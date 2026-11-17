@@ -28,8 +28,13 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(target is null||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(target))continue;
                 var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
                 var groups=SharedCrossTableSparseSelection.CompileAll(target,columns);
-                foreach(var control in columns.Where(column=>column.ControlKind=="CascadeTree"&&CrossTableStorageColumns.ContainsPathField(column,field)))
+                foreach(var control in columns.Where(column=>column.ControlKind=="CascadeTree"&&(CrossTableStorageColumns.ContainsPathField(column,field)||IsSelfTreeLabel(column,field))))
                 {
+                    if(IsSelfTreeLabel(control,field))
+                    {
+                        pages.Add(SelfTreeLabel(catalog,control).Page.Id);
+                        continue;
+                    }
                     var group=groups.SingleOrDefault(item=>item.Branches.Any(branch=>branch.SourceColumnId==control.Id));
                     var controls=group is null?[control]:group.Branches.Select(branch=>columns.Single(column=>column.Id==branch.SourceColumnId)).ToArray();
                     foreach(var member in controls)
@@ -113,8 +118,15 @@ public static partial class MySqlNonRedundantReadCompiler
                 !column.ColumnName.EndsWith("_name",StringComparison.Ordinal)||ExactDataManageValues.IsSensitiveField(column.ColumnName))
                 return null;
             var field=column.ColumnName;
-            var control=columns[table.Id].Values.FirstOrDefault(item=>item.ControlKind=="CascadeTree"&&CrossTableStorageColumns.ContainsPathField(item,field));
+            var control=columns[table.Id].Values.FirstOrDefault(item=>item.ControlKind=="CascadeTree"&&
+                (CrossTableStorageColumns.ContainsPathField(item,field)||IsSelfTreeLabel(item,field)));
             if(control is null)return null;
+            if(IsSelfTreeLabel(control,field))
+            {
+                var leaf=SelfTreeLabelExpression(table,owner,control,column);
+                cascadeLabelOutputs.Add(output);
+                return(leaf,"string");
+            }
             var group=SharedCrossGroup(table,control.Id);
             (string Sql,string Type) expression;
             if(group is null)
