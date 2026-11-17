@@ -89,7 +89,8 @@ internal static class NonRedundantCrossTableSubset
                 logicalParent.Source.LinkConfigTableId==parentTables[0].Source.Id)&&
             paths.All(path=>path.Skip(1).All(level=>level.Read.Parent?.Type is "string?" or "long?"))&&
             levels.All(level=>(level.Id.Type is "string?" or "long?")&&
-                (!level.Read.Target.IsGlobal||level.Read.Target.Source.IsRongyu==0));
+                (!level.Read.Target.IsGlobal||level.Read.Target.Source.IsRongyu==0||
+                    plans.Any(plan=>CrossTableWriteRenderer.Merged(table,plan.Read))));
     }
 
     /// <summary>覆盖可使用表级首个可导入的物理文本字段，条件仍取自同一页面范围。</summary>

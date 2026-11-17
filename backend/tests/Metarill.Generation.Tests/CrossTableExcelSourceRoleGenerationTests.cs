@@ -146,7 +146,9 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
     [InlineData(1,0,0,"list","OnlyNew",false)]
     [InlineData(7,0,1,"edit","OverWriteByFirstColumn",true)]
     [InlineData(4,0,2,"edit","OverWriteByFirstColumn",false)]
-    public Task Scoped_source_role_excel_uses_actual_parent_path(int mask,int redundant,int depth,string exportMode,string importMode,bool leafKey)
+    [InlineData(1,0,1,"list","OverWriteByFirstColumn",true,"4")]
+    [InlineData(3,1,2,"edit","OverWriteByFirstColumn",false,"5")]
+    public Task Scoped_source_role_excel_uses_actual_parent_path(int mask,int redundant,int depth,string exportMode,string importMode,bool leafKey,string? globalId=null)
     {
         var roles=SourceRoles(mask);
         var catalog=(redundant,roles.Length) switch
@@ -156,6 +158,7 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
             (0,1)=>NonRedundantCrossSourceTests.Catalog(Prefix,roles[0],"string","int64",false),
             _=>RepeatedCrossSourceTests.Catalog(Prefix,mask,"string","int64","derived")
         };
+        if(globalId is not null)MarkGlobal(catalog,globalId);
         var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
         var candidate=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(sourcePage))!;
         candidate.Id="202";
@@ -174,6 +177,7 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
             var source=model.Tables.Single(table=>table.Source.Id=="2");var page=source.Pages.Single(page=>page.Source.Id=="201");
             var path=Assert.Single(CrossTableWriteCompilation.ForService(model,source,page));
             Assert.All(path.Levels.Where(level=>level.Read.Target.Source.Id=="2"),level=>Assert.Equal("202",level.Read.Page.Source.Id));
+            if(globalId is not null)Assert.Equal(globalId,Assert.Single(path.Levels,level=>level.Read.Target.IsGlobal).Read.Target.Source.Id);
             if(redundant==0)
             {
                 var service=assembly.GetType(Namespace+".Generated.Services."+Entity+"Service",true)!;
@@ -222,7 +226,7 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
                 foreach(var (level,index) in path.Levels.Select((level,index)=>(level,index)))
                 {
                     var target=level.Read.Target.Source.Id=="2"?fields:new Dictionary<string,object?>
-                        {{"Id",id},{"Name",names[index]},{"YzProjectId",9007199254740993L},{"Status",1}};
+                        {{"Id",id},{"Name",names[index]},{"YzProjectId",level.Read.Target.IsGlobal?800L:9007199254740993L},{"Status",1}};
                     target[level.Read.Name.Property]=names[index];
                     if(level.Read.Parent is{} parent)target[parent.Property]=id;
                     if(level.Read.Target.Source.Id!="2")runtime.Add(level.Read.Target.Name,target);
@@ -240,16 +244,21 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
     [InlineData(0,true,false,false,"edit","OnlyNew")]
     [InlineData(0,true,true,true,"list","OverWriteByFirstColumn")]
     [InlineData(0,true,true,false,"edit","OverWriteByFirstColumn",true)]
-    public Task Shared_source_role_excel_uses_coordinated_paths(int redundant,bool sourceRoot,bool sourceLeaf,bool scoped,string exportMode,string importMode,bool derived=false)
+    [InlineData(1,true,false,false,"list","OnlyNew",false,"8")]
+    [InlineData(1,true,true,true,"edit","OverWriteByFirstColumn",false,"4")]
+    [InlineData(0,true,true,true,"list","OverWriteByFirstColumn",false,"4")]
+    [InlineData(0,true,false,true,"edit","OnlyNew",false,"4",true)]
+    public Task Shared_source_role_excel_uses_coordinated_paths(int redundant,bool sourceRoot,bool sourceLeaf,bool scoped,string exportMode,string importMode,bool derived=false,string? globalId=null,bool sparseGlobal=false)
     {
         var catalog=SharedCrossTableGenerationTests.Catalog(Prefix,"string","int64");
         catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
+        if(globalId is not null)MarkGlobal(catalog,globalId,sparseGlobal);
         var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
         if(sourceRoot)catalog.ConfigColumns.Single(column=>column.Id=="45").LinkConfigTableId="2";
         if(sourceLeaf)
         {
             catalog.ConfigColumns.AddRange([
-                new(){Id="901",ConfigTableId="2",ColumnName="target_area_id",LogicalType="int64",LinkConfigTableId="4",YzProjectId=catalog.YzProjectId},
+                new(){Id="901",ConfigTableId="2",ColumnName="target_area_id",LogicalType="int64",LinkConfigTableId=globalId=="4"&&redundant==0?"":"4",YzProjectId=catalog.YzProjectId},
                 new(){Id="902",ConfigTableId="2",ColumnName="branch_label",Name="分支名称",LogicalType="string",YzProjectId=catalog.YzProjectId}]);
             foreach(var id in new[]{"901","902"})
                 catalog.ConfigPageColumns.Add(new(){Id="201"+id,ConfigPageId="201",ConfigColumnId=id,YzProjectId=catalog.YzProjectId});
@@ -303,6 +312,9 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
             var table=model.Tables.Single(table=>table.Source.Id=="2");var page=table.Pages.Single(page=>page.Source.Id=="201");
             var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,table,page).Groups);
             Assert.Equal(2,group.Plans.Count);
+            if(globalId is not null)
+                Assert.All(group.Plans.SelectMany(plan=>plan.Levels).Where(level=>level.Read.Target.Source.Id==globalId),
+                    level=>Assert.True(level.Read.Target.IsGlobal));
             if(derived)Assert.Contains(group.Plans.SelectMany(plan=>plan.Levels),level=>level.Read.DerivedName&&level.Read.Target.Source.Id=="2");
             if(redundant==0)
             {
@@ -341,12 +353,21 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
                     .Where(item=>item.level.Read.Target.Source.Id!="2"&&(plan==primary||item.index==2));
                 foreach(var (level,index) in targets)
                 {
-                    var target=new Dictionary<string,object?>{{"Id",11L},{"Name",names[index]},{"YzProjectId",9007199254740993L},{"Status",1}};
+                    var target=new Dictionary<string,object?>{{"Id",11L},{"Name",names[index]},{"YzProjectId",level.Read.Target.IsGlobal?800L:9007199254740993L},{"Status",1}};
                     if(level.Read.Parent is{} parent)target[parent.Property]=11L;
                     runtime.Add(level.Read.Target.Name,target);
                 }
             }
         });
+    }
+
+    /// <summary>显式全局候选采用固定状态条件，测试数据使用与来源不同的项目值。</summary>
+    private static void MarkGlobal(MetadataCatalog catalog,string tableId,bool sparse=false)
+    {
+        var target=catalog.ConfigTables.Single(table=>table.Id==tableId);
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(sparse)target.IsRongyu=0;
+        catalog.ConfigPages.Single(page=>page.ConfigTableId==tableId).WhereSql="status=1";
     }
 
     /// <summary>使用与生产一致的字段例，测试可按表级顺序选物理文本或逻辑末级为首列。</summary>

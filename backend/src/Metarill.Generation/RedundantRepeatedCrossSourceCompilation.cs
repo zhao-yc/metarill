@@ -6,7 +6,9 @@ internal static class RedundantRepeatedCrossSourceCompilation
     /// <summary>仅接通原物理名称链；父键与受管槽位重叠必须另作聚合协调，不能在归一化时覆盖业务意图。</summary>
     internal static void Require(GenerationModel model,TableModel table,PageModel page,CrossTableReadModel plan,IReadOnlySet<string> managed)
     {
-        if(table.IsGlobal||plan.Levels.Any(level=>level.Target.IsGlobal||level.Target.Source.IsRongyu!=1||level.DerivedName))throw new InvalidOperationException("冗余重复来源要求普通同项目R1物理名称链。");
+        // 来源自己的角色仍使用物理名称。显式全局层由目标页和缓存传播计划另行证明。
+        if(table.IsGlobal||plan.Levels.Any(level=>!level.Target.IsGlobal&&(level.Target.Source.IsRongyu!=1||level.DerivedName)))
+            throw new InvalidOperationException("冗余重复来源的普通层要求同项目R1物理名称。");
         if (!CrossTableFrontendProof.KeepsStorageDefinition(model, page, plan.Source))
             throw new InvalidOperationException("冗余重复来源页级角色覆盖尚未完成统一缓存证明。");
         foreach(var role in plan.Levels.Where(level=>level.Target.Source.Id==table.Source.Id))

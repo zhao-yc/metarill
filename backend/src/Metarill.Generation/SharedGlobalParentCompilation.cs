@@ -45,15 +45,16 @@ internal static class SharedGlobalParentCompilation
             if(seen.Contains(read.Source.Source.Id))continue;
             var group=groups.SingleOrDefault(candidate=>candidate.Branches.Any(branch=>branch.SourceColumnId==read.Source.Source.Id));
             var shared=group is not null;
-            if(!shared&&!read.Levels.Any(level=>level.Target.IsGlobal&&level.Target.Source.IsRongyu==0))continue;
+            // 同表角色的独立链也可通过冻结的全局目标层绑定来源父范围。
+            var sourceRole=CrossTableWriteRenderer.Merged(table,read);
+            if(!shared&&!read.Levels.Any(level=>level.Target.IsGlobal&&(level.Target.Source.IsRongyu==0||sourceRole)))continue;
             var peers=group is null?[read]:group.Branches.Select(branch=>reads.SingleOrDefault(peer=>peer.Source.Source.Id==branch.SourceColumnId)??throw new InvalidOperationException("全局父范围的共享同伴读取定义缺失。")).ToArray();
             var slots=group?.Slots??CrossTableSparseSelection.Compile(table.Source,read.Source.Source.Id,declared).Slots;
             foreach(var peer in peers)
             {
                 if (!CrossTableFrontendProof.KeepsStorageDefinition(model, page, peer.Source))
                     throw new NotSupportedException("全局共享父范围不能使用变动页覆盖。");
-                if (peer.Levels.Any(level => level.Target.Source.Id == table.Source.Id))
-                    throw new NotSupportedException("全局共享父范围的来源自参与尚需独立证明。");
+
             }
             var names=slots.SelectMany(slot=>new[]{slot.ColumnName,slot.ColumnName[..^3]+"_name"}).ToHashSet(StringComparer.Ordinal);if(page.Condition?.Syntax.Fields.Any(names.Contains)==true)throw new NotSupportedException("全局共享来源逻辑常量范围尚需独立证明。");
             var scopes=peers.Select(peer=>new NonRedundantCrossTableScope(peer.Source.Source.Id,peer.Levels.Select(level=>new NonRedundantCrossTableTargetScope(level.Page.Source.Id,level.Page.Condition is{} condition?FixedConditionSqlPlan.Compile(condition.Syntax,condition.Types):null)).ToArray())).ToArray();_=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,["id"],scopes,slots.Select(slot=>slot.ColumnName).ToArray());result.AddRange(peers.Select(peer=>(peer,shared)));seen.UnionWith(peers.Select(peer=>peer.Source.Source.Id));
