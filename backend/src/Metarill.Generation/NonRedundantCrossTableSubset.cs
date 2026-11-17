@@ -41,20 +41,21 @@ internal static class NonRedundantCrossTableSubset
             var parentColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var hasParent=parentColumns.Length>0;
             // 前面的全部写计划已核对来源范围。共享组的固定匹配列由导入和导出各自按动作应用。
-            var independent=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&CrossTableExcelRenderer.SupportsTargetRoles(table,page,plans);
+            var independent=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&CrossTableExcelRenderer.SupportsTargetRoles(model,table,page,plans);
             // 自树写自己的节点；跨表路径仍须证明逻辑父范围，覆盖仍按明确的匹配键与页面范围执行。
             var pathSupported=independent&&(!hasParent||SupportsScopedPath(model,table,page,plans,parentColumns,parentTables));
             var appendImport=ImportRenderer.Mode(page) is "" or "OnlyNew";
-            var scopedOverwrite=hasParent&&pathSupported&&(imports||exports||importsFixedPath)&&
-                (SupportsScopedOverwrite(model,table,page,importColumns)||
-                plans is [var single]&&CrossTableExcelRenderer.RepeatsTarget(single)&&SupportsOverwrite(model,table,page,plans,importColumns));
+            // 重复目标沿用物理文本和固定末级两种首列。共享末级若由页面固定，可以省略它的工作簿列。
+            var repeated=plans.Any(CrossTableExcelRenderer.RepeatsTarget);
+            var textOverwrite=(hasParent||repeated&&plans.Length==2)&&SupportsTextOverwrite(model,table,page,importColumns);
+            var pathOverwrite=(!hasParent||repeated)&&SupportsOverwrite(model,table,page,plans,importColumns);
+            var overwriteSupported=textOverwrite||pathOverwrite;
             // 固定末级且只开启导入的页面也要审核作用域和覆盖键。
-            if((imports||importsFixedPath&&!exports)&&(!pathSupported||!appendImport&&!(hasParent?scopedOverwrite:
-                SupportsOverwrite(model,table,page,plans,importColumns))))
+            if((imports||importsFixedPath&&!exports)&&(!pathSupported||!appendImport&&!overwriteSupported))
                 return CrossTableExcelRenderer.ImportAcceptancePending;
             // 末级控件同时是固定父键时不属于导入列，合并发布仍须校验页面的实际导入模式。
             if(exports&&(!pathSupported||hasParent&&(ExportRenderer.Mode(page) is not ("" or "list" or "edit")||
-                ImportRenderer.Enabled(page)&&!appendImport&&!scopedOverwrite)))
+                ImportRenderer.Enabled(page)&&!appendImport&&!overwriteSupported)))
                 return CrossTableExcelRenderer.ExportAcceptancePending;
             return null;
         }
@@ -89,8 +90,8 @@ internal static class NonRedundantCrossTableSubset
                 (!level.Read.Target.IsGlobal||level.Read.Target.Source.IsRongyu==0));
     }
 
-    /// <summary>逻辑父范围的覆盖使用表级首个可导入的物理文本字段，不扩大到关系键或额外解析依赖。</summary>
-    private static bool SupportsScopedOverwrite(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)
+    /// <summary>覆盖可使用表级首个可导入的物理文本字段，条件仍取自同一页面范围。</summary>
+    private static bool SupportsTextOverwrite(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)
     {
         if(ImportRenderer.Mode(page)!="OverWriteByFirstColumn"||columns.Count==0)return false;
         var key=table.Columns.First(columns.Contains);
@@ -102,13 +103,15 @@ internal static class NonRedundantCrossTableSubset
     internal static bool ReportsScopedOverwriteAmbiguity(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<ColumnModel> columns)=>
         table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent")&&
         (CrossTableExcelRenderer.HasFixedPath(page)||table.Columns.Any(column=>Declared(column)&&(columns.Contains(column)||ExportRenderer.IncludesColumn(page,column))))&&
-        SupportsScopedOverwrite(model,table,page,columns)&&Reason(model,table,page) is null;
+        SupportsTextOverwrite(model,table,page,columns)&&Reason(model,table,page) is null;
 
     /// <summary>公开覆盖只接受已验收的末级单值键、项目范围和独立或共享级联，不扩张到逻辑祖先或附加上下文。</summary>
     private static bool SupportsOverwrite(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans,IReadOnlyList<ColumnModel> columns)
     {
         if(ImportRenderer.Mode(page)!="OverWriteByFirstColumn"||page.Condition is not null||
-            plans.Count is <1 or >2||plans.Any(plan=>plan.Levels.Count is <2 or >3||!columns.Any(column=>column.Source.Id==plan.Read.Source.Source.Id)))
+            plans.Count is <1 or >2||columns.Count==0||plans.Any(plan=>plan.Levels.Count is <2 or >3||
+                !columns.Any(column=>column.Source.Id==plan.Read.Source.Source.Id)&&
+                !page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==plan.Read.Source.Source.Id)))
             return false;
         if(plans.Count==2&&!SharedCrossTableCompilation.ForPage(model,table,page).Groups.Any(group=>group.Plans.Count==2))
             return false;

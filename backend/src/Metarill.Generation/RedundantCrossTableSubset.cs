@@ -54,9 +54,9 @@ internal static class RedundantCrossTableSubset
     /// <summary>Excel 共用已经证明的逐层名称读取与传播计划，覆盖单条路径或经统一协调的双路径。</summary>
     private static bool SupportsPathCells(GenerationModel model,TableModel table,PageModel page,IReadOnlyList<CrossTableWriteModel> plans)
     {
-        // 来源父范围沿用已有物理证明；重复目标额外限定同一独立单链。
+        // 来源父范围沿用已有物理证明；重复目标的两个分支由共享组统一核验。
         if(model.Catalog.DatabaseProvider!="mysql"||plans.Count>2||plans.Any(plan=>plan.Levels.Count is <2 or >3)||
-            !CrossTableExcelRenderer.SupportsTargetRoles(table,page,plans))return false;
+            !CrossTableExcelRenderer.SupportsTargetRoles(model,table,page,plans))return false;
         return plans.Count==1||SharedCrossTableCompilation.ForSource(model,table,page,plans[0].Read.Source.Source.Id)?.Plans.Count==plans.Count;
     }
     /// <summary>覆盖键取原表排序中的首个导入字段，必须能在来源表上以物理标量匹配。</summary>

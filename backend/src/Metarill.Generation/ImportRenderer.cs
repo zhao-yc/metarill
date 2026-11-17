@@ -60,6 +60,7 @@ public sealed partial class {{page.Name}}ImportRequest
         if (overwriteKey?.IsJsonArray == true) throw new InvalidOperationException("覆盖匹配字段不能为数组。");
         var redundantCrossOverwrite = overwrite && table.Source.IsRongyu == 1 && (hasCross || CrossTableExcelRenderer.HasFixedPath(page));
         var logicalMatch=NonRedundantImportMatchRenderer.Resolve(model,table,page,dependency);
+        var requireExplicitKey=redundantCrossOverwrite||logicalMatch?.Key.Source.ControlKind=="CascadeTree";
         // 原追加入口显式固定 MySQL 可重复读，只有单一全局物理名称副本可能使用合并写回。
         var transaction=!overwrite&&GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id)==1
             ?"InScalarCacheImportTransactionAsync":"InTransactionAsync";
@@ -86,13 +87,13 @@ public sealed partial class {{page.Name}}ImportRequest
         result.AppendLine($"                var {parsed} = await ParseImport{page.Source.Id}Async(row, request.ParentId, actor{initialContext}{fixedCrossParameter}, cancellationToken);");
         if (overwriteKey is { } first)
         {
-            var missingKey = redundantCrossOverwrite
+            var missingKey = requireExplicitKey
                 ? $"!row.TryGetProperty({Literal(Header(first))}, out _) || "
                 : "";
-            var blankKey = redundantCrossOverwrite && first.Type == "string?"
+            var blankKey = requireExplicitKey && first.Type == "string?"
                 ? " || matchValue.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(matchValue.GetString())"
                 : "";
-            var missingError = redundantCrossOverwrite
+            var missingError = requireExplicitKey
                 ? $"PageImportException.Input(PageImportError.MissingOverwriteKey, columnName: {Literal(Header(first))})"
                 : "new ArgumentException(\"覆盖匹配字段不能为空。\")";
             result.AppendLine($"                if ({missingKey}!{parsed}.TryGetValue({Literal(first.JsonName)}, out var matchValue) || matchValue.ValueKind == JsonValueKind.Null{blankKey}) throw {missingError};")
@@ -220,7 +221,7 @@ public sealed partial class {{page.Name}}ImportRequest
                 {
                     result.AppendLine($"                        var path={parse};");
                     // 共享路径可能也产生同一个祖先槽。覆盖必须由首列自己提供末级ID。
-                    if(redundantCrossOverwrite && column == overwriteKey)
+                    if(requireExplicitKey && column == overwriteKey)
                         result.AppendLine($"                        if (!path.TryGetValue({Literal(column.JsonName)}, out var cellKey) || cellKey.ValueKind == JsonValueKind.Null) throw PageImportException.Input(PageImportError.MissingOverwriteKey);");
                     result.AppendLine("                        var clear=cell.Value.ValueKind==JsonValueKind.Null||cell.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(cell.Value.GetString());")
                         .AppendLine($"                        crossInputs.Add({Literal(Header(column))},path,clear{(hasFixedCross?",await readFixedCrossParent()":"")});");

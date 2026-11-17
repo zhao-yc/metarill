@@ -518,6 +518,208 @@ public sealed class CrossTableExcelSharedGenerationTests
         return catalog;
     }
 
+    /// <summary>目标表在同一共享链重复使用时，依旧按两个分支及实际父字段读写原 Excel。</summary>
+    [Theory]
+    [InlineData("shared-r1",false)]
+    [InlineData("short-r0",false)]
+    [InlineData("derived-r1",true)]
+    [InlineData("derived-short-r0",true)]
+    public async Task Shared_repeated_targets_publish_scoped_and_unscoped_excel(string profile,bool derived)
+    {
+        var catalog=Catalog(profile);
+        var table=catalog.ConfigTables.Single(table=>table.Id=="2");
+        var shortPath=catalog.ConfigColumns.Single(column=>column.Id=="25").ColumnName=="area_id";
+        var nameFirst=derived&&table.IsRongyu==0;
+        var main=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        var warehouse=catalog.ConfigColumns.Single(column=>column.Id=="80");
+        var leafColumn=main.ColumnName;
+        catalog.ConfigColumns.Single(column=>column.Id=="22").SortNo=nameFirst?-3:0;
+        main.SortNo=-2;
+        warehouse.SortNo=-1;
+        ConfigureRepeatedRole();
+
+        var original=catalog.ConfigPages.Single(page=>page.Id=="201");
+        var pages=new (string Id,string? Parent,string Import,string Export)[]
+        {
+            ("201",null,"OnlyNew","list"),
+            ("202",null,"OverWriteByFirstColumn","edit"),
+            ("203","country_id","OnlyNew","list"),
+            ("204",shortPath?"country_id":"area_id","OverWriteByFirstColumn","list"),
+            ("205",leafColumn,"OverWriteByFirstColumn","edit")
+        };
+        foreach(var entry in pages)
+        {
+            var page=original;
+            if(entry.Id!="201")
+            {
+                page=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(original))!;
+                page.Id=entry.Id;
+                catalog.ConfigPages.Add(page);
+                foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="201").ToArray())
+                {
+                    var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+                    copy.Id=entry.Id+"_"+field.Id;
+                    copy.ConfigPageId=entry.Id;
+                    catalog.ConfigPageColumns.Add(copy);
+                }
+            }
+            page.Extra["importMethod"]=JsonSerializer.SerializeToElement(entry.Import);
+            page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(entry.Export);
+            if(entry.Parent is not null)page.WhereSql+=$" AND {entry.Parent}=@parent_id";
+        }
+        var model=GenerationModel.Create(catalog,Namespace);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        var source=model.Tables.Single(value=>value.Source.Id=="2");
+        foreach(var page in source.Pages)
+        {
+            var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,source,page).Groups);
+            Assert.Equal(2,group.Plans.Count);
+            Assert.Contains(group.Plans,CrossTableExcelRenderer.RepeatsTarget);
+        }
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-repeated-excel");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),Namespace);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(Namespace+".Generated.Services.SharedExcelSourceService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            foreach(var (id,parent,_,_) in pages)
+            {
+                Assert.NotNull(service.GetMethod("Import"+id+"Async"));
+                Assert.NotNull(service.GetMethod("Export"+id+"Async"));
+                if(table.IsRongyu==0&&parent is not null)
+                    Assert.NotNull(service.GetField("LogicalParentPlan"+id,BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null));
+            }
+            if(table.IsRongyu==0&&!nameFirst)
+                foreach(var (id,key) in new[]{("202",leafColumn),("204",leafColumn),("205","warehouse_id")})
+                    Assert.Contains(key,Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                        service.GetField("ImportMatchPlan"+id,BindingFlags.Static|BindingFlags.NonPublic)?.GetValue(null)).OutputTypes.Keys);
+            if(derived)return;
+
+            var first=shortPath?"国甲/区甲":"国甲/区甲/城甲";
+            const string second="国甲/区甲/仓甲";
+            foreach(var (page,parent) in new (string Page,string? Parent)[]{("201",null),("203","11")})
+            {
+                var guard=new StopBeforeExcelWrite();
+                using var runtime=Runtime(page,guard);
+                var conflict=await Assert.ThrowsAsync<PageImportException>(()=>runtime.Import([
+                    new(){{"名称","冲突"},{"主路径",first},{"仓库路径","国乙/区乙/仓乙"}}
+                ],parent));
+                Assert.Equal(PageImportError.Relation,conflict.Code);
+                var added=await Assert.ThrowsAsync<BusinessRuleException>(()=>runtime.Import([
+                    new(){{"名称","追加"},{"主路径",first},{"仓库路径",second}}
+                ],parent));
+                Assert.Same(guard.Stop,added);
+                Assert.Equal(RecordMutationOperation.Create,guard.Validation!.Operation);
+                if(table.IsRongyu==1)
+                    Assert.Equal(parent is null?3:2,(await runtime.Export(new PageRequest{ParentId=parent})).Rows.Count);
+            }
+
+            if(table.IsRongyu==0)
+            {
+                // 仓库路径也提供了短控件的末级ID。省略首列不能由它推断覆盖键。
+                foreach(var (page,parent) in new (string Page,string? Parent)[]{("202",null),("204","11")})
+                {
+                    using var runtime=Runtime(page,new StopBeforeExcelWrite());
+                    var missing=await Assert.ThrowsAsync<PageImportException>(()=>runtime.Import([
+                        new(){{"仓库路径",second}}
+                    ],parent));
+                    Assert.Equal((PageImportError.MissingOverwriteKey,(int?)1,"主路径"),(missing.Code!.Value,missing.RowNumber,missing.ColumnName));
+                }
+                return;
+            }
+
+            foreach(var (page,parent) in new (string Page,string? Parent)[]{("202",null),("204","21"),("205","11")})
+            {
+                var guard=new StopBeforeExcelWrite();
+                using var runtime=Runtime(page,guard);
+                var row=new Dictionary<string,object?>{{"仓库路径",second}};
+                if(page!="205")row["主路径"]=first;
+                var updated=await Assert.ThrowsAsync<BusinessRuleException>(()=>runtime.Import([row],parent));
+                Assert.Same(guard.Stop,updated);
+                Assert.Equal((RecordMutationOperation.Update,103L),(guard.Validation!.Operation,guard.Validation.RecordId));
+                var exported=await runtime.Export(new PageRequest{ParentId=parent,SelectedIds=["103"]});
+                Assert.Equal(first,Assert.Single(exported.Rows)[exported.Headers.ToList().IndexOf("主路径")]);
+                Assert.Equal(second,Assert.Single(exported.Rows)[exported.Headers.ToList().IndexOf("仓库路径")]);
+                if(page=="205")
+                {
+                    row["主路径"]=first;
+                    var fixedColumn=await Assert.ThrowsAsync<PageImportException>(()=>runtime.Import([row],parent));
+                    Assert.Equal(PageImportError.UnknownHeader,fixedColumn.Code);
+                    await Assert.ThrowsAsync<InvalidOperationException>(()=>runtime.Export(new PageRequest{ParentId="14"}));
+                }
+            }
+
+            SharedExcelReadTransport Runtime(string page,IRecordMutationGuard guard)
+            {
+                var runtime=new SharedExcelReadTransport(assembly,Namespace,"SharedExcelSource",pageId:page,guard:guard);
+                const long project=9007199254740993;
+                foreach(var (id,name,label,area) in new[]{(11L,"国甲",shortPath?"区甲":"城甲",21L),(12L,"国乙",shortPath?"区乙":"城乙",22L)})
+                {
+                    var country=new Dictionary<string,object?>{{"Id",id},{"Name",name},{"RepeatLabel",label},{"Status",1},{"YzProjectId",project}};
+                    country[shortPath?"SharedExcelCountryId":"SharedExcelAreaId"]=shortPath?id:area;
+                    runtime.Add("SharedExcelCountry",country);
+                }
+                runtime.Add("SharedExcelCountry",new Dictionary<string,object?>{{"Id",14L},{"Name","仅根"},{"Status",1},{"YzProjectId",project}});
+                if(!shortPath)
+                {
+                    runtime.Add("SharedExcelArea",new Dictionary<string,object?>{{"Id",21L},{"Name","区甲"},{"SharedExcelCountryId",11L},{"Status",1},{"YzProjectId",project}});
+                    runtime.Add("SharedExcelArea",new Dictionary<string,object?>{{"Id",22L},{"Name","区乙"},{"SharedExcelCountryId",12L},{"Status",1},{"YzProjectId",project}});
+                }
+                foreach(var (id,name,parent) in new[]{(41L,"仓甲",shortPath?11L:21L),(42L,"仓乙",shortPath?12L:22L)})
+                    runtime.Add("SharedExcelWarehouse",new Dictionary<string,object?>{{"Id",id},{"Name",name},{"SharedExcelAreaId",parent},{"Status",1},{"YzProjectId",project}});
+                if(table.IsRongyu==1)
+                {
+                    Source(101,11,null,null,null,project);
+                    Source(103,11,21,11,41,project);
+                    Source(104,12,22,12,42,project);
+                    Source(105,11,21,11,41,project+1);
+                }
+                return runtime;
+
+                void Source(long id,long country,long? area,long? place,long? storage,long owner)=>runtime.Add("SharedExcelSource",
+                    new Dictionary<string,object?>{{"Id",id},{"Name","同名"},{"CountryId",country},{"AreaId",area},{"PlaceId",place},
+                        {"WarehouseId",storage},{"YzProjectId",owner}});
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+
+        void ConfigureRepeatedRole()
+        {
+            // 主链末级复用国家表，短主链的末级同时是仓库链的中层。
+            var foreign=shortPath?Prefix+"_country_id":Prefix+"_area_id";
+            catalog.ConfigColumns.Add(new(){Id="35",ConfigTableId="3",ColumnName=foreign,
+                LogicalType=shortPath?"string":"int64",LinkConfigTableId=shortPath?"3":"4",YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPageColumns.Add(new(){Id="30135",ConfigPageId="301",ConfigColumnId="35",YzProjectId=catalog.YzProjectId});
+            if(!derived)
+            {
+                catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="repeat_label",LogicalType="string",
+                    ColumnLength="100",YzProjectId=catalog.YzProjectId});
+                catalog.ConfigPageColumns.Add(new(){Id="30139",ConfigPageId="301",ConfigColumnId="39",YzProjectId=catalog.YzProjectId});
+            }
+            main.LinkConfigTableId="3";
+            SetRole(main,shortPath?1:2);
+            if(shortPath)
+            {
+                SetRole(warehouse,1);
+                catalog.ConfigColumns.Single(column=>column.Id=="85").LinkConfigTableId="3";
+            }
+
+            void SetRole(ColumnMetadata control,int index)
+            {
+                var json=JsonNode.Parse(control.ControlDetail)!;
+                var level=json["levels"]![index]!;
+                level["table"]=Prefix+"_country";
+                level["parentField"]=foreign;
+                if(!derived)level["nameField"]="repeat_label";
+                control.ControlDetail=json.ToJsonString();
+            }
+        }
+    }
+
     /// <summary>在真实生成写入的 Mapper 调用前取证，离线测试不模拟 FreeSql 写入。</summary>
     private sealed class StopBeforeExcelWrite:IRecordMutationGuard
     {
