@@ -270,7 +270,11 @@ public sealed class NestedCrossCandidateTests
     [Theory]
     [InlineData("List","string")]
     [InlineData("SelectPage","int64")]
-    public void Project_single_cache_uses_fixed_page_and_physical_parent(string kind,string key)
+    [InlineData("List","string",true,false)]
+    [InlineData("SelectPage","int64",true,false)]
+    [InlineData("List","string",true,true)]
+    [InlineData("SelectPage","int64",true,true)]
+    public void Project_single_cache_uses_fixed_page_and_physical_parent(string kind,string key,bool physicalAccount=false,bool withParent=true)
     {
         var catalog=Catalog(false);
         var source=catalog.ConfigTables.Single(table=>table.Id=="90");
@@ -279,9 +283,12 @@ public sealed class NestedCrossCandidateTests
         source.IsRongyu=1;
         foreach(var table in catalog.ConfigTables)table.YzProjectId=catalog.YzProjectId;
         page.YzAdminTypeId="5";
-        page.WhereSql+=" AND group_id=@parent_id";
+        if(physicalAccount)
+            page.WhereSql="yz_project_id=@current_yz_project_id AND name <> '目标页隐藏' AND store_id=@current_store_id";
+        if(withParent)page.WhereSql+=" AND group_id=@parent_id";
         var sourcePage=new PageMetadata{Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
-            WhereSql="yz_project_id=@current_yz_project_id AND group_id=@parent_id AND store_id=@current_store_id"};
+            WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"+
+                (withParent?" AND group_id=@parent_id":"")};
         catalog.ConfigPages.Add(sourcePage);
         catalog.ConfigColumns.AddRange([
             new(){Id="9014",ConfigTableId=source.Id,ColumnName="shared_id",LogicalType=key,ControlKind=kind,LinkConfigTableId=target.Id,
@@ -302,14 +309,30 @@ public sealed class NestedCrossCandidateTests
         var consumer=Assert.Single(maintenance.Mixed.Consumers,item=>item.Table.Option.Id==source.Id);
         var label=consumer.Read.Expression("shared_name");
         Assert.Contains("b.`store_id`",label);
-        Assert.Contains("b.`group_id`",label);
-        Assert.Contains("r0.`group_id`",label);
-        Assert.Contains("`yz_project_id`=@project_scope_number",label);
         Assert.Contains("r0.`yz_project_id`=@project_scope_number",consumer.Read.From);
-        Assert.Contains("group_id",consumer.Inputs);
-        var reverse=Assert.Single(consumer.Read.Reverse,item=>item.TargetTable=="nested_outer_leaf");
-        if(key=="int64")Assert.Equal("b.`group_id`=@target_id",reverse.TargetPredicate);
-        else Assert.Contains("BINARY b.`group_id`=BINARY @target_text",reverse.TargetPredicate);
+        if(withParent)
+        {
+            Assert.Contains("b.`group_id`",label);
+            Assert.Contains("r0.`group_id`",label);
+            Assert.Contains("`yz_project_id`=@project_scope_number",label);
+            Assert.Contains("group_id",consumer.Inputs);
+            var reverse=Assert.Single(consumer.Read.Reverse,item=>item.TargetTable=="nested_outer_leaf");
+            if(key=="int64")Assert.Equal("b.`group_id`=@target_id",reverse.TargetPredicate);
+            else Assert.Contains("BINARY b.`group_id`=BINARY @target_text",reverse.TargetPredicate);
+        }
+        else Assert.DoesNotContain("group_id",label);
+        if(physicalAccount)
+        {
+            Assert.False(consumer.Read.RequiresAccount);
+            Assert.Contains("目标页隐藏",consumer.Read.Constants.Values);
+            Assert.Contains("store_id",consumer.Inputs);
+            Assert.Contains(consumer.Read.Reverse,item=>item.TargetTable==target.TableName&&
+                item.Outputs["shared_name"].Contains("store_id"));
+            var definition=sourcePage.WhereSql;
+            sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
+            Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));
+            sourcePage.WhereSql=definition;
+        }
         Assert.Throws<InvalidOperationException>(()=>RelationMutationPlan.Compile(catalog,[binding with{ScopedSinglePageId=null}]));
 
         if(kind=="SelectPage")

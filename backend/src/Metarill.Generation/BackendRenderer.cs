@@ -847,7 +847,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 }
             }
             var lockScope=relation.Conditions is not null||logicalPlan is not null||
-                DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
+                relation.Target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
             result.Append(FixedPageConditionCompilation.Declaration(relation.TargetPage,"OptionsPageCondition"+suffix))
                 .Append(SharedRedundantParentCompilation.AccountDeclaration(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix));

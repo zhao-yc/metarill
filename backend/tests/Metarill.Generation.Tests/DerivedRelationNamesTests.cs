@@ -253,7 +253,7 @@ public sealed class DerivedRelationNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
-    /// <summary>纯物理账号条件覆盖全局单值候选、原单选目标页、写入、工作簿和名称副本。</summary>
+    /// <summary>物理账号条件覆盖单值候选、单选目标页、当前读、工作簿和名称副本。</summary>
     [Theory]
     [InlineData(false,false,false,false)]
     [InlineData(false,true,true,false)]
@@ -263,16 +263,24 @@ public sealed class DerivedRelationNamesTests
     [InlineData(false,true,false,true)]
     [InlineData(true,false,false,true)]
     [InlineData(true,true,true,true)]
-    public async Task Global_single_account_page_uses_published_scope_without_cascade(
-        bool selection,bool derived,bool rowProject,bool cached)
+    [InlineData(false,false,true,true,false,false)]
+    [InlineData(true,true,true,true,false,false)]
+    [InlineData(false,true,true,true,false,true)]
+    [InlineData(true,false,true,true,false,true)]
+    public async Task Single_account_page_uses_published_scope_without_cascade(
+        bool selection,bool derived,bool rowProject,bool cached,bool global=true,bool parent=false)
     {
-        var catalog=Catalog("dr_names",false);
+        var catalog=Catalog("dr_names",parent);
         var target=catalog.ConfigPages.Single(page=>page.Id=="201");
-        target.WhereSql="status=1 AND store_id=@current_store_id";
+        target.WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+
+            "status=1 AND store_id=@current_store_id"+(parent?" AND group_id=@parent_id":"");
         if(selection)target.Extra["type"]=JsonSerializer.SerializeToElement(1);
-        foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "2" or "4"))
-            table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-        catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="";
+        if(global)
+        {
+            foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "2" or "4"))
+                table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="";
+        }
         if(!rowProject)
         {
             catalog.ConfigColumns.RemoveAll(column=>column.Id=="22");
@@ -320,8 +328,9 @@ public sealed class DerivedRelationNamesTests
             Assert.Contains(".ForUpdate()",service);
             if(derived)
             {
-                Assert.Contains("CompileGlobalCandidate(\"2\",\"201\"",service);
+                Assert.Contains(global?"CompileGlobalCandidate(\"2\",\"201\"":"CompileRelation(\"2\"",service);
                 Assert.Contains("DerivedOptionsPlan101_15.BindAccount(actor)",service);
+                if(!global)Assert.Contains("OptionsPageCondition101_15.BindAccount(actor)",service);
                 Assert.Contains("currentRead:true",service);
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);

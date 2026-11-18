@@ -281,16 +281,17 @@ public static partial class MySqlNonRedundantReadCompiler
             var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields);
             var logical=RequireCrossCondition(table,page,condition,parentField,fields);
             if(GlobalCrossTableTarget.Declared(table))scopedGlobalCrossTarget=true;
-            if(cacheOwner is {} row&&logical.Count==0&&parentField is null)
-                return PhysicalAccountCacheCondition(table,alias,page,row);
+            if(cacheOwner is {} row&&logical.Count==0)
+                return PhysicalAccountCacheCondition(table,alias,page,row,parentField);
             return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
                 alias,cacheOwner,parentField,fields);
         }
 
         /// <summary>物理账号条件按来源行归属计算，并记录源字段和目标筛选列的反向依赖。</summary>
-        private string PhysicalAccountCacheCondition(TableMetadata table,string alias,PageMetadata page,CascadeCacheOwner owner)
+        private string PhysicalAccountCacheCondition(TableMetadata table,string alias,PageMetadata page,
+            CascadeCacheOwner owner,ColumnMetadata? parentField=null)
         {
-            var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource);
+            var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,parentField);
             cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
             return AccountCacheScope(ownership,table,alias,owner.Alias,render:true,owner.Table);
         }

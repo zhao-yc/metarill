@@ -6,7 +6,7 @@ namespace Metarill.Core.Metadata;
 /// <summary>项目内冗余单值关系的固定目标页。所有来源入口必须能共享同一个名称副本。</summary>
 public static class ProjectScopedSingleRelationTarget
 {
-    /// <summary>只有实际使用逻辑条件的关系才进入固定副本证明；其它关系保持原读取方式。</summary>
+    /// <summary>实际使用逻辑或账号条件的关系须证明所有来源页共享同一目标及名称副本。</summary>
     public static (PageMetadata Page, ColumnMetadata Name)? Resolve(
         MetadataCatalog catalog, TableMetadata owner, ColumnMetadata foreign, TableMetadata target)
     {
@@ -17,10 +17,14 @@ public static class ProjectScopedSingleRelationTarget
         // 与生成模型的原目标页回退顺序一致，不依赖目录输入顺序。
         var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id)
             .OrderBy(page=>page.Id,StringComparer.Ordinal).ToArray();
-        var logicalPages=pages.Where(page=>FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName)).Fields
-            .Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field)||
-                CrossTableStorageColumns.IsLogicalPathField(target,expanded,field))).Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
-        if(logicalPages.Count==0)return null;
+        var scopedPages=pages.Where(page=>
+        {
+            var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
+            return condition.Variables.Any(AccountConditionVariables.IsSupported)||
+                condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field)||
+                    CrossTableStorageColumns.IsLogicalPathField(target,expanded,field));
+        }).Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
+        if(scopedPages.Count==0)return null;
 
         using var document=JsonDocument.Parse(string.IsNullOrWhiteSpace(foreign.ControlDetail)?"{}":foreign.ControlDetail);
         var definition=document.RootElement;
@@ -32,7 +36,7 @@ public static class ProjectScopedSingleRelationTarget
         if(nameField.Length==0)nameField="name";
         var matches=catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id)
             .Select(sourcePage=>TargetFor(sourcePage)).ToArray();
-        if(!matches.Any(match=>match.Page is not null&&logicalPages.Contains(match.Page.Id)))return null;
+        if(!matches.Any(match=>match.Page is not null&&scopedPages.Contains(match.Page.Id)))return null;
         if(matches.Any(match=>match.Page is null||match.Name!=nameField)||
             matches.Select(match=>match.Page!.Id).Distinct(StringComparer.Ordinal).Count()!=1||
             selected.Length>0&&selected!=matches[0].Page!.Id||

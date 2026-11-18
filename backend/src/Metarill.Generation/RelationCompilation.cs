@@ -29,8 +29,8 @@ internal static class RelationCompilation
         var relations = new List<RelationModel>();
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
         // 系统项目上下文保留既有List等接线，新缓存能力不额外追加隐藏候选或授权依赖。
-        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||LogicalListTarget(model,page,column)||LogicalSelectionTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
-        foreach (var source in candidates.Where(c => (c.Source.ControlKind == "List" || (owner.Source.IsRongyu==0||!c.IsSystem&&(ForeignValidationRenderer.Target(model,c)?.IsGlobal==true||DerivedRelationNamesCompilation.DeclaredSource(model,c)||LogicalSelectionTarget(model,page,c)))&&c.Source.ControlKind=="SelectPage") && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
+        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||FixedListTarget(model,page,column)||FixedSelectionTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
+        foreach (var source in candidates.Where(c => (c.Source.ControlKind == "List" || (owner.Source.IsRongyu==0||!c.IsSystem&&(ForeignValidationRenderer.Target(model,c)?.IsGlobal==true||DerivedRelationNamesCompilation.DeclaredSource(model,c)||FixedSelectionTarget(model,page,c)))&&c.Source.ControlKind=="SelectPage") && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
         {
             var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
             var root = Definition(source.Source.ControlDetail);
@@ -113,27 +113,31 @@ internal static class RelationCompilation
         return relations;
     }
 
-    /// <summary>配置了逻辑范围的下拉即使隐藏，也要复核默认值和最终持久化值。</summary>
-    private static bool LogicalListTarget(GenerationModel model,PageModel page,ColumnModel source)
+    /// <summary>有账号或逻辑范围的下拉即使隐藏，也须复核默认值和最终持久化值。</summary>
+    private static bool FixedListTarget(GenerationModel model,PageModel page,ColumnModel source)
     {
         if(source.Source.ControlKind!="List"||ForeignValidationRenderer.Target(model,source) is not {} target||
             ListTargetPage(target,page,source,requireExplicit:false) is not {} targetPage)return false;
-        if(FixedPageConditionCompilation.HasLogicalFields(targetPage))return true;
+        if(HasFixedTargetScope(targetPage))return true;
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var effective=Text(Definition(field?.Extra.GetValueOrDefault("controlDetail").ToString()??""),"whereSql");
         if(string.IsNullOrWhiteSpace(effective))effective=Text(Definition(source.Source.ControlDetail),"whereSql");
         return RelationConditionsCompilation.HasLogicalListFields(target,effective);
     }
 
-    /// <summary>冗余单选绑定逻辑候选页时原入口也须校验相同范围。</summary>
-    private static bool LogicalSelectionTarget(GenerationModel model,PageModel page,ColumnModel source)
+    /// <summary>隐藏的单选必须沿实际固定目标页复核默认和提交值。</summary>
+    private static bool FixedSelectionTarget(GenerationModel model,PageModel page,ColumnModel source)
     {
         if(source.Source.ControlKind!="SelectPage"||ForeignValidationRenderer.Target(model,source) is not {Source.IsRongyu:0} target||
-            !target.Pages.Any(FixedPageConditionCompilation.HasLogicalFields))return false;
+            !target.Pages.Any(HasFixedTargetScope))return false;
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var definition=SelectionControlDefinition.Resolve(source,field);
-        return target.Pages.Any(candidate=>candidate.Source.Id==definition.PageId&&FixedPageConditionCompilation.HasLogicalFields(candidate));
+        return target.Pages.Any(candidate=>candidate.Source.Id==definition.PageId&&HasFixedTargetScope(candidate));
     }
+
+    /// <summary>目标页的逻辑条件和账号条件都要求内部最终值通过固定范围。</summary>
+    private static bool HasFixedTargetScope(PageModel targetPage)=>
+        FixedPageConditionCompilation.HasLogicalFields(targetPage)||FixedPageConditionCompilation.HasAccountVariables(targetPage);
 
     /// <summary>运行时和私有写校验使用同一个原绑定页或原后台的无父目标页。</summary>
     private static PageModel? ListTargetPage(TableModel target,PageModel page,ColumnModel source,bool requireExplicit=true)

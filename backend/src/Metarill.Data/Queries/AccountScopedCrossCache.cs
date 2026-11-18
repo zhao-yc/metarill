@@ -24,10 +24,10 @@ public sealed class AccountScopedCrossCache
         return Compile(catalog,source,target,targetPage,recursive:false);
     }
 
-    /// <summary>全局自树维护沿已发布来源行读取账号归属；普通调用保持原有边界。</summary>
+    /// <summary>已证明的独立父键单独校验，账号范围仍从实际来源行绑定。</summary>
     internal static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,
-        PageMetadata targetPage,bool globalTreeSource)=>
-        Compile(catalog,source,target,targetPage,recursive:false,globalTreeSource:globalTreeSource);
+        PageMetadata targetPage,bool globalTreeSource,ColumnMetadata? multiParent=null)=>
+        Compile(catalog,source,target,targetPage,recursive:false,multiParent:multiParent,globalTreeSource:globalTreeSource);
 
     /// <summary>递归候选允许逻辑字段的常量条件，账号等值仍须对应来源行真实物理归属。</summary>
     internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,

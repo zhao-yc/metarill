@@ -47,14 +47,14 @@ internal static class RelationPropagationCompilation
         var bindings=result.GroupBy(binding=>(binding.Source.Source.Id,binding.Cache.Source.Id)).Select(group=>group.OrderByDescending(binding=>binding.CrossTableColumnId==binding.Foreign.Source.Id).ThenBy(binding=>binding.CrossTableColumnId,StringComparer.Ordinal).First()).OrderBy(binding=>binding.Source.Source.TableName,StringComparer.Ordinal).ThenBy(binding=>binding.Cache.Source.ColumnName,StringComparer.Ordinal).ToArray();
         var physical=bindings.Where(binding=>!Derived(model,binding)).ToArray();var derived=bindings.Where(binding=>Derived(model,binding)).ToArray();if(physical.Length>0)_=RelationMutationPlan.Compile(model.Catalog,Definitions(physical));if(derived.Length>0)DerivedCrossTableCaches.Validate(model.Catalog,Definitions(derived),Definitions(physical));return bindings;
     }
-    /// <summary>从原单值外键与表级名称配置登记副本，目标页只能由全局发布证明确定。</summary>
+    /// <summary>从原单值外键登记名称副本，由实际固定目标页决定逻辑路径和账号归属。</summary>
     private static IEnumerable<RelationPropagationBinding> ScopedSingleBindings(GenerationModel model,TableModel table)
     {
         foreach(var foreign in table.Columns.Where(column=>!column.IsSystem&&column.Source.ControlKind is "List" or "SelectPage"))
         {
             var target=ForeignValidationRenderer.Target(model,foreign);
-            if(target is null||!target.Pages.Any(page=>FixedPageConditionCompilation.HasLogicalFields(page)||
-                DerivedRelationNamesCompilation.HasGlobalAccountScope(target,page)))continue;
+            if(target is null||target.Source.IsRongyu!=0||!target.Pages.Any(page=>FixedPageConditionCompilation.HasLogicalFields(page)||
+                FixedPageConditionCompilation.HasAccountVariables(page)))continue;
             (PageMetadata Page,ColumnMetadata Name) proof;
             if(target.IsGlobal)
             {

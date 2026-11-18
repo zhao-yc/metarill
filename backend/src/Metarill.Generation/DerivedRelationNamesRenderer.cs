@@ -13,7 +13,7 @@ internal static class DerivedRelationNamesRenderer
         var accountParent = SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
         var logical=DerivedRelationNamesCompilation.UsesLogicalPage(relation);
         var globalAccount=DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
-        var validateCurrent=accountParent||logical||globalAccount;
+        var validateCurrent=accountParent||logical||FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
         var bindParent=validateCurrent?".BindAccount(actor)":"";
         var embedsPageScope=relation.Target.IsGlobal&&(logical||globalAccount);
         var parentPlan = accountParent ? ",OptionsAccountParentScope"+suffix : "";
@@ -107,7 +107,7 @@ internal static class DerivedRelationNamesRenderer
     {
         var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
         var validateCurrent=accountParent||DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
-            DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
+            FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
         var lockParents=validateCurrent?",locking:true":"";
         var bindParent=validateCurrent?".BindAccount(actor)":"";
         var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var mapped=dependency.Parents.GetValueOrDefault(relation.SourceColumn.Source.Id);
