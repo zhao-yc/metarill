@@ -141,6 +141,14 @@ public static class NonRedundantReads
         MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(metadata,target,relation) is not null;
 
     /// <summary>多值控件显式绑定的目标页在读取计划内冻结逻辑条件。</summary>
+    /// <summary>由已发布目标页的实际逻辑层编译绑定全局父的ID校验。</summary>
+    public static NonRedundantReadPlan CompileMultiGlobalParent(MetadataCatalog metadata,string tableId,string pageId)=>
+        new(MySqlNonRedundantReadCompiler.CompileMultiGlobalParent(metadata,tableId,pageId));
+
+    /// <summary>比较实际全局父的页面身份，目标页不同时仍可复用已证明的同一父范围。</summary>
+    public static string MultiGlobalParentPageId(MetadataCatalog metadata,string tableId,string pageId)=>
+        MySqlNonRedundantReadCompiler.PublishedMultiGlobalParent(metadata,tableId,pageId).Page.Id;
+
     public static NonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>
         new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies));

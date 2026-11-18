@@ -282,9 +282,11 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly HashSet<string> resolving=new(StringComparer.Ordinal);
         private readonly bool scopedPhysicalCandidate;
         private readonly IReadOnlyList<RedundantSharedParentPlan> candidateParents;
-        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false,string? cascadeLabelField=null,CascadeCacheOwner? cascadeCacheOwner=null,bool scopedPhysicalCandidate=false,IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null)
+        private readonly bool accountPhysicalCandidate;
+        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false,string? cascadeLabelField=null,CascadeCacheOwner? cascadeCacheOwner=null,bool scopedPhysicalCandidate=false,IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,bool accountPhysicalCandidate=false)
         {
             this.scopedPhysicalCandidate = scopedPhysicalCandidate;
+            this.accountPhysicalCandidate=accountPhysicalCandidate;
             this.candidateParents=System.Array.AsReadOnly(candidateParents?.ToArray()??[]);
             this.rootAlias=rootAlias;this.aliasPrefix=aliasPrefix;this.candidatePage=candidatePage;this.multiLabel=multiLabel;this.cascadeLabelField=cascadeLabelField;this.cascadeCacheOwner=cascadeCacheOwner;
             this.crossTables=(crossTables??[]).ToDictionary(scope=>scope.SourceColumnId,StringComparer.Ordinal);
@@ -297,7 +299,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new InvalidOperationException("固定读取要求非冗余实体表或明确发布的物理候选。");
             if (candidatePage is not null)
             {
-                if (physicalCandidate) GlobalCrossTableTarget.Require(catalog, root, candidatePage);
+                if (physicalCandidate&&!accountPhysicalCandidate) GlobalCrossTableTarget.Require(catalog, root, candidatePage);
                 else GlobalCrossTableTarget.RequireAccountCandidate(catalog, root, candidatePage);
             }
             if(tables.Values.GroupBy(table=>table.TableName,StringComparer.OrdinalIgnoreCase).Any(group=>group.Count()!=1))throw new InvalidOperationException("项目表名重复。");
@@ -339,7 +341,7 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 // 带行归属的普通页可绑定自己的项目条件；候选计划仅证明实际发布的目标页。
                 GlobalDerivedRelationSource.RequireTable(catalog,root);
-                if(!HasGlobalRowProject(root)&&SelectedMultiPage is null)
+                if(!HasGlobalRowProject(root)&&SelectedMultiPage is null&&candidatePage is null)
                     foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==root.Id))
                     {
                         // 页面投影由生成服务另外附加自己的父筛选；任意单值读取仍须用无父参数的候选。
@@ -382,7 +384,7 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             var scope=candidatePage is null
                 ?Scope(root,rootAlias,projectScoped:!globalSource&&!GlobalCrossCandidate&&(!globalDerivedSource||HasGlobalRowProject(root)))
-                :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:!physicalCandidate);
+                :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:!physicalCandidate||accountPhysicalCandidate);
             if((globalSource||globalDerivedSource)&&scope.Length==0)scope="1=1";
             if(CrossCandidateCondition is not null||ScopedRootControls.Count>0)scope=FixedCrossCandidateScope(scope,expressions);
             if(SelectedMultiPage is not null)scope=SelectedMultiScope(scope);

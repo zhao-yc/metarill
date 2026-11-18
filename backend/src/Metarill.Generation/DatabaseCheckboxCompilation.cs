@@ -7,6 +7,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
 {
     internal PageModel? LogicalTargetPage { get; init; }
     internal bool LogicalSourceParent { get; init; }
+    internal bool GlobalParent { get; init; }
     internal bool IntegerLabel => Name.Type is ("int?" or "long?");
     internal bool TypedLabel => Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
     internal string Endpoint=>"findNameId"+GenerationModel.Pascal(Source.Source.ColumnName[..^4])+Source.Source.Id;
@@ -103,17 +104,21 @@ internal static class DatabaseCheckboxCompilation
             if(logicalSource is not null&&logicalPage?.Scopes.All(scope=>scope.Source!="parent")!=false)
                 return Gap("来源逻辑父键须对应明确的目标页父范围。");
             var parents=logicalSource is {} path?new[]{path.Read.Levels[path.Index].Target}:parentScopes.Select(scope=>Parent(scope.Column)).ToArray();
-            if(parents.Any(parent=>Protected(parent)||!HasIdentity(model,parent)))return Gap("来源父必须具有普通业务表的真实物理项目归属。");
+            var globalParent=false;
             foreach(var scope in scopes.Where(scope=>scope.Source=="parent"))if(sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id)return Gap("原parentId必须由来源页同一真实父表证明，不能猜测其他父范围。");
             if(logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true)
             {
                 var syntax=FixedConditionPlan.Compile(logicalPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
                 var binding=MultiTargetParentScope.Compile(model.Catalog,target.Source,syntax)!;
                 var owner=binding.Source(model.Catalog,table.Source,source.Source);
+                globalParent=binding.Global;
+                if(globalParent)_=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,logicalPage.Source.Id);
                 if(sourceParent?.Source.Id!=owner.Column.Id||(owner.LogicalPages.Count>0)!=(logicalSource is not null))
                     return Gap("复选目标页父参数缺少同一来源父记录。");
                 scopes=scopes.Concat(logicalPage.Scopes.Where(scope=>scope.Source=="parent")).DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
             }
+            if(parents.Any(parent=>Protected(parent)||!(globalParent&&parent.IsGlobal)&&!HasIdentity(model,parent)))
+                return Gap("来源父须具有普通业务项目归属或实际全局层位证明。");
             var order=GenerationModel.ValidateOrderBy(definition.OrderBy.Length>0?definition.OrderBy:definition.NameField+" asc",target.Columns).ToList();
             if(order.Any(item=>(!NonRedundantReadCompilation.Physical(model,target,item.Column)&&!(derived&&item.Column.Source.Id==name.Source.Id))||item.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,item.Column)))return Gap("候选排序必须为非凭据物理字段。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));
             var names=SelectionDisplayFieldCompilation.Resolve(table,source);
@@ -123,6 +128,7 @@ internal static class DatabaseCheckboxCompilation
             {
                 LogicalTargetPage=logicalPage,
                 LogicalSourceParent=logicalSource is not null,
+                GlobalParent=globalParent,
                 DerivedName=derived||logicalPage is not null
             };
             if(result.DerivedName)DerivedCheckboxNamesCompilation.Require(model,table,result);

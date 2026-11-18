@@ -108,8 +108,21 @@ public sealed class CascadeMultiLabelGenerationTests
         CompileCascadeLabel(kind,0,selfTree:false,indirect:false,selectedPage:true,physical:onlyParent,globalRowProject:rowProject,
             parent:true,logicalParent:logicalTarget,onlyParent:onlyParent,sourceLogicalParent:true);
 
+    /// <summary>显式全局父沿实际级联层页校验，覆盖普通／全局目标及普通／逻辑来源父。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,null,true,false)]
+    [InlineData("MultiSelectPage",1,true,false,false)]
+    [InlineData("MultiCheckBoxDatabase",0,false,true,true)]
+    [InlineData("MultiCheckBoxDatabase",1,null,true,false)]
+    [InlineData("MultiSelectPage",0,true,true,true)]
+    [InlineData("MultiCheckBoxDatabase",0,false,false,true,true)]
+    public Task Selected_page_global_parent_conditions_compile_in_original_endpoints(string kind,int mode,bool? rowProject,bool noParentProject,bool sourceLogical,bool parentAccount=false)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:mode==1,globalRowProject:rowProject,
+            parent:true,logicalParent:true,sourceLogicalParent:sourceLogical,globalParent:true,parentWithoutProject:noParentProject,parentAccount:parentAccount);
+
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
-        bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false)
+        bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
+        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -204,6 +217,25 @@ public sealed class CascadeMultiLabelGenerationTests
             catalog.ConfigColumns.Add(new(){Id="914",ConfigTableId="9",ColumnName="source_scope_id",Name="所属记录",LogicalType="int64",LinkConfigTableId=parentTable});
             var page=catalog.ConfigPages.Single(page=>page.Id=="201");
             page.WhereSql+=(page.WhereSql.Length==0?"":" AND ")+parentField+"=@parent_id";
+            if(globalParent)
+            {
+                var globalDefinition=catalog.ConfigTables.Single(item=>item.Id==parentTable);
+                globalDefinition.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                var globalPage=catalog.ConfigPages.Single(item=>item.ConfigTableId==parentTable);
+                globalPage.WhereSql=globalPage.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
+                if(parentWithoutProject)catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId==parentTable&&column.ColumnName=="yz_project_id");
+                if(parentAccount)
+                {
+                    catalog.ConfigColumns.Add(new(){Id="3099",ConfigTableId=parentTable,ColumnName="store_id",LogicalType="int64"});
+                    globalPage.WhereSql+=" AND store_id=@current_store_id";
+                }
+                if(!sourceLogicalParent)
+                {
+                    var foreign=catalog.ConfigColumns.Single(column=>column.Id=="914");
+                    foreign.ControlKind="List";
+                    foreign.ControlDetail=JsonSerializer.Serialize(new{tableId=parentTable,pageId=globalPage.Id,nameField="name"});
+                }
+            }
             if(sourceLogicalParent)
             {
                 catalog.ConfigColumns.Add(new(){Id="915",ConfigTableId="9",ColumnName="source_area_id",LogicalType="int64",ControlKind="CascadeTree",LinkConfigTableId="4",ControlDetail=JsonSerializer.Serialize(new
@@ -256,6 +288,12 @@ public sealed class CascadeMultiLabelGenerationTests
                 Assert.Contains("CompileScopedMultiLabel(\"2\",\"201\",\""+display+"\"",code);
                 Assert.Contains(".BindAccount(actor)",code);
                 Assert.DoesNotContain("MultiPageCondition901_95.ApplyConstants",code);
+                if(globalParent)
+                {
+                    Assert.Contains("CompileMultiGlobalParent(\"2\",\"201\")",code);
+                    Assert.Contains(".KeyRowsAsync(",code);
+                    Assert.DoesNotContain("session.Select<LabelCrossCountry>().Where(row => row.Id == targetParentKey",code);
+                }
                 if(parent)
                 {
                     Assert.Contains("new(\""+parentField+"\",FixedReadComparison.Equal,",code);

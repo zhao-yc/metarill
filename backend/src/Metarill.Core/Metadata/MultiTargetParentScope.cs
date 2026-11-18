@@ -6,6 +6,8 @@ public sealed record MultiSourceParent(ColumnMetadata Column,IReadOnlyList<PageM
 /// <summary>多值页的父键来自固定关系，不由候选请求决定外键路径。</summary>
 public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata Target,bool Logical)
 {
+    public bool Global=>GlobalCrossTableTarget.Declared(Parent);
+
     public static bool IsParameter(string variable)=>variable.Equals("parent_id",StringComparison.OrdinalIgnoreCase)||
         variable.Equals("parentId",StringComparison.OrdinalIgnoreCase);
 
@@ -24,13 +26,18 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         var logical=CrossTableStorageColumns.IsLogicalPathField(table,columns,column.ColumnName);
         var parent=logical?CrossParent(catalog,columns,column):PhysicalKey(catalog,table,column)
             ?catalog.ConfigTables.SingleOrDefault(item=>References(column,item)):null;
-        if(parent is null||GlobalCrossTableTarget.Declared(parent)||parent.IsView!=0||parent.IsFunctionTable!=0||
+        if(parent is null||parent.IsView!=0||parent.IsFunctionTable!=0||
             parent.YzProjectId.Length>0&&parent.YzProjectId!=catalog.YzProjectId)throw Invalid();
         var storage=MetadataStoragePolicy.ForTable(catalog,parent);
         var id=storage.PhysicalColumns.SingleOrDefault(item=>item.ColumnName=="id");
         var project=storage.PhysicalColumns.SingleOrDefault(item=>item.ColumnName=="yz_project_id");
-        if(id is not {LogicalType:"int64",IsDbNotNull:1}||!GlobalPhysicalRelationValue.IsScalar(storage,parent,id)||
-            project is not {LogicalType:"int64" or "string"}||!GlobalPhysicalRelationValue.IsScalar(storage,parent,project))
+        if(id is not {LogicalType:"int64",IsDbNotNull:1}||!GlobalPhysicalRelationValue.IsScalar(storage,parent,id))throw Invalid();
+        // 全局父必须由本次实际级联层位证明，不能用缺项目列的普通外键推定全局。
+        if(GlobalCrossTableTarget.Declared(parent))
+        {
+            if(!logical||parent.YzProjectId!=catalog.YzProjectId||parent.IsRongyu is not(0 or 1))throw Invalid();
+        }
+        else if(project is not {LogicalType:"int64" or "string"}||!GlobalPhysicalRelationValue.IsScalar(storage,parent,project))
             throw Invalid();
         return new(parent,column,logical);
     }

@@ -48,6 +48,49 @@ public static partial class MySqlNonRedundantReadCompiler
         return builder.Compile(outputs,dependencies.Concat(syntax.Fields).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
 
+    /// <summary>独立父ID校验取实际全局层的发布页。多个共享分支必须指向同一页，不回退到任意全局候选。</summary>
+    internal static MySqlNonRedundantReadPlan CompileMultiGlobalParent(MetadataCatalog catalog,string tableId,string pageId)
+    {
+        MetadataValidation.Validate(catalog);
+        if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("固定全局父页要求已发布的MySQL读取计划。");
+        var (parent,published)=PublishedMultiGlobalParent(catalog,tableId,pageId);
+        var columns=RelationStorageColumns.Expand(parent,catalog.ConfigColumns.Where(column=>column.ConfigTableId==parent.Id));
+        var syntax=FixedConditionPlan.Compile(published.WhereSql,columns.Select(column=>column.ColumnName));
+        return syntax.Fields.Any(member=>CrossTableStorageColumns.IsLogicalPathField(parent,columns,member))
+            ?CompileCrossPageCandidate(catalog,parent.Id,published.Id,["id"],[])
+            :new Builder(catalog,parent.Id,candidatePage:published,accountPhysicalCandidate:true).Compile(["id"],[]);
+    }
+
+    /// <summary>多个目标页可共享同一个实际全局父页面，独立来源父校验只绑定该发布页。</summary>
+    internal static (TableMetadata Table,PageMetadata Page) PublishedMultiGlobalParent(MetadataCatalog catalog,string tableId,string pageId)
+    {
+        var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
+        var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
+        if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
+        var parent=MultiParent(catalog,page);
+        if(parent is not{Global:true,Logical:true})throw new NotSupportedException("多值全局父须绑定实际级联层位。");
+        var field=parent.Target.ColumnName;
+        var bindings=CrossMembershipBindings(catalog,table,page,new HashSet<string>(StringComparer.Ordinal){field});
+        var parentPages=bindings.Select(binding=>
+        {
+            var control=catalog.ConfigColumns.Single(column=>column.Id==binding.SourceColumnId);
+            var levels=Definition(control).GetProperty("levels").EnumerateArray().ToArray();
+            for(var index=0;index<levels.Length;index++)
+            {
+                var name=Value(levels[index],"table");
+                var prefix=Value(levels[index],"columnPrefix");
+                if((prefix.Length==0?name:prefix)+"_id"!=field)continue;
+                if(name!=parent.Parent.TableName)throw new InvalidOperationException("多值全局父的层位与发布表不符。");
+                return binding.Levels[index].PageId;
+            }
+            return null;
+        }).OfType<string>().Distinct(StringComparer.Ordinal).ToArray();
+        if(parentPages.Length!=1)throw new InvalidOperationException("多值全局父缺少唯一固定候选页。");
+        var published=catalog.ConfigPages.Single(item=>item.Id==parentPages[0]&&item.ConfigTableId==parent.Parent.Id);
+        GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,parent.Parent,published);
+        return(parent.Parent,published);
+    }
+
     private sealed partial class Builder
     {
         internal FixedConditionSqlPlan? CrossCandidateCondition{get;init;}
@@ -56,15 +99,19 @@ public static partial class MySqlNonRedundantReadCompiler
         private string? selectedMultiParentSql;
         internal (CascadeCacheOwner Owner,ColumnMetadata Column)? MultiParentOwner{get;init;}
 
-        /// <summary>父表必须仍在本项目且可见。字符串键与主键按十进制字节比较，避免高位ID被隐式转成浮点数。</summary>
+        /// <summary>普通父表沿用实际项目范围。全局逻辑父由已验证的完整级联表达式确定可见性。</summary>
         private string MultiParentPredicate(MultiTargetParentScope parent,string target)
         {
-            var alias=aliasPrefix+"multi_parent";
-            if(!parent.Logical){Use(root,parent.Target);Touch(rootAlias,parent.Target.ColumnName);}
-            Use(parent.Parent,Column(parent.Parent,"id"));
-            var key=alias+".`id`";
-            var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY ("+target+")":key+"="+target;
-            var predicate="EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+alias+" WHERE "+same+" AND "+key+">0 AND "+Scope(parent.Parent,alias)+")";
+            var predicate="("+target+") IS NOT NULL";
+            if(!parent.Global)
+            {
+                var alias=aliasPrefix+"multi_parent";
+                if(!parent.Logical){Use(root,parent.Target);Touch(rootAlias,parent.Target.ColumnName);}
+                Use(parent.Parent,Column(parent.Parent,"id"));
+                var key=alias+".`id`";
+                var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY ("+target+")":key+"="+target;
+                predicate="EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+alias+" WHERE "+same+" AND "+key+">0 AND "+Scope(parent.Parent,alias)+")";
+            }
             if(MultiParentOwner is not {} binding)return predicate;
             var (owner,source)=binding;
             cascadeCacheOwnerFields.Add(source.ColumnName);

@@ -229,7 +229,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var sharedRedundant=SharedRedundantParentCompilation.Enabled(model,table,page);
         var supportsReadOnlyParent=sharedRedundant||NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page);
         var locking=supportsReadOnlyParent?"locking":"true";
-        var result = new StringBuilder().Append(SharedGlobalParentCompilation.KeyService(model,table,page)).AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
+        var multiGlobal=MultiGlobalParentCompilation.PhysicalSourceTarget(model,table,page);
+        var multiPlan="PageMultiGlobalParent"+page.Source.Id;
+        var result = new StringBuilder().Append(multiGlobal is null?SharedGlobalParentCompilation.KeyService(model,table,page):MultiGlobalParentCompilation.Declaration(model,multiGlobal,multiPlan)).AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
             .AppendLine($"    private async Task ValidateParents{page.Source.Id}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken{(NonRedundantCrossParentCompilation.Enabled(model,table,page)?",bool includeManaged=true":"")}{(supportsReadOnlyParent?", bool locking=true":"")})")
             .AppendLine("    {");
         if(sharedRedundant)result.AppendLine("        ValidateActor(actor);").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);");
@@ -243,6 +245,12 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 result.AppendLine($"        _=LogicalParentId{page.Source.Id}(parentId);if(includeManaged)await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,{locking},false).PathAsync({path.Index},long.Parse(parentId!,NumberStyles.None,CultureInfo.InvariantCulture),cancellationToken);");continue;
             }
             if(GlobalCachedParentCompilation.ForColumn(model,table,page,column) is{} directGlobalParent){result.Append(GlobalCachedParentCompilation.Call(directGlobalParent,page,"parentId",locking));continue;}
+            if(multiGlobal is not null)
+            {
+                result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var multiParentKey)||multiParentKey<=0||parentId!=multiParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");")
+                    .AppendLine(MultiGlobalParentCompilation.Check(multiPlan,"multiParentKey",locking));
+                continue;
+            }
             var globalParents=SharedGlobalParentCompilation.ForColumn(model,table,page,column);if(globalParents.Count>0){foreach(var globalParent in globalParents)result.Append(SharedGlobalParentCompilation.Call(globalParent,page,"parentId",locking));continue;}
             var parent = CrossTableWriteCompilation.ParentTarget(model,table,page,column) ?? model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
                 ?? throw new InvalidOperationException("父范围字段缺少明确的目标表：" + column.Source.ColumnName);
@@ -779,7 +787,13 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         /// <summary>候选按固定父定义无锁验证；常量关系写入使用同事务当前读锁。</summary>
         void Parent(TableModel parent, string key, string variable, bool current = false,bool sourceContext=false)
         {
-            var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);var globalParents=sourceContext?SharedGlobalParentCompilation.ForTable(model,owner,page,parent):[];if(globalParents.Count>0){foreach(var globalParent in globalParents)result.Append(SharedGlobalParentCompilation.Call(globalParent,page,"parentId",current?"locking":"false"));return;}
+            var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
+            if(sourceContext&&parent.IsGlobal&&MultiGlobalParentCompilation.PhysicalSourceTarget(model,owner,page) is not null)
+            {
+                result.AppendLine(MultiGlobalParentCompilation.Check("PageMultiGlobalParent"+page.Source.Id,key,current?"locking":"false"));
+                return;
+            }
+            var globalParents=sourceContext?SharedGlobalParentCompilation.ForTable(model,owner,page,parent):[];if(globalParents.Count>0){foreach(var globalParent in globalParents)result.Append(SharedGlobalParentCompilation.Call(globalParent,page,"parentId",current?"locking":"false"));return;}
             var redundantParents=sourceContext?SharedRedundantParentCompilation.ForTable(model,owner,page,parent):[];if(redundantParents.Count>0){foreach(var redundantParent in redundantParents)result.Append(SharedRedundantParentCompilation.Call(redundantParent,page,current?"locking":"false"));return;}
             var directGlobalParents=sourceContext?GlobalCachedParentCompilation.ForTable(model,owner,page,parent):[];if(directGlobalParents.Count>0){foreach(var direct in directGlobalParents)result.Append(GlobalCachedParentCompilation.Call(direct,page,"parentId",current?"locking":"false"));return;}
             var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");

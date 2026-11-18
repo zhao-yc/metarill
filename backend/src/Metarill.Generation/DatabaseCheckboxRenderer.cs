@@ -31,6 +31,7 @@ internal static class DatabaseCheckboxRenderer
             if(def.GlobalPage is not null&&!def.DerivedName)
                 result.Append(FixedPageConditionCompilation.Declaration(def.GlobalPage,"CheckboxGlobalCondition"+suffix));
             if(def.DerivedName)result.Append(DerivedCheckboxNamesRenderer.Service(model,table,page,def));
+            if(def.GlobalParent)result.Append(MultiGlobalParentCompilation.Declaration(model,def.LogicalTargetPage!,"CheckboxGlobalParent"+suffix));
             result.AppendLine("    /// <summary>来源身份、真实父和发布条件始终进入数据库；写校验使用当前事务锁读。</summary>")
                 .AppendLine($"    private async Task<ISelect<{def.Target.EntityType}>> CheckboxScope{suffix}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,bool locking,CancellationToken cancellationToken)")
                 .AppendLine("    {")
@@ -43,11 +44,13 @@ internal static class DatabaseCheckboxRenderer
                 var path=NonRedundantCrossParentCompilation.Find(model,table,page,def.SourceParent!)!.Value;
                 // 候选仍按来源页的实际可见级联核对父节点，不能用表项目归属替代其固定条件。
                 result.AppendLine($"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,locking,false).PathAsync({path.Index},LogicalParentId{page.Source.Id}(parentId),cancellationToken);");
+                if(def.GlobalParent)result.AppendLine(MultiGlobalParentCompilation.Check("CheckboxGlobalParent"+suffix,$"LogicalParentId{page.Source.Id}(parentId)","locking"));
             }
             else
             {
                 result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0||parentId!=parentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"来源父ID必须为规范正整数字符串。\");");
-                foreach(var parent in def.SourceParents)
+                if(def.GlobalParent)result.AppendLine(MultiGlobalParentCompilation.Check("CheckboxGlobalParent"+suffix,"parentKey","locking"));
+                foreach(var parent in def.SourceParents.Where(_=>!def.GlobalParent))
                 {
                     var parentProject=parent.Columns.Single(column=>column.Source.ColumnName=="yz_project_id");
                     result.AppendLine($"        var parentQuery=session.Select<{parent.EntityType}>().Where(row=>row.Id==parentKey&&row.{parentProject.Property}=={Scope(parentProject,"actor.ProjectId")});");

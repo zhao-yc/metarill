@@ -8,6 +8,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
     bool SameParent, string? TargetParentField, IReadOnlyList<TableModel> TargetParents, string ButtonText)
 {
     internal bool LogicalSourceParent { get; init; }
+    internal bool GlobalParent { get; init; }
     internal bool IntegerLabel => !Name.IsId&&Name.Type is ("int?" or "long?");
     internal bool TypedLabel => !Name.IsId&&Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
 }
@@ -85,7 +86,8 @@ internal static class MultiSelectCompilation
                     target.Columns.Select(column=>column.Source.ColumnName))):null;
             var targetParents = scopedParent is not null?[model.Tables.Single(parent=>parent.Source.Id==scopedParent.Parent.Id)]:
                 targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
-            if (targetParents.Any(parent => !parent.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))) return Gap("目标父表未声明项目归属。");
+            if (scopedParent?.Global!=true&&targetParents.Any(parent => !parent.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))) return Gap("目标父表未声明项目归属。");
+            if(scopedParent?.Global==true)_=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,targetPage.Source.Id);
             var same = targetParents.Length > 0 && sourceParents.SequenceEqual(targetParents.Select(parent => parent.Source.Id).Order());
             string? targetField = null;
             if (targetParents.Length > 1) return Gap("多个目标父定义未形成唯一合同。");
@@ -128,7 +130,7 @@ internal static class MultiSelectCompilation
             // R1派生数组不能只证明候选：同一根定义还须取得数据层缓存证明，Full报告与实际发布保持一致。
             if(table.Source.IsRongyu==1&&names is not null&&(scoped||derived))Metarill.Data.Relations.DerivedCrossTableCaches.Validate(model.Catalog,[new(table.Source.Id,source.Source.Id,target.Source.Id,name.Source.Id,names.Source.Id,true)],[]);
             return new(new(source, target, targetPage, name, names, same, targetField, targetParents, Value("buttonText", "选择"))
-                {LogicalSourceParent=logicalSourceParent}, null);
+                {LogicalSourceParent=logicalSourceParent,GlobalParent=scopedParent?.Global==true}, null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }
     }

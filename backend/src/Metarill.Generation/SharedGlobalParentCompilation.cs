@@ -20,8 +20,8 @@ internal static class SharedGlobalParentCompilation
         if(table.Source.IsRongyu!=0||!page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id))return [];
         var reads=CrossTableReadCompilation.ForService(model,table,page);var logical=reads.SelectMany(read=>read.Levels.Select((level,index)=>(read,level,index))).Where(item=>item.level.Prefix+"_id"==column.Source.ColumnName).ToArray();
         var target=logical.Length>0?logical[0].level.Target:model.Tables.SingleOrDefault(candidate=>candidate.Source.Id==column.Source.LinkConfigTableId);if(target is null||!target.IsGlobal)return [];
-        if(table.IsGlobal||table.Source.YzProjectId!=model.Catalog.YzProjectId)
-            throw new NotSupportedException("全局共享父范围要求已发布普通R0来源及原项目身份。");
+        if(table.IsGlobal&&logical.Length==0||table.Source.YzProjectId!=model.Catalog.YzProjectId)
+            throw new NotSupportedException("全局父范围要求同一发布项目；只有已证明的逻辑层可用于全局来源。");
         var proven=Cache.GetValue(model,_=>new()).GetOrAdd((table.Source.Id,page.Source.Id),_=>Prove(model,table,page,reads));
         var paths=proven.SelectMany(item=>item.Read.Levels.Select((level,index)=>new SharedGlobalParentPath(item.Read,index,item.Shared))).Where(path=>path.Level.Target.Source.Id==target.Source.Id);
         if(logical.Length>0)paths=paths.Where(path=>path.Level.Prefix+"_id"==column.Source.ColumnName);
@@ -34,7 +34,7 @@ internal static class SharedGlobalParentCompilation
         var result=paths.DistinctBy(Identity,StringComparer.Ordinal).ToArray();
         if(result.Length!=1)throw new NotSupportedException("全局共享父字段缺少唯一已证明层位，不能猜测重复目标角色。");
         var published=result[0].Level;
-        if(logical.Length>0)GlobalCrossTableTarget.RequireCrossTableName(model.Catalog,target.Source,published.Page.Source,published.Name.Source,allowAccount:true);
+        if(logical.Length>0)GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,target.Source,published.Page.Source,published.Name.Source);
         else GlobalCrossTableTarget.RequireSingle(model.Catalog,target.Source,published.Page.Source);
         return result;
     }

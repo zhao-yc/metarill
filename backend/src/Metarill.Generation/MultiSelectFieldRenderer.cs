@@ -21,6 +21,7 @@ internal static class MultiSelectFieldRenderer
             result.Append(scoped?"":FixedPageConditionCompilation.Declaration(def.TargetPage,"MultiPageCondition"+suffix))
                 .Append(SharedRedundantParentCompilation.AccountDeclaration(model,def.Target,def.TargetPage,"MultiAccountParentScope"+suffix))
                 .Append(DerivedMultiNamesCompilation.Declaration(model,page,def));
+            if(def.GlobalParent)result.Append(MultiGlobalParentCompilation.Declaration(model,def.TargetPage,"MultiGlobalParent"+suffix));
             // 每个逻辑名称缓存只在类型初始化时编译一次；HTTP请求只绑定选中ID和身份范围。
             foreach(var (cache,index) in caches.Select((cache,index)=>(cache,index)).Where(item=>scoped||DerivedMultiNamesCompilation.Declared(model,def.Target,item.cache.Value)))
             {
@@ -53,7 +54,8 @@ internal static class MultiSelectFieldRenderer
             {
                 result.AppendLine(def.LogicalSourceParent?"        var targetParentId = logicalRelationParentId;":$"        var targetParentId = Convert.ToString(entity.{parentExpression!.Property}, CultureInfo.InvariantCulture);")
                     .AppendLine("        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException(\"多选目标要求有效父记录。\");");
-                foreach (var parent in def.TargetParents)
+                if(def.GlobalParent)result.AppendLine(MultiGlobalParentCompilation.Check("MultiGlobalParent"+suffix,"targetParentKey","true"));
+                foreach (var parent in def.TargetParents.Where(_=>!def.GlobalParent))
                 {
                     var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
                     result.AppendLine($"        var parentQuery = session.Select<{parent.EntityType}>().Where(row => row.Id == targetParentKey && row.{project.Property} == {Scope(project, "actor.ProjectId")});");

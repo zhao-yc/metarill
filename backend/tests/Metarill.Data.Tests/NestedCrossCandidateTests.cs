@@ -237,12 +237,15 @@ public sealed class NestedCrossCandidateTests
     [InlineData("MultiCheckBoxDatabase",false,true,true,true,true,true,false,true)]
     [InlineData("MultiCheckBoxDatabase",false,true,true,false,true,true,true,true)]
     [InlineData("MultiSelectPage",false,true,true,null,true,true,false,true,true)]
+    [InlineData("MultiSelectPage",false,true,false,null,true,true,false,false,false,true)]
+    [InlineData("MultiCheckBoxDatabase",false,true,true,true,true,true,false,false,false,true)]
+    [InlineData("MultiCheckBoxDatabase",false,true,true,false,true,true,true,true,false,true)]
     public void Multi_label_cache_keeps_recursive_scope_and_its_reverse_dependencies(
-        string kind,bool global,bool rootCondition,bool physical,bool? globalRowProject,bool parent=false,bool logicalParent=false,bool onlyParent=false,bool logicalSource=false,bool sharedSource=false)
+        string kind,bool global,bool rootCondition,bool physical,bool? globalRowProject,bool parent=false,bool logicalParent=false,bool onlyParent=false,bool logicalSource=false,bool sharedSource=false,bool globalParent=false)
     {
         var catalog=Catalog(global);
         var visible=catalog.ConfigTables.Single(table=>table.Id=="1");
-        if(global)
+        if(global||globalParent)
         {
             visible.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             visible.YzProjectId=catalog.YzProjectId;
@@ -312,7 +315,7 @@ public sealed class NestedCrossCandidateTests
         var actor=new RuntimeActor(1,"多值账号",false,catalog.YzProjectId,"5"){StoreId=9007199254741973L};
         Assert.True(read.RequiresAccount);
         Assert.Contains(actor.StoreId!.Value,read.BindAccount(actor).Constants.Values);
-        Assert.Equal(global||globalRowProject is not null,read.RequiresPublishedProjectIdentity);
+        Assert.Equal(global||globalParent||globalRowProject is not null,read.RequiresPublishedProjectIdentity);
         Assert.Contains("mt_nested_",read.ArrayNamePredicates[field]);
         if(rootCondition)
         {
@@ -325,9 +328,21 @@ public sealed class NestedCrossCandidateTests
             Assert.Equal(parent?targetParentField:null,bound.RequiredMultiParent);
             if(parent)
             {
-                Assert.Contains(parentTable,bound.Scope);
                 Assert.Contains("b.`"+targetParentField+"`",bound.Scope);
-                Assert.Contains("multi_parent.`delete_no` IS NULL",bound.Scope);
+                if(globalParent)
+                {
+                    Assert.DoesNotContain("multi_parent.`yz_project_id`",bound.Scope);
+                    var parentPlan=NonRedundantReads.CompileMultiGlobalParent(catalog,"90","900").BindAccount(actor).MySql;
+                    Assert.Contains("nested_source",parentPlan.From);
+                    Assert.DoesNotContain("b.`yz_project_id`=",parentPlan.Scope);
+                    Assert.Contains("限制文字",parentPlan.Constants.Values);
+                    Assert.Contains(actor.StoreId!.Value,parentPlan.Constants.Values);
+                }
+                else
+                {
+                    Assert.Contains(parentTable,bound.Scope);
+                    Assert.Contains("multi_parent.`delete_no` IS NULL",bound.Scope);
+                }
                 if(logicalParent)
                 {
                     Assert.Contains("CASE WHEN",bound.Expression(targetParentField));
