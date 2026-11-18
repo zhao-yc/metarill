@@ -172,6 +172,7 @@ internal static class DerivedRelationNamesCompilation
         var dependencies = fields.Select(column => column.Source.ColumnName).Concat(orderFields)
             .Concat(["id", name.Source.ColumnName]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var outputs = new[] { "id", name.Source.ColumnName };
+        var projectTargets=ProjectCandidateTargets(model,relation);
         var plan = UsesLogicalPage(relation)
             ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies,relation.Conditions)
             : target.IsGlobal && physicalTypedName || NonRedundantReadCompilation.HasGlobalRowProject(target) ||
@@ -180,11 +181,28 @@ internal static class DerivedRelationNamesCompilation
             : physicalTypedName && target.Source.IsRongyu == 1
                 ? NonRedundantReads.CompilePhysicalRelation(model.Catalog,target.Source.Id,outputs,dependencies,
                     SharedRedundantParentCompilation.AccountPlans(model,target,relation.TargetPage))
+                : projectTargets.Count>0
+                ? NonRedundantReads.CompileProjectRelation(model.Catalog,target.Source.Id,outputs,dependencies,projectTargets)
                 : NonRedundantReads.Compile(model.Catalog, target.Source.Id, outputs, dependencies);
         if (plan.OutputTypes["id"] != "int64" || plan.OutputTypes[name.Source.ColumnName] != NameType(name))
             throw new InvalidOperationException("关系名称必须编译为与声明一致的固定标量。");
         return dependencies;
     }
+    /// <summary>按中间记录实际发布页编译名称路径的第一段，沿用该页的外键、目标条件和父绑定。</summary>
+    internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectCandidateTargets(GenerationModel model,RelationModel relation)
+    {
+        var table=relation.Target;
+        if(table.IsGlobal||table.Source.IsRongyu!=0||UsesLogicalPage(relation)||
+            !GenerationModel.Enabled(relation.NameColumn.Source.Extra,"isJoinColumn"))return [];
+        var path=relation.NameColumn.Source.Extra.GetValueOrDefault("columnFullName").ToString();
+        var separator=path.IndexOf('.');
+        if(separator<=0)return [];
+        var segment=path[..separator];
+        var key=table.Columns.FirstOrDefault(column=>column.Source.ColumnName.Equals(segment+"_id",StringComparison.OrdinalIgnoreCase))??
+            table.Columns.FirstOrDefault(column=>column.Source.ColumnName.Equals(segment,StringComparison.OrdinalIgnoreCase));
+        return key is null?[]:NonRedundantReadCompilation.ProjectSingleTargets(model,table,relation.TargetPage,key.Source.Id);
+    }
+
     /// <summary>普通R0保持原合同；R1只为明确发布、有真实主键／项目的物理消费者开放同一固定候选。</summary>
     private static bool SupportedOwner(GenerationModel model,TableModel owner)
     {

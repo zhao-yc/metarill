@@ -28,6 +28,82 @@ public sealed class DerivedRelationNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>外层客户候选的派生公司名继承客户页实际选择的公司范围。</summary>
+    [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)][InlineData(true,true)]
+    public async Task Derived_list_through_project_candidate_keeps_the_intermediate_pages_fixed_scope(bool selection,bool parent)
+    {
+        var catalog=Catalog("dr_names",parent);
+        catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=0;
+        catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId});
+        var companyPage=catalog.ConfigPages.Single(page=>page.Id=="401");
+        companyPage.WhereSql+=" AND store_id=@current_store_id AND name <> '原页排除'";
+        var actualPage=companyPage;
+        if (selection)
+        {
+            companyPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+            actualPage=new(){Id="402",ConfigTableId="4",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
+                WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id AND name <> '当前页排除'",
+                Extra=new(){["type"]=JsonSerializer.SerializeToElement(1)}};
+            catalog.ConfigPages.Add(actualPage);
+            catalog.ConfigPageColumns.Add(new(){Id="40244",ConfigPageId="402",ConfigColumnId="44",YzProjectId=catalog.YzProjectId});
+            var foreign=catalog.ConfigColumns.Single(column=>column.Id=="27");
+            foreign.ControlKind="SelectPage";
+            foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="4",pageId="401",nameField="name"});
+            catalog.ConfigPageColumns.Single(field=>field.Id=="20127").Extra["controlDetail"]=
+                JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{pageId=actualPage.Id}));
+        }
+        else
+        {
+            catalog.ConfigColumns.Single(column=>column.Id=="27").Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("401");
+        }
+
+        if (parent)
+        {
+            catalog.ConfigColumns.Add(new(){Id="46",ConfigTableId="4",ColumnName="group_id",LogicalType="int64",
+                LinkConfigTableId="3",YzProjectId=catalog.YzProjectId});
+            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="4"))
+                page.WhereSql+=" AND group_id=@parent_id";
+        }
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-project-join");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.DerivedProjectJoin");
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/DrNamesOrderService.g.cs"));
+            Assert.Contains("CompileProjectRelation(\"2\"",service);
+            var sourceParent=parent?"\"29\"":"null";
+            Assert.Contains($"new(\"27\",\"{actualPage.Id}\",{sourceParent})",service);
+            Assert.Contains("DerivedOptionsPlan101_15.BindAccount(actor)",service);
+            Assert.Contains("OptionsSelected101_15Async",service);
+            Assert.Contains("Import101Async",service);
+            Assert.Contains("Export101Async",service);
+
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var type=assembly.GetType("Example.DerivedProjectJoin.Generated.Services.DrNamesOrderService",true)!;
+            const System.Reflection.BindingFlags scope=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+            var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(type.GetField("DerivedOptionsPlan101_15",
+                System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
+            var actor=new Metarill.Core.Security.RuntimeActor(9,"demo",false,catalog.YzProjectId,"5"){StoreId=6351};
+            var bound=plan.BindAccount(actor);
+            var mysql=bound.GetType().GetProperty("MySql",scope)!.GetValue(bound)!;
+            var sql=Assert.IsType<string>(mysql.GetType().GetProperty("From",scope)!.GetValue(mysql));
+            Assert.Contains("EXISTS (SELECT 1 FROM `dr_names_company`",sql);
+            Assert.Contains(".`store_id`",sql);
+            if (parent)
+            {
+                Assert.Contains("FROM `dr_names_group`",sql);
+                Assert.Contains("=BINARY CAST(b.`group_id` AS CHAR)",sql);
+                Assert.Matches(@"=BINARY CAST\(mt_\w+_page\.`group_id` AS CHAR\)",sql);
+            }
+            var values=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(mysql.GetType().GetProperty("Constants",scope)!.GetValue(mysql)).Values;
+            Assert.Contains(6351L,values);
+            Assert.Contains(selection?"当前页排除":"原页排除",values);
+            if (selection) Assert.DoesNotContain("原页排除",values);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>固定自树条件通过原单值候选、保存与 Excel 共用同一已发布计划。</summary>
     [Theory]
     [InlineData(false, false, false, null, false)]

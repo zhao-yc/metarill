@@ -205,11 +205,13 @@ internal static class NonRedundantReadCompilation
         (relation.TargetPage.Condition is not null||relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"));
 
     /// <summary>同一来源表的各页分别固定实际目标页，物理父键按本页同父或表单关系证明。</summary>
-    internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectSingleTargets(GenerationModel model,TableModel table,PageModel page)
+    internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectSingleTargets(GenerationModel model,TableModel table,PageModel page,
+        string? scopeSourceId=null)
     {
         if(table.IsGlobal||table.Source.IsRongyu!=0)return [];
         var result=new List<NonRedundantSingleTargetScope>();
-        var relations=RelationCompilation.ForPage(model,page).Concat(RelationCompilation.ForPage(model,page,true))
+        var relations=RelationCompilation.ForPage(model,page,scopeSourceId:scopeSourceId)
+            .Concat(RelationCompilation.ForPage(model,page,true,scopeSourceId))
             .DistinctBy(relation=>relation.SourceColumn.Source.Id).Where(UsesProjectSingleRead);
         foreach(var relation in relations)
         {

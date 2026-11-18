@@ -23,8 +23,9 @@ internal static partial class BackendRenderer
             .Where(page=>NonRedundantReadCompilation.GlobalAccountMultiPage(table,page)||
                 NonRedundantReadCompilation.GlobalSingleParentPage(table,page)||
                 MultiGlobalParentCompilation.SingleTarget(model,table,page) is not null).Select(page=>(table,page))));
-        var scopedRelations=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>RelationCompilation.ForPage(model,page)
-            .Concat(RelationCompilation.ForPage(model,page,true)))).Where(relation=>DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
+        var relations=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>RelationCompilation.ForPage(model,page)
+            .Concat(RelationCompilation.ForPage(model,page,true)))).ToArray();
+        var scopedRelations=relations.Where(relation=>DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
                 DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)||
                 NonRedundantReadCompilation.UsesProjectSingleRead(relation)).ToArray();
         scopedPages=scopedPages.Concat(scopedRelations.Select(relation=>(relation.Target,relation.TargetPage)));
@@ -53,6 +54,8 @@ internal static partial class BackendRenderer
         if(model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0)))helpers+="    /// <summary>共享R0由整组编译，成员不能分别打包覆盖。</summary>\n    internal static Metarill.Core.Metadata.SharedCrossTableSparseSelection CompileSharedSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.SharedCrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n";
         if(scopedRelations.Any(NonRedundantReadCompilation.UsesProjectSingleRead))
             helpers+="    /// <summary>业务页实时关系名的目标及父范围由生成时固定。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileProjectPage(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[] cross,Metarill.Data.Queries.NonRedundantSingleTargetScope[] single)=>Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(Snapshot,tableId,outputs,dependencies,cross,single);\n";
+        if(relations.Any(relation=>DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation).Count>0))
+            helpers+="    /// <summary>派生候选沿实际中间页范围编译完整名称。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileProjectRelation(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[] single)=>Metarill.Data.Queries.NonRedundantReads.CompileProjectRelation(Snapshot,tableId,outputs,dependencies,single);\n";
         if(scopedRelations.Any(relation=>!relation.Target.IsGlobal&&DerivedRelationNamesCompilation.UsesLogicalPage(relation)))helpers+="    /// <summary>单值候选、回读及保存共享发布页的逻辑条件。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileRelationMembership(string tableId,string pageId,string[] fields,string[] cross,string[] tree,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompilePageMembership(Snapshot,Snapshot.ConfigTables.Single(table=>table.Id==tableId),Snapshot.ConfigPages.Single(page=>page.Id==pageId),fields,cross.ToHashSet(StringComparer.Ordinal),tree.ToHashSet(StringComparer.Ordinal),outputs,dependencies);\n";
         if(scopedRelations.Any(relation=>(relation.Target.IsGlobal||relation.FixedParent is {Logical:true})&&relation.Conditions?.HasLogicalFields==true))
             helpers+="    /// <summary>全局下拉复用原发布页与附加逻辑字段的固定读取范围。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileGlobalListCandidate(string tableId,string pageId,string[] fields,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalListCandidate(Snapshot,tableId,pageId,fields,outputs,dependencies);\n";

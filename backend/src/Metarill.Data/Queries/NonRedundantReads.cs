@@ -35,6 +35,11 @@ public static class NonRedundantReads
         IReadOnlyList<NonRedundantSingleTargetScope> singleTargets)=>
         new(MySqlNonRedundantReadCompiler.CompileProjectPage(metadata,tableId,outputs,dependencies,crossTables,singleTargets));
 
+    /// <summary>派生候选通过实际中间页的单值范围读取名称。</summary>
+    public static NonRedundantReadPlan CompileProjectRelation(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,
+        IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope> singleTargets)=>
+        new(MySqlNonRedundantReadCompiler.CompileProjectRelation(metadata,tableId,outputs,dependencies,singleTargets));
+
     /// <summary>只按已发布的全局目标页读取候选；普通对象读取继续使用按行归属的计划。</summary>
     public static NonRedundantReadPlan CompileGlobalCandidate(MetadataCatalog metadata,string tableId,string pageId,IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies=null)
     {

@@ -26,12 +26,14 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
 internal static class RelationCompilation
 {
     /// <summary>把字段与页面覆盖合并后编译一次，三种候选入口共用同一范围。</summary>
-    public static IReadOnlyList<RelationModel> ForPage(GenerationModel model, PageModel page, bool forService = false)
+    public static IReadOnlyList<RelationModel> ForPage(GenerationModel model, PageModel page, bool forService = false,
+        string? scopeSourceId = null)
     {
         var relations = new List<RelationModel>();
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
         // 系统项目上下文保留既有List等接线，新缓存能力不额外追加隐藏候选或授权依赖。
         var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||FixedListTarget(model,page,column)||FixedSelectionTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
+        if (scopeSourceId is not null) candidates = candidates.Where(column => column.Source.Id == scopeSourceId);
         foreach (var source in candidates.Where(c => (c.Source.ControlKind == "List" || (owner.Source.IsRongyu==0||!c.IsSystem&&(ForeignValidationRenderer.Target(model,c)?.IsGlobal==true||DerivedRelationNamesCompilation.DeclaredSource(model,c)||FixedSelectionTarget(model,page,c)))&&c.Source.ControlKind=="SelectPage") && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
         {
             var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
@@ -116,7 +118,9 @@ internal static class RelationCompilation
             var fixedSourceParent=sourceBinding is null?null:owner.Columns.Single(column=>column.Source.Id==sourceBinding.Column.Id);
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,
                 fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0);
-            if(DerivedRelationNamesCompilation.UsesFixedRead(model,relation))_=DerivedRelationNamesCompilation.Require(model,owner,page,relation);
+            // 中间页的目标绑定只复用关系定义；外层计划随后编译完整的名称，避免孙级名称校验反复进入同一页。
+            if(scopeSourceId is null&&DerivedRelationNamesCompilation.UsesFixedRead(model,relation))
+                _=DerivedRelationNamesCompilation.Require(model,owner,page,relation);
             relations.Add(relation);
         }
         return relations;

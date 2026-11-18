@@ -14,7 +14,8 @@ internal static class DerivedRelationNamesRenderer
         var logical=DerivedRelationNamesCompilation.UsesLogicalPage(relation);
         var globalAccount=DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
         var validateCurrent=accountParent||logical||FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
-        var bindParent=validateCurrent?".BindAccount(actor)":"";
+        var projectTargets=DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation);
+        var bindParent=validateCurrent||projectTargets.Count>0?".BindAccount(actor)":"";
         var embedsPageScope=relation.FixedParent is {Logical:true}||relation.Target.IsGlobal&&(logical||globalAccount);
         var parentPlan = accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var planStart = logical
@@ -23,7 +24,10 @@ internal static class DerivedRelationNamesRenderer
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : physicalTypedName && relation.Target.Source.IsRongyu == 1
                 ? $"CompilePhysicalRelation({Literal(relation.Target.Source.Id)}"
+                : projectTargets.Count>0
+                ? $"CompileProjectRelation({Literal(relation.Target.Source.Id)}"
                 : NonRedundantReadCompilation.RelationPlanStart(relation.Target, relation.TargetPage);
+        var projectTargetArgument=NonRedundantReadCompilation.SingleTargetArgument(projectTargets);
         var label = MultiSelectExcelRenderer.LabelText(relation.NameColumn, $"NonRedundantReads.Value<{relation.NameColumn.Type}>(row,{Literal(name)})");
         var search = relation.NameColumn.Source.LogicalType switch
         {
@@ -40,7 +44,7 @@ internal static class DerivedRelationNamesRenderer
         var bind=relation.Conditions is null?"":"        var bound=OptionsCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"});condition=condition is null?bound:condition.And(bound);";
         var result=new StringBuilder($$"""
     /// <summary>生成和静态装载时编译，普通请求不解析元数据；名称联接与物理身份一同固定。</summary>
-    private static readonly NonRedundantReadPlan DerivedOptionsPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{planStart}},new string[]{"id",{{Literal(name)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} }{{parentPlan}});
+    private static readonly NonRedundantReadPlan DerivedOptionsPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{planStart}},new string[]{"id",{{Literal(name)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} }{{parentPlan}}{{projectTargetArgument}});
     /// <summary>先复用原真实父检查，再把同一页面及控件条件AND绑定到固定SQL读取。</summary>
     private async Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)> DerivedOptionsScope{{suffix}}Async(string? parentId,string? targetParentId,RuntimeActor actor,CancellationToken cancellationToken,IReadOnlyDictionary<string,object?>? formValues=null{{(validateCurrent?",bool locking=false":"")}})
     {
@@ -109,7 +113,7 @@ internal static class DerivedRelationNamesRenderer
         var validateCurrent=accountParent||DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
             FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
         var lockParents=validateCurrent?",locking:true":"";
-        var bindParent=validateCurrent?".BindAccount(actor)":"";
+        var bindParent=validateCurrent||DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation).Count>0?".BindAccount(actor)":"";
         var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var mapped=dependency.Parents.GetValueOrDefault(relation.SourceColumn.Source.Id);
         var name = relation.NameColumn;
         var addMatchFilter = name.Type == "string?" ? $$"""

@@ -5,6 +5,11 @@ namespace Metarill.Data.Queries;
 
 public static partial class MySqlNonRedundantReadCompiler
 {
+    /// <summary>候选名称调用实际中间页的单值范围，同时完整编译名称投影。</summary>
+    internal static MySqlNonRedundantReadPlan CompileProjectRelation(MetadataCatalog catalog,string tableId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope> singleTargets)=>
+        CompileRelationScope(catalog,tableId,outputs,[],dependencies,deferCascadeNames:false,singleTargets:singleTargets);
+
     /// <summary>候选与实际父路径使用同一发布页范围；调用端不能替换其中任一逻辑条件。</summary>
     internal static MySqlNonRedundantReadPlan CompileCrossPageCandidate(MetadataCatalog catalog,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
