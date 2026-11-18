@@ -44,8 +44,6 @@ internal static class CrossTableReadCompilation
                 }
                 if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))return Gap("目标缺少项目归属或明确全局声明。");
                 var pages=target.Pages.Where(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(candidate)&&candidate.Readable.Any(column=>column.Source.Id==name.Source.Id)&&(parent is null||candidate.Readable.Any(column=>column.Source.Id==parent.Source.Id))).ToArray();if(pages.Length!=1)return Gap("每级需要唯一且无目标父参数的可读页面。");
-                if(table.Source.IsRongyu==1&&FixedPageConditionCompilation.HasSelfTreeFields(pages[0]))
-                    return Gap("含自树叶名的跨表目标尚未接入冗余跨表名称副本。");
                 // 递归R1的完整来源行归属在混合传播目录中一次性校验。
                 if(!FixedPageConditionCompilation.HasLogicalFields(pages[0])&&
                     FixedPageConditionCompilation.HasAccountVariables(pages[0])&&table.Source.IsRongyu==1)

@@ -90,7 +90,7 @@ public static class RedundantSharedParents
             var required=new[]{display.Id}.Concat(parent is null?[]:new[]{parent.Id}).ToArray();
             var candidates=catalog.ConfigPages.Where(p=>p.ConfigTableId==target.Id&&required.All(id=>
                     catalog.ConfigPageColumns.Any(f=>f.ConfigPageId==p.Id&&f.ConfigColumnId==id&&Readable(f))))
-                .Select(p=>(Page:p,Condition:CrossTableParentCondition.Compile(catalog,target,p,ts,allowLogical:true)))
+                .Select(p=>(Page:p,Condition:CrossTableParentCondition.CompileNestedCandidate(catalog,target,p,ts)))
                 .Where(candidate=>candidate.Condition.Allowed).ToArray();
             if(candidates.Length!=1)throw Unsupported();
             var chosen=candidates[0];
@@ -98,8 +98,13 @@ public static class RedundantSharedParents
             NonRedundantReadPlan? recursive=null;
             if(chosen.Condition.HasLogical)
             {
-                if(global)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,chosen.Page,display);
-                _=AccountScopedCrossCache.CompileRecursive(catalog,source,target,chosen.Page);
+                if(global)
+                {
+                    if(chosen.Condition.HasSelfTree)GlobalCrossTableTarget.RequireScopedSelfTreeName(catalog,target,chosen.Page,display);
+                    else GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,chosen.Page,display);
+                }
+                var treeNames=MySqlNonRedundantReadCompiler.PublishedSelfTreeConditionFields(catalog,target,chosen.Page,targetColumns);
+                _=AccountScopedCrossCache.CompileRecursive(catalog,source,target,chosen.Page,selfTreeFields:treeNames);
                 recursive=NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,chosen.Page.Id,
                     parent is null?["id"]:["id",parent.ColumnName],[]);
             }

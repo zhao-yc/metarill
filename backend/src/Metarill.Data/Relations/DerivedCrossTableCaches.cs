@@ -36,8 +36,11 @@ public static class DerivedCrossTableCaches
             {
                 if(!cross||d.Multiple||d.SelfTreePageId is not null||d.CrossTableAccountPageId is not null)
                     throw new InvalidOperationException("递归名称缓存必须绑定单一固定跨表层。");
-                var page=CrossTableCacheProof.RequireRecursivePage(catalog,target,value,d);
-                _=Metarill.Data.Queries.AccountScopedCrossCache.CompileRecursive(catalog,source,target,page);
+                var (page,_,treeNames)=CrossTableCacheProof.RequireRecursivePage(catalog,target,value,d);
+                _=Metarill.Data.Queries.AccountScopedCrossCache.CompileRecursive(catalog,source,target,page,selfTreeFields:treeNames);
+                // 内层账号范围也须由存储行证明，发布时直接编译整条回填表达式。
+                if(treeNames.Count>0)
+                    _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cache.ColumnName],[d]);
             }
             if(d.CrossTableAccountPageId is{} pageId)
             {

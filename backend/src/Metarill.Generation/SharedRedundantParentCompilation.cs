@@ -42,8 +42,8 @@ internal static class SharedRedundantParentCompilation
         var level=result[0].Level;
         if(level.Target.IsGlobal)
         {
-            if(cascadeParent&&FixedPageConditionCompilation.HasCrossFields(level.Page))
-                GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,level.Target.Source,level.Page.Source,level.Name.Source);
+            if(cascadeParent&&FixedPageConditionCompilation.HasLogicalFields(level.Page))
+                NonRedundantCrossTargetsCompilation.RequireGlobal(model,level.Target,level.Page,level.Name);
             else if(cascadeParent)GlobalCrossTableTarget.RequireCrossTableName(model.Catalog,level.Target.Source,level.Page.Source,level.Name.Source,allowAccount:true);
             else GlobalCrossTableTarget.RequireSingle(model.Catalog,level.Target.Source,level.Page.Source);
         }
@@ -77,7 +77,7 @@ internal static class SharedRedundantParentCompilation
     {
         if(table.Source.IsRongyu!=1||!page.Scopes.Any(scope=>scope.Source=="parent")||
             !model.Tables.SelectMany(candidate=>candidate.Pages).Any(candidate=>
-                FixedPageConditionCompilation.HasAccountVariables(candidate)||FixedPageConditionCompilation.HasCrossFields(candidate))||
+                FixedPageConditionCompilation.HasAccountVariables(candidate)||FixedPageConditionCompilation.HasLogicalFields(candidate))||
             !Enabled(model,table,page))return [];
         return ParentPlans.GetValue(model,_=>new()).GetOrAdd((table.Source.Id,page.Source.Id),_=>CompileParents(model,table,page))
             .Values.Where(path=>path.Levels.Any(level=>level.RequiresCurrentScope))

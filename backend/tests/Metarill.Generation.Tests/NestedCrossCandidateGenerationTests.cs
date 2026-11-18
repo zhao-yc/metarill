@@ -19,6 +19,8 @@ public sealed class NestedCrossCandidateGenerationTests
     [InlineData(true,"cached-global")]
     [InlineData(false,"ordinary",true)]
     [InlineData(true,"without-project",true)]
+    [InlineData(false,"cached-ordinary",true)]
+    [InlineData(true,"cached-global",true)]
     public async Task Logical_target_page_keeps_nested_scope_after_metadata_publication(bool shared,string mode,bool selfTreeScope=false)
     {
         const string ns="Example.NestedCrossScope";
@@ -42,7 +44,7 @@ public sealed class NestedCrossCandidateGenerationTests
         {
             var maintenance=MixedRelationPropagationCompilation.ForModel(model);
             Assert.Contains("outer_root_name",maintenance.MixedSourceColumns[table.Source.TableName]);
-            Assert.Contains(maintenance.MixedTargets,target=>target.Contains("country",StringComparison.Ordinal));
+            Assert.Contains(maintenance.MixedTargets,target=>target.Contains(selfTreeScope?"visibility":"country",StringComparison.Ordinal));
         }
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-nested-scope");
@@ -70,7 +72,7 @@ public sealed class NestedCrossCandidateGenerationTests
             }
             var targetPlan=(NonRedundantReadPlan)type.GetField("CrossTargetPlan900_9004_0",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
             Assert.Equal(new[]{"id","name"},targetPlan.OutputTypes.Keys);
-            if(selfTreeScope)
+            if(selfTreeScope&&!cached)
             {
                 var read=Assert.IsType<NonRedundantReadPlan>(type.GetField("ReadPlan900",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
                 var mysql=typeof(NonRedundantReadPlan).GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(read)!;
@@ -99,7 +101,7 @@ public sealed class NestedCrossCandidateGenerationTests
                 var maintenance=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
                 var published=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(maintenance.GetProperty("Catalog")!.GetValue(null));
                 Assert.Contains("outer_root_name",published.MixedSourceColumns[table.Source.TableName]);
-                Assert.Contains(published.MixedTargets,target=>target.Contains("country",StringComparison.Ordinal));
+                Assert.Contains(published.MixedTargets,target=>target.Contains(selfTreeScope?"visibility":"country",StringComparison.Ordinal));
                 var entity=assembly.GetType(ns+".Generated.Entities.ScopedCandidateOuter",true)!;
                 using var database=new Metarill.Data.DatabaseSession(new(){ExpectedDatabase="offline",
                     ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
@@ -110,7 +112,7 @@ public sealed class NestedCrossCandidateGenerationTests
                 arguments[3]=Array.Empty<Metarill.Core.Persistence.IRecordMutationObserver>();
                 var instance=Activator.CreateInstance(type,arguments)!;
                 var scope=type.GetMethod("Scope900",BindingFlags.Instance|BindingFlags.NonPublic)!;
-                var account=new Metarill.Core.Security.RuntimeActor(1,"父范围测试",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
+                var account=new Metarill.Core.Security.RuntimeActor(1,"父范围测试",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L,MerchantId=33};
                 var query=scope.Invoke(instance,[account,"9007199254742000",false])!;
                 var sql=(string)GetType().GetMethod(nameof(Sql),BindingFlags.Static|BindingFlags.NonPublic)!.MakeGenericMethod(entity).Invoke(null,[query])!;
                 Assert.Contains("r1_page_0_0_recursive_mt_candidate_",sql);
@@ -118,11 +120,14 @@ public sealed class NestedCrossCandidateGenerationTests
                 Assert.DoesNotContain("不可选路径",sql);
                 Assert.IsType<UnauthorizedAccessException>(Assert.Throws<TargetInvocationException>(()=>
                     scope.Invoke(instance,[account with{StoreId=null},"9007199254742000",false])).InnerException);
-                Assert.Single(new Metarill.Runtime.Files.FileMetadataContext([catalog]).Catalogs);
+                var registry=new Metarill.Runtime.Files.FileMetadataContext([catalog]);
+                var frozen=registry.Catalogs.Single();
+                Assert.NotNull(registry.GetType().GetMethod("PageScope",BindingFlags.Instance|BindingFlags.NonPublic)!
+                    .Invoke(registry,[frozen,frozen.ConfigPages.Single(item=>item.Id=="900")]));
             }
             if(mode is "row-project" or "without-project" or "cached-global")
             {
-                var actor=new Metarill.Core.Security.RuntimeActor(1,"异项目账号",false,"999","5"){StoreId=9007199254740993L};
+                var actor=new Metarill.Core.Security.RuntimeActor(1,"异项目账号",false,"999","5"){StoreId=9007199254740993L,MerchantId=33};
                 using var session=new Metarill.Data.DatabaseSession(new(){ExpectedDatabase="offline",
                     ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
                 await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new NonRedundantReader(session)
@@ -236,7 +241,8 @@ public sealed class NestedCrossCandidateGenerationTests
         }
         if(selfTreeScope)
         {
-            var global=mode=="without-project";
+            var global=mode is "without-project" or "cached-global";
+            var cached=mode.StartsWith("cached-",StringComparison.Ordinal);
             var visibility=new TableMetadata{Id="93",TableName="scoped_candidate_visibility",IsRongyu=1};
             if(global)visibility.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             catalog.ConfigTables.Add(visibility);
@@ -247,14 +253,27 @@ public sealed class NestedCrossCandidateGenerationTests
                 new(){Id="9304",ConfigTableId="93",ColumnName="parent_id",LogicalType="int64",LinkConfigTableId="93"},
                 new(){Id="9305",ConfigTableId="93",ColumnName="status",LogicalType="int32"},
                 new(){Id="8999",ConfigTableId=inner.Id,ColumnName="visibility_id",LogicalType="int64",ControlKind="CascadeTree",
-                    LinkConfigTableId="93",ControlDetail="""{"sourceMode":"selfTree","selfTree":{"table":"scoped_candidate_visibility","parentField":"parent_id"}}"""},
-                new(){Id="9010",ConfigTableId="90",ColumnName="attachments",Name="附件",LogicalType="string",ColumnLength="max",
-                    ControlKind="FileLibrary",ControlDetail="""{"accessMode":"PROTECTED","maxCount":3}"""}
+                    LinkConfigTableId="93",ControlDetail="""{"sourceMode":"selfTree","selfTree":{"table":"scoped_candidate_visibility","parentField":"parent_id"}}"""}
             ]);
+            if(!cached)
+            {
+                catalog.ConfigColumns.Add(new(){Id="9010",ConfigTableId="90",ColumnName="attachments",Name="附件",LogicalType="string",ColumnLength="max",
+                    ControlKind="FileLibrary",ControlDetail="""{"accessMode":"PROTECTED","maxCount":3}"""});
+                catalog.ConfigPages.Single(page=>page.Id=="900").WhereSql+=" AND outer_root_id=@parent_id";
+            }
+            else if(!global)
+            {
+                catalog.ConfigColumns.AddRange([
+                    new(){Id="9306",ConfigTableId="93",ColumnName="merchant_id",LogicalType="int64"},
+                    new(){Id="9011",ConfigTableId="90",ColumnName="merchant_id",LogicalType="int64"}
+                ]);
+                catalog.ConfigPages.Single(page=>page.Id=="900").WhereSql+=" AND merchant_id=@current_merchant_id";
+            }
             if(!global)catalog.ConfigColumns.Add(new(){Id="8998",ConfigTableId=inner.Id,ColumnName="visibility_name",LogicalType="string",
                 Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("visibility.name")}});
-            catalog.ConfigPages.Add(new(){Id="930",ConfigTableId="93",YzAdminTypeId="5",WhereSql=global?"status=1":"yz_project_id=@current_yz_project_id AND status=1"});
-            catalog.ConfigPages.Single(page=>page.Id=="900").WhereSql+=" AND outer_root_id=@parent_id";
+            var condition=global?"status=1":"yz_project_id=@current_yz_project_id AND status=1";
+            if(cached&&!global)condition+=" AND merchant_id=@current_merchant_id";
+            catalog.ConfigPages.Add(new(){Id="930",ConfigTableId="93",YzAdminTypeId="5",WhereSql=condition});
         }
         foreach(var page in catalog.ConfigPages.Where(item=>item.ConfigTableId is "90" or "91" or "92" or "93"))
             foreach(var column in catalog.ConfigColumns.Where(item=>item.ConfigTableId==page.ConfigTableId&&item.ColumnName!="yz_project_id"))

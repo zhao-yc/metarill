@@ -231,14 +231,13 @@ public static partial class MySqlNonRedundantReadCompiler
         private (string Sql,string Type) RecursiveCacheValue(TableMetadata table,string owner,ColumnMetadata foreign,
             TableMetadata target,ColumnMetadata value,RelationCacheDefinition definition)
         {
-            var page=CrossTableCacheProof.RequireRecursivePage(catalog,target,value,definition);
-            var condition=CrossTableParentCondition.Compile(catalog,target,page,storage[target.Id],allowLogical:true).Plan!;
-            var logical=RequireCrossCondition(target,page,condition);
+            var (page,condition,treeNames)=CrossTableCacheProof.RequireRecursivePage(catalog,target,value,definition);
+            var logical=RequireCrossCondition(target,page,condition,selfTreeFields:treeNames);
             var sourceId=Resolve(table,owner,foreign.ColumnName);
             var alias=Join(owner,foreign,target,sourceId.Sql,sourceId.Type,
                 validatedCrossGlobal:GlobalCrossTableTarget.Declared(target));
             var level=new CrossLevel(target,value,null,new(page.Id,condition),page,logical);
-            var visible=NestedCrossCondition(level,alias,new(table,owner));
+            var visible=NestedCrossCondition(level,alias,new(table,owner),selfTreeFields:treeNames);
             var name=Resolve(target,alias,value.ColumnName);
             return ("CASE WHEN "+alias+".`id` IS NOT NULL AND "+visible+" THEN "+MySqlMultiValueLabel.Text(name.Sql,name.Type)+" END","string");
         }
@@ -281,7 +280,7 @@ public static partial class MySqlNonRedundantReadCompiler
                             GlobalCrossTableTarget.Declared(table)&&
                                 !GlobalCrossTableTarget.Declared(SelfTreeLabel(catalog,control).Target))
                             throw new NotSupportedException("自树固定条件缺少有效的叶子外键或全局发布证明。");
-                        return SelfTreeLabelExpression(table,owner,control,column);
+                        return SelfTreeLabelExpression(table,owner,control,column,conditionOwner:cacheOwner);
                     }
 
                     var path=bindings.Values.First(binding=>CrossTableStorageColumns.ContainsPathField(

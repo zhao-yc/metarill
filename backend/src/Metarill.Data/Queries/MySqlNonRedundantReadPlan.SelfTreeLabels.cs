@@ -104,7 +104,8 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         /// <summary>沿原64层、活动节点与根语义检查完整祖先链，取该链的真实叶名。</summary>
-        private string SelfTreeLabelExpression(TableMetadata table,string owner,ColumnMetadata control,ColumnMetadata column,string? publishedPageId=null)
+        private string SelfTreeLabelExpression(TableMetadata table,string owner,ColumnMetadata control,ColumnMetadata column,
+            string? publishedPageId=null,CascadeCacheOwner? conditionOwner=null)
         {
             if(!storage[table.Id].IsPhysical(control)||control.LogicalType is not("int64" or "string"))
                 throw new NotSupportedException("自树多值名称要求物理选择位。");
@@ -127,7 +128,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var max=SelfTreeReader.MaximumDepth.ToString(CultureInfo.InvariantCulture);
             var display=prefix+"display";
             // 名称副本的目标账号条件从来源行取值。普通候选仍绑定请求的真实身份。
-            var cacheOwner=cascadeCacheOwner??(trackReverse&&(proof.Scoped||publishedPageId is not null)
+            var cacheOwner=conditionOwner??cascadeCacheOwner??(trackReverse&&(proof.Scoped||publishedPageId is not null)
                 ?new CascadeCacheOwner(table,owner,publishedPageId is not null&&GlobalCrossTableTarget.Declared(table)):null);
             MySqlNonRedundantReadPlan? fixedTarget=null;
             if(proof.Scoped)
@@ -214,7 +215,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 Use(proof.Target,proof.Parent);
                 if(storage[proof.Target.Id].IsPhysical(proof.Name))Use(proof.Target,proof.Name);
                 // 失效节点不能截断反向路径；名称重算再执行各层实际可见性。
-                var reverseCte=fixedTarget is null&&publishedPageId is null?cte:WalkCte(
+                var reverseCte=fixedTarget is null&&publishedPageId is null&&conditionOwner is null?cte:WalkCte(
                     Scope(proof.Target,seed,projectScoped:!global,includeDeleted:true),
                     Scope(proof.Target,ancestor,projectScoped:!global,includeDeleted:true));
                 if(fixedTarget is not null)

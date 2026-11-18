@@ -106,7 +106,9 @@ public sealed class NestedCrossCandidateTests
     [InlineData(true,false,false)]
     [InlineData(false,true,false)]
     [InlineData(true,true,true)]
-    public void Recursive_cache_tracks_nested_dependencies_and_binds_row_ownership(bool shared,bool global,bool account)
+    [InlineData(false,false,true,true)]
+    [InlineData(true,true,true,true)]
+    public void Recursive_cache_tracks_nested_dependencies_and_binds_row_ownership(bool shared,bool global,bool account,bool selfTreeCondition=false)
     {
         var catalog=Catalog(shared);
         var source=catalog.ConfigTables.Single(table=>table.Id=="90");
@@ -124,6 +126,7 @@ public sealed class NestedCrossCandidateTests
         catalog.ConfigPages.Add(new(){Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,
             WhereSql=account?"store_id=@current_store_id":""});
         catalog.ConfigColumns.Add(new(){Id="9010",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"});
+        if(selfTreeCondition)AddVisibilityLeafScope(catalog,source,target,targetPage,global);
         var columns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id));
         ColumnMetadata Field(string name)=>columns.Single(column=>column.ColumnName==name);
         var definition=new RelationCacheDefinition(source.Id,Field("outer_root_id").Id,target.Id,
@@ -152,12 +155,62 @@ public sealed class NestedCrossCandidateTests
         var countryName=catalog.ConfigColumns.Single(column=>column.ConfigTableId==country.Id&&column.ColumnName is "name" or "title").ColumnName;
         Assert.Contains(read.PhysicalReferences,reference=>reference.Table==country.TableName&&reference.Column.Name==countryName);
         Assert.Contains(mixed.Reverse,path=>path.TargetTable==country.TableName&&path.Outputs["outer_root_name"].Contains(countryName));
+        if(selfTreeCondition)
+        {
+            Assert.Contains("nested_visibility",plan.MixedTargets);
+            Assert.Contains("WITH RECURSIVE",read.Expression("outer_root_name"));
+            Assert.Contains("store_id",read.SourceDependencies);
+            Assert.Contains(mixed.Reverse,path=>path.TargetTable=="nested_source"&&path.Outputs["outer_root_name"].Contains("visibility_id"));
+            var node=Assert.Single(mixed.Reverse,path=>path.TargetTable=="nested_visibility");
+            foreach(var field in new[]{"id","name","parent_id","status","delete_no"})Assert.Contains(field,node.Outputs["outer_root_name"]);
+            Assert.Contains("@target_text",node.TargetPredicate);
+            if(!global)
+            {
+                Assert.Contains("b.`merchant_id`",read.Expression("outer_root_name"));
+                Assert.Contains("merchant_id",read.SourceDependencies);
+                var page=catalog.ConfigPages.Single(item=>item.Id=="900");
+                var original=page.WhereSql;
+                page.WhereSql="store_id=@current_store_id";
+                var error=Assert.Throws<InvalidOperationException>(()=>DerivedCrossTableCaches.Validate(catalog,[definition],[]));
+                Assert.Contains("物理账号归属",error.Message);
+                page.WhereSql=original;
+            }
+        }
         if(account)
         {
             catalog.ConfigPages.Add(new(){Id="901",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId});
             Assert.ThrowsAny<Exception>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[definition]));
         }
         Assert.ThrowsAny<Exception>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[definition with{CrossTableRecursivePageId="91"}]));
+    }
+
+    /// <summary>在既有跨表范围上叠加自树条件，覆盖同时依赖两种级联的缓存。</summary>
+    private static void AddVisibilityLeafScope(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata page,bool global)
+    {
+        var visibility=new TableMetadata{Id="95",TableName="nested_visibility",IsRongyu=1,YzProjectId=catalog.YzProjectId};
+        if(global)visibility.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigTables.Add(visibility);
+        catalog.ConfigColumns.AddRange([
+            new(){Id="9501",ConfigTableId="95",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="9502",ConfigTableId="95",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="9503",ConfigTableId="95",ColumnName="name",LogicalType="string"},
+            new(){Id="9504",ConfigTableId="95",ColumnName="parent_id",LogicalType="int64",LinkConfigTableId="95"},
+            new(){Id="9505",ConfigTableId="95",ColumnName="status",LogicalType="int32"},
+            new(){Id="9506",ConfigTableId="95",ColumnName="delete_no",LogicalType="datetime"},
+            new(){Id="9507",ConfigTableId="95",ColumnName="merchant_id",LogicalType="int64"},
+            new(){Id="9510",ConfigTableId=target.Id,ColumnName="visibility_id",LogicalType="int64",ControlKind="CascadeTree",
+                LinkConfigTableId="95",ControlDetail="""{"sourceMode":"selfTree","selfTree":{"table":"nested_visibility","parentField":"parent_id"}}"""}
+        ]);
+        var filter="status=1";
+        if(!global)
+        {
+            filter+=" AND merchant_id=@current_merchant_id";
+            catalog.ConfigColumns.Add(new(){Id="9011",ConfigTableId=source.Id,ColumnName="merchant_id",LogicalType="int64"});
+            catalog.ConfigPages.Single(item=>item.Id=="900").WhereSql+=" AND merchant_id=@current_merchant_id";
+        }
+        catalog.ConfigPages.Add(new(){Id="950",ConfigTableId="95",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",WhereSql=filter});
+        foreach(var id in new[]{"9503","9504"})catalog.ConfigPageColumns.Add(new(){Id="950_"+id,ConfigPageId="950",ConfigColumnId=id});
+        page.WhereSql+=" AND visibility_name <> '限制叶子'";
     }
 
     /// <summary>冗余父范围按实际存储父键关联，常量或账号递归条件都进入查询和当前锁。</summary>

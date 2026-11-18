@@ -30,7 +30,7 @@ internal static class RelationPropagationCompilation
                     (level.Target.Source.IsRongyu==0||FixedPageConditionCompilation.HasAccountVariables(level.Page)))||SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is not null?GlobalPages(plan):null;
                 foreach(var level in plan.Levels)
                 {
-                    var recursive=FixedPageConditionCompilation.HasCrossFields(level.Read.Page);
+                    var recursive=FixedPageConditionCompilation.HasLogicalFields(level.Read.Page);
                     result.Add(new(table,level.Id,level.Read.Target,level.Read.Name,level.Name,false,plan.Read.Source.Source.Id,level.Read.Key,level.Read.Target.IsGlobal?level.Read.Page.Source.Id:null)
                     {
                         CrossTableGlobalPages=globalPages,

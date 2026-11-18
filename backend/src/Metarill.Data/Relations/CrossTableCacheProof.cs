@@ -9,7 +9,8 @@ namespace Metarill.Data.Relations;
 internal static class CrossTableCacheProof
 {
     /// <summary>递归缓存绑定和原跨表读取相同的唯一可读目标页，不能替换为同表其它页。</summary>
-    internal static PageMetadata RequireRecursivePage(MetadataCatalog catalog,TableMetadata target,ColumnMetadata name,
+    internal static (PageMetadata Page,FixedConditionSqlPlan Condition,IReadOnlySet<string> SelfTreeFields)
+        RequireRecursivePage(MetadataCatalog catalog,TableMetadata target,ColumnMetadata name,
         RelationCacheDefinition definition)
     {
         if(target.IsRongyu!=0||definition.CrossTableRecursivePageId is not { } id)
@@ -20,12 +21,15 @@ internal static class CrossTableCacheProof
         var index=Array.FindIndex(levels,level=>Text(level,"key",Text(level,"table",""))==definition.CrossTableLevelKey);
         if(index<0)throw new InvalidOperationException("递归名称缓存缺少固定层位。");
         var parent=index==0?"":Text(levels[index],"parentField","");
-        var (page,condition)=MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,name.ColumnName,parent);
-        var scope=CrossTableParentCondition.Compile(catalog,target,page,MetadataStoragePolicy.ForTable(catalog,target),allowLogical:true);
+        var (page,condition)=MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,name.ColumnName,parent,allowSelfTree:true);
+        var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
+        var treeNames=MySqlNonRedundantReadCompiler.PublishedSelfTreeConditionFields(catalog,target,page,columns);
+        var scope=CrossTableParentCondition.Compile(catalog,target,page,MetadataStoragePolicy.ForTable(catalog,target),
+            allowLogical:true,multiParent:null,selfTreeFields:treeNames);
         if(page.Id!=id||scope is not {Allowed:true,HasLogical:true}||condition is null||
             GlobalCrossTableTarget.Declared(target)&&definition.CrossTablePageId!=id)
             throw new InvalidOperationException("递归名称缓存与已发布候选页的完整逻辑范围不一致。");
-        return page;
+        return(page,condition,treeNames);
     }
 
     /// <summary>完整检查固定链，返回所选层是否为物理字符串名称缓存；不读取业务库或接受SQL。</summary>
@@ -56,10 +60,12 @@ internal static class CrossTableCacheProof
                 if(pages.Length!=1||string.IsNullOrWhiteSpace(pages[0]))throw new InvalidOperationException("全局跨表缓存缺少唯一冻结目标页。");
                 var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==pages[0])??throw new InvalidOperationException("全局跨表缓存目标页未发布。");
                 var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
-                var logical=syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(node,columns,field));
+                var treeNames=MySqlNonRedundantReadCompiler.SelfTreeConditionFields(catalog,node,page,columns,syntax.Fields);
+                var logical=treeNames.Count>0||syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(node,columns,field));
                 if(logical)
                 {
-                    GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,node,page,name);
+                    if(treeNames.Count>0)GlobalCrossTableTarget.RequireScopedSelfTreeName(catalog,node,page,name);
+                    else GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,node,page,name);
                     if(key==definition.CrossTableLevelKey&&definition.CrossTableRecursivePageId!=page.Id)
                         throw new InvalidOperationException("全局递归名称缓存必须绑定该层的逐行回填计划。");
                 }
