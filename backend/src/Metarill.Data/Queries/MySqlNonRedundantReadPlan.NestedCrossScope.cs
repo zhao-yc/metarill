@@ -370,17 +370,19 @@ public static partial class MySqlNonRedundantReadCompiler
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true);
             var parent=MultiParent(catalog,proof.Page);
             var cacheOwner=new CascadeCacheOwner(table,owner);
-            var sourceParent=parent is {Logical:true}?LogicalSingleSourceParent(table,owner,foreign,parent):null;
+            var binding=parent?.SingleSource(catalog,table,foreign);
+            var sourceParent=parent is {Logical:true}?SingleSourceParentValue(table,owner,binding!):null;
             var visible=PublishedSingleCondition(target,alias,proof.Page,cacheOwner,parent?.Target,sourceParent);
-            if(parent is {Logical:false})visible+=" AND "+ScopedSingleParentCondition(table,owner,foreign,alias,parent,cacheOwner);
+            if(parent is {Logical:false})visible+=" AND "+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,cacheOwner);
             var label=Resolve(target,alias,value.ColumnName);
             return ("CASE WHEN "+alias+".`id` IS NOT NULL AND "+visible+" THEN "+label.Sql+" END",label.Type);
         }
 
-        /// <summary>逻辑父从可见路径还原。来源必须读已证明的物理键，比较保持高位ID与字符串精度。</summary>
-        private string LogicalSingleSourceParent(TableMetadata source,string owner,ColumnMetadata foreign,MultiTargetParentScope parent)
+        /// <summary>来源父键来自发布页的可见级联或持久字段，保持高位 ID 和字符串精度。</summary>
+        private string SingleSourceParentValue(TableMetadata source,string owner,MultiSourceParent parent)
         {
-            var binding=parent.Source(catalog,source,foreign,physicalSingle:true).Column;
+            if(parent.LogicalPages.Count>0)return LogicalRelationSourceParent(source,owner,parent);
+            var binding=parent.Column;
             Use(source,binding);
             Touch(owner,binding.ColumnName);
             if(trackReverse)cascadeCacheOwnerFields.Add(binding.ColumnName);
@@ -390,25 +392,15 @@ public static partial class MySqlNonRedundantReadCompiler
         private static string SameSingleParent(string target,string source)=>
             "BINARY CAST("+target+" AS CHAR)=BINARY CAST("+source+" AS CHAR)";
 
-        /// <summary>按来源行的持久物理键匹配项目父或全局发布父，并登记反向依赖。</summary>
-        private string ScopedSingleParentCondition(TableMetadata source,string owner,ColumnMetadata foreign,
-            string targetAlias,MultiTargetParentScope parent,CascadeCacheOwner? cacheOwner=null)
-        {
-            if(parent.Logical)
-                throw new NotSupportedException("单值名称的目标父级必须是实际物理外键。");
-            var binding=parent.Source(catalog,source,foreign,physicalSingle:true).Column;
-            return SinglePhysicalParentCondition(source,owner,targetAlias,parent,binding,cacheOwner);
-        }
-
         /// <summary>项目内和全局父均要求来源和目标实际父键相同；全局父再执行唯一发布页范围。</summary>
         private string SinglePhysicalParentCondition(TableMetadata source,string owner,string targetAlias,
-            MultiTargetParentScope parent,ColumnMetadata binding,CascadeCacheOwner? cacheOwner=null)
+            MultiTargetParentScope parent,ColumnMetadata binding,CascadeCacheOwner? cacheOwner=null,string? sourceParent=null)
         {
             var parentAlias=aliasPrefix+"single_parent_"+targetAlias;
-            var sourceKey=owner+"."+Q(binding.ColumnName);
+            var sourceKey=sourceParent??owner+"."+Q(binding.ColumnName);
             var targetKey=targetAlias+"."+Q(parent.Target.ColumnName);
             var primary=parentAlias+".`id`";
-            Use(source,binding);
+            if(sourceParent is null)Use(source,binding);
             Use(tables[parent.Target.ConfigTableId],parent.Target);Touch(targetAlias,parent.Target.ColumnName);
             Use(parent.Parent,Column(parent.Parent,"id"));
             var canonical="BINARY CAST("+primary+" AS CHAR)";

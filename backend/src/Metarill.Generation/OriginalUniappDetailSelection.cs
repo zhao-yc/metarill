@@ -55,7 +55,7 @@ onPopSelect{{{id}}}(row) { this.permissionVersion++;if(this.{{{ro}}} || !this._s
         // 全局单选的父页与服务端共用这一列的固定证明，原弹层继续传 parent_id。
         if(GlobalCrossTableTarget.SingleParent(c.Model.Catalog,targetTable.Source,target.Source) is {} fixedParent)
         {
-            var sourceKey=fixedParent.Source(c.Model.Catalog,c.Table.Source,foreign.Source,physicalSingle:true).Column;
+            var sourceKey=fixedParent.SingleSource(c.Model.Catalog,c.Table.Source,foreign.Source).Column;
             if(c.Page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==sourceKey.Id))return "parent_id";
             var stored=c.Page.Readable.SingleOrDefault(column=>column.Source.Id==sourceKey.Id);
             if(stored is null)

@@ -13,6 +13,8 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
     public bool ScopedAccount { get; internal init; }
     /// <summary>名称读取和维护从来源行取得持久父键，候选才使用实际父参数。</summary>
     public MultiTargetParentScope? Parent { get; internal init; }
+    /// <summary>来源父键的存储方式及其实际页面由同一发布计划证明。</summary>
+    public MultiSourceParent? SourceParent { get; internal init; }
     public MultiTargetParentScope? PhysicalParent=>Parent is {Logical:false}?Parent:null;
     public MultiTargetParentScope? AccountParent=>ScopedAccount?PhysicalParent:null;
     public bool ScopedLogicalPage=>ScopedSelfTree||ScopedCrossTable;
@@ -78,7 +80,7 @@ public static class GlobalSingleRelationTarget
         var scopedAccount=allowsLogical&&target.IsRongyu==0&&!scopedSelfTree&&!scopedCrossTable&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
         var fixedParent=allowsLogical?GlobalCrossTableTarget.SingleParent(catalog,target,page):null;
-        if(fixedParent is not null)_=fixedParent.Source(catalog,owner,foreign,physicalSingle:true);
+        var sourceParent=fixedParent?.SingleSource(catalog,owner,foreign);
         if(projectParent)RequireProjectParentPage(catalog,target,page);
         else if(fixedParent is null)
         {
@@ -123,7 +125,7 @@ public static class GlobalSingleRelationTarget
                     throw new InvalidOperationException("全局单值物理父范围要求各来源页使用同一发布目标和名称。");
             }
         }
-        return new(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,ScopedAccount=scopedAccount,Parent=fixedParent};
+        return new(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,ScopedAccount=scopedAccount,Parent=fixedParent,SourceParent=sourceParent};
     }
 
     /// <summary>父表及固定页必须属于当前目录，项目列必须真实存在，维护与业务均按当前已验证项目读取。</summary>

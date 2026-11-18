@@ -20,7 +20,7 @@ internal static class NonRedundantSelectionRenderer
         if (({{trigger}}) && entity.{{source.Property}} is not null)
         {
             // 当前对象操作已经授权；普通单选仍按原import/create/update动作，不额外加目标列表权限。
-            var selected{{source.Source.Id}} = await OptionsScope{{suffix}}Async({{Value(parent)}}, {{Value(target)}}, actor, cancellationToken, true, false);
+            var selected{{source.Source.Id}} = await OptionsScope{{suffix}}Async({{RelationConditionsCompilation.WriteSourceParent(model,table,page,parent)}}, {{Value(target)}}, actor, cancellationToken, true, false);
             var valid{{source.Source.Id}} = await selected{{source.Source.Id}}.Where(row => row.Id == entity.{{source.Property}}.Value).Limit(1).ForUpdate().ToListAsync(row => new { row.Id }, cancellationToken);
             if (valid{{source.Source.Id}}.Count != 1) throw new InvalidOperationException("单选记录不在当前真实候选范围。");
         }

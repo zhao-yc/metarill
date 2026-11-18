@@ -146,9 +146,14 @@ internal static class RelationConditionsCompilation
         var parent=page.Scopes.FirstOrDefault(scope=>scope.Source=="parent").Column;
         var target=context.TargetParentField is null?null:table.Columns.Single(column=>column.JsonName==context.TargetParentField);
         if(target is not null&&!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(target.Source))throw new InvalidOperationException("固定条件目标父必须来自真实物理字段。");
-        return $"            var relationQuery{number} = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async({Value(parent)}, {Value(target)}, actor, cancellationToken, true, false{WriteArgument(relation)});\n"
+        return $"            var relationQuery{number} = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async({WriteSourceParent(model,table,page,parent)}, {Value(target)}, actor, cancellationToken, true, false{WriteArgument(relation)});\n"
             +$"            relationQuery{number} = relationQuery{number}.Where(row => relationIds{number}.Contains(row.Id));\n";
     }
+    /// <summary>逻辑父级来自已授权的页范围，不能读取稀疏实体的原始父槽。</summary>
+    internal static string WriteSourceParent(GenerationModel model,TableModel table,PageModel page,ColumnModel? parent)=>
+        parent is not null&&NonRedundantCrossParentCompilation.Managed(model,table,page,parent)
+            ?"logicalRelationParentId":Value(parent);
+
     /// <summary>只有声明表单依赖的候选签名增加私有窄值槽，其他生成产物逐字保持。</summary>
     internal static string Signature(RelationModel relation)=>HasForms(relation)?", IReadOnlyDictionary<string, object?>? formValues = null":"";
     /// <summary>仅声明了物理表单变量时扩展候选内部合同。</summary>

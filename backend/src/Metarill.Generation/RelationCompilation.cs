@@ -7,7 +7,7 @@ namespace Metarill.Generation;
 internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target, PageModel TargetPage, ColumnModel NameColumn, string Endpoint,
     IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<TableModel> SourceParents, IReadOnlyList<TableModel> TargetParents,
     FixedParentRelationResult? ParentBinding = null, IReadOnlyList<(ColumnModel Column, bool Descending)>? OptionsOrder = null,
-    RelationConditionModel? Conditions = null, ColumnModel? FixedPhysicalSourceParent = null, MultiTargetParentScope? FixedParent = null)
+    RelationConditionModel? Conditions = null, ColumnModel? FixedSourceParent = null, MultiTargetParentScope? FixedParent = null, bool LogicalSourceParent = false)
 {
     /// <summary>原 V8 路由按来源字段去掉 Id/Ids 后缀，不能用目标表名替代业务别名。</summary>
     public string LegacyEndpoint
@@ -111,9 +111,10 @@ internal static class RelationCompilation
                     binding = new(true, null, "固定归属候选排序不能安全编译。");
                 }
             }
-            var fixedParentId=globalParent?.Source(model.Catalog,owner.Source,source.Source,physicalSingle:true).Column.Id;
-            var fixedSourceParent=fixedParentId is null?null:owner.Columns.Single(column=>column.Source.Id==fixedParentId);
-            var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,fixedSourceParent,globalParent);
+            var sourceBinding=globalParent?.SingleSource(model.Catalog,owner.Source,source.Source);
+            var fixedSourceParent=sourceBinding is null?null:owner.Columns.Single(column=>column.Source.Id==sourceBinding.Column.Id);
+            var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,
+                fixedSourceParent,globalParent,sourceBinding?.LogicalPages.Count>0);
             if(DerivedRelationNamesCompilation.UsesFixedRead(model,relation))_=DerivedRelationNamesCompilation.Require(model,owner,page,relation);
             relations.Add(relation);
         }
@@ -167,7 +168,7 @@ internal static class RelationCompilation
             ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName))
             ?? throw new InvalidOperationException("关联父范围缺少明确目标表：" + column.Source.ColumnName);
         if(parent.IsGlobal&&owner is not null&&page is not null&&GlobalCachedParentCompilation.ForColumn(model,owner,page,column)?.Target.Source.Id==parent.Source.Id)return parent;
-        if(parent.IsGlobal&&redundant is not null)return parent;
+        if(parent.IsGlobal&&(redundant is not null||cross is not null))return parent;
         if(parent.IsGlobal&&owner is not null&&page is not null&&MultiGlobalParentCompilation.PhysicalScopeTarget(model,owner,page) is not null)return parent;
         if(parent.IsGlobal&&owner is not null&&page is not null&&SharedGlobalParentCompilation.ForColumn(model,owner,page,column).Count>0)return parent;
         if (!parent.Columns.Any(candidate => candidate.Source.ColumnName == "yz_project_id")) throw new InvalidOperationException("关联父表未声明项目归属。");

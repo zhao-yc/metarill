@@ -83,7 +83,7 @@ internal static class MultiGlobalParentCompilation
                 ?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source)
                 :GlobalSingleRelationTarget.Require(model.Catalog,table.Source,foreign.Source,target.Source);
             if(proof.Parent is not {Global:true} parent||
-                parent.Source(model.Catalog,table.Source,foreign.Source,physicalSingle:true).Column.Id!=source.Source.Id)
+                proof.SourceParent is not {LogicalPages.Count:0} sourceParent||sourceParent.Column.Id!=source.Source.Id)
                 continue;
             yield return (foreign,target.Pages.Single(page=>page.Source.Id==proof.Page.Id));
         }

@@ -22,7 +22,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var sourceParent=sourceBinding?.Column;
             var logicalSource=sourceBinding?.LogicalPages.Count>0;
             var parentAlias=logicalSource?"mt_parent_input":owner;
-            var sourceParentSql=logicalSource?MultiLogicalSource(table,owner,sourceBinding!):null;
+            var sourceParentSql=logicalSource?LogicalRelationSourceParent(table,owner,sourceBinding!):null;
             if(sourceParent is not null&&!logicalSource){Use(table,sourceParent);Touch(owner,sourceParent.ColumnName);}
             var nested=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:selectedScope is null?publishedPage:null,multiLabel:true,cascadeLabelField:value.ColumnName,
@@ -84,7 +84,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         /// <summary>从来源行的固定可见级联还原父键，所有同伴的冲突及不可见路径都必须拒绝。</summary>
-        private string MultiLogicalSource(TableMetadata table,string owner,MultiSourceParent source)
+        private string LogicalRelationSourceParent(TableMetadata table,string owner,MultiSourceParent source)
         {
             if(table.Id!=root.Id||owner!=rootAlias||refreshFields is not null)
                 throw new NotSupportedException("逻辑父键须从当前普通R0来源读取。");
@@ -97,7 +97,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(crossTables.TryGetValue(binding.SourceColumnId,out var existing)&&
                     (existing.Levels.Count!=binding.Levels.Count||existing.Levels.Zip(binding.Levels)
                         .Any(pair=>pair.First.PageId!=pair.Second.PageId||!SameSharedCondition(pair.First.Condition,pair.Second.Condition))))
-                    throw new InvalidOperationException("多值来源父键的级联范围与当前读取页不一致。");
+                    throw new InvalidOperationException("关系来源父键的级联范围与当前读取页不一致。");
                 crossTables[binding.SourceColumnId]=binding;
             }
             var value=Resolve(table,owner,field).Sql;

@@ -167,8 +167,10 @@ public sealed class NestedCrossCandidateTests
     [InlineData("SelectPage",false,"int64",false,false,true,true)]
     [InlineData("List",false,"string",true,false,false,false,true)]
     [InlineData("SelectPage",true,"int64",true,false,false,true,true)]
+    [InlineData("List",false,"string",true,false,false,true,true,true)]
+    [InlineData("SelectPage",true,"int64",true,false,true,false,false,true)]
     public async Task Global_single_relation_joins_only_targets_visible_in_the_fixed_tree_page(string kind,bool rowProject,string key,bool cross,
-        bool physicalAccount=false,bool physicalParent=false,bool globalParent=false,bool logicalParent=false)
+        bool physicalAccount=false,bool physicalParent=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false)
     {
         var catalog=Catalog(false);
         var source=catalog.ConfigTables.Single(table=>table.Id=="90");
@@ -222,8 +224,29 @@ public sealed class NestedCrossCandidateTests
             ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
             ["columnFullName"]=JsonSerializer.SerializeToElement("shared.name")
         }});
+        if(logicalSource)
+        {
+            if(physicalParent)catalog.ConfigColumns.Single(column=>column.Id=="9512").LinkConfigTableId="2";
+            catalog.ConfigColumns.RemoveAll(column=>column.Id is "9004" or "9017");
+            catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId is "9004" or "9017");
+            catalog.ConfigColumns.Add(new(){Id="9017",ConfigTableId=source.Id,ColumnName="origin_place_id",LogicalType=key,
+                ControlKind="CascadeTree",LinkConfigTableId="4",ControlDetail=JsonSerializer.Serialize(new
+                {
+                    sourceMode="crossTable",levels=new object[]{
+                        new{table="nested_country",columnPrefix="origin_country",nameField="title"},
+                        new{table="nested_area",columnPrefix="origin_area",parentField="country_id",nameField="title"},
+                        new{table="nested_place",columnPrefix="origin_place",parentField="area_id",nameField="title"}}
+                })});
+            if(logicalParent)
+            {
+                var original=catalog.ConfigColumns.Single(column=>column.Id=="9017");
+                catalog.ConfigColumns.Add(new(){Id="9018",ConfigTableId=source.Id,ColumnName="origin_alt_id",LogicalType=key,
+                    ControlKind="CascadeTree",LinkConfigTableId="4",
+                    ControlDetail=original.ControlDetail.Replace("origin_place","origin_alt",StringComparison.Ordinal)});
+            }
+        }
         var sourcePage=new PageMetadata{Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
-            WhereSql="yz_project_id=@current_yz_project_id"+(physicalParent?" AND group_id=@parent_id":"")};
+            WhereSql="yz_project_id=@current_yz_project_id"+(logicalSource?" AND origin_country_id=@parent_id":physicalParent?" AND group_id=@parent_id":"")};
         catalog.ConfigPages.Add(sourcePage);
         var actor=new RuntimeActor(1,"发布项目账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
         var plan=NonRedundantReads.Compile(catalog,source.Id,["id","shared_name"]);
@@ -265,8 +288,8 @@ public sealed class NestedCrossCandidateTests
         {
             var bound=candidate.BindAccount(actor);
             Assert.Equal("group_id",bound.MySql.RequiredMultiParent);
-            Assert.Contains("nested_outer_leaf",bound.MySql.Scope);
-            Assert.Contains("b.`group_id`",plan.MySql.From);
+            Assert.Contains(logicalSource?"nested_country":"nested_outer_leaf",bound.MySql.Scope);
+            if(!logicalSource)Assert.Contains("b.`group_id`",plan.MySql.From);
             Assert.Throws<InvalidOperationException>(()=>NonRedundantCrossTableScopeSql.ApplyCandidate(
                 session.Select<ScopeRow>(),session,bound,"options",actor.ProjectId,false));
             Assert.Throws<ArgumentException>(()=>NonRedundantCrossTableScopeSql.ApplyCandidate(
@@ -283,7 +306,7 @@ public sealed class NestedCrossCandidateTests
             Assert.Equal("country_id",bound.MySql.RequiredMultiParent);
             var parent=bound.MySql.Expression("country_id");
             Assert.Contains("CASE WHEN",parent);
-            Assert.Contains("=BINARY CAST(b.`group_id` AS CHAR)",plan.MySql.From);
+            if(!logicalSource)Assert.Contains("=BINARY CAST(b.`group_id` AS CHAR)",plan.MySql.From);
             Assert.Throws<InvalidOperationException>(()=>NonRedundantCrossTableScopeSql.ApplyCandidate(
                 session.Select<ScopeRow>(),session,bound,"options",actor.ProjectId,false));
             var sql=NonRedundantCrossTableScopeSql.ApplyCandidate(session.Select<ScopeRow>(),session,bound,
@@ -298,6 +321,31 @@ public sealed class NestedCrossCandidateTests
             Assert.Contains("@with_extra_parent",withExtra);
             Assert.Contains("@with_extra_condition_",withExtra);
             Assert.DoesNotContain("附加范围",withExtra);
+        }
+        if(logicalSource)
+        {
+            var join=plan.MySql.From.IndexOf("LEFT JOIN `nested_source`",StringComparison.Ordinal);
+            var ancestor=plan.MySql.From.IndexOf("LEFT JOIN `nested_country`",StringComparison.Ordinal);
+            Assert.True(ancestor>=0&&ancestor<join);
+            Assert.Contains("CASE WHEN",plan.MySql.From[join..]);
+            Assert.Contains("b.`origin_place_id`",plan.MySql.From);
+            Assert.DoesNotContain("b.`group_id`",plan.MySql.From);
+            if(logicalParent)
+            {
+                Assert.Contains("b.`origin_alt_id`",plan.MySql.From);
+                Assert.All(plan.MySql.Crosses,projection=>Assert.NotNull(projection.SharedGroupKey));
+                // 只声明逻辑父的页面同样是固定候选，写入必须以绑定后的路径限定。
+                page.WhereSql="country_id=@parent_id";
+                var onlyParent=NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,page.Id,["id","name"],[]);
+                var scoped=NonRedundantCrossTableScopeSql.ApplyCandidate(session.Select<ScopeRow>(),session,onlyParent,
+                    "only_parent",actor.ProjectId,false,"9007199254740993").ToSql();
+                Assert.Contains("CASE WHEN",scoped);
+                Assert.Contains("@only_parent_parent",scoped);
+            }
+            // 发布中新增另一无父来源页会让同一字段无法确定范围，应在编译时拒绝。
+            catalog.ConfigPages.Add(new(){Id="901",ConfigTableId=source.Id});
+            Assert.Throws<InvalidOperationException>(()=>NonRedundantReads.Compile(catalog,source.Id,["id","shared_name"]));
+            return;
         }
         source.IsRongyu=1;
         sourcePage.WhereSql+=" AND store_id=@current_store_id";

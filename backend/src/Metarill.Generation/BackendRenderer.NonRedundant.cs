@@ -28,6 +28,11 @@ internal static partial class BackendRenderer
                 DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)||
                 NonRedundantReadCompilation.UsesProjectSingleRead(relation)).ToArray();
         scopedPages=scopedPages.Concat(scopedRelations.Select(relation=>(relation.Target,relation.TargetPage)));
+        // 单值读取在重新装载后依然要按来源的实际固定页还原稀疏父键。
+        var logicalOwners=scopedRelations.Where(relation=>relation.LogicalSourceParent)
+            .Select(relation=>relation.SourceColumn.Source.ConfigTableId).ToHashSet(StringComparer.Ordinal);
+        scopedPages=scopedPages.Concat(model.Tables.Where(table=>logicalOwners.Contains(table.Source.Id))
+            .SelectMany(table=>table.Pages.Select(page=>(table,page))));
         // 目标页自身没有叶名条件时，仍保留由下拉附加条件实际引用的树页。
         scopedPages=scopedPages.Concat(scopedRelations.Where(relation=>relation.Conditions?.SelfTreeFields.Count>0)
             .SelectMany(relation=>CascadeTreeReadCompilation.ForService(model,relation.Target,relation.TargetPage)

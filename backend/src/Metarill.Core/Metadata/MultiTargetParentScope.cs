@@ -65,7 +65,14 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         Source(catalog,source,relation,physicalSingle:false);
 
     /// <summary>单值固定页和多值页共用持久父键证明；单值只允许实际物理父字段。</summary>
-    public MultiSourceParent Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,bool physicalSingle)
+    public MultiSourceParent Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,bool physicalSingle)=>
+        ResolveSource(catalog,source,relation,single:physicalSingle,allowLogical:!physicalSingle);
+
+    /// <summary>非冗余来源使用所有发布页一致的级联父位；冗余来源保留物理外键。</summary>
+    public MultiSourceParent SingleSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation)=>
+        ResolveSource(catalog,source,relation,single:true,allowLogical:source.IsRongyu==0);
+
+    private MultiSourceParent ResolveSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,bool single,bool allowLogical)
     {
         var columns=catalog.ConfigColumns.Where(item=>item.ConfigTableId==source.Id).ToArray();
         var keys=columns.Where(column=>PhysicalKey(catalog,source,column)&&References(column,Parent)).ToArray();
@@ -82,13 +89,13 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
                 var field=scoped[0].Field;
                 if(keys.SingleOrDefault(key=>key.ColumnName==field) is {} inherited)
                     return (Column:(ColumnMetadata?)inherited,Page:(PageMetadata?)null);
-                if(!physicalSingle&&CrossTableStorageColumns.IsLogicalPathField(source,columns,field))
+                if(allowLogical&&CrossTableStorageColumns.IsLogicalPathField(source,columns,field))
                 {
                     var binding=Compile(catalog,source,FixedConditionPlan.Compile(page.WhereSql,fields));
                     if(binding?.Parent.Id==Parent.Id)return (Column:(ColumnMetadata?)binding.Target,Page:(PageMetadata?)page);
                 }
             }
-            return (Column:(relation.ControlKind=="MultiSelectPage"||physicalSingle&&relation.ControlKind is ("List" or "SelectPage"))&&
+            return (Column:(relation.ControlKind=="MultiSelectPage"||single&&relation.ControlKind is ("List" or "SelectPage"))&&
                 explicitKeys.Length==1?explicitKeys[0]:null,Page:(PageMetadata?)null);
         }).ToArray();
         if(selected.Length==0||selected.Any(item=>item.Column is null)||

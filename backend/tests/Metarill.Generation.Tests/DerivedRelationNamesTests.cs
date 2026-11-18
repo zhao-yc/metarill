@@ -69,8 +69,11 @@ public sealed class DerivedRelationNamesTests
     [InlineData(false,true,true,true,true,true,true,true,true,true)]
     [InlineData(true,true,true,false,false,true,false,false,true,true)]
     [InlineData(true,false,true,true,true,true,false,false,false,true)]
+    [InlineData(false,true,true,true,false,true,true,true,true,true,true)]
+    [InlineData(true,true,true,false,false,true,false,false,true,true,true)]
+    [InlineData(true,false,true,true,false,true,false,false,false,false,true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false)
+        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -172,6 +175,38 @@ public sealed class DerivedRelationNamesTests
                 ?target.WhereSql.Replace("group_id=@parent_id","country_id=@parent_id",StringComparison.Ordinal)
                 :target.WhereSql+" AND country_id=@parent_id";
         }
+        if(logicalSource)
+        {
+            if(!logicalParent)
+            {
+                catalog.ConfigColumns.Single(column=>column.Id=="29").LinkConfigTableId="6";
+                catalog.ConfigTables.Single(table=>table.Id=="6").Extra.Remove("scopeKind");
+                catalog.ConfigPages.Single(page=>page.Id=="601").WhereSql="yz_project_id=@current_yz_project_id AND name <> '停用树节点'";
+            }
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="19");
+            catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId=="19");
+            catalog.ConfigColumns.Add(new(){Id="120",ConfigTableId="1",ColumnName="origin_area_id",LogicalType="int64",
+                LinkConfigTableId="7",ControlKind="CascadeTree",ControlDetail=JsonSerializer.Serialize(new
+                {
+                    sourceMode="crossTable",levels=new object[]{
+                        new{table=prefix+"_tree",columnPrefix="origin_country"},
+                        new{table=prefix+"_area",columnPrefix="origin_area",parentField="dr_names_tree_id"}}
+                })});
+            foreach(var source in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+            {
+                source.WhereSql=source.WhereSql.Replace("group_id=@parent_id","origin_country_id=@parent_id",StringComparison.Ordinal);
+                catalog.ConfigPageColumns.Add(new(){Id=source.Id+"120",ConfigPageId=source.Id,ConfigColumnId="120",IsShow=1,IsEdit=1});
+            }
+            if(!selection)
+            {
+                var original=catalog.ConfigColumns.Single(column=>column.Id=="120");
+                catalog.ConfigColumns.Add(new(){Id="121",ConfigTableId="1",ColumnName="origin_other_id",LogicalType="int64",
+                    LinkConfigTableId="7",ControlKind="CascadeTree",
+                    ControlDetail=original.ControlDetail.Replace("origin_area","origin_other",StringComparison.Ordinal)});
+                foreach(var source in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+                    catalog.ConfigPageColumns.Add(new(){Id=source.Id+"121",ConfigPageId=source.Id,ConfigColumnId="121",IsShow=1,IsEdit=1});
+            }
+        }
         if(globalParent&&!logicalParent)
         {
             catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
@@ -233,8 +268,15 @@ public sealed class DerivedRelationNamesTests
                 var end=service.IndexOf("\n    }",start,StringComparison.Ordinal);
                 if(globalParent)
                     Assert.Contains("OptionsGlobalParent101_15.BindAccount(actor)",service[start..end]);
-                else
+                else if(!logicalSource)
                     Assert.Contains("sourceParentKey && entity.YzProjectId == ",service[start..end]);
+                if(logicalSource)
+                {
+                    Assert.Contains("CrossReader101_120(actor,locking,false).PathAsync(0,LogicalParentId101(parentId)",service[start..end]);
+                    Assert.Contains("targetParentId!=parentId",service[start..end]);
+                    Assert.Contains("OptionsScope101_15Async(logicalRelationParentId, null",service);
+                    Assert.Contains("logicalRelationParentId: parentId",service);
+                }
                 Assert.DoesNotContain("query = query.Where(entity => entity.YzProjectId",service[start..end]);
                 if(logicalParent)
                 {
