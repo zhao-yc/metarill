@@ -83,24 +83,20 @@ public static class GlobalCachedRelationSource
     /// <summary>缓存被其它全局关系引用时复用调用者的证明栈，所有上游仍须通过相同目录和目标检查。</summary>
     internal static GlobalCachedRelationBinding RequireCache(MetadataCatalog catalog,TableMetadata source,ColumnMetadata cache,ISet<string> resolving)
     {
-        // 允许项目列进入形状检查，匹配到实际物理父角色后再取得该副本的用途证明。
+        // 先检查来源行，再用同一个目标解析证明原下拉、原单选或自树父角色。
         RequireSelfTree(catalog,source);var storage=MetadataStoragePolicy.ForTable(catalog,source);var path=cache.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
         if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==cache.Id),cache)||cache.ConfigTableId!=source.Id||path.Length!=2||!Joined(cache)||cache.IsVirtualColumn!=0||!storage.IsPhysical(cache)||(cache.LogicalType!="string"&&!MultiValueLabel.IsTyped(cache.LogicalType))||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
         var foreign=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==source.Id&&(column.ColumnName==path[0]+"_id"||column.ColumnName==path[0]));
         if(foreign is null)throw Invalid();
         RequireCachedSingleSource(catalog,source,foreign);
-        using var definition=JsonDocument.Parse(foreign.ControlDetail);var root=definition.RootElement;
-        string Value(string key)=>root.TryGetProperty(key,out var value)&&value.ValueKind is JsonValueKind.String or JsonValueKind.Number?value.ToString():"";
-        var targetId=foreign.LinkConfigTableId.Length>0?foreign.LinkConfigTableId:Value("tableId");var name=Value("table");
-        var targets=catalog.ConfigTables.Where(table=>targetId.Length>0?table.Id==targetId:table.TableName==name).ToArray();if(targets.Length!=1)throw Invalid();
-        var target=targets[0];
+        var target=GlobalSingleRelationTarget.ResolveTarget(catalog,foreign);
         var proof=GlobalCrossTableTarget.Declared(target)
             ?GlobalSingleRelationTarget.RequireCachedValue(catalog,source,foreign,target,resolving)
             :GlobalSingleRelationTarget.RequireProjectParent(catalog,source,foreign,target);
         var stem=foreign.ColumnName[..^3];
         // 同类型副本由写入和回填共同使用，保持业务值类型与精度。
         if(path[1]!=proof.Name.ColumnName||cache.ColumnName!=stem+"_"+proof.Name.ColumnName||cache.LogicalType!=proof.Name.LogicalType)throw Invalid();
-        return new(foreign,targets[0],proof.Page,proof.Name,cache){ScopedSingle=proof.RequiresScopedPage};
+        return new(foreign,target,proof.Page,proof.Name,cache){ScopedSingle=proof.RequiresScopedPage};
     }
     /// <summary>与现有元数据标志一致，只承认1/true。</summary>
     private static bool Joined(ColumnMetadata column)=>column.Extra.TryGetValue("isJoinColumn",out var value)&&(value.ValueKind==JsonValueKind.True||value.ToString()=="1");

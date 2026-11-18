@@ -36,7 +36,7 @@ public static class GlobalPhysicalRelationValue
         if(resolving.Count>=16||!resolving.Add(key))throw new NotSupportedException("全局名称缓存依赖存在循环或超过16层。");
         try
         {
-            // 该证明继续要求无项目列的R1全局来源、真实物理List、固定全局目标及精确名称副本。
+            // 物理外键、已发布目标页和精确名称副本由同一个证明核对。
             _=GlobalCachedRelationSource.RequireCache(catalog,target,column,resolving);return true;
         }
         finally{resolving.Remove(key);}

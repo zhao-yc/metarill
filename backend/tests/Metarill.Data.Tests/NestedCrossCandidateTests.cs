@@ -416,7 +416,13 @@ public sealed class NestedCrossCandidateTests
                 observer.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
                 var observerProject=catalog.ConfigColumns.Single(column=>column.Id=="9802");
                 catalog.ConfigColumns.Remove(observerProject);
-                if(kind=="SelectPage")sourcePage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+                var observerRelation=catalog.ConfigColumns.Single(column=>column.Id=="9804");
+                if(kind=="SelectPage")
+                {
+                    sourcePage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+                    observerRelation.LinkConfigTableId="";
+                    observerRelation.ControlDetail=JsonSerializer.Serialize(new{pageId="900",nameField="shared_name",buttonText="选择",whereSql="",orderBy=""});
+                }
                 observerPage.WhereSql+=" AND store_id=@current_store_id";
                 var globalMaintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
                 var globalRead=Assert.Single(globalMaintenance.Mixed.Consumers,item=>item.Table.Option.Id=="98").Read;
@@ -449,10 +455,14 @@ public sealed class NestedCrossCandidateTests
                 observerProject.LogicalType="int64";
                 if(kind=="SelectPage")
                 {
-                    var relation=catalog.ConfigColumns.Single(column=>column.Id=="9804");
+                    var observerCache=catalog.ConfigColumns.Single(column=>column.Id=="9805");
                     sourcePage.Extra["type"]=JsonSerializer.SerializeToElement(2);
-                    Assert.Throws<NotSupportedException>(()=>GlobalSingleRelationTarget.RequireCached(catalog,observer,relation,source));
+                    Assert.Throws<NotSupportedException>(()=>GlobalCachedRelationSource.RequireCache(catalog,observer,observerCache));
                     sourcePage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+                    // 表声明与选择页发生冲突时，维护计划不能重新选择其它表。
+                    observerRelation.LinkConfigTableId=target.Id;
+                    Assert.Throws<InvalidOperationException>(()=>GlobalCachedRelationSource.RequireCache(catalog,observer,observerCache));
+                    observerRelation.LinkConfigTableId="";
                 }
                 observerPage.WhereSql="scope_country_id=@parent_id";
                 Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));

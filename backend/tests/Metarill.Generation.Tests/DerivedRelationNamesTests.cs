@@ -83,8 +83,10 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true,true)]
     [InlineData(false,true,true,false,false,true,true,true,true,true,true,true,true,true,"int64")]
     [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true,true,"string")]
+    [InlineData(true,true,true,false,false,true,false,false,true,true,true,true,true,true,null,true)]
+    [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true,true,"string",true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false,string? rowProjectType=null)
+        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false,string? rowProjectType=null,bool pageOnly=false)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -276,6 +278,13 @@ public sealed class DerivedRelationNamesTests
                 catalog.ConfigTables.Single(table=>table.Id=="8").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
                 if(rowProjectType is null)catalog.ConfigColumns.RemoveAll(column=>column.Id=="82");
                 else catalog.ConfigColumns.Single(column=>column.Id=="82").LogicalType=rowProjectType;
+                if(pageOnly)
+                {
+                    // 原选择页编辑器保存页面和显示配置，表 ID 由页面解析。
+                    var picker=catalog.ConfigColumns.Single(column=>column.Id=="84");
+                    picker.LinkConfigTableId="";
+                    picker.ControlDetail=JsonSerializer.Serialize(new{pageId="101",nameField=display,buttonText="选择",whereSql="",orderBy=""});
+                }
             }
             catalog.ConfigPageColumns.AddRange([
                 new(){Id="80184",ConfigPageId="801",ConfigColumnId="84",IsShow=1,IsEdit=1},

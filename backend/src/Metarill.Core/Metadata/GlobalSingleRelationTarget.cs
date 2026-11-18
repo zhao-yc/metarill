@@ -60,6 +60,32 @@ public static class GlobalSingleRelationTarget
         else if(owner.IsRongyu!=(cached?1:0)||GlobalCrossTableTarget.Declared(owner)||owner.IsView!=0||owner.IsFunctionTable!=0||owner.YzProjectId!=catalog.YzProjectId||project is null||project.LogicalType is not("int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(storage,owner,project))throw new NotSupportedException("全局单值关系要求明确发布且有真实项目列的普通R0来源或已证明的R1消费者。");
         return RequirePublishedTarget(catalog,owner,foreign,target,resolving);
     }
+    /// <summary>从原控件的表声明或目标页定位候选实体，实际页面范围和冲突声明继续由发布证明核对。</summary>
+    internal static TableMetadata ResolveTarget(MetadataCatalog catalog,ColumnMetadata foreign)
+    {
+        using var document=JsonDocument.Parse(foreign.ControlDetail);
+        var definition=document.RootElement;
+        if(definition.ValueKind!=JsonValueKind.Object||
+            definition.EnumerateObject().Select(field=>field.Name).Distinct(StringComparer.Ordinal).Count()!=definition.EnumerateObject().Count())
+            throw Invalid();
+        string Value(string key)=>!definition.TryGetProperty(key,out var value)||value.ValueKind==JsonValueKind.Null
+            ?"":value.ValueKind is JsonValueKind.String or JsonValueKind.Number?value.ToString():throw Invalid();
+
+        var id=foreign.LinkConfigTableId.Length>0?foreign.LinkConfigTableId:Value("tableId");
+        var page=Value("pageId");
+        if(page.Length==0)page=foreign.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+        if(id.Length==0&&page.Length>0)
+            id=catalog.ConfigPages.SingleOrDefault(candidate=>candidate.Id==page)?.ConfigTableId??throw Invalid();
+
+        var table=Value("table");
+        if(table.Length==0)table=foreign.Extra.GetValueOrDefault("joinTable").ToString();
+        if(table.Length==0)table=foreign.ColumnName[..^3];
+        var matches=catalog.ConfigTables.Where(candidate=>id.Length>0?candidate.Id==id:candidate.TableName==table).ToArray();
+        return matches.Length==1?matches[0]:throw Invalid();
+
+        static NotSupportedException Invalid()=>new("全局单值关系须指定当前目录的有效目标表或页面。");
+    }
+
     /// <summary>单值路径共用完整目标证明；来源资格由各自R0实时或R1缓存入口先行核对。</summary>
     internal static GlobalSingleRelationPlan RequirePublishedTarget(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,ISet<string>? resolving,bool projectParent=false,bool allowScopedRowProject=false)
     {

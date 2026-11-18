@@ -30,7 +30,7 @@ public static class GlobalDerivedRelationSource
             RequireForeign(catalog,current,foreign);
             // R1中间节点继续遵循原全局物理List生产者边界，不借R0新路径放宽旧缓存资格。
             if(current.IsRongyu==1)GlobalCachedRelationSource.RequireSingle(catalog,current,foreign);
-            var target=Target(catalog,foreign);
+            var target=GlobalSingleRelationTarget.ResolveTarget(catalog,foreign);
             last=GlobalSingleRelationTarget.RequirePublishedTarget(catalog,current,foreign,target,resolving);RequireTable(catalog,target);current=target;
         }
         MetadataValidation.RequireIdentifier(path[^1]);
@@ -64,18 +64,6 @@ public static class GlobalDerivedRelationSource
         if(foreign.ConfigTableId!=source.Id||foreign.ControlKind is not("List" or "SelectPage")||!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)||foreign.LogicalType is not("int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,source),source,foreign)||!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(c=>c.Id==foreign.Id),foreign))throw Invalid();
     }
 
-    /// <summary>只从同目录显式表/页或原关系前缀解析目标，随后由共享证明核对冲突声明和真实目标页。</summary>
-    private static TableMetadata Target(MetadataCatalog catalog,ColumnMetadata foreign)
-    {
-        using var document=JsonDocument.Parse(foreign.ControlDetail);var definition=document.RootElement;
-        if(definition.ValueKind!=JsonValueKind.Object||definition.EnumerateObject().Select(f=>f.Name).Distinct(StringComparer.Ordinal).Count()!=definition.EnumerateObject().Count())throw Invalid();
-        string Value(string key)=>!definition.TryGetProperty(key,out var value)||value.ValueKind==JsonValueKind.Null?"":value.ValueKind is JsonValueKind.String or JsonValueKind.Number?value.ToString():throw Invalid();
-        var id=foreign.LinkConfigTableId.Length>0?foreign.LinkConfigTableId:Value("tableId");var page=Value("pageId");if(page.Length==0)page=foreign.Extra.GetValueOrDefault("linkConfigPageId").ToString();
-        if(id.Length==0&&page.Length>0)id=catalog.ConfigPages.SingleOrDefault(p=>p.Id==page)?.ConfigTableId??throw Invalid();
-        var table=Value("table");if(table.Length==0)table=foreign.Extra.GetValueOrDefault("joinTable").ToString();if(table.Length==0)table=foreign.ColumnName[..^3];
-        var matches=catalog.ConfigTables.Where(t=>id.Length>0?t.Id==id:t.TableName==table).ToArray();
-        if(matches.Length!=1)throw Invalid();return matches[0];
-    }
     /// <summary>沿用原1/true联接标志，任意文本不构成声明。</summary>
     private static bool Enabled(ColumnMetadata column)=>column.Extra.TryGetValue("isJoinColumn",out var value)&&(value.ValueKind==JsonValueKind.True||value.ToString()=="1");
     /// <summary>固定异常只描述能力边界，不回显字段值、SQL或凭据。</summary>
