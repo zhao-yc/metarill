@@ -86,8 +86,20 @@ public sealed class CascadeMultiLabelGenerationTests
         CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:physical,globalRowProject:rowProject,
             parent:true,formParent:formParent);
 
+    /// <summary>已选、当前写及 Excel 通过实际级联还原目标父记录，物理祖先列为空也能匹配。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,false,null,false,false)]
+    [InlineData("MultiSelectPage",1,true,true,true,false)]
+    [InlineData("MultiSelectPage",1,true,null,false,true)]
+    [InlineData("MultiCheckBoxDatabase",0,false,false,false,false)]
+    [InlineData("MultiCheckBoxDatabase",1,true,true,false,false)]
+    [InlineData("MultiCheckBoxDatabase",1,true,false,false,true)]
+    public Task Selected_page_logical_parent_conditions_compile_in_original_endpoints(string kind,int mode,bool physical,bool? rowProject,bool formParent,bool onlyParent)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:physical,globalRowProject:rowProject,
+            parent:true,formParent:formParent,logicalParent:true,onlyParent:onlyParent);
+
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
-        bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false)
+        bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -150,11 +162,12 @@ public sealed class CascadeMultiLabelGenerationTests
             catalog.ConfigColumns.Add(new(){Id="219",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"});
             catalog.ConfigColumns.Add(new(){Id="919",ConfigTableId="9",ColumnName="store_id",LogicalType="int64"});
             var scopePage=catalog.ConfigPages.Single(page=>page.Id=="201");
-            scopePage.WhereSql+=" AND country_name <> '排除目标页名称' AND store_id=@current_store_id";
+            if(!onlyParent)scopePage.WhereSql+=" AND country_name <> '排除目标页名称' AND store_id=@current_store_id";
             if(globalRowProject is { } rowProject)
             {
                 catalog.ConfigTables.Single(table=>table.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
                 scopePage.WhereSql=scopePage.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
+                if(onlyParent)scopePage.WhereSql="";
                 if(!rowProject)
                 {
                     var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="2"&&column.ColumnName=="yz_project_id");
@@ -162,19 +175,25 @@ public sealed class CascadeMultiLabelGenerationTests
                     catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId==project.Id);
                 }
             }
-            catalog.ConfigPages.Single(page=>page.Id=="901").WhereSql+=" AND store_id=@current_store_id";
+            if(!onlyParent)catalog.ConfigPages.Single(page=>page.Id=="901").WhereSql+=" AND store_id=@current_store_id";
         }
+        var parentField=logicalParent?"country_id":"target_scope_id";
         if(parent)
         {
-            catalog.ConfigTables.Add(new(){Id="71",TableName="label_scope_parent",IsRongyu=1});
-            catalog.ConfigColumns.AddRange([
+            var parentTable=logicalParent?"3":"71";
+            if(!logicalParent)
+            {
+                catalog.ConfigTables.Add(new(){Id="71",TableName="label_scope_parent",IsRongyu=1});
+                catalog.ConfigColumns.AddRange([
                 new(){Id="7101",ConfigTableId="71",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
                 new(){Id="7102",ConfigTableId="71",ColumnName="yz_project_id",LogicalType="int64"},
                 new(){Id="7103",ConfigTableId="71",ColumnName="delete_no",LogicalType="datetime"},
-                new(){Id="214",ConfigTableId="2",ColumnName="target_scope_id",LogicalType="string",ColumnLength="24",LinkConfigTableId="71"},
-                new(){Id="914",ConfigTableId="9",ColumnName="source_scope_id",Name="所属记录",LogicalType="int64",LinkConfigTableId="71"}
-            ]);
-            catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND target_scope_id=@parent_id";
+                    new(){Id="214",ConfigTableId="2",ColumnName="target_scope_id",LogicalType="string",ColumnLength="24",LinkConfigTableId="71"}
+                ]);
+            }
+            catalog.ConfigColumns.Add(new(){Id="914",ConfigTableId="9",ColumnName="source_scope_id",Name="所属记录",LogicalType="int64",LinkConfigTableId=parentTable});
+            var page=catalog.ConfigPages.Single(page=>page.Id=="201");
+            page.WhereSql+=(page.WhereSql.Length==0?"":" AND ")+parentField+"=@parent_id";
             if(formParent)catalog.ConfigPageColumns.Add(new(){Id="901914",ConfigColumnId="914",ConfigPageId="901",IsEdit=1,IsShow=1});
             else catalog.ConfigPages.Single(page=>page.Id=="901").WhereSql+=" AND source_scope_id=@parentId";
         }
@@ -193,11 +212,11 @@ public sealed class CascadeMultiLabelGenerationTests
         if(selectedPage)
         {
             var metadata=GenerationMetadataPublisher.ForRelations(catalog);
-            Assert.Contains("排除目标页名称",metadata.ConfigPages.Single(page=>page.Id=="201").WhereSql);
-            if(mode==1)Assert.Contains("store_id=@current_store_id",metadata.ConfigPages.Single(page=>page.Id=="901").WhereSql);
+            if(!onlyParent)Assert.Contains("排除目标页名称",metadata.ConfigPages.Single(page=>page.Id=="201").WhereSql);
+            if(mode==1&&!onlyParent)Assert.Contains("store_id=@current_store_id",metadata.ConfigPages.Single(page=>page.Id=="901").WhereSql);
             if(parent)
             {
-                Assert.Contains("target_scope_id=@parent_id",metadata.ConfigPages.Single(page=>page.Id=="201").WhereSql);
+                Assert.Contains(parentField+"=@parent_id",metadata.ConfigPages.Single(page=>page.Id=="201").WhereSql);
                 if(!formParent)Assert.Contains("source_scope_id=@parentId",metadata.ConfigPages.Single(page=>page.Id=="901").WhereSql);
             }
         }
@@ -220,7 +239,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 Assert.DoesNotContain("MultiPageCondition901_95.ApplyConstants",code);
                 if(parent)
                 {
-                    Assert.Contains("new(\"target_scope_id\",FixedReadComparison.Equal,",code);
+                    Assert.Contains("new(\""+parentField+"\",FixedReadComparison.Equal,",code);
                     Assert.Contains("entity.SourceScopeId",code);
                 }
             }
@@ -236,7 +255,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 var targets=MixedRelationPropagationCompilation.ForModel(model).MixedTargets;
                 Assert.Contains(selfTree?"label_cross_tree":"label_cross_country",targets);
                 if(indirect)Assert.Contains("label_cross_source",targets);
-                if(parent)Assert.Contains("label_scope_parent",targets);
+                if(parent)Assert.Contains(logicalParent?"label_cross_country":"label_scope_parent",targets);
                 if(recursive||selectedPage)
                 {
                     var target=recursive?"label_scope_zone":"label_cross_country";

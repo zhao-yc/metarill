@@ -313,6 +313,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>主键作为稳定排序依赖；根及每个目标分别保留软删和项目范围。</summary>
         internal MySqlNonRedundantReadPlan Compile(IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
         {
+            if(SelectedMultiPage is not null)MultiCandidateParent=MultiParent(catalog,SelectedMultiPage);
             var globalSource=refreshFields is not null&&GlobalCrossTableTarget.Declared(root);
             var globalDerivedSource = refreshFields is null && root.IsRongyu == 0 && GlobalCrossTableTarget.Declared(root);
             var physicalCandidate = candidatePage is not null && root.IsRongyu == 1;
@@ -351,7 +352,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     var column=Column(root,field);
                     var logical=column.IsVirtualColumn==0&&!Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(field)&&
                         (controls.Any(control=>CrossTableStorageColumns.ContainsPathField(control,field))||
-                         SelectedMultiPage is not null&&field==cascadeLabelField&&
+                         SelectedMultiPage is not null&&(field==cascadeLabelField||
+                         MultiCandidateParent is {Logical:true}&&field==MultiCandidateParent.Target.ColumnName)&&
                          CrossTableStorageColumns.IsLogicalPathField(root,columns[root.Id].Values.ToArray(),field));
                     if(!logical&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage[root.Id],root,column))
                         throw new NotSupportedException("全局R0读取只接受已证明的物理标量、单值名称与固定跨表层位。");
@@ -368,6 +370,8 @@ public static partial class MySqlNonRedundantReadCompiler
             foreach(var name in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 output=name;origin=null;physicalOriginAlias=null;
+                if(SelectedMultiPage is not null&&MultiCandidateParent is {Logical:true}&&name==MultiCandidateParent.Target.ColumnName)
+                    continue; // 父层位由选中页的完整可见路径解析，不能回退到稀疏原始列。
                 var resolved=Resolve(root,rootAlias,name);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);if(origin is not null)origins[name]=origin;
                 // 派生联接或数组即使触及物理列，也只有直接返回该列时才沿用保存刷新。
                 if(physicalOriginAlias is{} alias&&directSaveAliases.Contains(alias)&&origin is{} terminal&&resolved.Sql==alias+"."+Q(terminal.Column))
@@ -380,9 +384,15 @@ public static partial class MySqlNonRedundantReadCompiler
                 ?Scope(root,rootAlias,projectScoped:!globalSource&&!GlobalCrossCandidate&&(!globalDerivedSource||HasGlobalRowProject(root)))
                 :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:!physicalCandidate);
             if((globalSource||globalDerivedSource)&&scope.Length==0)scope="1=1";
-            if(CrossCandidateCondition is not null)scope=FixedCrossCandidateScope(scope,expressions);
+            if(CrossCandidateCondition is not null||ScopedRootControls.Count>0)scope=FixedCrossCandidateScope(scope,expressions);
             if(SelectedMultiPage is not null)scope=SelectedMultiScope(scope);
-            if(MultiCandidateParent is {} multiParent)scope+=(scope.Length==0?"":" AND ")+MultiParentPredicate(multiParent);
+            if(MultiCandidateParent is {} multiParent)
+            {
+                var field=multiParent.Target.ColumnName;
+                var parentSql=multiParent.Logical?selectedMultiParentSql??expressions[field]:rootAlias+"."+Q(field);
+                if(selectedMultiParentSql is not null){expressions[field]=parentSql;types[field]=multiParent.Target.LogicalType;}
+                scope+=(scope.Length==0?"":" AND ")+MultiParentPredicate(multiParent,parentSql);
+            }
             var reversePlans=reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,
                 new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))
             {

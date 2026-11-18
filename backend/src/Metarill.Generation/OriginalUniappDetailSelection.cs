@@ -17,7 +17,7 @@ internal static class OriginalUniappDetailSelection
         if(targetName is null||!target.Page.Readable.Any(column=>column.Source.Id==targetName.Source.Id))throw new InvalidOperationException("原选择页名称列未开放读取。");
         var button=definition.ButtonText; var id=f.Column.Source.Id; var field=f.Column.JsonName; var display=c.DisplayField(f.Column,targetName.Source.ColumnName); var component="OriginalSelection"+id;
         c.Import(component,$"@/pages/yzp/{target.Table.Source.TableName}-list-{pageId}.vue");
-        var multi=SelectionPageRenderer.Enabled(target.Page);var targetParent=TargetParent(c,target.Page);
+        var multi=SelectionPageRenderer.Enabled(target.Page);
         if(multi)
         {
             var compiled=MultiSelectCompilation.Resolve(c.Model,c.Table,c.Page,f.Column);
@@ -34,6 +34,7 @@ internal static class OriginalUniappDetailSelection
         }
         else
         {
+            var targetParent=TargetParent(c,target.Page);
             c.Data.Append("originalSelection").Append(id).Append(":false,");
             c.Methods.AppendLine($$$"""
 openSelect{{{id}}}() { if(this.{{{ro}}})return; this._selection{{{id}}}=this.originalContext();this.originalSelection{{{id}}}=true;this.$nextTick(()=>{if(this._selection{{{id}}}?.())this.$refs.selectPageDialog{{{id}}}.open();}); },

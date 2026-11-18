@@ -356,7 +356,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             return "CAST(" + expression + " AS CHAR) LIKE " + parameter + " ESCAPE '!'";
         if(value is null)return filter.Comparison switch{FixedReadComparison.Equal=>expression+" IS NULL",FixedReadComparison.NotEqual=>expression+" IS NOT NULL",_=>throw new InvalidOperationException("范围比较不能使用null。")};
         if(filter.Field==plan.RequiredMultiParent&&filter.Comparison==FixedReadComparison.Equal&&value is string)
-            return "BINARY "+expression+"=BINARY "+parameter;
+            return "BINARY ("+expression+")=BINARY "+parameter;
         return expression+(filter.Comparison switch{FixedReadComparison.Equal=>"=",FixedReadComparison.NotEqual=>"<>",FixedReadComparison.Greater=>">",FixedReadComparison.GreaterOrEqual=>">=",FixedReadComparison.Less=>"<",FixedReadComparison.LessOrEqual=>"<=",_=>throw new InvalidOperationException("未知固定筛选操作。")})+parameter;
     }
     /// <summary>同一已绑定父范围参与候选计数与明细；缺少真实账号时停止于创建命令之前。</summary>

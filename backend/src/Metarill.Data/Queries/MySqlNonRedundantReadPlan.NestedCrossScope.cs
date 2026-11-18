@@ -53,17 +53,17 @@ public static partial class MySqlNonRedundantReadCompiler
         internal FixedConditionSqlPlan? CrossCandidateCondition{get;init;}
         internal PageMetadata? SelectedMultiPage{get;init;}
         internal MultiTargetParentScope? MultiCandidateParent{get;set;}
+        private string? selectedMultiParentSql;
         internal (CascadeCacheOwner Owner,ColumnMetadata Column)? MultiParentOwner{get;init;}
 
         /// <summary>父表必须仍在本项目且可见。字符串键与主键按十进制字节比较，避免高位ID被隐式转成浮点数。</summary>
-        private string MultiParentPredicate(MultiTargetParentScope parent)
+        private string MultiParentPredicate(MultiTargetParentScope parent,string target)
         {
-            var target=rootAlias+"."+Q(parent.Target.ColumnName);
             var alias=aliasPrefix+"multi_parent";
-            Use(root,parent.Target);Touch(rootAlias,parent.Target.ColumnName);
+            if(!parent.Logical){Use(root,parent.Target);Touch(rootAlias,parent.Target.ColumnName);}
             Use(parent.Parent,Column(parent.Parent,"id"));
             var key=alias+".`id`";
-            var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY "+target:key+"="+target;
+            var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY ("+target+")":key+"="+target;
             var predicate="EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+alias+" WHERE "+same+" AND "+key+">0 AND "+Scope(parent.Parent,alias)+")";
             if(MultiParentOwner is not {} binding)return predicate;
             var (owner,source)=binding;
@@ -80,11 +80,11 @@ public static partial class MySqlNonRedundantReadCompiler
             if(page.ConfigTableId!=root.Id||page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
                 throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
             if(GlobalCrossTableTarget.Declared(root))GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
-            MultiCandidateParent=MultiParent(catalog,page);
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
                 multiParent:MultiCandidateParent?.Target);
-            if(condition is not {Allowed:true,HasLogical:true,Plan:{ } plan})
+            if(!condition.Allowed||!condition.HasLogical)
                 throw new NotSupportedException("多值目标页缺少固定的逻辑级联条件。");
+            var plan=condition.Plan;
             var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target);
             output=cascadeLabelField!;
             var level=new CrossLevel(root,Column(root,cascadeLabelField!),null,new(page.Id,plan),page,fields);
@@ -165,6 +165,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     var selection=CrossTableSparseSelection.Compile(table,source.Id,columns[table.Id].Values);
                     return CrossValue(table,owner,source,selection,path,field,scopeOnly:true,cacheOwner:cacheOwner).Sql;
                 }
+                // 同一可见路径既负责页面条件，也负责恢复可能没有实际落库的逻辑父键。
+                if(multiParent is not null&&level.LogicalFields.Contains(multiParent.ColumnName))
+                    selectedMultiParentSql=Projection(multiParent.ColumnName);
                 string predicate;
                 if(cacheOwner is {} row)
                 {
@@ -172,12 +175,13 @@ public static partial class MySqlNonRedundantReadCompiler
                     cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                     predicate=AccountCacheScope(proof,table,owner,row.Alias,render:true,row.Table,parameterPrefix,Projection);
                 }
-                else
+                else if(level.Scope.Condition is {} condition)
                 {
-                    var clause=level.Scope.Condition!.RenderAccountProjection(new MySqlDatabaseProvider(),parameterPrefix,Projection);
+                    var clause=condition.RenderAccountProjection(new MySqlDatabaseProvider(),parameterPrefix,Projection);
                     foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
                     predicate=clause.Sql;
                 }
+                else predicate="1=1";
 
                 // 空选择允许原 IS NULL；已存但不可见或无法恢复的节点不能冒充空值放宽候选。
                 var paths=bindings.Keys.Select(source=>
@@ -185,7 +189,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     var key=owner+":"+source;
                     return scopedCrossProjections.GetValueOrDefault(key)??crossProjections[key];
                 });
-                return "("+string.Join(" AND ",new[]{predicate}.Concat(ValidScopedPaths(paths)))+")";
+                return "("+string.Join(" AND ",new[]{predicate}.Concat(ValidScopedPaths(paths))
+                    .Where(part=>part.Length>0))+")";
             }
             finally
             {

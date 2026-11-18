@@ -107,6 +107,9 @@ internal static class FixedPageConditionCompilation
         return $"        query=NonRedundantCrossTableScopeSql.ApplyCondition(query,session,{logicalPlan},{Bound(page,name)},{JsonSerializer.Serialize(prefix)},actor.ProjectId,{locking});\n";
     }
     internal static bool HasCrossFields(PageModel page)=>page.Condition?.CrossFields.Count>0;
+    /// <summary>多值限定页既可能包含逻辑常量，也可能只在父参数中引用稀疏层位。</summary>
+    internal static bool HasMultiTargetScope(TableModel table,PageModel page)=>HasCrossFields(page)||page.Scopes.Any(scope=>
+        scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName));
     /// <summary>非冗余SQL按已编译表达式绑定相同条件；写后回执明确不传页面筛选。</summary>
     internal static string ReadArgument(PageModel page,bool named=false)=>page.Condition is null?"":", "+(named?"condition: ":"")+Bound(page,"PageCondition"+page.Source.Id);
     /// <summary>只有声明账号变量的页面生成请求绑定，普通静态计划维持原调用。</summary>

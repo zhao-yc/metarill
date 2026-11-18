@@ -62,12 +62,12 @@ internal static class MultiSelectCompilation
             var scalarLabel=name is not null&&SupportsTypedLabel(model,table,source,target,name);
             if (name is null || GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&!DerivedMultiNamesCompilation.Declared(model,target,name)&&!globalCachedName || name.IsJsonArray || name.Type != "string?" && !name.IsId&&!scalarLabel || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
-            var scoped=FixedPageConditionCompilation.HasCrossFields(targetPage);
+            var scoped=FixedPageConditionCompilation.HasMultiTargetScope(target,targetPage);
             var derived=DerivedMultiNamesCompilation.Declared(model,target,name);
             if(scoped||derived)DerivedMultiNamesCompilation.Require(model,table,target,targetPage,name);
             var fixedPage=Scalar(root,"pageId");
             if(fixedPage.Length==0)fixedPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
-            if(pageId!=fixedPage&&(scoped||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasCrossFields(candidate))))
+            if(pageId!=fixedPage&&(scoped||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(target,candidate))))
                 return Gap("带逻辑条件的目标页必须与表级读取和缓存绑定一致。");
             if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),new(pageId,name.Source.ColumnName,Value("buttonText"),Value("whereSql"),""),out _))return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
             var ordering = Value("orderBy");
@@ -79,7 +79,11 @@ internal static class MultiSelectCompilation
                     ? path.Read.Levels[path.Index].Target
                     : Parent(column);
             var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => SourceParent(scope.Column).Source.Id).Distinct().Order().ToArray();
-            var targetParents = targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
+            var scopedParent=scoped&&targetPage.Scopes.Any(scope=>scope.Source=="parent")
+                ?MultiTargetParentScope.Compile(model.Catalog,target.Source,FixedConditionPlan.Compile(targetPage.Source.WhereSql,
+                    target.Columns.Select(column=>column.Source.ColumnName))):null;
+            var targetParents = scopedParent is not null?[model.Tables.Single(parent=>parent.Source.Id==scopedParent.Parent.Id)]:
+                targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
             if (targetParents.Any(parent => !parent.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))) return Gap("目标父表未声明项目归属。");
             var same = targetParents.Length > 0 && sourceParents.SequenceEqual(targetParents.Select(parent => parent.Source.Id).Order());
             string? targetField = null;
@@ -91,11 +95,9 @@ internal static class MultiSelectCompilation
                 targetField = fields[0].JsonName;
                 if (!forService && !page.Readable.Any(column => column.Source.Id == fields[0].Source.Id)) return Gap("来源页未开放目标父字段，前端不能猜测隐藏父值。");
             }
-            if(scoped&&targetPage.Scopes.Any(scope=>scope.Source=="parent"))
+            if(scopedParent is not null)
             {
-                var scopeSyntax=FixedConditionPlan.Compile(targetPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
-                var scope=MultiTargetParentScope.Compile(model.Catalog,target.Source,scopeSyntax)!;
-                var owner=scope.Source(model.Catalog,table.Source,source.Source);
+                var owner=scopedParent.Source(model.Catalog,table.Source,source.Source);
                 var actual=same?page.Scopes.Single(item=>item.Source=="parent").Column:table.Columns.Single(column=>column.JsonName==targetField);
                 if(actual.Source.Id!=owner.Id)return Gap("目标页父字段须与来源记录的物理父键一致。");
             }

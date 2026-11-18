@@ -48,7 +48,7 @@ public static class CrossTableParentCondition
                 throw new NotSupportedException("文件跨表目标包含未证明的上下文范围。");
             conditions.Add(term);
         }
-        if(conditions.Count==0)return(true,null,false);
+        if(conditions.Count==0)return(true,null,logical);
         var normalized=FixedConditionPlan.Compile(string.Join(" AND ",conditions.Select(term=>term.ToDefinition())),types.Keys);
         return(true,FixedConditionSqlPlan.Compile(normalized,types),logical);
     }
