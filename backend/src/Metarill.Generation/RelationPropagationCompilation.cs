@@ -109,6 +109,10 @@ internal static class RelationPropagationCompilation
         {
             if(!visited.Add(root.Page.Source.Id))continue;
             tables.Add(root.Table.Source.Id);
+            if(FixedPageConditionCompilation.HasSelfTreeFields(root.Page))
+                foreach(var tree in NonRedundantReadCompilation.SelfTreeNameQueries(model,root.Table,root.Page)
+                    .Where(tree=>root.Page.Condition!.SelfTreeFields.Contains(CascadeTreeViewRenderer.Name(root.Table,tree.Source)!.Source.ColumnName)))
+                    pending.Enqueue((tree.Target,tree.TargetPage));
             foreach(var dependency in CrossTableWriteCompilation.ForService(model,root.Table,root.Page).SelectMany(path=>path.Read.Levels))
             {
                 tables.Add(dependency.Target.Source.Id);

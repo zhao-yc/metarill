@@ -47,6 +47,9 @@ public static class DerivedCrossTableCaches
                 _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(catalog,source,target,page);
             }
             var self=SelfTreeCache.Require(catalog,source,foreign,target,value,cache,d,cross);if(d.Multiple)DerivedMultipleCacheProof.Require(catalog,source,foreign,target,value,cache);else if(!cross&&!self)throw new InvalidOperationException("逻辑缓存缺少跨表层或固定自树证明。");
+            // 嵌套叶名条件的归属要在整条 SQL 中证明，仅凭外层候选能查到不能发布副本。
+            if(self&&SelfTreeCache.HasSelfTreeScopedPage(catalog,d.SelfTreePageId))
+                _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cache.ColumnName],[d]);
             if(Enabled(cache)){var stem=foreign.ColumnName[..(foreign.ColumnName.Length-(d.Multiple?4:3))];var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();if(!(self&&path.Length==0)&&path!=stem+"."+value.ColumnName&&path!=foreign.ColumnName+"."+value.ColumnName)throw new InvalidOperationException("派生级联缓存路径与固定定义不一致。");}
         }
         if(all.GroupBy(d=>(d.SourceTableId,d.CacheColumnId)).Any(g=>g.Distinct().Count()!=1))throw new InvalidOperationException("同一缓存存在相互冲突的物理／派生绑定。");

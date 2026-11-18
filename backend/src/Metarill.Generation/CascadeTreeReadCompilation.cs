@@ -64,9 +64,6 @@ internal static class CascadeTreeReadCompilation
             var candidates=target.Pages.Where(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(candidate)&&candidate.Readable.Any(column=>column.Source.Id==name.Source.Id)&&candidate.Readable.Any(column=>column.Source.Id==parent.Source.Id)).ToArray();
             if(candidates.Length!=1)return Gap("目标缺少唯一、无父参数的可读页面。");
             var targetPage=candidates[0];
-            var selfTreeScoped=FixedPageConditionCompilation.HasSelfTreeFields(targetPage);
-            if(selfTreeScoped&&table.Source.IsRongyu!=0)
-                return Gap("自树叶名限定的目标页尚未接入名称副本维护。");
             var scoped=FixedPageConditionCompilation.HasLogicalFields(targetPage);
             if(target.IsGlobal)
             {

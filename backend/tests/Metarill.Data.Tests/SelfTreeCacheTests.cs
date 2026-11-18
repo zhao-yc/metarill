@@ -296,6 +296,78 @@ public sealed class SelfTreeCacheTests
         Assert.Throws<NotSupportedException>(()=>GlobalCachedRelationSource.RequireCache(catalog,source,cache));
     }
 
+    /// <summary>内层节点及外层选择键都进入反向依赖，重算从持久来源行读取所有账号条件。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Stored_leaf_scope_tracks_both_trees_and_binds_ownership_from_the_source(bool global)
+    {
+        var catalog=Catalog("string","int64");
+        var source=catalog.ConfigTables[0];
+        var outer=catalog.ConfigTables[1];
+        outer.IsRongyu=0;
+        var inner=new TableMetadata{Id="inner",TableName="cache_visibility",IsRongyu=1};
+        catalog.ConfigTables.Add(inner);
+        foreach(var table in catalog.ConfigTables)table.YzProjectId=catalog.YzProjectId;
+        if(global)
+        {
+            foreach(var table in new[]{outer,inner})table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="target_project");
+        }
+        catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+        var sourcePage=new PageMetadata{Id="source_page",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
+            WhereSql="store_id=@current_store_id"+(global?"":" AND merchant_id=@current_merchant_id")};
+        catalog.ConfigPages.AddRange([sourcePage,
+            new(){Id="outer_page",ConfigTableId=outer.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",WhereSql="visibility_name='可用' AND store_id=@current_store_id"},
+            new(){Id="inner_page",ConfigTableId=inner.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",WhereSql=global?"status=1":"merchant_id=@current_merchant_id AND status=1"}
+        ]);
+        catalog.ConfigColumns.AddRange([
+            new(){Id="owner_store",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"},
+            new(){Id="owner_merchant",ConfigTableId=source.Id,ColumnName="merchant_id",LogicalType="int64"},
+            new(){Id="outer_store",ConfigTableId=outer.Id,ColumnName="store_id",LogicalType="int64"},
+            new(){Id="visibility_key",ConfigTableId=outer.Id,ColumnName="visibility_id",LogicalType="int64",ControlKind="CascadeTree",
+                LinkConfigTableId=inner.Id,ControlDetail="""{"sourceMode":"selfTree","selfTree":{"table":"cache_visibility","parentField":"parent_id"}}"""},
+            new(){Id="inner_key",ConfigTableId=inner.Id,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="inner_project",ConfigTableId=inner.Id,ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="inner_parent",ConfigTableId=inner.Id,ColumnName="parent_id",LogicalType="int64",LinkConfigTableId=inner.Id},
+            new(){Id="inner_name",ConfigTableId=inner.Id,ColumnName="name",LogicalType="string"},
+            new(){Id="inner_status",ConfigTableId=inner.Id,ColumnName="status",LogicalType="int32"},
+            new(){Id="inner_merchant",ConfigTableId=inner.Id,ColumnName="merchant_id",LogicalType="int64"},
+            new(){Id="inner_deleted",ConfigTableId=inner.Id,ColumnName="delete_no",LogicalType="datetime"}
+        ]);
+        foreach(var (page,id) in new[]{("outer_page","value"),("outer_page","parent"),("inner_page","inner_name"),("inner_page","inner_parent")})
+            catalog.ConfigPageColumns.Add(new(){Id=page+"_"+id,ConfigPageId=page,ConfigColumnId=id});
+
+        var binding=SelfTreeCache.Compile(catalog,source.Id,"foreign","outer_page");
+        var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+        var plan=maintenance.Plans[source.Id].Read;
+        Assert.NotNull(plan);
+        var expression=plan.Expression("tree_name");
+        Assert.Contains("b.`store_id`",expression);
+        Assert.Equal(!global,expression.Contains("b.`merchant_id`",StringComparison.Ordinal));
+        Assert.DoesNotContain("可用",expression);
+        Assert.Contains("可用",plan.Constants.Values);
+        Assert.Contains("store_id",plan.SourceDependencies);
+        if(!global)Assert.Contains("merchant_id",plan.SourceDependencies);
+        var near=Assert.Single(plan.Reverse,item=>item.TargetTable==outer.TableName);
+        Assert.Contains("visibility_id",near.Outputs["tree_name"]);
+        var deep=Assert.Single(plan.Reverse,item=>item.TargetTable==inner.TableName);
+        Assert.Contains("parent_id",deep.Outputs["tree_name"]);
+        Assert.Contains("name",deep.Outputs["tree_name"]);
+        Assert.Contains("status",deep.Outputs["tree_name"]);
+        Assert.Contains("delete_no",deep.Outputs["tree_name"]);
+        Assert.Contains("WITH RECURSIVE",deep.TargetPredicate);
+        Assert.Contains("@target_text",deep.TargetPredicate);
+        Assert.Contains(inner.TableName,maintenance.MixedTargets);
+
+        if(!global)
+        {
+            sourcePage.WhereSql="store_id=@current_store_id";
+            var error=Assert.Throws<InvalidOperationException>(()=>DerivedCrossTableCaches.Validate(catalog,[binding],[]));
+            Assert.Contains("物理账号归属",error.Message);
+        }
+    }
+
     /// <summary>纯目录模型不需要数据库，固定实际父键和自定义物理名称。</summary>
     private static MetadataCatalog Catalog(string type,string parent)
     {

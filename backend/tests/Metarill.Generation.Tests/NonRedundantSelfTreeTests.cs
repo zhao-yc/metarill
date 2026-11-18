@@ -464,6 +464,10 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(true,false,false,false,"string",true)]
     [InlineData(true,false,false,false,"string",true,true)]
     [InlineData(true,false,false,true,"string",true)]
+    [InlineData(false,true,true,false,"string",true)]
+    [InlineData(false,false,true,true,"string",true)]
+    [InlineData(true,false,true,false,"string",true)]
+    [InlineData(true,false,true,true,"string",true)]
     public async Task Fixed_cascade_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false,string nameKind="string",bool selfTreeCondition=false,bool globalSelection=false)
     {
         const string ns="Example.FixedSelfTreeNode";
@@ -511,7 +515,15 @@ public sealed class NonRedundantSelfTreeTests
             catalog.ConfigTables.Single(item=>item.Id=="9").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             if(global)catalog.ConfigColumns.RemoveAll(column=>column.Id=="92");
         }
-        if(cache)catalog.ConfigColumns.Add(new(){Id="96",ConfigTableId="9",ColumnName="store_id",LogicalType="int64"});
+        if(cache)
+        {
+            catalog.ConfigColumns.Add(new(){Id="96",ConfigTableId="9",ColumnName="store_id",LogicalType="int64"});
+            if(selfTreeCondition&&!global)
+            {
+                catalog.ConfigColumns.Add(new(){Id="97",ConfigTableId="9",ColumnName="merchant_id",LogicalType="int64"});
+                catalog.ConfigPages.Single(page=>page.Id=="901").WhereSql+=" AND merchant_id=@current_merchant_id";
+            }
+        }
         catalog.ConfigPageColumns.Add(new(){Id="20127",ConfigPageId="201",ConfigColumnId="27"});
         foreach(var id in new[]{"93","94","95"})
             catalog.ConfigPageColumns.Add(new(){Id="901"+id,ConfigPageId="901",ConfigColumnId=id,IsShow=1,IsEdit=id=="95"?0:1,
@@ -541,7 +553,7 @@ public sealed class NonRedundantSelfTreeTests
             Assert.Equal("201",binding.SelfTreePageId);
             var maintenance=MixedRelationPropagationCompilation.ForModel(model);
             Assert.Contains("scoped_tree_source",maintenance.MixedTargets);
-            Assert.Contains("scoped_tree_country",maintenance.MixedTargets);
+            Assert.Contains(selfTreeCondition?"scoped_tree_tree":"scoped_tree_country",maintenance.MixedTargets);
             Assert.Contains("node_name",maintenance.MixedSourceColumns["scoped_tree_consumer"]);
         }
 
@@ -565,7 +577,7 @@ public sealed class NonRedundantSelfTreeTests
             Assert.NotNull(service.GetMethod("CascadePath901_94Async"));
             Assert.NotNull(service.GetMethod("Import901Async"));
             Assert.NotNull(service.GetMethod("Export901Async"));
-            if(selfTreeCondition)
+            if(selfTreeCondition&&!cache)
             {
                 const BindingFlags flags=BindingFlags.Static|BindingFlags.NonPublic;
                 var candidate=Assert.IsType<NonRedundantReadPlan>(service.GetField("DerivedCascadePlan901_94",flags)!.GetValue(null));

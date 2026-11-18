@@ -133,34 +133,33 @@ public static partial class MySqlNonRedundantReadCompiler
             if(proof.Scoped)
             {
                 var fields=new[]{"id",proof.Name.ColumnName};
-                if(cacheOwner is {} cached)
+                // 候选和维护都拒绝同一树控件再次进入递归条件。
+                var key=(table.Id,control.Id);
+                if(!ActiveSelfTreeScopes.Add(key))throw new NotSupportedException("自树候选条件存在循环依赖。");
+                try
                 {
-                    if(proof.SelfTreeScoped)throw new NotSupportedException("自树叶名限定的递归候选尚未接入名称副本维护。");
-                    // 维护使用保存行的归属，不能借发起账号覆盖其它行的名称。
-                    fixedTarget=new Builder(catalog,proof.Target.Id,rootAlias:display,aliasPrefix:prefix+"s_",
-                        trackReverse:trackReverse,multiLabel:true,cascadeLabelField:"id",cascadeCacheOwner:cached)
+                    if(cacheOwner is {} cached)
                     {
-                        SelectedMultiPage=proof.Page,GlobalCrossCandidate=global,CrossAliasPrefix=prefix+"sx"
-                    }.Compile(fields,[]);
-                    foreach(var field in fixedTarget.CascadeCacheOwnerFields)
-                    {
-                        Use(cached.Table,Column(cached.Table,field));
-                        Touch(cached.Alias,field);
+                        var declared=columns[proof.Target.Id].Values.ToArray();
+                        var treeNames=proof.SelfTreeScoped?SelfTreeConditionFields(catalog,proof.Target,proof.Page,declared,ConditionFields()):null;
+                        // 维护使用保存行的归属，不能借发起账号覆盖其它行的名称。
+                        fixedTarget=new Builder(catalog,proof.Target.Id,rootAlias:display,aliasPrefix:prefix+"s_",
+                            deferCascadeNames:proof.SelfTreeScoped,trackReverse:trackReverse,multiLabel:true,cascadeLabelField:"id",cascadeCacheOwner:cached)
+                        {
+                            SelectedMultiPage=proof.Page,SelectedSelfTreeFields=treeNames,ActiveSelfTreeScopes=ActiveSelfTreeScopes,
+                            GlobalCrossCandidate=global,CrossAliasPrefix=prefix+"sx"
+                        }.Compile(fields,[]);
+                        foreach(var field in fixedTarget.CascadeCacheOwnerFields)
+                        {
+                            Use(cached.Table,Column(cached.Table,field));
+                            Touch(cached.Alias,field);
+                        }
+                        cascadeCacheOwnerFields.UnionWith(fixedTarget.CascadeCacheOwnerFields);
                     }
-                    cascadeCacheOwnerFields.UnionWith(fixedTarget.CascadeCacheOwnerFields);
+                    else fixedTarget=CompileCrossPageCandidate(catalog,proof.Target.Id,proof.Page.Id,
+                        fields,[],rootAlias:display,aliasPrefix:prefix+"s_",activeSelfTreeScopes:ActiveSelfTreeScopes);
                 }
-                else
-                {
-                    // 候选条件依赖其它自树时可能再次进入同一控件，发布阶段拒绝循环条件。
-                    var key=(table.Id,control.Id);
-                    if(!ActiveSelfTreeScopes.Add(key))throw new NotSupportedException("自树候选条件存在循环依赖。");
-                    try
-                    {
-                        fixedTarget=CompileCrossPageCandidate(catalog,proof.Target.Id,proof.Page.Id,
-                            fields,[],rootAlias:display,aliasPrefix:prefix+"s_",activeSelfTreeScopes:ActiveSelfTreeScopes);
-                    }
-                    finally{ActiveSelfTreeScopes.Remove(key);}
-                }
+                finally{ActiveSelfTreeScopes.Remove(key);}
                 fixedTarget.CopyParametersTo(crossConstants);
                 foreach(var reference in fixedTarget.PhysicalReferences)
                     references.TryAdd((reference.Table,reference.Column.Name),reference);
@@ -229,7 +228,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     " WHERE "+walk+".node_id=@target_id OR BINARY "+PositiveText("CAST("+walk+".parent_key AS CHAR)")+
                     "=BINARY @target_text LIMIT 1) IS NOT NULL)";
                 var fields=new[]{proof.Parent.ColumnName,proof.Name.ColumnName,"id","yz_project_id","delete_no"};
-                AddReverse(proof.Target.TableName,predicate,fields.Concat(ConditionFields()));
+                // 逻辑叶名的选择键不在页面条件文本内，也必须在换选时触发传播。
+                AddReverse(proof.Target.TableName,predicate,fields.Concat(ConditionFields()).Concat(fixedTarget?.SourceDependencies??[]));
                 if(global)publishedArrayIdentity=true;
             }
             var label=MySqlMultiValueLabel.Text(nodeName,proof.Name.LogicalType);

@@ -172,12 +172,13 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>真实物理标量与凭据排除共用发布类型，不把JSON或文件数组当作父键或名称。</summary>
         private bool CrossPhysical(TableMetadata table,ColumnMetadata column)=>storage[table.Id].IsPhysical(column)&&column.IsVirtualColumn==0&&!CrossEnabled(column,"isJoinColumn")&&!ExactDataManageValues.IsSensitiveField(column.ColumnName)&&column.ControlKind is not("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList")&&column.LogicalType.ToLowerInvariant() is not("json" or "binary");
         /// <summary>完整元数据中的目标固定条件必须与绑定相符；精简发布目录也必须提供冻结的常量绑定。</summary>
-        private IReadOnlySet<string> RequireCrossCondition(TableMetadata table,PageMetadata page,FixedConditionSqlPlan? binding,ColumnMetadata? multiParent=null)
+        private IReadOnlySet<string> RequireCrossCondition(TableMetadata table,PageMetadata page,FixedConditionSqlPlan? binding,ColumnMetadata? multiParent=null,IReadOnlySet<string>? selfTreeFields=null)
         {
             var physical=columns[table.Id].Values.Where(column=>CrossPhysical(table,column))
                 .ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.OrdinalIgnoreCase);
             var syntax=FixedConditionPlan.Compile(page.WhereSql,columns[table.Id].Keys);
-            var logical=syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field))
+            var logical=syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field)||
+                selfTreeFields?.Contains(field)==true)
                 .ToHashSet(StringComparer.Ordinal);
             var types=new Dictionary<string,string>(physical,StringComparer.OrdinalIgnoreCase);
             foreach(var field in logical)types[field]=Column(table,field).LogicalType;

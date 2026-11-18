@@ -31,10 +31,10 @@ public sealed class AccountScopedCrossCache
 
     /// <summary>递归候选允许逻辑字段的常量条件，账号等值仍须对应来源行真实物理归属。</summary>
     internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,
-        ColumnMetadata? multiParent=null,bool globalTreeSource=false)
-        =>Compile(catalog,source,target,targetPage,recursive:true,multiParent:multiParent,globalTreeSource:globalTreeSource);
+        ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null)
+        =>Compile(catalog,source,target,targetPage,recursive:true,multiParent:multiParent,globalTreeSource:globalTreeSource,selfTreeFields:selfTreeFields);
 
-    private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false)
+    private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null)
     {
         if(globalTreeSource)GlobalCachedRelationSource.RequireSelfTree(catalog,source);
         if (source.IsRongyu != 1 || targetPage.ConfigTableId != target.Id || GlobalCrossTableTarget.Declared(source)&&!globalTreeSource ||
@@ -48,10 +48,11 @@ public sealed class AccountScopedCrossCache
         if(recursive)
         {
             var storage=MetadataStoragePolicy.ForTable(catalog,target);
-            if(CrossTableParentCondition.Compile(catalog,target,targetPage,storage,allowLogical:true,multiParent:multiParent) is not {Allowed:true,HasLogical:true})
+            if(CrossTableParentCondition.Compile(catalog,target,targetPage,storage,allowLogical:true,multiParent:multiParent,selfTreeFields:selfTreeFields) is not {Allowed:true,HasLogical:true})
                 throw Invalid();
             var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
-            foreach(var column in columns.Where(column=>CrossTableStorageColumns.IsLogicalPathField(target,columns,column.ColumnName)))
+            foreach(var column in columns.Where(column=>CrossTableStorageColumns.IsLogicalPathField(target,columns,column.ColumnName)||
+                selfTreeFields?.Contains(column.ColumnName)==true))
                 types.TryAdd(column.ColumnName,column.LogicalType);
         }
         var syntax = FixedConditionPlan.Compile(targetPage.WhereSql, types.Keys);
@@ -69,7 +70,7 @@ public sealed class AccountScopedCrossCache
             if (term.Field == "yz_project_id" && variable.Equals("current_yz_project_id", StringComparison.OrdinalIgnoreCase) &&
                 !GlobalCrossTableTarget.Declared(target)) continue;
             if (term.Field == "yz_project_id" || !AccountConditionVariables.IsPageField(variable, term.Field) ||
-                !targets.TryGetValue(term.Field,out var targetOwner)||targetOwner.LogicalType is not ("int32" or "int64" or "string")) throw Invalid();
+                selfTreeFields?.Contains(term.Field)==true||!targets.TryGetValue(term.Field,out var targetOwner)||targetOwner.LogicalType is not ("int32" or "int64" or "string")) throw Invalid();
             account.Add((targetOwner, variable));
         }
 

@@ -131,6 +131,7 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         internal FixedConditionSqlPlan? CrossCandidateCondition{get;init;}
         internal PageMetadata? SelectedMultiPage{get;init;}
+        internal IReadOnlySet<string>? SelectedSelfTreeFields{get;init;}
         internal MultiTargetParentScope? MultiCandidateParent{get;set;}
         internal PageMetadata? MultiCandidatePage{get;init;}
         private string? selectedMultiParentSql;
@@ -190,16 +191,20 @@ public static partial class MySqlNonRedundantReadCompiler
             var page=SelectedMultiPage!;
             if(page.ConfigTableId!=root.Id||page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
                 throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
-            if(GlobalCrossTableTarget.Declared(root))GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
+            if(GlobalCrossTableTarget.Declared(root))
+            {
+                if(SelectedSelfTreeFields is {Count:>0})GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page);
+                else GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
+            }
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
-                multiParent:MultiCandidateParent?.Target);
+                multiParent:MultiCandidateParent?.Target,selfTreeFields:SelectedSelfTreeFields);
             if(!condition.Allowed||!condition.HasLogical)
                 throw new NotSupportedException("多值目标页缺少固定的逻辑级联条件。");
             var plan=condition.Plan;
-            var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target);
+            var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target,SelectedSelfTreeFields);
             output=cascadeLabelField!;
             var level=new CrossLevel(root,Column(root,cascadeLabelField!),null,new(page.Id,plan),page,fields);
-            var selected=NestedCrossCondition(level,rootAlias,multiParent:MultiCandidateParent?.Target);
+            var selected=NestedCrossCondition(level,rootAlias,multiParent:MultiCandidateParent?.Target,selfTreeFields:SelectedSelfTreeFields);
             return scope.Length==0?selected:scope+" AND "+selected;
         }
         internal bool GlobalCrossCandidate{get;init;}
@@ -239,7 +244,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         /// <summary>同一条查询展开所需祖先，写入沿同一事务锁定全部联接。候选内部的存储校验不进入外层 VO。</summary>
-        private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null,ColumnMetadata? multiParent=null)
+        private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null,ColumnMetadata? multiParent=null,IReadOnlySet<string>? selfTreeFields=null)
         {
             var table=level.Table;
             cacheOwner??=cascadeCacheOwner;
@@ -249,8 +254,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new InvalidOperationException("跨表级联候选页条件存在循环依赖。");
             try
             {
-                var bindings=CrossMembershipBindings(catalog,table,level.Page,level.LogicalFields)
-                    .ToDictionary(path=>path.SourceColumnId,StringComparer.Ordinal);
+                var crossFields=selfTreeFields is {Count:>0}?level.LogicalFields.Except(selfTreeFields).ToHashSet(StringComparer.Ordinal):level.LogicalFields;
+                var pathsForScope=crossFields.Count==0?[]:CrossMembershipBindings(catalog,table,level.Page,crossFields);
+                var bindings=pathsForScope.ToDictionary(path=>path.SourceColumnId,StringComparer.Ordinal);
                 // 精简运行目录必须保留实际使用的内层候选页条件及控件定义。
                 if(multiLabel)
                 {
@@ -268,6 +274,15 @@ public static partial class MySqlNonRedundantReadCompiler
                         return owner+"."+Q(field);
                     }
 
+                    if(selfTreeFields?.Contains(field)==true)
+                    {
+                        var control=Column(table,field[..^5]+"_id");
+                        if(!IsPhysicalTreeKey(table,storage[table.Id],control)||
+                            GlobalCrossCandidate&&table.Id==root.Id&&!PublishedGlobalSelfTreeField(column))
+                            throw new NotSupportedException("自树固定条件缺少有效的叶子外键或全局发布证明。");
+                        return SelfTreeLabelExpression(table,owner,control,column);
+                    }
+
                     var path=bindings.Values.First(binding=>CrossTableStorageColumns.ContainsPathField(
                         columns[table.Id].Values.Single(source=>source.Id==binding.SourceColumnId),field));
                     var group=SharedCrossGroup(table,path.SourceColumnId);
@@ -283,7 +298,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 string predicate;
                 if(cacheOwner is {} row)
                 {
-                    var proof=AccountScopedCrossCache.CompileRecursive(catalog,row.Table,table,level.Page,multiParent,row.GlobalTreeSource);
+                    var proof=AccountScopedCrossCache.CompileRecursive(catalog,row.Table,table,level.Page,multiParent,row.GlobalTreeSource,selfTreeFields);
                     cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                     predicate=AccountCacheScope(proof,table,owner,row.Alias,render:true,row.Table,parameterPrefix,Projection);
                 }

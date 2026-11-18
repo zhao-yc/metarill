@@ -67,7 +67,7 @@ public static partial class MySqlNonRedundantReadCompiler
     }
 
     /// <summary>只有与表级控件一致的叶名才能用于固定范围。附件和候选页共用同一份证明。</summary>
-    private static IReadOnlySet<string> SelfTreeConditionFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+    internal static IReadOnlySet<string> SelfTreeConditionFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
         IReadOnlyList<ColumnMetadata> declared,IEnumerable<string> fields)
     {
         var names=fields.Where(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field)).ToHashSet(StringComparer.Ordinal);

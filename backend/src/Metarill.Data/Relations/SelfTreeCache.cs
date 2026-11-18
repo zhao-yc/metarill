@@ -12,15 +12,21 @@ public static class SelfTreeCache
     public static RelationCacheDefinition Compile(MetadataCatalog catalog,string sourceTableId,string controlId)
         =>Compile(catalog,sourceTableId,controlId,null);
 
-    /// <summary>只有包含已声明稀疏路径条件的实际自树页进入整链传播。</summary>
-    public static bool HasScopedPage(MetadataCatalog catalog,string? pageId)
+    /// <summary>实际自树页包含已声明级联条件时，整条路径参与传播。</summary>
+    public static bool HasScopedPage(MetadataCatalog catalog,string? pageId)=>HasScopedPage(catalog,pageId,onlySelfTree:false);
+
+    /// <summary>单独识别新式叶名条件，以便发布时验证整链 SQL 与所有账属列。</summary>
+    internal static bool HasSelfTreeScopedPage(MetadataCatalog catalog,string? pageId)=>HasScopedPage(catalog,pageId,onlySelfTree:true);
+
+    private static bool HasScopedPage(MetadataCatalog catalog,string? pageId,bool onlySelfTree)
     {
         if(pageId is null)return false;
         var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==pageId)??throw Invalid();
         var table=catalog.ConfigTables.Single(item=>item.Id==page.ConfigTableId);
         var fields=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
         return FixedConditionPlan.Compile(page.WhereSql,fields.Select(column=>column.ColumnName)).Fields
-            .Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,fields,field));
+            .Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,fields,field)||
+                !onlySelfTree&&CrossTableStorageColumns.IsLogicalPathField(table,fields,field));
     }
 
     /// <summary>显式全局来源固定使用整条祖先链；普通来源兼容原有叶名路径。</summary>
@@ -59,14 +65,16 @@ public static class SelfTreeCache
                 !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))throw Invalid();
             if(scoped||globalSource)
             {
-                var selected=MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,value.ColumnName,parent.ColumnName);
+                var selected=MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,value.ColumnName,parent.ColumnName,allowSelfTree:true);
                 if(selected.Page.Id!=page.Id)throw Invalid();
                 if(!scoped&&selected.Condition?.Variables.Count>0)
                     _=AccountScopedCrossCache.Compile(catalog,source,target,page,globalTreeSource:globalSource);
             }
             if(scoped)
             {
-                _=AccountScopedCrossCache.CompileRecursive(catalog,source,target,page,globalTreeSource:globalSource);
+                var conditionFields=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName)).Fields;
+                var treeNames=MySqlNonRedundantReadCompiler.SelfTreeConditionFields(catalog,target,page,columns,conditionFields);
+                _=AccountScopedCrossCache.CompileRecursive(catalog,source,target,page,globalTreeSource:globalSource,selfTreeFields:treeNames);
                 if(global)GlobalCrossTableTarget.RequireScopedSelfTreeName(catalog,target,page,value);
             }
             else if(global)GlobalCrossTableTarget.RequireSelfTreeName(catalog,target,page,value);
