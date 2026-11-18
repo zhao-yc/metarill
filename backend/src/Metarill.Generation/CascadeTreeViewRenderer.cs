@@ -50,7 +50,8 @@ internal static class CascadeTreeViewRenderer
             if(plan.DerivedName){result.Append(DerivedCascadeNamesRenderer.Graph(page,plan));continue;}
             var projection=$"row=>new {target.EntityType}{{Id=row.Id,{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property}}}";
             var parentValue=parent.Type=="string?"?"row."+parent.Property:"row."+parent.Property+"?.ToString(CultureInfo.InvariantCulture)";
-            var map=$"rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{name.Property},{parentValue})).ToArray()";
+            var label=MultiSelectExcelRenderer.LabelText(name,"row."+name.Property);
+            var map=$"rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,{label},{parentValue})).ToArray()";
             result.AppendLine("    /// <summary>只有来源页已授权读取或筛选可以进入此私有固定图，不暴露动态查询网关。</summary>")
                 .AppendLine($"    private Metarill.Core.Cascades.CascadeTreeGraphReader CascadeGraph{suffix}(RuntimeActor actor,bool currentRead=false)=>new(CascadeReader{suffix}(actor,currentRead,false,false),")
                 .AppendLine($"        async(ids,ct)=>{{var keys=ids.ToArray();var query=CascadeScope{suffix}(actor,false,false).Where(row=>keys.Contains(row.Id));if(currentRead)query=query.ForUpdate();var rows=await query.ToListAsync({projection},ct);return {map};}},")

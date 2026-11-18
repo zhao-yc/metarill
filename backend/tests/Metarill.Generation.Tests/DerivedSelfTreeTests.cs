@@ -7,6 +7,105 @@ namespace Metarill.Generation.Tests;
 [Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class DerivedSelfTreeTests
 {
+    /// <summary>自树整数名称沿原路径与回填保存文本，查找按真实整数和父节点执行。</summary>
+    [Theory]
+    [InlineData(0, "physical", "int32")]
+    [InlineData(0, "derived", "int64")]
+    [InlineData(1, "physical", "int64")]
+    [InlineData(1, "derived", "int32")]
+    [InlineData(1, "globalPhysical", "int32")]
+    [InlineData(0, "globalDerived", "int64")]
+    [InlineData(1, "globalDerived", "int32")]
+    [InlineData(1, "globalCache", "int64")]
+    public async Task Self_tree_integer_name_reaches_existing_path_and_export(int sourceStorage,string kind,string type)
+    {
+        const string application = "Example.IntegerTree";
+        var derived = kind is "derived" or "globalDerived";
+        var joined = derived || kind == "globalCache";
+        var catalog = joined ? Catalog("number_tree","string","int64",true) :
+            RedundantMultiNameCacheTests.Published(NonRedundantSelfTreeTests.Catalog("number_tree",automatic:true));
+        var source = catalog.ConfigTables.Single(table => table.Id == "2");
+        var target = catalog.ConfigTables.Single(table => table.Id == "3");
+        var name = catalog.ConfigColumns.Single(column => column.Id == "32");
+        source.IsRongyu = sourceStorage;
+        name.LogicalType = type;
+        if (joined)
+            catalog.ConfigColumns.Single(column => column.Id == "42").LogicalType = type;
+        if (kind.StartsWith("global",StringComparison.Ordinal))
+        {
+            target.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+            catalog.ConfigPages.Single(page => page.Id == "301").WhereSql = "";
+            if (joined)
+            {
+                catalog.ConfigTables.Single(table => table.Id == "4").Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+                catalog.ConfigPages.Single(page => page.Id == "401").WhereSql = "";
+            }
+        }
+        if (kind == "globalDerived")
+        {
+            // 与已有全局树夹具一致，树页面使用显式的父 List 和对应的辅助投影。
+            var targetPage = catalog.ConfigPages.Single(page => page.Id == "301");
+            targetPage.WhereSql = "status=1";
+            var parent = catalog.ConfigColumns.Single(column => column.Id == "35");
+            parent.ControlKind = "List";
+            parent.ControlDetail = JsonSerializer.Serialize(new { tableId=target.Id, pageId=targetPage.Id, nameField="name" });
+            foreach (var (field,path) in new[] { ("company_name","company.name"), (parent.ColumnName[..^3]+"_name",parent.ColumnName[..^3]+".name") })
+                catalog.ConfigColumns.Add(new() { Id=field, ConfigTableId=target.Id, YzProjectId=catalog.YzProjectId,
+                    ColumnName=field, LogicalType=type, Extra=new()
+                    {
+                        ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                        ["columnFullName"]=JsonSerializer.SerializeToElement(path)
+                    } });
+        }
+        if (kind == "globalCache")
+        {
+            target.IsRongyu = 1;
+            catalog.ConfigColumns.RemoveAll(column => column.ConfigTableId == target.Id && column.ColumnName == "yz_project_id");
+            name.ColumnName = "company_name";
+            var foreign = catalog.ConfigColumns.Single(column => column.Id == "25");
+            var control = System.Text.Json.Nodes.JsonNode.Parse(foreign.ControlDetail)!;
+            control["selfTree"]!["nameField"] = name.ColumnName;
+            foreign.ControlDetail = control.ToJsonString();
+        }
+
+        var model = GenerationModel.Create(catalog,application);
+        var owner = model.Tables.Single(table => table.Source.Id == "2");
+        var pageModel = Assert.Single(owner.Pages);
+        var plan = Assert.Single(CascadeTreeReadCompilation.ForPage(model,owner,pageModel));
+        Assert.Equal(type,plan.Name.Source.LogicalType);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        if (sourceStorage == 1)
+        {
+            var relations = derived ? RelationPropagationCompilation.DerivedBindings(model) : RelationPropagationCompilation.Bindings(model);
+            Assert.Contains(relations,binding => binding.Source.Source.Id == "2" && binding.Cache.Type == "string?");
+            var maint = MixedRelationPropagationCompilation.ForModel(model);
+            var plans = (System.Collections.IDictionary)typeof(Metarill.Data.Relations.RelationMaintenanceCatalog)
+                .GetProperty("Plans",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(maint)!;
+            var table = plans["2"]!;
+            Assert.Null(table.GetType().GetProperty("Error")!.GetValue(table));
+        }
+
+        var boundary = Path.Combine(Path.GetTempPath(),"metarill-self-tree-number");
+        var directory = Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,output,application);
+            var service = await File.ReadAllTextAsync(Path.Combine(output,"Services",owner.Name+"Service.g.cs"));
+            Assert.Contains((type=="int32"?"int":"long")+".TryParse(label",service);
+            Assert.Contains("Format(excelPaths",service);
+            Assert.Contains("?.ToString(CultureInfo.InvariantCulture)",service);
+            Assert.Contains("CascadePath201_25Async",service);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var generated = assembly.GetType(application+".Generated.Services."+owner.Name+"Service",throwOnError:true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(generated.TypeHandle);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) await TestDirectoryCleanup.DeleteAsync(directory,boundary);
+        }
+    }
+
     /// <summary>显式和自动叶子名称从真实元数据生成编译，名称不落物理列。</summary>
     [Theory]
     [InlineData("string","string",false)][InlineData("string","int64",false)][InlineData("int64","string",false)][InlineData("int64","int64",false)]

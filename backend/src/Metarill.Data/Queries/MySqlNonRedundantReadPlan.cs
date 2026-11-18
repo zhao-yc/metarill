@@ -378,7 +378,10 @@ public static partial class MySqlNonRedundantReadCompiler
                         ?AccountScopedCrossCache.Compile(catalog,table,target,catalog.ConfigPages.Single(page=>page.Id==accountPage))
                         :null;
                     var id=Resolve(table,alias,foreign.ColumnName);
-                    return Resolve(target,Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||publishedPage is not null,cachePage:publishedPage,account:account),value.ColumnName);
+                    var projected=Resolve(target,Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||publishedPage is not null,cachePage:publishedPage,account:account),value.ColumnName);
+                    // 自树叶子即使来自整数列，原名称副本也按不变区域的文本存储。
+                    return foreign.ControlKind=="CascadeTree"&&!crossGlobal&&refresh.CrossTableColumnId is null&&projected.Type is "int32" or "int64"
+                        ?(MySqlMultiValueLabel.Text(projected.Sql,projected.Type),"string"):projected;
                 }
                 foreach(var tree in columns[table.Id].Values.Where(item=>item.ControlKind=="CascadeTree"&&item.ColumnName.EndsWith("_id",StringComparison.Ordinal)))
                 {
@@ -388,12 +391,12 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(!storage[table.Id].IsPhysical(tree)||!definition.TryGetProperty("selfTree",out var settings)||settings.ValueKind!=JsonValueKind.Object)throw new InvalidOperationException("自树派生名称缺少物理来源和固定定义。");
                     var target=tables.Values.SingleOrDefault(item=>item.TableName==Value(settings,"table"))??throw new InvalidOperationException("自树名称目标不属于发布项目。");ValidateTarget(target);
                     var targetName=Value(settings,"nameField");if(targetName.Length==0)targetName="name";var value=Column(target,targetName);
-                    if(value.LogicalType!="string"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("自树叶子名称必须为非凭据字符串。");
+                    if(value.LogicalType is not("string" or "int32" or "int64")||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("自树叶子名称必须为已声明的非凭据标量。");
                     if(!storage[target.Id].IsPhysical(value))
                     {
                         if(target.IsRongyu!=0)throw new NotSupportedException("自树派生名称要求R0目标。");
                         var nested=new Builder(catalog,target.Id,matching:true).Compile([value.ColumnName],[]);
-                        if(nested.Types[value.ColumnName]!="string"||nested.MultiProjections.Count>0||nested.Crosses.Count>0||!nested.Origins.TryGetValue(value.ColumnName,out var terminal)||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("自树名称必须落到非凭据单值字符串终点。");
+                        if(nested.Types[value.ColumnName]!=value.LogicalType||nested.MultiProjections.Count>0||nested.Crosses.Count>0||!nested.Origins.TryGetValue(value.ColumnName,out var terminal)||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("自树名称必须落到同类型的非凭据标量。");
                     }
                     // 明确交由生成服务的固定图投影，SQL阶段不读取未经完整祖先范围证明的叶子名称。
                     // 只有显式选择此两阶段用途时才生成占位；普通读取和名称查询依赖一律拒绝。

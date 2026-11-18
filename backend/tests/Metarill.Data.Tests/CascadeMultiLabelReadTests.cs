@@ -11,9 +11,11 @@ public sealed class CascadeMultiLabelReadTests
 {
     /// <summary>自树检查完整祖先链及环路，同一名称可用于筛选并记录根及父变更依赖。</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Self_tree_label_requires_reaching_visible_root(bool account)
+    [InlineData(false,"string")]
+    [InlineData(true,"string")]
+    [InlineData(false,"int32")]
+    [InlineData(true,"int64")]
+    public void Self_tree_label_requires_reaching_visible_root(bool account,string type)
     {
         var catalog=DerivedMultipleCacheTests.Catalog("string","int64");
         catalog.ConfigColumns.RemoveAll(column=>column.Id=="cache");
@@ -21,6 +23,7 @@ public sealed class CascadeMultiLabelReadTests
         tree.IsRongyu=1;
         var treeLabel=catalog.ConfigColumns.Single(column=>column.Id=="tree_name");
         treeLabel.Extra.Clear();
+        treeLabel.LogicalType=type;
         var leaf=catalog.ConfigColumns.Single(column=>column.Id=="foreign");
         leaf.ColumnName="leaf_id";
         catalog.ConfigTables.Add(new(){Id="consumer",TableName="ds_label_consumer",IsRongyu=1});
@@ -47,6 +50,7 @@ public sealed class CascadeMultiLabelReadTests
         Assert.Contains("NOT JSON_CONTAINS",sql);
         Assert.Contains("parent_key IS NULL",sql);
         Assert.Contains("delete_no",sql);
+        Assert.Equal(type!="string",sql.Contains(".`"+treeLabel.ColumnName+"` AS CHAR)",StringComparison.Ordinal));
         var binding=new RelationCacheDefinition("consumer","label_consumer_fk","source","leaf_label","label_consumer_cache",true);
         var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
         var read=maintenance.Plans["consumer"].Read!;

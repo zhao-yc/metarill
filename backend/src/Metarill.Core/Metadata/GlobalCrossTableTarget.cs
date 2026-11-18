@@ -43,11 +43,16 @@ public static class GlobalCrossTableTarget
     public static void RequireName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)=>RequirePublishedName(catalog,table,page,name,false);
     /// <summary>仅供单值候选证明R0逻辑名称，跨表原入口不会因此放开。</summary>
     public static void RequireSingleName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)=>RequirePublishedName(catalog,table,page,name,true);
+    /// <summary>自树选项和缓存使用同一已发布的名称，可按原文本协议展示业务整数。</summary>
+    public static void RequireSelfTreeName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)
+        =>RequirePublishedName(catalog,table,page,name,true,allowInteger:true);
+
     /// <summary>名称资格与页条件共用原完整证明，存储模式资格由调用用途限定。</summary>
-    private static void RequirePublishedName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowR0,bool allowAccount=false)
+    private static void RequirePublishedName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowR0,bool allowAccount=false,bool allowInteger=false)
     {
         RequireTarget(catalog,table,page,allowR0,allowAccount);var storage=MetadataStoragePolicy.ForTable(catalog,table);
-        if(name.LogicalType!="string")throw new NotSupportedException("全局跨表名称必须为字符串。");
+        if(name.LogicalType!="string"&&!(allowInteger&&name.ColumnName!="id"&&name.LogicalType is "int32" or "int64"))
+            throw new NotSupportedException("全局目标名称的类型超出当前用途。");
         if(GlobalPhysicalRelationValue.IsScalar(storage,table,name))return;
         if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,table,name))throw new NotSupportedException("全局跨表名称缺少完整物理或受管缓存证明。");
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToDictionary(column=>column.ColumnName,StringComparer.Ordinal);

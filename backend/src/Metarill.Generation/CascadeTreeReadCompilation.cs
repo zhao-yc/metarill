@@ -36,8 +36,11 @@ internal static class CascadeTreeReadCompilation
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==Text(tree,"nameField","name"));
             var parent=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==Text(tree,"parentField"));
             bool Physical(ColumnModel column)=>NonRedundantReadCompilation.Physical(model,target,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&!column.IsJsonArray&&!ManagerCredentialCompilation.IsCredential(target,column);
-            if(name is null || parent is null || name.Source.Id==parent.Source.Id || name.Type!="string?" || parent.Type is not("string?" or "long?") || !Physical(parent)||parent.IsSystem)return Gap("名称/父字段必须为非凭据物理标量，父字段为字符串或int64。");
-            var derived=!NonRedundantReadCompilation.Physical(model,target,name);if(!derived&&!Physical(name))return Gap("物理Join名称仍需独立缓存证明。");
+            if(name is null || parent is null || name.Source.Id==parent.Source.Id || name.Type is not("string?" or "int?" or "long?") || parent.Type is not("string?" or "long?") || !Physical(parent)||parent.IsSystem)return Gap("名称/父字段必须为非凭据物理标量，父字段为字符串或int64。");
+            var derived=!NonRedundantReadCompilation.Physical(model,target,name);
+            var integerCache=Metarill.Core.Metadata.GlobalPhysicalRelationValue.IsPublishedIntegerCache(model.Catalog,
+                Metarill.Core.Metadata.MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source);
+            if(!derived&&!integerCache&&!Physical(name))return Gap("物理Join名称仍需独立缓存证明。");
             if(!string.IsNullOrWhiteSpace(parent.Source.LinkConfigTableId)&&parent.Source.LinkConfigTableId!=target.Source.Id)return Gap("父字段未指向自身。");
             if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))return Gap("目标缺少项目归属或明确全局声明。");
             var candidates=target.Pages.Where(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(candidate)&&candidate.Readable.Any(column=>column.Source.Id==name.Source.Id)&&candidate.Readable.Any(column=>column.Source.Id==parent.Source.Id)).ToArray();
@@ -45,19 +48,14 @@ internal static class CascadeTreeReadCompilation
             if(target.IsGlobal)
             {
                 // 显式全局树只改变目标候选范围。来源仍按真实项目执行，目标页不能带项目或父变量。
-                if(target.Source.IsRongyu==0)
-                {
-                    if(table.IsGlobal)return Gap("全局非冗余自树名称需要普通项目来源。");
-                    Metarill.Core.Metadata.GlobalCrossTableTarget.RequireSingleName(model.Catalog,target.Source,candidates[0].Source,name.Source);
-                }
-                else
-                    Metarill.Core.Metadata.GlobalCrossTableTarget.RequireName(model.Catalog,target.Source,candidates[0].Source,name.Source);
+                if(target.Source.IsRongyu==0&&table.IsGlobal)return Gap("全局非冗余自树名称需要普通项目来源。");
+                Metarill.Core.Metadata.GlobalCrossTableTarget.RequireSelfTreeName(model.Catalog,target.Source,candidates[0].Source,name.Source);
             }
             // 此树入口使用实体最小三列查询，派生条件不能被当作物理列或忽略后扩大范围。
             var scopeFields=candidates[0].Scopes.Select(scope=>scope.Column).Concat(candidates[0].Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]);
             if(target.Source.IsRongyu==0&&scopeFields.Any(column=>!Physical(column)))return Gap("目标范围必须由已证明的物理列执行，派生范围尚未接线。");
             var ordering=GenerationModel.ValidateOrderBy(Text(tree,"orderBy",name.Source.ColumnName+" asc"),target.Columns).ToList();
-            if(ordering.Any(item=>!Physical(item.Column)&&!(derived&&item.Column.Source.Id==name.Source.Id)))return Gap("排序字段不是可排序物理标量。");
+            if(ordering.Any(item=>!Physical(item.Column)&&!((derived||integerCache)&&item.Column.Source.Id==name.Source.Id)))return Gap("排序字段不是可排序物理标量。");
             if(!ordering.Any(item=>item.Column.IsId))ordering.Add((target.Columns.Single(column=>column.IsId),false));
             var joiner=Text(root,"displayJoiner","/");if(joiner.Length>32)return Gap("路径分隔符过长。");
             var plan=new CascadeTreeReadModel(source,target,candidates[0],name,parent,joiner,ordering,Text(tree,"filterMatchMode","selfAndDescendants")=="exact",derived);if(derived)DerivedCascadeNamesCompilation.Require(model,table,plan);return new(plan,null);

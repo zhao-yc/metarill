@@ -21,20 +21,20 @@ public static class SelfTreeCache
         var target=catalog.ConfigTables.Single(t=>t.TableName==Text(tree,"table",""));if(target.IsRongyu is not(0 or 1)||target.IsView!=0||target.IsFunctionTable!=0||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id)throw Invalid();
         var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id));var storage=MetadataStoragePolicy.ForTable(catalog,target);var value=columns.Single(c=>c.ColumnName==Text(tree,"nameField","name"));var parent=columns.Single(c=>c.ColumnName==Text(tree,"parentField",""));
         var derived=!storage.IsPhysical(value);
-        if(value.Id==parent.Id||value.LogicalType!="string"||(!derived&&!Scalar(storage,value))||derived&&(target.IsRongyu!=0||value.IsVirtualColumn!=0||storage.Kind(value)!=MetadataFieldStorage.Join)||parent.LogicalType is not("string" or "int64")||!Scalar(storage,parent)||parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id"||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=target.Id)throw Invalid();
-        // 派生叶子只接受同一匹配编译器证明的非凭据单值字符串，不把任意逻辑列当成物理缓存值。
+        var integerCache=GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,storage,target,value);
+        if(value.Id==parent.Id||value.ColumnName=="id"||value.LogicalType is not("string" or "int32" or "int64")||(!derived&&!integerCache&&!Scalar(storage,value))||derived&&(target.IsRongyu!=0||value.IsVirtualColumn!=0||storage.Kind(value)!=MetadataFieldStorage.Join)||parent.LogicalType is not("string" or "int64")||!Scalar(storage,parent)||parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id"||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=target.Id)throw Invalid();
+        // 派生叶子须由同一匹配编译器证明，缓存一律使用原名称文本。
         if(GlobalCrossTableTarget.Declared(target))
         {
             // 缓存定义只接受本项目生成器冻结的可读页；全局目标不借用来源的行项目条件。
             var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==publishedPageId)??throw Invalid();
             if(source.YzProjectId!=catalog.YzProjectId||!catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))throw Invalid();
-            if(target.IsRongyu==0)GlobalCrossTableTarget.RequireSingleName(catalog,target,page,value);
-            else GlobalCrossTableTarget.RequireName(catalog,target,page,value);
+            GlobalCrossTableTarget.RequireSelfTreeName(catalog,target,page,value);
         }
         else
         {
             if(publishedPageId is not null)throw Invalid();
-            if(derived&&NonRedundantReads.CompileMatch(catalog,target.Id,value.ColumnName).OutputTypes[value.ColumnName]!="string")throw Invalid();
+            if(derived&&NonRedundantReads.CompileMatch(catalog,target.Id,value.ColumnName).OutputTypes[value.ColumnName]!=value.LogicalType)throw Invalid();
         }
         var name=foreign.ColumnName[..^3]+"_name";var cache=sourceColumns.Single(c=>c.ColumnName==name);if(cache.Id==foreign.Id||cache.LogicalType!="string"||cache.IsVirtualColumn!=0||!sourceStorage.IsPhysical(cache)||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
         if(Enabled(cache)){var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();if(path.Length>0&&path!=foreign.ColumnName[..^3]+"."+value.ColumnName&&path!=foreign.ColumnName+"."+value.ColumnName)throw Invalid();}

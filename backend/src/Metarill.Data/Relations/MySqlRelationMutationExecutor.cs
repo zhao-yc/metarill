@@ -61,8 +61,8 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
     private async Task<Dictionary<(long,string),object?>> Targets(RelationCache[] bindings,long[] ids,DbTransaction transaction,string project,CancellationToken token)
     {
         var target=bindings[0].Target;var fields=bindings.Select(binding=>binding.Value).Distinct(StringComparer.Ordinal).ToArray();var result=new Dictionary<(long,string),object?>();
-        // 只有名称数组需要文本。普通单值缓存继续使用数据库原标量。
-        var labels=bindings.Where(binding=>binding.Multiple).DistinctBy(binding=>binding.Value)
+        // 数组与自树叶名采用相同的文本转换，普通单值业务缓存保留原始标量。
+        var labels=bindings.Where(binding=>binding.Multiple||binding.TextScalar).DistinctBy(binding=>binding.Value)
             .ToDictionary(binding=>binding.Value,binding=>binding.ValueType,StringComparer.Ordinal);
         var values=fields.Select(field=>labels.TryGetValue(field,out var type)?MySqlMultiValueLabel.Text("t."+Q(field),type):"t."+Q(field));
         // 同一来源外键使用同一发布页。当前读与写校验及维护沿用同一固定条件。

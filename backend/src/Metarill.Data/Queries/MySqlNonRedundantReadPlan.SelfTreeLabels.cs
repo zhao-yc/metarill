@@ -38,14 +38,16 @@ public static partial class MySqlNonRedundantReadCompiler
         if(parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id" or "insert_user_id" or "update_user_id"||
             parent.LogicalType is not("string" or "int64")||!GlobalPhysicalRelationValue.IsScalar(storage,target,parent)||
             parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=target.Id||
-            name.Id==parent.Id||name.LogicalType!="string"||name.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(name.ColumnName)||
-            (storage.IsPhysical(name)?!GlobalPhysicalRelationValue.IsScalar(storage,target,name):storage.Kind(name)!=MetadataFieldStorage.Join||target.IsRongyu!=0))
+            name.Id==parent.Id||name.ColumnName=="id"||name.LogicalType is not("string" or "int32" or "int64")||
+            name.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(name.ColumnName)||
+            (storage.IsPhysical(name)?!GlobalPhysicalRelationValue.IsScalar(storage,target,name)&&
+                !GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,storage,target,name):
+                storage.Kind(name)!=MetadataFieldStorage.Join||target.IsRongyu!=0))
             throw new NotSupportedException("多值名称的自树父键或标量叶名无效。");
         var (page,condition)=CascadeLabelPage(catalog,target,name.ColumnName,parent.ColumnName);
         if(GlobalCrossTableTarget.Declared(target))
         {
-            if(target.IsRongyu==0)GlobalCrossTableTarget.RequireSingleName(catalog,target,page,name);
-            else GlobalCrossTableTarget.RequireName(catalog,target,page,name);
+            GlobalCrossTableTarget.RequireSelfTreeName(catalog,target,page,name);
         }
         else if(!members.Any(column=>column.ColumnName=="yz_project_id"&&storage.IsPhysical(column)))
             throw new NotSupportedException("自树节点缺少真实项目范围。");
@@ -100,7 +102,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     .Compile([proof.Name.ColumnName],[]);
                 if(!nested.Origins.TryGetValue(proof.Name.ColumnName,out var terminal)||
                     ExactDataManageValues.IsSensitiveField(terminal.Column)||nested.MultiProjections.Count>0||nested.Crosses.Count>0||
-                    nested.Types[proof.Name.ColumnName]!="string")
+                    nested.Types[proof.Name.ColumnName]!=proof.Name.LogicalType)
                     throw new NotSupportedException("自树叶名必须落到固定非凭据单值终点。");
                 nodeName=nested.Expression(proof.Name.ColumnName);
                 nodeFrom=nested.From;
@@ -131,7 +133,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 AddReverse(proof.Target.TableName,predicate,fields.Concat(ConditionFields()));
                 if(global)publishedArrayIdentity=true;
             }
-            return "CASE WHEN "+reachesRoot+" THEN (SELECT "+nodeName+nodeFrom+
+            var label=MySqlMultiValueLabel.Text(nodeName,proof.Name.LogicalType);
+            return "CASE WHEN "+reachesRoot+" THEN (SELECT "+label+nodeFrom+
                 " WHERE BINARY CAST("+display+".`id` AS CHAR)=BINARY "+leafKey+" LIMIT 1) END";
 
             string NodeScope(string alias)
