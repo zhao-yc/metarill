@@ -85,8 +85,11 @@ public static partial class MySqlNonRedundantReadCompiler
         private bool PublishedGlobalSelfTreeField(ColumnMetadata column)
         {
             var rootStorage=storage[root.Id];
-            if(matching)return false;
-            if(!deferCascadeNames)return IsSelfTreeParent(root,rootStorage,column)&&SelfTreeLabel(catalog,column).Target.Id==root.Id;
+            // 多值反查仅验证实际发布页声明的显示名，继续要求整条树路径可见。
+            var scopedLabel=SelectedMultiPage is not null&&column.ColumnName==cascadeLabelField&&column.ControlKind!="CascadeTree";
+            if(matching&&!scopedLabel)return false;
+            if(!deferCascadeNames&&!scopedLabel)
+                return IsSelfTreeParent(root,rootStorage,column)&&SelfTreeLabel(catalog,column).Target.Id==root.Id;
             var control=column.ControlKind=="CascadeTree"?column:
                 column.ColumnName.EndsWith("_name",StringComparison.Ordinal)?
                     columns[root.Id].GetValueOrDefault(column.ColumnName[..^5]+"_id"):null;
@@ -141,13 +144,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     if(cacheOwner is {} cached)
                     {
-                        var declared=columns[proof.Target.Id].Values.ToArray();
-                        var treeNames=proof.SelfTreeScoped?SelfTreeConditionFields(catalog,proof.Target,proof.Page,declared,ConditionFields()):null;
                         // 维护使用保存行的归属，不能借发起账号覆盖其它行的名称。
                         fixedTarget=new Builder(catalog,proof.Target.Id,rootAlias:display,aliasPrefix:prefix+"s_",
                             deferCascadeNames:proof.SelfTreeScoped,trackReverse:trackReverse,multiLabel:true,cascadeLabelField:"id",cascadeCacheOwner:cached)
                         {
-                            SelectedMultiPage=proof.Page,SelectedSelfTreeFields=treeNames,ActiveSelfTreeScopes=ActiveSelfTreeScopes,
+                            SelectedMultiPage=proof.Page,ActiveSelfTreeScopes=ActiveSelfTreeScopes,
                             GlobalCrossCandidate=global,CrossAliasPrefix=prefix+"sx"
                         }.Compile(fields,[]);
                         foreach(var field in fixedTarget.CascadeCacheOwnerFields)

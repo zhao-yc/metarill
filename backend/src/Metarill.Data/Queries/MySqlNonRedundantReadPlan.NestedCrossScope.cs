@@ -28,15 +28,16 @@ public static partial class MySqlNonRedundantReadCompiler
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         var logical=syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToHashSet(StringComparer.Ordinal);
         var treeNames=SelfTreeConditionFields(catalog,table,page,columns,syntax.Fields);
+        var hasParentScope=displayBindings is not null||treeNames.Count>0&&IsScopedMultiTarget(catalog,table,pageId);
         if(global)
         {
-            if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,table,page,allowMultiParent:displayBindings is not null);
+            if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,table,page,allowMultiParent:hasParentScope);
             else if(displayBindings is null)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
             else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page);
         }
         if(logical.Count==0&&treeNames.Count==0&&(!global||displayBindings is not{Count:>0}))
             throw new InvalidOperationException("候选页未声明逻辑级联条件或已证明的全局跨表投影。");
-        var parent=displayBindings is null?null:MultiTargetParentScope.Compile(catalog,table,syntax);
+        var parent=hasParentScope?MultiTargetParentScope.Compile(catalog,table,syntax):null;
         var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target,treeNames);
         var scopes=logical.Count==0?[]:CrossMembershipBindings(catalog,table,page,logical);
         // 范围的绑定按发布页生成，其它绑定仅用于该独立选择页展示额外的路径。
@@ -70,7 +71,8 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         var columns=RelationStorageColumns.Expand(parent,catalog.ConfigColumns.Where(column=>column.ConfigTableId==parent.Id));
         var syntax=FixedConditionPlan.Compile(published.WhereSql,columns.Select(column=>column.ColumnName));
-        return syntax.Fields.Any(member=>CrossTableStorageColumns.IsLogicalPathField(parent,columns,member))
+        return syntax.Fields.Any(member=>CrossTableStorageColumns.IsLogicalPathField(parent,columns,member)||
+            CascadeTreeStorageColumns.IsLogicalNameField(parent,columns,member))
             ?new Builder(catalog,parent.Id,rootAlias:alias,aliasPrefix:prefix,trackReverse:trackReverse,multiLabel:true,cascadeLabelField:"id",cascadeCacheOwner:owner)
                 {SelectedMultiPage=published,GlobalCrossCandidate=true,CrossAliasPrefix=prefix+"cross"}.Compile(["id"],[])
             :new Builder(catalog,parent.Id,rootAlias:alias,aliasPrefix:prefix,trackReverse:trackReverse,candidatePage:published,
@@ -104,7 +106,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }).OfType<string>().Distinct(StringComparer.Ordinal).ToArray();
         if(parentPages.Length!=1)throw new InvalidOperationException("多值全局父缺少唯一固定候选页。");
         var published=catalog.ConfigPages.Single(item=>item.Id==parentPages[0]&&item.ConfigTableId==parent.Parent.Id);
-        GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,parent.Parent,published);
+        RequireFixedGlobalParent(catalog,parent.Parent,published);
         return(parent.Parent,published);
     }
 
@@ -123,15 +125,23 @@ public static partial class MySqlNonRedundantReadCompiler
         var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==parent.Parent.Id&&
             (pageId.Length==0||page.Id==pageId)).Take(2).ToArray();
         if(pages.Length!=1)throw new InvalidOperationException("全局物理父键必须绑定唯一发布页。");
-        GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,parent.Parent,pages[0]);
+        RequireFixedGlobalParent(catalog,parent.Parent,pages[0]);
         return pages[0];
+    }
+
+    /// <summary>来自多值页的全局父只使用实际发布页；叶名条件随后由同一读取计划执行。</summary>
+    private static void RequireFixedGlobalParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
+        var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
+        if(PublishedSelfTreeConditionFields(catalog,table,page,columns).Count>0)
+            GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,table,page);
+        else GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
     }
 
     private sealed partial class Builder
     {
         internal FixedConditionSqlPlan? CrossCandidateCondition{get;init;}
         internal PageMetadata? SelectedMultiPage{get;init;}
-        internal IReadOnlySet<string>? SelectedSelfTreeFields{get;init;}
         internal MultiTargetParentScope? MultiCandidateParent{get;set;}
         internal PageMetadata? MultiCandidatePage{get;init;}
         private string? selectedMultiParentSql;
@@ -191,20 +201,21 @@ public static partial class MySqlNonRedundantReadCompiler
             var page=SelectedMultiPage!;
             if(page.ConfigTableId!=root.Id||page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
                 throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
+            var treeNames=PublishedSelfTreeConditionFields(catalog,root,page,columns[root.Id].Values.ToArray());
             if(GlobalCrossTableTarget.Declared(root))
             {
-                if(SelectedSelfTreeFields is {Count:>0})GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page);
+                if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,allowMultiParent:MultiCandidateParent is not null);
                 else GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
             }
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
-                multiParent:MultiCandidateParent?.Target,selfTreeFields:SelectedSelfTreeFields);
+                multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames);
             if(!condition.Allowed||!condition.HasLogical)
                 throw new NotSupportedException("多值目标页缺少固定的逻辑级联条件。");
             var plan=condition.Plan;
-            var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target,SelectedSelfTreeFields);
+            var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target,treeNames);
             output=cascadeLabelField!;
             var level=new CrossLevel(root,Column(root,cascadeLabelField!),null,new(page.Id,plan),page,fields);
-            var selected=NestedCrossCondition(level,rootAlias,multiParent:MultiCandidateParent?.Target,selfTreeFields:SelectedSelfTreeFields);
+            var selected=NestedCrossCondition(level,rootAlias,multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames);
             return scope.Length==0?selected:scope+" AND "+selected;
         }
         internal bool GlobalCrossCandidate{get;init;}

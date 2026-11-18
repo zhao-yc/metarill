@@ -105,8 +105,10 @@ public static partial class MySqlNonRedundantReadCompiler
             (item.Id==pageId||global&&pageId.Length==0)).Take(2).ToArray();
         var page=candidates.Length==1?candidates[0]:null;
         if(page is null||page.WhereSql.Length==0)return null;
-        var syntax=FixedConditionPlan.Compile(page.WhereSql,RelationStorageColumns.Expand(table,members).Select(column=>column.ColumnName));
-        return syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,members,field))?page:null;
+        var declared=RelationStorageColumns.Expand(table,members);
+        var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
+        return syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,members,field)||
+            CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field))?page:null;
     }
 
     /// <summary>原发布元数据的页面 ID 可为精确整数或字符串。</summary>

@@ -53,7 +53,11 @@ public static partial class MySqlNonRedundantReadCompiler
             var source=owner+"."+Q(relation.ColumnName);var array=Array(source);
             if(refreshFields is not null)
             {
-                if(table.Id!=root.Id||owner!=rootAlias)throw new NotSupportedException("派生多选缓存只允许根数组，不能把数组文本作为中间单值路径。");Use(table,relation);foreach(var reference in nested.PhysicalReferences)references.TryAdd((reference.Table,reference.Column.Name),reference);
+                if(table.Id!=root.Id||owner!=rootAlias)throw new NotSupportedException("派生多选缓存只允许根数组，不能把数组文本作为中间单值路径。");
+                Use(table,relation);
+                // 来源行的门店或商户变化和目标树变更一样会触发缓存重算。
+                foreach(var field in nested.CascadeCacheOwnerFields)Use(table,Column(table,field));
+                foreach(var reference in nested.PhysicalReferences)references.TryAdd((reference.Table,reference.Column.Name),reference);
                 var from=" FROM "+Q(table.TableName)+" "+owner;var rootFields=nested.PhysicalReferences.Where(p=>p.Table==target.TableName).Select(p=>p.Column.Name).ToHashSet(StringComparer.Ordinal);var dependency=new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,rootFields}};
                 // 删除树目标时仍按源数组找到消费者，不依赖目标当前还存在。
                 customReverse.Add(new(target.TableName,from,ArrayMember(array,"@target_text"),"predicate",dependency));

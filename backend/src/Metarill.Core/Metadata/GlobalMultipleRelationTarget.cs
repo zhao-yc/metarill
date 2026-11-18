@@ -30,8 +30,10 @@ public static class GlobalMultipleRelationTarget
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
         var expanded=RelationStorageColumns.Expand(target,columns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
-        var scoped=target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
-        if(scoped)GlobalCrossTableTarget.RequireMultiCandidate(catalog,target,page);
+        var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
+        var scoped=selfTreeScope||target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
+        if(selfTreeScope)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page,allowMultiParent:true);
+        else if(scoped)GlobalCrossTableTarget.RequireMultiCandidate(catalog,target,page);
         else GlobalCrossTableTarget.RequireMultiple(catalog,target,page);
         if(target.IsRongyu==0&&foreign.ControlKind=="MultiSelectPage"&&page.Extra.GetValueOrDefault("type").ToString()!="2")
             throw new NotSupportedException("全局R0多选要求原type=2页面；复选继续使用独立候选入口。");
@@ -45,7 +47,9 @@ public static class GlobalMultipleRelationTarget
             GlobalPhysicalRelationValue.IsPublishedTypedCache(catalog,physical,target,name));
         // 逻辑层名必须来自该全局候选自身的固定级联，实际路径和可见性由数据层完成证明。
         var pathLabel=scoped&&name is {LogicalType:"string",IsVirtualColumn:0}&&
-            !ExactDataManageValues.IsSensitiveField(name.ColumnName)&&CrossTableStorageColumns.IsLogicalPathField(target,columns,name.ColumnName);
+            !ExactDataManageValues.IsSensitiveField(name.ColumnName)&&
+            (CrossTableStorageColumns.IsLogicalPathField(target,columns,name.ColumnName)||
+                CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,name.ColumnName));
         if(name is null||name.LogicalType!="string"&&!scalarLabel||!pathLabel&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name))
             throw new NotSupportedException("全局多值名称必须为已证明的非凭据标量。");
         var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");

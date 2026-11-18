@@ -48,7 +48,8 @@ public static class GlobalCrossTableTarget
             LogicalConditionField(table,columns,column,allowLogical,allowSelfTree)).Select(column=>column.ColumnName);
         var condition=FixedConditionPlan.Compile(page.WhereSql,allowed);
         var multiParent=allowMultiParent&&condition.Fields.Any(field=>
-            CrossTableStorageColumns.IsLogicalPathField(table,columns,field))
+            CrossTableStorageColumns.IsLogicalPathField(table,columns,field)||
+            allowSelfTree&&CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field))
             ?MultiTargetParentScope.Compile(catalog,table,condition):null;
         foreach(var term in condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
         {

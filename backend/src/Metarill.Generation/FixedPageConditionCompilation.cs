@@ -118,7 +118,7 @@ internal static class FixedPageConditionCompilation
     internal static bool HasSelfTreeFields(PageModel page)=>page.Condition?.SelfTreeFields.Count>0;
     internal static bool HasLogicalFields(PageModel page)=>HasCrossFields(page)||HasSelfTreeFields(page);
     /// <summary>多值限定页既可能包含逻辑常量，也可能只在父参数中引用稀疏层位。</summary>
-    internal static bool HasMultiTargetScope(TableModel table,PageModel page)=>HasCrossFields(page)||page.Scopes.Any(scope=>
+    internal static bool HasMultiTargetScope(TableModel table,PageModel page)=>HasLogicalFields(page)||page.Scopes.Any(scope=>
         scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName));
     /// <summary>非冗余SQL按已编译表达式绑定相同条件；写后回执明确不传页面筛选。</summary>
     internal static string ReadArgument(PageModel page,bool named=false)=>page.Condition is null?"":", "+(named?"condition: ":"")+Bound(page,"PageCondition"+page.Source.Id);

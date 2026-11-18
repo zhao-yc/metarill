@@ -14,9 +14,10 @@ internal static class DerivedMultiNamesCompilation
     {
         if(owner.Source.IsRongyu is not(0 or 1)||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!Metarill.Core.Contracts.MultiValueLabel.IsTyped(name.Source.LogicalType)||name.IsJsonArray||ExactDataManageCompilation.Declared(page))throw new InvalidOperationException("派生多选名称要求已证明来源、普通R0目标和固定单值名称。");
         var scoped=FixedPageConditionCompilation.HasMultiTargetScope(target,page);
-        var logical=page.Condition?.CrossFields;
-        if(page.Scopes.Select(scope=>scope.Column).Concat(page.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[])
-            .Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)&&logical?.Contains(column.Source.ColumnName)!=true))
+        var condition=page.Condition;
+        if(page.Scopes.Select(scope=>scope.Column).Concat(condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[])
+            .Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)&&
+                condition?.CrossFields.Contains(column.Source.ColumnName)!=true&&condition?.SelfTreeFields.Contains(column.Source.ColumnName)!=true))
             throw new InvalidOperationException("派生多选名称的候选身份及条件缺少物理或逻辑路径证明。");
         // 全局名称路径已由多值固定目标证明，字符串键读取不能误套精确管理的int64专用门槛。
         var plan=scoped?NonRedundantReads.CompileScopedMultiLabel(model.Catalog,target.Source.Id,page.Source.Id,

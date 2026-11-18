@@ -15,7 +15,9 @@ public sealed class CascadeMultiLabelReadTests
     [InlineData(true,"string")]
     [InlineData(false,"int32")]
     [InlineData(true,"int64")]
-    public void Self_tree_label_requires_reaching_visible_root(bool account,string type)
+    [InlineData(false,"string",true)]
+    [InlineData(true,"string",true)]
+    public void Self_tree_label_requires_reaching_visible_root(bool account,string type,bool selectedScope=false)
     {
         var catalog=DerivedMultipleCacheTests.Catalog("string","int64");
         catalog.ConfigColumns.RemoveAll(column=>column.Id=="cache");
@@ -43,7 +45,20 @@ public sealed class CascadeMultiLabelReadTests
         catalog.ConfigPageColumns.Add(new(){Id="201parent",ConfigPageId="201",ConfigColumnId="parent"});
 
         if(account)AddAccountScope(catalog,"consumer","201");
-        var candidate=MySqlNonRedundantReadCompiler.CompileMultiLabel(catalog,"source","leaf_name");
+        if(selectedScope)
+        {
+            catalog.ConfigColumns.AddRange([
+                new(){Id="target_store",ConfigTableId="source",ColumnName="store_id",LogicalType="int64"},
+                new(){Id="consumer_store",ConfigTableId="consumer",ColumnName="store_id",LogicalType="int64"}
+            ]);
+            catalog.ConfigPages.Single(item=>item.Id=="101").WhereSql="leaf_name <> '排除' AND store_id=@current_store_id";
+            var consumerPage=catalog.ConfigPages.SingleOrDefault(item=>item.Id=="901");
+            if(consumerPage is null)catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="consumer",WhereSql="store_id=@current_store_id"});
+            else consumerPage.WhereSql+=" AND store_id=@current_store_id";
+        }
+        var candidate=selectedScope
+            ?NonRedundantReads.CompileScopedMultiLabel(catalog,"source","101","leaf_name",["leaf_name"],[]).MySql
+            :MySqlNonRedundantReadCompiler.CompileMultiLabel(catalog,"source","leaf_name");
         var sql=candidate.Expression("leaf_name");
         Assert.Contains("WITH RECURSIVE",sql);
         Assert.Contains("depth<64",sql);
@@ -58,12 +73,25 @@ public sealed class CascadeMultiLabelReadTests
         {
             Assert.True(candidate.RequiresAccount);
             Assert.Contains("b.`record_owner_id`",read.MultiProjections["picked_leaf_names"].NameExpression!);
-            Assert.Equal(new[]{"record_owner_id"},read.MultiProjections["picked_leaf_names"].Owner!.Fields);
+            Assert.Equal(selectedScope?new[]{"record_owner_id","store_id"}:new[]{"record_owner_id"},
+                read.MultiProjections["picked_leaf_names"].Owner!.Fields);
             Assert.False(read.RequiresAccount);
         }
-        var reverse=read.Reverse.Single(item=>item.TargetTable=="ds_tree");
-        Assert.Contains("parent_node_id",reverse.Outputs["picked_leaf_names"]);
-        Assert.Contains("@target_id",reverse.TargetPredicate);
+        if(selectedScope)
+        {
+            Assert.True(candidate.RequiresAccount);
+            Assert.Contains(".`store_id`=@",candidate.Scope);
+            Assert.Contains("WITH RECURSIVE",candidate.Scope);
+            Assert.Contains("store_id",read.SourceDependencies);
+            Assert.Equal(account,read.SourceDependencies.Contains("record_owner_id",StringComparer.Ordinal));
+            Assert.Contains("b.`store_id`",read.MultiProjections["picked_leaf_names"].NameExpression!);
+            Assert.Contains("排除",read.Constants.Values);
+            Assert.False(read.RequiresAccount);
+        }
+        var reverse=read.Reverse.Where(item=>item.TargetTable=="ds_tree").ToArray();
+        Assert.Equal(selectedScope?2:1,reverse.Length);
+        Assert.All(reverse,item=>Assert.Contains("parent_node_id",item.Outputs["picked_leaf_names"]));
+        Assert.All(reverse,item=>Assert.Contains("@target_id",item.TargetPredicate));
     }
 
 
