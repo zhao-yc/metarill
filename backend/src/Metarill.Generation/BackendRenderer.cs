@@ -228,7 +228,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     {
         var sharedRedundant=SharedRedundantParentCompilation.Enabled(model,table,page);
         var multiGlobal=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page);
-        var supportsReadOnlyParent=multiGlobal is not null||sharedRedundant||NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page);
+        var supportsReadOnlyParent=multiGlobal is not null||GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null||sharedRedundant||NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page);
         var locking=supportsReadOnlyParent?"locking":"true";
         var multiPlan="PageMultiGlobalParent"+page.Source.Id;
         var result = new StringBuilder().Append(multiGlobal is null?SharedGlobalParentCompilation.KeyService(model,table,page):MultiGlobalParentCompilation.Declaration(model,multiGlobal,multiPlan)).AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
@@ -277,7 +277,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if(NonRedundantReadCompilation.Requires(model,table))return NonRedundantQuery(model,table,page);
         var suffix = page.Source.Id;
         var fixedQuery = FixedPageQueryCompilation.For(table, page);
-        var globalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null;
+        var globalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
+            GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null;
         var snapshot=globalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
         string ParentCheck(string key)=>SelectionPageRenderer.Enabled(page)
             ?$"await ValidateSelectionParents{suffix}Async({key}, actor, cancellationToken);"
@@ -404,6 +405,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var importFiles = ImportRenderer.Enabled(page) && HasPhysicalFileColumns(model, table);
         var operationAwareImport = ImportRenderer.Enabled(page) && (HasPhysicalFileColumns(model,table)||ExactDataManageCompilation.Declared(page)||ImportRenderer.RelationOperationAware(model,table,page));
         var mergeParent=GlobalCachedParentCompilation.ForAppendRecheck(model,table,page);
+        var checkedParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
+            GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null;
         var batchInsert=mergeParent is not null&&GlobalCachedParentCompilation.CanBatchAppendInsert(model,table,page);
         var deferParent=batchInsert&&GlobalCachedParentCompilation.CanDeferAppendCandidate(model,table,page);
         if (page.Source.IsNew == 1 || ImportRenderer.Enabled(page))
@@ -444,7 +447,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(AccountScopeDefaults(table,page));
             var validateRelations=$"await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", authorizationOperation":"")}{SharedCrossTableSparseRenderer.Argument(model,table,page)}{(GlobalCachedParentCompilation.HasCombinedCandidate(model,table,page)?", lockedParentId: parentId":"")}{(mergeParent is not null?", parentRecheck: parentRecheck, mergedCandidate: mergedCandidate":"")}{NonRedundantCrossParentCompilation.MultiParentArgument(model,table,page)}";
             result.Append(SharedCrossTableSparseRenderer.Capture(model,table,page)).Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"true","false")).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(ManagerCredentialCompilation.DigestCall(table,true)).Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine("        "+validateRelations+(deferParent?", deferParentCandidate: deferredParent is not null":"")+");").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false)).Append(RequiredValidation(model, table, page, false))
-                .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(AccountScopeCheck(table,page)).Append(WriteCall(page, "Create", "null"));
+                .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(AccountScopeCheck(table,page)).Append(KeepGlobalTreeParent(model,table,page)).Append(WriteCall(page, "Create", "null"));
             if(deferParent)result.Replace("\n        ","\n            ",entityBodyStart,result.Length-entityBodyStart);
             result.Append(deferParent?"""
         }
@@ -475,7 +478,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
                 .Append(buttonUpdate?$"        if(businessButtonId is not null){{if(authorizationOperation is not(null or RecordMutationOperation.Update))throw new UnauthorizedAccessException(\"业务按钮不能冒充导入或其它来源。\");RequireButtonRecordAccess{suffix}(request.Id,businessButtonId,actor);}}\n":"")
                 .Append(PrepareCall(model, table, page, "Update", "request.Id", "request",businessButton:buttonUpdate?"businessButtonId":null))
-                .Append(MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is null?"":$"        await ValidateParents{suffix}Async(parentId,actor,cancellationToken);\n")
+                .Append(checkedParent?$"        await ValidateParents{suffix}Async(parentId,actor,cancellationToken);\n":"")
                 .Append(buttonUpdate?$"        if(businessButtonId is not null)await RequireButtonCurrent{suffix}Async(request.Id,businessButtonId,actor,cancellationToken);\n":"")
                 .AppendLine($"        var entity = await {(buttonUpdate?$"(businessButtonId is null ? Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"update\"":"\"update\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == request.Id).ForUpdate() : ButtonRecordQuery{suffix}(request.Id,parentId,businessButtonId,actor,true))":$"Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"update\"":"\"update\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == request.Id).ForUpdate()")}.FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
@@ -503,7 +506,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("    /// <summary>先校验数据范围，再在同一事务内删除。</summary>")
                 .AppendLine($"    public Task<bool> Delete{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
                 .AppendLine("    {").Append(PrepareCall(model, table, page, "Delete", "id", null))
-                .Append(MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is null?"":$"        await ValidateParents{suffix}Async(parentId,actor,cancellationToken);\n")
+                .Append(checkedParent?$"        await ValidateParents{suffix}Async(parentId,actor,cancellationToken);\n":"")
                 .AppendLine($"        var entity = await Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,"\"delete\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
                 .Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"false","true")).AppendLine("        BeforeDelete(entity, actor);")
@@ -542,12 +545,18 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine($"        entity.{column.Property} = source.{column.Property}; submitted.Add({Literal(column.Source.ColumnName)});");
         result.Append(Audit(table, true)).Append(SharedCrossTableSparseRenderer.Capture(model,table,page)).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken{SharedCrossTableSparseRenderer.Argument(model,table,page)}{NonRedundantCrossParentCompilation.MultiParentArgument(model,table,page)});").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false))
             .Append(RequiredValidation(model, table, page, false))
-            .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(AccountScopeCheck(table,page)).Append(WriteCall(page, "Copy", "originalScopeValues"))
+            .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(AccountScopeCheck(table,page)).Append(KeepGlobalTreeParent(model,table,page)).Append(WriteCall(page, "Copy", "originalScopeValues"))
             .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"复制失败。\");").Append(TimeFieldCompilation.AfterWrite(model,table)).Append(CrossTableWriteRenderer.After(model,table,page,true)).Append(CascadeTreeTopologyRenderer.After(model,table,page,true)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,true))
             .Append(NonRedundantCrossParentCompilation.VerifyCall(model,table,page)).Append(SharedRedundantParentCompilation.VerifyCall(model,table,page)).AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation.Copy":"")});")
             .AppendLine($"        return {RoleResult(model,table,page,"copy")};").AppendLine("    }, cancellationToken);");
         return result.ToString();
     }
+    /// <summary>新增和复制在手写规则完成后保持已锁定的独立父范围。</summary>
+    private static string KeepGlobalTreeParent(GenerationModel model,TableModel table,PageModel page)=>
+        GlobalCachedParentCompilation.ForSelfTree(model,table,page) is {} parent
+            ?$"        if(entity.{parent.Foreign.Property}!={ScopeValue(parent.Foreign,"parentId!")})throw new InvalidOperationException(\"不能修改页面归属字段。\");\n"
+            :"";
+
     /// <summary>只有真实物理文件列需要保留导入/复制的原授权动作。</summary>
     internal static bool HasPhysicalFileColumns(GenerationModel model, TableModel table) => table.Columns.Any(column =>
         column.Source.ControlKind == "FileLibrary" && MetadataStoragePolicy.ForTable(model.Catalog, table.Source).IsPhysical(column.Source));

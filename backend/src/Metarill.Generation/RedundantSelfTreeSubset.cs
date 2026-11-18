@@ -24,7 +24,6 @@ internal static class RedundantSelfTreeSubset
             if(table.IsGlobal)
             {
                 GlobalCachedRelationSource.Require(model.Catalog,table.Source);
-                if(page.Scopes.Any(scope=>scope.Source=="parent"))return "全局R1自树来源的独立父参数缺少发布证明。";
             }
             var trees=table.Columns.Where(c=>c.Source.ControlKind=="CascadeTree"&&!NonRedundantCrossTableSubset.Declared(c)).ToArray();if(trees.Length==0||trees.Any(tree=>!FixedTarget(model,table,page,tree)))return "R1自树的当前路径、物理叶子缓存或传播维护尚未取得完整证明。";
             var cross=table.Columns.Any(NonRedundantCrossTableSubset.Declared);if(cross&&RedundantCrossTableSubset.Reason(model,table,page) is{} gap)return gap;
@@ -40,6 +39,12 @@ internal static class RedundantSelfTreeSubset
     /// <summary>非跨表页面的父只采用现有物理归属语义，不把缓存名称、树控件或自身主键当成父参数。</summary>
     private static void Parents(GenerationModel model,TableModel table,PageModel page)
     {
+        if(table.IsGlobal)
+        {
+            if(page.Scopes.Any(scope=>scope.Source=="parent")&&GlobalCachedParentCompilation.ForSelfTree(model,table,page) is null)
+                throw new NotSupportedException("全局R1自树来源需要唯一发布的独立物理List父范围。");
+            return;
+        }
         var physical=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);
         foreach(var scope in page.Scopes.Where(s=>s.Source=="parent"))
         {

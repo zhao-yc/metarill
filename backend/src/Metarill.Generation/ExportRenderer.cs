@@ -46,7 +46,8 @@ internal static class ExportRenderer
         if (!Enabled(page)) return "";
         var columns = Columns(page); var relations = Relations(model, page); var role = HasFixedRole(model,table,page); var admin = FixedAdmin(model,table,page);var multis=MultiNames(model,table,page);var checkboxes=table.Source.IsRongyu==0?DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>IncludesColumn(page,def.Source)).ToArray():[];
         var crossDependencies=CrossTableExcelRenderer.ExportDependencies(model,table,page,columns);
-        var physicalGlobalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null;
+        var physicalGlobalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
+            GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null;
         var snapshot=physicalGlobalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page)||crossDependencies.Count>0;
         var contexts = relations.ToDictionary(relation => relation.SourceColumn.Source.Id, relation => ControlRenderer.RelationContext(page, relation, false));
         var dependencies = contexts.Values.Where(context => context.TargetParentField is not null).Select(context => table.Columns.Single(column => column.JsonName == context.TargetParentField)).Concat(relations.SelectMany(relation=>relation.Conditions?.Forms.Select(binding=>binding.Column)??[])).Concat(checkboxes.SelectMany(def=>def.Dependencies)).DistinctBy(column=>column.Source.Id);

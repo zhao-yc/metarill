@@ -121,6 +121,102 @@ public sealed class NonRedundantSelfTreeTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>独立父项和树目标分别限定范围，Excel 和 CRUD 共用同一生成父校验。</summary>
+    [Theory]
+    [InlineData("string", "OnlyNew")]
+    [InlineData("int64", "OverWriteByFirstColumn")]
+    public async Task Global_cached_self_tree_honors_independent_published_parent(string foreignType, string importMode)
+    {
+        const string ns = "Example.GlobalTreeParent";
+        var catalog = Catalog("parent_tree", automatic: true);
+        foreach (var table in catalog.ConfigTables)
+            table.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        catalog.ConfigTables.Single(table => table.Id == "2").IsRongyu = 1;
+        catalog.ConfigColumns.RemoveAll(column => column.ConfigTableId == "2" && column.ColumnName == "yz_project_id");
+        var page = catalog.ConfigPages.Single(item => item.Id == "201");
+        page.WhereSql = "family_id=@parent_id";
+        page.IsDelete = 1;
+        page.Extra["importMethod"] = JsonSerializer.SerializeToElement(importMode);
+        catalog.ConfigPages.Single(item => item.Id == "301").WhereSql = "status=1";
+        catalog.ConfigTables.Add(new()
+        {
+            Id = "4", TableName = "parent_tree_family", IsRongyu = 1,
+            Extra = new() { ["scopeKind"] = JsonSerializer.SerializeToElement("global") }
+        });
+        catalog.ConfigColumns.AddRange([
+            new() { Id = "41", ConfigTableId = "4", ColumnName = "id", LogicalType = "int64", IsDbNotNull = 1 },
+            new() { Id = "42", ConfigTableId = "4", ColumnName = "name", LogicalType = "string" },
+            new() { Id = "43", ConfigTableId = "4", ColumnName = "status", LogicalType = "int32" },
+            new() { Id = "44", ConfigTableId = "4", ColumnName = "delete_no", LogicalType = "datetime" },
+            new()
+            {
+                Id = "271", ConfigTableId = "2", ColumnName = "family_id", LogicalType = foreignType,
+                LinkConfigTableId = "4", ControlKind = "List",
+                ControlDetail = JsonSerializer.Serialize(new { tableId = "4", pageId = "401", nameField = "name" })
+            },
+            new()
+            {
+                Id = "272", ConfigTableId = "2", ColumnName = "family_name", LogicalType = "string",
+                Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1), ["columnFullName"] = JsonSerializer.SerializeToElement("family.name") }
+            }
+        ]);
+        catalog.ConfigPages.Add(new() { Id = "401", ConfigTableId = "4", WhereSql = "status=1" });
+        catalog.ConfigPageColumns.Add(new() { Id = "4001", ConfigPageId = "401", ConfigColumnId = "42" });
+        RedundantMultiNameCacheTests.Published(catalog);
+
+        var model = GenerationModel.Create(catalog, ns);
+        var source = model.Tables.Single(table => table.Source.Id == "2");
+        var compiledPage = Assert.Single(source.Pages);
+        var parent = Assert.IsType<GlobalCachedSourceBinding>(GlobalCachedParentCompilation.ForSelfTree(model, source, compiledPage));
+        Assert.Equal("401", parent.Page.Source.Id);
+        Assert.Equal("271", parent.Foreign.Source.Id);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-self-tree-parent");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ns);
+            var code = File.ReadAllText(Path.Combine(output, "Services/ParentTreeSourceService.g.cs"));
+            Assert.Contains("GlobalTreeParentCondition201_271", code);
+            Assert.Contains("await ValidateParents201Async(request.ParentId, actor, cancellationToken", code);
+            Assert.Contains("await ValidateParents201Async(parentId,actor,cancellationToken);", code);
+            var parentValue = "long.Parse(parentId!, CultureInfo.InvariantCulture)" + (foreignType == "string" ? ".ToString(CultureInfo.InvariantCulture)" : "");
+            Assert.Equal(2, code.Split($"if(entity.FamilyId!={parentValue})", StringSplitOptions.None).Length - 1);
+
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            using var runtime = new SharedExcelReadTransport(assembly, ns, "ParentTreeSource");
+            const string accepted = "9007199254741991";
+            const string disabled = "9007199254741992";
+            const string removed = "9007199254741993";
+            runtime.Add("ParentTreeFamily", new Dictionary<string, object?> { ["Id"] = accepted, ["Status"] = 1 });
+            runtime.Add("ParentTreeFamily", new Dictionary<string, object?> { ["Id"] = disabled, ["Status"] = 0 });
+            runtime.Add("ParentTreeFamily", new Dictionary<string, object?> { ["Id"] = removed, ["Status"] = 1, ["DeleteNo"] = new DateTime(2026, 10, 1) });
+            runtime.Add("ParentTreeSource", new Dictionary<string, object?> { ["Id"] = 1L, ["Name"] = "允许行", ["FamilyId"] = accepted });
+            runtime.Add("ParentTreeSource", new Dictionary<string, object?> { ["Id"] = 2L, ["Name"] = "其他父行", ["FamilyId"] = disabled });
+
+            var export = await runtime.Export(new PageRequest { ParentId = accepted });
+            Assert.Contains("允许行", Assert.Single(export.Rows));
+            Assert.Equal(0, runtime.ExportLockCount);
+            Assert.True(runtime.Snapshots > 0);
+            foreach (var excluded in new[] { disabled, removed, "9007199254741994" })
+            {
+                await Assert.ThrowsAsync<InvalidOperationException>(() => runtime.Export(new PageRequest { ParentId = excluded }));
+                await Assert.ThrowsAsync<InvalidOperationException>(() => runtime.Import([], excluded));
+            }
+            await Assert.ThrowsAsync<ArgumentException>(() => runtime.Export(new PageRequest { ParentId = "0" + accepted }));
+            Assert.Equal("导入成功0条数据", await runtime.Import([], accepted));
+            Assert.Contains("lock:ParentTreeFamily", runtime.Reads);
+
+            catalog.ConfigPages.Single(item => item.Id == "401").WhereSql = "status=@parent_id";
+            var rejected = Assert.Throws<NotSupportedException>(() => new FrontendPackager().Validate(catalog));
+            Assert.Contains("固定条件", rejected.Message);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>同一全局表的直接父项和独立书签共用祖先结构，普通写入仍按存在的行项目列限制。</summary>
     [Theory]
     [InlineData(true)]

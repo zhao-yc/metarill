@@ -6,6 +6,20 @@ internal static class GlobalCachedParentCompilation
     /// <summary>父字段必须确为当前页的固定parent范围，并复用同一已证明List关系。</summary>
     internal static GlobalCachedSourceBinding? ForColumn(GenerationModel model,TableModel table,PageModel page,ColumnModel column)
         =>page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id)?GlobalCachedSourceCompilation.ForModel(model).SingleOrDefault(binding=>binding.Source.Source.Id==table.Source.Id&&binding.Foreign.Source.Id==column.Source.Id):null;
+    /// <summary>全局自树页面只接受既有物理List的独立、固定父角色。</summary>
+    internal static GlobalCachedSourceBinding? ForSelfTree(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(!table.IsGlobal||table.Source.IsRongyu!=1||
+            !table.Columns.Any(column=>column.Source.ControlKind=="CascadeTree"&&!NonRedundantCrossTableSubset.Declared(column)))
+            return null;
+        var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
+        if(parents.Length!=1)return null;
+        var binding=ForColumn(model,table,page,parents[0].Column);
+        return binding is not null&&binding.Target.Source.Id!=table.Source.Id&&binding.Page.Scopes.Count==0&&
+            !FixedPageConditionCompilation.HasCrossFields(binding.Page)&&!FixedPageConditionCompilation.HasAccountVariables(binding.Page)
+            ?binding:null;
+    }
+
     /// <summary>同一父表的不同来源列分别验证，不能只凭表名代替角色。</summary>
     internal static IReadOnlyList<GlobalCachedSourceBinding> ForTable(GenerationModel model,TableModel table,PageModel page,TableModel parent)
         =>page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>ForColumn(model,table,page,scope.Column)).OfType<GlobalCachedSourceBinding>().Where(binding=>binding.Target.Source.Id==parent.Source.Id).ToArray();
@@ -72,14 +86,19 @@ internal static class GlobalCachedParentCompilation
     internal static string Service(GenerationModel model,TableModel table,PageModel page)
     {
         var result=new System.Text.StringBuilder();
+        var treeParent=ForSelfTree(model,table,page);
         foreach(var binding in page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>ForColumn(model,table,page,scope.Column)).OfType<GlobalCachedSourceBinding>().DistinctBy(binding=>binding.Foreign.Source.Id))
         {
+            var conditionName="GlobalTreeParentCondition"+page.Source.Id+"_"+binding.Foreign.Source.Id;
+            var usesTreeParent=treeParent?.Foreign.Source.Id==binding.Foreign.Source.Id;
+            if(usesTreeParent)result.Append(FixedPageConditionCompilation.Declaration(binding.Page,conditionName));
             result.AppendLine("    /// <summary>全局父只属于当前发布目录；parentId不是项目或权限证明。</summary>")
                 .AppendLine($"    private async Task ValidateGlobalCachedParent{page.Source.Id}_{binding.Foreign.Source.Id}Async(string? parentId,RuntimeActor actor,bool locking,CancellationToken cancellationToken)")
                 .AppendLine("    {").AppendLine("        ValidateActor(actor);")
                 .AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var key)||key<=0||parentId!=key.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");")
                 .AppendLine($"        var query=session.Select<{binding.Target.EntityType}>().Where(entity=>entity.Id==key);");
             if(binding.Target.Columns.Any(column=>column.Source.ColumnName=="delete_no"))result.AppendLine("        query=query.Where(entity=>entity.DeleteNo==null);");
+            if(usesTreeParent)result.Append(FixedPageConditionCompilation.Apply(binding.Page,conditionName,"tree_parent_"+page.Source.Id));
             result.AppendLine("        if(locking){if((await query.ForUpdate().Limit(1).ToListAsync(entity=>new{entity.Id},cancellationToken)).Count!=1)throw new InvalidOperationException(\"父记录不存在或已删除。\");}")
                 .AppendLine("        else if(!await query.AnyAsync(cancellationToken))throw new InvalidOperationException(\"父记录不存在或已删除。\");").AppendLine("    }");
         }

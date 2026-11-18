@@ -1047,9 +1047,13 @@ internal sealed class SharedExcelReadTransport:IDisposable
             }
             if(method.Name=="Limit"){limit=Assert.IsType<int>(args[0]);return query;}
             if(method.Name=="ForUpdate"){Assert.NotNull(Session.CurrentTransaction);Reads.Add("lock:"+type.Name);return query;}
-            if(method.Name is not("ToListAsync" or "FirstAsync"))throw new InvalidOperationException("共享Excel离线传输未实现："+method.Name);
+            if(method.Name is not("ToListAsync" or "FirstAsync" or "AnyAsync"))throw new InvalidOperationException("共享Excel离线传输未实现："+method.Name);
             if(method.Name=="ToListAsync"&&type.Name=="SharedExcelCountry"&&FindFailure is{} failure){FindFailure=null;throw failure;}
             IEnumerable<object> filtered=rows.GetValueOrDefault(type,[]).Where(row=>predicates.All(predicate=>predicate(row)));
+            if(method.Name=="AnyAsync")
+            {
+                var exists=filtered.Any();ReadCalls.Add((type.Name,method.Name,exists?1:0));return Task.FromResult(exists);
+            }
             IOrderedEnumerable<object>? ordered=null;foreach(var order in orders)ordered=ordered is null?order.Desc?filtered.OrderByDescending(order.Key):filtered.OrderBy(order.Key):order.Desc?ordered.ThenByDescending(order.Key):ordered.ThenBy(order.Key);
             filtered=(ordered??filtered).Take(limit);var projection=args.OfType<LambdaExpression>().SingleOrDefault();var output=projection?.ReturnType??type;var compiledProjection=projection?.Compile();
             if(method.Name=="FirstAsync"){var row=filtered.FirstOrDefault();ReadCalls.Add((type.Name,method.Name,row is null?0:1));return TaskValue(output,row is null||compiledProjection is null?row:compiledProjection.DynamicInvoke(row));}
