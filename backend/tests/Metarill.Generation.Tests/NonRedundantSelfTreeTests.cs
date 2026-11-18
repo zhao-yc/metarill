@@ -141,6 +141,73 @@ public sealed class NonRedundantSelfTreeTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
     }
 
+    /// <summary>目标页逻辑条件进入原候选、图、写入与 Excel，并随发布目录冻结。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(false,true)]
+    [InlineData(true,false)]
+    public async Task Fixed_cross_condition_checks_every_self_tree_node(bool global,bool derivedName)
+    {
+        const string ns="Example.FixedSelfTreeNode";
+        var catalog=NonRedundantCrossTableGenerationTests.Catalog("scoped_tree","string","int64");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="2");
+        var targetPage=catalog.ConfigPages.Single(page=>page.ConfigTableId==target.Id);
+        if(global)target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        targetPage.WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+"country_name <> '限制节点' AND store_id=@current_store_id";
+        catalog.ConfigColumns.AddRange([
+            new(){Id="27",ConfigTableId="2",ColumnName="node_parent_id",LogicalType="int64"},
+            new(){Id="28",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"},
+            new(){Id="29",ConfigTableId="2",ColumnName="country_name",LogicalType="string"},
+            new(){Id="91",ConfigTableId="9",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="92",ConfigTableId="9",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="93",ConfigTableId="9",ColumnName="name",LogicalType="string"},
+            new(){Id="94",ConfigTableId="9",ColumnName="node_id",LogicalType="string",ControlKind="CascadeTree",LinkConfigTableId="2",
+                ControlDetail=JsonSerializer.Serialize(new{sourceMode="selfTree",selfTree=new{table=target.TableName,parentField="node_parent_id",nameField=derivedName?"company_title":"name"}})},
+            new(){Id="95",ConfigTableId="9",ColumnName="node_name",LogicalType="string"}
+        ]);
+        catalog.ConfigTables.Add(new(){Id="9",TableName="scoped_tree_consumer",IsRongyu=0});
+        catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="9",IsExport=1,IsImport=1});
+        catalog.ConfigPageColumns.Add(new(){Id="20127",ConfigPageId="201",ConfigColumnId="27"});
+        foreach(var id in new[]{"93","94","95"})
+            catalog.ConfigPageColumns.Add(new(){Id="901"+id,ConfigPageId="901",ConfigColumnId=id,IsShow=1,IsEdit=id=="95"?0:1,
+                Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(id=="95"?1:0)}});
+        if(derivedName)
+        {
+            catalog.ConfigColumns.AddRange([
+                new(){Id="210",ConfigTableId="2",ColumnName="company_id",LogicalType="int64",ControlKind="List",LinkConfigTableId="3",
+                    ControlDetail="{\"tableId\":\"3\",\"pageId\":\"301\",\"nameField\":\"name\"}"},
+                new(){Id="211",ConfigTableId="2",ColumnName="company_title",LogicalType="string",
+                    Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("company.name")}}
+            ]);
+            catalog.ConfigPageColumns.Add(new(){Id="201211",ConfigPageId="201",ConfigColumnId="211",IsShow=1,IsEdit=0});
+        }
+        RedundantMultiNameCacheTests.Published(catalog);
+        var model=GenerationModel.Create(catalog,ns);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-scoped-tree-candidate");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var code=File.ReadAllText(Path.Combine(generated,"Services/ScopedTreeConsumerService.g.cs"));
+            Assert.Contains("CompileCrossPageCandidate(\"2\",\"201\"",code);
+            Assert.Contains("ApplyCandidate(query,session,DerivedCascadePlan901_94.BindAccount(actor)",code);
+            Assert.Contains("CurrentRowsAsync(DerivedCascadePlan901_94.BindAccount(actor)",code);
+            Assert.Contains("DerivedCascadeRows901_94Async",code);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.ScopedTreeConsumerService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("CascadeOptions901_94Async"));
+            Assert.NotNull(service.GetMethod("CascadePath901_94Async"));
+            Assert.NotNull(service.GetMethod("Import901Async"));
+            Assert.NotNull(service.GetMethod("Export901Async"));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>真实生成页和原级联组件共同在Vue3挂载，网络受控；不替代浏览器或正式宿主验收。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public Task Original_self_tree_vue_keeps_paths_selection_clear_readonly_and_physical_write_contract(bool automatic)=>ExerciseOriginalVue(automatic,false);

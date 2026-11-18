@@ -17,6 +17,8 @@ internal static partial class BackendRenderer
         var scopedPages=candidateLevels.Where(level=>FixedPageConditionCompilation.HasCrossFields(level.Page)).Select(level=>(level.Target,level.Page))
             .Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>NonRedundantReadCompilation.GlobalSelectionPage(table,page)&&
                 CrossTableWriteCompilation.ForService(model,table,page).Count>0).Select(page=>(table,page))));
+        scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page)))
+            .Where(tree=>tree.ScopedCondition).Select(tree=>(tree.Target,tree.TargetPage)));
         var nestedTables=RelationPropagationCompilation.PublishedRecursiveTables(model,scopedPages);
         var recursiveCandidates=nestedTables.Count>0;
         var selfTreeNamePages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page)))

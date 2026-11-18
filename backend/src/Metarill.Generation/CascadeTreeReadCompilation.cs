@@ -2,7 +2,11 @@ using System.Text.Json;
 
 namespace Metarill.Generation;
 
-internal sealed record CascadeTreeReadModel(ColumnModel Source,TableModel Target,PageModel TargetPage,ColumnModel Name,ColumnModel Parent,string Joiner,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool Exact,bool DerivedName=false);
+internal sealed record CascadeTreeReadModel(ColumnModel Source,TableModel Target,PageModel TargetPage,ColumnModel Name,ColumnModel Parent,string Joiner,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool Exact,bool DerivedName=false)
+{
+    internal bool ScopedCondition=>FixedPageConditionCompilation.HasCrossFields(TargetPage);
+    internal bool UsesFixedRead=>DerivedName||ScopedCondition;
+}
 internal sealed record CascadeTreeReadResult(CascadeTreeReadModel? Definition,string? Reason);
 
 /// <summary>将原自关联级联定义编译为固定实体和可读页面；未覆盖场景保留完整能力门禁。</summary>
@@ -52,19 +56,24 @@ internal static class CascadeTreeReadCompilation
             if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))return Gap("目标缺少项目归属或明确全局声明。");
             var candidates=target.Pages.Where(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(candidate)&&candidate.Readable.Any(column=>column.Source.Id==name.Source.Id)&&candidate.Readable.Any(column=>column.Source.Id==parent.Source.Id)).ToArray();
             if(candidates.Length!=1)return Gap("目标缺少唯一、无父参数的可读页面。");
+            var targetPage=candidates[0];
+            var scoped=FixedPageConditionCompilation.HasCrossFields(targetPage);
+            if(scoped&&table.Source.IsRongyu==1)return Gap("自树目标的逻辑条件还需冗余叶名重算证明。");
             if(target.IsGlobal)
             {
-                // 目标全局资格不改变来源记录的实际行归属，固定目标页继续限制节点可见性。
-                Metarill.Core.Metadata.GlobalCrossTableTarget.RequireSelfTreeName(model.Catalog,target.Source,candidates[0].Source,name.Source);
+                // 目标全局资格不改变来源记录的实际行归属。
+                if(scoped)Metarill.Core.Metadata.GlobalCrossTableTarget.RequireScopedSelfTreeName(model.Catalog,target.Source,targetPage.Source,name.Source);
+                else Metarill.Core.Metadata.GlobalCrossTableTarget.RequireSelfTreeName(model.Catalog,target.Source,targetPage.Source,name.Source);
             }
-            // 此树入口使用实体最小三列查询，派生条件不能被当作物理列或忽略后扩大范围。
-            var scopeFields=candidates[0].Scopes.Select(scope=>scope.Column).Concat(candidates[0].Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]);
-            if(target.Source.IsRongyu==0&&scopeFields.Any(column=>!Physical(column)))return Gap("目标范围必须由已证明的物理列执行，派生范围尚未接线。");
+            var conditionFields=targetPage.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[];
+            if(target.Source.IsRongyu==0&&(targetPage.Scopes.Any(scope=>!Physical(scope.Column))||
+                conditionFields.Any(column=>!Physical(column)&&targetPage.Condition?.CrossFields.Contains(column.Source.ColumnName)!=true)))
+                return Gap("目标范围必须由已证明的物理列或固定跨表路径执行。");
             var ordering=GenerationModel.ValidateOrderBy(Text(tree,"orderBy",name.Source.ColumnName+" asc"),target.Columns).ToList();
             if(ordering.Any(item=>!Physical(item.Column)&&!((derived||integerCache)&&item.Column.Source.Id==name.Source.Id)))return Gap("排序字段不是可排序物理标量。");
             if(!ordering.Any(item=>item.Column.IsId))ordering.Add((target.Columns.Single(column=>column.IsId),false));
             var joiner=Text(root,"displayJoiner","/");if(joiner.Length>32)return Gap("路径分隔符过长。");
-            var plan=new CascadeTreeReadModel(source,target,candidates[0],name,parent,joiner,ordering,Text(tree,"filterMatchMode","selfAndDescendants")=="exact",derived);if(derived)DerivedCascadeNamesCompilation.Require(model,table,plan);return new(plan,null);
+            var plan=new CascadeTreeReadModel(source,target,candidates[0],name,parent,joiner,ordering,Text(tree,"filterMatchMode","selfAndDescendants")=="exact",derived);if(plan.UsesFixedRead)DerivedCascadeNamesCompilation.Require(model,table,plan);return new(plan,null);
         }
         catch(Exception error)when(error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException){return Gap("定义无法安全编译："+error.Message);}
     }

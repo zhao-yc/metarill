@@ -120,6 +120,53 @@ public sealed class CascadeMultiLabelReadTests
         }
     }
 
+    /// <summary>自树叶名筛选的每个祖先都使用同页逻辑条件，而不是稀疏物理值。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Scoped_self_tree_leaf_name_reuses_published_cross_filter(bool global)
+    {
+        var catalog=NonRedundantCrossTableReadTests.Catalog("mt_scoped_self","string","int64");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="1");
+        if(global)target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+        foreach(var page in catalog.ConfigPages)
+        {
+            page.YzAdminTypeId="5";
+            foreach(var field in catalog.ConfigColumns.Where(column=>column.ConfigTableId==page.ConfigTableId&&
+                (column.ColumnName=="title"||column.LinkConfigTableId.Length>0)))
+                catalog.ConfigPageColumns.Add(new(){Id=page.Id+field.Id,ConfigPageId=page.Id,ConfigColumnId=field.Id});
+        }
+        catalog.ConfigColumns.AddRange([
+            new(){Id="node_parent",ConfigTableId="1",ColumnName="node_parent_id",LogicalType="int64"},
+            new(){Id="node_store",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"},
+            new(){Id="consumer_id",ConfigTableId="9",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="consumer_project",ConfigTableId="9",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="consumer_tree",ConfigTableId="9",ColumnName="node_id",LogicalType="string",ControlKind="CascadeTree",LinkConfigTableId="1",
+                ControlDetail="{\"sourceMode\":\"selfTree\",\"selfTree\":{\"table\":\"mt_scoped_self_source\",\"parentField\":\"node_parent_id\"}}"},
+            new(){Id="consumer_leaf",ConfigTableId="9",ColumnName="node_name",LogicalType="string"}
+        ]);
+        catalog.ConfigTables.Add(new(){Id="9",YzProjectId=catalog.YzProjectId,TableName="mt_scoped_self_consumer",IsRongyu=0});
+        var pageId="11";
+        catalog.ConfigPages.Add(new(){Id=pageId,ConfigTableId="1",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
+            WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+"country_name <> '隐藏树节点' AND store_id=@current_store_id"});
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="11name",ConfigPageId=pageId,ConfigColumnId="12"},
+            new(){Id="11parent",ConfigPageId=pageId,ConfigColumnId="node_parent"}
+        ]);
+        var actor=new RuntimeActor(1,"树范围",false,catalog.YzProjectId,"5"){StoreId=9007199254741991L};
+        var plan=NonRedundantReads.Compile(catalog,"9",["id","node_id"],["node_name"],deferCascadeNames:true).BindAccount(actor).MySql;
+        var sql=plan.Expression("node_name");
+        Assert.Contains("WITH RECURSIVE",sql);
+        Assert.Contains("LEFT JOIN `mt_scoped_self_country`",sql);
+        Assert.Contains("`store_id`",sql);
+        Assert.Contains("ancestor.`id`",sql);
+        Assert.Contains("leaf.`id`",sql);
+        Assert.Contains("隐藏树节点",plan.Constants.Values);
+        Assert.Contains(actor.StoreId!.Value,plan.Constants.Values);
+        Assert.Equal(global,plan.RequiresPublishedProjectIdentity);
+    }
+
     /// <summary>共享祖先名称必须同时核对两个来源分支，冲突不能作为有效名称。</summary>
     [Theory]
     [InlineData(false)]

@@ -8,7 +8,7 @@ namespace Metarill.Data.Queries;
 public static partial class MySqlNonRedundantReadCompiler
 {
     private sealed record SelfTreeLabelProof(TableMetadata Target,ColumnMetadata Name,ColumnMetadata Parent,
-        PageMetadata Page,FixedConditionSqlPlan? Condition);
+        PageMetadata Page,FixedConditionSqlPlan? Condition,bool Scoped);
 
     /// <summary>只将原控件的叶子名称标为逻辑来源，完整路径显示文本仍由原前端合同输出。</summary>
     private static bool IsSelfTreeLabel(ColumnMetadata control,string field)=>
@@ -45,13 +45,16 @@ public static partial class MySqlNonRedundantReadCompiler
                 storage.Kind(name)!=MetadataFieldStorage.Join||target.IsRongyu!=0))
             throw new NotSupportedException("多值名称的自树父键或标量叶名无效。");
         var (page,condition)=CascadeLabelPage(catalog,target,name.ColumnName,parent.ColumnName);
+        var scoped=FixedConditionPlan.Compile(page.WhereSql,members.Select(column=>column.ColumnName)).Fields
+            .Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,members,field));
         if(GlobalCrossTableTarget.Declared(target))
         {
-            GlobalCrossTableTarget.RequireSelfTreeName(catalog,target,page,name);
+            if(scoped)GlobalCrossTableTarget.RequireScopedSelfTreeName(catalog,target,page,name);
+            else GlobalCrossTableTarget.RequireSelfTreeName(catalog,target,page,name);
         }
         else if(!members.Any(column=>column.ColumnName=="yz_project_id"&&storage.IsPhysical(column)))
             throw new NotSupportedException("自树节点缺少真实项目范围。");
-        return new(target,name,parent,page,condition);
+        return new(target,name,parent,page,condition,scoped);
     }
 
     /// <summary>同表父字段也可以承载原树控件，只有真实物理自关联键允许同时作为拓扑列。</summary>
@@ -114,6 +117,18 @@ public static partial class MySqlNonRedundantReadCompiler
             var source=owner+"."+Q(control.ColumnName);
             var leafKey=PositiveText("CAST("+source+" AS CHAR)");
             var max=SelfTreeReader.MaximumDepth.ToString(CultureInfo.InvariantCulture);
+            var display=prefix+"display";
+            MySqlNonRedundantReadPlan? fixedTarget=null;
+            if(proof.Scoped)
+            {
+                if(trackReverse||cascadeCacheOwner is not null)
+                    throw new NotSupportedException("带逻辑条件的自树名称还需完整缓存传播证明。");
+                fixedTarget=CompileCrossPageCandidate(catalog,proof.Target.Id,proof.Page.Id,
+                    ["id",proof.Name.ColumnName],[],rootAlias:display,aliasPrefix:prefix+"s_");
+                fixedTarget.CopyParametersTo(crossConstants);
+                cascadeLabelPages.UnionWith(fixedTarget.CascadeLabelPages);
+                if(fixedTarget.RequiresPublishedProjectIdentity)scopedGlobalCrossTarget=true;
+            }
 
             var seedScope=NodeScope(seed);
             var ancestorScope=NodeScope(ancestor);
@@ -128,10 +143,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var reachesRoot="("+cte+"SELECT 1 FROM "+walk+
                 " WHERE "+walk+".parent_key IS NULL OR CAST("+walk+".parent_key AS CHAR) REGEXP '^[[:space:]]*$' LIMIT 1) IS NOT NULL";
 
-            var display=prefix+"display";
-            var nodeName=display+"."+Q(proof.Name.ColumnName);
-            var nodeFrom=" FROM "+targetTable+" "+display;
-            if(!storage[proof.Target.Id].IsPhysical(proof.Name))
+            var nodeName=fixedTarget?.Expression(proof.Name.ColumnName)??display+"."+Q(proof.Name.ColumnName);
+            var nodeFrom=fixedTarget?.From??" FROM "+targetTable+" "+display;
+            if(fixedTarget is null&&!storage[proof.Target.Id].IsPhysical(proof.Name))
             {
                 var nested=new Builder(catalog,proof.Target.Id,matching:!global,rootAlias:display,aliasPrefix:prefix+"label_",
                     trackReverse:trackReverse,candidatePage:global&&HasGlobalRowProject(proof.Target)?proof.Page:null,multiLabel:true)
@@ -175,6 +189,10 @@ public static partial class MySqlNonRedundantReadCompiler
 
             string NodeScope(string alias)
             {
+                // 候选仅在本节点命中时通过，根、叶和每个祖先都执行同页逻辑条件。
+                if(fixedTarget is not null)
+                    return "EXISTS (SELECT 1"+fixedTarget.From+" WHERE "+fixedTarget.Expression("id")+"="+alias+".`id`"+
+                        WithScope(fixedTarget.Scope)+")";
                 var scope=Scope(proof.Target,alias,projectScoped:!global);
                 if(proof.Condition is null)return scope;
                 var condition=CascadeLabelCondition(proof.Target,proof.Page,proof.Condition,alias,"mt_"+alias);

@@ -71,6 +71,10 @@ public static class GlobalCrossTableTarget
     public static void RequireSelfTreeName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)
         =>RequirePublishedName(catalog,table,page,name,true,allowInteger:true);
 
+    /// <summary>实时自树候选可以使用由其固定跨表路径证明的页面条件。</summary>
+    public static void RequireScopedSelfTreeName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)
+        =>RequirePublishedName(catalog,table,page,name,true,allowAccount:true,allowInteger:true,allowLogical:true);
+
     /// <summary>名称资格与页条件共用原完整证明，存储模式资格由调用用途限定。</summary>
     private static void RequirePublishedName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowR0,bool allowAccount=false,bool allowInteger=false,bool allowLogical=false)
     {

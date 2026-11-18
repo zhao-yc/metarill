@@ -49,6 +49,18 @@ public static class NonRedundantCrossTableScopeSql
             new Dictionary<string,object?>(clause.Parameters,StringComparer.Ordinal));
     }
 
+    /// <summary>实体查询和路径读取使用同一已发布候选，附加条件在编译时已纳入。</summary>
+    public static ISelect<T> ApplyCandidate<T>(ISelect<T> query,DatabaseSession session,NonRedundantReadPlan plan,
+        string parameterPrefix,string projectId)where T:class
+    {
+        MetadataValidation.RequireIdentifier(parameterPrefix);
+        var compiled=plan.MySql;
+        if(session.Provider.Name!="mysql"||!compiled.HasPublishedCandidateCondition||compiled.RequiredMultiParent is not null||
+            compiled.CandidateParents.Count!=0||compiled.ProjectId!=projectId)
+            throw new InvalidOperationException("查询必须使用当前项目无独立父参数的固定候选页。");
+        return ApplyScope(query,session,compiled,parameterPrefix,projectId,false,[],new(StringComparer.Ordinal));
+    }
+
     /// <summary>物理对象查询与固定逻辑谓词按同一主键关联，账户和条件值全部参数化。</summary>
     private static ISelect<T> ApplyScope<T>(ISelect<T> query,DatabaseSession session,MySqlNonRedundantReadPlan compiled,
         string parameterPrefix,string projectId,bool locking,IReadOnlyList<string> predicates,Dictionary<string,object?> parameters)where T:class

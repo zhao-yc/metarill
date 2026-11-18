@@ -36,7 +36,7 @@ internal static class CascadeTreeReadRenderer
             var projection=$"row => new {target.EntityType} {{ Id=row.Id,{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property} }}";
             var label=MultiSelectExcelRenderer.LabelText(name,"row."+name.Property);
             var ordering=string.Join("",plan.Order.Select(item=>$".{(item.Descending?"OrderByDescending":"OrderBy")}(row=>row.{item.Column.Property})"));
-            result.Append(FixedPageConditionCompilation.Declaration(plan.TargetPage,"CascadeCondition"+suffix));
+            if(!plan.ScopedCondition)result.Append(FixedPageConditionCompilation.Declaration(plan.TargetPage,"CascadeCondition"+suffix));
             result.AppendLine("    /// <summary>固定候选范围使用真实身份，普通调用与路径每一跳共用权限和SQL条件。</summary>")
                 .AppendLine($"    private ISelect<{target.EntityType}> CascadeScope{suffix}(RuntimeActor actor,bool requireSourceList=true,bool requireTargetList=true{(sameRow?",bool structureOnly=false":"")})")
                 .AppendLine("    {").AppendLine("        ValidateActor(actor);")
@@ -47,9 +47,12 @@ internal static class CascadeTreeReadRenderer
             if(!target.IsGlobal&&project is not null&&!scopes.Any(scope=>scope.Column.Source.Id==project.Source.Id))scopes.Add((project,"project"));
             foreach(var (column,_) in scopes)result.AppendLine($"        query=query.Where(row=>row.{column.Property}=={(column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")});");
             if(sameRow&&plan.TargetPage.Condition is not null)result.AppendLine("        if(!structureOnly)");
-            result.Append(FixedPageConditionCompilation.Apply(plan.TargetPage,"CascadeCondition"+suffix,"cascade_"+suffix)).AppendLine("        return query;").AppendLine("    }");
+            if(plan.ScopedCondition)
+                result.AppendLine($"        query=NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,DerivedCascadePlan{suffix}.BindAccount(actor),{Literal("cascade_"+suffix)},actor.ProjectId);");
+            else result.Append(FixedPageConditionCompilation.Apply(plan.TargetPage,"CascadeCondition"+suffix,"cascade_"+suffix));
+            result.AppendLine("        return query;").AppendLine("    }");
             if(sameRow)result.Append(CascadeTreeTopologyRenderer.Service(table,page,plan));
-            if(plan.DerivedName)result.Append(DerivedCascadeNamesRenderer.Reader(model,table,page,plan));
+            if(plan.UsesFixedRead)result.Append(DerivedCascadeNamesRenderer.Reader(model,table,page,plan));
             else
             result.AppendLine("    /// <summary>只投影树结构必需三列，候选有界且不加载整表。</summary>")
                 .AppendLine($"    private Metarill.Core.Cascades.SelfTreeReader CascadeReader{suffix}(RuntimeActor actor,bool locking=false,bool requireSourceList=true,bool requireTargetList=true) => new(")

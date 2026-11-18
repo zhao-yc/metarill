@@ -12,12 +12,16 @@ internal static class DerivedCascadeNamesCompilation
         // R1读取不能独立于缓存发布：同一控制定义须取得完整字段与派生匹配证明，执行时统一进入维护队列。
         if(owner.Source.IsRongyu==1){var proof=SelfTreeCache.Compile(model.Catalog,owner.Source.Id,plan.Source.Source.Id,target.IsGlobal?plan.TargetPage.Source.Id:null);DerivedCrossTableCaches.Validate(model.Catalog,[proof],[]);}
         var fields=plan.TargetPage.Scopes.Select(scope=>scope.Column).Concat(plan.TargetPage.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).Append(plan.Parent).DistinctBy(column=>column.Source.Id).ToArray();
-        if(fields.Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)))throw new InvalidOperationException("派生自树的父结构、身份和条件必须为物理标量。");
+        if(fields.Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)&&
+            plan.TargetPage.Condition?.CrossFields.Contains(column.Source.ColumnName)!=true))
+            throw new InvalidOperationException("自树的身份和条件必须为物理标量或固定跨表路径。");
         // 全局目标名称由固定发布页证明，普通目标继续要求单值匹配计划。
         if(!target.IsGlobal)_=NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,plan.Name.Source.ColumnName);
         var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(plan.Order.Select(item=>item.Column.Source.ColumnName)).Concat(new[]{"id",plan.Name.Source.ColumnName}).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         string[] outputs=["id",plan.Name.Source.ColumnName,plan.Parent.Source.ColumnName];
-        var read=NonRedundantReadCompilation.HasGlobalRowProject(target)
+        var read=plan.ScopedCondition
+            ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,plan.TargetPage.Source.Id,outputs,dependencies)
+            :NonRedundantReadCompilation.HasGlobalRowProject(target)
             ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,plan.TargetPage.Source.Id,outputs,dependencies)
             :NonRedundantReads.Compile(model.Catalog,target.Source.Id,outputs,dependencies);
         if(read.OutputTypes["id"]!="int64"||read.OutputTypes[plan.Name.Source.ColumnName]!=plan.Name.Source.LogicalType)

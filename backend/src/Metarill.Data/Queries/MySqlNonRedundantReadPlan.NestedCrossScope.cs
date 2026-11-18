@@ -8,7 +8,7 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>候选与实际父路径使用同一发布页范围；调用端不能替换其中任一逻辑条件。</summary>
     internal static MySqlNonRedundantReadPlan CompileCrossPageCandidate(MetadataCatalog catalog,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
-        IReadOnlyList<NonRedundantCrossTableScope>? displayBindings=null)
+        IReadOnlyList<NonRedundantCrossTableScope>? displayBindings=null,string rootAlias="b",string aliasPrefix="r")
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -38,13 +38,14 @@ public static partial class MySqlNonRedundantReadCompiler
         var scopes=logical.Count==0?[]:CrossMembershipBindings(catalog,table,page,logical);
         // 范围的绑定按发布页生成，其它绑定仅用于该独立选择页展示额外的路径。
         var bindings=scopes.Concat(displayBindings??[]).DistinctBy(path=>path.SourceColumnId,StringComparer.Ordinal).ToArray();
-        var builder=new Builder(catalog,tableId,crossTables:bindings)
+        var builder=new Builder(catalog,tableId,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
         {
             CrossCandidateCondition=condition,
             MultiCandidateParent=parent,
             MultiCandidatePage=page,
             GlobalCrossCandidate=global,
-            ScopedRootControls=scopes.Select(path=>path.SourceColumnId).ToHashSet(StringComparer.Ordinal)
+            ScopedRootControls=scopes.Select(path=>path.SourceColumnId).ToHashSet(StringComparer.Ordinal),
+            CrossAliasPrefix=rootAlias=="b"?"cross":aliasPrefix+"c"
         };
         return builder.Compile(outputs,dependencies.Concat(syntax.Fields).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
@@ -202,7 +203,8 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>固定候选页过滤实际可见的整条路径，查询及计数无法省略范围。</summary>
         private string FixedCrossCandidateScope(string scope,IReadOnlyDictionary<string,string> expressions)
         {
-            var clause=CrossCandidateCondition?.RenderAccountProjection(new MySqlDatabaseProvider(),"mt_candidate",
+            var clause=CrossCandidateCondition?.RenderAccountProjection(new MySqlDatabaseProvider(),
+                rootAlias=="b"?"mt_candidate":ConditionParameterPrefix("mt_"+aliasPrefix+"candidate"),
                 field=>expressions[field]);
             if(clause is not null)
                 foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
