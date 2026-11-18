@@ -120,6 +120,16 @@ public sealed class CascadeMultiLabelGenerationTests
         CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:mode==1,globalRowProject:rowProject,
             parent:true,logicalParent:true,sourceLogicalParent:sourceLogical,globalParent:true,parentWithoutProject:noParentProject,parentAccount:parentAccount);
 
+    [Theory]
+    [InlineData("MultiSelectPage",0,null,true,false)]
+    [InlineData("MultiCheckBoxDatabase",0,false,true,true,true)]
+    [InlineData("MultiSelectPage",1,true,false,false)]
+    [InlineData("MultiCheckBoxDatabase",1,null,true,false)]
+    public Task Selected_page_global_physical_parent_conditions_compile_in_original_endpoints(
+        string kind,int mode,bool? rowProject,bool noParentProject,bool sourceLogical,bool parentAccount=false)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:mode==1,globalRowProject:rowProject,
+            parent:true,sourceLogicalParent:sourceLogical,globalParent:true,parentWithoutProject:noParentProject,parentAccount:parentAccount);
+
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
         bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
         bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false)
@@ -203,8 +213,8 @@ public sealed class CascadeMultiLabelGenerationTests
         var parentField=logicalParent?"country_id":"target_scope_id";
         if(parent)
         {
-            var parentTable=logicalParent||sourceLogicalParent?"3":"71";
-            if(!logicalParent&& !sourceLogicalParent)
+            var parentTable=logicalParent||sourceLogicalParent||globalParent?"3":"71";
+            if(!logicalParent&&!sourceLogicalParent&&!globalParent)
             {
                 catalog.ConfigTables.Add(new(){Id="71",TableName="label_scope_parent",IsRongyu=1});
                 catalog.ConfigColumns.AddRange([
@@ -293,6 +303,14 @@ public sealed class CascadeMultiLabelGenerationTests
                     Assert.Contains("CompileMultiGlobalParent(\"2\",\"201\")",code);
                     Assert.Contains(".KeyRowsAsync(",code);
                     Assert.DoesNotContain("session.Select<LabelCrossCountry>().Where(row => row.Id == targetParentKey",code);
+                    if(!logicalParent)
+                    {
+                        var targetCode=File.ReadAllText(Path.Combine(directory,"generated/Services/LabelCrossSourceService.g.cs"));
+                        Assert.Contains("CompileMultiGlobalParent(\"2\",\"201\")",targetCode);
+                        Assert.Contains("ValidateParents201Async(parentId,actor,cancellationToken,locking:false)",targetCode);
+                        Assert.Contains("entity.TargetScopeId,actor,cancellationToken",targetCode);
+                        Assert.Contains("Task<long> Count201Async",targetCode);
+                    }
                 }
                 if(parent)
                 {
@@ -319,7 +337,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 var targets=MixedRelationPropagationCompilation.ForModel(model).MixedTargets;
                 Assert.Contains(selfTree?"label_cross_tree":"label_cross_country",targets);
                 if(indirect)Assert.Contains("label_cross_source",targets);
-                if(parent)Assert.Contains(logicalParent?"label_cross_country":"label_scope_parent",targets);
+                if(parent)Assert.Contains(logicalParent||globalParent?"label_cross_country":"label_scope_parent",targets);
                 if(recursive||selectedPage)
                 {
                     var target=recursive?"label_scope_zone":"label_cross_country";

@@ -56,6 +56,14 @@ internal static class ForeignValidationRenderer
             }
             if(column.Source.ControlKind=="CascadeTree"){result.Append(CascadeTreeWriteRenderer.Validation(model,table,page,column));continue;}
             if(crossFields.Contains(column.Source.Id))continue;
+            if(MultiGlobalParentCompilation.PhysicalTarget(model,table,page) is not null&&
+                page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id))
+            {
+                // 按写入前的真实物理键复核，手写规则修改实体也不能绕过父页条件。
+                var key=column.Type=="string?"?$"entity.{column.Property}":$"entity.{column.Property}?.ToString(CultureInfo.InvariantCulture)";
+                result.AppendLine($"        if(creating||submitted.Contains({Literal(column.Source.ColumnName)})) await ValidateParents{page.Source.Id}Async({key},actor,cancellationToken);");
+                continue;
+            }
             if (column.Source.ControlKind == "MultiSelectPage")
             {
                 var multi = MultiSelectCompilation.Resolve(model, table, page, column, forService: true);

@@ -119,7 +119,7 @@ internal static class RelationCompilation
             ?? throw new InvalidOperationException("关联父范围缺少明确目标表：" + column.Source.ColumnName);
         if(parent.IsGlobal&&owner is not null&&page is not null&&GlobalCachedParentCompilation.ForColumn(model,owner,page,column)?.Target.Source.Id==parent.Source.Id)return parent;
         if(parent.IsGlobal&&redundant is not null)return parent;
-        if(parent.IsGlobal&&owner is not null&&page is not null&&MultiGlobalParentCompilation.PhysicalSourceTarget(model,owner,page) is not null)return parent;
+        if(parent.IsGlobal&&owner is not null&&page is not null&&MultiGlobalParentCompilation.PhysicalScopeTarget(model,owner,page) is not null)return parent;
         if(parent.IsGlobal&&owner is not null&&page is not null&&SharedGlobalParentCompilation.ForColumn(model,owner,page,column).Count>0)return parent;
         if (!parent.Columns.Any(candidate => candidate.Source.ColumnName == "yz_project_id")) throw new InvalidOperationException("关联父表未声明项目归属。");
         return parent;

@@ -76,9 +76,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         projectId=RequirePlanProject(plan,projectId);
         // 所有字段/操作/值先验证，不能在发出COUNT后才发现排序非法。
         filters=filters.Select(filter=>Prepare(plan,filter)).ToArray();order=order.ToArray();
-        if(plan.RequiredMultiParent is {} parent&&!filters.Any(filter=>filter.Field==parent&&
-            filter.Comparison==FixedReadComparison.Equal&&filter.Value is not null))
-            throw new InvalidOperationException("多值目标页读取必须绑定实际父ID。");
+        RequireMultiParentFilter(plan,filters);
         var clauses=filters.Select((filter,index)=>Filter(plan,filter,index)).ToArray();
         var parentClause = CandidateParentClause(plan,projectId,currentRead);
         var orders=order.Select(item=>plan.Expression(item.Field)+(item.Descending?" DESC":" ASC")).ToList();
@@ -210,17 +208,26 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     {
         if(value is null)return [];try{using var doc=System.Text.Json.JsonDocument.Parse(Convert.ToString(value,System.Globalization.CultureInfo.InvariantCulture)!);return doc.RootElement.ValueKind==System.Text.Json.JsonValueKind.Array?doc.RootElement.EnumerateArray().Select(item=>item.ValueKind is System.Text.Json.JsonValueKind.String?item.GetString():item.ValueKind==System.Text.Json.JsonValueKind.Number?item.GetRawText():null).ToArray():[];}catch(System.Text.Json.JsonException){return [];}
     }
+    /// <summary>列表与数量共享实际父参数约束，禁止无父范围的读取。</summary>
+    private static void RequireMultiParentFilter(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters)
+    {
+        if(plan.RequiredMultiParent is {} parent&&!filters.Any(filter=>filter.Field==parent&&
+            filter.Comparison==FixedReadComparison.Equal&&filter.Value is not null))
+            throw new InvalidOperationException("多值目标页读取必须绑定实际父ID。");
+    }
+
     /// <summary>数值派生表达式在同一完整过滤范围内汇总，不先分页或对当前页记录求和。</summary>
     public async Task<FixedReadStatistics> ReadStatisticsAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
         IReadOnlyList<string> sumFields,CancellationToken cancellationToken=default,string? projectId=null,FixedConditionSqlPlan? condition=null)
     {
         if(session.Provider.Name!="mysql")throw new NotSupportedException("固定读取计划与数据库方言不一致。");
         ArgumentNullException.ThrowIfNull(plan);ArgumentNullException.ThrowIfNull(filters);ArgumentNullException.ThrowIfNull(sumFields);
-        if(plan.CandidateParents.Count>0||plan.RequiredMultiParent is not null)throw new InvalidOperationException("候选父范围计划不能用于业务统计。");
+        if(plan.CandidateParents.Count>0)throw new InvalidOperationException("候选父范围计划不能用于业务统计。");
         projectId=RequirePlanProject(plan,projectId);var fields=sumFields.ToArray();
         if(fields.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=fields.Length)throw new InvalidOperationException("统计字段重复。");
         foreach(var field in fields){plan.Expression(field);if(plan.Types[field] is not("int32" or "int64" or "decimal" or "double"))throw new InvalidOperationException("求和字段必须是已编译数值。");}
         filters=filters.Select(filter=>Prepare(plan,filter)).ToArray();
+        RequireMultiParentFilter(plan,filters);
         var aggregateFields = plan.AggregateFrom is null
             ? null
             : fields.Concat(filters.Select(filter => filter.Field)).ToHashSet(StringComparer.OrdinalIgnoreCase);

@@ -240,7 +240,10 @@ public sealed class NestedCrossCandidateTests
     [InlineData("MultiSelectPage",false,true,false,null,true,true,false,false,false,true)]
     [InlineData("MultiCheckBoxDatabase",false,true,true,true,true,true,false,false,false,true)]
     [InlineData("MultiCheckBoxDatabase",false,true,true,false,true,true,true,true,false,true)]
-    public void Multi_label_cache_keeps_recursive_scope_and_its_reverse_dependencies(
+    [InlineData("MultiSelectPage",false,true,false,null,true,false,false,false,false,true)]
+    [InlineData("MultiCheckBoxDatabase",false,true,true,false,true,false,false,false,false,true)]
+    [InlineData("MultiCheckBoxDatabase",false,true,true,true,true,false,false,true,true,true)]
+    public async Task Multi_label_cache_keeps_recursive_scope_and_its_reverse_dependencies(
         string kind,bool global,bool rootCondition,bool physical,bool? globalRowProject,bool parent=false,bool logicalParent=false,bool onlyParent=false,bool logicalSource=false,bool sharedSource=false,bool globalParent=false)
     {
         var catalog=Catalog(global);
@@ -284,17 +287,17 @@ public sealed class NestedCrossCandidateTests
         ]);
         catalog.ConfigPages.Add(new(){Id="980",ConfigTableId="98",WhereSql="store_id=@current_store_id"});
         var targetParentField=logicalParent?"outer_root_id":"target_scope_id";
-        var parentTable=logicalParent||logicalSource?"nested_source":"label_scope_parent";
+        var parentTable=logicalParent||logicalSource||globalParent?"nested_source":"label_scope_parent";
         if(parent)
         {
-            if(!logicalParent&&!logicalSource)catalog.ConfigTables.Add(new(){Id="97",TableName="label_scope_parent",IsRongyu=1});
-            if(!logicalParent&&!logicalSource)catalog.ConfigColumns.AddRange([
+            if(!logicalParent&&!logicalSource&&!globalParent)catalog.ConfigTables.Add(new(){Id="97",TableName="label_scope_parent",IsRongyu=1});
+            if(!logicalParent&&!logicalSource&&!globalParent)catalog.ConfigColumns.AddRange([
                 new(){Id="9701",ConfigTableId="97",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
                 new(){Id="9702",ConfigTableId="97",ColumnName="yz_project_id",LogicalType="int64"},
                 new(){Id="9703",ConfigTableId="97",ColumnName="delete_no",LogicalType="datetime"},
             ]);
-            if(!logicalParent)catalog.ConfigColumns.Add(new(){Id="9094",ConfigTableId="90",ColumnName="target_scope_id",LogicalType="string",LinkConfigTableId=logicalSource?"1":"97"});
-            catalog.ConfigColumns.Add(new(){Id="9894",ConfigTableId="98",ColumnName="source_scope_id",LogicalType="int64",LinkConfigTableId=logicalParent||logicalSource?"1":"97"});
+            if(!logicalParent)catalog.ConfigColumns.Add(new(){Id="9094",ConfigTableId="90",ColumnName="target_scope_id",LogicalType="string",LinkConfigTableId=logicalSource||globalParent?"1":"97"});
+            catalog.ConfigColumns.Add(new(){Id="9894",ConfigTableId="98",ColumnName="source_scope_id",LogicalType="int64",LinkConfigTableId=logicalParent||logicalSource||globalParent?"1":"97"});
             if(logicalSource)catalog.ConfigColumns.Add(new(){Id="9895",ConfigTableId="98",ColumnName="source_leaf_id",LogicalType="int64",LinkConfigTableId="91",ControlKind="CascadeTree",ControlDetail=JsonSerializer.Serialize(new
             {
                 sourceMode="crossTable",levels=new object[]{new{table="nested_source",columnPrefix="source_scope"},
@@ -332,6 +335,16 @@ public sealed class NestedCrossCandidateTests
                 if(globalParent)
                 {
                     Assert.DoesNotContain("multi_parent.`yz_project_id`",bound.Scope);
+                    if(!logicalParent)
+                    {
+                        Assert.Contains("global_parent.`delete_no` IS NULL",bound.Scope);
+                        Assert.Contains("global_parent.`store_id`",bound.Scope);
+                        Assert.DoesNotContain("global_parent.`yz_project_id`",bound.Scope);
+                        using var session=new DatabaseSession(new(){ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"});
+                        var missing=await Assert.ThrowsAsync<InvalidOperationException>(()=>new MySqlNonRedundantReader(session)
+                            .ReadStatisticsAsync(bound,[],[],projectId:actor.ProjectId));
+                        Assert.Contains("必须绑定实际父ID",missing.Message);
+                    }
                     var parentPlan=NonRedundantReads.CompileMultiGlobalParent(catalog,"90","900").BindAccount(actor).MySql;
                     Assert.Contains("nested_source",parentPlan.From);
                     Assert.DoesNotContain("b.`yz_project_id`=",parentPlan.Scope);

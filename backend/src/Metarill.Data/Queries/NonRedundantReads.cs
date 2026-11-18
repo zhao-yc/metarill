@@ -137,6 +137,10 @@ public static class NonRedundantReads
     {"mysql"=>new(MySqlNonRedundantReadCompiler.CompileMultiLabel(metadata,tableId,field,outputs,dependencies)),_=>throw new NotSupportedException("该数据库尚未完成固定名称读取适配。")};
 
     /// <summary>生成和传播按表级多值定义识别固定逻辑目标页。</summary>
+    /// <summary>确认该固定页面确实被多选或复选字段引用。</summary>
+    public static bool IsScopedMultiTarget(MetadataCatalog metadata,TableMetadata target,string pageId)=>
+        MySqlNonRedundantReadCompiler.IsScopedMultiTarget(metadata,target,pageId);
+
     public static bool HasScopedMultiPage(MetadataCatalog metadata,TableMetadata target,ColumnMetadata relation)=>
         MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(metadata,target,relation) is not null;
 

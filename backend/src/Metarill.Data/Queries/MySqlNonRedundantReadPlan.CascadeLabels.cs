@@ -59,6 +59,10 @@ public static partial class MySqlNonRedundantReadCompiler
         return CompileWithCrossTables(catalog,table.Id,["id"],CrossMembershipBindings(catalog,table,page,crossFields),conditionFields);
     }
 
+    /// <summary>查找由原多值关系显式绑定的逻辑条件页。</summary>
+    internal static bool IsScopedMultiTarget(MetadataCatalog catalog,TableMetadata target,string pageId)=>
+        DeclaredMultiNameTargets(catalog).Any(item=>item.Table.Id==target.Id&&MultiTargetLogicalPage(catalog,target,item.Relation)?.Id==pageId);
+
     /// <summary>向显式绑定的多值目标页取得逻辑条件。原物理候选和未指定页面的复选维持原范围。</summary>
     internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
     {
@@ -77,9 +81,11 @@ public static partial class MySqlNonRedundantReadCompiler
     }
 
     /// <summary>原发布元数据的页面 ID 可为精确整数或字符串。</summary>
-    private static string MultiPageId(System.Text.Json.JsonElement definition)=>
-        definition.TryGetProperty("pageId",out var value)&&value.ValueKind==System.Text.Json.JsonValueKind.Number&&value.TryGetInt64(out var id)
-            ?id.ToString(System.Globalization.CultureInfo.InvariantCulture):Value(definition,"pageId");
+    private static string MultiPageId(System.Text.Json.JsonElement definition)=>MultiDefinitionId(definition,"pageId");
+
+    private static string MultiDefinitionId(System.Text.Json.JsonElement definition,string field)=>
+        definition.TryGetProperty(field,out var value)&&value.ValueKind==System.Text.Json.JsonValueKind.Number&&value.TryGetInt64(out var id)
+            ?id.ToString(System.Globalization.CultureInfo.InvariantCulture):Value(definition,field);
 
     /// <summary>发布已绑定目标页及逻辑名称，原候选、导入、回读共用固定条件。</summary>
     internal static MySqlNonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog catalog,string tableId,string pageId,
@@ -141,7 +147,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(field.Length==0)field="name";
                 var pageId=MultiPageId(definition);
                 if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
-                var tableId=Value(definition,"tableId");
+                var tableId=MultiDefinitionId(definition,"tableId");
                 if(tableId.Length==0)tableId=relation.LinkConfigTableId;
                 if(tableId.Length==0&&pageId.Length>0)tableId=catalog.ConfigPages.SingleOrDefault(page=>page.Id==pageId)?.ConfigTableId??"";
                 var tableName=Value(definition,"table");
@@ -240,9 +246,14 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly CascadeCacheOwner? cascadeCacheOwner;
         private readonly HashSet<string> cascadeCacheOwnerFields=new(StringComparer.Ordinal);
 
+        /// <summary>递归父页会叠加多层别名，长参数前缀压缩后仍按原作用域稳定区分。</summary>
+        private static string ConditionParameterPrefix(string prefix)=>prefix.Length<=64?prefix:
+            "mt_scope_"+Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(prefix)))[..32];
+
         /// <summary>读候选绑定请求账号。重算缓存绑定来源记录的物理归属，两条路径复用同一候选条件。</summary>
         private string CascadeLabelCondition(TableMetadata target,PageMetadata page,FixedConditionSqlPlan condition,string alias,string prefix,CascadeCacheOwner? cacheOwner=null)
         {
+            prefix=ConditionParameterPrefix(prefix);
             if((cacheOwner??cascadeCacheOwner) is {} owner&&condition.Variables.Count>0)
             {
                 var proof=AccountScopedCrossCache.Compile(catalog,owner.Table,target,page);

@@ -673,6 +673,13 @@ public static partial class MySqlNonRedundantReadCompiler
             var scope=Scope(table,alias,projectScoped:false);
             var condition=PublishedCondition(table,alias,page,allowAccount);
             if(condition is null)return scope;
+            if(accountPhysicalCandidate&&table.Id==root.Id&&alias==rootAlias&&cascadeCacheOwner is {} owner&&condition.Variables.Count>0)
+            {
+                var proof=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page);
+                cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
+                var owned=AccountCacheScope(proof,table,alias,owner.Alias,render:true,owner.Table,"mt_global_scope_"+parameterKey);
+                return scope.Length==0?owned:scope+" AND "+owned;
+            }
             var provider=new MySqlDatabaseProvider();
             var clause=allowAccount
                 ?condition.RenderAccountProjection(provider,"mt_global_scope_"+parameterKey,field=>alias+"."+Q(field))

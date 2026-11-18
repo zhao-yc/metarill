@@ -32,10 +32,10 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         var id=storage.PhysicalColumns.SingleOrDefault(item=>item.ColumnName=="id");
         var project=storage.PhysicalColumns.SingleOrDefault(item=>item.ColumnName=="yz_project_id");
         if(id is not {LogicalType:"int64",IsDbNotNull:1}||!GlobalPhysicalRelationValue.IsScalar(storage,parent,id))throw Invalid();
-        // 全局父必须由本次实际级联层位证明，不能用缺项目列的普通外键推定全局。
+        // 全局父必须由实际级联层位或显式物理表关系证明，缺项目列不能推定全局。
         if(GlobalCrossTableTarget.Declared(parent))
         {
-            if(!logical||parent.YzProjectId!=catalog.YzProjectId||parent.IsRongyu is not(0 or 1))throw Invalid();
+            if(!logical&&column.LinkConfigTableId!=parent.Id||parent.YzProjectId!=catalog.YzProjectId||parent.IsRongyu is not(0 or 1))throw Invalid();
         }
         else if(project is not {LogicalType:"int64" or "string"}||!GlobalPhysicalRelationValue.IsScalar(storage,parent,project))
             throw Invalid();

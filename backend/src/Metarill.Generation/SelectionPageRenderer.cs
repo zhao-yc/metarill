@@ -35,6 +35,11 @@ internal static class SelectionPageRenderer
                 var path=NonRedundantCrossParentCompilation.Find(model,table,page,column)!.Value;
                 result.AppendLine($"        _=LogicalParentId{suffix}(parentId);await CrossReader{suffix}_{path.Read.Source.Source.Id}(actor,false,false).PathAsync({path.Index},long.Parse(parentId!,NumberStyles.None,CultureInfo.InvariantCulture),cancellationToken);");continue;
             }
+            if(MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null)
+            {
+                result.AppendLine($"        await ValidateParents{suffix}Async(parentId,actor,cancellationToken,locking:false);");
+                continue;
+            }
             var parent = model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId)
                 ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
                 ?? throw new InvalidOperationException("多选页父范围缺少明确目标表：" + column.Source.ColumnName);

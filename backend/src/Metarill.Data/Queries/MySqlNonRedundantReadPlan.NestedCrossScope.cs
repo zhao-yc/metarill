@@ -42,6 +42,7 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             CrossCandidateCondition=condition,
             MultiCandidateParent=parent,
+            MultiCandidatePage=page,
             GlobalCrossCandidate=global,
             ScopedRootControls=scopes.Select(path=>path.SourceColumnId).ToHashSet(StringComparer.Ordinal)
         };
@@ -54,11 +55,20 @@ public static partial class MySqlNonRedundantReadCompiler
         MetadataValidation.Validate(catalog);
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("固定全局父页要求已发布的MySQL读取计划。");
         var (parent,published)=PublishedMultiGlobalParent(catalog,tableId,pageId);
+        return CompileMultiParentPage(catalog,parent,published,"b","r",null,false);
+    }
+
+    /// <summary>同一父页供请求点查和关联范围使用，维护从实际来源行读取账号归属。</summary>
+    private static MySqlNonRedundantReadPlan CompileMultiParentPage(MetadataCatalog catalog,TableMetadata parent,
+        PageMetadata published,string alias,string prefix,CascadeCacheOwner? owner,bool trackReverse)
+    {
         var columns=RelationStorageColumns.Expand(parent,catalog.ConfigColumns.Where(column=>column.ConfigTableId==parent.Id));
         var syntax=FixedConditionPlan.Compile(published.WhereSql,columns.Select(column=>column.ColumnName));
         return syntax.Fields.Any(member=>CrossTableStorageColumns.IsLogicalPathField(parent,columns,member))
-            ?CompileCrossPageCandidate(catalog,parent.Id,published.Id,["id"],[])
-            :new Builder(catalog,parent.Id,candidatePage:published,accountPhysicalCandidate:true).Compile(["id"],[]);
+            ?new Builder(catalog,parent.Id,rootAlias:alias,aliasPrefix:prefix,trackReverse:trackReverse,multiLabel:true,cascadeLabelField:"id",cascadeCacheOwner:owner)
+                {SelectedMultiPage=published,GlobalCrossCandidate=true,CrossAliasPrefix=prefix+"cross"}.Compile(["id"],[])
+            :new Builder(catalog,parent.Id,rootAlias:alias,aliasPrefix:prefix,trackReverse:trackReverse,candidatePage:published,
+                cascadeCacheOwner:owner,accountPhysicalCandidate:true).Compile(["id"],[]);
     }
 
     /// <summary>多个目标页可共享同一个实际全局父页面，独立来源父校验只绑定该发布页。</summary>
@@ -68,7 +78,8 @@ public static partial class MySqlNonRedundantReadCompiler
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
         var parent=MultiParent(catalog,page);
-        if(parent is not{Global:true,Logical:true})throw new NotSupportedException("多值全局父须绑定实际级联层位。");
+        if(parent is not{Global:true})throw new NotSupportedException("多值全局父须显式声明全局表关系。");
+        if(!parent.Logical)return(parent.Parent,PublishedPhysicalMultiParent(catalog,parent));
         var field=parent.Target.ColumnName;
         var bindings=CrossMembershipBindings(catalog,table,page,new HashSet<string>(StringComparer.Ordinal){field});
         var parentPages=bindings.Select(binding=>
@@ -91,11 +102,31 @@ public static partial class MySqlNonRedundantReadCompiler
         return(parent.Parent,published);
     }
 
+    /// <summary>物理外键必须直接绑定父表，控件与附加页面声明冲突时拒绝发布。</summary>
+    private static PageMetadata PublishedPhysicalMultiParent(MetadataCatalog catalog,MultiTargetParentScope parent)
+    {
+        var definition=Definition(parent.Target);
+        var explicitPage=MultiPageId(definition);
+        var linkedPage=Text(parent.Target,"linkConfigPageId");
+        if(explicitPage.Length>0&&linkedPage.Length>0&&explicitPage!=linkedPage||
+            MultiDefinitionId(definition,"tableId") is {Length:>0} tableId&&tableId!=parent.Parent.Id||
+            Value(definition,"table") is {Length:>0} tableName&&tableName!=parent.Parent.TableName||
+            Text(parent.Target,"joinTable") is {Length:>0} joinTable&&joinTable!=parent.Parent.TableName)
+            throw new InvalidOperationException("全局物理父键的表或页面声明冲突。");
+        var pageId=explicitPage.Length>0?explicitPage:linkedPage;
+        var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==parent.Parent.Id&&
+            (pageId.Length==0||page.Id==pageId)).Take(2).ToArray();
+        if(pages.Length!=1)throw new InvalidOperationException("全局物理父键必须绑定唯一发布页。");
+        GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,parent.Parent,pages[0]);
+        return pages[0];
+    }
+
     private sealed partial class Builder
     {
         internal FixedConditionSqlPlan? CrossCandidateCondition{get;init;}
         internal PageMetadata? SelectedMultiPage{get;init;}
         internal MultiTargetParentScope? MultiCandidateParent{get;set;}
+        internal PageMetadata? MultiCandidatePage{get;init;}
         private string? selectedMultiParentSql;
         internal (CascadeCacheOwner Owner,ColumnMetadata Column)? MultiParentOwner{get;init;}
 
@@ -112,12 +143,39 @@ public static partial class MySqlNonRedundantReadCompiler
                 var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY ("+target+")":key+"="+target;
                 predicate="EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+alias+" WHERE "+same+" AND "+key+">0 AND "+Scope(parent.Parent,alias)+")";
             }
+            else if(!parent.Logical)predicate=PhysicalGlobalParentPredicate(parent,target);
             if(MultiParentOwner is not {} binding)return predicate;
             var (owner,source)=binding;
             cascadeCacheOwnerFields.Add(source.ColumnName);
             var fromOwner=owner.Alias+"."+Q(source.ColumnName);
             // 批量名称读取把来源值作为文本传入，保持相邻高位整数的精确比较。
             return predicate+" AND BINARY CAST("+target+" AS CHAR)=BINARY CAST("+fromOwner+" AS CHAR)";
+        }
+
+        /// <summary>使用完整固定父页关联现有物理键；内层变化即使使父页失去可见性，也进入反向传播。</summary>
+        private string PhysicalGlobalParentPredicate(MultiTargetParentScope parent,string target)
+        {
+            var targetPage=SelectedMultiPage??MultiCandidatePage??throw new InvalidOperationException("缺少目标父范围的实际发布页。");
+            var (table,published)=PublishedMultiGlobalParent(catalog,root.Id,targetPage.Id);
+            var alias=aliasPrefix+"global_parent";
+            var plan=CompileMultiParentPage(catalog,table,published,alias,alias+"_",cascadeCacheOwner,trackReverse);
+            scopedGlobalCrossTarget=true;
+            plan.CopyParametersTo(crossConstants);
+            cascadeLabelPages.Add(published.Id);
+            cascadeLabelPages.UnionWith(plan.CascadeLabelPages);
+            cascadeCacheOwnerFields.UnionWith(plan.CascadeCacheOwnerFields);
+            Use(root,parent.Target);Touch(rootAlias,parent.Target.ColumnName);
+            foreach(var reference in plan.PhysicalReferences)references.TryAdd((reference.Table,reference.Column.Name),reference);
+            var key=alias+".`id`";
+            var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY ("+target+")":key+"="+target;
+            foreach(var reverse in plan.Reverse)
+            {
+                var probe="EXISTS (SELECT 1"+reverse.From+" WHERE "+same+" AND "+reverse.TargetPredicate+")";
+                var from=" FROM "+Q(root.TableName)+" "+rootAlias;
+                var fields=reverse.Outputs.Values.SelectMany(value=>value).ToHashSet(StringComparer.Ordinal);
+                customReverse.Add(new(reverse.TargetTable,from,probe,"predicate",new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,fields}}));
+            }
+            return "EXISTS (SELECT 1"+plan.From+" WHERE "+same+" AND "+key+">0"+(plan.Scope.Length==0?"":" AND "+plan.Scope)+")";
         }
 
         /// <summary>目标页的条件与名称共用当前记录和联接，维护用途按来源行归属绑定。</summary>
@@ -192,7 +250,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     cascadeLabelPages.Add(level.Page.Id);
                     cascadeLabelPages.UnionWith(bindings.Values.SelectMany(binding=>binding.Levels.Select(target=>target.PageId)));
                 }
-                var parameterPrefix="mt_nested_"+(multiLabel?aliasPrefix:"")+owner;
+                var parameterPrefix=ConditionParameterPrefix("mt_nested_"+(multiLabel?aliasPrefix:"")+owner);
                 string Projection(string field)
                 {
                     var column=Column(table,field);

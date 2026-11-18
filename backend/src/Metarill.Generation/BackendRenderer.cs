@@ -227,14 +227,15 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     private static string ParentValidation(GenerationModel model, TableModel table, PageModel page)
     {
         var sharedRedundant=SharedRedundantParentCompilation.Enabled(model,table,page);
-        var supportsReadOnlyParent=sharedRedundant||NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page);
+        var multiGlobal=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page);
+        var supportsReadOnlyParent=multiGlobal is not null||sharedRedundant||NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page);
         var locking=supportsReadOnlyParent?"locking":"true";
-        var multiGlobal=MultiGlobalParentCompilation.PhysicalSourceTarget(model,table,page);
         var multiPlan="PageMultiGlobalParent"+page.Source.Id;
         var result = new StringBuilder().Append(multiGlobal is null?SharedGlobalParentCompilation.KeyService(model,table,page):MultiGlobalParentCompilation.Declaration(model,multiGlobal,multiPlan)).AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
             .AppendLine($"    private async Task ValidateParents{page.Source.Id}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken{(NonRedundantCrossParentCompilation.Enabled(model,table,page)?",bool includeManaged=true":"")}{(supportsReadOnlyParent?", bool locking=true":"")})")
             .AppendLine("    {");
         if(sharedRedundant)result.AppendLine("        ValidateActor(actor);").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);");
+        else if(multiGlobal is not null)result.AppendLine("        ValidateActor(actor);");
         var number = 0;
         foreach (var (column, source) in page.Scopes.Where(scope => scope.Source == "parent"))
         {
@@ -244,13 +245,13 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 var path=NonRedundantCrossParentCompilation.Find(model,table,page,column)!.Value;
                 result.AppendLine($"        _=LogicalParentId{page.Source.Id}(parentId);if(includeManaged)await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,{locking},false).PathAsync({path.Index},long.Parse(parentId!,NumberStyles.None,CultureInfo.InvariantCulture),cancellationToken);");continue;
             }
-            if(GlobalCachedParentCompilation.ForColumn(model,table,page,column) is{} directGlobalParent){result.Append(GlobalCachedParentCompilation.Call(directGlobalParent,page,"parentId",locking));continue;}
             if(multiGlobal is not null)
             {
                 result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var multiParentKey)||multiParentKey<=0||parentId!=multiParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");")
                     .AppendLine(MultiGlobalParentCompilation.Check(multiPlan,"multiParentKey",locking));
                 continue;
             }
+            if(GlobalCachedParentCompilation.ForColumn(model,table,page,column) is{} directGlobalParent){result.Append(GlobalCachedParentCompilation.Call(directGlobalParent,page,"parentId",locking));continue;}
             var globalParents=SharedGlobalParentCompilation.ForColumn(model,table,page,column);if(globalParents.Count>0){foreach(var globalParent in globalParents)result.Append(SharedGlobalParentCompilation.Call(globalParent,page,"parentId",locking));continue;}
             var parent = CrossTableWriteCompilation.ParentTarget(model,table,page,column) ?? model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
                 ?? throw new InvalidOperationException("父范围字段缺少明确的目标表：" + column.Source.ColumnName);
@@ -276,6 +277,11 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if(NonRedundantReadCompilation.Requires(model,table))return NonRedundantQuery(model,table,page);
         var suffix = page.Source.Id;
         var fixedQuery = FixedPageQueryCompilation.For(table, page);
+        var globalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null;
+        var snapshot=globalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
+        string ParentCheck(string key)=>SelectionPageRenderer.Enabled(page)
+            ?$"await ValidateSelectionParents{suffix}Async({key}, actor, cancellationToken);"
+            :globalParent?$"await ValidateParents{suffix}Async({key}, actor, cancellationToken, locking:false);":"";
         var names = SelectionNameFilterCompilation.ForPage(model, table, page);
         var nameKeys = names.ConsumedKeys.Concat(names.Gaps.Select(gap => gap.FilterKey)).ToHashSet(StringComparer.Ordinal);
         var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,table,page);
@@ -370,23 +376,24 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         result.AppendLine("                _ => throw new ArgumentException(\"页面未开放该排序字段。\")").AppendLine("            };").AppendLine("        }");
         result.AppendLine("        return query" + string.Concat(fixedQuery.DefaultOrder.Select(item => $".{(item.Descending ? "OrderByDescending" : "OrderBy")}(entity => {ManagerCredentialCompilation.Order(table,page,item.Column)})")) + ";")
             .AppendLine("    }").AppendLine("    /// <summary>分页与统计使用同一条已受限查询。</summary>")
-            .AppendLine($"    public {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<PageResult<{page.Name}Vo>> Page{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<PageResult<{page.Name}Vo>>(async () =>":"")}").AppendLine("    {")
+            .AppendLine($"    public {(snapshot?"Task":"async Task")}<PageResult<{page.Name}Vo>> Page{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken){(snapshot?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<PageResult<{page.Name}Vo>>(async () =>":"")}").AppendLine("    {")
             .AppendLine("        if (request.PageNo < 1 || request.PageSize < 0 || request.PageSize > 1000) throw new ArgumentException(\"分页参数无效，每页最多 1000 条。\");")
             .AppendLine($"        var unpaged = request.PageSize == 0 && {(page.Source.PageSize == 0).ToString().ToLowerInvariant()};")
             .AppendLine("        if (request.PageSize == 0 && (!unpaged || request.PageNo != 1)) throw new ArgumentException(\"仅已配置不分页的页面允许 pageSize=0，且页码必须为1。\");")
-            .AppendLine(SelectionPageRenderer.Enabled(page) ? $"        await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken);" : "")
+            .AppendLine("        "+ParentCheck("request.ParentId"))
             .AppendLine($"        var query = {CascadeTreeQueryCompilation.Call(page)};").AppendLine("        var total = await query.CountAsync(cancellationToken);")
             .AppendLine($"        var ordered = Order{suffix}(query, request);")
             .AppendLine($"        var entities = await (unpaged ? ordered : ordered.Page(request.PageNo, request.PageSize)).ToListAsync({PublishedReadProjectionCompilation.Expression(model, table, page)}, cancellationToken);")
             .AppendLine($"        return new({ProjectResults(model,table,page,"entities","list")}, total, unpaged ? 0 : (total + request.PageSize - 1) / request.PageSize, request.PageNo, request.PageSize);")
-            .AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }").AppendLine("    /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>")
-            .AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$"    public Task<long> Count{suffix}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync(async()=>{{{(SelectionPageRenderer.Enabled(page)?$"await ValidateSelectionParents{suffix}Async(request.ParentId,actor,cancellationToken);":"")}return await {CascadeTreeQueryCompilation.Call(page)}.CountAsync(cancellationToken);}},cancellationToken);":SelectionPageRenderer.Enabled(page)
+            .AppendLine(snapshot?"    }, cancellationToken);":"    }").AppendLine("    /// <summary>数量查询复用相同的数据范围和筛选白名单。</summary>")
+            .AppendLine(snapshot?$"    public Task<long> Count{suffix}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync(async()=>{{{ParentCheck("request.ParentId")}return await {CascadeTreeQueryCompilation.Call(page)}.CountAsync(cancellationToken);}},cancellationToken);":SelectionPageRenderer.Enabled(page)
                 ? $"    public async Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) {{ await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken); return await {CascadeTreeQueryCompilation.Call(page)}.CountAsync(cancellationToken); }}"
                 : CascadeTreeQueryCompilation.Async(page)?$"    public async Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => await {CascadeTreeQueryCompilation.Call(page)}.CountAsync(cancellationToken);":$"    public Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query{suffix}(request, actor).CountAsync(cancellationToken);")
             .AppendLine("    /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>")
-            .AppendLine($"    public {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<{page.Name}Vo?> Detail{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<{page.Name}Vo?>(async () =>":"")}").AppendLine("    {")
+            .AppendLine($"    public {(snapshot?"Task":"async Task")}<{page.Name}Vo?> Detail{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken){(snapshot?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<{page.Name}Vo?>(async () =>":"")}").AppendLine("    {")
+            .AppendLine(globalParent?"        "+ParentCheck("parentId"):"")
             .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).ToOneAsync({PublishedReadProjectionCompilation.Expression(model, table, page)}, cancellationToken);")
-            .AppendLine($"        return entity is null ? null : {RoleResult(model,table,page,"detail")};").AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }");
+            .AppendLine($"        return entity is null ? null : {RoleResult(model,table,page,"detail")};").AppendLine(snapshot?"    }, cancellationToken);":"    }");
         return result.ToString();
     }
     /// <summary>生成新增、部分更新和逻辑删除事务。</summary>
@@ -468,6 +475,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);")
                 .Append(buttonUpdate?$"        if(businessButtonId is not null){{if(authorizationOperation is not(null or RecordMutationOperation.Update))throw new UnauthorizedAccessException(\"业务按钮不能冒充导入或其它来源。\");RequireButtonRecordAccess{suffix}(request.Id,businessButtonId,actor);}}\n":"")
                 .Append(PrepareCall(model, table, page, "Update", "request.Id", "request",businessButton:buttonUpdate?"businessButtonId":null))
+                .Append(MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is null?"":$"        await ValidateParents{suffix}Async(parentId,actor,cancellationToken);\n")
                 .Append(buttonUpdate?$"        if(businessButtonId is not null)await RequireButtonCurrent{suffix}Async(request.Id,businessButtonId,actor,cancellationToken);\n":"")
                 .AppendLine($"        var entity = await {(buttonUpdate?$"(businessButtonId is null ? Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"update\"":"\"update\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == request.Id).ForUpdate() : ButtonRecordQuery{suffix}(request.Id,parentId,businessButtonId,actor,true))":$"Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"update\"":"\"update\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == request.Id).ForUpdate()")}.FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
@@ -495,6 +503,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("    /// <summary>先校验数据范围，再在同一事务内删除。</summary>")
                 .AppendLine($"    public Task<bool> Delete{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken) => session.InTransactionAsync(async () =>")
                 .AppendLine("    {").Append(PrepareCall(model, table, page, "Delete", "id", null))
+                .Append(MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is null?"":$"        await ValidateParents{suffix}Async(parentId,actor,cancellationToken);\n")
                 .AppendLine($"        var entity = await Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,"\"delete\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException(\"数据不存在或无权限。\");")
                 .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
                 .Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"false","true")).AppendLine("        BeforeDelete(entity, actor);")
@@ -788,7 +797,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         void Parent(TableModel parent, string key, string variable, bool current = false,bool sourceContext=false)
         {
             var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
-            if(sourceContext&&parent.IsGlobal&&MultiGlobalParentCompilation.PhysicalSourceTarget(model,owner,page) is not null)
+            if(sourceContext&&parent.IsGlobal&&MultiGlobalParentCompilation.PhysicalScopeTarget(model,owner,page) is not null)
             {
                 result.AppendLine(MultiGlobalParentCompilation.Check("PageMultiGlobalParent"+page.Source.Id,key,current?"locking":"false"));
                 return;
