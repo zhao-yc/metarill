@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Metarill.Core.Contracts;
 namespace Metarill.Generation;
 
 internal sealed record CrossTableLevelModel(string Key,string Prefix,TableModel Target,PageModel Page,ColumnModel Name,ColumnModel? Parent,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool DerivedName=false,IReadOnlyList<string>? NameDependencies=null);
@@ -33,7 +34,7 @@ internal static class CrossTableReadCompilation
                 var key=Text(entry,"key",nameOfTable);var prefix=Text(entry,"columnPrefix",nameOfTable);Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(prefix);
                 if(!keys.Add(key)||!prefixes.Add(prefix))return Gap("层标识或字段前缀重复。");if(Text(entry,"idField","id")!="id")return Gap("主键只支持id。");
                 bool Physical(ColumnModel column)=>NonRedundantReadCompilation.Physical(model,target,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&!column.IsJsonArray&&!ManagerCredentialCompilation.IsCredential(target,column);
-                var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==Text(entry,"nameField","name"));if(name is null||name.Type is not("string?" or "int?" or "long?")||name.IsJsonArray)return Gap("名称必须为固定单值标量。");var derived=!NonRedundantReadCompilation.Physical(model,target,name);var globalName=target.IsGlobal&&Metarill.Core.Metadata.GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,Metarill.Core.Metadata.MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source);if(!derived&&!Physical(name)&&!globalName)return Gap("物理联接名称仍需独立缓存证明。");
+                var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==Text(entry,"nameField","name"));if(name is null||(name.Source.LogicalType!="string"&&!MultiValueLabel.IsTyped(name.Source.LogicalType))||name.IsJsonArray)return Gap("名称必须为固定单值标量。");var derived=!NonRedundantReadCompilation.Physical(model,target,name);var globalName=target.IsGlobal&&Metarill.Core.Metadata.GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,Metarill.Core.Metadata.MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source);if(!derived&&!Physical(name)&&!globalName)return Gap("物理联接名称仍需独立缓存证明。");
                 ColumnModel? parent=null;
                 if(result.Count==0&&!string.IsNullOrWhiteSpace(Text(entry,"parentField","")))Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(Text(entry,"parentField",""));
                 if(result.Count>0)

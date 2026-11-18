@@ -454,7 +454,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     // 标量级联缓存的精确目标由已验证定义确定，叶子无需伪装成普通List关系。
                     ValidateTarget(target);var crossGlobal=refresh.CrossTableColumnId is not null&&GlobalCrossTableTarget.Declared(target);
                     if(crossGlobal)_=CrossTableCacheProof.Require(catalog,table,foreign,target,value,column!,refresh,refreshMultiples);
-                    var pageId=refresh.SelfTreePageId??(crossGlobal&&(target.IsRongyu==0||value.LogicalType is "int32" or "int64")&&
+                    var pageId=refresh.SelfTreePageId??(crossGlobal&&(target.IsRongyu==0||MultiValueLabel.IsTyped(value.LogicalType))&&
                         refresh.CrossTableAccountPageId is null?refresh.CrossTablePageId:null);
                     var publishedPage=pageId is null?null:catalog.ConfigPages.Single(page=>page.Id==pageId);
                     var account=refresh.CrossTableAccountPageId is{} accountPage
@@ -462,9 +462,8 @@ public static partial class MySqlNonRedundantReadCompiler
                         :null;
                     var id=Resolve(table,alias,foreign.ColumnName);
                     var projected=Resolve(target,Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||publishedPage is not null,cachePage:publishedPage,account:account),value.ColumnName);
-                    // 自树所有受管标量名称使用同一文本格式，跨表级联继续沿用原整数名称规则。
-                    var textLabel=refresh.CrossTableColumnId is not null?projected.Type is "int32" or "int64":
-                        foreign.ControlKind=="CascadeTree"&&MultiValueLabel.IsTyped(projected.Type);
+                    // 自树和跨表的受管标量名称共用文本格式，便于候选与回填结果一致。
+                    var textLabel=(refresh.CrossTableColumnId is not null||foreign.ControlKind=="CascadeTree")&&MultiValueLabel.IsTyped(projected.Type);
                     return textLabel?(MySqlMultiValueLabel.Text(projected.Sql,projected.Type),"string"):projected;
                 }
                 foreach(var tree in columns[table.Id].Values.Where(item=>item.ControlKind=="CascadeTree"&&item.ColumnName.EndsWith("_id",StringComparison.Ordinal)))

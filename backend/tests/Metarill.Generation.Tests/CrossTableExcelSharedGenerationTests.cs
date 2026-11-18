@@ -70,6 +70,71 @@ public sealed class CrossTableExcelSharedGenerationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+
+    /// <summary>跨表级联候选与原 Excel 路径共用标量文本，布尔原始单元格也可还原。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Scalar_cross_labels_roundtrip_in_generated_shared_paths(bool temporal)
+    {
+        var catalog=Catalog("shared-r1");
+        var country=temporal
+            ? (Kind:"date",Value:(object)new DateTime(2026,11,18),Text:"2026-11-18")
+            : (Kind:"bool",Value:(object)true,Text:"true");
+        var area=temporal
+            ? (Kind:"datetime",Value:(object)new DateTime(2026,11,18,13,14,15).AddTicks(1234560),Text:"2026-11-18 13:14:15.123456")
+            : (Kind:"decimal",Value:(object)1234567890.123456m,Text:"1234567890.123456");
+        var place=temporal
+            ? (Kind:"time",Value:(object)new TimeSpan(1,3,12,0).Add(TimeSpan.FromTicks(1234560)),Text:"27:12:00.123456")
+            : (Kind:"double",Value:(object)0.125d,Text:"0.125");
+        foreach(var (id,kind) in new[]{("32",country.Kind),("42",area.Kind),("52",place.Kind)})
+            catalog.ConfigColumns.Single(column=>column.Id==id).LogicalType=kind;
+        new FrontendPackager().Validate(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-typed-cross-excel");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),Namespace);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            const long project=9007199254740993L;
+            var actor=new RuntimeActor(901,"跨表名称",false,catalog.YzProjectId,"5");
+            using var runtime=new SharedExcelReadTransport(assembly,Namespace,"SharedExcelSource",actor:actor,authorization:new CrossListOnly(actor));
+            runtime.Add("SharedExcelCountry",new Dictionary<string,object?>{["Id"]=11L,["Name"]=country.Value,["Status"]=1,["YzProjectId"]=project});
+            runtime.Add("SharedExcelArea",new Dictionary<string,object?>{["Id"]=21L,["Name"]=area.Value,["Status"]=1,["YzProjectId"]=project,["SharedExcelCountryId"]=11L});
+            runtime.Add("SharedExcelPlace",new Dictionary<string,object?>{["Id"]=31L,["Name"]=place.Value,["Status"]=1,["YzProjectId"]=project,["SharedExcelAreaId"]=21L});
+            runtime.Add("SharedExcelWarehouse",new Dictionary<string,object?>{["Id"]=41L,["Name"]="仓库",["Status"]=1,["YzProjectId"]=project,["SharedExcelAreaId"]=21L});
+            runtime.Add("SharedExcelSource",new Dictionary<string,object?>{["Id"]=101L,["Name"]="来源",["YzProjectId"]=project,["CountryId"]=11L,["AreaId"]=21L,["PlaceId"]=31L,["WarehouseId"]=41L});
+
+            var option=Assert.Single(await runtime.CrossOptions("25",new CascadeTreeOptionsRequest{LevelKey="place",
+                SelectedPath=JsonSerializer.SerializeToElement(new{countryId="11",areaId="21"})}));
+            Assert.Equal("31",option.Id);
+            Assert.Equal(place.Text,option.Text);
+            var excel=await runtime.Export();
+            var row=Assert.Single(excel.Rows);
+            var main=row[excel.Headers.ToList().IndexOf("主路径")];
+            var second=row[excel.Headers.ToList().IndexOf("仓库路径")];
+            Assert.Equal(string.Join("/",country.Text,area.Text,place.Text),main);
+            Assert.Equal(string.Join("/",country.Text,area.Text,"仓库"),second);
+            AssertSlots(await runtime.Parse(new(){["主路径"]=main,["仓库路径"]=second}),"11","21","31","41",false);
+            Assert.Equal("31",Text((await runtime.Parse(new(){["主路径"]=place.Text}))["placeId"]));
+            if(!temporal)
+                Assert.Equal("11",Text((await runtime.Parse(new(){["主路径"]=true}))["countryId"]));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    /// <summary>候选只允许实际来源页和主路径的三个目标页。</summary>
+    private sealed class CrossListOnly(RuntimeActor actor):IRuntimeAuthorization
+    {
+        public RuntimeActor RequireActor()=>actor;
+        public void RequirePagePermission(string page,string operation)
+        {
+            Assert.Equal("list",operation);
+            Assert.Contains(page,new[]{"201","301","401","501"});
+        }
+    }
+
     /// <summary>实际生成导入按表字段排序锁定匹配，首列留空时不能从另一条共享路径推断覆盖对象。</summary>
     [Theory]
     [InlineData(false)]
@@ -1020,6 +1085,12 @@ internal sealed class SharedExcelReadTransport:IDisposable
     /// <summary>执行公开树候选入口，核对完整层读取和读快照。</summary>
     internal Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeOption>> CascadeOptions(string fieldId,CascadeTreeOptionsRequest request)=>
         (Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeOption>>)serviceType.GetMethod("CascadeOptions"+pageId+"_"+fieldId+"Async")!
+            .Invoke(service,[request,actor,CancellationToken.None])!;
+
+
+    /// <summary>通过生成的公开入口读取跨表候选。</summary>
+    internal Task<IReadOnlyList<Metarill.Core.Cascades.CrossTableOption>> CrossOptions(string fieldId,CascadeTreeOptionsRequest request)=>
+        (Task<IReadOnlyList<Metarill.Core.Cascades.CrossTableOption>>)serviceType.GetMethod("CrossOptions"+pageId+"_"+fieldId+"Async")!
             .Invoke(service,[request,actor,CancellationToken.None])!;
 
     /// <summary>通过真实生成方法检查公开路径响应，内部 Excel 路径仍走原入口。</summary>

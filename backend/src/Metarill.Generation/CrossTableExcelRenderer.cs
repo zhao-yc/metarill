@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 namespace Metarill.Generation;
 
 /// <summary>固定跨表Excel保留选择深度；名称反查、快照和目标范围复用原生成链。</summary>
@@ -35,6 +36,14 @@ internal static class CrossTableExcelRenderer
                     // 旧简写会尝试每个层；非整数只表示本层无匹配，仍须检查其它字符串层。
                     var type=level.Name.Type=="int?"?"int":"long";
                     result.AppendLine($"            if(!{type}.TryParse(text,NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out var key)||key.ToString(CultureInfo.InvariantCulture)!=text)return [];");
+                    lookup="key";
+                }
+                else if(MultiValueLabel.IsTyped(level.Name.Source.LogicalType))
+                {
+                    // 旧短写可以匹配其他层，当前层的类型错误只结束该层反查。
+                    var type=level.Name.Type.TrimEnd('?');
+                    result.AppendLine($"            {type} key;try{{key=({type})MultiValueLabel.Parse({L(level.Name.Source.LogicalType)},text);}}catch(PageImportException error) when(error.IsInputError){{return [];}}")
+                        .AppendLine($"            if(MultiValueLabel.Text({L(level.Name.Source.LogicalType)},key)!=text)return [];");
                     lookup="key";
                 }
                 if(level.Target.Source.IsRongyu==0)
@@ -73,8 +82,8 @@ internal static class CrossTableExcelRenderer
             .AppendLine("        var values=new Dictionary<string,JsonElement>(StringComparer.Ordinal);");
         foreach(var level in plan.Levels)result.AppendLine($"        values[{L(level.Id.JsonName)}]=JsonSerializer.SerializeToElement<object?>(null);");
         result.AppendLine("        if(cell.ValueKind==JsonValueKind.Null||cell.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(cell.GetString()))return values;")
-            .AppendLine("        if(cell.ValueKind is not(JsonValueKind.String or JsonValueKind.Number))throw PageImportException.Input(PageImportError.Relation);")
-            .AppendLine($"        var path=await CrossExcelResolve{suffix}Async(cell.ToString(),true,actor,cancellationToken);");
+            .AppendLine($"        if(cell.ValueKind is not(JsonValueKind.String or JsonValueKind.Number{(plan.Levels.Any(level=>level.Read.Name.Source.LogicalType=="bool")?" or JsonValueKind.True or JsonValueKind.False":"")}))throw PageImportException.Input(PageImportError.Relation);")
+            .AppendLine($"        var path=await CrossExcelResolve{suffix}Async(cell.ValueKind==JsonValueKind.True?\"true\":cell.ValueKind==JsonValueKind.False?\"false\":cell.ToString(),true,actor,cancellationToken);");
         for(var index=0;index<plan.Levels.Count;index++)
         {
             var level=plan.Levels[index];var value=level.Id.Type=="string?"?$"path.Path[{index}].Id":$"long.Parse(path.Path[{index}].Id,CultureInfo.InvariantCulture)";

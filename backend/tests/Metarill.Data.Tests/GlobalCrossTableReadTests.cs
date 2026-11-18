@@ -25,6 +25,30 @@ public sealed class GlobalCrossTableReadTests
         // 普通单值联接现在独立通过全局证明；其它项目目标不能跟随共享。
         if((mask&1)==0)Assert.Matches("r[0-9]+\\.`yz_project_id`=@project_scope_number",from);else Assert.DoesNotMatch("r[0-9]+\\.`yz_project_id`",from);Assert.Equal(before,JsonSerializer.Serialize(c));
     }
+
+    /// <summary>实时跨表投影在普通及全局层共用标量文本，保留可见路径范围。</summary>
+    [Theory]
+    [InlineData("bool", "THEN 'true' ELSE 'false'")]
+    [InlineData("decimal", "TRIM(TRAILING '0'")]
+    [InlineData("double", "SUBSTRING_INDEX(")]
+    [InlineData("date", " AS CHAR)")]
+    [InlineData("datetime", "TRIM(TRAILING '0'")]
+    [InlineData("time", "TRIM(TRAILING '0'")]
+    public void Cross_path_projects_scalar_names_as_text(string type,string format)
+    {
+        var catalog=Catalog(1,"string","int64");
+        foreach(var table in new[]{"2","3","4"})
+            catalog.ConfigColumns.Add(new(){Id=table+"8",ConfigTableId=table,YzProjectId=catalog.YzProjectId,ColumnName="caption",LogicalType=type});
+        foreach(var control in catalog.ConfigColumns.Where(column=>column.ControlKind=="CascadeTree"))
+            control.ControlDetail=control.ControlDetail.Replace("\"nameField\":\"title\"","\"nameField\":\"caption\"",StringComparison.Ordinal);
+        var plan=MySqlNonRedundantReadCompiler.CompileWithCrossTables(catalog,"1",["country_name","area_name"],NonRedundantCrossTableReadTests.Scopes(catalog));
+        foreach(var name in new[]{"country_name","area_name"})
+        {
+            Assert.Equal("string",plan.Types[name]);
+            Assert.Contains(format,plan.Expression(name));
+        }
+    }
+
     /// <summary>不能把缺失项目、变量范围、派生名称或未发布目录解释为新的全局许可。</summary>
     [Theory][InlineData("implicit")][InlineData("sourceGlobal")][InlineData("projectVariable")][InlineData("parentVariable")][InlineData("unpublishedTable")][InlineData("unpublishedPage")][InlineData("foreignPage")][InlineData("view")][InlineData("function")][InlineData("nonredundant")][InlineData("derivedName")][InlineData("exact")]
     public void Unproven_global_uses_reject_before_sql(string kind)

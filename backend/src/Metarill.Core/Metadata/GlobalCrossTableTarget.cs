@@ -25,7 +25,7 @@ public static class GlobalCrossTableTarget
     public static void RequireCrossTableCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata? name=null)
     {
         if(name is null)RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true);
-        else RequirePublishedName(catalog,table,page,name,true,allowAccount:true,allowInteger:true,allowLogical:true);
+        else RequirePublishedName(catalog,table,page,name,true,allowAccount:true,allowLogical:true,allowTyped:true);
     }
 
     /// <summary>多值目标和独立页面候选可使用由实际父记录限定的同一范围。</summary>
@@ -64,9 +64,9 @@ public static class GlobalCrossTableTarget
     public static void RequireName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)=>RequirePublishedName(catalog,table,page,name,false);
     /// <summary>仅供单值候选证明R0逻辑名称，跨表原入口不会因此放开。</summary>
     public static void RequireSingleName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)=>RequirePublishedName(catalog,table,page,name,true);
-    /// <summary>跨表层名称可来自已发布整数列，路径表示与级联缓存仍按文本处理。</summary>
+    /// <summary>跨表层名称可来自已发布的业务标量，路径和级联缓存使用统一文本。</summary>
     public static void RequireCrossTableName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowAccount=false)
-        =>RequirePublishedName(catalog,table,page,name,true,allowAccount,allowInteger:true);
+        =>RequirePublishedName(catalog,table,page,name,true,allowAccount,allowTyped:true);
 
     /// <summary>自树选项和缓存使用同一已发布的名称，可按原文本协议展示业务整数。</summary>
     public static void RequireSelfTreeName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)
@@ -77,11 +77,10 @@ public static class GlobalCrossTableTarget
         =>RequirePublishedName(catalog,table,page,name,true,allowAccount:true,allowLogical:true,allowTyped:true);
 
     /// <summary>名称资格与页条件共用原完整证明，存储模式资格由调用用途限定。</summary>
-    private static void RequirePublishedName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowR0,bool allowAccount=false,bool allowInteger=false,bool allowLogical=false,bool allowTyped=false)
+    private static void RequirePublishedName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowTyped=false)
     {
         RequireTarget(catalog,table,page,allowR0,allowAccount,allowLogical);var storage=MetadataStoragePolicy.ForTable(catalog,table);
-        if(name.LogicalType!="string"&&!(name.ColumnName!="id"&&(allowTyped&&MultiValueLabel.IsTyped(name.LogicalType)||
-            allowInteger&&name.LogicalType is "int32" or "int64")))
+        if(name.LogicalType!="string"&&!(name.ColumnName!="id"&&allowTyped&&MultiValueLabel.IsTyped(name.LogicalType)))
             throw new NotSupportedException("全局目标名称的类型超出当前用途。");
         if(GlobalPhysicalRelationValue.IsScalar(storage,table,name))return;
         if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,table,name))throw new NotSupportedException("全局跨表名称缺少完整物理或受管缓存证明。");

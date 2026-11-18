@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
 
@@ -47,7 +48,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||CrossText(page,"exactDataManageMatchField").Length>0)throw new NotSupportedException("跨表目标页的项目／精确权限范围尚未接线。");
                     var global=GlobalCrossTableTarget.Declared(target);if(!global&&(!columns[target.Id].TryGetValue("yz_project_id",out var project)||!storage[target.Id].IsPhysical(project)))throw new InvalidOperationException("跨表目标缺少真实物理项目范围。");
                     var display=Column(target,Value(entry,"nameField") is {Length:>0} field?field:"name");
-                    if(display.ColumnName=="id"||display.LogicalType.ToLowerInvariant() is not("string" or "int32" or "int64")||ExactDataManageValues.IsSensitiveField(display.ColumnName))
+                    if(display.ColumnName=="id"||(display.LogicalType!="string"&&!MultiValueLabel.IsTyped(display.LogicalType))||ExactDataManageValues.IsSensitiveField(display.ColumnName))
                         throw new NotSupportedException("跨表名称须为已证明的非凭据单值。");
                     if(global)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,page,display);
                     if(target.IsRongyu==0)

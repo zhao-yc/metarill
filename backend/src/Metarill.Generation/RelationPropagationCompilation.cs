@@ -1,3 +1,4 @@
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Data.Relations;
 namespace Metarill.Generation;
@@ -68,7 +69,7 @@ internal static class RelationPropagationCompilation
     {
         var r0Tables=model.Catalog.ConfigTables.Where(table=>table.IsRongyu==0).Select(table=>table.Id).ToHashSet(StringComparer.Ordinal);
         var r0Pages=model.Catalog.ConfigPages.Where(page=>r0Tables.Contains(page.ConfigTableId)).Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
-        var integerColumns=model.Catalog.ConfigColumns.Where(column=>column.LogicalType is "int32" or "int64").Select(column=>column.Id).ToHashSet(StringComparer.Ordinal);
+        var typedNameColumns=model.Catalog.ConfigColumns.Where(column=>MultiValueLabel.IsTyped(column.LogicalType)).Select(column=>column.Id).ToHashSet(StringComparer.Ordinal);
         var pages=new HashSet<string>(StringComparer.Ordinal);
         foreach(var definition in definitions)
         {
@@ -85,7 +86,7 @@ internal static class RelationPropagationCompilation
                 pages.Add(accountPage);
                 pages.UnionWith(model.Catalog.ConfigPages.Where(page=>page.ConfigTableId==definition.SourceTableId).Select(page=>page.Id));
             }
-            if(definition.CrossTablePageId is{} crossPage&&(r0Pages.Contains(crossPage)||integerColumns.Contains(definition.ValueColumnId)))pages.Add(crossPage);
+            if(definition.CrossTablePageId is{} crossPage&&(r0Pages.Contains(crossPage)||typedNameColumns.Contains(definition.ValueColumnId)))pages.Add(crossPage);
             if(definition.CrossTableGlobalPages is{} mapping)pages.UnionWith(mapping.Values.Where(r0Pages.Contains));
         }
         // 发布目录需能重新证明项目内来源使用的父角色，并在名称回填时执行实际全局父页条件。
