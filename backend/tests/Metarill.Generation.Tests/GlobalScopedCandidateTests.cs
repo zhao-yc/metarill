@@ -195,6 +195,64 @@ public sealed partial class GlobalScopedCandidateTests
         }
     }
 
+    /// <summary>全局 R1 原 List 接通当前值、原工作簿、同事务传播与回填。</summary>
+    [Theory]
+    [InlineData(0, false, "int32", "string")]
+    [InlineData(1, false, "int64", "int64")]
+    [InlineData(0, true, "int64", "string")]
+    public async Task Global_R1_List_writes_integer_names_from_fixed_targets(int storage, bool derived, string logicalType, string foreignType)
+    {
+        var catalog = derived ? GlobalDerivedTargetGenerationTests.Catalog(0, foreignType, "int64") : PhysicalNumberCatalog(storage, logicalType, rowProject: false);
+        var source = catalog.ConfigTables.Single(table => table.Id == "3");
+        source.IsRongyu = 1;
+        source.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        catalog.ConfigPages.Single(page => page.Id == "30").WhereSql = "";
+        catalog.ConfigColumns.RemoveAll(field => field.Id is "32" or "38" or "40");
+        catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId is "38" or "40");
+        catalog.ConfigColumns.Single(field => field.Id == "34").LogicalType = foreignType;
+        var cache = catalog.ConfigColumns.Single(field => field.Id == "35");
+        cache.LogicalType = logicalType;
+        catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == cache.Id);
+        if (storage == 1)
+            cache.Extra["columnFullName"] = JsonSerializer.SerializeToElement("global_source_id.code");
+        if (derived)
+        {
+            catalog.ConfigColumns.Add(new() { Id = "25", ConfigTableId = "2", YzProjectId = "100", ColumnName = "code", LogicalType = logicalType });
+            var display = catalog.ConfigColumns.Single(field => field.Id == "14");
+            display.LogicalType = logicalType;
+            display.Extra["columnFullName"] = JsonSerializer.SerializeToElement("global_target.code");
+        }
+
+        var model = GenerationModel.Create(catalog, ApplicationNamespace);
+        var owner = model.Tables.Single(table => table.Source.Id == "3");
+        var page = Assert.Single(owner.Pages);
+        Assert.Contains(page.Readable, column => column.Source.Id == cache.Id);
+        Assert.DoesNotContain(page.Writable, column => column.Source.Id == cache.Id);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        AssertManagedIntegerCache(model, derived ? "global_target" : "global_source", [cache.ColumnName]);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-r1-integer-cache");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ApplicationNamespace);
+            var service = await File.ReadAllTextAsync(Path.Combine(output, "Services/CachedConsumerService.g.cs"));
+            Assert.Contains("DerivedOptionsRows30_34Async", service);
+            Assert.Contains("ImportRelation30_34Async", service);
+            Assert.Contains("FixedReadComparison.IntegerLabelContains", service);
+            Assert.Contains("actor.ProjectId!=\"100\"", service);
+            Assert.Contains("AfterMutationAsync", service);
+            var property = GenerationModel.Pascal(cache.ColumnName);
+            Assert.Contains("entity." + property + "=Metarill.Data.Queries.NonRedundantReads.Value", service);
+            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) await TestDirectoryCleanup.DeleteAsync(directory, boundary);
+        }
+    }
+
     /// <summary>整数缓存缺少维护标记或类型不符时，生成器停止发布该关系。</summary>
     [Theory]
     [InlineData(false)]

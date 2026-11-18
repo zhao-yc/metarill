@@ -34,7 +34,7 @@ public static class GlobalCachedRelationSource
     internal static GlobalCachedRelationBinding RequireCache(MetadataCatalog catalog,TableMetadata source,ColumnMetadata cache,ISet<string> resolving)
     {
         Require(catalog,source);var storage=MetadataStoragePolicy.ForTable(catalog,source);var path=cache.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
-        if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==cache.Id),cache)||cache.ConfigTableId!=source.Id||path.Length!=2||!Joined(cache)||cache.IsVirtualColumn!=0||!storage.IsPhysical(cache)||cache.LogicalType!="string"||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
+        if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==cache.Id),cache)||cache.ConfigTableId!=source.Id||path.Length!=2||!Joined(cache)||cache.IsVirtualColumn!=0||!storage.IsPhysical(cache)||cache.LogicalType is not("string" or "int32" or "int64")||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
         var foreign=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==source.Id&&(column.ColumnName==path[0]+"_id"||column.ColumnName==path[0]));
         if(foreign is null)throw Invalid();RequireSingle(catalog,source,foreign);
         using var definition=JsonDocument.Parse(foreign.ControlDetail);var root=definition.RootElement;
@@ -42,7 +42,8 @@ public static class GlobalCachedRelationSource
         var targetId=foreign.LinkConfigTableId.Length>0?foreign.LinkConfigTableId:Value("tableId");var name=Value("table");
         var targets=catalog.ConfigTables.Where(table=>targetId.Length>0?table.Id==targetId:table.TableName==name).ToArray();if(targets.Length!=1||!GlobalCrossTableTarget.Declared(targets[0]))throw Invalid();
         var proof=GlobalSingleRelationTarget.RequireCachedValue(catalog,source,foreign,targets[0],resolving);var stem=foreign.ColumnName[..^3];
-        if(path[1]!=proof.Name.ColumnName||cache.ColumnName!=stem+"_"+proof.Name.ColumnName)throw Invalid();
+        // 同类型副本由写入和回填共同使用，避免整数截断或隐式转为字符串。
+        if(path[1]!=proof.Name.ColumnName||cache.ColumnName!=stem+"_"+proof.Name.ColumnName||cache.LogicalType!=proof.Name.LogicalType)throw Invalid();
         return new(foreign,targets[0],proof.Page,proof.Name,cache);
     }
     /// <summary>与现有元数据标志一致，只承认1/true。</summary>

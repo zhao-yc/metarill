@@ -16,9 +16,10 @@ internal static class DerivedRelationNamesCompilation
     internal static bool IsPhysicalInteger(GenerationModel model, TableModel target, ColumnModel name) =>
         !name.IsJsonArray && name.Type is "int?" or "long?" && NonRedundantReadCompilation.Physical(model, target, name);
 
-    /// <summary>普通项目的单值关系可使用物理和联接整数，R1 来源还需证明缓存。</summary>
+    /// <summary>识别固定整数终点；全局 R1 来源在编译关系时逐项核验原 List 和物理副本。</summary>
     internal static bool IsIntegerName(GenerationModel model, TableModel owner, TableModel target, ColumnModel name) =>
-        SupportedOwner(model, owner) && !owner.IsGlobal && !name.IsJsonArray && name.Type is "int?" or "long?" &&
+        (owner.IsGlobal ? owner.Source.IsRongyu == 1 && target.IsGlobal : SupportedOwner(model, owner)) &&
+        !name.IsJsonArray && name.Type is "int?" or "long?" &&
         (target.Source.IsRongyu == 0 || target.Source.IsRongyu == 1 && IsPhysicalInteger(model, target, name));
 
     /// <summary>目标候选和来源筛选共用同一个名称终点类型。</summary>
@@ -65,10 +66,11 @@ internal static class DerivedRelationNamesCompilation
             RequireSelection(model, owner, target, relation.TargetPage, name);
         var integerName = IsIntegerName(model, owner, target, name);
         var physicalInteger = IsPhysicalInteger(model, target, name);
-        if(!SupportedOwner(model,owner)||relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||
+        if(!(integerName && owner.IsGlobal) && !SupportedOwner(model,owner) ||
+            relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||
             target.Source.IsRongyu!=0&&!physicalInteger||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
             name.Type != "string?" && !integerName || name.IsJsonArray || relation.ParentBinding?.Declared==true||ExactDataManageCompilation.Declared(relation.TargetPage)||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage))
-            throw new InvalidOperationException("派生名称关系要求普通R0或已发布R1物理来源、普通R0目标及已证明的候选范围。");
+            throw new InvalidOperationException("固定名称关系要求已发布来源、物理整数或已证明的派生目标及候选范围。");
         if (integerName && ForeignValidationRenderer.Target(model, relation.SourceColumn)?.Source.Id != target.Source.Id)
             throw new InvalidOperationException("整数名称候选必须与来源外键使用同一固定目标。");
         if(target.IsGlobal)
@@ -80,8 +82,12 @@ internal static class DerivedRelationNamesCompilation
         if (integerName && owner.Source.IsRongyu == 1)
         {
             var cache = SelectionDisplayFieldCompilation.Resolve(owner, relation.SourceColumn);
-            if (!NonRedundantSelectionCompilation.IsDisplay(relation.SourceColumn, cache, name) ||
-                !NonRedundantReadCompilation.Physical(model, owner, cache) ||
+            // 全局来源沿用发布证明中的两种原外键路径写法。
+            var sameDisplay = owner.IsGlobal
+                ? GlobalCachedSourceCompilation.ForModel(model).Any(binding =>
+                    binding.Foreign.Source.Id == relation.SourceColumn.Source.Id && binding.Cache.Source.Id == cache.Source.Id)
+                : NonRedundantSelectionCompilation.IsDisplay(relation.SourceColumn, cache, name);
+            if (!sameDisplay || !NonRedundantReadCompilation.Physical(model, owner, cache) ||
                 page.Readable.Contains(relation.SourceColumn) && !page.Readable.Contains(cache) ||
                 !MixedRelationPropagationCompilation.ForModel(model).MixedSourceColumns.GetValueOrDefault(owner.Source.TableName, [])
                     .Contains(cache.Source.ColumnName, StringComparer.Ordinal))

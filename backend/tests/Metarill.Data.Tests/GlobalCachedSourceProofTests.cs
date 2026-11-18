@@ -73,6 +73,32 @@ public sealed class GlobalCachedSourceProofTests
         }
         else Assert.ThrowsAny<Exception>(()=>GlobalCachedRelationSource.RequireCache(c,source,cache));
     }
+    /// <summary>全局 R1 只缓存同类型整数名称，缓存类型不符时发布前即拒绝。</summary>
+    [Theory]
+    [InlineData("int32", "int32")]
+    [InlineData("int64", "int64")]
+    [InlineData("int64", "int32")]
+    [InlineData("int64", "string")]
+    public void Global_R1_integer_cache_requires_exact_target_type(string labelType, string storageType)
+    {
+        var catalog = Catalog("string");
+        var source = catalog.ConfigTables[0];
+        var cache = catalog.ConfigColumns.Single(column => column.Id == "14");
+        cache.LogicalType = storageType;
+        cache.Extra["isJoinColumn"] = JsonSerializer.SerializeToElement(1);
+        cache.Extra["columnFullName"] = JsonSerializer.SerializeToElement("global_target.name");
+        catalog.ConfigColumns.Single(column => column.Id == "22").LogicalType = labelType;
+
+        if (labelType == storageType)
+        {
+            var binding = GlobalCachedRelationSource.RequireCache(catalog, source, cache);
+            Assert.Equal(labelType, binding.Name.LogicalType);
+            Assert.Same(cache, binding.Cache);
+        }
+        else
+            Assert.Throws<NotSupportedException>(() => GlobalCachedRelationSource.RequireCache(catalog, source, cache));
+    }
+
     /// <summary>最小目录含真实后台/页面和物理根键，目标仍由原全局发布证明约束。</summary>
     internal static MetadataCatalog Catalog(string type)
     {

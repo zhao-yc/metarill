@@ -36,13 +36,13 @@ public static class GlobalSingleRelationTarget
         var pageId=declaredPage.Length>0?declaredPage:linkedPage;var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id&&(pageId.Length==0||page.Id==pageId)).ToArray();if(pages.Length!=1)throw new InvalidOperationException("全局单值关系必须指定真实目标页，省略时目标页必须唯一。");var page=pages[0];GlobalCrossTableTarget.RequireSingle(catalog,target,page);
         var targetColumns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var nameField=Value("nameField");if(nameField.Length==0)nameField="name";var name=targetColumns.SingleOrDefault(column=>column.ColumnName==nameField);
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(targetStorage,target,column);
-        // 普通项目的实时读取与物理缓存共用目标列证明，全局来源沿用原字符串合同。
+        // R1 已通过本项目或显式全局 List 来源证明，两种来源共用固定整数终点。
         var integer = name is not null && name.ColumnName != "id" && name.LogicalType is "int32" or "int64" &&
-            owner.IsRongyu is 0 or 1 && !GlobalCrossTableTarget.Declared(owner) &&
+            (owner.IsRongyu == 1 || owner.IsRongyu == 0 && !GlobalCrossTableTarget.Declared(owner)) &&
             (Scalar(name) || target.IsRongyu == 0 && targetStorage.Kind(name) == MetadataFieldStorage.Join);
         if (name is null || name.LogicalType != "string" && !integer ||
             !GlobalPhysicalRelationValue.IsPublishedScalar(catalog, targetStorage, target, name, resolving ?? new HashSet<string>(StringComparer.Ordinal)))
-            throw new NotSupportedException("全局单值名称要求已证明的字符串或普通项目消费者使用的全局整数。");
+            throw new NotSupportedException("全局单值名称要求已证明的字符串或整数标量。");
         var key=targetColumns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局单值目标必须使用非空int64物理主键。");
         if(FixedConditionPlan.Compile(page.WhereSql,targetColumns.Select(column=>column.ColumnName)).Fields.Any(field=>!Scalar(targetColumns.Single(column=>column.ColumnName==field))))throw new NotSupportedException("全局目标条件必须使用非凭据物理标量。");return new(page,name);
     }
