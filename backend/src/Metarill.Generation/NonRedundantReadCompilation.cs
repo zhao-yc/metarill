@@ -6,7 +6,8 @@ using Metarill.Data.Queries;
 namespace Metarill.Generation;
 
 internal sealed record NonRedundantOutput(string Storage,string Property,string JsonName,string Type,bool IsJsonArray=false);
-internal sealed record NonRedundantPagePlan(IReadOnlyList<NonRedundantOutput> Outputs,IReadOnlyList<string> Dependencies,IReadOnlyList<string> ReadOutputs);
+internal sealed record NonRedundantPagePlan(IReadOnlyList<NonRedundantOutput> Outputs,IReadOnlyList<string> Dependencies,
+    IReadOnlyList<string> ReadOutputs,IReadOnlyList<NonRedundantSingleTargetScope> SingleTargets);
 
 /// <summary>生成侧提前证明单值／固定多选用途和物理写边界；数据库表达式由数据适配器编译。</summary>
 internal static class NonRedundantReadCompilation
@@ -147,7 +148,9 @@ internal static class NonRedundantReadCompilation
             throw new InvalidOperationException("非冗余级联名称的筛选/排序/匹配用途缺少完整路径证明。");
         // 图只取来源已授权行的所选ID；隐藏ID为私有投影依赖，不加入VO或页面字段。
         var readOutputs=outputs.Select(output=>output.Storage).Concat(CascadeTreeViewRenderer.ForPage(model,table,page).Select(plan=>plan.Source.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var compiled=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,readOutputs,NonRedundantCrossTableCompilation.Bindings(crossPlans),dependencies,deferCascadeNames:true);
+        var singleTargets=ProjectSingleTargets(model,table,page);
+        var crossBindings=NonRedundantCrossTableCompilation.Bindings(crossPlans);
+        var compiled=CompilePage(model,table,readOutputs,dependencies,crossBindings,singleTargets);
         if(GlobalSelectionPage(table,page))
             _=crossPlans.Count>0
                 ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,
@@ -159,8 +162,58 @@ internal static class NonRedundantReadCompilation
                         :NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies);
         outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","double"=>"double?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();
         if(outputs.Select(output=>output.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count)throw new InvalidOperationException("派生显示属性冲突。");
-        return new(outputs,dependencies,readOutputs);
+        return new(outputs,dependencies,readOutputs,singleTargets);
     }
+
+    /// <summary>业务页单值读取只使用实际项目内非冗余目标和可证明的物理父范围。</summary>
+    internal static bool UsesProjectSingleRead(RelationModel relation)=>
+        !relation.Target.IsGlobal&&relation.Target.Source.IsRongyu==0&&relation.ParentBinding?.Declared!=true&&
+        (relation.TargetPage.Condition is not null||relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"));
+
+    /// <summary>同一来源表的各页分别固定实际目标页，物理父键按本页同父或表单关系证明。</summary>
+    private static IReadOnlyList<NonRedundantSingleTargetScope> ProjectSingleTargets(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(table.IsGlobal||table.Source.IsRongyu!=0)return [];
+        var result=new List<NonRedundantSingleTargetScope>();
+        var relations=RelationCompilation.ForPage(model,page).Concat(RelationCompilation.ForPage(model,page,true))
+            .DistinctBy(relation=>relation.SourceColumn.Source.Id).Where(UsesProjectSingleRead);
+        foreach(var relation in relations)
+        {
+            ColumnModel? parent=null;
+            if(relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"))
+            {
+                var context=ControlRenderer.RelationContext(page,relation,false);
+                parent=context.SameParent?page.Scopes.Single(scope=>scope.Source=="parent").Column:
+                    table.Columns.SingleOrDefault(column=>column.JsonName==context.TargetParentField);
+                if(parent is null||!Physical(model,table,parent)||parent.Type is not("string?" or "long?" or "long"))
+                    throw new NotSupportedException("项目内实时名称缺少当前页已证明的物理来源父键。");
+            }
+            result.Add(new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id,parent?.Source.Id));
+        }
+        return result;
+    }
+
+    /// <summary>生成验证与导出窄投影使用完全相同的各页固定目标。</summary>
+    internal static NonRedundantReadPlan CompilePage(GenerationModel model,TableModel table,IReadOnlyList<string> outputs,
+        IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> crosses,
+        IReadOnlyList<NonRedundantSingleTargetScope> singles)=>
+        singles.Count==0?NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,outputs,crosses,dependencies,deferCascadeNames:true):
+            NonRedundantReads.CompileProjectPage(model.Catalog,table.Source.Id,outputs,dependencies,crosses,singles);
+
+    /// <summary>列表、详情与导出下发同一固定页绑定，旧的无条件生成保持原调用。</summary>
+    internal static string PagePlanCall(GenerationModel model,TableModel table,PageModel page,
+        NonRedundantPagePlan plan,string outputs,string dependencies)
+    {
+        var arguments=JsonSerializer.Serialize(table.Source.Id)+","+outputs+","+dependencies;
+        var cross=NonRedundantCrossTableCompilation.BindingArgument(model,table,page);
+        if(plan.SingleTargets.Count==0)
+            return (cross.Length==0?"Compile":"CompileCross")+"("+arguments+cross+")";
+        var targets=string.Join(",",plan.SingleTargets.Select(scope=> "new("+JsonSerializer.Serialize(scope.ColumnId)+","+
+            JsonSerializer.Serialize(scope.PageId)+","+JsonSerializer.Serialize(scope.SourceParentId)+")"));
+        return "CompileProjectPage("+arguments+(cross.Length==0?",Array.Empty<NonRedundantCrossTableScope>()":cross)+
+            ",new NonRedundantSingleTargetScope[]{"+targets+"})";
+    }
+
     /// <summary>读写共用同一关联目标；相互冲突的有效声明不能按不同优先级串表。</summary>
     private static void ValidateTargetDeclarations(GenerationModel model,ColumnModel relation,TableModel target)
     {

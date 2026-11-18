@@ -189,10 +189,16 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<string>? dependencies,IReadOnlyList<RedundantSharedParentPlan> parents) =>
         CompileRelationScope(catalog,tableId,outputs,[],dependencies,false,scopedPhysicalCandidate:true,candidateParents:parents);
 
+    /// <summary>固定业务页在同一读取计划中绑定单值目标和已有跨表路径。</summary>
+    internal static MySqlNonRedundantReadPlan CompileProjectPage(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputs,
+        IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
+        IReadOnlyList<NonRedundantSingleTargetScope> singleTargets)=>
+        CompileRelationScope(catalog,tableId,outputs,crossTables,dependencies,deferCascadeNames:true,singleTargets:singleTargets);
+
     /// <summary>共用方言、输出与发布目录校验，候选用途单独由构建器核验。</summary>
     private static MySqlNonRedundantReadPlan CompileRelationScope(MetadataCatalog catalog, string tableId, IReadOnlyList<string> outputNames,
         IReadOnlyList<NonRedundantCrossTableScope> crossTables, IReadOnlyList<string>? dependencies, bool deferCascadeNames, bool scopedPhysicalCandidate = false,
-        IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null)
+        IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
     {
         ArgumentNullException.ThrowIfNull(crossTables);
         ArgumentNullException.ThrowIfNull(catalog); ArgumentNullException.ThrowIfNull(outputNames);
@@ -200,7 +206,10 @@ public static partial class MySqlNonRedundantReadCompiler
         if(!long.TryParse(catalog.YzProjectId,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var projectId)||projectId<=0)throw new InvalidOperationException("发布项目标识必须为正整数。");
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("当前固定读取执行仅完成MySQL适配。");
         if(outputNames.Count==0||outputNames.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputNames.Count)throw new InvalidOperationException("输出字段不能为空或重复。");
-        var builder = new Builder(catalog, tableId, deferCascadeNames: deferCascadeNames, crossTables: crossTables, scopedPhysicalCandidate: scopedPhysicalCandidate,candidateParents:candidateParents);
+        var builder = new Builder(catalog, tableId, deferCascadeNames: deferCascadeNames, crossTables: crossTables, scopedPhysicalCandidate: scopedPhysicalCandidate,candidateParents:candidateParents)
+        {
+            ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
+        };
         return builder.Compile(outputNames,dependencies??[]);
     }
     /// <summary>维护用途只重算声明的物理副本；普通读取仍坚持原冗余／非冗余边界。</summary>
@@ -652,6 +661,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!global&&ordinaryRelation&&refreshFields is not null&&ProjectScopedSingleRelationTarget.Resolve(
                 catalog,tables[relation.ConfigTableId],relation,target) is not null)
                 throw new InvalidOperationException("项目内固定单值名称必须使用已发布维护绑定。");
+            var projectSingle=!global&&ordinaryRelation&&ownerAlias==rootAlias&&relation.ConfigTableId==root.Id
+                ?ProjectSingleTargets.GetValueOrDefault(relation.Id):null;
             PageMetadata? publishedPage=cachePage;
             var scopedSingle=false;
             var scopedCrossTable=false;
@@ -685,6 +696,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 Touch(existing,"id");return existing;
             }
             var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global){globalSingleAliases.Add(alias);if(target.IsRongyu==0)globalDerivedAliases.Add(alias);}var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=publishedPage is null?Scope(target,alias,projectScoped:!global):PublishedScope(target,alias,publishedPage,alias,allowAccount:scopedAccount,projectParent:projectParent,scopedSingle:scopedSingle,scopedCrossTable:scopedCrossTable);
+            if(projectSingle is not null)
+                scope+=(scope.Length==0?"":" AND ")+ProjectSingleReadCondition(relation,target,alias,projectSingle);
             if(trackReverse)
             {
                 Touch(alias,"id");reverse.Add(alias,(target.TableName,prefix,source,sourceType));

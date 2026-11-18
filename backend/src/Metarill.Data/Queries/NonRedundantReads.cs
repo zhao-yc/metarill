@@ -17,6 +17,9 @@ public sealed class NonRedundantReadPlan
     public IReadOnlyDictionary<string,string> OutputTypes=>new System.Collections.ObjectModel.ReadOnlyDictionary<string,string>(MySql.Outputs.ToDictionary(name=>name,name=>MySql.Types[name],StringComparer.OrdinalIgnoreCase));
 }
 
+/// <summary>业务页发布时固定的单值目标页和可选来源父键，不接受请求指定。</summary>
+public sealed record NonRedundantSingleTargetScope(string ColumnId,string PageId,string? SourceParentId=null);
+
 /// <summary>在生成校验或宿主启动阶段编译，业务方法不判断数据库品牌。</summary>
 public static class NonRedundantReads
 {
@@ -26,6 +29,12 @@ public static class NonRedundantReads
 
     /// <summary>输出与隐藏查询依赖分别声明；后者不会自动出现在返回记录中。</summary>
     public static NonRedundantReadPlan Compile(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)=>CompileWithCrossTables(metadata,tableId,outputs,[],dependencies,deferCascadeNames);
+    /// <summary>列表、详情、筛选与导出按业务页绑定的目标范围读取单值名称。</summary>
+    public static NonRedundantReadPlan CompileProjectPage(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,
+        IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
+        IReadOnlyList<NonRedundantSingleTargetScope> singleTargets)=>
+        new(MySqlNonRedundantReadCompiler.CompileProjectPage(metadata,tableId,outputs,dependencies,crossTables,singleTargets));
+
     /// <summary>只按已发布的全局目标页读取候选；普通对象读取继续使用按行归属的计划。</summary>
     public static NonRedundantReadPlan CompileGlobalCandidate(MetadataCatalog metadata,string tableId,string pageId,IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies=null)
     {

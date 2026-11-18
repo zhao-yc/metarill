@@ -267,6 +267,10 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true,true,true,true,false,false)]
     [InlineData(false,true,true,true,false,true)]
     [InlineData(true,false,true,true,false,true)]
+    [InlineData(false,false,true,false,false,false)]
+    [InlineData(false,true,true,false,false,true)]
+    [InlineData(true,true,true,false,false,false)]
+    [InlineData(true,false,true,false,false,true)]
     public async Task Single_account_page_uses_published_scope_without_cascade(
         bool selection,bool derived,bool rowProject,bool cached,bool global=true,bool parent=false)
     {
@@ -312,6 +316,23 @@ public sealed class DerivedRelationNamesTests
         }
         catalog.YzAdminTypes.Clear();
         RedundantMultiNameCacheTests.Published(catalog);
+        var separateTarget=selection&&!cached&&!global&&!parent;
+        if(separateTarget)
+        {
+            var other=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(target))!;
+            other.Id="202";
+            other.WhereSql="yz_project_id=@current_yz_project_id AND status=2 AND store_id=@current_store_id";
+            catalog.ConfigPages.Add(other);
+            foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="201").ToArray())
+            {
+                var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+                copy.Id="202_"+field.ConfigColumnId;
+                copy.ConfigPageId="202";
+                catalog.ConfigPageColumns.Add(copy);
+            }
+            catalog.ConfigPageColumns.Add(new(){Id="10415",ConfigPageId="104",ConfigColumnId="15",IsEdit=0,IsShow=1,
+                YzProjectId=catalog.YzProjectId,Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement("{\"pageId\":\"202\"}")}});
+        }
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-single-account-page");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -326,6 +347,13 @@ public sealed class DerivedRelationNamesTests
             Assert.Contains("Import101Async",service);
             Assert.Contains("Export101Async",service);
             Assert.Contains(".ForUpdate()",service);
+            if(!cached&&!global)
+            {
+                Assert.Contains("ReadPlan101=global::Example.SingleAccountPage.Generated.GeneratedNonRedundantReadCatalog.CompileProjectPage(",service);
+                Assert.Contains("ExportReadPlan101=global::Example.SingleAccountPage.Generated.GeneratedNonRedundantReadCatalog.CompileProjectPage(",service);
+                Assert.Contains("ReadPlan101.BindAccount(actor)",service);
+                Assert.Contains(separateTarget?"new(\"15\",\"202\",null)":"new(\"15\",\"201\",",service);
+            }
             if(derived)
             {
                 Assert.Contains(global?"CompileGlobalCandidate(\"2\",\"201\"":"CompileRelation(\"2\"",service);

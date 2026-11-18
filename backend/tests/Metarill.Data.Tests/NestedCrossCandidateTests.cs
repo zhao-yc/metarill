@@ -305,6 +305,25 @@ public sealed class NestedCrossCandidateTests
         ]);
         var value=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="name");
         var binding=new RelationCacheDefinition(source.Id,"9014",target.Id,value.Id,"9015",false){ScopedSinglePageId=page.Id};
+        source.IsRongyu=0;
+        var actor=new RuntimeActor(1,"页面账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
+        var readBinding=new NonRedundantSingleTargetScope("9014",page.Id,withParent?"9017":null);
+        var read=NonRedundantReads.CompileProjectPage(catalog,source.Id,["id","shared_name"],["shared_name"],[],[readBinding]);
+        var live=read.BindAccount(actor).MySql;
+        Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor with{StoreId=null}));
+        Assert.Contains(actor.StoreId!.Value,live.Constants.Values);
+        Assert.Contains("r0.`yz_project_id`=@project_scope_number",live.From);
+        Assert.Contains("EXISTS (SELECT 1",live.From);
+        Assert.Equal("r0.`name`",live.Expression("shared_name"));
+        Assert.DoesNotContain("store_id",live.Scope);
+        if(withParent)
+        {
+            Assert.Contains("b.`group_id`",live.From);
+            Assert.Contains("nested_outer_leaf",live.From);
+            Assert.Throws<InvalidOperationException>(()=>NonRedundantReads.CompileProjectPage(catalog,source.Id,["shared_name"],[],[],
+                [readBinding with{SourceParentId="9014"}]));
+        }
+        source.IsRongyu=1;
         var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
         var consumer=Assert.Single(maintenance.Mixed.Consumers,item=>item.Table.Option.Id==source.Id);
         var label=consumer.Read.Expression("shared_name");

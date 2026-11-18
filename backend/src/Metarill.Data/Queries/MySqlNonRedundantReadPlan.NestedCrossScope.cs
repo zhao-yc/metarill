@@ -9,7 +9,7 @@ public static partial class MySqlNonRedundantReadCompiler
     internal static MySqlNonRedundantReadPlan CompileCrossPageCandidate(MetadataCatalog catalog,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
         IReadOnlyList<NonRedundantCrossTableScope>? displayBindings=null,string rootAlias="b",string aliasPrefix="r",
-        HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null,IReadOnlyList<string>? listFields=null)
+        HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null,IReadOnlyList<string>? listFields=null,bool projectSingle=false)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -39,9 +39,9 @@ public static partial class MySqlNonRedundantReadCompiler
             else if(displayBindings is null)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
             else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page);
         }
-        if(logical.Count==0&&treeNames.Count==0&&listFields is null&&(!global||displayBindings is not{Count:>0}))
+        if(!projectSingle&&logical.Count==0&&treeNames.Count==0&&listFields is null&&(!global||displayBindings is not{Count:>0}))
             throw new InvalidOperationException("候选页未声明逻辑级联条件或已证明的全局跨表投影。");
-        var parent=hasParentScope?MultiTargetParentScope.Compile(catalog,table,syntax):null;
+        var parent=hasParentScope||projectSingle?MultiTargetParentScope.Compile(catalog,table,syntax):null;
         var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target,treeNames);
         // 附加条件只扩充真实路径与投影，页面条件仍由实际发布页决定。
         logical.UnionWith(listCrosses);
@@ -54,7 +54,7 @@ public static partial class MySqlNonRedundantReadCompiler
             CrossCandidateCondition=condition,
             SelfTreeCandidateFields=projectionTrees,
             ActiveSelfTreeScopes=activeSelfTreeScopes??new(),
-            MultiCandidateParent=parent,
+            MultiCandidateParent=projectSingle?null:parent,
             MultiCandidatePage=page,
             GlobalCrossCandidate=global,
             ScopedRootControls=scopes.Select(path=>path.SourceColumnId).ToHashSet(StringComparer.Ordinal),
@@ -258,6 +258,40 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly HashSet<string> activeCrossScopePages=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlCrossTableProjection> scopedCrossProjections=new(StringComparer.Ordinal);
 
+        internal IReadOnlyDictionary<string,NonRedundantSingleTargetScope> ProjectSingleTargets { get; init; }=
+            new Dictionary<string,NonRedundantSingleTargetScope>(StringComparer.Ordinal);
+
+        /// <summary>业务页的单值联接只显示其固定候选范围内的名称。目标条件在相关子查询内独立编译。</summary>
+        private string ProjectSingleReadCondition(ColumnMetadata relation,TableMetadata target,string alias,
+            NonRedundantSingleTargetScope binding)
+        {
+            if(root.IsRongyu!=0||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(root)||
+                relation.ControlKind is not("List" or "SelectPage")||!storage[root.Id].IsPhysical(relation))
+                throw new NotSupportedException("项目内单值读取须使用普通非冗余表的实际物理外键。");
+            var page=catalog.ConfigPages.Single(item=>item.Id==binding.PageId&&item.ConfigTableId==target.Id);
+            var parent=MultiParent(catalog,page);
+            if((parent is null)!=(binding.SourceParentId is null)||parent is {Global:true} or {Logical:true})
+                throw new InvalidOperationException("项目内单值读取缺少已证明的物理父绑定。");
+
+            var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_page");
+            var plan=CompileCrossPageCandidate(catalog,target.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
+                activeSelfTreeScopes:ActiveSelfTreeScopes,projectSingle:true);
+            plan.CopyParametersTo(crossConstants);
+            var predicate=plan.Expression("id")+"="+alias+".`id`";
+            if(plan.Scope.Length>0)predicate+=" AND "+plan.Scope;
+            if(parent is not null)
+            {
+                var field=columns[root.Id].Values.Single(item=>item.Id==binding.SourceParentId);
+                if(field.Id==relation.Id||field.LogicalType is not("string" or "int64")||
+                    !GlobalPhysicalRelationValue.IsScalar(storage[root.Id],root,field)||
+                    (field.LinkConfigTableId.Length>0?field.LinkConfigTableId!=parent.Parent.Id:
+                        field.ColumnName!=parent.Parent.TableName+"_id"))
+                    throw new InvalidOperationException("项目内单值读取父键与目标发布页不一致。");
+                predicate+=" AND "+SinglePhysicalParentCondition(root,rootAlias,prefix,parent,field);
+            }
+            return "EXISTS (SELECT 1"+plan.From+" WHERE "+predicate+")";
+        }
+
         /// <summary>关联目标先按物理键联接。用固定候选子查询隔离跨表层，避免引用后声明的别名。</summary>
         private string PublishedSingleCrossCondition(TableMetadata table,string alias,PageMetadata page)
         {
@@ -319,6 +353,13 @@ public static partial class MySqlNonRedundantReadCompiler
             if(parent.Global||parent.Logical)
                 throw new NotSupportedException("项目内单值缓存的目标父级必须是普通项目的物理外键。");
             var binding=parent.Source(catalog,source,foreign,physicalSingle:true).Column;
+            return SinglePhysicalParentCondition(source,owner,targetAlias,parent,binding);
+        }
+
+        /// <summary>项目内名称读和缓存校验同一物理父记录，只有维护才登记传播。</summary>
+        private string SinglePhysicalParentCondition(TableMetadata source,string owner,string targetAlias,
+            MultiTargetParentScope parent,ColumnMetadata binding)
+        {
             var parentAlias=aliasPrefix+"single_parent_"+targetAlias;
             var sourceKey=owner+"."+Q(binding.ColumnName);
             var targetKey=targetAlias+"."+Q(parent.Target.ColumnName);
@@ -328,8 +369,9 @@ public static partial class MySqlNonRedundantReadCompiler
             Use(parent.Parent,Column(parent.Parent,"id"));
             var parentScope=Scope(parent.Parent,parentAlias);
             var dependencies=new HashSet<string>(StringComparer.Ordinal){"id","yz_project_id","delete_no"};
-            customReverse.Add(new(parent.Parent.TableName," FROM "+Q(source.TableName)+" "+owner,sourceKey,binding.LogicalType,
-                new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,dependencies}}));
+            if(trackReverse)
+                customReverse.Add(new(parent.Parent.TableName," FROM "+Q(source.TableName)+" "+owner,sourceKey,binding.LogicalType,
+                    new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,dependencies}}));
             var canonical="BINARY CAST("+primary+" AS CHAR)";
             return "EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+parentAlias+" WHERE "+primary+">0 AND "+
                 canonical+"=BINARY CAST("+sourceKey+" AS CHAR) AND "+canonical+"=BINARY CAST("+targetKey+" AS CHAR) AND "+parentScope+")";
