@@ -46,6 +46,10 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true, true, false, true, false, true)]
     [InlineData(false, true, false, true, true, true)]
     [InlineData(true, false, false, false, true, true)]
+    [InlineData(false, false, false, null, true)]
+    [InlineData(true, false, true, null, true)]
+    [InlineData(false, true, true, null, true, true)]
+    [InlineData(true, true, false, null, true, true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
         bool? globalWithProject,bool redundant,bool cross=false)
     {
@@ -121,6 +125,12 @@ public sealed class DerivedRelationNamesTests
         if(redundant)
         {
             catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=1;
+            if(!selection&&globalWithProject is null&&!parent)
+            {
+                // 先输入较晚的后台页，物理副本和原候选仍须按已发布页顺序选择201。
+                foreign.Extra.Remove("linkConfigPageId");
+                catalog.ConfigPages.Insert(0,new(){Id="202",ConfigTableId="2",YzAdminTypeId="5"});
+            }
             // 夹具只保留本次要检查的名称副本，原来源父页仍照常校验。
             catalog.ConfigColumns.RemoveAll(column=>column.Id is "16" or "17");
             catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "16" or "17");

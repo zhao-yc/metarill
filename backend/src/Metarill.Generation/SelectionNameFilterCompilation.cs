@@ -50,7 +50,7 @@ internal static class SelectionNameFilterCompilation
                      table.Source.IsRongyu==1&&MultiNameStorageCompilation.IsImplicit(model,storage));
                 var readable=page.Readable.Any(column=>column.Source.Id==storage.Source.Id)||
                     implicitNames&&page.Readable.Any(column=>column.Source.Id==source.Source.Id);
-                var scopedCache=table.Source.IsRongyu==1&&source.Source.ControlKind=="SelectPage"&&target.IsGlobal&&
+                var scopedCache=table.Source.IsRongyu==1&&source.Source.ControlKind=="SelectPage"&&target.Source.IsRongyu==0&&
                     FixedPageConditionCompilation.HasLogicalFields(targetPage)&&NonRedundantSelectionCompilation.IsDisplay(source,storage,name)&&
                     NonRedundantReadCompilation.Physical(model,table,storage);
                 if(storage.Type!="string?"&&!typedStorage||storage.Source.IsVirtualColumn!=0||!readable||

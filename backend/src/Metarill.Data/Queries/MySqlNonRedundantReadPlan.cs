@@ -649,6 +649,9 @@ public static partial class MySqlNonRedundantReadCompiler
             if(matching&&sourceType!="int64"&&!(multiLabel&&fixedTextKey))
                 throw new NotSupportedException("精确管理关联键必须与目标主键同为int64，不能借数据库隐式转换匹配。");
             var global=GlobalCrossTableTarget.Declared(target);
+            if(!global&&ordinaryRelation&&refreshFields is not null&&ProjectScopedSingleRelationTarget.Resolve(
+                catalog,tables[relation.ConfigTableId],relation,target) is not null)
+                throw new InvalidOperationException("项目内固定单值名称必须使用已发布维护绑定。");
             PageMetadata? publishedPage=cachePage;
             var scopedSingle=false;
             var scopedCrossTable=false;

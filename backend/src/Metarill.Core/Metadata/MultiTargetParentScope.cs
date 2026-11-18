@@ -61,7 +61,11 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     }
 
     /// <summary>独立回读与回填从真实来源行取父键，不能从请求、当前账号或名称缓存猜测。</summary>
-    public MultiSourceParent Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation)
+    public MultiSourceParent Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation)=>
+        Source(catalog,source,relation,physicalSingle:false);
+
+    /// <summary>单值固定页和多值页共用持久父键证明；单值只允许实际物理父字段。</summary>
+    public MultiSourceParent Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,bool physicalSingle)
     {
         var columns=catalog.ConfigColumns.Where(item=>item.ConfigTableId==source.Id).ToArray();
         var keys=columns.Where(column=>PhysicalKey(catalog,source,column)&&References(column,Parent)).ToArray();
@@ -78,13 +82,14 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
                 var field=scoped[0].Field;
                 if(keys.SingleOrDefault(key=>key.ColumnName==field) is {} inherited)
                     return (Column:(ColumnMetadata?)inherited,Page:(PageMetadata?)null);
-                if(CrossTableStorageColumns.IsLogicalPathField(source,columns,field))
+                if(!physicalSingle&&CrossTableStorageColumns.IsLogicalPathField(source,columns,field))
                 {
                     var binding=Compile(catalog,source,FixedConditionPlan.Compile(page.WhereSql,fields));
                     if(binding?.Parent.Id==Parent.Id)return (Column:(ColumnMetadata?)binding.Target,Page:(PageMetadata?)page);
                 }
             }
-            return (Column:relation.ControlKind=="MultiSelectPage"&&explicitKeys.Length==1?explicitKeys[0]:null,Page:(PageMetadata?)null);
+            return (Column:(relation.ControlKind=="MultiSelectPage"||physicalSingle&&relation.ControlKind is ("List" or "SelectPage"))&&
+                explicitKeys.Length==1?explicitKeys[0]:null,Page:(PageMetadata?)null);
         }).ToArray();
         if(selected.Length==0||selected.Any(item=>item.Column is null)||
             selected.Select(item=>item.Column!.Id).Distinct(StringComparer.Ordinal).Count()!=1||

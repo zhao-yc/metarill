@@ -410,7 +410,7 @@ internal static class ReadProjectionCompilation
                 var target = model.Tables.SingleOrDefault(candidate => candidate.Pages.Any(targetPage => targetPage.Source.Id == definition.PageId));
                 var targetPage = target?.Pages.Single(targetPage => targetPage.Source.Id == definition.PageId);
                 var name = target?.Columns.SingleOrDefault(candidate => candidate.Source.ColumnName == definition.NameField || candidate.JsonName == definition.NameField);
-                if(source.Source.ControlKind=="SelectPage"&&target is {IsGlobal:true}&&targetPage is not null&&FixedPageConditionCompilation.HasLogicalFields(targetPage))
+                if(source.Source.ControlKind=="SelectPage"&&target is {Source.IsRongyu:0}&&targetPage is not null&&FixedPageConditionCompilation.HasLogicalFields(targetPage))
                 {
                     // 原确认页由固定R0计划返回名称；冗余消费者只提交外键并读取其原显示缓存。
                     _=NonRedundantSelectionCompilation.Resolve(model,table,page,source);

@@ -201,6 +201,67 @@ public sealed class NestedCrossCandidateTests
         }
     }
 
+    /// <summary>项目内副本只读同项目、同物理父和同来源行归属的实际目标页。</summary>
+    [Theory]
+    [InlineData("List","string")]
+    [InlineData("SelectPage","int64")]
+    public void Project_single_cache_uses_fixed_page_and_physical_parent(string kind,string key)
+    {
+        var catalog=Catalog(false);
+        var source=catalog.ConfigTables.Single(table=>table.Id=="90");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="1");
+        var page=catalog.ConfigPages.Single(item=>item.Id=="11");
+        source.IsRongyu=1;
+        foreach(var table in catalog.ConfigTables)table.YzProjectId=catalog.YzProjectId;
+        page.YzAdminTypeId="5";
+        page.WhereSql+=" AND group_id=@parent_id";
+        var sourcePage=new PageMetadata{Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
+            WhereSql="yz_project_id=@current_yz_project_id AND group_id=@parent_id AND store_id=@current_store_id"};
+        catalog.ConfigPages.Add(sourcePage);
+        catalog.ConfigColumns.AddRange([
+            new(){Id="9014",ConfigTableId=source.Id,ColumnName="shared_id",LogicalType=key,ControlKind=kind,LinkConfigTableId=target.Id,
+                ControlDetail=JsonSerializer.Serialize(new{tableId=target.Id,pageId=page.Id}),
+                Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement(page.Id)}},
+            new(){Id="9015",ConfigTableId=source.Id,ColumnName="shared_name",LogicalType="string",Extra=new()
+            {
+                ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                ["columnFullName"]=JsonSerializer.SerializeToElement("shared.name")
+            }},
+            new(){Id="9016",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"},
+            new(){Id="9017",ConfigTableId=source.Id,ColumnName="group_id",LogicalType=key,LinkConfigTableId="91"},
+            new(){Id="1111",ConfigTableId=target.Id,ColumnName="group_id",LogicalType="int64",LinkConfigTableId="91"}
+        ]);
+        var value=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="name");
+        var binding=new RelationCacheDefinition(source.Id,"9014",target.Id,value.Id,"9015",false){ScopedSinglePageId=page.Id};
+        var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+        var consumer=Assert.Single(maintenance.Mixed.Consumers,item=>item.Table.Option.Id==source.Id);
+        var label=consumer.Read.Expression("shared_name");
+        Assert.Contains("b.`store_id`",label);
+        Assert.Contains("b.`group_id`",label);
+        Assert.Contains("r0.`group_id`",label);
+        Assert.Contains("`yz_project_id`=@project_scope_number",label);
+        Assert.Contains("r0.`yz_project_id`=@project_scope_number",consumer.Read.From);
+        Assert.Contains("group_id",consumer.Inputs);
+        var reverse=Assert.Single(consumer.Read.Reverse,item=>item.TargetTable=="nested_outer_leaf");
+        if(key=="int64")Assert.Equal("b.`group_id`=@target_id",reverse.TargetPredicate);
+        else Assert.Contains("BINARY b.`group_id`=BINARY @target_text",reverse.TargetPredicate);
+        Assert.Throws<InvalidOperationException>(()=>RelationMutationPlan.Compile(catalog,[binding with{ScopedSinglePageId=null}]));
+
+        if(kind=="SelectPage")
+        {
+            catalog.ConfigPages.Add(new(){Id="12",ConfigTableId=target.Id});
+            catalog.ConfigPageColumns.Add(new(){Id="90014",ConfigPageId="900",ConfigColumnId="9014",
+                Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement("{\"pageId\":\"12\"}")}});
+            Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));
+        }
+        else
+        {
+            catalog.ConfigPageColumns.Add(new(){Id="90014",ConfigPageId="900",ConfigColumnId="9014",
+                Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement("{\"nameField\":\"id\"}")}});
+            Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));
+        }
+    }
+
     /// <summary>回填使用来源行归属；内层路径变化与直接改名都能找到需要更新的缓存。</summary>
     [Theory]
     [InlineData(false,false,true)]

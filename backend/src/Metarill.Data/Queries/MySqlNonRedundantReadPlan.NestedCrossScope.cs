@@ -252,30 +252,56 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         /// <summary>全局单值副本以同一逻辑范围解析源行归属和实际级联路径。</summary>
-        private string PublishedSingleCondition(TableMetadata table,string alias,PageMetadata page,CascadeCacheOwner? cacheOwner=null)
+        private string PublishedSingleCondition(TableMetadata table,string alias,PageMetadata page,CascadeCacheOwner? cacheOwner=null,
+            ColumnMetadata? parentField=null)
         {
             var members=columns[table.Id].Values.ToArray();
             var fields=PublishedSelfTreeConditionFields(catalog,table,page,members);
             var syntax=FixedConditionPlan.Compile(page.WhereSql,members.Select(member=>member.ColumnName));
-            var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,selfTreeFields:fields);
-            var logical=RequireCrossCondition(table,page,condition,selfTreeFields:fields);
-            scopedGlobalCrossTarget=true;
+            var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields);
+            var logical=RequireCrossCondition(table,page,condition,parentField,fields);
+            if(GlobalCrossTableTarget.Declared(table))scopedGlobalCrossTarget=true;
             return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
-                alias,cacheOwner,selfTreeFields:fields);
+                alias,cacheOwner,parentField,fields);
         }
 
         /// <summary>先按物理键联接以便失效后仍可反查，再按来源行归属计算可见名称。</summary>
         private (string Sql,string Type) ScopedSingleCacheValue(TableMetadata table,string owner,ColumnMetadata foreign,
             TableMetadata target,ColumnMetadata value,RelationCacheDefinition definition)
         {
-            var proof=GlobalSingleRelationTarget.RequireCached(catalog,table,foreign,target);
-            if(!proof.ScopedLogicalPage||proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=value.Id)
+            var proof=DerivedCrossTableCaches.ScopedSingleTarget(catalog,table,foreign,target);
+            if(proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=value.Id)
                 throw new InvalidOperationException("单值名称缓存的目标范围与发布证明不一致。");
             var source=Resolve(table,owner,foreign.ColumnName);
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true);
-            var visible=PublishedSingleCondition(target,alias,proof.Page,new(table,owner));
+            var parent=MultiParent(catalog,proof.Page);
+            var visible=PublishedSingleCondition(target,alias,proof.Page,new(table,owner),parent?.Target);
+            if(parent is not null)visible+=" AND "+ScopedSingleParentCondition(table,owner,foreign,alias,parent);
             var label=Resolve(target,alias,value.ColumnName);
             return ("CASE WHEN "+alias+".`id` IS NOT NULL AND "+visible+" THEN "+label.Sql+" END",label.Type);
+        }
+
+        /// <summary>项目内父必须仍活动，按来源行的持久物理键匹配并登记反向依赖。</summary>
+        private string ScopedSingleParentCondition(TableMetadata source,string owner,ColumnMetadata foreign,
+            string targetAlias,MultiTargetParentScope parent)
+        {
+            if(parent.Global||parent.Logical)
+                throw new NotSupportedException("项目内单值缓存的目标父级必须是普通项目的物理外键。");
+            var binding=parent.Source(catalog,source,foreign,physicalSingle:true).Column;
+            var parentAlias=aliasPrefix+"single_parent_"+targetAlias;
+            var sourceKey=owner+"."+Q(binding.ColumnName);
+            var targetKey=targetAlias+"."+Q(parent.Target.ColumnName);
+            var primary=parentAlias+".`id`";
+            Use(source,binding);
+            Use(tables[parent.Target.ConfigTableId],parent.Target);Touch(targetAlias,parent.Target.ColumnName);
+            Use(parent.Parent,Column(parent.Parent,"id"));
+            var parentScope=Scope(parent.Parent,parentAlias);
+            var dependencies=new HashSet<string>(StringComparer.Ordinal){"id","yz_project_id","delete_no"};
+            customReverse.Add(new(parent.Parent.TableName," FROM "+Q(source.TableName)+" "+owner,sourceKey,binding.LogicalType,
+                new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,dependencies}}));
+            var canonical="BINARY CAST("+primary+" AS CHAR)";
+            return "EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+parentAlias+" WHERE "+primary+">0 AND "+
+                canonical+"=BINARY CAST("+sourceKey+" AS CHAR) AND "+canonical+"=BINARY CAST("+targetKey+" AS CHAR) AND "+parentScope+")";
         }
 
         /// <summary>缓存通过已发布候选页求值，目标与内层依赖都进入原传播队列。</summary>

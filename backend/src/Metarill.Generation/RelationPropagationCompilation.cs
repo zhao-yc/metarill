@@ -53,9 +53,17 @@ internal static class RelationPropagationCompilation
         foreach(var foreign in table.Columns.Where(column=>!column.IsSystem&&column.Source.ControlKind is "List" or "SelectPage"))
         {
             var target=ForeignValidationRenderer.Target(model,foreign);
-            if(target is not {IsGlobal:true}||!target.Pages.Any(FixedPageConditionCompilation.HasLogicalFields))continue;
-            var proof=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source);
-            if(!proof.ScopedLogicalPage)continue;
+            if(target is null||!target.Pages.Any(FixedPageConditionCompilation.HasLogicalFields))continue;
+            (PageMetadata Page,ColumnMetadata Name) proof;
+            if(target.IsGlobal)
+            {
+                var global=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source);
+                if(!global.ScopedLogicalPage)continue;
+                proof=(global.Page,global.Name);
+            }
+            else if(ProjectScopedSingleRelationTarget.Resolve(model.Catalog,table.Source,foreign.Source,target.Source) is {} project)
+                proof=project;
+            else continue;
             var cache=SelectionDisplayFieldCompilation.Resolve(table,foreign);
             if(cache.Source.Id==foreign.Source.Id)continue;
             var value=target.Columns.Single(column=>column.Source.Id==proof.Name.Id);
@@ -148,8 +156,13 @@ internal static class RelationPropagationCompilation
         var roots=model.Tables.SelectMany(table=>table.Pages.Where(page=>recursive.Contains(page.Source.Id)).Select(page=>(table,page)));
         var treePages=definitions.Where(item=>item.SelfTreePageId is not null&&SelfTreeCache.UsesWholePath(model.Catalog,
             model.Catalog.ConfigTables.Single(table=>table.Id==item.SourceTableId),item.SelfTreePageId)).Select(item=>item.SelfTreePageId!);
+        // 维护目录保留来源页的选择控件覆盖，重新验证副本的固定实际目标。
+        var scopedTables=PublishedRecursiveTables(model,roots).ToHashSet(StringComparer.Ordinal);
+        scopedTables.UnionWith(definitions.Where(definition=>definition.ScopedSinglePageId is not null&&
+            model.Tables.Any(table=>table.Source.Id==definition.TargetTableId&&!table.IsGlobal))
+            .Select(definition=>definition.SourceTableId));
         return GenerationMetadataPublisher.ForRelations(model.Catalog,PublishedCascadePages(model,definitions),
-            selfTreeNamePages:treePages,nestedTables:PublishedRecursiveTables(model,roots));
+            selfTreeNamePages:treePages,nestedTables:scopedTables);
     }
 
     /// <summary>映射按稳定键比较，不把字典引用或插入顺序当作不同权限范围。</summary>

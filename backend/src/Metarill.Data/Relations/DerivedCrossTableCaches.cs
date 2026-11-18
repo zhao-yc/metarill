@@ -69,15 +69,15 @@ public static class DerivedCrossTableCaches
             definition.CrossTableColumnId is not null||definition.CrossTableLevelKey is not null||
             definition.CrossTablePageId is not null||definition.CrossTableGlobalPages is not null||
             definition.CrossTableRecursivePageId is not null||definition.CrossTableAccountPageId is not null||definition.SelfTreePageId is not null)
-            throw new InvalidOperationException("固定单值缓存要求独立的项目内冗余来源和全局目标页。");
+            throw new InvalidOperationException("固定单值缓存要求独立的项目内冗余来源和已证明目标页。");
         var fields=catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id).ToArray();
         var foreign=fields.Single(column=>column.Id==definition.ForeignColumnId);
         var cache=fields.Single(column=>column.Id==definition.CacheColumnId);
-        var proof=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
+        var proof=ScopedSingleTarget(catalog,source,foreign,target);
         var stem=foreign.ColumnName[..^3];
         var storage=MetadataStoragePolicy.ForTable(catalog,source);
         var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();
-        if(!proof.ScopedLogicalPage||proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=definition.ValueColumnId||
+        if(proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=definition.ValueColumnId||
             cache.Id==foreign.Id||cache.ColumnName!=stem+"_"+proof.Name.ColumnName||cache.LogicalType!=proof.Name.LogicalType||
             !storage.IsPhysical(cache)||!Enabled(cache)||cache.IsVirtualColumn!=0||cache.ControlKind is not("" or "TextArea")||
             cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||
@@ -88,6 +88,20 @@ public static class DerivedCrossTableCaches
             throw new InvalidOperationException("固定单值缓存与实际目标页或名称声明不一致。");
         // 完整编译固定路径和行归属。任何缺失的内层证明都阻断生成。
         _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cache.ColumnName],[definition]);
+    }
+
+    /// <summary>实际目标页和名称由表级关系证明；不能用维护输入更换范围。</summary>
+    internal static (PageMetadata Page,ColumnMetadata Name) ScopedSingleTarget(MetadataCatalog catalog,
+        TableMetadata source,ColumnMetadata foreign,TableMetadata target)
+    {
+        if(GlobalCrossTableTarget.Declared(target))
+        {
+            var global=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
+            if(global.ScopedLogicalPage)return(global.Page,global.Name);
+        }
+        else if(ProjectScopedSingleRelationTarget.Resolve(catalog,source,foreign,target) is {} project)
+            return project;
+        throw new InvalidOperationException("固定单值缓存缺少实际逻辑目标页。");
     }
 
     /// <summary>只沿原明确联接标志，不把任意文本解释为关系。</summary>

@@ -29,8 +29,8 @@ internal static class RelationCompilation
         var relations = new List<RelationModel>();
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
         // 系统项目上下文保留既有List等接线，新缓存能力不额外追加隐藏候选或授权依赖。
-        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||LogicalListTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
-        foreach (var source in candidates.Where(c => (c.Source.ControlKind == "List" || (owner.Source.IsRongyu==0||!c.IsSystem&&(ForeignValidationRenderer.Target(model,c)?.IsGlobal==true||DerivedRelationNamesCompilation.DeclaredSource(model,c)))&&c.Source.ControlKind=="SelectPage") && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
+        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||LogicalListTarget(model,page,column)||LogicalSelectionTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
+        foreach (var source in candidates.Where(c => (c.Source.ControlKind == "List" || (owner.Source.IsRongyu==0||!c.IsSystem&&(ForeignValidationRenderer.Target(model,c)?.IsGlobal==true||DerivedRelationNamesCompilation.DeclaredSource(model,c)||LogicalSelectionTarget(model,page,c)))&&c.Source.ControlKind=="SelectPage") && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
         {
             var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
             var root = Definition(source.Source.ControlDetail);
@@ -117,6 +117,16 @@ internal static class RelationCompilation
     private static bool LogicalListTarget(GenerationModel model,PageModel page,ColumnModel source)=>
         source.Source.ControlKind=="List"&&ForeignValidationRenderer.Target(model,source) is {} target&&
         ListTargetPage(target,page,source,requireExplicit:false) is {} targetPage&&FixedPageConditionCompilation.HasLogicalFields(targetPage);
+
+    /// <summary>冗余单选绑定逻辑候选页时原入口也须校验相同范围。</summary>
+    private static bool LogicalSelectionTarget(GenerationModel model,PageModel page,ColumnModel source)
+    {
+        if(source.Source.ControlKind!="SelectPage"||ForeignValidationRenderer.Target(model,source) is not {Source.IsRongyu:0} target||
+            !target.Pages.Any(FixedPageConditionCompilation.HasLogicalFields))return false;
+        var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
+        var definition=SelectionControlDefinition.Resolve(source,field);
+        return target.Pages.Any(candidate=>candidate.Source.Id==definition.PageId&&FixedPageConditionCompilation.HasLogicalFields(candidate));
+    }
 
     /// <summary>运行时和私有写校验使用同一个原绑定页或原后台的无父目标页。</summary>
     private static PageModel? ListTargetPage(TableModel target,PageModel page,ColumnModel source,bool requireExplicit=true)
