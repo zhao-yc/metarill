@@ -15,8 +15,20 @@ internal static class NonRedundantReadCompilation
     /// <summary>声明全局的R0表仍可拥有实际行归属，两种用途必须分别生成。</summary>
     internal static bool HasGlobalRowProject(TableModel table)=>table.IsGlobal&&table.Source.IsRongyu==0&&table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id");
 
-    /// <summary>只有元数据中的单选和多选目标页公开全局分页入口。</summary>
-    internal static bool GlobalSelectionPage(TableModel table,PageModel page)=>HasGlobalRowProject(table)&&page.Source.Extra.GetValueOrDefault("type").ToString() is "1" or "2";
+    /// <summary>有行归属的全局选择页及独立物理父多选使用固定全局候选。</summary>
+    internal static bool GlobalSelectionPage(TableModel table,PageModel page)=>
+        HasGlobalRowProject(table)&&page.Source.Extra.GetValueOrDefault("type").ToString() is "1" or "2"||
+        GlobalAccountMultiPage(table,page);
+
+    /// <summary>纯物理账号与父级同时限制全局多选时，独立分页需要同一带父参数的计划。</summary>
+    internal static bool GlobalAccountMultiPage(TableModel table,PageModel page)=>
+        page.Source.Extra.GetValueOrDefault("type").ToString()=="2"&&GlobalAccountParentScope(table,page);
+
+    /// <summary>账号和真实物理父范围由实际发布页决定，与有没有项目列无关。</summary>
+    private static bool GlobalAccountParentScope(TableModel table,PageModel page)=>
+        table.IsGlobal&&table.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(page)&&
+        !FixedPageConditionCompilation.HasLogicalFields(page)&&page.Scopes.Any(scope=>scope.Source=="parent"&&
+            !CrossTableStorageColumns.IsLogicalPathField(table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName));
 
     /// <summary>候选、已选和Excel从同一发布页取得目标范围。</summary>
     internal static string RelationPlanStart(TableModel table,PageModel? page)=>
@@ -31,7 +43,8 @@ internal static class NonRedundantReadCompilation
             :table.IsGlobal?RelationPlanStart(table,page):"CompileMultiLabel("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(name.Source.ColumnName);
 
     /// <summary>没有派生关系的原纯物理非冗余页继续使用既有强类型路径。</summary>
-    internal static bool Requires(GenerationModel model,TableModel table)=>HasGlobalRowProject(table)||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
+    internal static bool Requires(GenerationModel model,TableModel table)=>HasGlobalRowProject(table)||
+        table.Pages.Any(page=>GlobalAccountMultiPage(table,page))||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
     /// <summary>所有实体写入复用同一存储计划，不把读取派生属性持久化。</summary>
     internal static bool Physical(GenerationModel model,TableModel table,ColumnModel column)=>MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column.Source);
     /// <summary>固定叶名与目标页一起发布；仅显示、顺序等范围不变的页面覆盖可以继续使用表级读取定义。</summary>
@@ -68,7 +81,9 @@ internal static class NonRedundantReadCompilation
         if(HasGlobalRowProject(table))GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
         else if(table.IsGlobal)
         {
-            if(FixedPageConditionCompilation.HasSelfTreeFields(page))
+            if(GlobalAccountParentScope(table,page))
+                GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source);
+            else if(FixedPageConditionCompilation.HasSelfTreeFields(page))
                 GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(model.Catalog,table.Source,page.Source,
                     allowMultiParent:FixedPageConditionCompilation.HasMultiTargetScope(table,page));
             else if(table.Columns.Any(NonRedundantCrossTableSubset.Declared))
@@ -152,9 +167,10 @@ internal static class NonRedundantReadCompilation
         var crossBindings=NonRedundantCrossTableCompilation.Bindings(crossPlans);
         var compiled=CompilePage(model,table,readOutputs,dependencies,crossBindings,singleTargets);
         if(GlobalSelectionPage(table,page))
-            _=crossPlans.Count>0
-                ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,
-                    NonRedundantCrossTableCompilation.Bindings(crossPlans))
+            _=GlobalAccountMultiPage(table,page)
+                ?NonRedundantReads.CompileGlobalAccountMultiPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings)
+                :crossPlans.Count>0
+                ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings)
                 :FixedPageConditionCompilation.HasSelfTreeFields(page)
                     ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies)
                     :CascadeTreeReadCompilation.ForService(model,table,page).Count>0

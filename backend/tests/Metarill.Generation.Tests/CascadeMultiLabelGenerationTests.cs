@@ -39,8 +39,14 @@ public sealed class CascadeMultiLabelGenerationTests
     [InlineData("MultiSelectPage",1,true,false,false,true)]
     [InlineData("MultiCheckBoxDatabase",0,true,false,false,true)]
     [InlineData("MultiCheckBoxDatabase",1,true,true,false,true)]
+    [InlineData("MultiSelectPage",0,false,false,true,true)]
+    [InlineData("MultiSelectPage",1,true,true,true,true)]
+    [InlineData("MultiCheckBoxDatabase",0,true,true,true,true)]
+    [InlineData("MultiCheckBoxDatabase",1,false,false,true,true)]
+    [InlineData("MultiSelectPage",1,false,false,true,true,true)]
+    [InlineData("MultiCheckBoxDatabase",1,true,true,true,true,true)]
     public async Task Multi_account_range_compiles_without_cascades(string kind,int mode,bool rowProject,bool derived,
-        bool global=true,bool parent=false)
+        bool global=true,bool parent=false,bool globalParent=false)
     {
         const string ns="Example.AccountMulti";
         var catalog=DerivedRelationNamesTests.Catalog("dr_names",parent);
@@ -59,6 +65,14 @@ public sealed class CascadeMultiLabelGenerationTests
         {
             catalog.ConfigColumns.RemoveAll(column=>column.Id=="22");
             catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId=="22");
+        }
+        if(globalParent)
+        {
+            var owner=catalog.ConfigTables.Single(table=>table.Id=="3");
+            owner.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            var ownerPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+            ownerPage.WhereSql="store_id=@current_store_id";
+            catalog.ConfigColumns.Add(new(){Id="35",ConfigTableId="3",ColumnName="store_id",LogicalType="int64"});
         }
         catalog.ConfigColumns.Add(new(){Id="217",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"});
         var foreign=catalog.ConfigColumns.Single(column=>column.Id=="15");
@@ -101,6 +115,15 @@ public sealed class CascadeMultiLabelGenerationTests
             Assert.Contains("Import101Async",code);
             Assert.Contains("Export101Async",code);
             if(parent)Assert.Contains("new(\"group_id\",FixedReadComparison.Equal,",code.Replace(" ", "", StringComparison.Ordinal));
+            if(global&&parent)
+            {
+                var targetCode=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesPartyService.g.cs"));
+                Assert.Contains("CompileGlobalAccountMultiPage(\"2\",\"201\"",targetCode);
+                Assert.Contains("PageAsync(CandidateReadPlan201.BindAccount(actor)",targetCode);
+                Assert.Contains("StatisticsAsync(CandidateReadPlan201.BindAccount(actor)",targetCode);
+                Assert.Contains("KeyRowsAsync(CandidateReadPlan201.BindAccount(actor)",targetCode);
+                if(globalParent)Assert.Contains("CompileMultiGlobalParent(\"2\",\"201\")",targetCode);
+            }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             foreach(var service in new[]{"DrNamesOrderService","DrNamesPartyService"})
                 RuntimeHelpers.RunClassConstructor(assembly.GetType(ns+".Generated.Services."+service,true)!.TypeHandle);

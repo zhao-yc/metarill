@@ -9,7 +9,8 @@ public static partial class MySqlNonRedundantReadCompiler
     internal static MySqlNonRedundantReadPlan CompileCrossPageCandidate(MetadataCatalog catalog,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
         IReadOnlyList<NonRedundantCrossTableScope>? displayBindings=null,string rootAlias="b",string aliasPrefix="r",
-        HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null,IReadOnlyList<string>? listFields=null,bool projectSingle=false)
+        HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null,IReadOnlyList<string>? listFields=null,
+        bool projectSingle=false,bool accountMultiPage=false)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -32,16 +33,20 @@ public static partial class MySqlNonRedundantReadCompiler
         var listCrosses=(listFields??[]).Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToArray();
         if(listFields is not null&&(!global||listTrees.Count==0&&listCrosses.Length==0))
             throw new NotSupportedException("全局下拉附加条件必须引用已发布的逻辑级联字段。");
-        var hasParentScope=displayBindings is not null||listFields is null&&treeNames.Count>0&&IsScopedMultiTarget(catalog,table,pageId);
+        var hasParentScope=accountMultiPage||displayBindings is not null||
+            listFields is null&&treeNames.Count>0&&IsScopedMultiTarget(catalog,table,pageId);
         if(global)
         {
             if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,table,page,allowMultiParent:hasParentScope);
-            else if(displayBindings is null)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
+            else if(displayBindings is null&&!accountMultiPage)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
             else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page);
         }
-        if(!projectSingle&&logical.Count==0&&treeNames.Count==0&&listFields is null&&(!global||displayBindings is not{Count:>0}))
+        if(!projectSingle&&!accountMultiPage&&logical.Count==0&&treeNames.Count==0&&listFields is null&&(!global||displayBindings is not{Count:>0}))
             throw new InvalidOperationException("候选页未声明逻辑级联条件或已证明的全局跨表投影。");
         var parent=hasParentScope||projectSingle?MultiTargetParentScope.Compile(catalog,table,syntax):null;
+        if(accountMultiPage&&(!global||page.Extra.GetValueOrDefault("type").ToString()!="2"||
+            parent is not {Logical:false}||!syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported)))
+            throw new NotSupportedException("全局独立多选必须使用实际发布的账号条件和物理父键。");
         var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target,treeNames);
         // 附加条件只扩充真实路径与投影，页面条件仍由实际发布页决定。
         logical.UnionWith(listCrosses);
@@ -49,7 +54,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var scopes=logical.Count==0?[]:CrossMembershipBindings(catalog,table,page,logical);
         // 范围的绑定按发布页生成，其它绑定仅用于该独立选择页展示额外的路径。
         var bindings=scopes.Concat(displayBindings??[]).DistinctBy(path=>path.SourceColumnId,StringComparer.Ordinal).ToArray();
-        var builder=new Builder(catalog,tableId,deferCascadeNames:projectionTrees.Count>0,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
+        var builder=new Builder(catalog,tableId,deferCascadeNames:projectionTrees.Count>0||accountMultiPage,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
         {
             CrossCandidateCondition=condition,
             SelfTreeCandidateFields=projectionTrees,
@@ -224,7 +229,6 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 if(condition.Plan is not {Variables.Count:>0} account)
                     throw new NotSupportedException("多值目标页缺少固定的级联或账号范围。");
-                if(global)GlobalCrossTableTarget.RequireAccountCandidate(catalog,root,page);
                 cascadeLabelPages.Add(page.Id);
                 if(cascadeCacheOwner is {} owner)
                 {
@@ -232,7 +236,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     return scope.Length==0?predicate:scope+" AND "+predicate;
                 }
                 // 项目和父参数已由实际范围负责，账号条件只追加已证明的物理字段。
-                var clause=account.RenderAccountProjection(new MySqlDatabaseProvider(),aliasPrefix+"multi_account",field=>
+                var clause=account.RenderAccountProjection(new MySqlDatabaseProvider(),ConditionParameterPrefix(aliasPrefix+"multi_account"),field=>
                     rootAlias+"."+Q(Column(root,field).ColumnName));
                 foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
                 return scope.Length==0?clause.Sql:scope+" AND "+clause.Sql;

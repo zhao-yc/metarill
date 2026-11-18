@@ -150,6 +150,12 @@ public static class NonRedundantReads
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings)=>
         new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,bindings));
 
+    /// <summary>全局独立多选的分页、统计和已选回读共用实际账号与物理父范围。</summary>
+    public static NonRedundantReadPlan CompileGlobalAccountMultiPage(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings)=>
+        new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
+            bindings,accountMultiPage:true));
+
     /// <summary>全局下拉仅登记附加条件依赖，发布页范围和全局资格仍从原元数据读取。</summary>
     public static NonRedundantReadPlan CompileGlobalListCandidate(MetadataCatalog metadata,string tableId,string pageId,
         IReadOnlyList<string> fields,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>

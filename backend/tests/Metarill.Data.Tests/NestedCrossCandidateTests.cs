@@ -781,6 +781,8 @@ public sealed class NestedCrossCandidateTests
     [InlineData("MultiCheckBoxDatabase",true,false,false)]
     [InlineData("MultiSelectPage",true,false,true)]
     [InlineData("MultiCheckBoxDatabase",true,false,true)]
+    [InlineData("MultiSelectPage",false,true,true)]
+    [InlineData("MultiCheckBoxDatabase",true,true,true)]
     public void Multi_account_scope_uses_source_row_for_maintenance(string kind,bool rowProject,
         bool global=true,bool parent=false)
     {
@@ -831,6 +833,15 @@ public sealed class NestedCrossCandidateTests
         Assert.Equal(!global,bound.Scope.Contains("b.`yz_project_id`=",StringComparison.Ordinal));
         Assert.Equal(parent?"group_id":null,bound.RequiredMultiParent);
         Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+        if(global&&parent)
+        {
+            var pagePlan=NonRedundantReads.CompileGlobalAccountMultiPage(catalog,target.Id,page.Id,["id","name"],[],[]).BindAccount(actor).MySql;
+            Assert.Equal("group_id",pagePlan.RequiredMultiParent);
+            Assert.Contains("nested_outer_leaf",pagePlan.Scope);
+            Assert.DoesNotContain("b.`yz_project_id`=",pagePlan.Scope);
+            Assert.Contains(actor.StoreId.Value,pagePlan.Constants.Values);
+            Assert.Throws<NotSupportedException>(()=>GlobalCrossTableTarget.RequireAccountCandidate(catalog,target,page));
+        }
 
         var live=NonRedundantReads.Compile(catalog,source.Id,["picked_names"]).BindAccount(actor).MySql;
         Assert.Contains("b.`yz_project_id`=@project_scope_number",live.Scope);

@@ -47,9 +47,10 @@ public static class GlobalCrossTableTarget
         var allowed=columns.Where(column=>storage.IsPhysical(column)&&column.IsVirtualColumn==0||
             LogicalConditionField(table,columns,column,allowLogical,allowSelfTree)).Select(column=>column.ColumnName);
         var condition=FixedConditionPlan.Compile(page.WhereSql,allowed);
-        var multiParent=allowMultiParent&&condition.Fields.Any(field=>
-            CrossTableStorageColumns.IsLogicalPathField(table,columns,field)||
-            allowSelfTree&&CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field))
+        // 多值页的物理账号条件可和独立父键共存；单值及普通全局候选没有此父参数权限。
+        var multiParent=allowMultiParent&&(table.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported)||
+            condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)||
+                allowSelfTree&&CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field)))
             ?MultiTargetParentScope.Compile(catalog,table,condition):null;
         foreach(var term in condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
         {
