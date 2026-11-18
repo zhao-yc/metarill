@@ -4,7 +4,7 @@ using Metarill.Core.Metadata;
 using Metarill.Data.Relations;
 namespace Metarill.Generation;
 
-internal sealed record GlobalCachedSourceBinding(TableModel Source,ColumnModel Foreign,TableModel Target,PageModel Page,ColumnModel Name,ColumnModel Cache);
+internal sealed record GlobalCachedSourceBinding(TableModel Source,ColumnModel Foreign,TableModel Target,PageModel Page,ColumnModel Name,ColumnModel Cache,bool ScopedSingle=false);
 
 /// <summary>只接原全局R1物理List缓存；生成期一次证明，不在请求内解析元数据。</summary>
 internal static class GlobalCachedSourceCompilation
@@ -48,7 +48,7 @@ internal static class GlobalCachedSourceCompilation
             var proof=GlobalCachedRelationSource.RequireCache(model.Catalog,table.Source,cache.Source);
             foreach(var field in model.Catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==foreign.Source.Id))
                 if(field.Extra.TryGetValue("controlDetail",out var overlay)&&!string.IsNullOrWhiteSpace(overlay.ToString())&&!JsonNode.DeepEquals(JsonNode.Parse(overlay.ToString()),JsonNode.Parse(foreign.Source.ControlDetail)))throw new NotSupportedException("全局List来源页覆盖不能替换固定关系定义。");
-            result.Add(new(table,foreign,target,target.Pages.Single(page=>page.Source.Id==proof.Page.Id),target.Columns.Single(column=>column.Source.Id==proof.Name.Id),cache));
+            result.Add(new(table,foreign,target,target.Pages.Single(page=>page.Source.Id==proof.Page.Id),target.Columns.Single(column=>column.Source.Id==proof.Name.Id),cache,proof.ScopedSingle));
         }
         return result;
     }

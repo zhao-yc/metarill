@@ -3,7 +3,11 @@ using System.Text.Json;
 using Metarill.Core.Contracts;
 namespace Metarill.Core.Metadata;
 
-public sealed record GlobalCachedRelationBinding(ColumnMetadata Foreign,TableMetadata Target,PageMetadata Page,ColumnMetadata Name,ColumnMetadata Cache);
+public sealed record GlobalCachedRelationBinding(ColumnMetadata Foreign,TableMetadata Target,PageMetadata Page,ColumnMetadata Name,ColumnMetadata Cache)
+{
+    /// <summary>保存和维护须执行实际发布页范围的名称副本。</summary>
+    public bool ScopedSingle { get; init; }
+}
 
 /// <summary>原无项目列R1单值来源的发布证明；仅界定目录归属，不替代页面授权或真实登录身份。</summary>
 public static class GlobalCachedRelationSource
@@ -81,7 +85,7 @@ public static class GlobalCachedRelationSource
         var stem=foreign.ColumnName[..^3];
         // 同类型副本由写入和回填共同使用，保持业务值类型与精度。
         if(path[1]!=proof.Name.ColumnName||cache.ColumnName!=stem+"_"+proof.Name.ColumnName||cache.LogicalType!=proof.Name.LogicalType)throw Invalid();
-        return new(foreign,targets[0],proof.Page,proof.Name,cache);
+        return new(foreign,targets[0],proof.Page,proof.Name,cache){ScopedSingle=proof.RequiresScopedPage};
     }
     /// <summary>与现有元数据标志一致，只承认1/true。</summary>
     private static bool Joined(ColumnMetadata column)=>column.Extra.TryGetValue("isJoinColumn",out var value)&&(value.ValueKind==JsonValueKind.True||value.ToString()=="1");

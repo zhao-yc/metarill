@@ -5,7 +5,7 @@ namespace Metarill.Data.Queries;
 
 public static partial class MySqlNonRedundantReadCompiler
 {
-    private sealed record CascadeCacheOwner(TableMetadata Table,string Alias,bool GlobalTreeSource=false);
+    private sealed record CascadeCacheOwner(TableMetadata Table,string Alias,bool GlobalTreeSource=false,bool GlobalSingleSource=false);
 
     /// <summary>只保存多值名称实际依赖的级联候选页面，运行时可重新证明字段和条件。</summary>
     public static IReadOnlySet<string> PublishedCascadeLabelPages(MetadataCatalog catalog)
@@ -292,7 +292,7 @@ public static partial class MySqlNonRedundantReadCompiler
             prefix=ConditionParameterPrefix(prefix);
             if((cacheOwner??cascadeCacheOwner) is {} owner&&condition.Variables.Count>0)
             {
-                var proof=AccountScopedCrossCache.Compile(catalog,owner.Table,target,page,owner.GlobalTreeSource);
+                var proof=AccountScopedCrossCache.Compile(catalog,owner.Table,target,page,owner.GlobalTreeSource,globalSingleSource:owner.GlobalSingleSource);
                 cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                 return AccountCacheScope(proof,target,alias,owner.Alias,render:true,owner.Table,prefix);
             }

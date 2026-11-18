@@ -126,7 +126,9 @@ internal static class DerivedRelationNamesCompilation
             RequireSelection(model, owner, target, relation.TargetPage, name);
         var typedName = IsTypedName(model, owner, target, name);
         var physicalTypedName = IsPhysicalTypedName(model, target, name);
-        if(!(typedName && owner.IsGlobal) && !SupportedOwner(model,owner) ||
+        var scopedGlobalCache=owner.IsGlobal&&owner.Source.IsRongyu==1&&target.IsGlobal&&
+            GlobalCachedSourceCompilation.ForModel(model).Any(binding=>binding.ScopedSingle&&binding.Foreign.Source.Id==relation.SourceColumn.Source.Id);
+        if(!(scopedGlobalCache||typedName&&owner.IsGlobal)&&!SupportedOwner(model,owner)||
             relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||
             target.Source.IsRongyu!=0&&!physicalTypedName||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
             name.Type != "string?" && !typedName || name.IsJsonArray || relation.ParentBinding?.Declared==true||ExactDataManageCompilation.Declared(relation.TargetPage)||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage)&&relation.FixedParent is not {Logical:true})

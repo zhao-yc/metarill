@@ -77,8 +77,10 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true,true,true,false,true,true,false,false,true,true)]
     [InlineData(false,true,true,false,false,true,true,true,true,true,true,true,true)]
     [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true)]
+    [InlineData(false,true,true,false,false,true,true,true,true,true,true,true,true,true)]
+    [InlineData(false,false,true,true,false,true,false,false,false,false,true,true,true,true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false)
+        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -265,6 +267,11 @@ public sealed class DerivedRelationNamesTests
                     ["columnFullName"]=JsonSerializer.SerializeToElement("middle."+display)
                 }}
             ]);
+            if(globalCache)
+            {
+                catalog.ConfigTables.Single(table=>table.Id=="8").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                catalog.ConfigColumns.RemoveAll(column=>column.Id=="82");
+            }
             catalog.ConfigPageColumns.AddRange([
                 new(){Id="80184",ConfigPageId="801",ConfigColumnId="84",IsShow=1,IsEdit=1},
                 new(){Id="80185",ConfigPageId="801",ConfigColumnId="85",IsShow=1,IsEdit=0}
@@ -374,6 +381,11 @@ public sealed class DerivedRelationNamesTests
                     Assert.Contains("dr_names_party",cache.MixedTargets);
                     Assert.Contains("dr_names_order",cache.MixedTargets);
                     Assert.Contains("dr_names_observer",cache.MixedSourceColumns.Keys);
+                    if(globalCache)
+                    {
+                        Assert.Contains("当前身份不属于已发布全局来源目录",observer);
+                        Assert.Contains("ProjectRelationMutationPropagator(session).AfterMutationAsync",observer);
+                    }
                 }
             }
 

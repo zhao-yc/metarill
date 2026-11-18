@@ -410,6 +410,23 @@ public sealed class NestedCrossCandidateTests
                 Assert.All(edges,item=>Assert.StartsWith(" FROM `nested_observer` b",item.From));
                 observerPage.WhereSql="scope_country_id=@parent_id";
                 Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));
+
+                // 全局来源以目录项目证明身份，回填只使用真实父字段和实际账号字段。
+                var observer=catalog.ConfigTables.Single(table=>table.Id=="98");
+                observer.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                catalog.ConfigColumns.RemoveAll(column=>column.Id=="9802");
+                catalog.ConfigColumns.Single(column=>column.Id=="9804").ControlKind="List";
+                observerPage.WhereSql+=" AND store_id=@current_store_id";
+                var globalMaintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+                var globalRead=Assert.Single(globalMaintenance.Mixed.Consumers,item=>item.Table.Option.Id=="98").Read;
+                Assert.True(globalRead.RequiresPublishedProjectIdentity);
+                Assert.False(globalRead.RequiresAccount);
+                Assert.DoesNotContain("b.`yz_project_id`",globalRead.Scope);
+                Assert.Contains("b.`store_id`",globalRead.Expression(cache));
+                Assert.Contains("b.`scope_country_id`",globalRead.Expression(cache));
+                Assert.Contains(globalRead.Reverse,item=>item.TargetTable=="nested_source"&&item.Outputs[cache].Contains("name"));
+                observerPage.WhereSql="scope_country_id=@parent_id";
+                Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));
                 return;
             }
             // 发布中新增另一无父来源页会让同一字段无法确定范围，应在编译时拒绝。

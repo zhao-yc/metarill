@@ -86,11 +86,11 @@ public static class DerivedCrossTableCaches
     /// <summary>固定单值副本只绑定原表级关系、同类型物理缓存及实际目标页。</summary>
     private static void RequireScopedSingle(MetadataCatalog catalog,TableMetadata source,TableMetadata target,RelationCacheDefinition definition)
     {
-        if(source.IsRongyu!=1||GlobalCrossTableTarget.Declared(source)||definition.Multiple||
+        if(source.IsRongyu!=1||definition.Multiple||
             definition.CrossTableColumnId is not null||definition.CrossTableLevelKey is not null||
             definition.CrossTablePageId is not null||definition.CrossTableGlobalPages is not null||
             definition.CrossTableRecursivePageId is not null||definition.CrossTableAccountPageId is not null||definition.SelfTreePageId is not null)
-            throw new InvalidOperationException("固定单值缓存要求独立的项目内冗余来源和已证明目标页。");
+            throw new InvalidOperationException("固定单值缓存要求已证明的冗余来源及目标页。");
         var fields=catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id).ToArray();
         var foreign=fields.Single(column=>column.Id==definition.ForeignColumnId);
         var cache=fields.Single(column=>column.Id==definition.CacheColumnId);
@@ -107,6 +107,12 @@ public static class DerivedCrossTableCaches
             ExactDataManageValues.IsSensitiveField(cache.ColumnName)||
             path!=stem+"."+proof.Name.ColumnName&&path!=foreign.ColumnName+"."+proof.Name.ColumnName)
             throw new InvalidOperationException("固定单值缓存与实际目标页或名称声明不一致。");
+        if(GlobalCrossTableTarget.Declared(source))
+        {
+            var published=GlobalCachedRelationSource.RequireCache(catalog,source,cache);
+            if(!published.ScopedSingle||published.Foreign.Id!=foreign.Id||published.Target.Id!=target.Id||published.Page.Id!=proof.Page.Id)
+                throw new InvalidOperationException("全局固定副本须与明确发布的物理List关系一致。");
+        }
         // 完整编译固定路径和行归属。任何缺失的内层证明都阻断生成。
         _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cache.ColumnName],[definition]);
     }

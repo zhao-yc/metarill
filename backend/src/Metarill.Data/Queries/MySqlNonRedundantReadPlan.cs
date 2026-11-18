@@ -365,7 +365,12 @@ public static partial class MySqlNonRedundantReadCompiler
                     var field=columns[root.Id][name];
                     var tree=refreshMultiples.SingleOrDefault(binding=>binding.CacheColumnId==field.Id&&
                         SelfTreeCache.UsesWholePath(catalog,root,binding.SelfTreePageId));
-                    if(tree is null)GlobalCachedRelationSource.RequireCache(catalog,root,field);
+                    if(tree is null)
+                    {
+                        var proof=GlobalCachedRelationSource.RequireCache(catalog,root,field);
+                        if(proof.ScopedSingle&&!refreshMultiples.Any(binding=>binding.CacheColumnId==field.Id&&binding.ScopedSinglePageId==proof.Page.Id))
+                            throw new InvalidOperationException("全局固定单值副本缺少实际发布页的维护绑定。");
+                    }
                     else
                     {
                         var proof=SelfTreeCache.Compile(catalog,root.Id,tree.ForeignColumnId,tree.SelfTreePageId);
@@ -774,7 +779,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(condition is null)return scope;
             if(accountPhysicalCandidate&&table.Id==root.Id&&alias==rootAlias&&cascadeCacheOwner is {} owner&&condition.Variables.Count>0)
             {
-                var proof=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource);
+                var proof=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,globalSingleSource:owner.GlobalSingleSource);
                 cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                 var owned=AccountCacheScope(proof,table,alias,owner.Alias,render:true,owner.Table,"mt_global_scope_"+parameterKey);
                 return scope.Length==0?owned:scope+" AND "+owned;

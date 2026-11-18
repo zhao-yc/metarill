@@ -21,7 +21,15 @@ internal static class RelationPropagationCompilation
         foreach(var table in model.Tables.Where(table=>table.Source.IsRongyu==1))
         {
             result.AddRange(SelfTreePropagationCompilation.ForTable(model,table));
-            if(table.IsGlobal)continue; // 全局来源只接入已证明的自树定义。
+            if(table.IsGlobal)
+            {
+                // 仅登记明确发布、带页范围的原List缓存；其余全局角色沿各自已证明的合约。
+                result.AddRange(GlobalCachedSourceCompilation.ForModel(model)
+                    .Where(binding=>binding.Source.Source.Id==table.Source.Id&&binding.ScopedSingle)
+                    .Select(binding=>new RelationPropagationBinding(table,binding.Foreign,binding.Target,binding.Name,binding.Cache,false)
+                        {ScopedSinglePageId=binding.Page.Source.Id}));
+                continue;
+            }
             result.AddRange(ScopedSingleBindings(model,table));
             foreach(var binding in MultiNameWriteCompilation.ForTable(model,table))result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache));
             foreach(var definition in table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))result.Add(new(table,definition.Source,definition.Target,definition.Name,definition.Names));

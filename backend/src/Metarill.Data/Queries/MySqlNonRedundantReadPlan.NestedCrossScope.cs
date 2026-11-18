@@ -354,7 +354,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private string PhysicalAccountCacheCondition(TableMetadata table,string alias,PageMetadata page,
             CascadeCacheOwner owner,ColumnMetadata? parentField=null)
         {
-            var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,parentField);
+            var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,parentField,owner.GlobalSingleSource);
             cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
             return AccountCacheScope(ownership,table,alias,owner.Alias,render:true,owner.Table);
         }
@@ -369,7 +369,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var source=Resolve(table,owner,foreign.ColumnName);
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true,scopedCacheLink:true);
             var parent=MultiParent(catalog,proof.Page);
-            var cacheOwner=new CascadeCacheOwner(table,owner);
+            var cacheOwner=new CascadeCacheOwner(table,owner,GlobalSingleSource:GlobalCrossTableTarget.Declared(table));
             var binding=parent?.SingleSource(catalog,table,foreign);
             var sourceParent=parent is {Logical:true}?SingleSourceParentValue(table,owner,binding!):null;
             var visible=PublishedSingleCondition(target,alias,proof.Page,cacheOwner,parent?.Target,sourceParent);
@@ -517,7 +517,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 string predicate;
                 if(cacheOwner is {} row)
                 {
-                    var proof=AccountScopedCrossCache.CompileRecursive(catalog,row.Table,table,level.Page,multiParent,row.GlobalTreeSource,selfTreeFields);
+                    var proof=AccountScopedCrossCache.CompileRecursive(catalog,row.Table,table,level.Page,multiParent,row.GlobalTreeSource,selfTreeFields,row.GlobalSingleSource);
                     cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                     predicate=AccountCacheScope(proof,table,owner,row.Alias,render:true,row.Table,parameterPrefix,Projection);
                 }

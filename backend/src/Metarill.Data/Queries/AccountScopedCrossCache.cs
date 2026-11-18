@@ -26,18 +26,19 @@ public sealed class AccountScopedCrossCache
 
     /// <summary>已证明的独立父键单独校验，账号范围仍从实际来源行绑定。</summary>
     internal static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,
-        PageMetadata targetPage,bool globalTreeSource,ColumnMetadata? multiParent=null)=>
-        Compile(catalog,source,target,targetPage,recursive:false,multiParent:multiParent,globalTreeSource:globalTreeSource);
+        PageMetadata targetPage,bool globalTreeSource,ColumnMetadata? multiParent=null,bool globalSingleSource=false)=>
+        Compile(catalog,source,target,targetPage,recursive:false,multiParent:multiParent,globalTreeSource:globalTreeSource,globalSingleSource:globalSingleSource);
 
     /// <summary>递归候选允许逻辑字段的常量条件，账号等值仍须对应来源行真实物理归属。</summary>
     internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,
-        ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null)
-        =>Compile(catalog,source,target,targetPage,recursive:true,multiParent:multiParent,globalTreeSource:globalTreeSource,selfTreeFields:selfTreeFields);
+        ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false)
+        =>Compile(catalog,source,target,targetPage,recursive:true,multiParent:multiParent,globalTreeSource:globalTreeSource,selfTreeFields:selfTreeFields,globalSingleSource:globalSingleSource);
 
-    private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null)
+    private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false)
     {
         if(globalTreeSource)GlobalCachedRelationSource.RequireSelfTree(catalog,source);
-        if (source.IsRongyu != 1 || targetPage.ConfigTableId != target.Id || GlobalCrossTableTarget.Declared(source)&&!globalTreeSource ||
+        if(globalSingleSource)GlobalCachedRelationSource.Require(catalog,source);
+        if (source.IsRongyu != 1 || targetPage.ConfigTableId != target.Id || GlobalCrossTableTarget.Declared(source)&&!globalTreeSource&&!globalSingleSource ||
             source.IsView != 0 || source.IsFunctionTable != 0 || target.IsView != 0 || target.IsFunctionTable != 0 ||
             targetPage.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length > 0)
             throw Invalid();
