@@ -11,7 +11,18 @@ public static class SelfTreeCache
     public static RelationCacheDefinition Compile(MetadataCatalog catalog,string sourceTableId,string controlId)
         =>Compile(catalog,sourceTableId,controlId,null);
 
-    /// <summary>全局自树另核对已发布页；逻辑名称须取得单值证明，不接受请求SQL或动态页面。</summary>
+    /// <summary>只有包含已声明稀疏路径条件的实际自树页进入整链传播。</summary>
+    public static bool HasScopedPage(MetadataCatalog catalog,string? pageId)
+    {
+        if(pageId is null)return false;
+        var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==pageId)??throw Invalid();
+        var table=catalog.ConfigTables.Single(item=>item.Id==page.ConfigTableId);
+        var fields=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
+        return FixedConditionPlan.Compile(page.WhereSql,fields.Select(column=>column.ColumnName)).Fields
+            .Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,fields,field));
+    }
+
+    /// <summary>核对已发布页和物理归属；维护从来源行确定目标范围。</summary>
     public static RelationCacheDefinition Compile(MetadataCatalog catalog,string sourceTableId,string controlId,string? publishedPageId)
     {
         var source=catalog.ConfigTables.Single(t=>t.Id==sourceTableId);var sourceColumns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(c=>c.ConfigTableId==source.Id));var foreign=sourceColumns.Single(c=>c.Id==controlId);var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);
@@ -24,18 +35,25 @@ public static class SelfTreeCache
         var integerCache=GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,storage,target,value);
         if(value.Id==parent.Id||value.ColumnName=="id"||value.LogicalType is not("string" or "int32" or "int64")||(!derived&&!integerCache&&!Scalar(storage,value))||derived&&(target.IsRongyu!=0||value.IsVirtualColumn!=0||storage.Kind(value)!=MetadataFieldStorage.Join)||parent.LogicalType is not("string" or "int64")||!Scalar(storage,parent)||parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id"||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=target.Id)throw Invalid();
         // 派生叶子须由同一匹配编译器证明，缓存一律使用原名称文本。
-        if(GlobalCrossTableTarget.Declared(target))
+        var global=GlobalCrossTableTarget.Declared(target);
+        var scoped=HasScopedPage(catalog,publishedPageId);
+        if(global||scoped)
         {
-            // 缓存定义只接受本项目生成器冻结的可读页；全局目标不借用来源的行项目条件。
-            var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==publishedPageId)??throw Invalid();
-            if(source.YzProjectId!=catalog.YzProjectId||!catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))throw Invalid();
-            GlobalCrossTableTarget.RequireSelfTreeName(catalog,target,page,value);
+            var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==publishedPageId&&p.ConfigTableId==target.Id)??throw Invalid();
+            if(source.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||
+                !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))throw Invalid();
+            if(scoped)
+            {
+                if(MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,value.ColumnName,parent.ColumnName).Page.Id!=page.Id)
+                    throw Invalid();
+                _=AccountScopedCrossCache.CompileRecursive(catalog,source,target,page);
+                if(global)GlobalCrossTableTarget.RequireScopedSelfTreeName(catalog,target,page,value);
+            }
+            else GlobalCrossTableTarget.RequireSelfTreeName(catalog,target,page,value);
         }
-        else
-        {
-            if(publishedPageId is not null)throw Invalid();
-            if(derived&&NonRedundantReads.CompileMatch(catalog,target.Id,value.ColumnName).OutputTypes[value.ColumnName]!=value.LogicalType)throw Invalid();
-        }
+        else if(publishedPageId is not null)throw Invalid();
+        if(!global&&derived&&NonRedundantReads.CompileMatch(catalog,target.Id,value.ColumnName).OutputTypes[value.ColumnName]!=value.LogicalType)
+            throw Invalid();
         var name=foreign.ColumnName[..^3]+"_name";var cache=sourceColumns.Single(c=>c.ColumnName==name);if(cache.Id==foreign.Id||cache.LogicalType!="string"||cache.IsVirtualColumn!=0||!sourceStorage.IsPhysical(cache)||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
         if(Enabled(cache)){var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();if(path.Length>0&&path!=foreign.ColumnName[..^3]+"."+value.ColumnName&&path!=foreign.ColumnName+"."+value.ColumnName)throw Invalid();}
         return new(source.Id,foreign.Id,target.Id,value.Id,cache.Id,false){SelfTreePageId=publishedPageId};

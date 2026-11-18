@@ -146,7 +146,10 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(false,false)]
     [InlineData(false,true)]
     [InlineData(true,false)]
-    public async Task Fixed_cross_condition_checks_every_self_tree_node(bool global,bool derivedName)
+    [InlineData(false,false,true)]
+    [InlineData(false,true,true)]
+    [InlineData(true,false,true)]
+    public async Task Fixed_cross_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false)
     {
         const string ns="Example.FixedSelfTreeNode";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("scoped_tree","string","int64");
@@ -165,8 +168,10 @@ public sealed class NonRedundantSelfTreeTests
                 ControlDetail=JsonSerializer.Serialize(new{sourceMode="selfTree",selfTree=new{table=target.TableName,parentField="node_parent_id",nameField=derivedName?"company_title":"name"}})},
             new(){Id="95",ConfigTableId="9",ColumnName="node_name",LogicalType="string"}
         ]);
-        catalog.ConfigTables.Add(new(){Id="9",TableName="scoped_tree_consumer",IsRongyu=0});
-        catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="9",IsExport=1,IsImport=1});
+        catalog.ConfigTables.Add(new(){Id="9",TableName="scoped_tree_consumer",IsRongyu=cache?1:0});
+        catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="9",IsExport=1,IsImport=1,
+            WhereSql=cache?"yz_project_id=@current_yz_project_id AND store_id=@current_store_id":""});
+        if(cache)catalog.ConfigColumns.Add(new(){Id="96",ConfigTableId="9",ColumnName="store_id",LogicalType="int64"});
         catalog.ConfigPageColumns.Add(new(){Id="20127",ConfigPageId="201",ConfigColumnId="27"});
         foreach(var id in new[]{"93","94","95"})
             catalog.ConfigPageColumns.Add(new(){Id="901"+id,ConfigPageId="901",ConfigColumnId=id,IsShow=1,IsEdit=id=="95"?0:1,
@@ -185,6 +190,15 @@ public sealed class NonRedundantSelfTreeTests
         var model=GenerationModel.Create(catalog,ns);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
+        if(cache)
+        {
+            var binding=Assert.Single(RelationPropagationCompilation.DerivedBindings(model),item=>item.Source.Source.Id=="9");
+            Assert.Equal("201",binding.SelfTreePageId);
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("scoped_tree_source",maintenance.MixedTargets);
+            Assert.Contains("scoped_tree_country",maintenance.MixedTargets);
+            Assert.Contains("node_name",maintenance.MixedSourceColumns["scoped_tree_consumer"]);
+        }
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-scoped-tree-candidate");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));

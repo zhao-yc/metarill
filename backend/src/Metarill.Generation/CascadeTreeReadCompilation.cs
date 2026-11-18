@@ -58,7 +58,6 @@ internal static class CascadeTreeReadCompilation
             if(candidates.Length!=1)return Gap("目标缺少唯一、无父参数的可读页面。");
             var targetPage=candidates[0];
             var scoped=FixedPageConditionCompilation.HasCrossFields(targetPage);
-            if(scoped&&table.Source.IsRongyu==1)return Gap("自树目标的逻辑条件还需冗余叶名重算证明。");
             if(target.IsGlobal)
             {
                 // 目标全局资格不改变来源记录的实际行归属。

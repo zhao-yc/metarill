@@ -98,11 +98,13 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         /// <summary>沿原64层、活动节点与根语义检查完整祖先链，取该链的真实叶名。</summary>
-        private string SelfTreeLabelExpression(TableMetadata table,string owner,ColumnMetadata control,ColumnMetadata column)
+        private string SelfTreeLabelExpression(TableMetadata table,string owner,ColumnMetadata control,ColumnMetadata column,string? publishedPageId=null)
         {
             if(!storage[table.Id].IsPhysical(control)||control.LogicalType is not("int64" or "string"))
                 throw new NotSupportedException("自树多值名称要求物理选择位。");
             var proof=SelfTreeLabel(catalog,control);
+            if(publishedPageId is not null&&(publishedPageId!=proof.Page.Id||!proof.Scoped))
+                throw new InvalidOperationException("自树缓存与实际固定目标页不一致。");
             ValidateTarget(proof.Target);
             cascadeLabelPages.Add(proof.Page.Id);
             if(Text(column,"columnFullName") is {Length:>0} path&&
@@ -121,25 +123,40 @@ public static partial class MySqlNonRedundantReadCompiler
             MySqlNonRedundantReadPlan? fixedTarget=null;
             if(proof.Scoped)
             {
-                if(trackReverse||cascadeCacheOwner is not null)
-                    throw new NotSupportedException("带逻辑条件的自树名称还需完整缓存传播证明。");
-                fixedTarget=CompileCrossPageCandidate(catalog,proof.Target.Id,proof.Page.Id,
-                    ["id",proof.Name.ColumnName],[],rootAlias:display,aliasPrefix:prefix+"s_");
+                var cacheOwner=cascadeCacheOwner??(trackReverse?new CascadeCacheOwner(table,owner):null);
+                var fields=new[]{"id",proof.Name.ColumnName};
+                if(cacheOwner is {} cached)
+                {
+                    // 维护使用保存行的归属，不能借发起账号覆盖其它行的名称。
+                    fixedTarget=new Builder(catalog,proof.Target.Id,rootAlias:display,aliasPrefix:prefix+"s_",
+                        trackReverse:trackReverse,multiLabel:true,cascadeLabelField:"id",cascadeCacheOwner:cached)
+                    {
+                        SelectedMultiPage=proof.Page,GlobalCrossCandidate=global,CrossAliasPrefix=prefix+"sx"
+                    }.Compile(fields,[]);
+                    foreach(var field in fixedTarget.CascadeCacheOwnerFields)
+                    {
+                        Use(cached.Table,Column(cached.Table,field));
+                        Touch(cached.Alias,field);
+                    }
+                    cascadeCacheOwnerFields.UnionWith(fixedTarget.CascadeCacheOwnerFields);
+                }
+                else fixedTarget=CompileCrossPageCandidate(catalog,proof.Target.Id,proof.Page.Id,
+                    fields,[],rootAlias:display,aliasPrefix:prefix+"s_");
                 fixedTarget.CopyParametersTo(crossConstants);
+                foreach(var reference in fixedTarget.PhysicalReferences)
+                    references.TryAdd((reference.Table,reference.Column.Name),reference);
+                if(publishedPageId is not null)
+                {
+                    if(!fixedTarget.Origins.TryGetValue(proof.Name.ColumnName,out var valueOrigin)||
+                        ExactDataManageValues.IsSensitiveField(valueOrigin.Column))
+                        throw new NotSupportedException("自树缓存名称缺少固定非凭据单值来源。");
+                    origin=valueOrigin;
+                }
                 cascadeLabelPages.UnionWith(fixedTarget.CascadeLabelPages);
                 if(fixedTarget.RequiresPublishedProjectIdentity)scopedGlobalCrossTarget=true;
             }
 
-            var seedScope=NodeScope(seed);
-            var ancestorScope=NodeScope(ancestor);
-            var cte="WITH RECURSIVE "+walk+"(node_id,parent_key,depth,seen) AS (SELECT "+seed+".`id`,"+
-                seed+"."+Q(proof.Parent.ColumnName)+",1,JSON_ARRAY(CAST("+seed+".`id` AS CHAR)) FROM "+targetTable+" "+seed+
-                " WHERE BINARY CAST("+seed+".`id` AS CHAR)=BINARY "+leafKey+WithScope(seedScope)+
-                " UNION ALL SELECT "+ancestor+".`id`,"+ancestor+"."+Q(proof.Parent.ColumnName)+","+walk+".depth+1,"+
-                "JSON_ARRAY_APPEND("+walk+".seen,'$',CAST("+ancestor+".`id` AS CHAR)) FROM "+walk+" JOIN "+targetTable+" "+ancestor+
-                " ON BINARY CAST("+ancestor+".`id` AS CHAR)=BINARY "+PositiveText("CAST("+walk+".parent_key AS CHAR)")+
-                " WHERE "+walk+".depth<"+max+" AND NOT JSON_CONTAINS("+walk+".seen,JSON_QUOTE(CAST("+ancestor+".`id` AS CHAR)))"+
-                WithScope(ancestorScope)+") ";
+            var cte=WalkCte(NodeScope(seed),NodeScope(ancestor));
             var reachesRoot="("+cte+"SELECT 1 FROM "+walk+
                 " WHERE "+walk+".parent_key IS NULL OR CAST("+walk+".parent_key AS CHAR) REGEXP '^[[:space:]]*$' LIMIT 1) IS NOT NULL";
 
@@ -175,8 +192,18 @@ public static partial class MySqlNonRedundantReadCompiler
                 Use(proof.Target,Column(proof.Target,"id"));
                 Use(proof.Target,proof.Parent);
                 if(storage[proof.Target.Id].IsPhysical(proof.Name))Use(proof.Target,proof.Name);
-                // 不依赖目标当前可见。父节点失效、删除或恢复时，仍从已选叶子反查原消费者。
-                var predicate="(BINARY "+leafKey+"=BINARY @target_text OR ("+cte+"SELECT 1 FROM "+walk+
+                // 失效节点不能截断反向路径；名称重算再执行各层实际可见性。
+                var reverseCte=fixedTarget is null?cte:WalkCte(
+                    Scope(proof.Target,seed,projectScoped:!global,includeDeleted:true),
+                    Scope(proof.Target,ancestor,projectScoped:!global,includeDeleted:true));
+                if(fixedTarget is not null)
+                    foreach(var reverse in fixedTarget.Reverse)
+                    {
+                        var probe="EXISTS (SELECT 1"+reverse.From+" WHERE "+display+".`id`="+walk+".node_id AND "+reverse.TargetPredicate+")";
+                        AddReverse(reverse.TargetTable,"("+reverseCte+"SELECT 1 FROM "+walk+" WHERE "+probe+" LIMIT 1) IS NOT NULL",
+                            reverse.Outputs.Values.SelectMany(fields=>fields));
+                    }
+                var predicate="(BINARY "+leafKey+"=BINARY @target_text OR ("+reverseCte+"SELECT 1 FROM "+walk+
                     " WHERE "+walk+".node_id=@target_id OR BINARY "+PositiveText("CAST("+walk+".parent_key AS CHAR)")+
                     "=BINARY @target_text LIMIT 1) IS NOT NULL)";
                 var fields=new[]{proof.Parent.ColumnName,proof.Name.ColumnName,"id","yz_project_id","delete_no"};
@@ -184,8 +211,20 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(global)publishedArrayIdentity=true;
             }
             var label=MySqlMultiValueLabel.Text(nodeName,proof.Name.LogicalType);
-            return "CASE WHEN "+reachesRoot+" THEN (SELECT "+label+nodeFrom+
+            var empty=publishedPageId is not null&&control.LogicalType=="string"?" WHEN BINARY "+source+"=BINARY '' THEN ''":"";
+            return "CASE"+empty+" WHEN "+reachesRoot+" THEN (SELECT "+label+nodeFrom+
                 " WHERE BINARY CAST("+display+".`id` AS CHAR)=BINARY "+leafKey+" LIMIT 1) END";
+
+            // 同一拓扑用于实际可见读取和失效后的反向定位。
+            string WalkCte(string seedScope,string ancestorScope)=>
+                "WITH RECURSIVE "+walk+"(node_id,parent_key,depth,seen) AS (SELECT "+seed+".`id`,"+
+                seed+"."+Q(proof.Parent.ColumnName)+",1,JSON_ARRAY(CAST("+seed+".`id` AS CHAR)) FROM "+targetTable+" "+seed+
+                " WHERE BINARY CAST("+seed+".`id` AS CHAR)=BINARY "+leafKey+WithScope(seedScope)+
+                " UNION ALL SELECT "+ancestor+".`id`,"+ancestor+"."+Q(proof.Parent.ColumnName)+","+walk+".depth+1,"+
+                "JSON_ARRAY_APPEND("+walk+".seen,'$',CAST("+ancestor+".`id` AS CHAR)) FROM "+walk+" JOIN "+targetTable+" "+ancestor+
+                " ON BINARY CAST("+ancestor+".`id` AS CHAR)=BINARY "+PositiveText("CAST("+walk+".parent_key AS CHAR)")+
+                " WHERE "+walk+".depth<"+max+" AND NOT JSON_CONTAINS("+walk+".seen,JSON_QUOTE(CAST("+ancestor+".`id` AS CHAR)))"+
+                WithScope(ancestorScope)+") ";
 
             string NodeScope(string alias)
             {

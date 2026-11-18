@@ -124,7 +124,9 @@ public sealed class CascadeMultiLabelReadTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Scoped_self_tree_leaf_name_reuses_published_cross_filter(bool global)
+    [InlineData(false,true)]
+    [InlineData(true,true)]
+    public void Scoped_self_tree_leaf_name_reuses_published_cross_filter(bool global,bool cache=false)
     {
         var catalog=NonRedundantCrossTableReadTests.Catalog("mt_scoped_self","string","int64");
         var target=catalog.ConfigTables.Single(table=>table.Id=="1");
@@ -154,6 +156,33 @@ public sealed class CascadeMultiLabelReadTests
             new(){Id="11name",ConfigPageId=pageId,ConfigColumnId="12"},
             new(){Id="11parent",ConfigPageId=pageId,ConfigColumnId="node_parent"}
         ]);
+        if(cache)
+        {
+            var source=catalog.ConfigTables.Single(table=>table.Id=="9");
+            source.IsRongyu=1;
+            catalog.ConfigColumns.Add(new(){Id="consumer_store",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"});
+            var sourcePage=new PageMetadata{Id="91",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5"};
+            catalog.ConfigPages.Add(sourcePage);
+            Assert.Throws<InvalidOperationException>(()=>SelfTreeCache.Compile(catalog,source.Id,"consumer_tree",pageId));
+            sourcePage.WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id";
+            var binding=SelfTreeCache.Compile(catalog,source.Id,"consumer_tree",pageId);
+            Assert.Throws<InvalidOperationException>(()=>RelationMutationPlan.Compile(catalog,[binding]));
+            var compiled=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+            var planForCache=compiled.Plans[source.Id].Read!;
+            Assert.False(planForCache.RequiresAccount);
+            Assert.Contains("b.`store_id`",planForCache.Expression("node_name"));
+            Assert.Contains("WHEN BINARY b.`node_id`=BINARY '' THEN ''",planForCache.Expression("node_name"));
+            Assert.Contains("store_id",planForCache.SourceDependencies);
+            Assert.Contains("node_name",compiled.MixedSourceColumns["mt_scoped_self_consumer"]);
+            var reverse=Assert.Single(planForCache.Reverse,path=>path.TargetTable=="mt_scoped_self_source"&&
+                path.Outputs["node_name"].Contains("node_parent_id"));
+            Assert.DoesNotContain("`store_id`",reverse.TargetPredicate);
+            Assert.DoesNotContain("`delete_no`",reverse.TargetPredicate);
+            Assert.Equal(!global,reverse.TargetPredicate.Contains("`yz_project_id`",StringComparison.Ordinal));
+            Assert.Contains(planForCache.Reverse,path=>path.TargetTable=="mt_scoped_self_country"&&
+                path.Outputs["node_name"].Contains("title")&&path.TargetPredicate.Contains(".node_id"));
+            return;
+        }
         var actor=new RuntimeActor(1,"树范围",false,catalog.YzProjectId,"5"){StoreId=9007199254741991L};
         var plan=NonRedundantReads.Compile(catalog,"9",["id","node_id"],["node_name"],deferCascadeNames:true).BindAccount(actor).MySql;
         var sql=plan.Expression("node_name");

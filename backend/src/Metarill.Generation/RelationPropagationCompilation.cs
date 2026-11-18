@@ -50,6 +50,7 @@ internal static class RelationPropagationCompilation
     /// <summary>以逻辑存储计划判断，不把R0表的真实物理名称误作派生。</summary>
     private static bool Derived(GenerationModel model,RelationPropagationBinding binding)=>
         binding.CrossTableAccountPageId is not null||binding.CrossTableRecursivePageId is not null||
+        SelfTreeCache.HasScopedPage(model.Catalog,binding.SelfTreePageId)||
         !NonRedundantReadCompilation.Physical(model,binding.Target,binding.Value)||
         binding.Multiple&&Metarill.Data.Queries.NonRedundantReads.HasScopedMultiPage(model.Catalog,binding.Target.Source,binding.Foreign.Source);
     /// <summary>只有静态绑定的精确来源才发布传播能力，不按后缀扩大范围。</summary>
@@ -71,7 +72,8 @@ internal static class RelationPropagationCompilation
         foreach(var definition in definitions)
         {
             if(definition.SelfTreePageId is{} treePage)pages.Add(treePage);
-            if((definition.CrossTableAccountPageId??definition.CrossTableRecursivePageId) is{} accountPage)
+            var scopedTree=SelfTreeCache.HasScopedPage(model.Catalog,definition.SelfTreePageId)?definition.SelfTreePageId:null;
+            if((definition.CrossTableAccountPageId??definition.CrossTableRecursivePageId??scopedTree) is{} accountPage)
             {
                 pages.Add(accountPage);
                 pages.UnionWith(model.Catalog.ConfigPages.Where(page=>page.ConfigTableId==definition.SourceTableId).Select(page=>page.Id));
@@ -103,7 +105,8 @@ internal static class RelationPropagationCompilation
     /// <summary>精简维护目录与生成校验使用同一页范围，宿主可重新证明递归依赖。</summary>
     internal static MetadataCatalog PublishedMaintenanceMetadata(GenerationModel model,IReadOnlyList<RelationCacheDefinition> definitions)
     {
-        var recursive=definitions.Select(item=>item.CrossTableRecursivePageId).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        var recursive=definitions.Select(item=>item.CrossTableRecursivePageId??
+            (SelfTreeCache.HasScopedPage(model.Catalog,item.SelfTreePageId)?item.SelfTreePageId:null)).OfType<string>().ToHashSet(StringComparer.Ordinal);
         var roots=model.Tables.SelectMany(table=>table.Pages.Where(page=>recursive.Contains(page.Source.Id)).Select(page=>(table,page)));
         return GenerationMetadataPublisher.ForRelations(model.Catalog,PublishedCascadePages(model,definitions),
             nestedTables:PublishedRecursiveTables(model,roots));
