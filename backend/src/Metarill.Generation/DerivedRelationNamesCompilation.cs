@@ -95,7 +95,8 @@ internal static class DerivedRelationNamesCompilation
         if(!SupportedOwner(model,owner)||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!IsTypedName(model,owner,target,name)||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");
         if(page.Scopes.Any(scope=>scope.Column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,scope.Column)))
             throw new InvalidOperationException("派生单选名称的目标身份与父字段必须为物理标量。");
-        if (target.IsGlobal)
+        // 物理账号父范围已经由候选证明；名称仍须通过下面的固定投影。
+        if (target.IsGlobal&&GlobalCrossTableTarget.PhysicalAccountParent(model.Catalog,target.Source,page.Source) is null)
         {
             if(FixedPageConditionCompilation.HasSelfTreeFields(page))
                 GlobalCrossTableTarget.RequireScopedSelfTreeName(model.Catalog,target.Source,page.Source,name.Source);

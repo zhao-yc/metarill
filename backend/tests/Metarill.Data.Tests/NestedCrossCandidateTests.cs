@@ -274,7 +274,10 @@ public sealed class NestedCrossCandidateTests
     [InlineData("SelectPage","int64",true,false)]
     [InlineData("List","string",true,true)]
     [InlineData("SelectPage","int64",true,true)]
-    public void Project_single_cache_uses_fixed_page_and_physical_parent(string kind,string key,bool physicalAccount=false,bool withParent=true)
+    [InlineData("List","string",true,true,true)]
+    [InlineData("SelectPage","int64",true,true,true)]
+    public void Project_single_cache_uses_fixed_page_and_physical_parent(string kind,string key,
+        bool physicalAccount=false,bool withParent=true,bool global=false)
     {
         var catalog=Catalog(false);
         var source=catalog.ConfigTables.Single(table=>table.Id=="90");
@@ -286,6 +289,19 @@ public sealed class NestedCrossCandidateTests
         if(physicalAccount)
             page.WhereSql="yz_project_id=@current_yz_project_id AND name <> '目标页隐藏' AND store_id=@current_store_id";
         if(withParent)page.WhereSql+=" AND group_id=@parent_id";
+        if(global)
+        {
+            target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            if(!catalog.YzAdminTypes.Any(admin=>admin.Id=="5"))
+                catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+            foreach(var published in catalog.ConfigPages.Where(published=>published.ConfigTableId==target.Id))
+            {
+                published.YzProjectId=catalog.YzProjectId;
+                published.YzAdminTypeId="5";
+            }
+            page.WhereSql=page.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
+            if(kind=="SelectPage")page.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        }
         var sourcePage=new PageMetadata{Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
             WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"+
                 (withParent?" AND group_id=@parent_id":"")};
@@ -308,27 +324,40 @@ public sealed class NestedCrossCandidateTests
         source.IsRongyu=0;
         var actor=new RuntimeActor(1,"页面账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
         var readBinding=new NonRedundantSingleTargetScope("9014",page.Id,withParent?"9017":null);
-        var read=NonRedundantReads.CompileProjectPage(catalog,source.Id,["id","shared_name"],["shared_name"],[],[readBinding]);
+        var read=global?NonRedundantReads.Compile(catalog,source.Id,["id","shared_name"],["shared_name"]):
+            NonRedundantReads.CompileProjectPage(catalog,source.Id,["id","shared_name"],["shared_name"],[],[readBinding]);
         var live=read.BindAccount(actor).MySql;
         Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor with{StoreId=null}));
         Assert.Contains(actor.StoreId!.Value,live.Constants.Values);
-        Assert.Contains("r0.`yz_project_id`=@project_scope_number",live.From);
+        Assert.Equal(!global,live.From.Contains(" r0.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
         Assert.Contains("EXISTS (SELECT 1",live.From);
+        if(global)
+        {
+            var fixedCandidate=kind=="SelectPage"
+                ?NonRedundantReads.CompileGlobalAccountSinglePage(catalog,target.Id,page.Id,["id","name"],[],[])
+                :NonRedundantReads.CompileGlobalCandidate(catalog,target.Id,page.Id,["id","name"]);
+            var bound=fixedCandidate.BindAccount(actor).MySql;
+            Assert.Equal("group_id",bound.RequiredMultiParent);
+            Assert.Contains(actor.StoreId.Value,bound.Constants.Values);
+            Assert.Contains("nested_outer_leaf",bound.Scope);
+            Assert.Contains("b.`group_id`",bound.Scope);
+        }
         Assert.Equal("r0.`name`",live.Expression("shared_name"));
         Assert.DoesNotContain("store_id",live.Scope);
         if(withParent)
         {
             Assert.Contains("b.`group_id`",live.From);
             Assert.Contains("nested_outer_leaf",live.From);
-            Assert.Throws<InvalidOperationException>(()=>NonRedundantReads.CompileProjectPage(catalog,source.Id,["shared_name"],[],[],
-                [readBinding with{SourceParentId="9014"}]));
+            if(!global)
+                Assert.Throws<InvalidOperationException>(()=>NonRedundantReads.CompileProjectPage(catalog,source.Id,["shared_name"],[],[],
+                    [readBinding with{SourceParentId="9014"}]));
         }
         source.IsRongyu=1;
         var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
         var consumer=Assert.Single(maintenance.Mixed.Consumers,item=>item.Table.Option.Id==source.Id);
         var label=consumer.Read.Expression("shared_name");
         Assert.Contains("b.`store_id`",label);
-        Assert.Contains("r0.`yz_project_id`=@project_scope_number",consumer.Read.From);
+        Assert.Equal(!global,consumer.Read.From.Contains(" r0.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
         if(withParent)
         {
             Assert.Contains("b.`group_id`",label);
@@ -356,7 +385,7 @@ public sealed class NestedCrossCandidateTests
 
         if(kind=="SelectPage")
         {
-            catalog.ConfigPages.Add(new(){Id="12",ConfigTableId=target.Id});
+            catalog.ConfigPages.Add(new(){Id="12",ConfigTableId=target.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5"});
             catalog.ConfigPageColumns.Add(new(){Id="90014",ConfigPageId="900",ConfigColumnId="9014",
                 Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement("{\"pageId\":\"12\"}")}});
             Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));

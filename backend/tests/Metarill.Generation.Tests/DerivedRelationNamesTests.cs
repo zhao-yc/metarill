@@ -271,6 +271,10 @@ public sealed class DerivedRelationNamesTests
     [InlineData(false,true,true,false,false,true)]
     [InlineData(true,true,true,false,false,false)]
     [InlineData(true,false,true,false,false,true)]
+    [InlineData(false,false,false,false,true,true)]
+    [InlineData(true,true,true,false,true,true)]
+    [InlineData(false,true,true,true,true,true)]
+    [InlineData(true,false,false,true,true,true)]
     public async Task Single_account_page_uses_published_scope_without_cascade(
         bool selection,bool derived,bool rowProject,bool cached,bool global=true,bool parent=false)
     {
@@ -279,6 +283,7 @@ public sealed class DerivedRelationNamesTests
         target.WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+
             "status=1 AND store_id=@current_store_id"+(parent?" AND group_id=@parent_id":"");
         if(selection)target.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        if(global&&parent&&selection)target.IsExport=1;
         if(global)
         {
             foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "2" or "4"))
@@ -360,6 +365,13 @@ public sealed class DerivedRelationNamesTests
                 Assert.Contains("DerivedOptionsPlan101_15.BindAccount(actor)",service);
                 if(!global)Assert.Contains("OptionsPageCondition101_15.BindAccount(actor)",service);
                 Assert.Contains("currentRead:true",service);
+            }
+            if(global&&parent&&selection)
+            {
+                var targetService=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesPartyService.g.cs"));
+                Assert.Contains("CompileGlobalAccountSinglePage(\"2\",\"201\"",targetService);
+                Assert.Contains("KeyRowsAsync(CandidateReadPlan201.BindAccount(actor)",targetService);
+                Assert.Contains("ExportReadPlan201=global::Example.SingleAccountPage.Generated.GeneratedNonRedundantReadCatalog.CompileGlobalAccountSinglePage(",targetService);
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             foreach(var serviceName in new[]{"DrNamesOrderService","DrNamesPartyService"})

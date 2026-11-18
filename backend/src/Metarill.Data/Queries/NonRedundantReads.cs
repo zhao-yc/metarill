@@ -166,7 +166,13 @@ public static class NonRedundantReads
     public static NonRedundantReadPlan CompileGlobalAccountMultiPage(MetadataCatalog metadata,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings)=>
         new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
-            bindings,accountMultiPage:true));
+            bindings,accountParentPageType:"2"));
+
+    /// <summary>全局独立单选与来源控件共用已证明的账号和普通物理父范围。</summary>
+    public static NonRedundantReadPlan CompileGlobalAccountSinglePage(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings)=>
+        new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
+            bindings,accountParentPageType:"1"));
 
     /// <summary>全局下拉仅登记附加条件依赖，发布页范围和全局资格仍从原元数据读取。</summary>
     public static NonRedundantReadPlan CompileGlobalListCandidate(MetadataCatalog metadata,string tableId,string pageId,

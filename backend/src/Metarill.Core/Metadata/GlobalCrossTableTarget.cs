@@ -36,6 +36,22 @@ public static class GlobalCrossTableTarget
     public static void RequireSelfTreeConditionCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowMultiParent=false)
         =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:allowMultiParent,allowSelfTree:true);
 
+    /// <summary>全局非冗余页可按账号和普通项目的真实物理父键限定单值候选。</summary>
+    public static MultiTargetParentScope? PhysicalAccountParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
+        if(!Declared(table)||table.IsRongyu!=0)return null;
+        var columns=ConditionColumns(catalog,table,allowLogical:true);
+        var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+        if(!condition.Variables.Any(AccountConditionVariables.IsSupported)||
+            !condition.Variables.Any(MultiTargetParentScope.IsParameter)||
+            condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)||
+                CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field)))return null;
+        var parent=MultiTargetParentScope.Compile(catalog,table,condition);
+        if(parent is not {Logical:false,Global:false})return null;
+        RequireTarget(catalog,table,page,true,allowAccount:true,allowMultiParent:true);
+        return parent;
+    }
+
     /// <summary>只按明确用途开放R0，逻辑成员须在实际级联计划中进一步证明。</summary>
     private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false)
     {

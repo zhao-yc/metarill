@@ -18,7 +18,11 @@ internal static class NonRedundantReadCompilation
     /// <summary>有行归属的全局选择页及独立物理父多选使用固定全局候选。</summary>
     internal static bool GlobalSelectionPage(TableModel table,PageModel page)=>
         HasGlobalRowProject(table)&&page.Source.Extra.GetValueOrDefault("type").ToString() is "1" or "2"||
-        GlobalAccountMultiPage(table,page);
+        GlobalAccountMultiPage(table,page)||GlobalAccountSinglePage(table,page);
+
+    /// <summary>原独立单选使用带账号及物理父级的候选计划，作用于原分页和详情。</summary>
+    internal static bool GlobalAccountSinglePage(TableModel table,PageModel page)=>
+        page.Source.Extra.GetValueOrDefault("type").ToString()=="1"&&GlobalAccountParentScope(table,page);
 
     /// <summary>纯物理账号与父级同时限制全局多选时，独立分页需要同一带父参数的计划。</summary>
     internal static bool GlobalAccountMultiPage(TableModel table,PageModel page)=>
@@ -44,7 +48,7 @@ internal static class NonRedundantReadCompilation
 
     /// <summary>没有派生关系的原纯物理非冗余页继续使用既有强类型路径。</summary>
     internal static bool Requires(GenerationModel model,TableModel table)=>HasGlobalRowProject(table)||
-        table.Pages.Any(page=>GlobalAccountMultiPage(table,page))||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
+        table.Pages.Any(page=>GlobalAccountMultiPage(table,page)||GlobalAccountSinglePage(table,page))||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
     /// <summary>所有实体写入复用同一存储计划，不把读取派生属性持久化。</summary>
     internal static bool Physical(GenerationModel model,TableModel table,ColumnModel column)=>MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column.Source);
     /// <summary>固定叶名与目标页一起发布；仅显示、顺序等范围不变的页面覆盖可以继续使用表级读取定义。</summary>
@@ -169,6 +173,8 @@ internal static class NonRedundantReadCompilation
         if(GlobalSelectionPage(table,page))
             _=GlobalAccountMultiPage(table,page)
                 ?NonRedundantReads.CompileGlobalAccountMultiPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings)
+                :GlobalAccountSinglePage(table,page)
+                    ?NonRedundantReads.CompileGlobalAccountSinglePage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings)
                 :crossPlans.Count>0
                 ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings)
                 :FixedPageConditionCompilation.HasSelfTreeFields(page)
