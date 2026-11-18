@@ -1,5 +1,9 @@
+using System.Reflection;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
+using Metarill.Data.Queries;
 using Metarill.Testing;
 using Xunit;
 namespace Metarill.Generation.Tests;
@@ -8,6 +12,109 @@ namespace Metarill.Generation.Tests;
 [Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class GlobalCrossCachedTargetGenerationTests
 {
+    /// <summary>用生成的真实筛选和排序方法验证独立／共享路径及全局目标账号范围。</summary>
+    [Theory]
+    [InlineData(false, "list")]
+    [InlineData(true, "edit")]
+    public async Task R0_cross_level_names_filter_and_order_by_the_published_path(bool shared, string exportMode)
+    {
+        const string application = "Example.CrossNameQueries";
+        var catalog = shared
+            ? GlobalCrossCachedTargetFixture.CreateShared(0, "string", "int64", shorter: true)
+            : GlobalCrossCachedTargetFixture.Create(0, 2, "int64", "string");
+        var configuredPage = catalog.ConfigPages.Single(page => page.Id == "30");
+        configuredPage.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
+        var orderedName = shared ? "area_name" : "place_name";
+        var orderedKey = GenerationModel.Camel(orderedName);
+        configuredPage.OrderBy = orderedName + " desc";
+        catalog.ConfigPages.Single(page => page.Id == "10").WhereSql += " AND store_id=@current_store_id";
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "166", ConfigTableId = "1", YzProjectId = "100", ColumnName = "store_id",
+            Name = "门店", LogicalType = "int64"
+        });
+        foreach (var (id, field, label, match) in new[]
+        {
+            ("371", "country_name", "国家名称", "like"),
+            ("372", orderedName, "末级名称", "exact")
+        })
+        {
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = id, ConfigTableId = "3", YzProjectId = "100", ColumnName = field,
+                Name = label, LogicalType = "string", ControlKind = "Text"
+            });
+            catalog.ConfigPageColumns.Add(new()
+            {
+                Id = "30_" + id, ConfigPageId = "30", ConfigColumnId = id, YzProjectId = "100",
+                IsShow = 1, IsEdit = 1, Extra = new()
+                {
+                    ["isSearch"] = JsonSerializer.SerializeToElement(1),
+                    ["isSort"] = JsonSerializer.SerializeToElement(1),
+                    ["searchType"] = JsonSerializer.SerializeToElement(match)
+                }
+            });
+        }
+        var model = GenerationModel.Create(catalog, application);
+        var table = model.Tables.Single(table => table.Source.Id == "3");
+        var page = table.Pages.Single(item => item.Source.Id == "30");
+        var plan = NonRedundantReadCompilation.ForPage(model, table, page);
+        Assert.Contains("country_name", plan.Dependencies);
+        Assert.Contains(orderedName, plan.Dependencies);
+        Assert.DoesNotContain(page.Writable, column => column.Source.ColumnName == orderedName);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-r0-cross-name-queries");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        var generated = Path.Combine(directory, "generated");
+        try
+        {
+            new CSharpGenerator().Generate(catalog, generated, application);
+            var list = File.ReadAllText(Path.Combine(generated, "frontend/pages/yzp/cross_consumer-list-30.vue"));
+            var source = File.ReadAllText(Path.Combine(generated, "Services/CrossConsumerService.g.cs"));
+            Assert.Contains("countryName", list);
+            Assert.Contains(orderedKey, list);
+            Assert.Contains("yzp-cascade-tree", list);
+            Assert.Contains("StatisticsAsync(ReadPlan30.BindAccount(actor)", source);
+            Assert.Contains("RowsAsync(ExportReadPlan30.BindAccount(actor)", source);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(application + ".Generated.Services.CrossConsumerService", throwOnError: true)!;
+            const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Static;
+            var lookup = service.GetMethod("ReadFilters30", flags)!;
+            var order = service.GetMethod("ReadOrder30", flags)!;
+            var actor = new RuntimeActor(57, "测试账号", false, "100", "9") { StoreId = 31 };
+            var request = new PageRequest
+            {
+                Filters = new()
+                {
+                    ["countryName"] = JsonSerializer.SerializeToElement("国%甲"),
+                    [orderedKey] = JsonSerializer.SerializeToElement("末级乙")
+                }
+            };
+            var filters = Assert.IsAssignableFrom<IReadOnlyList<FixedReadFilter>>(lookup.Invoke(null, [request, actor]));
+            var ancestor = Assert.Single(filters, filter => filter.Field == "country_name");
+            Assert.Equal(FixedReadComparison.LikePattern, ancestor.Comparison);
+            Assert.Equal("国%甲", ancestor.Value);
+            var leaf = Assert.Single(filters, filter => filter.Field == orderedName);
+            Assert.Equal(FixedReadComparison.Equal, leaf.Comparison);
+            Assert.Equal("末级乙", leaf.Value);
+            Assert.Equal(new[] { new FixedReadOrder(orderedName, true), new FixedReadOrder("id", true) },
+                Assert.IsAssignableFrom<IReadOnlyList<FixedReadOrder>>(order.Invoke(null, [request])));
+            request.OrderBy = new() { Column = "countryName", Order = "ascending" };
+            Assert.Equal(new FixedReadOrder("country_name"),
+                Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<FixedReadOrder>>(order.Invoke(null, [request]))));
+
+            foreach (var field in new[] { "ReadPlan30", "ExportReadPlan30" })
+            {
+                var runtimePlan = Assert.IsType<NonRedundantReadPlan>(service.GetField(field, flags)!.GetValue(null));
+                Assert.NotSame(runtimePlan, runtimePlan.BindAccount(actor));
+                Assert.Throws<UnauthorizedAccessException>(() => runtimePlan.BindAccount(actor with { StoreId = null }));
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>混合字符串与整数的跨表链沿原候选、路径、Excel 和维护执行。</summary>
     [Theory]
     [InlineData(0,"physical","int32")]

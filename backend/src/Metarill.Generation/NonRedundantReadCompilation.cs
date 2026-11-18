@@ -57,7 +57,8 @@ internal static class NonRedundantReadCompilation
             var managed=CascadeTreeViewRenderer.Name(table,tree);
             if(managed is not null&&(page.Searchable.Concat(page.Sortable).Any(column=>column.Source.Id==managed.Source.Id)||page.Condition?.Syntax.Fields.Contains(managed.Source.ColumnName)==true))throw new InvalidOperationException("非冗余级联名称直接筛选/排序尚待专用读取用途验证。");
         }
-        var crossIds=CrossTableWriteCompilation.ForService(model,table,page).SelectMany(plan=>plan.Levels).Select(level=>level.Id.Source.Id).ToHashSet(StringComparer.Ordinal);
+        var crossPlans=CrossTableWriteCompilation.ForService(model,table,page);
+        var crossIds=crossPlans.SelectMany(plan=>plan.Levels).Select(level=>level.Id.Source.Id).ToHashSet(StringComparer.Ordinal);
         foreach(var relation in table.Columns.Where(column=>MetadataStoragePolicy.IsRelationColumn(column.Source)))
         {
             if(relation.Source.ControlKind is "CascadeTree" or "MultiCheckBoxDatabase"||crossIds.Contains(relation.Source.Id))continue;
@@ -93,11 +94,14 @@ internal static class NonRedundantReadCompilation
         }
         var selectionNames=SelectionNameFilterCompilation.ForPage(model,table,page);
         var dependencies=page.Searchable.Concat(page.Sortable).Concat(ExactDataManageCompilation.Resolve(model,table,page) is {} exact ? new[]{exact.Column} : Array.Empty<ColumnModel>()).Concat(FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>scope.Column)).Concat(FixedPageQueryCompilation.For(table,page).DefaultOrder.Select(item=>item.Column)).Select(column=>column.Source.ColumnName).Concat(selectionNames.Bindings.Select(binding=>binding.StorageColumn.Source.ColumnName)).Concat(page.Condition?.Syntax.Fields??Array.Empty<string>()).Concat(CrossTableFilterCompilation.ForPage(model,table,page).SelectMany(plan=>plan.Levels).Select(level=>level.Id.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        // 默认排序、隐藏范围、精确匹配及跨表各级筛选均是读取依赖；窄导出也不能漏掉祖先ID表达式。
-        if(CascadeTreeWriteCompilation.ManagedNames(table).Any(name=>dependencies.Contains(name.Source.ColumnName,StringComparer.OrdinalIgnoreCase)))throw new InvalidOperationException("非冗余级联名称的筛选/排序/匹配用途尚待完整路径计划验证。");
+        // 已绑定的跨表层名由同一逻辑路径在 SQL 内求值，能用于分页前的筛选和排序。
+        // 只在分页后从图中补出的自树名称仍不能作为查询依赖。
+        var crossNames=crossPlans.SelectMany(plan=>plan.Levels).Select(level=>level.Name.Source.Id).ToHashSet(StringComparer.Ordinal);
+        if(CascadeTreeWriteCompilation.ManagedNames(table).Any(name=>!crossNames.Contains(name.Source.Id)&&dependencies.Contains(name.Source.ColumnName,StringComparer.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("非冗余级联名称的筛选/排序/匹配用途尚待完整路径计划验证。");
         // 图只取来源已授权行的所选ID；隐藏ID为私有投影依赖，不加入VO或页面字段。
         var readOutputs=outputs.Select(output=>output.Storage).Concat(CascadeTreeViewRenderer.ForPage(model,table,page).Select(plan=>plan.Source.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var compiled=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,readOutputs,NonRedundantCrossTableCompilation.Bindings(model,table,page),dependencies,deferCascadeNames:true);
+        var compiled=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,readOutputs,NonRedundantCrossTableCompilation.Bindings(crossPlans),dependencies,deferCascadeNames:true);
         if(GlobalSelectionPage(table,page))
             _=NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies);
         outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();
