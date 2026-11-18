@@ -88,9 +88,15 @@ public sealed class CascadeTreeReadMySqlTests
             using(var rejected=await client.PostAsJsonAsync(endpoint+"cascadeTreePath25",new{leafId=First.ToString(),sql="1=1"}))Assert.Equal(HttpStatusCode.BadRequest,rejected.StatusCode);
             var beforeInvalid=commands.Count;Assert.Equal(500,(await Post("cascadeTreeOptions",new{levelKey="selfTree-0",selectedPath=new{parentId="1 OR 1=1"}})).GetProperty("code").GetInt32());Assert.Equal(beforeInvalid,commands.Count);
             Assert.NotEmpty(commands);Assert.All(commands,command=>{Assert.True(command.Parameters>0);Assert.DoesNotContain("secret",command.Sql,StringComparison.OrdinalIgnoreCase);});
-            // 同层501项必须整体拒绝，不把截断响应当全部候选。
+            // 同层501项沿原数组完整返回，后续批次也必须正确标记孩子。
             for(var i=0;i<500;i++)await Seed(First+100+i,"新增根"+i,null);
-            Assert.Equal(500,(await Post("cascadeTreeOptions",new{levelKey="selfTree-0",selectedPath=new{parentId=""}})).GetProperty("code").GetInt32());verified=true;
+            await Seed(First+700,"宽树末项的子节点",First+599);
+            var wide=Data(await Post("cascadeTreeOptions",new{levelKey="selfTree-0",selectedPath=new{parentId=""}})).EnumerateArray().ToArray();
+            Assert.Equal(new[]{First}.Concat(Enumerable.Range(100,500).Select(offset=>First+offset)),
+                wide.Select(row=>long.Parse(row.GetProperty("id").GetString()!,CultureInfo.InvariantCulture)).Order());
+            Assert.Equal(new[]{First,First+599},wide.Where(row=>row.GetProperty("hasChildren").GetBoolean())
+                .Select(row=>long.Parse(row.GetProperty("id").GetString()!,CultureInfo.InvariantCulture)).Order());
+            verified=true;
             await File.WriteAllTextAsync(Path.Combine(evidence,"verified.json"),JsonSerializer.Serialize(new{nonce,parentType,verified,originalProtocol=true,realMySql=true,realGeneratedHttp=true,fixedTestActor=true,browser=false,fullControl=false}));
         }
         finally

@@ -1017,6 +1017,11 @@ internal sealed class SharedExcelReadTransport:IDisposable
         (IReadOnlyList<FixedReadFilter>)serviceType.GetMethod("ReadFilters"+pageId,BindingFlags.Instance|BindingFlags.NonPublic)!
             .Invoke(service,[request,actor,operation])!;
 
+    /// <summary>执行公开树候选入口，核对完整层读取和读快照。</summary>
+    internal Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeOption>> CascadeOptions(string fieldId,CascadeTreeOptionsRequest request)=>
+        (Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeOption>>)serviceType.GetMethod("CascadeOptions"+pageId+"_"+fieldId+"Async")!
+            .Invoke(service,[request,actor,CancellationToken.None])!;
+
     /// <summary>公开导出方法实际产生原列及单元格，记录导出结束时的锁数。</summary>
     internal async Task<PageExportRequest> Export(PageRequest? request=null)
     {
@@ -1026,7 +1031,7 @@ internal sealed class SharedExcelReadTransport:IDisposable
     /// <summary>表达式按真实委托执行；固定SQL只接受明确的状态或来源复合条件，不忽略范围。</summary>
     private object Select(Type type)
     {
-        var predicates=new List<Func<object,bool>>();var orders=new List<(Func<object,object?> Key,bool Desc)>();var limit=int.MaxValue;object query=null!;
+        var predicates=new List<Func<object,bool>>();var orders=new List<(Func<object,object?> Key,bool Desc)>();var limit=int.MaxValue;var distinct=false;object query=null!;
         query=Proxy(typeof(ISelect<>).MakeGenericType(type),(method,args)=>
         {
             args??=[];
@@ -1046,6 +1051,7 @@ internal sealed class SharedExcelReadTransport:IDisposable
                 var expression=Assert.Single(args.OfType<LambdaExpression>());var compiled=expression.Compile();orders.Add((row=>compiled.DynamicInvoke(row),method.Name=="OrderByDescending"));return query;
             }
             if(method.Name=="Limit"){limit=Assert.IsType<int>(args[0]);return query;}
+            if(method.Name=="Distinct"){distinct=true;return query;}
             if(method.Name=="ForUpdate"){Assert.NotNull(Session.CurrentTransaction);Reads.Add("lock:"+type.Name);return query;}
             if(method.Name is not("ToListAsync" or "FirstAsync" or "AnyAsync"))throw new InvalidOperationException("共享Excel离线传输未实现："+method.Name);
             if(method.Name=="ToListAsync"&&type.Name=="SharedExcelCountry"&&FindFailure is{} failure){FindFailure=null;throw failure;}
@@ -1057,7 +1063,10 @@ internal sealed class SharedExcelReadTransport:IDisposable
             IOrderedEnumerable<object>? ordered=null;foreach(var order in orders)ordered=ordered is null?order.Desc?filtered.OrderByDescending(order.Key):filtered.OrderBy(order.Key):order.Desc?ordered.ThenByDescending(order.Key):ordered.ThenBy(order.Key);
             filtered=(ordered??filtered).Take(limit);var projection=args.OfType<LambdaExpression>().SingleOrDefault();var output=projection?.ReturnType??type;var compiledProjection=projection?.Compile();
             if(method.Name=="FirstAsync"){var row=filtered.FirstOrDefault();ReadCalls.Add((type.Name,method.Name,row is null?0:1));return TaskValue(output,row is null||compiledProjection is null?row:compiledProjection.DynamicInvoke(row));}
-            var list=(IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(output))!;foreach(var row in filtered)list.Add(compiledProjection is null?row:compiledProjection.DynamicInvoke(row));ReadCalls.Add((type.Name,method.Name,list.Count));AfterRead?.Invoke(type.Name,limit);return TaskValue(list.GetType(),list);
+            var projections=filtered.Select(row=>compiledProjection is null?row:compiledProjection.DynamicInvoke(row));
+            var list=(IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(output))!;
+            foreach(var value in distinct?projections.Distinct():projections)list.Add(value);
+            ReadCalls.Add((type.Name,method.Name,list.Count));AfterRead?.Invoke(type.Name,limit);return TaskValue(list.GetType(),list);
         });return query;
     }
     /// <summary>只解释status或明确来源模型的三个AND参数比较；括号／运算／字段／值均固定，未知语法拒绝。</summary>

@@ -433,6 +433,8 @@ public sealed class NonRedundantSelfTreeTests
             Assert.Contains("ApplyCandidate(query,session,DerivedCascadePlan901_94.BindAccount(actor)",code);
             Assert.Contains("CurrentRowsAsync(DerivedCascadePlan901_94.BindAccount(actor)",code);
             Assert.Contains("DerivedCascadeRows901_94Async",code);
+            Assert.Contains("AllRowsAsync(DerivedCascadePlan901_94.BindAccount(actor)",code);
+            Assert.Contains("DerivedCascadeOrder901_94,null,false,ct",code);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service=assembly.GetType(ns+".Generated.Services.ScopedTreeConsumerService",true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);

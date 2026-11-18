@@ -21,17 +21,22 @@ internal static class DerivedCascadeNamesRenderer
     private static readonly NonRedundantReadPlan DerivedCascadePlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{start}},new string[]{"id",{{Literal(plan.Name.Source.ColumnName)}},{{Literal(parent.Source.ColumnName)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} });
     private static readonly FixedReadOrder[] DerivedCascadeOrder{{suffix}}=[{{Orders(plan)}}];
     /// <summary>授权与固定条件沿原树范围；当前读要求真实事务并锁住根及名称联接。</summary>
-    private async Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeNode>> DerivedCascadeRows{{suffix}}Async(RuntimeActor actor,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int limit,bool locking,CancellationToken ct,bool requireSourceList=false,bool requireTargetList=false)
+    private async Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeNode>> DerivedCascadeRows{{suffix}}Async(RuntimeActor actor,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int? limit,bool locking,CancellationToken ct,bool requireSourceList=false,bool requireTargetList=false)
     {
         _=CascadeScope{{suffix}}(actor,requireSourceList,requireTargetList);var bound=new List<FixedReadFilter>(filters);
 {{string.Join("\n",scopes)}}
-        var reader=new NonRedundantReader(session);var rows=locking?await reader.CurrentRowsAsync({{readPlan}},bound,order,limit,ct,actor.ProjectId,{{condition}}):await reader.RowsAsync({{readPlan}},bound,order,limit,ct,actor.ProjectId,{{condition}});
+        var reader=new NonRedundantReader(session);
+        // 原候选完整返回当前层；路径、图与写入仍保持各自的有限查询和当前读。
+        var rows=limit is null
+            ?await reader.AllRowsAsync({{readPlan}},bound,order,ct,actor.ProjectId,{{condition}})
+            :locking?await reader.CurrentRowsAsync({{readPlan}},bound,order,limit.Value,ct,actor.ProjectId,{{condition}})
+                :await reader.RowsAsync({{readPlan}},bound,order,limit.Value,ct,actor.ProjectId,{{condition}});
         return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(NonRedundantReads.Value<long>(row,"id"),{{label}},{{nodeParent}})).ToArray();
     }
     /// <summary>候选按派生名称在SQL排序，根同时匹配null与空字符串；父链逐跳仍走原算法。</summary>
     private Metarill.Core.Cascades.SelfTreeReader CascadeReader{{suffix}}(RuntimeActor actor,bool locking=false,bool requireSourceList=true,bool requireTargetList=true)=>new(
         async(id,ct)=>(await DerivedCascadeRows{{suffix}}Async(actor,[new("id",FixedReadComparison.Equal,id)],[new("id")],1,locking,ct,requireSourceList,requireTargetList)).SingleOrDefault(),
-        async(parentId,limit,ct)=>await DerivedCascadeRows{{suffix}}Async(actor,[parentId is null?{{root}}:new({{Literal(parent.Source.ColumnName)}},FixedReadComparison.Equal,{{childParent}})],DerivedCascadeOrder{{suffix}},limit,locking,ct,requireSourceList,requireTargetList),
+        async(parentId,_,ct)=>await DerivedCascadeRows{{suffix}}Async(actor,[parentId is null?{{root}}:new({{Literal(parent.Source.ColumnName)}},FixedReadComparison.Equal,{{childParent}})],DerivedCascadeOrder{{suffix}},null,false,ct,requireSourceList,requireTargetList),
         async(ids,ct)=>{ {{parents}} },{{Literal(plan.Joiner)}});
 
 """;

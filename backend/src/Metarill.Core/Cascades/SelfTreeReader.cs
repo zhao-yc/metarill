@@ -19,19 +19,27 @@ public sealed class SelfTreeReader(
     string displayJoiner)
 {
     public const int MaximumDepth=64;
-    public const int MaximumSiblings=500;
+    private const int ChildProbeBatchSize=200;
 
-    /// <summary>非根请求先验证完整祖先链，不能由有效子节点穿透越权或已删父节点。</summary>
+    /// <summary>返回完整当前层。验证祖先链及整层父范围后分批查询下一层存在性，维持稳定候选顺序。</summary>
     public async Task<IReadOnlyList<CascadeTreeOption>> OptionsAsync(long? parentId,CancellationToken cancellationToken=default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if(parentId is not null && (await PathAsync(parentId,cancellationToken)).Path.Count>=MaximumDepth)throw new InvalidOperationException("级联候选不能超过64层。");
-        var rows=await children(parentId,MaximumSiblings+1,cancellationToken);
-        if(rows.Count>MaximumSiblings) throw new InvalidOperationException("级联同层候选超过500项，请调整数据分组；不会返回截断的候选。");
-        if(rows.Select(row=>row.Id).Distinct().Count()!=rows.Count || rows.Any(row=>row.Id<=0 || Parent(row.ParentId)!=parentId)) throw new InvalidOperationException("级联候选不符合固定父范围。");
-        if(rows.Count==0)return [];
-        var ids=rows.Select(row=>row.Id).ToArray();var hasChildren=await parentsWithChildren(ids,cancellationToken);
-        if(hasChildren.Any(id=>!ids.Contains(id))) throw new InvalidOperationException("级联子节点标记超出候选范围。");
+        // 旧生成服务仍传入有界委托，保留签名并请求完整范围；新服务直接使用原无分页查询。
+        var rows=await children(parentId,int.MaxValue,cancellationToken);
+        var candidateIds=new HashSet<long>();
+        if(rows.Any(row=>row.Id<=0||Parent(row.ParentId)!=parentId||!candidateIds.Add(row.Id)))
+            throw new InvalidOperationException("级联候选不符合固定父范围。");
+        var hasChildren=new HashSet<long>();
+        foreach(var batch in candidateIds.Chunk(ChildProbeBatchSize))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var matches=await parentsWithChildren(batch,cancellationToken);
+            if(matches.Any(id=>!batch.Contains(id)))
+                throw new InvalidOperationException("级联子节点标记超出候选范围。");
+            hasChildren.UnionWith(matches);
+        }
         return rows.Select(row=>new CascadeTreeOption(Text(row.Id),row.Name,Text(row.Id),row.Name,hasChildren.Contains(row.Id))).ToArray();
     }
 
