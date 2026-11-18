@@ -8,9 +8,13 @@ public static class GlobalPhysicalRelationValue
 {
     /// <summary>只认可所属目标表的非凭据物理标量；数组、文件、虚拟值及已有联接缓存均拒绝。</summary>
     public static bool IsScalar(MetadataStoragePlan storage,TableMetadata target,ColumnMetadata column)=>column.ConfigTableId==target.Id&&storage.IsPhysical(column)&&column.IsVirtualColumn==0&&!(column.Extra.TryGetValue("isJoinColumn",out var cached)&&(cached.ValueKind==JsonValueKind.True||cached.ToString()=="1"))&&!ExactDataManageValues.IsSensitiveField(column.ColumnName)&&column.ControlKind is not("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList" or "CascadeTree")&&column.LogicalType is not("json" or "binary");
-    /// <summary>整数名称副本必须是真实缓存，并通过完整的全局生产链证明。</summary>
+    /// <summary>保留已有的整数名称副本证明入口。</summary>
     public static bool IsPublishedIntegerCache(MetadataCatalog catalog,MetadataStoragePlan storage,TableMetadata target,ColumnMetadata column)
-        =>target.IsRongyu==1&&GlobalCrossTableTarget.Declared(target)&&column.LogicalType is "int32" or "int64"&&
+        =>column.LogicalType is "int32" or "int64"&&IsPublishedTypedCache(catalog,storage,target,column);
+
+    /// <summary>有类型的物理名称副本必须通过全局 List 上游、真实字段及同类型终点证明。</summary>
+    public static bool IsPublishedTypedCache(MetadataCatalog catalog,MetadataStoragePlan storage,TableMetadata target,ColumnMetadata column)
+        =>target.IsRongyu==1&&GlobalCrossTableTarget.Declared(target)&&MultiValueLabel.IsTyped(column.LogicalType)&&
           storage.IsPhysical(column)&&!IsScalar(storage,target,column)&&IsPublishedScalar(catalog,storage,target,column);
 
     /// <summary>物理值保持原合同；名称缓存须逐层证明属于同一发布目录。</summary>

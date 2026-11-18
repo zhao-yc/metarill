@@ -135,14 +135,14 @@ internal static class MultiSelectCompilation
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }
     }
 
-    /// <summary>生成与数据层使用同一整数终点判断，范围仍由固定目标页证明。</summary>
+    /// <summary>生成与数据层使用同一标量终点证明，范围仍由固定目标页证明。</summary>
     internal static bool SupportsTypedLabel(GenerationModel model,TableModel table,ColumnModel source,TableModel target,ColumnModel name)
     {
         if(name.IsId||!Metarill.Core.Contracts.MultiValueLabel.IsTyped(name.Source.LogicalType))return false;
         var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
         return MultiNameStorageColumns.IsPhysicalScalarLabel(table.Source,source.Source,target.Source,name.Source,storage)||
             MultiNameStorageColumns.IsDerivedScalarLabel(target.Source,name.Source,storage)||
-            GlobalPhysicalRelationValue.IsPublishedIntegerCache(model.Catalog,storage,target.Source,name.Source);
+            GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,storage,target.Source,name.Source);
     }
 
     /// <summary>重复键、数组配置或复杂映射值必须拒绝，未知合法键保持在原元数据。</summary>

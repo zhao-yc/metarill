@@ -42,7 +42,7 @@ public static class GlobalMultipleRelationTarget
         // 物理列或固定联接名称由发布证明验证实际终点。
         var scalarLabel=name is not null&&(MultiNameStorageColumns.IsPhysicalScalarLabel(owner,foreign,target,name,physical)||
             MultiNameStorageColumns.IsDerivedScalarLabel(target,name,physical)||
-            GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,physical,target,name));
+            GlobalPhysicalRelationValue.IsPublishedTypedCache(catalog,physical,target,name));
         // 逻辑层名必须来自该全局候选自身的固定级联，实际路径和可见性由数据层完成证明。
         var pathLabel=scoped&&name is {LogicalType:"string",IsVirtualColumn:0}&&
             !ExactDataManageValues.IsSensitiveField(name.ColumnName)&&CrossTableStorageColumns.IsLogicalPathField(target,columns,name.ColumnName);

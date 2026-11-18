@@ -162,7 +162,10 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData("date",false)]
     [InlineData("datetime",true)]
     [InlineData("time",false)]
-    public async Task Scalar_self_tree_labels_roundtrip_through_generated_options_and_excel(string kind,bool globalTarget)
+    [InlineData("bool",true,true)]
+    [InlineData("double",true,true)]
+    [InlineData("time",true,true)]
+    public async Task Scalar_self_tree_labels_roundtrip_through_generated_options_and_excel(string kind,bool globalTarget,bool cachedLabel=false)
     {
         var catalog=Catalog("typed_tree",automatic:true);
         catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
@@ -172,7 +175,9 @@ public sealed class NonRedundantSelfTreeTests
             target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=1";
         }
-        catalog.ConfigColumns.Single(column=>column.Id=="32").LogicalType=kind;
+        var label=catalog.ConfigColumns.Single(column=>column.Id=="32");
+        label.LogicalType=kind;
+        if(cachedLabel)ConfigurePublishedLabelCache(catalog,label);
         RedundantMultiNameCacheTests.Published(catalog);
         const string ns="Example.TypedSelfTree";
         var model=GenerationModel.Create(catalog,ns);
@@ -180,6 +185,7 @@ public sealed class NonRedundantSelfTreeTests
         new FrontendPackager().Validate(catalog);
         (object value,string expected)=kind switch
         {
+            "bool" when cachedLabel=>((object)false,"false"),
             "bool"=>((object)true,"true"),
             "decimal"=>((object)1234567890.123456m,"1234567890.123456"),
             "double"=>((object)0.125d,"0.125"),
@@ -198,19 +204,46 @@ public sealed class NonRedundantSelfTreeTests
             using var runtime=new SharedExcelReadTransport(assembly,ns,"TypedTreeSource",actor:actor,
                 authorization:new CascadeTreeReadTests.TreeListOnly(actor));
             const long key=9007199254740998;
-            runtime.Add("TypedTreeTree",new Dictionary<string,object?>{["Id"]=key,["Name"]=value,["Status"]=1,["YzProjectId"]=catalog.YzProjectId});
+            var fields=new Dictionary<string,object?>{["Id"]=key,[GenerationModel.Pascal(label.ColumnName)]=value,["Status"]=1};
+            if(!cachedLabel)fields["YzProjectId"]=catalog.YzProjectId;
+            runtime.Add("TypedTreeTree",fields);
             runtime.Add("TypedTreeSource",new Dictionary<string,object?>{["Id"]=1L,["Name"]="来源",["TreeId"]=key,["YzProjectId"]=catalog.YzProjectId});
             var request=new CascadeTreeOptionsRequest{LevelKey="selfTree-0",SelectedPath=JsonSerializer.SerializeToElement(new{parentId=""})};
             var option=Assert.Single(await runtime.CascadeOptions("25",request));
             Assert.Equal(expected,option.Name);
             Assert.Equal(option.Name,option.Text);
             Assert.Equal("9007199254740998",option.Id);
+            var path=await runtime.CascadePath("25",new(){LeafId=JsonSerializer.SerializeToElement(option.Id)});
+            Assert.Equal(expected,Assert.Single(path.Path).Name);
             var header=ImportRenderer.Header(model.Tables.Single(table=>table.Source.Id=="2").Columns.Single(column=>column.Source.Id=="25"));
             var row=await runtime.Parse(new(){[header]=kind=="bool"?value:expected});
             Assert.Equal(option.Id,row["treeId"].GetString());
             Assert.Contains(expected,Assert.Single((await runtime.Export()).Rows));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+
+    /// <summary>树只读叶名来自独立的全局 List 同类型物理副本，保留真实父字段及发布页。</summary>
+    private static void ConfigurePublishedLabelCache(MetadataCatalog catalog,ColumnMetadata label)
+    {
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="33");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="33");
+        label.ColumnName="dict_name";
+        label.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+        label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("dict.name");
+        var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        control.ControlDetail=control.ControlDetail.Replace("\"nameField\":\"name\"","\"nameField\":\"dict_name\"",StringComparison.Ordinal);
+        catalog.ConfigTables.Add(new(){Id="6",TableName="typed_tree_dict",IsRongyu=1,
+            Extra=new(){["scopeKind"]=JsonSerializer.SerializeToElement("global")}});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="38",ConfigTableId="3",ColumnName="dict_id",LogicalType="int64",ControlKind="List",LinkConfigTableId="6",
+                ControlDetail="{\"tableId\":\"6\",\"pageId\":\"601\",\"nameField\":\"name\"}"},
+            new(){Id="61",ConfigTableId="6",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="62",ConfigTableId="6",ColumnName="name",LogicalType=label.LogicalType}
+        ]);
+        catalog.ConfigPages.Add(new(){Id="601",ConfigTableId="6"});
+        catalog.ConfigPageColumns.Add(new(){Id="60162",ConfigPageId="601",ConfigColumnId="62",IsShow=1});
     }
 
     /// <summary>只有物理账号条件时，独立包仍要保留来源页的归属证明。</summary>

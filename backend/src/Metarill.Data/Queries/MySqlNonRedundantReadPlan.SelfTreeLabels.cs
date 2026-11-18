@@ -43,7 +43,7 @@ public static partial class MySqlNonRedundantReadCompiler
             name.Id==parent.Id||name.ColumnName=="id"||name.LogicalType!="string"&&!MultiValueLabel.IsTyped(name.LogicalType)||
             name.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(name.ColumnName)||
             (storage.IsPhysical(name)?!GlobalPhysicalRelationValue.IsScalar(storage,target,name)&&
-                !GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,storage,target,name):
+                !GlobalPhysicalRelationValue.IsPublishedTypedCache(catalog,storage,target,name):
                 storage.Kind(name)!=MetadataFieldStorage.Join||target.IsRongyu!=0))
             throw new NotSupportedException("多值名称的自树父键或标量叶名无效。");
         var (page,condition)=CascadeLabelPage(catalog,target,name.ColumnName,parent.ColumnName);

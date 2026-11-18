@@ -34,11 +34,17 @@ public sealed class GlobalMultipleCachedTargetTests
     }
     /// <summary>范围、字符串序列和缓存写入由同一目标页声明编译，沿用原控件预算。</summary>
     [Theory]
-    [InlineData("MultiSelectPage","int32")]
-    [InlineData("MultiSelectPage","int64")]
-    [InlineData("MultiCheckBoxDatabase","int32")]
-    [InlineData("MultiCheckBoxDatabase","int64")]
-    public void Integer_name_cache_preserves_fixed_page_and_array_dependencies(string kind, string type)
+    [InlineData("MultiSelectPage","int32"," AS CHAR)")]
+    [InlineData("MultiSelectPage","int64"," AS CHAR)")]
+    [InlineData("MultiCheckBoxDatabase","int32"," AS CHAR)")]
+    [InlineData("MultiCheckBoxDatabase","int64"," AS CHAR)")]
+    [InlineData("MultiSelectPage","bool","THEN 'true' ELSE 'false'")]
+    [InlineData("MultiSelectPage","decimal","TRIM(TRAILING '0'")]
+    [InlineData("MultiSelectPage","double","SUBSTRING_INDEX(")]
+    [InlineData("MultiCheckBoxDatabase","date"," AS CHAR)")]
+    [InlineData("MultiCheckBoxDatabase","datetime","TRIM(TRAILING '0'")]
+    [InlineData("MultiCheckBoxDatabase","time","TRIM(TRAILING '0'")]
+    public void Typed_name_cache_preserves_fixed_page_and_array_dependencies(string kind, string type, string format)
     {
         var catalog = Catalog(0,kind,"int64");
         var cachedName = catalog.ConfigColumns.Single(column => column.Id == "14");
@@ -47,7 +53,8 @@ public sealed class GlobalMultipleCachedTargetTests
         catalog.ConfigColumns.Add(new() { Id = "18", ConfigTableId = "1", ColumnName = "status", LogicalType = "int32", YzProjectId = "100" });
         catalog.ConfigPages.Single(page => page.Id == "10").WhereSql = "status=1";
         const string arrayName = "global_source_global_target_names";
-        const string label = "CAST(multi_value.`global_target_name` AS CHAR)";
+        var label = MySqlMultiValueLabel.Text("multi_value.`global_target_name`",type);
+        Assert.Contains(format,label);
         var reader = MySqlNonRedundantReadCompiler.Compile(catalog,"3",[arrayName]);
         var sql = Get<IReadOnlyDictionary<string,string>>(reader,"Expressions")[arrayName];
         Assert.Contains("JSON_ARRAYAGG(" + label + ")",sql);
@@ -67,6 +74,11 @@ public sealed class GlobalMultipleCachedTargetTests
         Assert.Equal(kind == "MultiSelectPage" ? 200 : 5000,Get<int>(binding,"MaximumItems"));
         var maintenance = RelationMaintenanceCatalog.Compile(catalog,[definition]);
         Assert.Contains("global_target_name",maintenance.MixedSourceColumns["global_source"]);
+        var refresh=Assert.IsType<MySqlNonRedundantReadPlan>(maintenance.Plans["3"].Read);
+        Assert.Equal("string",refresh.Types[arrayName]);
+        Assert.Contains(label,refresh.Expression(arrayName));
+        Assert.Contains("multi_value.`status`",refresh.Expression(arrayName));
+        Assert.Contains(refresh.PhysicalReferences,item=>item.Table=="global_source"&&item.Column.Name=="global_target_name");
         leaf.LogicalType = type == "int64" ? "int32" : "int64";
         Assert.Throws<NotSupportedException>(() => RelationMutationPlan.Compile(catalog,[definition]));
     }

@@ -38,7 +38,7 @@ internal sealed record RelationCache(RelationTable Source,string Foreign,string 
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public MySqlPublishedRelationCondition? PublishedCondition{get;init;}
-    /// <summary>级联整数名称按原协议保存文本，普通单值业务缓存保留原类型。</summary>
+    /// <summary>级联标量名称按原协议保存文本，普通单值业务缓存保留原类型。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool TextScalar{get;init;}
 }
@@ -73,8 +73,8 @@ public sealed class RelationMutationPlan
                 throw new InvalidOperationException("带逻辑目标页的多值名称必须使用统一维护计划。");
             var storage=MetadataStoragePolicy.ForTable(catalog,source);var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);
             if(!storage.IsPhysical(foreign)||Enabled(foreign)||!storage.IsPhysical(cache)||cache.IsVirtualColumn!=0||!targetStorage.IsPhysical(value)||value.IsVirtualColumn!=0)throw new InvalidOperationException("传播只写已声明物理缓存，关系ID与目标值不能虚构。");
-            var integerCache=definition.Multiple&&GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,targetStorage,target,value);
-            var scalarLabel=definition.Multiple&&(integerCache||MultiNameStorageColumns.IsPhysicalScalarLabel(source,foreign,target,value,targetStorage));
+            var typedCache=definition.Multiple&&GlobalPhysicalRelationValue.IsPublishedTypedCache(catalog,targetStorage,target,value);
+            var scalarLabel=definition.Multiple&&(typedCache||MultiNameStorageColumns.IsPhysicalScalarLabel(source,foreign,target,value,targetStorage));
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||foreign.LogicalType is not("string" or "int64"))
                 throw new InvalidOperationException("传播缓存与目标值类型不一致。");
             if(target.TableName=="yz_manager"&&value.ColumnName is "password" or "salt" or "old_password")throw new InvalidOperationException("账号凭据不能成为名称传播值。");
@@ -111,7 +111,7 @@ public sealed class RelationMutationPlan
                         page=proof.Page;
                     }
                     else page=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target).Page;
-                    if(integerCache||target.IsRongyu==0&&columns[target.Id].Values.Any(column=>column.ColumnName=="yz_project_id"))
+                    if(typedCache||target.IsRongyu==0&&columns[target.Id].Values.Any(column=>column.ColumnName=="yz_project_id"))
                         publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,page);
                 }
                 // 跨表先证明完整控制列/层/目标页；三种关系统一使用同一受管全局名称资格。

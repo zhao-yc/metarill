@@ -75,7 +75,7 @@ internal static class DatabaseCheckboxCompilation
                 // 复选的搜索、回读与 Excel 必须沿已发布缓存目标页的同一固定范围。
                 var publishedPage=target.Pages.Single(page=>page.Source.Id==proof.Page.Id);
                 if(NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(target,publishedPage)||
-                    GlobalPhysicalRelationValue.IsPublishedIntegerCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name))
+                    GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name))
                     globalPage=publishedPage;
             }
             if(definition.NameField!=baseline.NameField)return Gap("页级名称覆盖未绑定同一固定读取和缓存。");

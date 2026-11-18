@@ -578,21 +578,21 @@ public static partial class MySqlNonRedundantReadCompiler
             if(relation.LinkConfigTableId.Length>0&&relation.LinkConfigTableId!=target.Id)throw new InvalidOperationException("多值关系目标声明不一致。");
             var global=GlobalCrossTableTarget.Declared(target);
             var value=Column(target,display);
-            var integerCache=GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,storage[target.Id],target,value);
+            var typedCache=GlobalPhysicalRelationValue.IsPublishedTypedCache(catalog,storage[target.Id],target,value);
             PageMetadata? publishedPage=null;
             if(global)
             {
                 var proof=table.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target):GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
                 if(proof.Name.ColumnName!=display)throw new NotSupportedException("全局多值显示必须与固定名称声明一致。");
-                if(trackReverse&&target.IsRongyu==0||integerCache)publishedArrayIdentity=true;
-                // 整数副本的联接、名称筛选及回填使用同一发布候选范围。
-                if(HasGlobalRowProject(target)||integerCache)publishedPage=proof.Page;
+                if(trackReverse&&target.IsRongyu==0||typedCache)publishedArrayIdentity=true;
+                // 名称副本的读取、筛选及回填使用同一发布候选范围。
+                if(HasGlobalRowProject(target)||typedCache)publishedPage=proof.Page;
             }
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
             var selectedScope=MultiTargetLogicalPage(catalog,target,relation);
             if(selectedScope is not null||!storage[target.Id].IsPhysical(value))
                 return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage,selectedScope);
-            var scalarLabel=integerCache||MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id]);
+            var scalarLabel=typedCache||MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id]);
             if(value.LogicalType!="string"&&!scalarLabel)throw new NotSupportedException("多值物理名称类型未支持。");
             Use(table,relation);
             if(scalarLabel)Use(target,value);

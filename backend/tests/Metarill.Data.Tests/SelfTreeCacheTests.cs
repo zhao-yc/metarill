@@ -89,6 +89,56 @@ public sealed class SelfTreeCacheTests
         }
         else Assert.Contains("r0.`yz_project_id`",read.From);
     }
+
+    /// <summary>全局树叶名来自同类型 List 物理副本，来源文本刷新保留目标页条件。</summary>
+    [Theory]
+    [InlineData("bool","THEN 'true' ELSE 'false'")]
+    [InlineData("double","SUBSTRING_INDEX(")]
+    [InlineData("time","TRIM(TRAILING '0'")]
+    public void Published_leaf_cache_preserves_upstream_and_tree_refresh(string type,string format)
+    {
+        var catalog=Catalog("string","int64");
+        foreach(var entity in catalog.ConfigTables)entity.YzProjectId=catalog.YzProjectId;
+        var target=catalog.ConfigTables.Single(table=>table.Id=="target");
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigTables.Add(new(){Id="dictionary",TableName="tree_dictionary",YzProjectId=catalog.YzProjectId,IsRongyu=1,
+            Extra=new(){["scopeKind"]=JsonSerializer.SerializeToElement("global")}});
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="target_project");
+        var value=catalog.ConfigColumns.Single(column=>column.Id=="value");
+        value.ColumnName="label_caption";
+        value.LogicalType=type;
+        value.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+        value.Extra["columnFullName"]=JsonSerializer.SerializeToElement("label.caption");
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="foreign");
+        foreign.ControlDetail=foreign.ControlDetail.Replace("caption",value.ColumnName,StringComparison.Ordinal);
+        catalog.ConfigColumns.AddRange([
+            new(){Id="label_key",ConfigTableId="target",ColumnName="label_id",LogicalType="int64",ControlKind="List",
+                LinkConfigTableId="dictionary",ControlDetail="{\"tableId\":\"dictionary\",\"pageId\":\"dict_page\",\"nameField\":\"caption\"}"},
+            new(){Id="status",ConfigTableId="target",ColumnName="status",LogicalType="int32"},
+            new(){Id="label_id",ConfigTableId="dictionary",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="label_value",ConfigTableId="dictionary",ColumnName="caption",LogicalType=type}
+        ]);
+        catalog.YzAdminTypes.Add(new(){Id="admin",YzProjectId=catalog.YzProjectId});
+        catalog.ConfigPages.AddRange([
+            new(){Id="tree_page",ConfigTableId=target.Id,YzAdminTypeId="admin",YzProjectId=catalog.YzProjectId,WhereSql="status=1"},
+            new(){Id="dict_page",ConfigTableId="dictionary",YzAdminTypeId="admin",YzProjectId=catalog.YzProjectId}
+        ]);
+        var definition=SelfTreeCache.Compile(catalog,"source","foreign","tree_page");
+        var maintenance=RelationMaintenanceCatalog.Compile(catalog,[definition]);
+        Assert.Contains("label_caption",maintenance.MixedSourceColumns["cache_node"]);
+        var cache=Assert.Single(maintenance.Propagation.Bindings);
+        Assert.True(cache.TextScalar);
+        Assert.Equal("status=1",cache.PublishedCondition!.Definition);
+        Assert.Equal(type,cache.ValueType);
+        var read=Assert.IsType<Metarill.Data.Queries.MySqlNonRedundantReadPlan>(maintenance.Plans["source"].Read);
+        Assert.Equal("string",read.Types["tree_name"]);
+        Assert.Contains(format,read.Expression("tree_name"));
+        Assert.Contains("r0.`label_caption`",read.Expression("tree_name"));
+        Assert.Contains("r0.`status`",read.From);
+        catalog.ConfigColumns.Single(column=>column.Id=="label_value").LogicalType="string";
+        Assert.Throws<NotSupportedException>(()=>SelfTreeCache.Compile(catalog,"source","foreign","tree_page"));
+    }
+
     /// <summary>整链刷新和目标反查使用同一来源范围，目标项目列不改写全局节点资格。</summary>
     [Theory]
     [InlineData("string",null)]

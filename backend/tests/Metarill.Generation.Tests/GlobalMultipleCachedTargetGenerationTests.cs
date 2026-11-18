@@ -24,13 +24,19 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         }
         Assert.Equal(before,JsonSerializer.Serialize(c));
     }
-    /// <summary>整数缓存沿原多选和复选编译完整服务，覆盖 R0 读取和 R1 显式／自动物理数组。</summary>
+    /// <summary>标量缓存沿原多选和复选编译服务，覆盖 R0 读取和 R1 显式／自动物理数组。</summary>
     [Theory]
     [InlineData(0, false, "int32")]
     [InlineData(0, true, "int64")]
     [InlineData(1, false, "int64")]
     [InlineData(1, true, "int32")]
-    public async Task Integer_cache_targets_drive_both_array_controls(int mode, bool automatic, string type)
+    [InlineData(0, false, "bool")]
+    [InlineData(0, true, "decimal")]
+    [InlineData(1, false, "double")]
+    [InlineData(1, true, "date")]
+    [InlineData(0, false, "datetime")]
+    [InlineData(1, true, "time")]
+    public async Task Typed_cache_targets_drive_both_array_controls(int mode, bool automatic, string type)
     {
         var catalog = Catalog(mode,automatic);
         foreach (var column in catalog.ConfigColumns.Where(column => column.Id is "14" or "22"))
@@ -66,7 +72,14 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             Assert.Contains("ImportCheckbox30_38Async",service);
             Assert.Contains("CheckboxGlobalCondition30_38",service);
             Assert.Contains("row.GlobalTargetName==key",service);
-            Assert.Contains("?.ToString(CultureInfo.InvariantCulture)",service);
+            if(type is "int32" or "int64")Assert.Contains("?.ToString(CultureInfo.InvariantCulture)",service);
+            else
+            {
+                Assert.Contains($"MultiValueLabel.Parse(\"{type}\"",service);
+                Assert.Contains($"MultiValueLabel.Text(\"{type}\"",service);
+                var controller=Assert.Single(Directory.GetFiles(Path.Combine(output,"Controllers"),"GlobalSourcePage10Controller.g.cs"));
+                Assert.Contains($"item[\"globalTargetName\"] = MultiValueLabel.Text(\"{type}\"",await File.ReadAllTextAsync(controller));
+            }
             Assert.Contains("Export30Async",service);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var generated = assembly.GetType(application + ".Generated.Services.CachedConsumerService",throwOnError:true)!;
@@ -79,16 +92,17 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     }
 
     /// <summary>四个完整包独立严格构建，重复更新保护手写代码，并执行真实原复选与多选Vue。</summary>
-    [Theory][InlineData(0,false)][InlineData(0,true)][InlineData(1,false)][InlineData(1,true)]
-    public async Task Full_applications_build_preserve_partial_and_original_array_interactions(int mode,bool automatic)
+    [Theory][InlineData(0,false)][InlineData(0,true)][InlineData(1,false)][InlineData(1,true)][InlineData(1,true,"bool")]
+    public async Task Full_applications_build_preserve_partial_and_original_array_interactions(int mode,bool automatic,string type="string")
     {
         var root=NonRedundantApplicationFixture.Root();var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-multiple-cached-target");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var output=Path.Combine(directory,"application");var c=Catalog(mode,automatic);
+        foreach(var column in c.ConfigColumns.Where(column=>column.Id is "14" or "22"))column.LogicalType=type;
         try
         {
             new ApplicationPackager().Create(c,output,"Example.GlobalMultipleCachedTarget",root);var hand=Path.Combine(output,"backend/generated/Services/CachedConsumerService.cs");await File.WriteAllTextAsync(hand,"namespace Example.GlobalMultipleCachedTarget.Generated.Services;\npublic partial class CachedConsumerService { /// <summary>重复生成保护手写业务。</summary>\npublic string PreservedBusinessRule()=>\"原手写扩展\"; }\n");var saved=await File.ReadAllBytesAsync(hand);
             var candidate=Path.Combine(directory,"candidate");new ApplicationPackager().Create(c,candidate,"Example.GlobalMultipleCachedTarget",root);var updater=new LocalGenerationUpdater();var plan=updater.Preview(output,candidate,["generate-project-config","sync-runtime","generate-all-page"]);Assert.True(plan.CanApply);updater.Apply(plan,plan.PlanSha256);Assert.Equal(saved,await File.ReadAllBytesAsync(hand));var repeat=updater.Preview(output,candidate,["generate-project-config","sync-runtime","generate-all-page"]);Assert.Equal("unchanged",updater.Apply(repeat,repeat.PlanSha256).Status);
             var start=NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH")??"dotnet",output);foreach(var arg in new[]{"build","backend/Application.Host/Application.Host.csproj","-c","Release","-warnaserror","--verbosity","quiet","--disable-build-servers"})start.ArgumentList.Add(arg);await NonRedundantApplicationFixture.RunAsync(start);
-            var node=NonRedundantApplicationFixture.Start("node",output);node.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GlobalMultipleCachedTargetVueProbe.mjs"));node.ArgumentList.Add(output);await NonRedundantApplicationFixture.RunAsync(node);
+            var node=NonRedundantApplicationFixture.Start("node",output);node.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GlobalMultipleCachedTargetVueProbe.mjs"));node.ArgumentList.Add(output);node.ArgumentList.Add(type);await NonRedundantApplicationFixture.RunAsync(node);
             foreach(var component in new[]{"uni_modules/uni-data-checkbox/components/uni-data-checkbox/uni-data-checkbox.vue","common/yzp_runtime/originalSelectionPageMixin.js"})Assert.Equal(File.ReadAllBytes(Path.Combine(root,"frontend/metarill_uni_admin",component)),File.ReadAllBytes(Path.Combine(output,"frontend",component)));
         }
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

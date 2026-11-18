@@ -68,7 +68,7 @@ public static class GlobalCrossTableTarget
     public static void RequireCrossTableName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowAccount=false)
         =>RequirePublishedName(catalog,table,page,name,true,allowAccount,allowTyped:true);
 
-    /// <summary>自树选项和缓存使用同一已发布的名称，可按原文本协议展示业务整数。</summary>
+    /// <summary>自树选项和缓存使用同一已发布的名称，按统一文本格式展示业务标量。</summary>
     public static void RequireSelfTreeName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)
         =>RequirePublishedName(catalog,table,page,name,true,allowTyped:true);
 
