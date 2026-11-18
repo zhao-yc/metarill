@@ -187,7 +187,7 @@ internal static class NonRedundantReadCompilation
         (relation.TargetPage.Condition is not null||relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"));
 
     /// <summary>同一来源表的各页分别固定实际目标页，物理父键按本页同父或表单关系证明。</summary>
-    private static IReadOnlyList<NonRedundantSingleTargetScope> ProjectSingleTargets(GenerationModel model,TableModel table,PageModel page)
+    internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectSingleTargets(GenerationModel model,TableModel table,PageModel page)
     {
         if(table.IsGlobal||table.Source.IsRongyu!=0)return [];
         var result=new List<NonRedundantSingleTargetScope>();
@@ -224,10 +224,17 @@ internal static class NonRedundantReadCompilation
         var cross=NonRedundantCrossTableCompilation.BindingArgument(model,table,page);
         if(plan.SingleTargets.Count==0)
             return (cross.Length==0?"Compile":"CompileCross")+"("+arguments+cross+")";
-        var targets=string.Join(",",plan.SingleTargets.Select(scope=> "new("+JsonSerializer.Serialize(scope.ColumnId)+","+
-            JsonSerializer.Serialize(scope.PageId)+","+JsonSerializer.Serialize(scope.SourceParentId)+")"));
         return "CompileProjectPage("+arguments+(cross.Length==0?",Array.Empty<NonRedundantCrossTableScope>()":cross)+
-            ",new NonRedundantSingleTargetScope[]{"+targets+"})";
+            SingleTargetArgument(plan.SingleTargets)+")";
+    }
+
+    /// <summary>业务页和记录规则的生成代码复用同一目标页与物理父键字面量。</summary>
+    internal static string SingleTargetArgument(IReadOnlyList<NonRedundantSingleTargetScope> scopes)
+    {
+        if(scopes.Count==0)return "";
+        var targets=string.Join(",",scopes.Select(scope=>"new("+JsonSerializer.Serialize(scope.ColumnId)+","+
+            JsonSerializer.Serialize(scope.PageId)+","+JsonSerializer.Serialize(scope.SourceParentId)+")"));
+        return ",new NonRedundantSingleTargetScope[]{"+targets+"}";
     }
 
     /// <summary>读写共用同一关联目标；相互冲突的有效声明不能按不同优先级串表。</summary>

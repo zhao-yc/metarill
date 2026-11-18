@@ -109,10 +109,22 @@ public static class NonRedundantReads
     }
 
     /// <summary>规则记录专用：物理根实体输出与逻辑筛选/派生值分开，仍使用同一固定SQL及范围。</summary>
-    public static NonRedundantReadPlan CompileRuleRecord(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false,IReadOnlyList<string>? logicalOutputs=null)
+    public static NonRedundantReadPlan CompileRuleRecord(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false,IReadOnlyList<string>? logicalOutputs=null) =>
+        CompileRuleRecord(metadata,tableId,outputs,storageOutputs,crossTables,dependencies,deferCascadeNames,logicalOutputs,null);
+
+    /// <summary>规则使用业务页固定单值关系，存储输出和逻辑值仍由适配器分别生成。</summary>
+    public static NonRedundantReadPlan CompileRuleRecord(MetadataCatalog metadata,string tableId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
+        IReadOnlyList<string>? dependencies,bool deferCascadeNames,IReadOnlyList<string>? logicalOutputs,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)
     {
         ArgumentNullException.ThrowIfNull(metadata);
-        return metadata.DatabaseProvider switch{"mysql"=>new(MySqlNonRedundantReadCompiler.CompileRuleRecord(metadata,tableId,outputs,storageOutputs,crossTables,dependencies,deferCascadeNames,logicalOutputs)),_=>throw new NotSupportedException("该数据库尚未完成规则记录读取适配。")};
+        return metadata.DatabaseProvider switch
+        {
+            "mysql"=>new(MySqlNonRedundantReadCompiler.CompileRuleRecord(metadata,tableId,outputs,storageOutputs,
+                crossTables,dependencies,deferCascadeNames,logicalOutputs,singleTargets)),
+            _=>throw new NotSupportedException("该数据库尚未完成规则记录读取适配。")
+        };
     }
     /// <summary>跨表逻辑读取须显式传入冻结目标页范围；保留原Compile签名及无绑定门禁。</summary>
     public static NonRedundantReadPlan CompileWithCrossTables(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)

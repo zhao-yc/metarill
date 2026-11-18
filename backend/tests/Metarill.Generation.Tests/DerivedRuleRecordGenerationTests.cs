@@ -25,8 +25,10 @@ namespace Metarill.Generation.Tests;
 public sealed partial class DerivedRuleRecordGenerationTests
 {
     /// <summary>物理/派生精确范围均保留；真实装载null与未装载默认值不同，客户端回显不能覆盖原记录。</summary>
-    [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)]
-    public async Task Actual_generated_rule_record_loads_derived_values_in_one_snapshot_and_preserves_scope(bool derivedScope,bool webWithoutParent)
+    [Theory][InlineData(false,false,false)][InlineData(true,false,false)][InlineData(false,true,false)]
+    [InlineData(false,false,true)][InlineData(false,true,true)]
+    public async Task Actual_generated_rule_record_loads_derived_values_in_one_snapshot_and_preserves_scope(
+        bool derivedScope,bool webWithoutParent,bool scopeTarget)
     {
         var catalog=ExactDataManageGenerationTests.Catalog(true);var page=catalog.ConfigPages.Single(page=>page.Id=="101");
         page.Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement("customerNotes == '禁止'");page.Extra["isUpdate"]=JsonSerializer.SerializeToElement(1);page.IsDelete=1;page.IsCopy=1;
@@ -35,6 +37,17 @@ public sealed partial class DerivedRuleRecordGenerationTests
         {
             // 无父页面使用同样无父的候选目录；不能把原同父选择元数据改成未证明的上下文。
             page.WhereSql="";catalog.ConfigPages.Single(target=>target.Id=="201").WhereSql="";
+        }
+        const long storeId=9007199254741993;
+        if(scopeTarget)
+        {
+            catalog.ConfigTables.Single(target=>target.Id=="2").IsRongyu=0;
+            var targetPage=catalog.ConfigPages.Single(target=>target.Id=="201");
+            targetPage.WhereSql+=(string.IsNullOrWhiteSpace(targetPage.WhereSql)?"":" AND ")+"store_id=@current_store_id AND status=2";
+            catalog.ConfigColumns.AddRange([
+                new(){Id="217",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"},
+                new(){Id="218",ConfigTableId="2",ColumnName="status",LogicalType="int32"}
+            ]);
         }
         page.WhereSql+=(string.IsNullOrWhiteSpace(page.WhereSql)?"":" AND ")+"private_payload IS NOT NULL";
         catalog.ConfigButtons.Add(JsonSerializer.SerializeToElement(new{id="86000",configPageId=page.Id,yzProjectId=catalog.YzProjectId,actionType=1,name="规则记录",sql="/admin/custom/derived-rule/probe",visibleScheme="VisibleWhenWritable"}));
@@ -49,7 +62,7 @@ public sealed partial class DerivedRuleRecordGenerationTests
             var serviceType=assembly.GetType(model.Namespace+".Generated.Services."+table.Name+"Service",true)!;
             var plan=(NonRedundantReadPlan)serviceType.GetField("RuleRecordPlan101",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!;
             var transport=new Transport(plan.OutputTypes);using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"},null,transport);
-            var actor=new RuntimeActor(8,"派生条件",false,catalog.YzProjectId,page.YzAdminTypeId);var authorization=new Authorization(actor);
+            var actor=new RuntimeActor(8,"派生条件",false,catalog.YzProjectId,page.YzAdminTypeId){StoreId=scopeTarget?storeId:null};var authorization=new Authorization(actor);
             var mapper=Activator.CreateInstance(assembly.GetType(model.Namespace+".Generated.Mappers."+table.Name+"Mapper",true)!,session)!;
             var service=Activator.CreateInstance(serviceType,[session,mapper,new SnowflakeIdGenerator(947),Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),authorization])!;
             async Task<object?> Read(string operation)
@@ -60,6 +73,24 @@ public sealed partial class DerivedRuleRecordGenerationTests
             {
                 var record=Assert.IsAssignableFrom<IGeneratedRuleRecord>(await Read(operation));Assert.True(record.TryGetLoadedRuleValue("customer_notes",out var value));Assert.Equal("禁止",value);entityType.GetProperty("CustomerNotes")!.SetValue(record,"客户端可见属性后改");Assert.True(record.TryGetLoadedRuleValue("customer_notes",out var captured));Assert.Equal("禁止",captured);Assert.False(record.TryGetLoadedRuleValue("not_loaded",out _));Assert.Equal(operation,authorization.LastScope);
                 var command=transport.Commands[^1];Assert.Contains(command.Values,value=>value is long id&&id==Transport.Id);if(webWithoutParent)Assert.DoesNotContain(command.Values,value=>value is long parent&&parent==71);else Assert.Contains(command.Values,value=>value is long parent&&parent==71);Assert.Contains("只允许甲",command.Values);Assert.DoesNotContain(Transport.Id.ToString(),command.Sql);Assert.DoesNotContain("禁止",command.Sql);Assert.Contains("IS NOT NULL",command.Sql,StringComparison.OrdinalIgnoreCase);Assert.Contains("`delete_no`",command.Sql);Assert.Contains(" AS `customer_notes`",command.Sql);Assert.DoesNotContain("COUNT(",command.Sql);Assert.DoesNotContain("FOR SHARE",command.Sql);Assert.DoesNotContain("FOR UPDATE",command.Sql);Assert.Equal(IsolationLevel.RepeatableRead,command.Isolation);
+            }
+            Assert.All(transport.Commands,command=>AssertScopedTarget(command.Sql,command.Values));
+
+            // 规则命令必须绑定目标页账号、常量和实际父键，同时输出根物理外键。
+            void AssertScopedTarget(string sql,object?[] values)
+            {
+                if(!scopeTarget)return;
+                Assert.Contains("EXISTS (SELECT 1",sql);
+                Assert.Contains(".`store_id`",sql);
+                Assert.Contains(".`status`",sql);
+                Assert.Contains(storeId,values);
+                Assert.Contains(values,value=>value is int constant&&constant==2||value is long number&&number==2);
+                Assert.Contains("b.`customer_id` AS `customer_id`",sql);
+                if(!webWithoutParent)
+                {
+                    Assert.Contains("BINARY CAST(b.`group_id` AS CHAR)",sql);
+                    Assert.Matches(@"BINARY CAST\(mt_\w+\.`group_id` AS CHAR\)",sql);
+                }
             }
             Assert.Equal(3,transport.Commands.Count);Assert.Equal(3,transport.Commits);Assert.Equal(0,transport.Rollbacks);Assert.Null(session.CurrentTransaction);
             var forged=JsonSerializer.Deserialize("{\"id\":\"9007199254740993\",\"customerNotes\":\"允许\",\"generatedRuleValues\":{\"customer_notes\":\"允许\"}}",entityType,JsonDefaults.Options)!;
@@ -81,6 +112,7 @@ public sealed partial class DerivedRuleRecordGenerationTests
             transport.HasRow=false;Assert.Null(await Read("delete"));authorization.Operation="update";var missing=await Assert.ThrowsAsync<AgentTaskException>(()=>capabilities.ValidateRecordWriteInvocationAsync("page:101:update",context,body));Assert.Equal("not_applied",missing.Outcome);transport.HasRow=true;
             var count=transport.Commands.Count;authorization.Allow=false;await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Read("copy"));Assert.Equal(count,transport.Commands.Count);authorization.Allow=true;
             var buttonTask=(Task)serviceType.GetMethod("ReadButtonRecord101Async")!.Invoke(service,[Transport.Id,"71","86000",actor,CancellationToken.None])!;await buttonTask;Assert.Equal("86000",authorization.LastButtonScope);
+            AssertScopedTarget(transport.Commands[^1].Sql,transport.Commands[^1].Values);
             var lockTask=(Task)serviceType.GetMethod("LockButtonRecord101Async")!.Invoke(service,[Transport.Id,"71","86000",actor,CancellationToken.None])!;await Assert.ThrowsAsync<InvalidOperationException>(async()=>await lockTask);Assert.Null(session.CurrentTransaction);
             // FreeSql MySQL驱动要求实际MySqlConnection；离线分别验证原排他SQL和同事务派生当前读。
             transport.DerivedValue="禁止";transport.Commands.Clear();
@@ -91,7 +123,7 @@ public sealed partial class DerivedRuleRecordGenerationTests
                 var sql=(string)typeof(DerivedRuleRecordGenerationTests).GetMethod(nameof(QuerySql),BindingFlags.NonPublic|BindingFlags.Static)!.MakeGenericMethod(entityType).Invoke(null,[query])!;Assert.Contains("FOR UPDATE",sql,StringComparison.OrdinalIgnoreCase);
                 var locked=(Task)serviceType.GetMethod("ReadRuleRecord101Async",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(service,[Transport.Id,"71","86000",actor,true,true,CancellationToken.None])!;await locked;
                 var row=Assert.IsAssignableFrom<IGeneratedRuleRecord>(locked.GetType().GetProperty("Result")!.GetValue(locked));Assert.True(row.TryGetLoadedRuleValue("customer_notes",out var current));Assert.Equal("禁止",current);
-                Assert.All(transport.Commands,command=>{Assert.Same(session.CurrentTransaction,command.Transaction);Assert.Contains("FOR SHARE",command.Sql,StringComparison.OrdinalIgnoreCase);});return true;
+                Assert.All(transport.Commands,command=>{Assert.Same(session.CurrentTransaction,command.Transaction);Assert.Contains("FOR SHARE",command.Sql,StringComparison.OrdinalIgnoreCase);AssertScopedTarget(command.Sql,command.Values);});return true;
             });
             Assert.Equal(1,authorization.CurrentCalls);
         }

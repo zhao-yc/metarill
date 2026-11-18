@@ -4,10 +4,17 @@ namespace Metarill.Data.Queries;
 public static partial class MySqlNonRedundantReadCompiler
 {
     /// <summary>规则记录的根实体读取物理存储，派生值与筛选继续复用同一已冻结逻辑计划。</summary>
-    public static MySqlNonRedundantReadPlan CompileRuleRecord(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false,IReadOnlyList<string>? logicalOutputs=null)
+    public static MySqlNonRedundantReadPlan CompileRuleRecord(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false,IReadOnlyList<string>? logicalOutputs=null) =>
+        CompileRuleRecord(catalog,tableId,outputs,storageOutputs,crossTables,dependencies,deferCascadeNames,logicalOutputs,null);
+
+    /// <summary>规则逻辑读复用本页单值目标及父键绑定，实体仍读取真实根存储。</summary>
+    internal static MySqlNonRedundantReadPlan CompileRuleRecord(MetadataCatalog catalog,string tableId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
+        IReadOnlyList<string>? dependencies,bool deferCascadeNames,IReadOnlyList<string>? logicalOutputs,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)
     {
         ArgumentNullException.ThrowIfNull(storageOutputs);
-        var plan=CompileWithCrossTables(catalog,tableId,outputs,crossTables,dependencies,deferCascadeNames);
+        var plan=CompileRelationScope(catalog,tableId,outputs,crossTables,dependencies,deferCascadeNames,singleTargets:singleTargets);
         // 与普通编译使用同一根别名和字段来源；适配器内生成标识符，不向Service泄漏方言。
         return new Builder(catalog,tableId,deferCascadeNames:deferCascadeNames,crossTables:crossTables).RecordStorage(plan,storageOutputs,logicalOutputs??[]);
     }
