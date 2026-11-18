@@ -59,7 +59,7 @@ public static class GenerationMetadataPublisher
                 IsShow=KeepsVisibility(f.ConfigPageId)?f.IsShow:1,
                 IsEdit=KeepsVisibility(f.ConfigPageId)?f.IsEdit:1,
                 Extra=KeepsVisibility(f.ConfigPageId)?f.Extra.Where(pair=>pair.Key is "isInGrid" or "isInEdit"||
-                    nestedPages.Contains(f.ConfigPageId)&&pair.Key=="controlDetail").ToDictionary():new()
+                    pair.Key=="controlDetail"&&(nestedPages.Contains(f.ConfigPageId)||labelPages.Contains(f.ConfigPageId))).ToDictionary():new()
             }).OrderBy(f=>f.Id,StringComparer.Ordinal).ToList();
         published.ConfigChildren=[];published.ConfigIndexes=[];published.ConfigIndexColumns=[];
         // 全局R0页面类型参与多值关系证明，即使名称为物理缓存且来源为R0也不能按界面配置裁掉。

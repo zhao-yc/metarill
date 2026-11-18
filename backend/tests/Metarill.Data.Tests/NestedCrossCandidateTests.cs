@@ -213,6 +213,74 @@ public sealed class NestedCrossCandidateTests
         if(global)Assert.Throws<UnauthorizedAccessException>(()=>Render(actor with{ProjectId="999"},false));
     }
 
+    /// <summary>多值名称读取按当前账号，回填按各来源行归属，并记录内层节点的改名依赖。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",false)]
+    [InlineData("MultiCheckBoxDatabase",true)]
+    public void Multi_label_cache_keeps_recursive_scope_and_its_reverse_dependencies(string kind,bool global)
+    {
+        var catalog=Catalog(global);
+        var visible=catalog.ConfigTables.Single(table=>table.Id=="1");
+        if(global)
+        {
+            visible.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            visible.YzProjectId=catalog.YzProjectId;
+            catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPages.Single(page=>page.Id=="11").YzAdminTypeId="5";
+        }
+
+        catalog.ConfigPages.Add(new(){Id="900",ConfigTableId="90",YzProjectId=catalog.YzProjectId,
+            Extra=new(){["type"]=JsonSerializer.SerializeToElement(2)}});
+        catalog.ConfigColumns.Add(new(){Id="9007",ConfigTableId="90",ColumnName="outer_root_name",LogicalType="string"});
+        catalog.ConfigPageColumns.Add(new(){Id="9009007",ConfigColumnId="9007",ConfigPageId="900",IsShow=1});
+        catalog.ConfigTables.Add(new(){Id="98",TableName="nested_multis",IsRongyu=0,YzProjectId=catalog.YzProjectId});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="9801",ConfigTableId="98",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="9802",ConfigTableId="98",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="9803",ConfigTableId="98",ColumnName="store_id",LogicalType="int64"},
+            new(){Id="9804",ConfigTableId="98",ColumnName="picked_ids",LogicalType="string",ControlKind=kind,
+                LinkConfigTableId="90",ControlDetail="{\"tableId\":\"90\",\"pageId\":\"900\",\"nameField\":\"outer_root_name\"}"},
+            new(){Id="9805",ConfigTableId="98",ColumnName="picked_outer_root_names",LogicalType="string",Extra=new()
+                {["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("picked.outer_root_name")}}
+        ]);
+        catalog.ConfigPages.Add(new(){Id="980",ConfigTableId="98",WhereSql="store_id=@current_store_id"});
+
+        const string field="picked_outer_root_names";
+        var read=MySqlNonRedundantReadCompiler.Compile(catalog,"98",[field]);
+        var actor=new RuntimeActor(1,"多值账号",false,catalog.YzProjectId,"5"){StoreId=9007199254741973L};
+        Assert.True(read.RequiresAccount);
+        Assert.Contains(actor.StoreId!.Value,read.BindAccount(actor).Constants.Values);
+        Assert.Equal(global,read.RequiresPublishedProjectIdentity);
+        Assert.Contains("mt_nested_",read.ArrayNamePredicates[field]);
+
+        catalog.ConfigTables.Single(table=>table.Id=="98").IsRongyu=1;
+        var binding=new RelationCacheDefinition("98","9804","90","9007","9805",true);
+        var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+        var compiled=maintenance.Plans["98"].Read!;
+        var projection=compiled.MultiProjections[field];
+        Assert.False(compiled.RequiresAccount);
+        Assert.Equal(new[]{"store_id"},projection.Owner!.Fields);
+        Assert.Contains("b.`store_id`",projection.NameExpression!);
+        Assert.Contains("限制文字",compiled.Constants.Values);
+        Assert.Contains("nested_country",maintenance.MixedTargets);
+        Assert.Equal(global,maintenance.MixedTargets.Contains("nested_warehouse"));
+        Assert.Contains(compiled.Reverse,path=>path.TargetTable=="nested_country"&&
+            path.Outputs[field].Any(member=>member is "name" or "title"));
+        Assert.Contains(compiled.Reverse,path=>path.TargetTable=="nested_source"&&
+            path.Outputs[field].Contains("store_id"));
+        var pages=MySqlNonRedundantReadCompiler.PublishedCascadeLabelPages(catalog,out var owners);
+        Assert.Contains("11",pages);
+        foreach(var role in global?new[]{"country","area","place","warehouse"}:new[]{"country","area","place"})
+        {
+            var table=catalog.ConfigTables.Single(item=>item.TableName=="nested_"+role);
+            Assert.Contains(catalog.ConfigPages.Single(page=>page.ConfigTableId==table.Id).Id,pages);
+        }
+        Assert.Contains("980",owners);
+
+        catalog.ConfigPages.Add(new(){Id="981",ConfigTableId="98"});
+        Assert.Throws<InvalidOperationException>(()=>DerivedCrossTableCaches.Validate(catalog,[binding],[]));
+    }
+
     [Fact]
     public void A_recursive_condition_cycle_is_rejected_instead_of_returning_wide_scope()
     {

@@ -39,7 +39,16 @@ public sealed class CascadeMultiLabelGenerationTests
     public Task Account_cascade_names_compile_in_original_endpoints(string kind,int mode,bool selfTree,bool indirect)=>
         CompileCascadeLabel(kind,mode,selfTree,indirect,account:true);
 
-    private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false)
+    /// <summary>递归候选接入两种原控件，项目内与全局内层共用发布、回显和维护。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,false)]
+    [InlineData("MultiCheckBoxDatabase",0,true)]
+    [InlineData("MultiSelectPage",1,true)]
+    [InlineData("MultiCheckBoxDatabase",1,false)]
+    public Task Recursive_cascade_names_compile_in_original_endpoints(string kind,int mode,bool indirect)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect,account:true,recursive:true);
+
+    private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,bool recursive=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -95,11 +104,19 @@ public sealed class CascadeMultiLabelGenerationTests
             page.WhereSql+=" AND node_owner_id=@current_yz_manager_id";
             catalog.ConfigPages.Single(item=>item.Id=="901").WhereSql+=" AND record_owner_id=@current_yz_manager_id";
         }
+        if(recursive)AddRecursiveCountry(catalog,global:kind=="MultiCheckBoxDatabase");
         RedundantMultiNameCacheTests.Published(catalog);
 
         var model=GenerationModel.Create(catalog,ns);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
+        if(recursive)
+        {
+            var metadata=GenerationMetadataPublisher.ForRelations(catalog);
+            Assert.Contains("scope_zone_name",metadata.ConfigPages.Single(page=>page.Id=="301").WhereSql);
+            Assert.Contains("有效区域",metadata.ConfigPages.Single(page=>page.Id=="601").WhereSql);
+            Assert.Contains(metadata.ConfigPageColumns,field=>field.Id=="30139"&&field.Extra.ContainsKey("controlDetail"));
+        }
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cascade-multi-labels");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -123,8 +140,57 @@ public sealed class CascadeMultiLabelGenerationTests
                 var targets=MixedRelationPropagationCompilation.ForModel(model).MixedTargets;
                 Assert.Contains(selfTree?"label_cross_tree":"label_cross_country",targets);
                 if(indirect)Assert.Contains("label_cross_source",targets);
+                if(recursive)
+                {
+                    Assert.Contains("label_scope_zone",targets);
+                    var runtime=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
+                    var published=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(runtime.GetProperty("Catalog")!.GetValue(null));
+                    Assert.Contains("label_scope_zone",published.MixedTargets);
+                }
             }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    /// <summary>外层国家的候选条件取自内层区域名称，内层仍按当前项目及原固定名称筛选。</summary>
+    private static void AddRecursiveCountry(MetadataCatalog catalog,bool global)
+    {
+        var country=catalog.ConfigTables.Single(table=>table.Id=="3");
+        country.IsRongyu=0;
+        var candidate=catalog.ConfigPages.Single(page=>page.Id=="301");
+        if(global)
+        {
+            country.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            candidate.WhereSql=candidate.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
+            var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId==country.Id&&column.ColumnName=="yz_project_id");
+            catalog.ConfigColumns.Remove(project);
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId==project.Id);
+        }
+        candidate.WhereSql+=" AND scope_zone_name <> '排除区域'";
+        foreach(var (id,role) in new[]{("6","zone"),("7","site")})
+        {
+            catalog.ConfigTables.Add(new(){Id=id,TableName="label_scope_"+role,IsRongyu=1});
+            catalog.ConfigColumns.AddRange([
+                new(){Id=id+"1",ConfigTableId=id,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id=id+"2",ConfigTableId=id,ColumnName="yz_project_id",LogicalType="int64"},
+                new(){Id=id+"3",ConfigTableId=id,ColumnName="name",LogicalType="string"}
+            ]);
+            catalog.ConfigPages.Add(new(){Id=id+"01",ConfigTableId=id,
+                WhereSql="yz_project_id=@current_yz_project_id"+(role=="zone"?" AND name <> '有效区域'":"")});
+            catalog.ConfigPageColumns.Add(new(){Id=id+"013",ConfigPageId=id+"01",ConfigColumnId=id+"3"});
+        }
+        catalog.ConfigColumns.Add(new(){Id="74",ConfigTableId="7",ColumnName="zone_id",LogicalType="int64",LinkConfigTableId="6"});
+        catalog.ConfigPageColumns.Add(new(){Id="70174",ConfigPageId="701",ConfigColumnId="74"});
+        var definition=JsonSerializer.Serialize(new
+        {
+            sourceMode="crossTable",
+            levels=new object[]{
+                new{table="label_scope_zone",columnPrefix="scope_zone"},
+                new{table="label_scope_site",columnPrefix="scope_site",parentField="zone_id"}}
+        });
+        catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="scope_site_id",LogicalType="int64",
+            ControlKind="CascadeTree",LinkConfigTableId="7",ControlDetail=definition});
+        catalog.ConfigPageColumns.Add(new(){Id="30139",ConfigPageId="301",ConfigColumnId="39",
+            Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement(definition)}});
     }
 }

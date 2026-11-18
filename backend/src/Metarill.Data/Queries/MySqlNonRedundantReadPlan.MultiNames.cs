@@ -19,7 +19,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 trackReverse:refreshFields is not null,candidatePage:publishedPage,multiLabel:true,cascadeLabelField:value.ColumnName,
                 cascadeCacheOwner:refreshFields is null?null:new(table,owner)).Compile([value.ColumnName],[]);
             nested.CopyParametersTo(crossConstants);
-            if(trackReverse&&nested.RequiresPublishedProjectIdentity)publishedArrayIdentity=true;
+            if(nested.RequiresPublishedProjectIdentity)publishedArrayIdentity=true;
             var cascadeLabel=nested.CascadeLabelOutputs.Contains(value.ColumnName);
             nested.Origins.TryGetValue(value.ColumnName,out var valueOrigin);
             if(nested.Types[value.ColumnName]!=value.LogicalType||nested.MultiProjections.Count>0||

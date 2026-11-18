@@ -84,7 +84,8 @@ public static partial class MySqlNonRedundantReadCompiler
         private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null)
         {
             var table=level.Table;
-            if(table.IsRongyu!=0||cacheOwner is null&&(trackReverse||cascadeCacheOwner is not null))
+            cacheOwner??=cascadeCacheOwner;
+            if(table.IsRongyu!=0||cacheOwner is null&&trackReverse)
                 throw new NotSupportedException("递归候选要求普通非冗余目标；缓存维护需独立证明实际来源行的范围。");
             if(!activeCrossScopePages.Add(level.Page.Id))
                 throw new InvalidOperationException("跨表级联候选页条件存在循环依赖。");
@@ -92,6 +93,12 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 var bindings=CrossMembershipBindings(catalog,table,level.Page,level.LogicalFields)
                     .ToDictionary(path=>path.SourceColumnId,StringComparer.Ordinal);
+                // 精简运行目录必须保留实际使用的内层候选页条件及控件定义。
+                if(multiLabel)
+                {
+                    cascadeLabelPages.Add(level.Page.Id);
+                    cascadeLabelPages.UnionWith(bindings.Values.SelectMany(binding=>binding.Levels.Select(target=>target.PageId)));
+                }
                 var parameterPrefix="mt_nested_"+(multiLabel?aliasPrefix:"")+owner;
                 string Projection(string field)
                 {
