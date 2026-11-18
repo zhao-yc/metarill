@@ -36,7 +36,14 @@ public static class GlobalSingleRelationTarget
         var pageId=declaredPage.Length>0?declaredPage:linkedPage;var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id&&(pageId.Length==0||page.Id==pageId)).ToArray();if(pages.Length!=1)throw new InvalidOperationException("全局单值关系必须指定真实目标页，省略时目标页必须唯一。");var page=pages[0];GlobalCrossTableTarget.RequireSingle(catalog,target,page);
         var targetColumns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var nameField=Value("nameField");if(nameField.Length==0)nameField="name";var name=targetColumns.SingleOrDefault(column=>column.ColumnName==nameField);
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(targetStorage,target,column);
-        if(name is null||name.LogicalType!="string"||!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,targetStorage,target,name,resolving??new HashSet<string>(StringComparer.Ordinal)))throw new NotSupportedException("全局单值名称必须为非凭据物理字符串、受管缓存或已证明的全局R0名称。");var key=targetColumns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局单值目标必须使用非空int64物理主键。");
+        // 普通 R0 消费者实时读取全局 R0 的联接整数，既有全局缓存继续使用字符串合同。
+        var derivedInteger = name is not null && name.LogicalType is "int32" or "int64" &&
+            owner.IsRongyu == 0 && !GlobalCrossTableTarget.Declared(owner) &&
+            target.IsRongyu == 0 && targetStorage.Kind(name) == MetadataFieldStorage.Join;
+        if (name is null || name.LogicalType != "string" && !derivedInteger ||
+            !GlobalPhysicalRelationValue.IsPublishedScalar(catalog, targetStorage, target, name, resolving ?? new HashSet<string>(StringComparer.Ordinal)))
+            throw new NotSupportedException("全局单值名称要求已证明的字符串或普通R0消费者使用的全局联接整数。");
+        var key=targetColumns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局单值目标必须使用非空int64物理主键。");
         if(FixedConditionPlan.Compile(page.WhereSql,targetColumns.Select(column=>column.ColumnName)).Fields.Any(field=>!Scalar(targetColumns.Single(column=>column.ColumnName==field))))throw new NotSupportedException("全局目标条件必须使用非凭据物理标量。");return new(page,name);
     }
 }

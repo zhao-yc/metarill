@@ -8,10 +8,10 @@ internal static class DerivedRelationNamesCompilation
 {
     /// <summary>冗余物理缓存继续沿原路径；只识别实际非物理名称。</summary>
     internal static bool Declared(GenerationModel model,RelationModel relation)=>!NonRedundantReadCompilation.Physical(model,relation.Target,relation.NameColumn);
-    /// <summary>普通 R0 单值关系可使用联接整数，仍由已发布的标量计划证明终点。</summary>
+    /// <summary>普通 R0 单值关系可使用项目内或明确发布的全局 R0 联接整数。</summary>
     internal static bool IsIntegerName(GenerationModel model, TableModel owner, TableModel target, ColumnModel name) =>
         owner.Source.IsRongyu == 0 && !owner.IsGlobal &&
-        target.Source.IsRongyu == 0 && !target.IsGlobal && !name.IsJsonArray &&
+        target.Source.IsRongyu == 0 && !name.IsJsonArray &&
         name.Type is "int?" or "long?" && !NonRedundantReadCompilation.Physical(model, target, name);
 
     /// <summary>目标候选和来源筛选共用同一个名称终点类型。</summary>
@@ -38,7 +38,11 @@ internal static class DerivedRelationNamesCompilation
     {
         if(!SupportedOwner(model,owner)||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!IsIntegerName(model,owner,target,name)||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");
         if(page.Scopes.Select(scope=>scope.Column).Concat(page.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)))throw new InvalidOperationException("派生单选名称的目标身份、父及条件必须为物理标量。");
-        if(target.IsGlobal)GlobalCrossTableTarget.RequireSingleName(model.Catalog,target.Source,page.Source,name.Source);
+        if (target.IsGlobal)
+        {
+            if (name.Type == "string?") GlobalCrossTableTarget.RequireSingleName(model.Catalog, target.Source, page.Source, name.Source);
+            else GlobalCrossTableTarget.RequireSingle(model.Catalog, target.Source, page.Source);
+        }
         // 全局候选按当前名称读取，不借用仅允许int64路径的精确管理匹配用途。
         var plan=target.IsGlobal?NonRedundantReads.Compile(model.Catalog,target.Source.Id,[name.Source.ColumnName]):NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,name.Source.ColumnName);
         if (plan.OutputTypes[name.Source.ColumnName] != NameType(name))

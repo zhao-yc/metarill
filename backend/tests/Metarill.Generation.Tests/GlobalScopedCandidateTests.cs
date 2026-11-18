@@ -50,6 +50,58 @@ public sealed partial class GlobalScopedCandidateTests
         }
     }
 
+    /// <summary>全局逻辑编号沿原 List 和 SelectPage 发布，同项目普通 CRUD 保留项目约束。</summary>
+    [Theory]
+    [InlineData("int32", false)]
+    [InlineData("int64", true)]
+    public async Task Global_derived_integer_reaches_both_generated_single_controls(string logicalType, bool rowProject)
+    {
+        var catalog = rowProject ? Catalog(false, 0, "int64") : GlobalDerivedTargetGenerationTests.Catalog(0, "string", "int64");
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "25", ConfigTableId = "2", YzProjectId = "100", ColumnName = "code", LogicalType = logicalType
+        });
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id = "2025", ConfigPageId = "20", ConfigColumnId = "25", YzProjectId = "100", IsShow = 1
+        });
+        foreach (var column in catalog.ConfigColumns.Where(column => column.Id is "14" or "35" or "40"))
+            column.LogicalType = logicalType;
+        catalog.ConfigColumns.Single(column => column.Id == "14").Extra["columnFullName"] = JsonSerializer.SerializeToElement("global_target.code");
+        catalog.ConfigPageColumns.Single(field => field.Id == "3038").Extra["isSearch"] = JsonSerializer.SerializeToElement(1);
+        catalog.ConfigPageColumns.Single(field => field.Id == "3040").Extra.Remove("isSearch");
+
+        var model = GenerationModel.Create(catalog, ApplicationNamespace);
+        var consumer = model.Tables.Single(table => table.Source.Id == "3");
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var binding = Assert.Single(SelectionNameFilterCompilation.ForPage(model, consumer, Assert.Single(consumer.Pages)).Bindings);
+        Assert.Equal(SelectionNameFilterKind.JoinedIntegerLike, binding.Kind);
+        var plan = NonRedundantReads.Compile(catalog, "3", ["global_source_global_target_name", "selected_global_source_global_target_name"]);
+        Assert.All(plan.OutputTypes, field => Assert.Equal(logicalType, field.Value));
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-integer");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, generated, ApplicationNamespace);
+            var source = await File.ReadAllTextAsync(Path.Combine(generated, "Services/CachedConsumerService.g.cs"));
+            foreach (var id in new[] { "34", "38" })
+            {
+                Assert.Contains("DerivedOptionsPlan30_" + id, source);
+                Assert.Contains("ImportRelation30_" + id + "Async", source);
+                Assert.Contains("DerivedOptionsRows30_" + id + "Async", source);
+            }
+            Assert.Contains("FixedReadComparison.IntegerLabelContains", source);
+            Assert.Contains(rowProject ? "CompileGlobalCandidate" : "CompileRelation", source);
+            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) await TestDirectoryCleanup.DeleteAsync(directory, boundary);
+        }
+    }
+
     [Fact]
     public void Candidate_plan_rejects_unpublished_or_context_dependent_target_pages()
     {
