@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 namespace Metarill.Core.Metadata;
 
@@ -54,11 +55,11 @@ public static class GlobalSingleRelationTarget
         var targetColumns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var nameField=Value("nameField");if(nameField.Length==0)nameField="name";var name=targetColumns.SingleOrDefault(column=>column.ColumnName==nameField);
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(targetStorage,target,column);
         // 普通与显式全局来源使用同一终点证明；来源的存储模式和发布身份已由各入口核验。
-        var integer = name is not null && name.ColumnName != "id" && name.LogicalType is "int32" or "int64" &&
+        var typedName = name is not null && name.ColumnName != "id" && MultiValueLabel.IsTyped(name.LogicalType) &&
             owner.IsRongyu is 0 or 1;
-        if (name is null || name.LogicalType != "string" && (!integer||projectParent) ||
+        if (name is null || name.LogicalType != "string" && (!typedName||projectParent) ||
             !(projectParent?Scalar(name):GlobalPhysicalRelationValue.IsPublishedScalar(catalog, targetStorage, target, name, resolving ?? new HashSet<string>(StringComparer.Ordinal))))
-            throw new NotSupportedException("全局单值名称要求已证明的字符串或整数标量。");
+            throw new NotSupportedException("全局单值名称要求已证明的非凭据单值标量。");
         var key=targetColumns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局单值目标必须使用非空int64物理主键。");
         if(FixedConditionPlan.Compile(page.WhereSql,targetColumns.Select(column=>column.ColumnName)).Fields.Any(field=>!Scalar(targetColumns.Single(column=>column.ColumnName==field))))throw new NotSupportedException("目标条件必须使用非凭据物理标量。");
         return new(page,name);

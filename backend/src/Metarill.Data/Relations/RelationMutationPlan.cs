@@ -84,7 +84,7 @@ public sealed class RelationMutationPlan
             var cross=CrossTableCacheProof.Require(catalog,source,foreign,target,value,cache,definition,definitions);
             var selfTree=SelfTreeCache.Require(catalog,source,foreign,target,value,cache,definition,cross);
             if(value.LogicalType is not("string" or "int64" or "int32" or "decimal" or "bool" or "date" or "datetime" or "time")&&
-                !scalarLabel&&!((selfTree||cross)&&MultiValueLabel.IsTyped(value.LogicalType)))
+                !scalarLabel&&!((selfTree||cross||foreign.ControlKind is "List" or "SelectPage")&&MultiValueLabel.IsTyped(value.LogicalType)))
                 throw new InvalidOperationException("传播缓存与目标值类型不一致。");
             if(cache.LogicalType!=(definition.Multiple||selfTree||cross?"string":value.LogicalType))
                 throw new InvalidOperationException("传播缓存与目标值类型不一致。");

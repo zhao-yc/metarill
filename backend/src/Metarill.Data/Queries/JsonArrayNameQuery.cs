@@ -29,7 +29,7 @@ public static class JsonArrayNameQuery
     }
 
     /// <summary>名称字面搜索与原文本模式共用固定映射边界，模式只能由服务端方法决定。</summary>
-    internal static ISelect<T> ApplyNameLike<T, TValue>(DatabaseSession session, ISelect<T> query, Expression<Func<T, TValue>> storageColumn, string keyword, bool jsonArray, bool preservePattern = false) where T : class
+    internal static ISelect<T> ApplyNameLike<T, TValue>(DatabaseSession session, ISelect<T> query, Expression<Func<T, TValue>> storageColumn, string keyword, bool jsonArray, bool preservePattern = false, string? labelType = null) where T : class
     {
         if(jsonArray&&preservePattern)throw new ArgumentException("数组名称不接受普通文本模式。",nameof(preservePattern));
         ArgumentNullException.ThrowIfNull(session);
@@ -42,8 +42,18 @@ public static class JsonArrayNameQuery
         var storageType = typeof(TValue);
         var integerLike = storageType == typeof(int?) ? nameof(DatabaseFunctions.Integer32Like) :
             storageType == typeof(long?) ? nameof(DatabaseFunctions.Integer64Like) : null;
-        if (storageType != typeof(string) && (integerLike is null || jsonArray || preservePattern))
-            throw new ArgumentException("当前名称用途只能读取字符串或直接整数属性。", nameof(storageColumn));
+        var typedStorage = labelType switch
+        {
+            "bool" => typeof(bool?),
+            "decimal" => typeof(decimal?),
+            "double" => typeof(double?),
+            "date" or "datetime" => typeof(DateTime?),
+            "time" => typeof(TimeSpan?),
+            _ => null
+        };
+        if (labelType is not null && (typedStorage != storageType || jsonArray || preservePattern) ||
+            labelType is null && storageType != typeof(string) && (integerLike is null || jsonArray || preservePattern))
+            throw new ArgumentException("名称类型须与已映射的标量属性一致。", nameof(storageColumn));
         // 列必须来自实体映射，避免方法或导航借用源表别名。
         if (storageColumn.Body is not MemberExpression { Expression: ParameterExpression parameter, Member: PropertyInfo property } ||
             parameter != storageColumn.Parameters[0] || property.PropertyType != storageType || property.GetMethod is not { IsStatic: false, IsPublic: true })
@@ -55,7 +65,10 @@ public static class JsonArrayNameQuery
         var pattern = preservePattern?"%"+keyword+"%":"%" + keyword.Replace("!", "!!", StringComparison.Ordinal).Replace("%", "!%", StringComparison.Ordinal).Replace("_", "!_", StringComparison.Ordinal) + "%";
         var function = integerLike ?? (preservePattern ? nameof(DatabaseFunctions.ScalarPatternLike) :
             jsonArray ? nameof(DatabaseFunctions.AnyLike) : nameof(DatabaseFunctions.ScalarLike));
-        var call = Expression.Call(typeof(DatabaseFunctions).GetMethod(function)!, storageColumn.Body, Expression.Constant(pattern));
+        var call = labelType is null
+            ? Expression.Call(typeof(DatabaseFunctions).GetMethod(function)!, storageColumn.Body, Expression.Constant(pattern))
+            : Expression.Call(typeof(DatabaseFunctions).GetMethod(nameof(DatabaseFunctions.TypedLike))!.MakeGenericMethod(storageType),
+                storageColumn.Body, Expression.Constant(labelType), Expression.Constant(pattern));
         return query.Where(Expression.Lambda<Func<T, bool>>(call, storageColumn.Parameters));
     }
 
@@ -115,6 +128,18 @@ public static class JsonArrayNameQuery
             var name = "mt_integer_name_" + Guid.NewGuid().ToString("N");
             call.UserParameters.Add(new MySqlParameter(name, MySqlDbType.LongText) { Value = pattern });
             call.Result = $"(CAST({column} AS CHAR) LIKE @{name} ESCAPE '!')";
+            return false;
+        }
+
+        /// <summary>缓存名称沿格式化规则搜索，使用 ORM 的实际列别名和独立关键词参数。</summary>
+        public static bool TypedLike<TValue>(TValue document, [RawValue] string kind, [RawValue] string pattern)
+        {
+            var call = context.Value ?? throw new InvalidOperationException("名称谓词只能用于数据库表达式。");
+            if (call.DataType != DataType.MySql) throw new NotSupportedException("当前数据库尚未实现名称字面筛选。");
+            var column = call.ParsedContent[nameof(document)];
+            var name = "mt_typed_name_" + Guid.NewGuid().ToString("N");
+            call.UserParameters.Add(new MySqlParameter(name, MySqlDbType.LongText) { Value = pattern });
+            call.Result = $"({MySqlMultiValueLabel.Text(column,kind)} LIKE @{name} ESCAPE '!')";
             return false;
         }
 

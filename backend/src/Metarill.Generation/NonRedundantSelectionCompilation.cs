@@ -23,16 +23,16 @@ internal static class NonRedundantSelectionCompilation
         if (name is null || name.IsJsonArray || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id) ||
             ManagerCredentialCompilation.IsCredential(target, name))
             throw new InvalidOperationException("非冗余单选目标名称必须是已开放的非凭据标量。");
-        var integerName = DerivedRelationNamesCompilation.IsIntegerName(model, table, target, name);
-        if (name.Type != "string?" && !integerName)
-            throw new InvalidOperationException("非冗余单选目标名称必须是字符串或已证明的整数。");
+        var typedName = DerivedRelationNamesCompilation.IsTypedName(model, table, target, name);
+        if (name.Type != "string?" && !typedName)
+            throw new InvalidOperationException("非冗余单选目标名称必须是已证明的单值标量。");
         if(!NonRedundantReadCompilation.Physical(model,target,name))DerivedRelationNamesCompilation.RequireSelection(model,table,target,targetPage,name);
         if(target.IsGlobal){var proof=cached?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalSingleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)throw new InvalidOperationException("全局单选页面和名称来源不一致。");}
         if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))throw new InvalidOperationException("非冗余单选目标缺少项目归属。");
         if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))throw new InvalidOperationException(reason);
         var selection=new NonRedundantSelectionModel(target,targetPage,name,definition);
         var display=SelectionDisplayFieldCompilation.Resolve(table,source);
-        if ((integerName || display.Source.Id != source.Source.Id) && !IsDisplay(source,display,name))
+        if ((typedName || display.Source.Id != source.Source.Id) && !IsDisplay(source,display,name))
             throw new InvalidOperationException("非冗余单选辅助名称与真实外键、名称路径或类型不一致。");
         return selection;
     }
@@ -41,7 +41,8 @@ internal static class NonRedundantSelectionCompilation
     {
         var path=storage.Source.Extra.GetValueOrDefault("columnFullName").ToString();
         return source.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) &&
-            storage.Type == name.Type && !storage.IsJsonArray && storage.Source.IsVirtualColumn == 0 &&
+            storage.Type == name.Type && (storage.Type != "DateTime?" || storage.Source.LogicalType == name.Source.LogicalType) &&
+            !storage.IsJsonArray && storage.Source.IsVirtualColumn == 0 &&
             GenerationModel.Enabled(storage.Source.Extra, "isJoinColumn") &&
             path.Equals(source.Source.ColumnName[..^3] + "." + name.Source.ColumnName, StringComparison.OrdinalIgnoreCase);
     }

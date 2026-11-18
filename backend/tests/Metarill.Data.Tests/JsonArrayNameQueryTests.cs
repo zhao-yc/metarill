@@ -65,6 +65,25 @@ public sealed class JsonArrayNameQueryTests
         Assert.DoesNotContain("-2_%!", sql);
     }
 
+
+    /// <summary>物理标量搜索使用真实列别名、复用名称格式及独立参数。</summary>
+    [Fact]
+    public void Typed_name_like_formats_columns_and_keeps_pattern_parameterized()
+    {
+        using var session=Session();
+        var query=session.Select<Row>().As("typed_source");
+        query=StringNameQuery.ApplyTypedLike(session,query,row=>row.Flag,"bool","true_%!");
+        query=StringNameQuery.ApplyTypedLike(session,query,row=>row.Timestamp,"datetime","13:14:15");
+        var sql=query.ToSql();
+        Assert.Contains("typed_source.`stored_flag` <> 0 THEN 'true' ELSE 'false'",sql);
+        Assert.Contains("TRIM(TRAILING '0' FROM CAST(typed_source.`stored_time` AS CHAR))",sql);
+        Assert.Contains("LIKE @mt_typed_name_",sql);
+        Assert.Contains("ESCAPE '!'",sql);
+        Assert.DoesNotContain("true_%!",sql);
+        Assert.DoesNotContain("13:14:15",sql);
+        Assert.Throws<ArgumentException>(()=>StringNameQuery.ApplyTypedLike(session,query,row=>row.Flag,"decimal","0.1"));
+    }
+
     /// <summary>方法、常量、忽略列及空关键词都在附加条件前明确拒绝。</summary>
     [Fact]
     public void Only_mapped_direct_string_property_and_nonblank_keyword_are_accepted()
@@ -119,6 +138,8 @@ public sealed class JsonArrayNameQueryTests
         [Column(Name = "other_names")] public string? OtherNames { get; set; }
         [Column(Name = "stored_number")] public int? Number { get; set; }
         [Column(Name = "stored_long_number")] public long? LongNumber { get; set; }
+        [Column(Name = "stored_flag")] public bool? Flag { get; set; }
+        [Column(Name = "stored_time")] public DateTime? Timestamp { get; set; }
         [Column(IsIgnore = true)] public string? Ignored { get; set; }
     }
 }

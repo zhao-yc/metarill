@@ -9,17 +9,22 @@ internal static class DerivedRelationNamesRenderer
     internal static string Service(GenerationModel model,TableModel owner,PageModel page,RelationModel relation,bool visible)
     {
         var dependencies=DerivedRelationNamesCompilation.Require(model,owner,page,relation);var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var name=relation.NameColumn.Source.ColumnName;
-        var physicalInteger = DerivedRelationNamesCompilation.IsPhysicalInteger(model, relation.Target, relation.NameColumn);
+        var physicalTypedName = DerivedRelationNamesCompilation.IsPhysicalTypedName(model, relation.Target, relation.NameColumn);
         var accountParent = SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
         var bindParent = accountParent ? ".BindAccount(actor)" : "";
         var parentPlan = accountParent ? ",OptionsAccountParentScope"+suffix : "";
-        var planStart = physicalInteger && relation.Target.IsGlobal
+        var planStart = physicalTypedName && relation.Target.IsGlobal
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
-            : physicalInteger && relation.Target.Source.IsRongyu == 1
+            : physicalTypedName && relation.Target.Source.IsRongyu == 1
                 ? $"CompilePhysicalRelation({Literal(relation.Target.Source.Id)}"
                 : NonRedundantReadCompilation.RelationPlanStart(relation.Target, relation.TargetPage);
         var label = MultiSelectExcelRenderer.LabelText(relation.NameColumn, $"NonRedundantReads.Value<{relation.NameColumn.Type}>(row,{Literal(name)})");
-        var search = relation.NameColumn.Type == "string?" ? "Contains" : "IntegerLabelContains";
+        var search = relation.NameColumn.Source.LogicalType switch
+        {
+            "int32" or "int64" => "IntegerLabelContains",
+            "string" => "Contains",
+            _ => "TypedLabelContains"
+        };
         var order = relation.OptionsOrder is { } ordering
             ? string.Join(", ", ordering.Select(item => $"new({Literal(item.Column.Source.ColumnName)}, {(item.Descending ? "true" : "false")})"))
             : $"new({Literal(name)}), new(\"id\")";
@@ -41,7 +46,7 @@ internal static class DerivedRelationNamesRenderer
 {{bind}}
         return(filters,condition);
     }
-    /// <summary>沿原下拉的文本协议回显，整数名称在这里转成完整十进制文本。</summary>
+    /// <summary>原下拉及 Excel 导出使用同一可还原名称文本。</summary>
     private static GeneratedOption ReadDerivedOption{{suffix}}(IReadOnlyDictionary<string,object?> row)
     {
         var id = NonRedundantReads.Value<long>(row, "id");
@@ -107,8 +112,8 @@ internal static class DerivedRelationNamesRenderer
         }
         else scope.Filters.Add(new({{Literal(name.Source.ColumnName)}},FixedReadComparison.Equal,cell.ToString().Trim()));
 """ : $$"""
-        // 数字单元格与文本单元格都表示已配置的业务编号，按实际整数类型反查。
-        if (cell.ValueKind is not (JsonValueKind.Number or JsonValueKind.String))
+        // 按目标列的实际类型绑定，不把业务名称当作记录 ID。
+        if ({{MultiSelectExcelRenderer.InvalidLabelKind(name, true, "cell")}})
             throw PageImportException.Input(PageImportError.Relation);
         {{MultiSelectExcelRenderer.ParseLabel(name, "cell.ToString().Trim()", "key")}}
         scope.Filters.Add(new({{Literal(name.Source.ColumnName)}}, FixedReadComparison.Equal, key));

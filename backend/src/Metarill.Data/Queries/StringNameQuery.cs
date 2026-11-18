@@ -27,4 +27,9 @@ public static class StringNameQuery
     public static ISelect<T> ApplyIntegerLike<T, TInteger>(DatabaseSession session, ISelect<T> query,
         Expression<Func<T, TInteger?>> storageColumn, string keyword) where T : class where TInteger : struct
         => JsonArrayNameQuery.ApplyNameLike(session, query, storageColumn, keyword, false);
+
+    /// <summary>按已声明的日期、数值或布尔格式匹配物理名称缓存。</summary>
+    public static ISelect<T> ApplyTypedLike<T, TValue>(DatabaseSession session, ISelect<T> query,
+        Expression<Func<T, TValue>> storageColumn, string logicalType, string keyword) where T : class
+        => JsonArrayNameQuery.ApplyNameLike(session, query, storageColumn, keyword, false, labelType:logicalType);
 }

@@ -32,7 +32,13 @@ public sealed class DerivedRelationNamesTests
     [Theory]
     [InlineData("int32", "int", "-2000000001", false)]
     [InlineData("int64", "long", "9007199254740993", true)]
-    public async Task Derived_list_integer_name_compiles_lookup_and_preserves_precision(string logicalType, string clrType, string expected, bool contextual)
+    [InlineData("bool", "bool", "true", false)]
+    [InlineData("decimal", "decimal", "1234567890.123456", true)]
+    [InlineData("double", "double", "0.125", false)]
+    [InlineData("date", "DateTime", "2026-11-18", false)]
+    [InlineData("datetime", "DateTime", "2026-11-18 13:14:15.123456", true)]
+    [InlineData("time", "TimeSpan", "27:12:00.123456", true)]
+    public async Task Derived_list_scalar_name_compiles_lookup_and_preserves_precision(string logicalType, string clrType, string expected, bool contextual)
     {
         var catalog = Catalog("dr_names", contextual);
         UseIntegerName(catalog, logicalType);
@@ -46,19 +52,23 @@ public sealed class DerivedRelationNamesTests
         {
             new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), "Example.IntegerList");
             var service = await File.ReadAllTextAsync(Path.Combine(directory, "generated/Services/DrNamesOrderService.g.cs"));
-            Assert.Contains("FixedReadComparison.IntegerLabelContains", service);
+            var integer=logicalType is "int32" or "int64";
+            Assert.Contains(integer?"FixedReadComparison.IntegerLabelContains":"FixedReadComparison.TypedLabelContains", service);
             Assert.Contains("FixedReadComparison.Equal, key", service);
-            Assert.Contains("!" + clrType + ".TryParse(label", service);
+            Assert.Contains(integer?"!" + clrType + ".TryParse(label":$"({clrType})MultiValueLabel.Parse(\"{logicalType}\"", service);
             Assert.Contains("""[new("status", true), new("company_name", true), new("id", false)]""", service);
             var exportCell = Assert.Single(service.Split('\n'), line => line.Contains("entity.CustomerId is null ? null : namesCustomerId.GetValueOrDefault(", StringComparison.Ordinal));
             Assert.DoesNotContain("??", exportCell);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var type = assembly.GetType("Example.IntegerList.Generated.Services.DrNamesOrderService")!;
             var readOption = type.GetMethod("ReadDerivedOption101_15", BindingFlags.Static | BindingFlags.NonPublic)!;
-            object number = clrType == "int"
-                ? (object)int.Parse(expected, System.Globalization.CultureInfo.InvariantCulture)
-                : long.Parse(expected, System.Globalization.CultureInfo.InvariantCulture);
-            var row = new Dictionary<string, object?> { ["id"] = 9007199254740995L, ["company_name"] = number };
+            object value = logicalType switch
+            {
+                "int32" => int.Parse(expected, System.Globalization.CultureInfo.InvariantCulture),
+                "int64" => long.Parse(expected, System.Globalization.CultureInfo.InvariantCulture),
+                _ => Metarill.Core.Contracts.MultiValueLabel.Parse(logicalType,expected)
+            };
+            var row = new Dictionary<string, object?> { ["id"] = 9007199254740995L, ["company_name"] = value };
             var option = readOption.Invoke(null, [row])!;
             Assert.Equal(9007199254740995L, (long)option.GetType().GetProperty("Id")!.GetValue(option)!);
             Assert.Equal(expected, (string)option.GetType().GetProperty("Name")!.GetValue(option)!);

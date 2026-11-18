@@ -115,7 +115,9 @@ public sealed partial class GlobalScopedCandidateTests
     [InlineData(0, "int64", true)]
     [InlineData(1, "int32", true)]
     [InlineData(1, "int64", false)]
-    public async Task Global_physical_number_reaches_search_selection_and_workbook(int storage, string logicalType, bool rowProject)
+    [InlineData(0, "decimal", false)]
+    [InlineData(1, "datetime", true)]
+    public async Task Global_physical_scalar_reaches_search_selection_and_workbook(int storage, string logicalType, bool rowProject)
     {
         var catalog = PhysicalNumberCatalog(storage, logicalType, rowProject);
         var model = GenerationModel.Create(catalog, ApplicationNamespace);
@@ -123,7 +125,8 @@ public sealed partial class GlobalScopedCandidateTests
         var owner = model.Tables.Single(table => table.Source.Id == "3");
         var binding = Assert.Single(SelectionNameFilterCompilation.ForPage(model, owner, Assert.Single(owner.Pages)).Bindings);
         Assert.Equal("selectedGlobalSourceCode", binding.FilterKey);
-        Assert.Equal(SelectionNameFilterKind.JoinedIntegerLike, binding.Kind);
+        var integer=logicalType is "int32" or "int64";
+        Assert.Equal(integer?SelectionNameFilterKind.JoinedIntegerLike:SelectionNameFilterKind.JoinedTypedLike, binding.Kind);
         var candidate = NonRedundantReads.CompileGlobalCandidate(catalog, "1", "10", ["id", "code"], ["status"]);
         Assert.Equal(logicalType, candidate.OutputTypes["code"]);
 
@@ -144,7 +147,9 @@ public sealed partial class GlobalScopedCandidateTests
             new CSharpGenerator().Generate(catalog, generated, ApplicationNamespace);
             var service = await File.ReadAllTextAsync(Path.Combine(generated, "Services/CachedConsumerService.g.cs"));
             Assert.Contains("""CompileGlobalCandidate("1","10",new string[]{"id","code"}""", service);
-            Assert.Contains("""new("code",FixedReadComparison.IntegerLabelContains,request.Keyword)""", service);
+            Assert.Contains(integer?
+                """new("code",FixedReadComparison.IntegerLabelContains,request.Keyword)""":
+                """new("code",FixedReadComparison.TypedLabelContains,request.Keyword)""", service);
             Assert.Contains("""scope.Filters.Add(new("code", FixedReadComparison.Equal, key));""", service);
             Assert.Contains("DerivedOptionsRows30_34Async", service);
             Assert.Contains("DerivedOptionsRows30_38Async", service);
@@ -241,7 +246,9 @@ public sealed partial class GlobalScopedCandidateTests
     [InlineData(1, "int64", false)]
     [InlineData(0, "int64", true)]
     [InlineData(1, "int32", true)]
-    public async Task R1_source_integer_cache_is_written_filtered_propagated_and_backfilled(int storage, string logicalType, bool global)
+    [InlineData(0, "bool", false)]
+    [InlineData(1, "double", true)]
+    public async Task R1_source_scalar_cache_is_written_filtered_propagated_and_backfilled(int storage, string logicalType, bool global)
     {
         var catalog = PhysicalNumberCatalog(storage, logicalType, rowProject: true);
         catalog.ConfigTables.Single(table => table.Id == "3").IsRongyu = 1;
@@ -252,7 +259,9 @@ public sealed partial class GlobalScopedCandidateTests
         var owner = model.Tables.Single(table => table.Source.Id == "3");
         var page = Assert.Single(owner.Pages);
         Assert.DoesNotContain(page.Writable, column => column.Source.Id is "35" or "40");
-        Assert.Equal(SelectionNameFilterKind.IntegerLike, Assert.Single(SelectionNameFilterCompilation.ForPage(model, owner, page).Bindings).Kind);
+        var integer=logicalType is "int32" or "int64";
+        Assert.Equal(integer?SelectionNameFilterKind.IntegerLike:SelectionNameFilterKind.TypedLike,
+            Assert.Single(SelectionNameFilterCompilation.ForPage(model, owner, page).Bindings).Kind);
 
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-r1-integer-cache");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
@@ -261,7 +270,7 @@ public sealed partial class GlobalScopedCandidateTests
             var output = Path.Combine(directory, "generated");
             new CSharpGenerator().Generate(catalog, output, ApplicationNamespace);
             var service = await File.ReadAllTextAsync(Path.Combine(output, "Services/CachedConsumerService.g.cs"));
-            Assert.Contains("StringNameQuery.ApplyIntegerLike", service);
+            Assert.Contains(integer?"StringNameQuery.ApplyIntegerLike":"StringNameQuery.ApplyTypedLike", service);
             Assert.Contains("AfterMutationAsync", service);
             Assert.Contains("entity.GlobalSourceCode=Metarill.Data.Queries.NonRedundantReads.Value", service);
             Assert.Contains("DerivedOptionsRows30_34Async", service);
@@ -279,7 +288,8 @@ public sealed partial class GlobalScopedCandidateTests
     [InlineData(0, false, "int32", "string")]
     [InlineData(1, false, "int64", "int64")]
     [InlineData(0, true, "int64", "string")]
-    public async Task Global_R1_List_writes_integer_names_from_fixed_targets(int storage, bool derived, string logicalType, string foreignType)
+    [InlineData(0, true, "time", "int64")]
+    public async Task Global_R1_List_writes_scalar_names_from_fixed_targets(int storage, bool derived, string logicalType, string foreignType)
     {
         var catalog = derived ? GlobalDerivedTargetGenerationTests.Catalog(0, foreignType, "int64") : PhysicalNumberCatalog(storage, logicalType, rowProject: false);
         var source = catalog.ConfigTables.Single(table => table.Id == "3");
@@ -319,7 +329,7 @@ public sealed partial class GlobalScopedCandidateTests
             var service = await File.ReadAllTextAsync(Path.Combine(output, "Services/CachedConsumerService.g.cs"));
             Assert.Contains("DerivedOptionsRows30_34Async", service);
             Assert.Contains("ImportRelation30_34Async", service);
-            Assert.Contains("FixedReadComparison.IntegerLabelContains", service);
+            Assert.Contains(logicalType is "int32" or "int64"?"FixedReadComparison.IntegerLabelContains":"FixedReadComparison.TypedLabelContains", service);
             Assert.Contains("actor.ProjectId!=\"100\"", service);
             Assert.Contains("AfterMutationAsync", service);
             var property = GenerationModel.Pascal(cache.ColumnName);
@@ -332,13 +342,15 @@ public sealed partial class GlobalScopedCandidateTests
         }
     }
 
-    /// <summary>下游按已发布的整数缓存读取原候选，R1 下游进入与上游相连的维护和传播计划。</summary>
+    /// <summary>下游按已发布的同类型缓存读取原候选，R1 下游进入与上游相连的维护和传播计划。</summary>
     [Theory]
     [InlineData(0, false, "int32", "string")]
     [InlineData(1, false, "int64", "int64")]
     [InlineData(0, true, "int64", "string")]
     [InlineData(1, true, "int32", "int64")]
-    public async Task Global_R1_integer_cache_is_a_fixed_downstream_name(int sourceStorage, bool globalSource, string logicalType, string keyType)
+    [InlineData(0, false, "bool", "string")]
+    [InlineData(1, true, "double", "int64")]
+    public async Task Global_R1_scalar_cache_is_a_fixed_downstream_name(int sourceStorage, bool globalSource, string logicalType, string keyType)
     {
         var catalog = GlobalCachedTargetGenerationTests.Catalog(sourceStorage, keyType);
         foreach (var column in catalog.ConfigColumns.Where(column => column.Id is "14" or "22" or "35" or "40"))
@@ -385,7 +397,7 @@ public sealed partial class GlobalScopedCandidateTests
                 Assert.Contains("ImportRelation" + suffix + "Async", service);
                 Assert.Contains("DerivedOptionsRows" + suffix + "Async(request.ParentId", service);
             }
-            Assert.Contains("FixedReadComparison.IntegerLabelContains", service);
+            Assert.Contains(logicalType is "int32" or "int64"?"FixedReadComparison.IntegerLabelContains":"FixedReadComparison.TypedLabelContains", service);
             Assert.Contains("actor.ProjectId!=\"100\"", service);
             if (sourceStorage == 1)
                 Assert.Contains("entity.GlobalSourceGlobalTargetName=Metarill.Data.Queries.NonRedundantReads.Value", service);

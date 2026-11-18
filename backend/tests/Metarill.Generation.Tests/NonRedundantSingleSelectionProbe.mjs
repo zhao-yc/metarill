@@ -3,10 +3,10 @@ import {readFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {mountGenerated,plain} from './GeneratedOriginalVueHarness.mjs'
 const root=process.argv[2],parent=process.argv[3]==='parent',stem=process.argv[4]??'mt_nrs_offline',display=process.argv[5]??'customerName',targetName=process.argv[6]??'name'
-const integerName=process.argv[7]==='int64'
-const text=integerName?'5474099':"中文_%!引号'"
-const oldName=integerName?'9007199254740992':'原名称'
-const chosenName=integerName?'9007199254740993':'新名称'
+const integerName=process.argv[7]==='int64',boolName=process.argv[7]==='bool'
+const text=boolName?'fal':integerName?'5474099':"中文_%!引号'"
+const oldName=boolName?true:integerName?'9007199254740992':'原名称'
+const chosenName=boolName?false:integerName?'9007199254740993':'新名称'
 const source=await readFile(join(root,`frontend/pages/yzp/${stem}_order-list-101.vue`),'utf8')
 const list=mountGenerated(source,{parent_id:'71',is_son_page:true})
 try{

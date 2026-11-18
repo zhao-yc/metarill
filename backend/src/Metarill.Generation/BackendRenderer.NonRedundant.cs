@@ -37,14 +37,14 @@ internal static partial class BackendRenderer
             helpers+="    /// <summary>原候选页的自树投影由固定图补齐显示路径。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileGlobalPage(string tableId,string pageId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalPage(Snapshot,tableId,pageId,outputs,dependencies);\n";
         if (model.Tables.Any(NonRedundantReadCompilation.HasGlobalRowProject) ||
             model.Tables.SelectMany(table => table.Pages).SelectMany(page => RelationCompilation.ForPage(model, page, true))
-                .Any(relation => relation.Target.IsGlobal && DerivedRelationNamesCompilation.IsPhysicalInteger(model, relation.Target, relation.NameColumn)))
+                .Any(relation => relation.Target.IsGlobal && DerivedRelationNamesCompilation.IsPhysicalTypedName(model, relation.Target, relation.NameColumn)))
             helpers+="    /// <summary>候选仅使用发布页的固定范围，普通记录仍按所属项目读写。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileGlobalCandidate(string tableId,string pageId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalCandidate(Snapshot,tableId,pageId,outputs,dependencies);\n";
         if (model.Tables.SelectMany(table => table.Pages).SelectMany(page => RelationCompilation.ForPage(model, page, true))
             .Any(relation => !relation.Target.IsGlobal && relation.Target.Source.IsRongyu == 1 &&
-                DerivedRelationNamesCompilation.IsPhysicalInteger(model, relation.Target, relation.NameColumn)))
+                DerivedRelationNamesCompilation.IsPhysicalTypedName(model, relation.Target, relation.NameColumn)))
             helpers+="    /// <summary>普通 R1 候选使用项目范围和实际物理列。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompilePhysicalRelation(string tableId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompilePhysicalRelation(Snapshot,tableId,outputs,dependencies);\n";
         if(model.Tables.SelectMany(table=>table.Pages).SelectMany(page=>RelationCompilation.ForPage(model,page,true))
-            .Any(relation=>DerivedRelationNamesCompilation.IsPhysicalInteger(model,relation.Target,relation.NameColumn)&&
+            .Any(relation=>DerivedRelationNamesCompilation.IsPhysicalTypedName(model,relation.Target,relation.NameColumn)&&
                 SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage)))
             helpers+="    /// <summary>整数候选只能使用生成时已发布的物理父范围。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompilePhysicalRelation(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.RedundantSharedParentPlan[] parents)=>Metarill.Data.Queries.NonRedundantReads.CompilePhysicalRelation(Snapshot,tableId,outputs,dependencies,parents);\n";
         if(model.Tables.Any(table=>table.Pages.Any(page=>FixedPageConditionCompilation.HasMultiTargetScope(table,page))))
@@ -159,6 +159,7 @@ internal static class GeneratedNonRedundantReadCatalog
             {
                 SelectionNameFilterKind.JoinedScalarLike => "Contains",
                 SelectionNameFilterKind.JoinedIntegerLike => "IntegerLabelContains",
+                SelectionNameFilterKind.JoinedTypedLike => "TypedLabelContains",
                 SelectionNameFilterKind.JoinedJsonArrayAnyLike => "JsonArrayAnyContains",
                 _ => throw new InvalidOperationException("非冗余名称筛选缺少固定联接证明。")
             };

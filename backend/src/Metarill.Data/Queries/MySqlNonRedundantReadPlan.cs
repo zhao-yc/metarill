@@ -329,7 +329,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var physicalCandidate = candidatePage is not null && root.IsRongyu == 1;
             if ((physicalCandidate || scopedPhysicalCandidate) && outputs.Concat(dependencies).Append("id")
                 .Distinct(StringComparer.OrdinalIgnoreCase).Any(field => !CandidateField(field)))
-                throw new NotSupportedException("物理候选只读取已声明的非凭据标量和明确发布的整数名称副本。");
+                throw new NotSupportedException("物理候选只读取已声明的非凭据标量和明确发布的标量名称副本。");
 
             // 缓存仅作为显式返回的全局名称；本地候选和独立依赖仍只读普通物理标量。
             bool CandidateField(string field)
@@ -341,7 +341,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     rootStorage.IsPhysical(column) && candidateParents.Any(parent=>parent.ColumnName==field&&
                         parent.ColumnId==column.Id&&parent.LogicalType==column.LogicalType) ||
                     physicalCandidate && outputs.Contains(field,StringComparer.OrdinalIgnoreCase) &&
-                    column.LogicalType is "int32" or "int64" &&
+                    MultiValueLabel.IsTyped(column.LogicalType) &&
                     GlobalPhysicalRelationValue.IsPublishedScalar(catalog,rootStorage,root,column);
             }
             if(globalSource)

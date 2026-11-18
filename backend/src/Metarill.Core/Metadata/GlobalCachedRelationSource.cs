@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 namespace Metarill.Core.Metadata;
 
 public sealed record GlobalCachedRelationBinding(ColumnMetadata Foreign,TableMetadata Target,PageMetadata Page,ColumnMetadata Name,ColumnMetadata Cache);
@@ -66,7 +67,7 @@ public static class GlobalCachedRelationSource
     {
         // 允许项目列进入形状检查，匹配到实际物理父角色后再取得该副本的用途证明。
         RequireSelfTree(catalog,source);var storage=MetadataStoragePolicy.ForTable(catalog,source);var path=cache.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
-        if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==cache.Id),cache)||cache.ConfigTableId!=source.Id||path.Length!=2||!Joined(cache)||cache.IsVirtualColumn!=0||!storage.IsPhysical(cache)||cache.LogicalType is not("string" or "int32" or "int64")||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
+        if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==cache.Id),cache)||cache.ConfigTableId!=source.Id||path.Length!=2||!Joined(cache)||cache.IsVirtualColumn!=0||!storage.IsPhysical(cache)||(cache.LogicalType!="string"&&!MultiValueLabel.IsTyped(cache.LogicalType))||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
         var foreign=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==source.Id&&(column.ColumnName==path[0]+"_id"||column.ColumnName==path[0]));
         if(foreign is null)throw Invalid();RequireSingle(catalog,source,foreign);
         using var definition=JsonDocument.Parse(foreign.ControlDetail);var root=definition.RootElement;
@@ -78,7 +79,7 @@ public static class GlobalCachedRelationSource
             ?GlobalSingleRelationTarget.RequireCachedValue(catalog,source,foreign,target,resolving)
             :GlobalSingleRelationTarget.RequireProjectParent(catalog,source,foreign,target);
         var stem=foreign.ColumnName[..^3];
-        // 同类型副本由写入和回填共同使用，避免整数截断或隐式转为字符串。
+        // 同类型副本由写入和回填共同使用，保持业务值类型与精度。
         if(path[1]!=proof.Name.ColumnName||cache.ColumnName!=stem+"_"+proof.Name.ColumnName||cache.LogicalType!=proof.Name.LogicalType)throw Invalid();
         return new(foreign,targets[0],proof.Page,proof.Name,cache);
     }

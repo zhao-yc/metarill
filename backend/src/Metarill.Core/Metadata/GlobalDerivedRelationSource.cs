@@ -36,17 +36,7 @@ public static class GlobalDerivedRelationSource
         MetadataValidation.RequireIdentifier(path[^1]);
         var terminal=catalog.ConfigColumns.SingleOrDefault(c=>c.ConfigTableId==current.Id&&c.ColumnName==path[^1])??throw Invalid();
         if(terminal.LogicalType!=name.LogicalType||ExactDataManageValues.IsSensitiveField(terminal.ColumnName))throw Invalid();
-        if(name.LogicalType!="string")
-        {
-            var terminalStorage = MetadataStoragePolicy.ForTable(catalog,current);
-            if (GlobalPhysicalRelationValue.IsScalar(terminalStorage,current,terminal)) return;
-            // 逻辑整数可以读取已证明的物理副本或继续沿派生路径；两者共用证明栈。
-            if (name.LogicalType is "int32" or "int64" &&
-                (last?.Name.Id == terminal.Id ||
-                 GlobalPhysicalRelationValue.IsPublishedScalar(catalog,terminalStorage,current,terminal,resolving))) return;
-            throw Invalid();
-        }
-        // 常用名称就是上一步已证终点，避免同一递归链被重复展开成指数工作量。
+        // 各类已声明标量复用上一步终点证明，避免将同一递归链重复展开。
         if(last?.Name.Id==terminal.Id)return;
         if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,MetadataStoragePolicy.ForTable(catalog,current),current,terminal,resolving))throw Invalid();
     }
