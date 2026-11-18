@@ -94,22 +94,22 @@ public static partial class MySqlNonRedundantReadCompiler
     internal static bool IsScopedMultiTarget(MetadataCatalog catalog,TableMetadata target,string pageId)=>
         DeclaredMultiNameTargets(catalog).Any(item=>item.Table.Id==target.Id&&MultiTargetLogicalPage(catalog,target,item.Relation)?.Id==pageId);
 
-    /// <summary>从实际目标页读取逻辑条件或全局账号范围，普通物理候选仍走原范围。</summary>
+    /// <summary>从实际绑定页读取逻辑或账号范围，未绑定页的项目内复选沿用原条件。</summary>
     internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
     {
         if(table.IsRongyu!=0)return null;
-        var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         var global=GlobalCrossTableTarget.Declared(table);
-        if(!global&&!members.Any(column=>column.ControlKind=="CascadeTree"))return null;
         var pageId=MultiPageId(Definition(relation));
         if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
+        if(!global&&pageId.Length==0)return null;
         var candidates=catalog.ConfigPages.Where(item=>item.ConfigTableId==table.Id&&
             (item.Id==pageId||global&&pageId.Length==0)).Take(2).ToArray();
         var page=candidates.Length==1?candidates[0]:null;
         if(page is null||page.WhereSql.Length==0)return null;
+        var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         var declared=RelationStorageColumns.Expand(table,members);
         var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
-        return global&&syntax.Variables.Any(AccountConditionVariables.IsSupported)||
+        return syntax.Variables.Any(AccountConditionVariables.IsSupported)||
             syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,members,field)||
                 CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field))?page:null;
     }

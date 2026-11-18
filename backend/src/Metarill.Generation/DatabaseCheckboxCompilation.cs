@@ -93,7 +93,7 @@ internal static class DatabaseCheckboxCompilation
             if(explicitPage!=fixedPage&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(target,candidate))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
             if(logicalPage is not null&&ExactDataManageCompilation.Declared(logicalPage))
-                return Gap("复选逻辑目标范围需要与实际目标页及项目归属一致。");
+                return Gap("复选目标范围需要与实际目标页及项目归属一致。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
             if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量。");
             TableModel Parent(ColumnModel column)=>model.Tables.SingleOrDefault(parent=>column.Source.LinkConfigTableId.Length>0?parent.Source.Id==column.Source.LinkConfigTableId:parent.Source.TableName+"_id"==column.Source.ColumnName)??throw new InvalidOperationException("复选父范围缺少明确真实父表。");

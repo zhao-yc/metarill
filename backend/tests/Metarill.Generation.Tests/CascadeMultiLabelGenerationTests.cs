@@ -21,7 +21,7 @@ public sealed class CascadeMultiLabelGenerationTests
     public Task Cascade_names_compile_in_original_endpoints(string kind,int mode,bool selfTree)=>
         CompileCascadeLabel(kind,mode,selfTree,indirect:false);
 
-    /// <summary>全局目标只有物理账号条件时，原多值入口仍共享发布范围及名称副本。</summary>
+    /// <summary>目标页仅用物理账号与可选父参数时，原多值入口共享实际发布范围及名称副本。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false,false)]
     [InlineData("MultiSelectPage",1,true,false)]
@@ -31,17 +31,30 @@ public sealed class CascadeMultiLabelGenerationTests
     [InlineData("MultiSelectPage",1,false,true)]
     [InlineData("MultiCheckBoxDatabase",0,false,true)]
     [InlineData("MultiCheckBoxDatabase",1,true,true)]
-    public async Task Global_account_range_compiles_without_cascades(string kind,int mode,bool rowProject,bool derived)
+    [InlineData("MultiSelectPage",0,true,false,false,false)]
+    [InlineData("MultiSelectPage",1,true,true,false,false)]
+    [InlineData("MultiCheckBoxDatabase",0,true,true,false,false)]
+    [InlineData("MultiCheckBoxDatabase",1,true,false,false,false)]
+    [InlineData("MultiSelectPage",0,true,true,false,true)]
+    [InlineData("MultiSelectPage",1,true,false,false,true)]
+    [InlineData("MultiCheckBoxDatabase",0,true,false,false,true)]
+    [InlineData("MultiCheckBoxDatabase",1,true,true,false,true)]
+    public async Task Multi_account_range_compiles_without_cascades(string kind,int mode,bool rowProject,bool derived,
+        bool global=true,bool parent=false)
     {
-        const string ns="Example.GlobalAccountMulti";
-        var catalog=DerivedRelationNamesTests.Catalog("dr_names",false);
+        const string ns="Example.AccountMulti";
+        var catalog=DerivedRelationNamesTests.Catalog("dr_names",parent);
         var target=catalog.ConfigPages.Single(page=>page.Id=="201");
         target.Extra["type"]=JsonSerializer.SerializeToElement(2);
-        target.WhereSql="status=1 AND store_id=@current_store_id";
-        var companyPage=catalog.ConfigPages.Single(page=>page.Id=="401");
-        companyPage.WhereSql="";
-        foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "2" or "4"))
-            table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        target.WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+
+            "status=1 AND store_id=@current_store_id"+(parent?" AND group_id=@parent_id":"");
+        if(global)
+        {
+            var companyPage=catalog.ConfigPages.Single(page=>page.Id=="401");
+            companyPage.WhereSql="";
+            foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "2" or "4"))
+                table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        }
         if(!rowProject)
         {
             catalog.ConfigColumns.RemoveAll(column=>column.Id=="22");
@@ -87,6 +100,7 @@ public sealed class CascadeMultiLabelGenerationTests
             Assert.Contains(".BindAccount(actor)",code);
             Assert.Contains("Import101Async",code);
             Assert.Contains("Export101Async",code);
+            if(parent)Assert.Contains("new(\"group_id\",FixedReadComparison.Equal,",code.Replace(" ", "", StringComparison.Ordinal));
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             foreach(var service in new[]{"DrNamesOrderService","DrNamesPartyService"})
                 RuntimeHelpers.RunClassConstructor(assembly.GetType(ns+".Generated.Services."+service,true)!.TypeHandle);
@@ -96,6 +110,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(runtime.GetProperty("Catalog")!.GetValue(null));
                 Assert.Contains("dr_names_party",maintenance.MixedTargets);
                 if(derived)Assert.Contains("dr_names_company",maintenance.MixedTargets);
+                if(parent)Assert.Contains("dr_names_group",maintenance.MixedTargets);
             }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

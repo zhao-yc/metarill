@@ -222,14 +222,20 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("多值目标页包含未接通的范围。");
             if(!condition.HasLogical)
             {
-                if(!global||condition.Plan?.Variables.Count is not >0)
-                    throw new NotSupportedException("多值目标页缺少固定的级联或全局账号范围。");
-                GlobalCrossTableTarget.RequireAccountCandidate(catalog,root,page);
+                if(condition.Plan is not {Variables.Count:>0} account)
+                    throw new NotSupportedException("多值目标页缺少固定的级联或账号范围。");
+                if(global)GlobalCrossTableTarget.RequireAccountCandidate(catalog,root,page);
                 cascadeLabelPages.Add(page.Id);
-                if(cascadeCacheOwner is not {} owner)
-                    return PublishedScope(root,rootAlias,page,aliasPrefix+"root",allowAccount:true);
-                var predicate=PhysicalAccountCacheCondition(root,rootAlias,page,owner);
-                return scope.Length==0?predicate:scope+" AND "+predicate;
+                if(cascadeCacheOwner is {} owner)
+                {
+                    var predicate=PhysicalAccountCacheCondition(root,rootAlias,page,owner,MultiCandidateParent?.Target);
+                    return scope.Length==0?predicate:scope+" AND "+predicate;
+                }
+                // 项目和父参数已由实际范围负责，账号条件只追加已证明的物理字段。
+                var clause=account.RenderAccountProjection(new MySqlDatabaseProvider(),aliasPrefix+"multi_account",field=>
+                    rootAlias+"."+Q(Column(root,field).ColumnName));
+                foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
+                return scope.Length==0?clause.Sql:scope+" AND "+clause.Sql;
             }
             var plan=condition.Plan;
             var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target,treeNames);

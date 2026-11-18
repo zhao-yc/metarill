@@ -773,11 +773,16 @@ public sealed class NestedCrossCandidateTests
         }
     }
 
-    /// <summary>全局多值的候选和实时名称绑定当前账号，回填使用持久归属并跟踪筛选列。</summary>
+    /// <summary>多值候选和实时名称绑定账号，回填按来源行的账号及父键重算。</summary>
     [Theory]
     [InlineData("MultiSelectPage",true)]
     [InlineData("MultiCheckBoxDatabase",false)]
-    public void Global_multi_account_scope_uses_source_row_for_maintenance(string kind,bool rowProject)
+    [InlineData("MultiSelectPage",true,false,false)]
+    [InlineData("MultiCheckBoxDatabase",true,false,false)]
+    [InlineData("MultiSelectPage",true,false,true)]
+    [InlineData("MultiCheckBoxDatabase",true,false,true)]
+    public void Multi_account_scope_uses_source_row_for_maintenance(string kind,bool rowProject,
+        bool global=true,bool parent=false)
     {
         var catalog=Catalog(false);
         var target=catalog.ConfigTables.Single(table=>table.Id=="1");
@@ -788,8 +793,9 @@ public sealed class NestedCrossCandidateTests
         catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
         page.YzAdminTypeId="5";
         page.Extra["type"]=JsonSerializer.SerializeToElement(2);
-        page.WhereSql="name <> '范围外名称' AND store_id=@current_store_id";
-        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        page.WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+
+            "name <> '范围外名称' AND store_id=@current_store_id"+(parent?" AND group_id=@parent_id":"");
+        if(global)target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         if(!rowProject)
         {
             var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="yz_project_id");
@@ -799,7 +805,13 @@ public sealed class NestedCrossCandidateTests
         if(!catalog.ConfigPageColumns.Any(column=>column.ConfigPageId==page.Id&&column.ConfigColumnId==name.Id))
             catalog.ConfigPageColumns.Add(new(){Id="publish_multi_name",ConfigPageId=page.Id,ConfigColumnId=name.Id});
         catalog.ConfigPages.Add(new(){Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
-            WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"});
+            WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"+
+                (parent?" AND group_id=@parent_id":"")});
+        if(parent)
+        {
+            catalog.ConfigColumns.Add(new(){Id="9017",ConfigTableId=source.Id,ColumnName="group_id",LogicalType="int64",LinkConfigTableId="91"});
+            catalog.ConfigColumns.Add(new(){Id="1111",ConfigTableId=target.Id,ColumnName="group_id",LogicalType="string",LinkConfigTableId="91"});
+        }
         catalog.ConfigColumns.AddRange([
             new(){Id="9014",ConfigTableId=source.Id,ColumnName="picked_ids",LogicalType="string",ControlKind=kind,
                 LinkConfigTableId=target.Id,ControlDetail=JsonSerializer.Serialize(new{tableId=target.Id,pageId=page.Id})},
@@ -813,10 +825,11 @@ public sealed class NestedCrossCandidateTests
         var actor=new RuntimeActor(1,"多值账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
         var plan=NonRedundantReads.CompileScopedMultiLabel(catalog,target.Id,page.Id,"name",["id","name"],[]);
         var bound=plan.BindAccount(actor).MySql;
-        Assert.True(bound.RequiresPublishedProjectIdentity);
+        Assert.Equal(global,bound.RequiresPublishedProjectIdentity);
         Assert.Contains(actor.StoreId!.Value,bound.Constants.Values);
         Assert.Contains("范围外名称",bound.Constants.Values);
-        Assert.DoesNotContain("b.`yz_project_id`=",bound.Scope);
+        Assert.Equal(!global,bound.Scope.Contains("b.`yz_project_id`=",StringComparison.Ordinal));
+        Assert.Equal(parent?"group_id":null,bound.RequiredMultiParent);
         Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
 
         var live=NonRedundantReads.Compile(catalog,source.Id,["picked_names"]).BindAccount(actor).MySql;
@@ -831,6 +844,13 @@ public sealed class NestedCrossCandidateTests
         var projection=refresh.MultiProjections["picked_names"];
         Assert.False(refresh.RequiresAccount);
         Assert.Contains("b.`store_id`",projection.TargetScope);
+        Assert.Equal(!global,projection.TargetScope.Contains("multi_value.`yz_project_id`=",StringComparison.Ordinal));
+        if(parent)
+        {
+            Assert.Contains("b.`group_id`",projection.TargetScope);
+            Assert.Contains("nested_outer_leaf",projection.TargetScope);
+            Assert.Contains("nested_outer_leaf",maintenance.MixedTargets);
+        }
         Assert.Contains("范围外名称",refresh.Constants.Values);
         Assert.Contains(refresh.Reverse,entry=>entry.TargetTable==target.TableName&&entry.Outputs["picked_names"].Contains("store_id"));
         var published=MySqlNonRedundantReadCompiler.PublishedCascadeLabelPages(catalog,out var owners);
