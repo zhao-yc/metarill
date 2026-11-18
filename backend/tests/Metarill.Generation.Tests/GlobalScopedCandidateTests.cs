@@ -332,6 +332,74 @@ public sealed partial class GlobalScopedCandidateTests
         }
     }
 
+    /// <summary>下游按已发布的整数缓存读取原候选，R1 下游进入与上游相连的维护和传播计划。</summary>
+    [Theory]
+    [InlineData(0, false, "int32", "string")]
+    [InlineData(1, false, "int64", "int64")]
+    [InlineData(0, true, "int64", "string")]
+    [InlineData(1, true, "int32", "int64")]
+    public async Task Global_R1_integer_cache_is_a_fixed_downstream_name(int sourceStorage, bool globalSource, string logicalType, string keyType)
+    {
+        var catalog = GlobalCachedTargetGenerationTests.Catalog(sourceStorage, keyType);
+        foreach (var column in catalog.ConfigColumns.Where(column => column.Id is "14" or "22" or "35" or "40"))
+            column.LogicalType = logicalType;
+        catalog.ConfigPageColumns.Single(field => field.Id == "3038").Extra["isSearch"] = JsonSerializer.SerializeToElement(1);
+        catalog.ConfigPageColumns.Single(field => field.Id == "3040").Extra.Remove("isSearch");
+        if (globalSource)
+        {
+            catalog.ConfigTables.Single(table => table.Id == "3").Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+            catalog.ConfigPages.Single(page => page.Id == "30").WhereSql = "";
+            // 全局 R0 测试使用标量投影；无项目列的 R1 继续使用原单值 List。
+            var removed = sourceStorage == 1 ? new[] { "32", "38", "39", "40" } : new[] { "32", "39" };
+            catalog.ConfigColumns.RemoveAll(column => removed.Contains(column.Id));
+            catalog.ConfigPageColumns.RemoveAll(field => removed.Contains(field.ConfigColumnId));
+        }
+
+        var model = GenerationModel.Create(catalog, ApplicationNamespace);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var owner = model.Tables.Single(table => table.Source.Id == "3");
+        var page = Assert.Single(owner.Pages);
+        var maintenance = MixedRelationPropagationCompilation.ForModel(model);
+        Assert.Equal(new[] { "global_target_name" }, maintenance.MixedSourceColumns["global_source"]);
+        Assert.Contains("global_target", maintenance.MixedTargets);
+        var cacheFields = catalog.ConfigColumns.Where(column => column.Id is "35" or "40").Select(column => column.ColumnName).ToArray();
+        if (sourceStorage == 0)
+        {
+            Assert.All(NonRedundantReads.Compile(catalog, "3", cacheFields).OutputTypes, field => Assert.Equal(logicalType, field.Value));
+            Assert.DoesNotContain("cached_consumer", maintenance.MixedSourceColumns.Keys);
+        }
+        else
+            AssertManagedIntegerCache(model, "global_source", cacheFields);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-r1-cached-name-target");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ApplicationNamespace);
+            var service = await File.ReadAllTextAsync(Path.Combine(output, "Services/CachedConsumerService.g.cs"));
+            Assert.Contains("""CompileGlobalCandidate("1","10",new string[]{"id","global_target_name"}""", service);
+            foreach (var relation in RelationCompilation.ForPage(model, page))
+            {
+                var suffix = "30_" + relation.SourceColumn.Source.Id;
+                Assert.Contains("ImportRelation" + suffix + "Async", service);
+                Assert.Contains("DerivedOptionsRows" + suffix + "Async(request.ParentId", service);
+            }
+            Assert.Contains("FixedReadComparison.IntegerLabelContains", service);
+            Assert.Contains("actor.ProjectId!=\"100\"", service);
+            if (sourceStorage == 1)
+                Assert.Contains("entity.GlobalSourceGlobalTargetName=Metarill.Data.Queries.NonRedundantReads.Value", service);
+
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var type = assembly.GetType(ApplicationNamespace + ".Generated.Services.CachedConsumerService", throwOnError: true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) await TestDirectoryCleanup.DeleteAsync(directory, boundary);
+        }
+    }
+
     /// <summary>整数缓存缺少维护标记或类型不符时，生成器停止发布该关系。</summary>
     [Theory]
     [InlineData(false)]

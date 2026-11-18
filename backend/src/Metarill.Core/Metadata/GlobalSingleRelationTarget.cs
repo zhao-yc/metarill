@@ -38,8 +38,7 @@ public static class GlobalSingleRelationTarget
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(targetStorage,target,column);
         // 普通与显式全局来源使用同一终点证明；来源的存储模式和发布身份已由各入口核验。
         var integer = name is not null && name.ColumnName != "id" && name.LogicalType is "int32" or "int64" &&
-            owner.IsRongyu is 0 or 1 &&
-            (Scalar(name) || target.IsRongyu == 0 && targetStorage.Kind(name) == MetadataFieldStorage.Join);
+            owner.IsRongyu is 0 or 1;
         if (name is null || name.LogicalType != "string" && !integer ||
             !GlobalPhysicalRelationValue.IsPublishedScalar(catalog, targetStorage, target, name, resolving ?? new HashSet<string>(StringComparer.Ordinal)))
             throw new NotSupportedException("全局单值名称要求已证明的字符串或整数标量。");

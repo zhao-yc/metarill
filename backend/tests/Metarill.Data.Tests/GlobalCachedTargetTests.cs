@@ -75,6 +75,34 @@ public sealed class GlobalCachedTargetTests
         var c=Catalog(0,"int64","int64");var target=c.ConfigTables.Single(table=>table.Id=="1");var cache=c.ConfigColumns.Single(column=>column.Id=="14");var storage=MetadataStoragePolicy.ForTable(c,target);
         Assert.False(GlobalPhysicalRelationValue.IsScalar(storage,target,cache));Assert.True(GlobalPhysicalRelationValue.IsPublishedScalar(c,storage,target,cache));
     }
+    /// <summary>仅显式返回已发布的整数缓存；排序依赖和页条件不能借机读取未发布字段。</summary>
+    [Theory]
+    [InlineData("int32")]
+    [InlineData("int64")]
+    public void Integer_cache_is_a_proved_global_candidate_output(string type)
+    {
+        var catalog = Catalog(0,"int64","int64");
+        var cache = catalog.ConfigColumns.Single(column => column.Id == "14");
+        var leaf = catalog.ConfigColumns.Single(column => column.Id == "22");
+        var display = catalog.ConfigColumns.Single(column => column.Id == "35");
+        cache.LogicalType = leaf.LogicalType = display.LogicalType = type;
+        var candidate = MySqlNonRedundantReadCompiler.CompileGlobalCandidate(catalog,"1","10",["id",cache.ColumnName],[cache.ColumnName]);
+        Assert.Equal(type, ((IReadOnlyDictionary<string,string>)Property(candidate,"Types"))[cache.ColumnName]);
+        Assert.DoesNotContain("JOIN", (string)Property(candidate,"From"));
+        Assert.Throws<NotSupportedException>(() => NonRedundantReads.CompileGlobalCandidate(catalog,"1","10",["id"],[cache.ColumnName]));
+        var page = catalog.ConfigPages.Single(page => page.Id == "10");
+        page.WhereSql = cache.ColumnName + ">0";
+        var invalidCondition = Assert.Throws<ArgumentException>(() => NonRedundantReads.CompileGlobalCandidate(catalog,"1","10",["id",cache.ColumnName]));
+        Assert.Contains("未发布字段", invalidCondition.Message);
+        page.WhereSql = "";
+        leaf.LogicalType = type == "int32" ? "int64" : "int32";
+        Assert.Throws<NotSupportedException>(() => NonRedundantReads.CompileGlobalCandidate(catalog,"1","10",["id",cache.ColumnName]));
+        leaf.LogicalType = type;
+        catalog.ConfigTables.Single(table => table.Id == "1").Extra.Clear();
+        catalog.ConfigColumns.Add(new() { Id = "18", ConfigTableId = "1", ColumnName = "yz_project_id", LogicalType = "int64", YzProjectId = "100" });
+        Assert.Throws<NotSupportedException>(() => NonRedundantReads.CompilePhysicalRelation(catalog,"1",["id",cache.ColumnName],[]));
+    }
+
     /// <summary>多层全局缓存保留每层完整发布与精确名称，最多允许16层，超限不能造成栈耗尽。</summary>
     [Theory][InlineData(1,true)][InlineData(2,true)][InlineData(15,true)][InlineData(16,false)]
     public void Recursive_global_cache_has_a_fixed_depth_bound(int added,bool accepted)

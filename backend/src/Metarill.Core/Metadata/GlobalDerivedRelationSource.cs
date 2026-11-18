@@ -40,9 +40,8 @@ public static class GlobalDerivedRelationSource
         {
             var terminalStorage = MetadataStoragePolicy.ForTable(catalog,current);
             if (GlobalPhysicalRelationValue.IsScalar(terminalStorage,current,terminal)) return;
-            // 全局 R0 消费者读取目标的逻辑整数时，沿同一证明栈追到真实同类型列。
-            if (name.LogicalType is "int32" or "int64" && current.IsRongyu == 0 &&
-                terminalStorage.Kind(terminal) == MetadataFieldStorage.Join &&
+            // 逻辑整数可以读取已证明的物理副本或继续沿派生路径；两者共用证明栈。
+            if (name.LogicalType is "int32" or "int64" &&
                 (last?.Name.Id == terminal.Id ||
                  GlobalPhysicalRelationValue.IsPublishedScalar(catalog,terminalStorage,current,terminal,resolving))) return;
             throw Invalid();

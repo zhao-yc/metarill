@@ -21,7 +21,7 @@ public static class GlobalPhysicalRelationValue
             try{GlobalDerivedRelationSource.RequireName(catalog,target,column,resolving);return true;}
             finally{resolving.Remove(derivedKey);}
         }
-        if(column.ConfigTableId!=target.Id||!storage.IsPhysical(column)||column.IsVirtualColumn!=0||column.LogicalType!="string"||column.ControlKind is not("" or "TextArea")||ExactDataManageValues.IsSensitiveField(column.ColumnName)||!column.Extra.TryGetValue("isJoinColumn",out var cached)||!(cached.ValueKind==JsonValueKind.True||cached.ToString()=="1"))return false;
+        if(column.ConfigTableId!=target.Id||!storage.IsPhysical(column)||column.IsVirtualColumn!=0||column.LogicalType is not("string" or "int32" or "int64")||column.ControlKind is not("" or "TextArea")||ExactDataManageValues.IsSensitiveField(column.ColumnName)||!column.Extra.TryGetValue("isJoinColumn",out var cached)||!(cached.ValueKind==JsonValueKind.True||cached.ToString()=="1"))return false;
         var key=target.Id+":"+column.Id;
         if(resolving.Count>=16||!resolving.Add(key))throw new NotSupportedException("全局名称缓存依赖存在循环或超过16层。");
         try
