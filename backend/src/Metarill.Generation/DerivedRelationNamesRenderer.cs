@@ -9,6 +9,9 @@ internal static class DerivedRelationNamesRenderer
     internal static string Service(GenerationModel model,TableModel owner,PageModel page,RelationModel relation,bool visible)
     {
         var dependencies=DerivedRelationNamesCompilation.Require(model,owner,page,relation);var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var name=relation.NameColumn.Source.ColumnName;
+        var planStart = DerivedRelationNamesCompilation.IsPhysicalGlobalInteger(model, relation.Target, relation.NameColumn)
+            ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
+            : NonRedundantReadCompilation.RelationPlanStart(relation.Target, relation.TargetPage);
         var label = MultiSelectExcelRenderer.LabelText(relation.NameColumn, $"NonRedundantReads.Value<{relation.NameColumn.Type}>(row,{Literal(name)})");
         var search = relation.NameColumn.Type == "string?" ? "Contains" : "IntegerLabelContains";
         var order = relation.OptionsOrder is { } ordering
@@ -20,7 +23,7 @@ internal static class DerivedRelationNamesRenderer
         var bind=relation.Conditions is null?"":"        var bound=OptionsCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"});condition=condition is null?bound:condition.And(bound);";
         var result=new StringBuilder($$"""
     /// <summary>生成和静态装载时编译，普通请求不解析元数据；名称联接与物理身份一同固定。</summary>
-    private static readonly NonRedundantReadPlan DerivedOptionsPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{NonRedundantReadCompilation.RelationPlanStart(relation.Target,relation.TargetPage)}},new string[]{"id",{{Literal(name)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} });
+    private static readonly NonRedundantReadPlan DerivedOptionsPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{planStart}},new string[]{"id",{{Literal(name)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} });
     /// <summary>先复用原真实父检查，再把同一页面及控件条件AND绑定到固定SQL读取。</summary>
     private async Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)> DerivedOptionsScope{{suffix}}Async(string? parentId,string? targetParentId,RuntimeActor actor,CancellationToken cancellationToken,IReadOnlyDictionary<string,object?>? formValues=null)
     {

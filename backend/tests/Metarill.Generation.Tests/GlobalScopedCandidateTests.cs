@@ -102,6 +102,93 @@ public sealed partial class GlobalScopedCandidateTests
         }
     }
 
+    /// <summary>全局物理编号在两种目标存储下使用同一发布页和 Excel 查找。</summary>
+    [Theory]
+    [InlineData(0, "int32", false)]
+    [InlineData(0, "int64", true)]
+    [InlineData(1, "int32", true)]
+    [InlineData(1, "int64", false)]
+    public async Task Global_physical_number_reaches_search_selection_and_workbook(int storage, string logicalType, bool rowProject)
+    {
+        var catalog = PhysicalNumberCatalog(storage, logicalType, rowProject);
+        var model = GenerationModel.Create(catalog, ApplicationNamespace);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var owner = model.Tables.Single(table => table.Source.Id == "3");
+        var binding = Assert.Single(SelectionNameFilterCompilation.ForPage(model, owner, Assert.Single(owner.Pages)).Bindings);
+        Assert.Equal("selectedGlobalSourceCode", binding.FilterKey);
+        Assert.Equal(SelectionNameFilterKind.JoinedIntegerLike, binding.Kind);
+        var candidate = NonRedundantReads.CompileGlobalCandidate(catalog, "1", "10", ["id", "code"], ["status"]);
+        Assert.Equal(logicalType, candidate.OutputTypes["code"]);
+
+        // 计划必须拒绝另一发布项目，测试连接不可达，确保拒绝发生在连接前。
+        using var session = new Metarill.Data.DatabaseSession(new()
+        {
+            Provider = "mysql", ExpectedDatabase = "offline",
+            ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
+        });
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => new NonRedundantReader(session)
+            .PageAsync(candidate, [], [], 1, 10, projectId: "101"));
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-physical-number");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, generated, ApplicationNamespace);
+            var service = await File.ReadAllTextAsync(Path.Combine(generated, "Services/CachedConsumerService.g.cs"));
+            Assert.Contains("""CompileGlobalCandidate("1","10",new string[]{"id","code"}""", service);
+            Assert.Contains("""new("code",FixedReadComparison.IntegerLabelContains,request.Keyword)""", service);
+            Assert.Contains("""scope.Filters.Add(new("code", FixedReadComparison.Equal, key));""", service);
+            Assert.Contains("DerivedOptionsRows30_34Async", service);
+            Assert.Contains("DerivedOptionsRows30_38Async", service);
+            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) await TestDirectoryCleanup.DeleteAsync(directory, boundary);
+        }
+    }
+
+    /// <summary>目标直接存整数编码，源表使用原外键和标准辅助名称路径。</summary>
+    private static MetadataCatalog PhysicalNumberCatalog(int storage, string logicalType, bool rowProject)
+    {
+        var catalog = rowProject ? Catalog(false, 0, "int64") : GlobalDerivedTargetGenerationTests.Catalog(0, "string", "int64");
+        catalog.ConfigTables.Single(table => table.Id == "1").IsRongyu = storage;
+        catalog.ConfigColumns.RemoveAll(field => field.Id is "13" or "14");
+        catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId is "13" or "14");
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "16", ConfigTableId = "1", YzProjectId = "100", ColumnName = "code", LogicalType = logicalType
+        });
+        catalog.ConfigPageColumns.Add(new() { Id = "1016", ConfigPageId = "10", ConfigColumnId = "16", YzProjectId = "100", IsShow = 1 });
+        foreach (var foreign in catalog.ConfigColumns.Where(field => field.Id is "34" or "38"))
+            foreign.ControlDetail = foreign.ControlDetail.Replace("global_target_name", "code", StringComparison.Ordinal);
+        foreach (var field in catalog.ConfigColumns.Where(field => field.Id is "35" or "40"))
+        {
+            field.LogicalType = logicalType;
+            field.ColumnName = field.ColumnName.Replace("_global_target_name", "_code", StringComparison.Ordinal);
+            field.Extra["columnFullName"] = JsonSerializer.SerializeToElement(
+                field.Id == "35" ? "global_source.code" : "selected_global_source.code");
+        }
+        catalog.ConfigPageColumns.Single(field => field.Id == "3038").Extra["isSearch"] = JsonSerializer.SerializeToElement(1);
+        catalog.ConfigPageColumns.Single(field => field.Id == "3040").Extra.Remove("isSearch");
+        return catalog;
+    }
+
+    /// <summary>全局物理候选用途不会为普通读和非物理字段开放 R1 固定读取。</summary>
+    [Fact]
+    public void Physical_candidate_requires_explicit_global_page_and_physical_scalar()
+    {
+        var catalog = PhysicalNumberCatalog(1, "int64", false);
+        Assert.Throws<InvalidOperationException>(() => NonRedundantReads.Compile(catalog, "1", ["id", "code"]));
+        var code = catalog.ConfigColumns.Single(field => field.Id == "16");
+        code.IsVirtualColumn = 1;
+        Assert.Throws<NotSupportedException>(() => NonRedundantReads.CompileGlobalCandidate(catalog, "1", "10", ["id", "code"]));
+        code.IsVirtualColumn = 0;
+        catalog.ConfigTables.Single(table => table.Id == "1").Extra.Clear();
+        Assert.Throws<NotSupportedException>(() => NonRedundantReads.CompileGlobalCandidate(catalog, "1", "10", ["id", "code"]));
+    }
+
     [Fact]
     public void Candidate_plan_rejects_unpublished_or_context_dependent_target_pages()
     {

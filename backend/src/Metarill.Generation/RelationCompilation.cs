@@ -99,7 +99,7 @@ internal static class RelationCompilation
                 }
             }
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions);
-            if(DerivedRelationNamesCompilation.Declared(model,relation))_=DerivedRelationNamesCompilation.Require(model,owner,page,relation);
+            if(DerivedRelationNamesCompilation.UsesFixedRead(model,relation))_=DerivedRelationNamesCompilation.Require(model,owner,page,relation);
             relations.Add(relation);
         }
         return relations;

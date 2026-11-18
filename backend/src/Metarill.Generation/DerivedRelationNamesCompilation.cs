@@ -8,11 +8,20 @@ internal static class DerivedRelationNamesCompilation
 {
     /// <summary>冗余物理缓存继续沿原路径；只识别实际非物理名称。</summary>
     internal static bool Declared(GenerationModel model,RelationModel relation)=>!NonRedundantReadCompilation.Physical(model,relation.Target,relation.NameColumn);
-    /// <summary>普通 R0 单值关系可使用项目内或明确发布的全局 R0 联接整数。</summary>
+    /// <summary>全局物理整数也走固定 SQL，和派生名称共用候选搜索、回显与工作簿。</summary>
+    internal static bool UsesFixedRead(GenerationModel model, RelationModel relation) =>
+        Declared(model, relation) || IsPhysicalGlobalInteger(model, relation.Target, relation.NameColumn);
+
+    /// <summary>区分全局物理编号与联接名称，物理编号读取必须绑定发布页。</summary>
+    internal static bool IsPhysicalGlobalInteger(GenerationModel model, TableModel target, ColumnModel name) =>
+        target.IsGlobal && !name.IsJsonArray && name.Type is "int?" or "long?" &&
+        NonRedundantReadCompilation.Physical(model, target, name);
+
+    /// <summary>普通 R0 单值关系可使用联接整数和明确发布的全局物理整数。</summary>
     internal static bool IsIntegerName(GenerationModel model, TableModel owner, TableModel target, ColumnModel name) =>
-        owner.Source.IsRongyu == 0 && !owner.IsGlobal &&
-        target.Source.IsRongyu == 0 && !name.IsJsonArray &&
-        name.Type is "int?" or "long?" && !NonRedundantReadCompilation.Physical(model, target, name);
+        owner.Source.IsRongyu == 0 && !owner.IsGlobal && !name.IsJsonArray && name.Type is "int?" or "long?" &&
+        (IsPhysicalGlobalInteger(model, target, name) ||
+            target.Source.IsRongyu == 0 && !NonRedundantReadCompilation.Physical(model, target, name));
 
     /// <summary>目标候选和来源筛选共用同一个名称终点类型。</summary>
     internal static string NameType(ColumnModel name) => name.Type switch
@@ -52,9 +61,12 @@ internal static class DerivedRelationNamesCompilation
     internal static IReadOnlyList<string> Require(GenerationModel model,TableModel owner,PageModel page,RelationModel relation)
     {
         var target=relation.Target;var name=relation.NameColumn;
-        if(relation.SourceColumn.Source.ControlKind=="SelectPage")RequireSelection(model,owner,target,relation.TargetPage,name);
+        if (relation.SourceColumn.Source.ControlKind == "SelectPage" && Declared(model, relation))
+            RequireSelection(model, owner, target, relation.TargetPage, name);
         var integerName = IsIntegerName(model, owner, target, name);
-        if(!SupportedOwner(model,owner)||relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||target.Source.IsRongyu!=0||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
+        var physicalGlobalInteger = IsPhysicalGlobalInteger(model, target, name);
+        if(!SupportedOwner(model,owner)||relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||
+            target.Source.IsRongyu!=0&&!physicalGlobalInteger||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
             name.Type != "string?" && !integerName || name.IsJsonArray || relation.ParentBinding?.Declared==true||ExactDataManageCompilation.Declared(relation.TargetPage)||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage))
             throw new InvalidOperationException("派生名称关系要求普通R0或已发布R1物理来源、普通R0目标及已证明的候选范围。");
         if (integerName && ForeignValidationRenderer.Target(model, relation.SourceColumn)?.Source.Id != target.Source.Id)
@@ -72,7 +84,7 @@ internal static class DerivedRelationNamesCompilation
         var orderFields = relation.OptionsOrder?.Select(item => item.Column.Source.ColumnName) ?? [];
         var dependencies = fields.Select(column => column.Source.ColumnName).Concat(orderFields)
             .Concat(["id", name.Source.ColumnName]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var plan=NonRedundantReadCompilation.HasGlobalRowProject(target)
+        var plan=physicalGlobalInteger || NonRedundantReadCompilation.HasGlobalRowProject(target)
             ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,relation.TargetPage.Source.Id,["id",name.Source.ColumnName],dependencies)
             :NonRedundantReads.Compile(model.Catalog,target.Source.Id,["id",name.Source.ColumnName],dependencies);
         if (plan.OutputTypes["id"] != "int64" || plan.OutputTypes[name.Source.ColumnName] != NameType(name))

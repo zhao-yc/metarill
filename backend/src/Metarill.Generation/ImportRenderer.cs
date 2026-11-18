@@ -372,7 +372,7 @@ public sealed partial class {{page.Name}}ImportRequest
     /// <summary>候选反查复用目标项目及安全关系范围，重名和不存在均报错。</summary>
     private static string RelationResolver(GenerationModel model,RelationModel relation, PageModel page, ImportDependencyPlan dependency)
     {
-        if(DerivedRelationNamesCompilation.Declared(model,relation))return DerivedRelationNamesRenderer.Import(relation,page,dependency);
+        if(DerivedRelationNamesCompilation.UsesFixedRead(model,relation))return DerivedRelationNamesRenderer.Import(relation,page,dependency);
         var result = new StringBuilder().AppendLine("    /// <summary>Excel 关系名称必须唯一落在已授权候选范围，数字 ID 也核对归属。</summary>")
             .AppendLine($"    private async Task<JsonElement> ImportRelation{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(JsonElement cell, string? parentId, RuntimeActor actor{(dependency.Contextual?", IReadOnlyDictionary<string, JsonElement> relationContext":"")}, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        if (cell.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.ToString())) return JsonSerializer.SerializeToElement<object?>(null);");

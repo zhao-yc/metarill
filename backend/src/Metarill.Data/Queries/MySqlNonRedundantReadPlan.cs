@@ -262,8 +262,15 @@ public static partial class MySqlNonRedundantReadCompiler
             this.catalog=catalog;this.matching=matching;this.trackReverse=trackReverse||refreshFields is not null;this.deferCascadeNames=deferCascadeNames;this.refreshFields=refreshFields;this.refreshMultiples=refreshMultiples??[];this.refreshPaths=refreshPaths??new Dictionary<string,string>();
             tables=catalog.ConfigTables.Where(table=>(table.YzProjectId.Length==0?catalog.YzProjectId:table.YzProjectId)==catalog.YzProjectId).ToDictionary(table=>table.Id,StringComparer.Ordinal);
             root=tables.GetValueOrDefault(tableId)??throw new InvalidOperationException("源表不属于当前项目。");
-            if((refreshFields is null?root.IsRongyu!=0:root.IsRongyu!=1)||root.IsFunctionTable!=0||root.IsView!=0)throw new InvalidOperationException("固定非冗余读取源必须是非冗余实体表。");
-            if(candidatePage is not null)GlobalCrossTableTarget.RequireAccountCandidate(catalog,root,candidatePage);
+            var physicalCandidate = candidatePage is not null && refreshFields is null && root.IsRongyu == 1;
+            if ((!physicalCandidate && (refreshFields is null ? root.IsRongyu != 0 : root.IsRongyu != 1)) ||
+                root.IsFunctionTable != 0 || root.IsView != 0)
+                throw new InvalidOperationException("固定读取要求非冗余实体表或明确发布的物理候选。");
+            if (candidatePage is not null)
+            {
+                if (physicalCandidate) GlobalCrossTableTarget.Require(catalog, root, candidatePage);
+                else GlobalCrossTableTarget.RequireAccountCandidate(catalog, root, candidatePage);
+            }
             if(tables.Values.GroupBy(table=>table.TableName,StringComparer.OrdinalIgnoreCase).Any(group=>group.Count()!=1))throw new InvalidOperationException("项目表名重复。");
             if(catalog.ConfigColumns.Any(column=>tables.ContainsKey(column.ConfigTableId)&&column.YzProjectId.Length>0&&column.YzProjectId!=catalog.YzProjectId))throw new InvalidOperationException("字段归属与发布项目不一致。");
             columns=tables.Values.ToDictionary(table=>table.Id,table=>RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id)).ToDictionary(column=>column.ColumnName,StringComparer.OrdinalIgnoreCase),StringComparer.Ordinal);
@@ -274,7 +281,11 @@ public static partial class MySqlNonRedundantReadCompiler
         internal MySqlNonRedundantReadPlan Compile(IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
         {
             var globalSource=refreshFields is not null&&GlobalCrossTableTarget.Declared(root);
-            var globalDerivedSource=refreshFields is null&&GlobalCrossTableTarget.Declared(root);
+            var globalDerivedSource = refreshFields is null && root.IsRongyu == 0 && GlobalCrossTableTarget.Declared(root);
+            var physicalCandidate = candidatePage is not null && root.IsRongyu == 1;
+            if (physicalCandidate && outputs.Concat(dependencies).Append("id").Any(field =>
+                !GlobalPhysicalRelationValue.IsScalar(storage[root.Id], root, Column(root, field))))
+                throw new NotSupportedException("全局物理候选只读取已发布的非凭据物理标量。");
             if(globalSource){GlobalCachedRelationSource.Require(catalog,root);foreach(var name in refreshFields!)GlobalCachedRelationSource.RequireCache(catalog,root,columns[root.Id][name]);}
             if(globalDerivedSource)
             {
@@ -309,7 +320,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var importLock=" FOR UPDATE OF "+rootAlias+(aliases.Count==0?"":" FOR SHARE OF "+string.Join(",",aliases.Values));
             var scope=candidatePage is null
                 ?Scope(root,rootAlias,projectScoped:!globalSource&&(!globalDerivedSource||HasGlobalRowProject(root)))
-                :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:true);
+                :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:!physicalCandidate);
             if((globalSource||globalDerivedSource)&&scope.Length==0)scope="1=1";
             // 计数只能省去以整数键查找单列主键的 LEFT JOIN。跨表有效性校验和当前锁读沿用完整联接。
             var aggregateFrom = aggregateJoinsPreserveCardinality && refreshFields is null &&
@@ -317,7 +328,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 ? new MySqlMaintenanceReadFrom(" FROM " + Q(root.TableName) + " " + rootAlias,
                     aggregateJoins.Select(join => (join.Sql, (IEnumerable<string>)aggregateFields[join.Alias])))
                 : null;
-            return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reversePlans),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants),System.Array.AsReadOnly(sourceDependencies.Order(StringComparer.Ordinal).ToArray()),refreshFields is null?null:new MySqlMaintenanceReadFrom(" FROM "+Q(root.TableName)+" "+rootAlias,maintenanceJoins.Select(join=>(join.Sql,(IEnumerable<string>)aliasFields[join.Alias].Keys)))){AggregateFrom=aggregateFrom,CascadeLabelOutputs=cascadeLabelOutputs.ToFrozenSet(StringComparer.OrdinalIgnoreCase),CascadeLabelPages=cascadeLabelPages.ToFrozenSet(StringComparer.Ordinal),CascadeCacheOwnerFields=cascadeCacheOwnerFields.ToFrozenSet(StringComparer.Ordinal),ImportMatchLock=importLock,ScalarCacheTarget=maintenanceJoins.Count==1?scalarCacheTarget:null,RequiresPublishedProjectIdentity=globalSource||globalDerivedSource||trackReverse&&globalDerivedAliases.Count>0||publishedArrayIdentity};
+            return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reversePlans),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants),System.Array.AsReadOnly(sourceDependencies.Order(StringComparer.Ordinal).ToArray()),refreshFields is null?null:new MySqlMaintenanceReadFrom(" FROM "+Q(root.TableName)+" "+rootAlias,maintenanceJoins.Select(join=>(join.Sql,(IEnumerable<string>)aliasFields[join.Alias].Keys)))){AggregateFrom=aggregateFrom,CascadeLabelOutputs=cascadeLabelOutputs.ToFrozenSet(StringComparer.OrdinalIgnoreCase),CascadeLabelPages=cascadeLabelPages.ToFrozenSet(StringComparer.Ordinal),CascadeCacheOwnerFields=cascadeCacheOwnerFields.ToFrozenSet(StringComparer.Ordinal),ImportMatchLock=importLock,ScalarCacheTarget=maintenanceJoins.Count==1?scalarCacheTarget:null,RequiresPublishedProjectIdentity=globalSource||globalDerivedSource||physicalCandidate||trackReverse&&globalDerivedAliases.Count>0||publishedArrayIdentity};
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
         private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name)

@@ -25,7 +25,7 @@ internal static class NonRedundantSelectionCompilation
             throw new InvalidOperationException("非冗余单选目标名称必须是已开放的非凭据标量。");
         var integerName = DerivedRelationNamesCompilation.IsIntegerName(model, table, target, name);
         if (name.Type != "string?" && !integerName)
-            throw new InvalidOperationException("非冗余单选目标名称必须是字符串或已证明的联接整数。");
+            throw new InvalidOperationException("非冗余单选目标名称必须是字符串或已证明的整数。");
         if(!NonRedundantReadCompilation.Physical(model,target,name))DerivedRelationNamesCompilation.RequireSelection(model,table,target,targetPage,name);
         if(target.IsGlobal){var proof=cached?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalSingleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)throw new InvalidOperationException("全局单选页面和名称来源不一致。");}
         if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))throw new InvalidOperationException("非冗余单选目标缺少项目归属。");

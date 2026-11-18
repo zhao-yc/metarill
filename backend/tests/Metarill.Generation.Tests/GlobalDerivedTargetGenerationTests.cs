@@ -89,7 +89,10 @@ public sealed class GlobalDerivedTargetGenerationTests
             case "credential":c.ConfigColumns.Single(f=>f.Id=="22").ColumnName="password";break;
             case "fakePath":c.ConfigColumns.Single(f=>f.Id=="14").Extra["columnFullName"]=JsonSerializer.SerializeToElement("missing.name");break;
             case "wrongProject":c.ConfigTables.Single(t=>t.Id=="1").YzProjectId="101";break;
-            case "foreignName":c.ConfigColumns.Single(f=>f.Id=="34").ControlDetail=c.ConfigColumns.Single(f=>f.Id=="34").ControlDetail.Replace("global_target_name","status",StringComparison.Ordinal);break;
+            case "foreignName":
+                // 物理整数已可用，负例改为页级名称与发布目录中的固定名称冲突。
+                c.ConfigPageColumns.Single(f => f.Id == "3034").Extra["controlDetail"] = JsonSerializer.SerializeToElement(new { nameField = "status" });
+                break;
         }
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-derived-reject");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.GlobalDerivedReject",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
     }
