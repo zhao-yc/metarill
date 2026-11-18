@@ -136,6 +136,12 @@ internal static class RelationPropagationCompilation
         {
             if(!visited.Add(root.Page.Source.Id))continue;
             tables.Add(root.Table.Source.Id);
+            if(MultiGlobalParentCompilation.PhysicalAccountTarget(model,root.Table,root.Page) is {} parent)
+            {
+                var parentTable=model.Tables.Single(table=>table.Source.Id==parent.Parent.Id);
+                var parentPageId=Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(model.Catalog,root.Table.Source.Id,root.Page.Source.Id);
+                pending.Enqueue((parentTable,parentTable.Pages.Single(page=>page.Source.Id==parentPageId)));
+            }
             if(FixedPageConditionCompilation.HasSelfTreeFields(root.Page))
                 foreach(var tree in NonRedundantReadCompilation.SelfTreeNameQueries(model,root.Table,root.Page)
                     .Where(tree=>root.Page.Condition!.SelfTreeFields.Contains(CascadeTreeViewRenderer.Name(root.Table,tree.Source)!.Source.ColumnName)))

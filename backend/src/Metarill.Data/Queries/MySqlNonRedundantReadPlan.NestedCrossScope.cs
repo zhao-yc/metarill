@@ -190,24 +190,36 @@ public static partial class MySqlNonRedundantReadCompiler
             var targetPage=SelectedMultiPage??MultiCandidatePage??throw new InvalidOperationException("缺少目标父范围的实际发布页。");
             var (table,published)=PublishedMultiGlobalParent(catalog,root.Id,targetPage.Id);
             var alias=aliasPrefix+"global_parent";
-            var plan=CompileMultiParentPage(catalog,table,published,alias,alias+"_",cascadeCacheOwner,trackReverse);
-            scopedGlobalCrossTarget=true;
-            plan.CopyParametersTo(crossConstants);
-            cascadeLabelPages.Add(published.Id);
-            cascadeLabelPages.UnionWith(plan.CascadeLabelPages);
-            cascadeCacheOwnerFields.UnionWith(plan.CascadeCacheOwnerFields);
+            var plan=BindPhysicalGlobalParentPage(table,published,alias,cascadeCacheOwner);
             Use(root,parent.Target);Touch(rootAlias,parent.Target.ColumnName);
-            foreach(var reference in plan.PhysicalReferences)references.TryAdd((reference.Table,reference.Column.Name),reference);
             var key=alias+".`id`";
             var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY ("+target+")":key+"="+target;
+            TrackGlobalParentDependencies(plan," FROM "+Q(root.TableName)+" "+rootAlias,same);
+            return "EXISTS (SELECT 1"+plan.From+" WHERE "+same+" AND "+key+">0"+(plan.Scope.Length==0?"":" AND "+plan.Scope)+")";
+        }
+
+        /// <summary>单值和多值共用全局父页编译，保留条件参数、物理字段及实际归属依赖。</summary>
+        private MySqlNonRedundantReadPlan BindPhysicalGlobalParentPage(TableMetadata table,PageMetadata page,string alias,CascadeCacheOwner? owner)
+        {
+            var plan=CompileMultiParentPage(catalog,table,page,alias,alias+"_",owner,trackReverse);
+            scopedGlobalCrossTarget=true;
+            plan.CopyParametersTo(crossConstants);
+            cascadeLabelPages.Add(page.Id);
+            cascadeLabelPages.UnionWith(plan.CascadeLabelPages);
+            cascadeCacheOwnerFields.UnionWith(plan.CascadeCacheOwnerFields);
+            foreach(var reference in plan.PhysicalReferences)references.TryAdd((reference.Table,reference.Column.Name),reference);
+            return plan;
+        }
+
+        /// <summary>保留父页内关联的反查路径，即使父页条件变化后当前行已不可见。</summary>
+        private void TrackGlobalParentDependencies(MySqlNonRedundantReadPlan plan,string from,string same)
+        {
             foreach(var reverse in plan.Reverse)
             {
                 var probe="EXISTS (SELECT 1"+reverse.From+" WHERE "+same+" AND "+reverse.TargetPredicate+")";
-                var from=" FROM "+Q(root.TableName)+" "+rootAlias;
                 var fields=reverse.Outputs.Values.SelectMany(value=>value).ToHashSet(StringComparer.Ordinal);
                 customReverse.Add(new(reverse.TargetTable,from,probe,"predicate",new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,fields}}));
             }
-            return "EXISTS (SELECT 1"+plan.From+" WHERE "+same+" AND "+key+">0"+(plan.Scope.Length==0?"":" AND "+plan.Scope)+")";
         }
 
         /// <summary>目标页的条件与名称共用当前记录和联接，维护用途按来源行归属绑定。</summary>
@@ -352,25 +364,26 @@ public static partial class MySqlNonRedundantReadCompiler
             var source=Resolve(table,owner,foreign.ColumnName);
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true);
             var parent=MultiParent(catalog,proof.Page);
-            var visible=PublishedSingleCondition(target,alias,proof.Page,new(table,owner),parent?.Target);
-            if(parent is not null)visible+=" AND "+ScopedSingleParentCondition(table,owner,foreign,alias,parent);
+            var cacheOwner=new CascadeCacheOwner(table,owner);
+            var visible=PublishedSingleCondition(target,alias,proof.Page,cacheOwner,parent?.Target);
+            if(parent is not null)visible+=" AND "+ScopedSingleParentCondition(table,owner,foreign,alias,parent,cacheOwner);
             var label=Resolve(target,alias,value.ColumnName);
             return ("CASE WHEN "+alias+".`id` IS NOT NULL AND "+visible+" THEN "+label.Sql+" END",label.Type);
         }
 
-        /// <summary>项目内父必须仍活动，按来源行的持久物理键匹配并登记反向依赖。</summary>
+        /// <summary>按来源行的持久物理键匹配项目父或全局发布父，并登记反向依赖。</summary>
         private string ScopedSingleParentCondition(TableMetadata source,string owner,ColumnMetadata foreign,
-            string targetAlias,MultiTargetParentScope parent)
+            string targetAlias,MultiTargetParentScope parent,CascadeCacheOwner? cacheOwner=null)
         {
-            if(parent.Global||parent.Logical)
-                throw new NotSupportedException("项目内单值缓存的目标父级必须是普通项目的物理外键。");
+            if(parent.Logical)
+                throw new NotSupportedException("单值名称的目标父级必须是实际物理外键。");
             var binding=parent.Source(catalog,source,foreign,physicalSingle:true).Column;
-            return SinglePhysicalParentCondition(source,owner,targetAlias,parent,binding);
+            return SinglePhysicalParentCondition(source,owner,targetAlias,parent,binding,cacheOwner);
         }
 
-        /// <summary>项目内名称读和缓存校验同一物理父记录，只有维护才登记传播。</summary>
+        /// <summary>项目内和全局父均要求来源和目标实际父键相同；全局父再执行唯一发布页范围。</summary>
         private string SinglePhysicalParentCondition(TableMetadata source,string owner,string targetAlias,
-            MultiTargetParentScope parent,ColumnMetadata binding)
+            MultiTargetParentScope parent,ColumnMetadata binding,CascadeCacheOwner? cacheOwner=null)
         {
             var parentAlias=aliasPrefix+"single_parent_"+targetAlias;
             var sourceKey=owner+"."+Q(binding.ColumnName);
@@ -379,14 +392,33 @@ public static partial class MySqlNonRedundantReadCompiler
             Use(source,binding);
             Use(tables[parent.Target.ConfigTableId],parent.Target);Touch(targetAlias,parent.Target.ColumnName);
             Use(parent.Parent,Column(parent.Parent,"id"));
-            var parentScope=Scope(parent.Parent,parentAlias);
-            var dependencies=new HashSet<string>(StringComparer.Ordinal){"id","yz_project_id","delete_no"};
-            if(trackReverse)
-                customReverse.Add(new(parent.Parent.TableName," FROM "+Q(source.TableName)+" "+owner,sourceKey,binding.LogicalType,
-                    new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,dependencies}}));
             var canonical="BINARY CAST("+primary+" AS CHAR)";
-            return "EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+parentAlias+" WHERE "+primary+">0 AND "+
-                canonical+"=BINARY CAST("+sourceKey+" AS CHAR) AND "+canonical+"=BINARY CAST("+targetKey+" AS CHAR) AND "+parentScope+")";
+            var sameSource=canonical+"=BINARY CAST("+sourceKey+" AS CHAR)";
+            var sameTarget=canonical+"=BINARY CAST("+targetKey+" AS CHAR)";
+            var ownerFrom=" FROM "+Q(source.TableName)+" "+owner;
+            var parentFrom=" FROM "+Q(parent.Parent.TableName)+" "+parentAlias;
+            string parentScope;
+            IReadOnlySet<string> dependencies;
+            if(parent.Global)
+            {
+                var page=PublishedPhysicalMultiParent(catalog,parent);
+                var plan=BindPhysicalGlobalParentPage(parent.Parent,page,parentAlias,cacheOwner);
+                parentFrom=plan.From;
+                parentScope=plan.Scope;
+                dependencies=plan.PhysicalReferences.Where(reference=>reference.Table==parent.Parent.TableName)
+                    .Select(reference=>reference.Column.Name).ToHashSet(StringComparer.Ordinal);
+                TrackGlobalParentDependencies(plan,ownerFrom,sameSource);
+            }
+            else
+            {
+                parentScope=Scope(parent.Parent,parentAlias);
+                dependencies=new HashSet<string>(StringComparer.Ordinal){"id","yz_project_id","delete_no"};
+            }
+            if(trackReverse)
+                customReverse.Add(new(parent.Parent.TableName,ownerFrom,sourceKey,binding.LogicalType,
+                    new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,dependencies}}));
+            return "EXISTS (SELECT 1"+parentFrom+" WHERE "+primary+">0 AND "+sameSource+" AND "+sameTarget+
+                (parentScope.Length==0?"":" AND "+parentScope)+")";
         }
 
         /// <summary>缓存通过已发布候选页求值，目标与内层依赖都进入原传播队列。</summary>

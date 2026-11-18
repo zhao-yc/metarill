@@ -56,12 +56,24 @@ internal static class ForeignValidationRenderer
             }
             if(column.Source.ControlKind=="CascadeTree"){result.Append(CascadeTreeWriteRenderer.Validation(model,table,page,column));continue;}
             if(crossFields.Contains(column.Source.Id))continue;
-            if(MultiGlobalParentCompilation.PhysicalTarget(model,table,page) is not null&&
-                page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id))
+            if(page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id)&&
+                MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null)
             {
                 // 按写入前的真实物理键复核，手写规则修改实体也不能绕过父页条件。
                 var key=column.Type=="string?"?$"entity.{column.Property}":$"entity.{column.Property}?.ToString(CultureInfo.InvariantCulture)";
                 result.AppendLine($"        if(creating||submitted.Contains({Literal(column.Source.ColumnName)})) await ValidateParents{page.Source.Id}Async({key},actor,cancellationToken);");
+                continue;
+            }
+            if(column.Source.ControlKind is not("List" or "SelectPage")&&
+                MultiGlobalParentCompilation.SingleParentBinding(model,table,column) is {} fixedParent)
+            {
+                var key=IdExpression(column);
+                var plan="OptionsGlobalParent"+page.Source.Id+"_"+fixedParent.Foreign.Source.Id;
+                result.AppendLine($"        if((creating||submitted.Contains({Literal(column.Source.ColumnName)}))&&entity.{column.Property} is not null)")
+                    .AppendLine("        {");
+                if(column.Type=="string?")
+                    result.AppendLine($"            if(entity.{column.Property}!={key}.ToString(CultureInfo.InvariantCulture)) throw new ArgumentException(\"关联父键必须是规范正整数。\");");
+                result.AppendLine(MultiGlobalParentCompilation.Check(plan,key,"true")).AppendLine("        }");
                 continue;
             }
             if (column.Source.ControlKind == "MultiSelectPage")

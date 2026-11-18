@@ -34,7 +34,7 @@ internal static class OriginalUniappDetailSelection
         }
         else
         {
-            var targetParent=TargetParent(c,target.Page);
+            var targetParent=TargetParent(c,f.Column,target.Table,target.Page);
             c.Data.Append("originalSelection").Append(id).Append(":false,");
             c.Methods.AppendLine($$$"""
 openSelect{{{id}}}() { if(this.{{{ro}}})return; this._selection{{{id}}}=this.originalContext();this.originalSelection{{{id}}}=true;this.$nextTick(()=>{if(this._selection{{{id}}}?.())this.$refs.selectPageDialog{{{id}}}.open();}); },
@@ -49,8 +49,18 @@ onPopSelect{{{id}}}(row) { this.permissionVersion++;if(this.{{{ro}}} || !this._s
         return $"<uni-easyinput style='display: none;' v-model='entity.{field}' maxlength='{Html(f.Column.Source.ColumnLength)}' /><text v-if='{ro}'>{{{{readonlyDisplayText(entity.{display})}}}}</text><template v-if='!{ro}'>{buttons}</template>";
     }
     /// <summary>单选目标父沿用同父或唯一声明外键；缺少可读映射必须拒绝，不能空父退全量。</summary>
-    private static string TargetParent(OriginalDetailContext c,PageModel target)
+    private static string TargetParent(OriginalDetailContext c,ColumnModel foreign,TableModel targetTable,PageModel target)
     {
+        // 全局单选的父页与服务端共用这一列的固定证明，原弹层继续传 parent_id。
+        if(MultiGlobalParentCompilation.PhysicalAccountTarget(c.Model,targetTable,target) is {} fixedParent)
+        {
+            var sourceKey=fixedParent.Source(c.Model.Catalog,c.Table.Source,foreign.Source,physicalSingle:true).Column;
+            if(c.Page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==sourceKey.Id))return "parent_id";
+            var stored=c.Page.Readable.SingleOrDefault(column=>column.Source.Id==sourceKey.Id);
+            if(stored is null)
+                throw new InvalidOperationException($"页面 {c.Page.Source.Id} 的原单选缺少可读父字段 {sourceKey.ColumnName}。");
+            return "entity."+stored.JsonName;
+        }
         var parents=target.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.LinkConfigTableId).Distinct(StringComparer.Ordinal).ToArray();
         if(parents.Length==0)return "''";
         if(parents.Length!=1||string.IsNullOrWhiteSpace(parents[0]))throw new InvalidOperationException("原选择目标父缺少唯一声明关系。");

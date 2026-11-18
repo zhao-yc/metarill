@@ -275,8 +275,14 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true,true,true,false,true,true)]
     [InlineData(false,true,true,true,true,true)]
     [InlineData(true,false,false,true,true,true)]
+    [InlineData(false,false,false,false,true,true,true)]
+    [InlineData(true,true,true,false,true,true,true)]
+    [InlineData(false,true,true,true,true,true,true)]
+    [InlineData(true,false,false,true,true,true,true)]
+    [InlineData(true,false,true,true,true,true,true,true)]
     public async Task Single_account_page_uses_published_scope_without_cascade(
-        bool selection,bool derived,bool rowProject,bool cached,bool global=true,bool parent=false)
+        bool selection,bool derived,bool rowProject,bool cached,bool global=true,bool parent=false,
+        bool globalParent=false,bool independentParent=false)
     {
         var catalog=Catalog("dr_names",parent);
         var target=catalog.ConfigPages.Single(page=>page.Id=="201");
@@ -289,6 +295,31 @@ public sealed class DerivedRelationNamesTests
             foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "2" or "4"))
                 table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="";
+        }
+        if(globalParent)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="32");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="32");
+            catalog.ConfigColumns.Add(new(){Id="317",ConfigTableId="3",ColumnName="store_id",LogicalType="int64"});
+            catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="name <> '父页隐藏' AND store_id=@current_store_id";
+            if(independentParent)
+            {
+                var group=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="1"&&column.ColumnName=="group_id");
+                foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+                {
+                    page.WhereSql="yz_project_id=@current_yz_project_id";
+                    var field=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==group.Id);
+                    if(field is null)
+                    {
+                        field=new(){Id=page.Id+group.Id,ConfigPageId=page.Id,ConfigColumnId=group.Id};
+                        catalog.ConfigPageColumns.Add(field);
+                    }
+                    field.IsShow=1;field.IsEdit=1;
+                    field.Extra["isInGrid"]=JsonSerializer.SerializeToElement(1);
+                    field.Extra["isInEdit"]=JsonSerializer.SerializeToElement(1);
+                }
+            }
         }
         if(!rowProject)
         {
@@ -349,6 +380,13 @@ public sealed class DerivedRelationNamesTests
             Assert.Contains("OptionsPage101_15Async",service);
             Assert.Contains("OptionsSelected101_15Async",service);
             Assert.Contains("OptionsScope104_15Async",service);
+            if(globalParent)
+            {
+                Assert.Contains("OptionsGlobalParent101_15.BindAccount(actor)",service);
+                Assert.Contains("targetParentKey",service);
+                Assert.Equal(!independentParent,service.Contains("PageMultiGlobalParent101.BindAccount(actor)",StringComparison.Ordinal));
+                Assert.Contains("currentRead:locking",service);
+            }
             Assert.Contains("Import101Async",service);
             Assert.Contains("Export101Async",service);
             Assert.Contains(".ForUpdate()",service);
@@ -372,11 +410,22 @@ public sealed class DerivedRelationNamesTests
                 Assert.Contains("CompileGlobalAccountSinglePage(\"2\",\"201\"",targetService);
                 Assert.Contains("KeyRowsAsync(CandidateReadPlan201.BindAccount(actor)",targetService);
                 Assert.Contains("ExportReadPlan201=global::Example.SingleAccountPage.Generated.GeneratedNonRedundantReadCatalog.CompileGlobalAccountSinglePage(",targetService);
+                if(globalParent)
+                {
+                    var detail=File.ReadAllText(Path.Combine(directory,"generated/frontend/pages/yzp/dr_names_order-detail-101.vue"));
+                    Assert.Contains(independentParent?":parent_id=\"entity.groupId\"":":parent_id=\"parent_id\"",detail);
+                }
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             foreach(var serviceName in new[]{"DrNamesOrderService","DrNamesPartyService"})
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
                     assembly.GetType("Example.SingleAccountPage.Generated.Services."+serviceName,true)!.TypeHandle);
+            if(globalParent)
+            {
+                var frozen=Assert.IsType<MetadataCatalog>(assembly.GetType("Example.SingleAccountPage.Generated.GeneratedNonRedundantReadCatalog",true)!
+                    .GetField("Snapshot",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                Assert.Equal("name <> '父页隐藏' AND store_id=@current_store_id",frozen.ConfigPages.Single(page=>page.Id=="301").WhereSql);
+            }
             if(cached)
             {
                 var compiled=assembly.GetType("Example.SingleAccountPage.Generated.GeneratedRelationMaintenance",true)!
@@ -384,6 +433,7 @@ public sealed class DerivedRelationNamesTests
                 var cache=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(compiled);
                 Assert.Contains("customer_"+label,cache.MixedSourceColumns["dr_names_order"]);
                 Assert.Contains("dr_names_party",cache.MixedTargets);
+                if(globalParent)Assert.Contains("dr_names_group",cache.MixedTargets);
             }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

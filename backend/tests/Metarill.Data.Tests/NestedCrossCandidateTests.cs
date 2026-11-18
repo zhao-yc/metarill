@@ -276,8 +276,10 @@ public sealed class NestedCrossCandidateTests
     [InlineData("SelectPage","int64",true,true)]
     [InlineData("List","string",true,true,true)]
     [InlineData("SelectPage","int64",true,true,true)]
+    [InlineData("List","string",true,true,true,true)]
+    [InlineData("SelectPage","int64",true,true,true,true)]
     public void Project_single_cache_uses_fixed_page_and_physical_parent(string kind,string key,
-        bool physicalAccount=false,bool withParent=true,bool global=false)
+        bool physicalAccount=false,bool withParent=true,bool global=false,bool globalParent=false)
     {
         var catalog=Catalog(false);
         var source=catalog.ConfigTables.Single(table=>table.Id=="90");
@@ -301,6 +303,16 @@ public sealed class NestedCrossCandidateTests
             }
             page.WhereSql=page.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
             if(kind=="SelectPage")page.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        }
+        if(globalParent)
+        {
+            var parent=catalog.ConfigTables.Single(table=>table.Id=="91");
+            parent.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            var published=catalog.ConfigPages.Single(item=>item.Id=="91");
+            published.YzProjectId=catalog.YzProjectId;
+            published.YzAdminTypeId="5";
+            published.WhereSql="name <> '父页隐藏' AND store_id=@current_store_id";
+            catalog.ConfigColumns.Add(new(){Id="9116",ConfigTableId="91",ColumnName="store_id",LogicalType="int64"});
         }
         var sourcePage=new PageMetadata{Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
             WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"+
@@ -341,6 +353,15 @@ public sealed class NestedCrossCandidateTests
             Assert.Contains(actor.StoreId.Value,bound.Constants.Values);
             Assert.Contains("nested_outer_leaf",bound.Scope);
             Assert.Contains("b.`group_id`",bound.Scope);
+            if(globalParent)
+            {
+                Assert.Contains("父页隐藏",bound.Constants.Values);
+                Assert.Contains("父页隐藏",live.Constants.Values);
+                Assert.DoesNotContain("global_parent.`yz_project_id`",bound.Scope);
+                var parentCheck=NonRedundantReads.CompileMultiGlobalParent(catalog,target.Id,page.Id).BindAccount(actor).MySql;
+                Assert.Contains("父页隐藏",parentCheck.Constants.Values);
+                Assert.Contains(actor.StoreId.Value,parentCheck.Constants.Values);
+            }
         }
         Assert.Equal("r0.`name`",live.Expression("shared_name"));
         Assert.DoesNotContain("store_id",live.Scope);
@@ -362,9 +383,16 @@ public sealed class NestedCrossCandidateTests
         {
             Assert.Contains("b.`group_id`",label);
             Assert.Contains("r0.`group_id`",label);
-            Assert.Contains("`yz_project_id`=@project_scope_number",label);
+            Assert.Equal(!globalParent,label.Contains("`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
             Assert.Contains("group_id",consumer.Inputs);
             var reverse=Assert.Single(consumer.Read.Reverse,item=>item.TargetTable=="nested_outer_leaf");
+            if(globalParent)
+            {
+                Assert.Contains("name",reverse.Outputs["shared_name"]);
+                Assert.Contains("store_id",reverse.Outputs["shared_name"]);
+                Assert.Contains("父页隐藏",consumer.Read.Constants.Values);
+                Assert.Contains("b.`store_id`",label);
+            }
             if(key=="int64")Assert.Equal("b.`group_id`=@target_id",reverse.TargetPredicate);
             else Assert.Contains("BINARY b.`group_id`=BINARY @target_text",reverse.TargetPredicate);
         }

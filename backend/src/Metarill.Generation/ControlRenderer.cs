@@ -132,6 +132,13 @@ internal static class ControlRenderer
     internal static RelationUiContext RelationContext(PageModel page, RelationModel relation, bool filter)
     {
         if (relation.ParentBinding?.Declared == true) return new(false, null, relation.ParentBinding.Binding is null, relation.ParentBinding.Binding is not null);
+        if(relation.FixedPhysicalSourceParent is {} fixedParent)
+        {
+            // 实际父键已经在发布计划中证明；同一张父表的其他字段不能替代这一列。
+            var sameParent=page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==fixedParent.Source.Id);
+            if(sameParent)return new(true,null,false);
+            return new(false,fixedParent.JsonName,filter&&!page.Searchable.Contains(fixedParent));
+        }
         var same = relation.SourceParents.Count > 0 && relation.SourceParents.Select(parent => parent.Source.Id).Order().SequenceEqual(relation.TargetParents.Select(parent => parent.Source.Id).Order());
         if (same || relation.TargetParents.Count == 0) return new(same, null, false);
         if (relation.TargetParents.Count != 1) return new(false, null, true);

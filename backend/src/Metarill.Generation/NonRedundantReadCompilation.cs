@@ -48,7 +48,8 @@ internal static class NonRedundantReadCompilation
 
     /// <summary>没有派生关系的原纯物理非冗余页继续使用既有强类型路径。</summary>
     internal static bool Requires(GenerationModel model,TableModel table)=>HasGlobalRowProject(table)||
-        table.Pages.Any(page=>GlobalAccountMultiPage(table,page)||GlobalAccountSinglePage(table,page))||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
+        table.Pages.Any(page=>GlobalAccountMultiPage(table,page)||GlobalAccountSinglePage(table,page)||
+            MultiGlobalParentCompilation.PhysicalAccountTarget(model,table,page) is not null)||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
     /// <summary>所有实体写入复用同一存储计划，不把读取派生属性持久化。</summary>
     internal static bool Physical(GenerationModel model,TableModel table,ColumnModel column)=>MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column.Source);
     /// <summary>固定叶名与目标页一起发布；仅显示、顺序等范围不变的页面覆盖可以继续使用表级读取定义。</summary>
@@ -122,12 +123,15 @@ internal static class NonRedundantReadCompilation
         {
             if(relation.Source.ControlKind is "CascadeTree" or "MultiCheckBoxDatabase"||crossIds.Contains(relation.Source.Id))continue;
             var target=ForeignValidationRenderer.Target(model,relation)??throw new InvalidOperationException("关联写入缺少已接通的明确目标。");ValidateTargetDeclarations(model,relation,target);
-            if(target.IsGlobal&&MultiGlobalParentCompilation.PhysicalTarget(model,table,page) is not null&&
-                page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==relation.Source.Id))
+            if(target.IsGlobal&&page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==relation.Source.Id)&&
+                MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is {} parentPage)
             {
-                _=NonRedundantReads.MultiGlobalParentPageId(model.Catalog,table.Source.Id,page.Source.Id);
+                _=NonRedundantReads.MultiGlobalParentPageId(model.Catalog,parentPage.Source.ConfigTableId,parentPage.Source.Id);
                 continue;
             }
+            if(target.IsGlobal&&relation.Source.ControlKind is not("List" or "SelectPage")&&
+                MultiGlobalParentCompilation.SingleParentBinding(model,table,relation) is not null)
+                continue;
             if(target.IsGlobal){if(relation.Source.ControlKind=="MultiSelectPage")_=GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);else _=GlobalSingleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);}
         }
         foreach(var selection in table.Columns.Where(column=>column.Source.ControlKind=="SelectPage"))NonRedundantSelectionCompilation.Resolve(model,table,page,selection);

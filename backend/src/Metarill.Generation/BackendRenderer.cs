@@ -833,6 +833,10 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         {
             var suffix = page.Source.Id + "_" + relation.SourceColumn.Source.Id;
             var accountParents=SharedRedundantParentCompilation.AccountPlans(model,relation.Target,relation.TargetPage);
+            var fixedGlobalParent=MultiGlobalParentCompilation.PhysicalAccountTarget(model,relation.Target,relation.TargetPage);
+            var targetParentPlan="OptionsGlobalParent"+suffix;
+            if(fixedGlobalParent is not null)
+                result.Append(MultiGlobalParentCompilation.Declaration(model,relation.TargetPage,targetParentPlan));
             string? logicalPlan=null;
             if(DerivedRelationNamesCompilation.UsesLogicalPage(relation))
             {
@@ -873,7 +877,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 result.AppendLine("        }");
             }
             else result.AppendLine($"        await ValidateOptionsSourceParents{page.Source.Id}Async(parentId, actor, cancellationToken);");
-            var sameParent = relation.SourceParents.Count > 0 && relation.SourceParents.Select(parent => parent.Source.Id).Order().SequenceEqual(relation.TargetParents.Select(parent => parent.Source.Id).Order());
+            var sameParent = ControlRenderer.RelationContext(page,relation,false).SameParent;
             if (relation.TargetParents.Count > 0)
             {
                 if (sameParent) result.AppendLine("        targetParentId ??= parentId; // 元数据证明同父时兼容原 parentId。");
@@ -888,7 +892,12 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                     for(var index=0;index<relation.TargetParents.Count;index++)
                     {
                         var parent=relation.TargetParents[index];
-                        if(!accountParents.Any(path=>path.Levels[^1].TableId==parent.Source.Id))
+                        if(fixedGlobalParent?.Parent.Id==parent.Source.Id)
+                        {
+                            result.AppendLine("        if (targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture)) throw new ArgumentException(\"关联目标范围要求规范正整数 targetParentId。\");")
+                                .AppendLine(MultiGlobalParentCompilation.Check(targetParentPlan,"targetParentKey","locking"));
+                        }
+                        else if(!accountParents.Any(path=>path.Levels[^1].TableId==parent.Source.Id))
                             Parent(parent,"targetParentKey","targetParent"+index,lockScope);
                     }
                 }

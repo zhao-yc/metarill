@@ -35,7 +35,7 @@ internal static class DerivedRelationNamesRenderer
             ? string.Join(", ", ordering.Select(item => $"new({Literal(item.Column.Source.ColumnName)}, {(item.Descending ? "true" : "false")})"))
             : $"new({Literal(name)}), new(\"id\")";
         var filters=string.Join("\n",relation.TargetPage.Scopes.Concat(relation.Scopes).DistinctBy(scope=>scope.Column.Source.Id).Select(scope=>"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+ScopeValue(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));"));
-        var same=relation.SourceParents.Count>0&&relation.SourceParents.Select(parent=>parent.Source.Id).Order().SequenceEqual(relation.TargetParents.Select(parent=>parent.Source.Id).Order());
+        var same=ControlRenderer.RelationContext(page,relation,false).SameParent;
         var variables=relation.Conditions is not{} condition?"":RelationConditionsCompilation.Variables(condition,"targetParentId");
         var bind=relation.Conditions is null?"":"        var bound=OptionsCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"});condition=condition is null?bound:condition.And(bound);";
         var result=new StringBuilder($$"""
