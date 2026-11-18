@@ -11,13 +11,20 @@ internal static class FixedPageQueryCompilation
     /// <summary>Mapper的软删除起点也由同一入口识别；字段不存在时保持原有无过滤行为。</summary>
     internal static ColumnModel? SoftDeleteColumn(TableModel table) => table.Columns.SingleOrDefault(column => column.Source.ColumnName == "delete_no");
 
-    /// <summary>带真实行归属的全局R0普通业务同样绑定当前项目，候选使用独立计划。</summary>
+    /// <summary>有真实项目列的全局 R1 自树来源按项目管理自己的行，目标候选仍使用已发布的全局树。</summary>
+    internal static ColumnModel? GlobalSelfTreeProject(TableModel table)=>
+        table.IsGlobal&&table.Source.IsRongyu==1&&table.Columns.Any(column=>
+            column.Source.ControlKind=="CascadeTree"&&!NonRedundantCrossTableSubset.Declared(column))
+            ? table.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id") : null;
+
+    /// <summary>带真实行归属的全局普通业务同样绑定当前项目，候选使用独立计划。</summary>
     internal static FixedPageQueryPlan For(TableModel table, PageModel page)
     {
         if (!table.Pages.Any(candidate => ReferenceEquals(candidate, page))) throw new ArgumentException("固定查询计划必须属于当前表的真实页面。");
         var scopes = new List<(ColumnModel Column, string Source)>();
         var project = table.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
-        if (project is not null && (!table.IsGlobal || NonRedundantReadCompilation.HasGlobalRowProject(table) || page.Scopes.Any(scope => scope.Source == "project"))) scopes.Add((project, "project"));
+        if (project is not null && (!table.IsGlobal || NonRedundantReadCompilation.HasGlobalRowProject(table) ||
+            GlobalSelfTreeProject(table) is not null || page.Scopes.Any(scope => scope.Source == "project"))) scopes.Add((project, "project"));
         scopes.AddRange(page.Scopes.Where(scope => scope.Source == "parent"));
         return new(table, page, SoftDeleteColumn(table), scopes, EffectiveOrder(table, page.Source.OrderBy));
     }

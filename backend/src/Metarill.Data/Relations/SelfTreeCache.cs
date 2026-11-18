@@ -43,7 +43,7 @@ public static class SelfTreeCache
         var globalSource=GlobalCrossTableTarget.Declared(source);
         if(globalSource)
         {
-            GlobalCachedRelationSource.Require(catalog,source);
+            GlobalCachedRelationSource.RequireSelfTree(catalog,source);
             if(!global)throw Invalid();
         }
         var scoped=HasScopedPage(catalog,publishedPageId);

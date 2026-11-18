@@ -55,7 +55,7 @@ internal static class CascadeTreeReadCompilation
             }
             if(table.IsGlobal&&table.Source.IsRongyu==1)
             {
-                Metarill.Core.Metadata.GlobalCachedRelationSource.Require(model.Catalog,table.Source);
+                Metarill.Core.Metadata.GlobalCachedRelationSource.RequireSelfTree(model.Catalog,table.Source);
                 if(!target.IsGlobal)return Gap("全局R1自树来源要求显式全局目标树。");
             }
             if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))return Gap("目标缺少项目归属或明确全局声明。");

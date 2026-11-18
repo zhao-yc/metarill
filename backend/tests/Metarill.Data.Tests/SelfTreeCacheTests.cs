@@ -72,11 +72,13 @@ public sealed class SelfTreeCacheTests
         catalog.ConfigPages[0].WhereSql="yz_project_id=@current_yz_project_id";
         Assert.Throws<NotSupportedException>(()=>RelationMutationPlan.Compile(catalog,[definition]));
     }
-    /// <summary>全局共享来源的副本必须使用发布树整链，项目列或普通目标不能借全局缓存读写。</summary>
+    /// <summary>整链刷新和目标反查使用同一来源范围，目标项目列不改写全局节点资格。</summary>
     [Theory]
-    [InlineData("string")]
-    [InlineData("int64")]
-    public void Global_shared_source_uses_complete_published_tree(string type)
+    [InlineData("string",null)]
+    [InlineData("int64",null)]
+    [InlineData("int64","string")]
+    [InlineData("string","int64")]
+    public void Global_shared_source_uses_complete_published_tree(string type,string? projectType)
     {
         var catalog=Catalog(type,"int64");
         var source=catalog.ConfigTables[0];
@@ -95,13 +97,30 @@ public sealed class SelfTreeCacheTests
             new(){Id="61",ConfigPageId="6",ConfigColumnId="value"},
             new(){Id="62",ConfigPageId="6",ConfigColumnId="parent"}
         ]);
-        Assert.Throws<NotSupportedException>(()=>SelfTreeCache.Compile(catalog,source.Id,"foreign","6"));
-        catalog.ConfigColumns.RemoveAll(field=>field.Id=="source_project");
+        if(projectType is null)catalog.ConfigColumns.RemoveAll(field=>field.Id=="source_project");
+        else catalog.ConfigColumns.Single(field=>field.Id=="source_project").LogicalType=projectType;
         var binding=SelfTreeCache.Compile(catalog,source.Id,"foreign","6");
         var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
-        var plan=maintenance.Plans[source.Id].Read!;
+        var sourcePlan=maintenance.Plans[source.Id];
+        var plan=sourcePlan.Read!;
         Assert.True(plan.RequiresPublishedProjectIdentity);
-        Assert.DoesNotContain("yz_project_id",plan.Scope);
+        Assert.Equal(projectType??"",sourcePlan.ProjectType);
+        // 夹具未声明逻辑删除，来源范围只使用物理项目列。
+        var expectedScope=projectType switch
+        {
+            "string"=>"b.`yz_project_id`=@project_scope_text",
+            "int64"=>"b.`yz_project_id`=@project_scope_number",
+            _=>"1=1"
+        };
+        Assert.Equal(expectedScope,plan.Scope);
+        Assert.Equal(projectType is not null,plan.PhysicalReferences.Any(reference=>reference.Table=="cache_source"&&reference.Column.Name=="yz_project_id"));
+        if(projectType is not null)
+        {
+            Assert.Throws<NotSupportedException>(()=>GlobalCachedRelationSource.Require(catalog,source));
+            catalog.ConfigColumns.Single(field=>field.Id=="source_project").IsVirtualColumn=1;
+            Assert.Throws<NotSupportedException>(()=>SelfTreeCache.Compile(catalog,source.Id,"foreign","6"));
+            catalog.ConfigColumns.Single(field=>field.Id=="source_project").IsVirtualColumn=0;
+        }
         Assert.Contains("WITH RECURSIVE",plan.Expression("tree_name"));
         Assert.Contains(8L,plan.Constants.Values);
         Assert.Contains("cache_node",maintenance.MixedTargets);

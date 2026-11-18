@@ -23,7 +23,7 @@ internal static class RedundantSelfTreeSubset
             if(table.Source.IsRongyu!=1||table.Source.IsView!=0||table.Source.IsFunctionTable!=0)return "R1自树完整用途要求普通实体及已证明的固定范围。";Realm(model,table,page);
             if(table.IsGlobal)
             {
-                GlobalCachedRelationSource.Require(model.Catalog,table.Source);
+                GlobalCachedRelationSource.RequireSelfTree(model.Catalog,table.Source);
             }
             var trees=table.Columns.Where(c=>c.Source.ControlKind=="CascadeTree"&&!NonRedundantCrossTableSubset.Declared(c)).ToArray();if(trees.Length==0||trees.Any(tree=>!FixedTarget(model,table,page,tree)))return "R1自树的当前路径、物理叶子缓存或传播维护尚未取得完整证明。";
             var cross=table.Columns.Any(NonRedundantCrossTableSubset.Declared);if(cross&&RedundantCrossTableSubset.Reason(model,table,page) is{} gap)return gap;

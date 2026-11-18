@@ -36,7 +36,7 @@ public sealed class AccountScopedCrossCache
 
     private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false)
     {
-        if(globalTreeSource)GlobalCachedRelationSource.Require(catalog,source);
+        if(globalTreeSource)GlobalCachedRelationSource.RequireSelfTree(catalog,source);
         if (source.IsRongyu != 1 || targetPage.ConfigTableId != target.Id || GlobalCrossTableTarget.Declared(source)&&!globalTreeSource ||
             source.IsView != 0 || source.IsFunctionTable != 0 || target.IsView != 0 || target.IsFunctionTable != 0 ||
             targetPage.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length > 0)

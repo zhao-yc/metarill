@@ -42,7 +42,9 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(true, true)]
     [InlineData(false,true,true)]
     [InlineData(true,true,true)]
-    public async Task Explicit_global_self_tree_publishes_with_original_fixed_scope(bool keepsProjectColumn,bool redundantSource,bool globalSource=false)
+    [InlineData(false,true,true,"string")]
+    [InlineData(true,true,true,"int64")]
+    public async Task Explicit_global_self_tree_publishes_with_original_fixed_scope(bool keepsProjectColumn,bool redundantSource,bool globalSource=false,string? sourceProjectType=null)
     {
         var catalog = RedundantMultiNameCacheTests.Published(Catalog("nr_tree", automatic: true));
         var target = catalog.ConfigTables.Single(table => table.Id == "3");
@@ -61,7 +63,14 @@ public sealed class NonRedundantSelfTreeTests
         if(globalSource)
         {
             catalog.ConfigTables.Single(table=>table.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-            catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="2"&&column.ColumnName=="yz_project_id");
+            if(sourceProjectType is null)
+                catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="2"&&column.ColumnName=="yz_project_id");
+            else
+            {
+                catalog.ConfigColumns.Single(column=>column.ConfigTableId=="2"&&column.ColumnName=="yz_project_id").LogicalType=sourceProjectType;
+                catalog.ConfigPages.Single(page=>page.Id=="201").IsDelete=1;
+            }
+            // 未声明显式项目条件时，生成的来源范围也必须使用真实行项目。
             catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql="";
         }
         var model = GenerationModel.Create(catalog, "Example.GlobalTree");
@@ -105,6 +114,19 @@ public sealed class NonRedundantSelfTreeTests
             var value = await runtime.Parse(new() { [header] = "上级/启用子项" });
             Assert.Equal("12", value["treeId"].GetString());
             await Assert.ThrowsAsync<Metarill.Core.Contracts.PageImportException>(() => runtime.Parse(new() { [header] = "上级/禁用子项" }));
+
+            if(sourceProjectType is not null)
+            {
+                Assert.Equal("yz_project_id",Assert.Single(FixedPageQueryCompilation.For(source,page).IdentityScopes).Column.Source.ColumnName);
+                var code=File.ReadAllText(Path.Combine(directory,"generated/Services/NrTreeSourceService.g.cs"));
+                Assert.Equal(4,code.Split("不能修改来源记录项目归属。",StringSplitOptions.None).Length-1);
+                Assert.Contains("entity.YzProjectId = long.Parse(actor.ProjectId",code);
+                runtime.Add("NrTreeSource",new Dictionary<string,object?>{["Id"]=100L,["Name"]="本项目",["YzProjectId"]=catalog.YzProjectId,["TreeId"]="12"});
+                runtime.Add("NrTreeSource",new Dictionary<string,object?>{["Id"]=101L,["Name"]="其他项目",["YzProjectId"]="2",["TreeId"]="12"});
+                var row=Assert.Single((await runtime.Export()).Rows);
+                Assert.Contains("本项目",row);
+                Assert.Contains("上级/启用子项",row);
+            }
 
             // 候选节点故意属于另一个行项目，仍须遵守固定的启用条件。
             void AddNode(long id, string name, long? parent = null, int status = 1)

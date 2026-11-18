@@ -65,7 +65,7 @@ public sealed class RelationMaintenanceCatalog
                 all.TryGetValue("yz_project_id",out var projectColumn);
                 if(globalSource)
                 {
-                    GlobalCachedRelationSource.Require(catalog,table);
+                    GlobalCachedRelationSource.RequireSelfTree(catalog,table);
                     foreach(var field in fields.Where(field=>!bindings.Any(binding=>binding.CacheColumnId==field.Id&&
                         SelfTreeCache.UsesWholePath(catalog,table,binding.SelfTreePageId))))
                         GlobalCachedRelationSource.RequireCache(catalog,table,field);
@@ -84,7 +84,7 @@ public sealed class RelationMaintenanceCatalog
                 var required=read.PhysicalReferences.Concat(fields.Select(field=>new MySqlPhysicalReference(table.TableName,MySqlSchemaPlanner.CompileColumn(field)))).DistinctBy(item=>(item.Table,item.Column.Name)).ToArray();
                 read=read.WithPhysicalReferences(required);
                 var multiples=bindings.Where(item=>item.Multiple).GroupBy(item=>item.ForeignColumnId).Select(group=>new MaintenanceMultiple(all.Values.Single(column=>column.Id==group.Key).ColumnName,all.Values.Single(column=>column.Id==group.Key).ControlKind=="MultiSelectPage"?200:5000,Array.AsReadOnly(group.Select(item=>all.Values.Single(column=>column.Id==item.CacheColumnId).ColumnName).ToArray()))).ToArray();
-                plans.Add(table.Id,new(option,globalSource?"":projectColumn!.LogicalType,all.ContainsKey("delete_no"),Array.AsReadOnly(results.ToArray()),Array.AsReadOnly(multiples),read,null));
+                plans.Add(table.Id,new(option,projectColumn?.LogicalType??"",all.ContainsKey("delete_no"),Array.AsReadOnly(results.ToArray()),Array.AsReadOnly(multiples),read,null));
             }
             catch(Exception error)when(error is InvalidOperationException or ArgumentException or NotSupportedException or JsonException){plans.Add(table.Id,new(option,"",false,[],[],null,"当前表回填计划未通过发布校验："+error.Message));}
         }

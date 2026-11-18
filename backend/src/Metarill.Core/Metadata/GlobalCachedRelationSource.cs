@@ -8,13 +8,23 @@ public sealed record GlobalCachedRelationBinding(ColumnMetadata Foreign,TableMet
 public static class GlobalCachedRelationSource
 {
     /// <summary>必须显式全局、同一发布目录、真实主键且完全没有项目列；不能以缺字段自动取得全局许可。</summary>
-    public static void Require(MetadataCatalog catalog,TableMetadata source)
+    public static void Require(MetadataCatalog catalog,TableMetadata source)=>Require(catalog,source,allowsRowProject:false);
+
+    /// <summary>自树缓存另允许真实的行项目列，普通全局 List 的发布范围沿用原约束。</summary>
+    public static void RequireSelfTree(MetadataCatalog catalog,TableMetadata source)=>Require(catalog,source,allowsRowProject:true);
+
+    /// <summary>全局发布身份与行归属分别验证，项目列只能使用原物理标量和两种 ID 类型。</summary>
+    private static void Require(MetadataCatalog catalog,TableMetadata source,bool allowsRowProject)
     {
         if(!long.TryParse(catalog.YzProjectId,NumberStyles.None,CultureInfo.InvariantCulture,out var project)||project<=0||catalog.YzProjectId!=project.ToString(CultureInfo.InvariantCulture))throw Invalid();
         if(!GlobalCrossTableTarget.Declared(source)||source.IsRongyu!=1||source.IsView!=0||source.IsFunctionTable!=0||source.YzProjectId!=catalog.YzProjectId||!ReferenceEquals(catalog.ConfigTables.SingleOrDefault(table=>table.Id==source.Id),source))throw Invalid();
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id).ToArray();
-        if(columns.Any(column=>column.ColumnName=="yz_project_id"||column.YzProjectId.Length>0&&column.YzProjectId!=catalog.YzProjectId))throw Invalid();
+        if(columns.Any(column=>column.YzProjectId.Length>0&&column.YzProjectId!=catalog.YzProjectId))throw Invalid();
         var storage=MetadataStoragePolicy.ForTable(catalog,source);var key=columns.SingleOrDefault(column=>column.ColumnName=="id");
+        var rowProject=columns.SingleOrDefault(column=>column.ColumnName=="yz_project_id");
+        if(rowProject is not null&&(!allowsRowProject||rowProject.LogicalType is not("int64" or "string")||
+            !storage.IsPhysical(rowProject)||Joined(rowProject)||rowProject.IsVirtualColumn!=0))
+            throw new NotSupportedException("全局R1来源的项目列需要已证明的自树用途及真实物理项目ID。");
         if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!storage.IsPhysical(key)||Joined(key)||key.IsVirtualColumn!=0)throw Invalid();
         var deleted=columns.SingleOrDefault(column=>column.ColumnName=="delete_no");
         if(deleted is not null&&(deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0||!storage.IsPhysical(deleted)||Joined(deleted)||deleted.IsVirtualColumn!=0))throw Invalid();

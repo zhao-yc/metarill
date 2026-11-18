@@ -345,7 +345,7 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             if(globalSource)
             {
-                GlobalCachedRelationSource.Require(catalog,root);
+                GlobalCachedRelationSource.RequireSelfTree(catalog,root);
                 foreach(var name in refreshFields!)
                 {
                     var field=columns[root.Id][name];
@@ -404,8 +404,10 @@ public static partial class MySqlNonRedundantReadCompiler
                     fields.Add(name);
                 }
             }
+            // 全局树允许跨行项目查节点；来源若保留物理项目列，回填和反查仍限该项目。
+            var sharedRefresh=globalSource&&!columns[root.Id].ContainsKey("yz_project_id");
             var scope=candidatePage is null
-                ?Scope(root,rootAlias,projectScoped:!globalSource&&!GlobalCrossCandidate&&(!globalDerivedSource||HasGlobalRowProject(root)))
+                ?Scope(root,rootAlias,projectScoped:!sharedRefresh&&!GlobalCrossCandidate&&(!globalDerivedSource||HasGlobalRowProject(root)))
                 :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:!physicalCandidate||accountPhysicalCandidate);
             if((globalSource||globalDerivedSource)&&scope.Length==0)scope="1=1";
             if(CrossCandidateCondition is not null||ScopedRootControls.Count>0)scope=FixedCrossCandidateScope(scope,expressions);
