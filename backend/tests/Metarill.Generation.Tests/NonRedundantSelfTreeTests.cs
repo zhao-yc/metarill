@@ -149,7 +149,9 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData("int64", "OverWriteByFirstColumn")]
     [InlineData("string", "OnlyNew", "int64")]
     [InlineData("int64", "OverWriteByFirstColumn", "string")]
-    public async Task Global_cached_self_tree_honors_independent_published_parent(string foreignType, string importMode, string? projectType=null)
+    [InlineData("string", "OnlyNew", "int64", true)]
+    [InlineData("int64", "OverWriteByFirstColumn", "string", true)]
+    public async Task Global_cached_self_tree_honors_independent_published_parent(string foreignType, string importMode, string? projectType=null, bool projectParent=false)
     {
         const string ns = "Example.GlobalTreeParent";
         var catalog = Catalog("parent_tree", automatic: true);
@@ -185,7 +187,12 @@ public sealed class NonRedundantSelfTreeTests
                 Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1), ["columnFullName"] = JsonSerializer.SerializeToElement("family.name") }
             }
         ]);
-        catalog.ConfigPages.Add(new() { Id = "401", ConfigTableId = "4", WhereSql = "status=1" });
+        if(projectParent)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="4").Extra.Remove("scopeKind");
+            catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",ColumnName="yz_project_id",LogicalType=foreignType});
+        }
+        catalog.ConfigPages.Add(new() { Id = "401", ConfigTableId = "4", WhereSql = projectParent?"yz_project_id=@current_yz_project_id AND status=1":"status=1" });
         catalog.ConfigPageColumns.Add(new() { Id = "4001", ConfigPageId = "401", ConfigColumnId = "42" });
         RedundantMultiNameCacheTests.Published(catalog);
 
@@ -226,14 +233,24 @@ public sealed class NonRedundantSelfTreeTests
             const string accepted = "9007199254741991";
             const string disabled = "9007199254741992";
             const string removed = "9007199254741993";
-            runtime.Add("ParentTreeFamily", new Dictionary<string, object?> { ["Id"] = accepted, ["Status"] = 1 });
-            runtime.Add("ParentTreeFamily", new Dictionary<string, object?> { ["Id"] = disabled, ["Status"] = 0 });
-            runtime.Add("ParentTreeFamily", new Dictionary<string, object?> { ["Id"] = removed, ["Status"] = 1, ["DeleteNo"] = new DateTime(2026, 10, 1) });
             const string secondParent = "9007199254741995";
-            runtime.Add("ParentTreeFamily", new Dictionary<string, object?> { ["Id"] = secondParent, ["Status"] = 1 });
+            const string foreignProjectParent = "9007199254741996";
+            AddParent(accepted,1);
+            AddParent(disabled,0);
+            AddParent(removed,1,new DateTime(2026,10,1));
+            AddParent(secondParent,1);
+            if(projectParent)AddParent(foreignProjectParent,1,project:"2");
+
+            void AddParent(string id,int status,DateTime? deleted=null,string? project=null)
+            {
+                var values=new Dictionary<string,object?>{["Id"]=id,["Status"]=status,["DeleteNo"]=deleted};
+                if(projectParent)values["YzProjectId"]=project??catalog.YzProjectId;
+                runtime.Add("ParentTreeFamily",values);
+            }
             AddSource(1L,"允许行",accepted,catalog.YzProjectId);
             AddSource(2L,"其他父行",secondParent,catalog.YzProjectId);
             if(projectType is not null)AddSource(3L,"其他项目行",accepted,"2");
+            if(projectParent)AddSource(4L,"引用了其他项目的父记录",foreignProjectParent,catalog.YzProjectId);
 
             void AddSource(long id,string name,string family,string project)
             {
@@ -246,7 +263,7 @@ public sealed class NonRedundantSelfTreeTests
             Assert.Contains("允许行", Assert.Single(export.Rows));
             Assert.Equal(0, runtime.ExportLockCount);
             Assert.True(runtime.Snapshots > 0);
-            foreach (var excluded in new[] { disabled, removed, "9007199254741994" })
+            foreach (var excluded in new[] { disabled, removed, "9007199254741994", foreignProjectParent })
             {
                 await Assert.ThrowsAsync<InvalidOperationException>(() => runtime.Export(new PageRequest { ParentId = excluded }));
                 await Assert.ThrowsAsync<InvalidOperationException>(() => runtime.Import([], excluded));
@@ -257,7 +274,7 @@ public sealed class NonRedundantSelfTreeTests
 
             catalog.ConfigPages.Single(item => item.Id == "401").WhereSql = "status=@parent_id";
             var rejected = Assert.Throws<NotSupportedException>(() => new FrontendPackager().Validate(catalog));
-            Assert.Contains("固定条件", rejected.Message);
+            Assert.Contains("条件", rejected.Message);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }

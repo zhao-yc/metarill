@@ -1,6 +1,6 @@
 namespace Metarill.Generation;
 
-/// <summary>无项目列R1来源的原物理List父上下文；只验证已发布父实体及活动状态，不扩大页面权限。</summary>
+/// <summary>全局冗余来源的原物理 List 父上下文，普通项目父保留自己的归属和活动范围。</summary>
 internal static class GlobalCachedParentCompilation
 {
     /// <summary>父字段必须确为当前页的固定parent范围，并复用同一已证明List关系。</summary>
@@ -15,7 +15,8 @@ internal static class GlobalCachedParentCompilation
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
         if(parents.Length!=1)return null;
         var binding=ForColumn(model,table,page,parents[0].Column);
-        return binding is not null&&binding.Target.Source.Id!=table.Source.Id&&binding.Page.Scopes.Count==0&&
+        return binding is not null&&binding.Target.Source.Id!=table.Source.Id&&
+            binding.Page.Scopes.All(scope=>!binding.Target.IsGlobal&&scope.Source=="project")&&
             !FixedPageConditionCompilation.HasCrossFields(binding.Page)&&!FixedPageConditionCompilation.HasAccountVariables(binding.Page)
             ?binding:null;
     }
@@ -92,11 +93,17 @@ internal static class GlobalCachedParentCompilation
             var conditionName="GlobalTreeParentCondition"+page.Source.Id+"_"+binding.Foreign.Source.Id;
             var usesTreeParent=treeParent?.Foreign.Source.Id==binding.Foreign.Source.Id;
             if(usesTreeParent)result.Append(FixedPageConditionCompilation.Declaration(binding.Page,conditionName));
-            result.AppendLine("    /// <summary>全局父只属于当前发布目录；parentId不是项目或权限证明。</summary>")
+            result.AppendLine("    /// <summary>父记录使用实际发布范围；parentId 必须通过归属和活动状态校验。</summary>")
                 .AppendLine($"    private async Task ValidateGlobalCachedParent{page.Source.Id}_{binding.Foreign.Source.Id}Async(string? parentId,RuntimeActor actor,bool locking,CancellationToken cancellationToken)")
                 .AppendLine("    {").AppendLine("        ValidateActor(actor);")
                 .AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var key)||key<=0||parentId!=key.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");")
                 .AppendLine($"        var query=session.Select<{binding.Target.EntityType}>().Where(entity=>entity.Id==key);");
+            if(!binding.Target.IsGlobal)
+            {
+                var project=binding.Target.Columns.Single(column=>column.Source.ColumnName=="yz_project_id");
+                var key=project.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)";
+                result.AppendLine($"        query=query.Where(entity=>entity.{project.Property}=={key});");
+            }
             if(binding.Target.Columns.Any(column=>column.Source.ColumnName=="delete_no"))result.AppendLine("        query=query.Where(entity=>entity.DeleteNo==null);");
             if(usesTreeParent)result.Append(FixedPageConditionCompilation.Apply(binding.Page,conditionName,"tree_parent_"+page.Source.Id));
             result.AppendLine("        if(locking){if((await query.ForUpdate().Limit(1).ToListAsync(entity=>new{entity.Id},cancellationToken)).Count!=1)throw new InvalidOperationException(\"父记录不存在或已删除。\");}")

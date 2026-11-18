@@ -39,10 +39,11 @@ internal static class GlobalCachedSourceCompilation
         foreach(var table in model.Tables.Where(table=>table.IsGlobal&&table.Source.IsRongyu==1))
         foreach(var foreign in table.Columns.Where(column=>!column.IsSystem&&column.Source.ControlKind=="List"))
         {
-            if(table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id")&&
-                GlobalCachedRelationSource.RowProjectSelfTreeParentPages(model.Catalog,table.Source,foreign.Source).Count==0)continue;
-            var target=ForeignValidationRenderer.Target(model,foreign);if(target is null||!target.IsGlobal)continue;
-            var single=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source);
+            var rowProject=table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id");
+            if(rowProject&&GlobalCachedRelationSource.RowProjectSelfTreeParentPages(model.Catalog,table.Source,foreign.Source).Count==0)continue;
+            var target=ForeignValidationRenderer.Target(model,foreign);if(target is null||!rowProject&&!target.IsGlobal)continue;
+            var single=target.IsGlobal?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source)
+                :GlobalSingleRelationTarget.RequireProjectParent(model.Catalog,table.Source,foreign.Source,target.Source);
             var cache=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==foreign.Source.ColumnName[..^3]+"_"+single.Name.ColumnName)??throw new NotSupportedException("全局List来源必须声明原物理名称副本。");
             var proof=GlobalCachedRelationSource.RequireCache(model.Catalog,table.Source,cache.Source);
             foreach(var field in model.Catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==foreign.Source.Id))

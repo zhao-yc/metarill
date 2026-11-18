@@ -62,6 +62,12 @@ internal static class RelationCompilation
             {
                 var global=owner.Source.IsRongyu==1?Metarill.Core.Metadata.GlobalSingleRelationTarget.RequireCached(model.Catalog,owner.Source,source.Source,target.Source):Metarill.Core.Metadata.GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source);targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);if(name.Source.Id!=global.Name.Id)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
             }
+            if(owner.IsGlobal&&!target.IsGlobal&&GlobalCachedSourceCompilation.ForModel(model)
+                .SingleOrDefault(binding=>binding.Source.Source.Id==owner.Source.Id&&binding.Foreign.Source.Id==source.Source.Id) is {} parent)
+            {
+                targetPage=target.Pages.Single(candidate=>candidate.Source.Id==parent.Page.Source.Id);
+                if(name.Source.Id!=parent.Name.Source.Id)throw new InvalidOperationException("普通父关系页级名称与发布来源不一致。");
+            }
             if (targetPage is null) continue;
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model, owner, page, target, Mapped("whereSql"));

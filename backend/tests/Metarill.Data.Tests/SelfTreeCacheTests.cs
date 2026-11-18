@@ -135,7 +135,9 @@ public sealed class SelfTreeCacheTests
     [Theory]
     [InlineData("string", "int64")]
     [InlineData("int64", "string")]
-    public void Published_global_parent_and_project_source_share_the_maintenance_scope(string parentType,string projectType)
+    [InlineData("string", "int64", true)]
+    [InlineData("int64", "string", true)]
+    public void Published_global_parent_and_project_source_share_the_maintenance_scope(string parentType,string projectType,bool projectParent=false)
     {
         var catalog=Catalog(parentType,"int64");
         var source=catalog.ConfigTables[0];
@@ -157,11 +159,16 @@ public sealed class SelfTreeCacheTests
             new(){Id="family_name",ConfigTableId=family.Id,ColumnName="name",LogicalType="string"},
             new(){Id="family_status",ConfigTableId=family.Id,ColumnName="status",LogicalType="int32"}
         ]);
+        if(projectParent)
+        {
+            family.Extra.Remove("scopeKind");
+            catalog.ConfigColumns.Add(new(){Id="family_project",ConfigTableId=family.Id,ColumnName="yz_project_id",LogicalType=parentType});
+        }
         catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
         var sourcePage=new PageMetadata{Id="source_page",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",WhereSql="family_id=@parentId"};
         catalog.ConfigPages.AddRange([sourcePage,
             new(){Id="tree_page",ConfigTableId=tree.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",WhereSql="id>8"},
-            new(){Id="family_page",ConfigTableId=family.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",WhereSql="status=1"}
+            new(){Id="family_page",ConfigTableId=family.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",WhereSql=projectParent?"yz_project_id=@current_yz_project_id AND status=1":"status=1"}
         ]);
         catalog.ConfigPageColumns.AddRange([
             new(){Id="61",ConfigPageId="tree_page",ConfigColumnId="value"},
@@ -178,6 +185,15 @@ public sealed class SelfTreeCacheTests
         var parent=Assert.Single(plan.Reverse,reverse=>reverse.TargetTable==family.TableName);
         Assert.Contains("status",parent.Outputs["family_name"]);
         Assert.Contains("name",parent.Outputs["family_name"]);
+        if(projectParent)
+        {
+            Assert.Contains("r0.`yz_project_id`="+(parentType=="string"?"@project_scope_text":"@project_scope_number"),plan.From);
+            Assert.Contains("yz_project_id",parent.Outputs["family_name"]);
+            var familyProject=catalog.ConfigColumns.Single(column=>column.Id=="family_project");
+            familyProject.IsVirtualColumn=1;
+            Assert.Throws<NotSupportedException>(()=>GlobalCachedRelationSource.RequireCache(catalog,source,cache));
+            familyProject.IsVirtualColumn=0;
+        }
         Assert.Contains("tree_name",maintenance.MixedSourceColumns[source.TableName]);
         Assert.Contains("family_name",maintenance.MixedSourceColumns[source.TableName]);
 

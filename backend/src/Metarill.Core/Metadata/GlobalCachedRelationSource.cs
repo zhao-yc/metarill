@@ -72,8 +72,12 @@ public static class GlobalCachedRelationSource
         using var definition=JsonDocument.Parse(foreign.ControlDetail);var root=definition.RootElement;
         string Value(string key)=>root.TryGetProperty(key,out var value)&&value.ValueKind is JsonValueKind.String or JsonValueKind.Number?value.ToString():"";
         var targetId=foreign.LinkConfigTableId.Length>0?foreign.LinkConfigTableId:Value("tableId");var name=Value("table");
-        var targets=catalog.ConfigTables.Where(table=>targetId.Length>0?table.Id==targetId:table.TableName==name).ToArray();if(targets.Length!=1||!GlobalCrossTableTarget.Declared(targets[0]))throw Invalid();
-        var proof=GlobalSingleRelationTarget.RequireCachedValue(catalog,source,foreign,targets[0],resolving);var stem=foreign.ColumnName[..^3];
+        var targets=catalog.ConfigTables.Where(table=>targetId.Length>0?table.Id==targetId:table.TableName==name).ToArray();if(targets.Length!=1)throw Invalid();
+        var target=targets[0];
+        var proof=GlobalCrossTableTarget.Declared(target)
+            ?GlobalSingleRelationTarget.RequireCachedValue(catalog,source,foreign,target,resolving)
+            :GlobalSingleRelationTarget.RequireProjectParent(catalog,source,foreign,target);
+        var stem=foreign.ColumnName[..^3];
         // 同类型副本由写入和回填共同使用，避免整数截断或隐式转为字符串。
         if(path[1]!=proof.Name.ColumnName||cache.ColumnName!=stem+"_"+proof.Name.ColumnName||cache.LogicalType!=proof.Name.LogicalType)throw Invalid();
         return new(foreign,targets[0],proof.Page,proof.Name,cache);
