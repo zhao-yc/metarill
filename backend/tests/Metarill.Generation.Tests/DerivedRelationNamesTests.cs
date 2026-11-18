@@ -91,8 +91,15 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true,true,true,null,true,true,false,false,false,true)]
     [InlineData(false,true,true,null,false,true,true,true,false,true,true)]
     [InlineData(true,false,true,null,false,true,false,false,false,true,true)]
+    [InlineData(false,false,true,null,true,true,false,false,true,true)]
+    [InlineData(true,true,true,null,true,true,false,false,true,true)]
+    [InlineData(false,true,true,null,false,true,true,true,true,true,true)]
+    [InlineData(true,false,true,null,false,true,false,false,true,true,true)]
+    [InlineData(false,true,true,null,false,true,false,false,true,true,false)]
+    [InlineData(true,false,true,null,false,true,false,false,true,true,false,false,false,false,null,false,false,true)]
+    [InlineData(true,true,true,null,true,true,false,false,true,true,false,false,false,false,null,false,false,true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false,string? rowProjectType=null,bool pageOnly=false,bool buttonOverride=false)
+        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false,string? rowProjectType=null,bool pageOnly=false,bool buttonOverride=false,bool independentScope=false)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -107,7 +114,7 @@ public sealed class DerivedRelationNamesTests
         var label=derived?"company_name":"name";
         var logicalField=cross?"country_name":"tree_name";
         var controlWhere=selection||listCondition?logicalField+" <> '排除叶名'":parent?"segment=@formParameters.segment":"";
-        var parentOnly=logicalParent&&selection&&globalParent;
+        var parentOnly=logicalParent&&selection&&globalParent&&globalWithProject is not null;
         if(parentOnly)controlWhere="";
         if(listCondition&&parent)controlWhere+= " AND segment=@formParameters.segment";
         if(listCondition&&globalWithProject is not null)controlWhere+=" AND store_id=@current_store_id";
@@ -187,12 +194,38 @@ public sealed class DerivedRelationNamesTests
                 catalog.ConfigTables.Single(table=>table.Id=="6").Extra.Remove("scopeKind");
                 catalog.ConfigPages.Single(page=>page.Id=="601").WhereSql="yz_project_id=@current_yz_project_id AND name <> '停用树节点'";
             }
+            if(globalParent&&globalWithProject is null)
+            {
+                catalog.ConfigTables.Single(table=>table.Id=="6").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                catalog.ConfigPages.Single(page=>page.Id=="601").WhereSql="name <> '停用全局父' AND store_id=@current_store_id";
+                catalog.ConfigColumns.RemoveAll(column=>column.Id=="62");
+                catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="62");
+                catalog.ConfigColumns.Add(new(){Id="66",ConfigTableId="6",ColumnName="store_id",LogicalType="int64"});
+            }
             catalog.ConfigColumns.Single(column=>column.Id=="19").LinkConfigTableId="6";
             catalog.ConfigColumns.RemoveAll(column=>column.Id=="29");
             catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId=="29");
             target.WhereSql=target.WhereSql.Contains("group_id=@parent_id",StringComparison.Ordinal)
                 ?target.WhereSql.Replace("group_id=@parent_id","country_id=@parent_id",StringComparison.Ordinal)
                 :target.WhereSql+" AND country_id=@parent_id";
+        }
+        if(independentScope)
+        {
+            // 独立表单通过原可编辑物理字段提供父键，弹层从行数据取值。
+            var parentColumn=catalog.ConfigColumns.Single(column=>column.Id=="19");
+            foreach(var source in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+            {
+                source.WhereSql="yz_project_id=@current_yz_project_id";
+                var field=catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==source.Id&&item.ConfigColumnId==parentColumn.Id);
+                if(field is null)
+                {
+                    field=new(){Id=source.Id+"_"+parentColumn.Id,ConfigPageId=source.Id,ConfigColumnId=parentColumn.Id};
+                    catalog.ConfigPageColumns.Add(field);
+                }
+                field.IsShow=1;field.IsEdit=1;
+                field.Extra["isInGrid"]=JsonSerializer.SerializeToElement(1);
+                field.Extra["isInEdit"]=JsonSerializer.SerializeToElement(1);
+            }
         }
         if(logicalSource)
         {
@@ -385,9 +418,19 @@ public sealed class DerivedRelationNamesTests
                 if(selection)
                 {
                     var detail=File.ReadAllText(Path.Combine(directory,"generated/frontend/pages/yzp/dr_names_order-detail-101.vue"));
-                    Assert.Contains(":parent_id=\"parent_id\"",detail);
+                    Assert.Contains(independentScope?":parent_id=\"entity.groupId\"":":parent_id=\"parent_id\"",detail);
                 }
                 if(!redundant)Assert.Contains("ReadPlan101=global::Example.ScopedSingleRelation.Generated.GeneratedNonRedundantReadCatalog.CompileProjectPage(",service);
+                if(globalParent&&!logicalSource)
+                {
+                    if(independentScope)
+                    {
+                        var block=service[service.IndexOf("private async Task ValidateRelations101Async(",StringComparison.Ordinal)..];
+                        Assert.Contains("OptionsGlobalParent101_15.BindAccount(actor)",block);
+                        Assert.Contains("submitted.Contains(\"group_id\")) && entity.CustomerId",block);
+                    }
+                    else Assert.Contains("PageMultiGlobalParent101.BindAccount(actor)",service);
+                }
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             foreach(var name in new[]{"DrNamesOrderService","DrNamesPartyService"})

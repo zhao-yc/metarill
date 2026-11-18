@@ -44,7 +44,7 @@ internal static class MultiGlobalParentCompilation
     internal static PageModel? PhysicalScopeTarget(GenerationModel model,TableModel table,PageModel page)=>
         PhysicalTarget(model,table,page)??PhysicalSourceTarget(model,table,page);
 
-    /// <summary>独立物理来源父必须实际参与同父多值关系，且同一来源页的关系只能证明同一个目标父范围。</summary>
+    /// <summary>物理来源父必须参与已发布的同父关系，同一来源页使用唯一的全局父范围。</summary>
     internal static PageModel? PhysicalSourceTarget(GenerationModel model,TableModel table,PageModel page)
     {
         var scopes=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
@@ -53,7 +53,7 @@ internal static class MultiGlobalParentCompilation
         var targets=MultiSelectCompilation.ForService(model,table,page).Where(multi=>multi.GlobalParent&&multi.SameParent)
             .Select(multi=>multi.TargetPage).Concat(DatabaseCheckboxCompilation.ForService(model,table,page)
                 .Where(checkbox=>checkbox.GlobalParent).Select(checkbox=>checkbox.LogicalTargetPage!))
-            .Concat(SingleParentTargets(model,table,source).Select(binding=>binding.Target))
+            .Concat(SingleParentTargets(model,table,page,source).Select(binding=>binding.Target))
             .DistinctBy(target=>NonRedundantReads.MultiGlobalParentPageId(model.Catalog,
                 target.Source.ConfigTableId,target.Source.Id),StringComparer.Ordinal).ToArray();
         if(targets.Length>1)throw new NotSupportedException("同一来源页的全局父范围须绑定同一个实际父页面。");
@@ -61,32 +61,52 @@ internal static class MultiGlobalParentCompilation
     }
 
     /// <summary>独立表单父键也须有唯一父页；写入只读取该字段已有的物理值。</summary>
-    internal static (ColumnModel Foreign,PageModel Target)? SingleParentBinding(GenerationModel model,TableModel table,ColumnModel source)
+    internal static (ColumnModel Foreign,PageModel Target)? SingleParentBinding(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
-        var bindings=SingleParentTargets(model,table,source).ToArray();
+        var bindings=SingleParentTargets(model,table,page,source).ToArray();
         if(bindings.Select(binding=>NonRedundantReads.MultiGlobalParentPageId(model.Catalog,
             binding.Target.Source.ConfigTableId,binding.Target.Source.Id)).Distinct(StringComparer.Ordinal).Skip(1).Any())
             throw new NotSupportedException("同一物理父键须绑定同一个实际全局父页。");
         return bindings.Length==0?null:bindings[0];
     }
 
-    /// <summary>只从表级单值证明取持久父键，避免在关系编译内递归解析生成后的候选。</summary>
-    private static IEnumerable<(ColumnModel Foreign,PageModel Target)> SingleParentTargets(GenerationModel model,TableModel table,ColumnModel source)
+    /// <summary>直接从当前页的单值配置取得持久父键，生成关系时无需递归调用候选编译。</summary>
+    private static IEnumerable<(ColumnModel Foreign,PageModel Target)> SingleParentTargets(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
         if(ForeignValidationRenderer.Target(model,source) is not {IsGlobal:true} parentTable)yield break;
         foreach(var foreign in table.Columns.Where(column=>column.Source.ControlKind is "List" or "SelectPage"&&column.Source.Id!=source.Source.Id))
         {
-            if(ForeignValidationRenderer.Target(model,foreign) is not {IsGlobal:true} target||
-                !target.Pages.Any(page=>SingleTarget(model,target,page)?.Parent.Id==parentTable.Source.Id))
+            if(ForeignValidationRenderer.Target(model,foreign) is not {} target)continue;
+            if(target.IsGlobal)
+            {
+                if(!target.Pages.Any(candidate=>SingleTarget(model,target,candidate)?.Parent.Id==parentTable.Source.Id))
+                    continue;
+                var proof=table.Source.IsRongyu==1
+                    ?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source)
+                    :GlobalSingleRelationTarget.Require(model.Catalog,table.Source,foreign.Source,target.Source);
+                if(proof.Parent is {Global:true}&&proof.SourceParent is {LogicalPages.Count:0} fixedSource&&
+                    fixedSource.Column.Id==source.Source.Id)
+                    yield return (foreign,target.Pages.Single(candidate=>candidate.Source.Id==proof.Page.Id));
                 continue;
-            var proof=table.Source.IsRongyu==1
-                ?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source)
-                :GlobalSingleRelationTarget.Require(model.Catalog,table.Source,foreign.Source,target.Source);
-            if(proof.Parent is not {Global:true} parent||
-                proof.SourceParent is not {LogicalPages.Count:0} sourceParent||sourceParent.Column.Id!=source.Source.Id)
-                continue;
-            yield return (foreign,target.Pages.Single(page=>page.Source.Id==proof.Page.Id));
+            }
+            if(table.IsGlobal||target.Source.IsRongyu!=0)continue;
+            var targetPage=ProjectSinglePage(model,page,foreign,target);
+            if(targetPage is null||SingleTarget(model,target,targetPage) is not {Logical:true} parent||
+                parent.Parent.Id!=parentTable.Source.Id)continue;
+            var sourceBinding=parent.SingleSource(model.Catalog,table.Source,foreign.Source);
+            if(sourceBinding.LogicalPages.Count==0&&sourceBinding.Column.Id==source.Source.Id)
+                yield return (foreign,targetPage);
         }
+    }
+
+    /// <summary>项目内单选取当前页面的有效配置，下拉沿用原目标页回退规则。</summary>
+    private static PageModel? ProjectSinglePage(GenerationModel model,PageModel page,ColumnModel column,TableModel target)
+    {
+        if(column.Source.ControlKind=="List")return RelationCompilation.ListTargetPage(target,page,column,requireExplicit:false);
+        var configuration=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>
+            field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id);
+        var definition=SelectionControlDefinition.Resolve(column,configuration);
+        return target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==definition.PageId);
     }
 
     private static string Literal(string value)=>JsonSerializer.Serialize(value);

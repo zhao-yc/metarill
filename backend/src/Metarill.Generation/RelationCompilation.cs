@@ -155,7 +155,7 @@ internal static class RelationCompilation
         (targetPage.Condition is not null||targetPage.Scopes.Any(scope=>scope.Source=="parent"));
 
     /// <summary>运行时和私有写校验使用同一个原绑定页或原后台的无父目标页。</summary>
-    private static PageModel? ListTargetPage(TableModel target,PageModel page,ColumnModel source,bool requireExplicit=true)
+    internal static PageModel? ListTargetPage(TableModel target,PageModel page,ColumnModel source,bool requireExplicit=true)
     {
         var explicitPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
         return !string.IsNullOrWhiteSpace(explicitPage)

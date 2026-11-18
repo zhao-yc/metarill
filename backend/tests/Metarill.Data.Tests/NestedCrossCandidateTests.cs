@@ -727,7 +727,11 @@ public sealed class NestedCrossCandidateTests
     [InlineData("SelectPage","int64",false)]
     [InlineData("List","string",true)]
     [InlineData("SelectPage","int64",true)]
-    public void Project_single_matches_logical_parent_in_candidate_live_read_and_cache(string kind,string key,bool account)
+    [InlineData("List","string",false,true)]
+    [InlineData("SelectPage","int64",false,true)]
+    [InlineData("List","string",true,true)]
+    [InlineData("SelectPage","int64",true,true)]
+    public void Project_single_matches_logical_parent_in_candidate_live_read_and_cache(string kind,string key,bool account,bool globalParent=false)
     {
         var catalog=Catalog(false);
         var source=catalog.ConfigTables.Single(table=>table.Id=="90");
@@ -737,11 +741,23 @@ public sealed class NestedCrossCandidateTests
         page.WhereSql="yz_project_id=@current_yz_project_id AND country_id=@parent_id"+
             (account?" AND store_id=@current_store_id AND country_name <> '停用国家'":"");
         if(kind=="SelectPage")page.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        if(globalParent)
+        {
+            var parent=catalog.ConfigTables.Single(table=>table.Id=="2");
+            parent.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            var parentPage=catalog.ConfigPages.Single(item=>item.Id=="21");
+            parentPage.YzAdminTypeId="5";
+            parentPage.WhereSql="title <> '停用全局父' AND store_id=@current_store_id";
+            catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="23");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="23");
+            catalog.ConfigColumns.Add(new(){Id="26",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"});
+        }
 
         catalog.ConfigColumns.RemoveAll(column=>column.Id=="9004");
         catalog.ConfigPages.Add(new(){Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,
             WhereSql="yz_project_id=@current_yz_project_id AND group_id=@parent_id"+
-                (account?" AND store_id=@current_store_id":"")});
+                (account||globalParent?" AND store_id=@current_store_id":"")});
         var relation=new ColumnMetadata{Id="9014",ConfigTableId=source.Id,ColumnName="shared_id",LogicalType=key,
             ControlKind=kind,LinkConfigTableId=target.Id,ControlDetail=JsonSerializer.Serialize(new{tableId=target.Id,pageId=page.Id}),
             Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement(page.Id)}};
@@ -756,6 +772,15 @@ public sealed class NestedCrossCandidateTests
         Assert.Equal("country_id",candidate.MySql.RequiredMultiParent);
         Assert.Contains("CASE WHEN",candidate.MySql.Expression("country_id"));
         Assert.Contains("b.`yz_project_id`=@project_scope_number",candidate.MySql.Scope);
+        if(globalParent)
+        {
+            Assert.Equal("21",NonRedundantReads.MultiGlobalParentPageId(catalog,target.Id,page.Id));
+            var published=NonRedundantReads.CompileMultiGlobalParent(catalog,target.Id,page.Id).BindAccount(actor);
+            Assert.Contains("停用全局父",published.MySql.Constants.Values);
+            Assert.Contains(actor.StoreId!.Value,published.MySql.Constants.Values);
+            Assert.Contains("停用全局父",candidate.MySql.Constants.Values);
+            Assert.Contains(actor.StoreId.Value,candidate.MySql.Constants.Values);
+        }
         using var session=new DatabaseSession(new(){ExpectedDatabase="offline",
             ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
         Assert.Throws<InvalidOperationException>(()=>NonRedundantCrossTableScopeSql.ApplyCandidate(
@@ -767,7 +792,7 @@ public sealed class NestedCrossCandidateTests
 
         var readBinding=new NonRedundantSingleTargetScope(relation.Id,page.Id,"9017");
         var live=NonRedundantReads.CompileProjectPage(catalog,source.Id,["id","shared_name"],[],[],[readBinding]).MySql;
-        Assert.Equal(account,live.RequiresAccount);
+        Assert.Equal(account||globalParent,live.RequiresAccount);
         Assert.Contains("CASE WHEN",live.From);
         Assert.Contains("BINARY CAST(b.`group_id` AS CHAR)",live.From);
         Assert.Throws<InvalidOperationException>(()=>NonRedundantReads.CompileProjectPage(catalog,source.Id,
@@ -782,9 +807,17 @@ public sealed class NestedCrossCandidateTests
         var cacheSql=consumer.Read.Expression("shared_name");
         Assert.Contains("CASE WHEN",cacheSql);
         Assert.Contains("b.`group_id`",cacheSql);
-        Assert.Equal(account,cacheSql.Contains("b.`store_id`",StringComparison.Ordinal));
+        Assert.Equal(account||globalParent,cacheSql.Contains("b.`store_id`",StringComparison.Ordinal));
         Assert.Contains("group_id",consumer.Inputs);
         Assert.Contains(consumer.Read.Reverse,item=>item.TargetTable=="nested_country"&&item.Outputs.ContainsKey("shared_name"));
+        if(globalParent)
+        {
+            // 全局父的账号比较位于相关路径表达式中，目标页无账号条件时它仍生效。
+            Assert.Contains("store_id",consumer.Inputs);
+            Assert.Contains("停用全局父",consumer.Read.Constants.Values);
+            Assert.Contains(consumer.Read.Reverse,item=>item.TargetTable=="nested_country"&&
+                item.Outputs.TryGetValue("shared_name",out var fields)&&fields.Contains("store_id"));
+        }
     }
 
     /// <summary>回填使用来源行归属；内层路径变化与直接改名都能找到需要更新的缓存。</summary>

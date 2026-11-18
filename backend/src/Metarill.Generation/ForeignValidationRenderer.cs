@@ -71,7 +71,7 @@ internal static class ForeignValidationRenderer
                 continue;
             }
             if(column.Source.ControlKind is not("List" or "SelectPage")&&
-                MultiGlobalParentCompilation.SingleParentBinding(model,table,column) is {} fixedParent)
+                MultiGlobalParentCompilation.SingleParentBinding(model,table,page,column) is {} fixedParent)
             {
                 var key=IdExpression(column);
                 var plan="OptionsGlobalParent"+page.Source.Id+"_"+fixedParent.Foreign.Source.Id;
