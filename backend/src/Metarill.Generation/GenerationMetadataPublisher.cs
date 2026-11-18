@@ -32,7 +32,7 @@ public static class GenerationMetadataPublisher
     }
 
     /// <summary>关系执行目录先脱敏，再去掉品牌、菜单及布局；纯配置更新不因此强制更新后端生成代码。</summary>
-    internal static MetadataCatalog ForRelations(MetadataCatalog catalog,IReadOnlySet<string>? cascadePages=null)
+    internal static MetadataCatalog ForRelations(MetadataCatalog catalog,IReadOnlySet<string>? cascadePages=null,IEnumerable<string>? selfTreeNamePages=null)
     {
         // 关系编译维持生成器的定义错误合同；直接发布保留原ArgumentException及原门禁边界。
         MetadataCatalog published;
@@ -45,7 +45,8 @@ public static class GenerationMetadataPublisher
         {
             using var detail=JsonDocument.Parse(string.IsNullOrWhiteSpace(field.ControlDetail)?"{}":field.ControlDetail);var root=detail.RootElement;if(root.ValueKind!=JsonValueKind.Object)continue;var pageId=root.TryGetProperty("pageId",out var id)?id.ToString():field.Extra.GetValueOrDefault("linkConfigPageId").ToString();var targetPage=published.ConfigPages.SingleOrDefault(p=>p.Id==pageId);if(targetPage is null)continue;var target=published.ConfigTables.Single(t=>t.Id==targetPage.ConfigTableId);if(target.IsRongyu!=0)continue;var name=root.TryGetProperty("nameField",out var n)&&n.ValueKind==JsonValueKind.String&&!string.IsNullOrWhiteSpace(n.GetString())?n.GetString()!:"name";var value=published.ConfigColumns.SingleOrDefault(c=>c.ConfigTableId==target.Id&&c.ColumnName==name);if(value is null||MetadataStoragePolicy.ForTable(published,target).IsPhysical(value))continue;if(!multiProof.TryGetValue(pageId,out var names))multiProof[pageId]=names=new(StringComparer.Ordinal);names.Add(value.Id);
         }
-        var labelPages=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.PublishedCascadeLabelPages(catalog,out var labelOwnershipPages);
+        var labelPages=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.PublishedCascadeLabelPages(catalog,out var labelOwnershipPages)
+            .Concat(selfTreeNamePages??[]).ToHashSet(StringComparer.Ordinal);
         published.ConfigMenus=[];published.ConfigCustomPages=[];
         published.ConfigPageColumns=published.ConfigPageColumns.Where(f=>labelPages.Contains(f.ConfigPageId)||
             multiProof.TryGetValue(f.ConfigPageId,out var names)&&names.Contains(f.ConfigColumnId)).Select(f=>new PageColumnMetadata

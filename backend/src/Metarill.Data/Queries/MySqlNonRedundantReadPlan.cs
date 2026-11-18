@@ -388,7 +388,14 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     if(table.IsRongyu!=0||!name.Equals(tree.ColumnName[..^3]+"_name",StringComparison.OrdinalIgnoreCase))continue;
                     var definition=Definition(tree);if(Value(definition,"sourceMode")!="selfTree")continue;
-                    if(matching||alias!=rootAlias||!deferCascadeNames||queryDependencies.Contains(name))throw new NotSupportedException("级联名称要求已证明的来源图投影，不能当作精确匹配、筛选排序或跨表派生值。");
+                    if(matching||alias!=rootAlias||!deferCascadeNames)throw new NotSupportedException("级联名称要求已证明的来源图投影，不能当作精确匹配或跨表派生值。");
+                    // 原叶名筛选和排序先验证整条可见祖先链，再参与 SQL 分页或统计。
+                    if(queryDependencies.Contains(name))
+                    {
+                        if(column is null||column.LogicalType!="string"||storage[table.Id].IsPhysical(column))
+                            throw new NotSupportedException("自树名称查询依赖须为已声明的逻辑文本名称。");
+                        return (SelfTreeLabelExpression(table,alias,tree,column),"string");
+                    }
                     if(!storage[table.Id].IsPhysical(tree)||!definition.TryGetProperty("selfTree",out var settings)||settings.ValueKind!=JsonValueKind.Object)throw new InvalidOperationException("自树派生名称缺少物理来源和固定定义。");
                     var target=tables.Values.SingleOrDefault(item=>item.TableName==Value(settings,"table"))??throw new InvalidOperationException("自树名称目标不属于发布项目。");ValidateTarget(target);
                     var targetName=Value(settings,"nameField");if(targetName.Length==0)targetName="name";var value=Column(target,targetName);
@@ -400,7 +407,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         if(nested.Types[value.ColumnName]!=value.LogicalType||nested.MultiProjections.Count>0||nested.Crosses.Count>0||!nested.Origins.TryGetValue(value.ColumnName,out var terminal)||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("自树名称必须落到同类型的非凭据标量。");
                     }
                     // 明确交由生成服务的固定图投影，SQL阶段不读取未经完整祖先范围证明的叶子名称。
-                    // 只有显式选择此两阶段用途时才生成占位；普通读取和名称查询依赖一律拒绝。
+                    // 只有名称不参与查询依赖时使用占位，由生成服务统一补齐名称和展示路径。
                     return ("NULL","string");
                 }
                 // 稀疏存储位不是完整逻辑路径；固定SQL投影接通前拒绝将原始空位当作祖先值发布。

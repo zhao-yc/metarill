@@ -16,12 +16,12 @@ internal static class CascadeTreeReadCompilation
     internal static IReadOnlyList<CascadeTreeReadModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>Resolve(model,table,page,column).Definition).OfType<CascadeTreeReadModel>().ToArray();
 
     /// <summary>目标页必须唯一且明确可读；模糊范围不能退化为表级宽查询。</summary>
-    internal static CascadeTreeReadResult Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
+    internal static CascadeTreeReadResult Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source,bool usePageDetail=true)
     {
         CascadeTreeReadResult Gap(string text)=>new(null,"CascadeTree候选/路径尚未支持："+text);
         try
         {
-            var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
+            var overlay=usePageDetail?model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString():null;
             using var doc=JsonDocument.Parse(string.IsNullOrWhiteSpace(overlay)?source.Source.ControlDetail:overlay);
             ValidateObject(doc.RootElement);var root=doc.RootElement;
             if(Text(root,"sourceMode","crossTable")!="selfTree")return Gap("跨表级联仍待接线。");

@@ -31,6 +31,27 @@ internal static class NonRedundantReadCompilation
     internal static bool Requires(GenerationModel model,TableModel table)=>HasGlobalRowProject(table)||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
     /// <summary>所有实体写入复用同一存储计划，不把读取派生属性持久化。</summary>
     internal static bool Physical(GenerationModel model,TableModel table,ColumnModel column)=>MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column.Source);
+    /// <summary>固定叶名与目标页一起发布；仅显示、顺序等范围不变的页面覆盖可以继续使用表级读取定义。</summary>
+    internal static IReadOnlyList<CascadeTreeReadModel> SelfTreeNameQueries(GenerationModel model, TableModel table, PageModel page)
+    {
+        if (table.Source.IsRongyu != 0 || table.IsGlobal) return [];
+        var fields = page.Searchable.Concat(page.Sortable)
+            .Concat(FixedPageQueryCompilation.For(table, page).DefaultOrder.Select(order => order.Column))
+            .Select(column => column.Source.Id).ToHashSet(StringComparer.Ordinal);
+        var result = new List<CascadeTreeReadModel>();
+        foreach (var tree in CascadeTreeReadCompilation.ForService(model, table, page))
+        {
+            if (CascadeTreeViewRenderer.Name(table, tree.Source) is not { } name || !fields.Contains(name.Source.Id))
+                continue;
+            var baseline = CascadeTreeReadCompilation.Resolve(model, table, page, tree.Source, usePageDetail: false).Definition;
+            if (baseline is null || baseline.TargetPage.Source.Id != tree.TargetPage.Source.Id ||
+                baseline.Parent.Source.Id != tree.Parent.Source.Id || baseline.Name.Source.Id != tree.Name.Source.Id)
+                throw new InvalidOperationException("自树名称筛选和排序必须与页面实际目标页、父字段及名称字段一致。");
+            result.Add(tree);
+        }
+        return result;
+    }
+
     /// <summary>只编译已经接通的标量用途；完整包还须通过全部控件、范围及独立宿主验证。</summary>
     internal static NonRedundantPagePlan ForPage(GenerationModel model,TableModel table,PageModel page)
     {
@@ -55,7 +76,8 @@ internal static class NonRedundantReadCompilation
             if(CrossTableWriteCompilation.Resolve(model,table,page,tree).Definition is{} cross){NonRedundantCrossTableCompilation.Require(model,table,page,cross.Read);continue;}
             if(CascadeTreeWriteCompilation.Resolve(model,table,page,tree).Definition is not{} plan)throw new InvalidOperationException("非冗余级联要求已证明的selfTree读写计划。");
             var managed=CascadeTreeViewRenderer.Name(table,tree);
-            if(managed is not null&&(page.Searchable.Concat(page.Sortable).Any(column=>column.Source.Id==managed.Source.Id)||page.Condition?.Syntax.Fields.Contains(managed.Source.ColumnName)==true))throw new InvalidOperationException("非冗余级联名称直接筛选/排序尚待专用读取用途验证。");
+            if(managed is not null&&page.Condition?.Syntax.Fields.Contains(managed.Source.ColumnName)==true)
+                throw new InvalidOperationException("非冗余自树名称暂不能用作固定页面数据条件。");
         }
         var crossPlans=CrossTableWriteCompilation.ForService(model,table,page);
         var crossIds=crossPlans.SelectMany(plan=>plan.Levels).Select(level=>level.Id.Source.Id).ToHashSet(StringComparer.Ordinal);
@@ -94,11 +116,12 @@ internal static class NonRedundantReadCompilation
         }
         var selectionNames=SelectionNameFilterCompilation.ForPage(model,table,page);
         var dependencies=page.Searchable.Concat(page.Sortable).Concat(ExactDataManageCompilation.Resolve(model,table,page) is {} exact ? new[]{exact.Column} : Array.Empty<ColumnModel>()).Concat(FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(scope=>scope.Column)).Concat(FixedPageQueryCompilation.For(table,page).DefaultOrder.Select(item=>item.Column)).Select(column=>column.Source.ColumnName).Concat(selectionNames.Bindings.Select(binding=>binding.StorageColumn.Source.ColumnName)).Concat(page.Condition?.Syntax.Fields??Array.Empty<string>()).Concat(CrossTableFilterCompilation.ForPage(model,table,page).SelectMany(plan=>plan.Levels).Select(level=>level.Id.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        // 已绑定的跨表层名由同一逻辑路径在 SQL 内求值，能用于分页前的筛选和排序。
-        // 只在分页后从图中补出的自树名称仍不能作为查询依赖。
-        var crossNames=crossPlans.SelectMany(plan=>plan.Levels).Select(level=>level.Name.Source.Id).ToHashSet(StringComparer.Ordinal);
-        if(CascadeTreeWriteCompilation.ManagedNames(table).Any(name=>!crossNames.Contains(name.Source.Id)&&dependencies.Contains(name.Source.ColumnName,StringComparer.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("非冗余级联名称的筛选/排序/匹配用途尚待完整路径计划验证。");
+        // 跨表层名和显式开放的自树叶名都在分页前按实际路径求值；其余级联名称不能作为查询依赖。
+        var queryNames=crossPlans.SelectMany(plan=>plan.Levels).Select(level=>level.Name.Source.Id)
+            .Concat(SelfTreeNameQueries(model,table,page).Select(tree=>CascadeTreeViewRenderer.Name(table,tree.Source)!.Source.Id))
+            .ToHashSet(StringComparer.Ordinal);
+        if(CascadeTreeWriteCompilation.ManagedNames(table).Any(name=>!queryNames.Contains(name.Source.Id)&&dependencies.Contains(name.Source.ColumnName,StringComparer.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("非冗余级联名称的筛选/排序/匹配用途缺少完整路径证明。");
         // 图只取来源已授权行的所选ID；隐藏ID为私有投影依赖，不加入VO或页面字段。
         var readOutputs=outputs.Select(output=>output.Storage).Concat(CascadeTreeViewRenderer.ForPage(model,table,page).Select(plan=>plan.Source.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var compiled=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,readOutputs,NonRedundantCrossTableCompilation.Bindings(crossPlans),dependencies,deferCascadeNames:true);

@@ -611,7 +611,7 @@ internal static class ReadProjectionCompilation
                     read = purpose != ReadProjectionPurpose.Detail && NonRedundantReadCompilation.GlobalSelectionPage(table, page)
                         ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, table.Source.Id, page.Source.Id, outputs, published.Dependencies)
                         : NonRedundantReads.CompileWithCrossTables(model.Catalog, table.Source.Id, outputs,
-                            NonRedundantCrossTableCompilation.Bindings(model, table, page), published.Dependencies);
+                            NonRedundantCrossTableCompilation.Bindings(model, table, page), published.Dependencies, deferCascadeNames: true);
                 }
                 catch (Exception error) when (error is InvalidOperationException or NotSupportedException or JsonException)
                 { Gap("", "非冗余用途 SQL 无法编译：" + error.Message); }

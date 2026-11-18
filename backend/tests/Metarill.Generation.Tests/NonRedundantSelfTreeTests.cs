@@ -1,5 +1,9 @@
+using System.Reflection;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
+using Metarill.Data.Queries;
 using Xunit;
 
 namespace Metarill.Generation.Tests;
@@ -147,11 +151,22 @@ public sealed class NonRedundantSelfTreeTests
     }
     /// <summary>不能把尚未证明的名称用途和目标派生范围落成宽查询或无效物理SQL。</summary>
     [Theory]
-    [InlineData("defaultOrder")][InlineData("nameCondition")][InlineData("virtualName")][InlineData("conflictingNamePath")][InlineData("derivedTargetCondition")][InlineData("nestedName")]
+    [InlineData("scopeChangingOverlay")][InlineData("nameCondition")][InlineData("virtualName")][InlineData("conflictingNamePath")][InlineData("derivedTargetCondition")][InlineData("nestedName")]
     public void Rejects_unproven_name_dependencies_and_derived_target_scope(string kind)
     {
         var catalog=Catalog("nr_tree");
-        if(kind=="defaultOrder")catalog.ConfigPages.Single(page=>page.Id=="201").OrderBy="tree_name asc";
+        if(kind=="scopeChangingOverlay")
+        {
+            var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+            catalog.ConfigColumns.Add(new(){Id="84",ConfigTableId="3",ColumnName="alternate_name",LogicalType="string"});
+            catalog.ConfigPageColumns.Add(new(){Id="30184",ConfigPageId=targetPage.Id,ConfigColumnId="84",IsShow=1});
+            var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
+            var overlay=System.Text.Json.Nodes.JsonNode.Parse(source.ControlDetail)!;
+            overlay["selfTree"]!["nameField"]="alternate_name";
+            catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25")
+                .Extra["controlDetail"]=JsonSerializer.SerializeToElement(overlay.ToJsonString());
+            catalog.ConfigPages.Single(page=>page.Id=="201").OrderBy="tree_name asc";
+        }
         if(kind=="nameCondition")catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND tree_name='隐藏'";
         if(kind=="virtualName")catalog.ConfigColumns.Single(column=>column.Id=="26").IsVirtualColumn=1;
         if(kind=="conflictingNamePath")catalog.ConfigColumns.Single(column=>column.Id=="26").Extra["columnFullName"]=JsonSerializer.SerializeToElement("other.name");
@@ -178,15 +193,95 @@ public sealed class NonRedundantSelfTreeTests
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-physical-tree-scope");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try{new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);}finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
-    /// <summary>延期仅是内部固定图的明确用途；普通编译、查询依赖和嵌套名称不能拿占位代替结果。</summary>
+    /// <summary>普通投影仍显式延迟图名称；查询依赖取得固定叶名表达式，精确匹配仍独立拒绝。</summary>
     [Fact]
-    public void Deferred_names_require_explicit_graph_projection_and_cannot_be_query_dependencies()
+    public void Deferred_names_require_explicit_graph_projection_or_fixed_query_proof()
     {
         var catalog=Catalog("nr_tree");
         Assert.Throws<NotSupportedException>(()=>Metarill.Data.Queries.NonRedundantReads.Compile(catalog,"2",["tree_name"]));
         Assert.Equal("string",Metarill.Data.Queries.NonRedundantReads.Compile(catalog,"2",["tree_name"],deferCascadeNames:true).OutputTypes["tree_name"]);
-        Assert.Throws<NotSupportedException>(()=>Metarill.Data.Queries.NonRedundantReads.Compile(catalog,"2",["id"],["tree_name"],deferCascadeNames:true));
+        Assert.Equal("id",Assert.Single(NonRedundantReads.Compile(catalog,"2",["id"],["tree_name"],deferCascadeNames:true).OutputTypes).Key);
+        Assert.Throws<NotSupportedException>(()=>NonRedundantReads.CompileMatch(catalog,"2","tree_name"));
     }
+    /// <summary>生成项目真实编译，独立物理树和派生叶名共用原页面查询及账号范围。</summary>
+    [Theory]
+    [InlineData(false, "list")]
+    [InlineData(true, "edit")]
+    public async Task Fixed_leaf_name_queries_use_the_original_tree_scope(bool derived, string exportMode)
+    {
+        const string application = "Example.FixedLeafSearch";
+        var catalog = derived ? DerivedSelfTreeTests.Catalog("query_tree", "int64", "string", false)
+            : RedundantMultiNameCacheTests.Published(Catalog("query_tree", "string", "int64"));
+        if (derived) catalog.ConfigColumns.Single(column => column.Id == "42").LogicalType = "int64";
+        if (derived) catalog.ConfigColumns.Single(column => column.Id == "32").LogicalType = "int64";
+        var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
+        sourcePage.OrderBy = "tree_name asc";
+        sourcePage.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
+        var nameField = catalog.ConfigPageColumns.SingleOrDefault(field => field.ConfigPageId == sourcePage.Id && field.ConfigColumnId == "26");
+        if (nameField is null)
+        {
+            nameField = new() { Id = "20126", ConfigPageId = "201", ConfigColumnId = "26", YzProjectId = catalog.YzProjectId };
+            catalog.ConfigPageColumns.Add(nameField);
+        }
+        nameField.IsShow = 1;
+        nameField.IsEdit = 1;
+        nameField.Extra["isSearch"] = JsonSerializer.SerializeToElement(1);
+        nameField.Extra["isSort"] = JsonSerializer.SerializeToElement(1);
+        var target = catalog.ConfigPages.Single(page => page.Id == "301");
+        target.WhereSql += " AND store_id=@current_store_id";
+        catalog.ConfigColumns.Add(new() { Id = "93", ConfigTableId = "3", YzProjectId = catalog.YzProjectId, ColumnName = "store_id", LogicalType = "int64" });
+
+        var model = GenerationModel.Create(catalog, application);
+        var table = model.Tables.Single(table => table.Source.Id == "2");
+        var page = Assert.Single(table.Pages);
+        Assert.Equal(target.Id, Assert.Single(NonRedundantReadCompilation.SelfTreeNameQueries(model, table, page)).TargetPage.Source.Id);
+        Assert.Empty(ReadProjectionCompilation.ForPage(model, table, page).List.Gaps);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-fixed-tree-name");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        var generated = Path.Combine(directory, "generated");
+        try
+        {
+            new CSharpGenerator().Generate(catalog, generated, application);
+            var code = File.ReadAllText(Path.Combine(generated, "Services/QueryTreeSourceService.g.cs"));
+            Assert.Contains("StatisticsAsync(ReadPlan201.BindAccount(actor)", code);
+            Assert.Contains("RowsAsync(ExportReadPlan201.BindAccount(actor)", code);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var type = assembly.GetType(application + ".Generated.Services.QueryTreeSourceService", throwOnError: true)!;
+            const BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Static;
+            var actor = new RuntimeActor(8, "测试用户", false, catalog.YzProjectId, sourcePage.YzAdminTypeId) { StoreId = 29 };
+            var request = new PageRequest { Filters = new() { ["treeName"] = JsonSerializer.SerializeToElement("甲%乙") } };
+            var filters = Assert.IsAssignableFrom<IReadOnlyList<FixedReadFilter>>(type.GetMethod("ReadFilters201", flags)!.Invoke(null, [request, actor]));
+            Assert.Equal(new FixedReadFilter("tree_name", FixedReadComparison.LikePattern, "甲%乙"),
+                Assert.Single(filters, filter => filter.Field == "tree_name"));
+            var order = type.GetMethod("ReadOrder201", flags)!;
+            Assert.Equal(new[] { new FixedReadOrder("tree_name"), new FixedReadOrder("id", true) },
+                Assert.IsAssignableFrom<IReadOnlyList<FixedReadOrder>>(order.Invoke(null, [request])));
+            request.OrderBy = new() { Field = "treeName", Order = "descending" };
+            Assert.Equal(new FixedReadOrder("tree_name", true),
+                Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<FixedReadOrder>>(order.Invoke(null, [request]))));
+
+            foreach (var planField in new[] { "ReadPlan201", "ExportReadPlan201" })
+            {
+                var plan = Assert.IsType<NonRedundantReadPlan>(type.GetField(planField, flags)!.GetValue(null));
+                Assert.NotSame(plan, plan.BindAccount(actor));
+                Assert.Throws<UnauthorizedAccessException>(() => plan.BindAccount(actor with { StoreId = null }));
+                // 读取已生成的实际查询表达式，验证祖先递归、软删除与叶名计算均在分页前的 SQL 中。
+                var mysql = typeof(NonRedundantReadPlan).GetProperty("MySql", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(plan);
+                var expression = Assert.IsType<string>(typeof(MySqlNonRedundantReadPlan)
+                    .GetMethod("Expression", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(mysql, ["tree_name"]));
+                Assert.Contains("WITH RECURSIVE", expression);
+                Assert.Contains("JSON_CONTAINS", expression);
+                Assert.Contains(".`store_id`=@", expression);
+                Assert.Contains(".`delete_no` IS NULL", expression);
+                Assert.Equal(derived, expression.Contains(" AS CHAR)", StringComparison.Ordinal) && expression.Contains("`company_id`", StringComparison.Ordinal));
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>元数据仍是唯一来源，自动叶子名只在逻辑模型展开，不新建配置行。</summary>
     internal static MetadataCatalog Catalog(string prefix,string sourceType="string",string parentType="int64",bool automatic=false)
     {
