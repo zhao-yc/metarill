@@ -93,8 +93,11 @@ internal static class FixedPageConditionCompilation
     {
         if(page.Condition is not{} condition)return "";
         return "    /// <summary>发布时固定的页面条件，账号值在真实请求中绑定。</summary>\n"+
-            $"    private static readonly Metarill.Data.Queries.FixedConditionSqlPlan {name}=Metarill.Data.Queries.FixedConditionSqlPlan.Compile(Metarill.Core.Metadata.FixedConditionPlan.Compile({JsonSerializer.Serialize(condition.Definition)},new string[]{{{string.Join(",",condition.Syntax.Fields.Select(field=>JsonSerializer.Serialize(field)))}}}),new Dictionary<string,string>{{{string.Join(",",condition.Types.Select(pair=>"["+JsonSerializer.Serialize(pair.Key)+"]="+JsonSerializer.Serialize(pair.Value)))}}});\n";
+            $"    private static readonly Metarill.Data.Queries.FixedConditionSqlPlan {name}={ConditionExpression(condition)};\n";
     }
+    /// <summary>固定目标父条件与普通页面条件共用同一生成字面量。</summary>
+    internal static string ConditionExpression(FixedPageCondition? condition)=>condition is null?"null":
+        $"Metarill.Data.Queries.FixedConditionSqlPlan.Compile(Metarill.Core.Metadata.FixedConditionPlan.Compile({JsonSerializer.Serialize(condition.Definition)},new string[]{{{string.Join(",",condition.Syntax.Fields.Select(field=>JsonSerializer.Serialize(field)))}}}),new Dictionary<string,string>{{{string.Join(",",condition.Types.Select(pair=>"["+JsonSerializer.Serialize(pair.Key)+"]="+JsonSerializer.Serialize(pair.Value)))}}})";
     /// <summary>实体读取和当前锁使用同一固定AND计划，跨表字段只通过已证明的逻辑路径比较。</summary>
     internal static string Apply(PageModel page,string name,string prefix,string? logicalPlan=null,string locking="false")
     {

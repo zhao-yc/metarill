@@ -30,13 +30,22 @@ internal static class SharedRedundantParentCompilation
         if(plans.Count==0)return [];
         var paths=plans.SelectMany(plan=>plan.Levels.Select((level,index)=>new SharedRedundantParentPath(plan.Read,index))).ToArray();
         var matches=paths.Where(path=>path.Level.Prefix+"_id"==column.Source.ColumnName).ToArray();
-        if(matches.Length==0)
+        var cascadeParent=matches.Length>0;
+        if(!cascadeParent)
         {
             var target=model.Tables.SingleOrDefault(target=>target.Source.Id==column.Source.LinkConfigTableId);if(target is null||!target.IsGlobal)return [];
             var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(column.Source.ControlDetail)))throw new NotSupportedException("R1全局物理父不能替换固定关系覆盖。");
             var single=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,column.Source,target.Source);matches=paths.Where(path=>path.Level.Target.Source.Id==target.Source.Id&&path.Level.Page.Source.Id==single.Page.Id&&path.Level.Name.Source.Id==single.Name.Id).ToArray();
         }
-        var result=matches.DistinctBy(Identity,StringComparer.Ordinal).ToArray();if(result.Length!=1)throw new NotSupportedException("R1跨表父字段缺少唯一固定目标角色。");if(result[0].Level.Target.IsGlobal)GlobalCrossTableTarget.RequireSingle(model.Catalog,result[0].Level.Target.Source,result[0].Level.Page.Source);return result;
+        var result=matches.DistinctBy(Identity,StringComparer.Ordinal).ToArray();
+        if(result.Length!=1)throw new NotSupportedException("R1跨表父字段缺少唯一固定目标角色。");
+        var level=result[0].Level;
+        if(level.Target.IsGlobal)
+        {
+            if(cascadeParent)GlobalCrossTableTarget.RequireCrossTableName(model.Catalog,level.Target.Source,level.Page.Source,level.Name.Source,allowAccount:true);
+            else GlobalCrossTableTarget.RequireSingle(model.Catalog,level.Target.Source,level.Page.Source);
+        }
+        return result;
     }
     /// <summary>完整包逐个证明物理父字段，来源项目与后台必须明确发布。</summary>
     internal static void Require(GenerationModel model,TableModel table,PageModel page)
@@ -61,6 +70,38 @@ internal static class SharedRedundantParentCompilation
     }
     /// <summary>公共元数据计划与生成器完整读取角色逐层一致，不能单独借用某个有效同伴。</summary>
     private static bool Matches(RedundantSharedParentPlan plan,SharedRedundantParentPath path)=>plan.Levels.Count==path.Index+1&&plan.Levels.Select((level,index)=>level.TableId==path.Read.Levels[index].Target.Source.Id&&level.PageId==path.Read.Levels[index].Page.Source.Id&&level.NameId==path.Read.Levels[index].Name.Source.Id&&level.Parent==path.Read.Levels[index].Parent?.Source.ColumnName).All(value=>value);
+    /// <summary>只有声明账号过滤的已证明祖先才需要额外相关范围，普通 R1 页沿用原查询。</summary>
+    private static IReadOnlyList<RedundantSharedParentPlan> AccountPlans(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(table.Source.IsRongyu!=1||!page.Scopes.Any(scope=>scope.Source=="parent")||
+            !model.Tables.SelectMany(candidate=>candidate.Pages).Any(FixedPageConditionCompilation.HasAccountVariables)||
+            !Enabled(model,table,page))return [];
+        return ParentPlans.GetValue(model,_=>new()).GetOrAdd((table.Source.Id,page.Source.Id),_=>CompileParents(model,table,page))
+            .Values.Where(path=>path.Levels.Any(level=>level.Condition?.Variables.Count>0))
+            .OrderBy(path=>path.ColumnName,StringComparer.Ordinal).ToArray();
+    }
+
+    internal static bool HasAccountPath(GenerationModel model,TableModel table,PageModel page)=>AccountPlans(model,table,page).Count>0;
+
+    /// <summary>固定源码只携带物理路径和类型化原条件，运行时不重新解释页面元数据。</summary>
+    internal static string AccountDeclaration(GenerationModel model,TableModel table,PageModel page,string name)
+    {
+        var paths=AccountPlans(model,table,page);
+        if(paths.Count==0)return "";
+        string Level(RedundantSharedParentLevel level)
+        {
+            var target=model.Tables.Single(candidate=>candidate.Source.Id==level.TableId);
+            var scope=target.Pages.Single(candidate=>candidate.Source.Id==level.PageId).Condition;
+            return $"new({Literal(level.Key)},{Literal(level.Prefix)},{Literal(level.TableId)},{Literal(level.TableName)},{Literal(level.PageId)},{Literal(level.NameId)},{Literal(level.Parent)},{Literal(level.ProjectType)},{(level.SoftDelete?"true":"false")},{Literal(level.ConditionDefinition)},{FixedPageConditionCompilation.ConditionExpression(scope)})";
+        }
+        return $"    private static readonly global::Metarill.Data.Queries.RedundantSharedParentPlan[] {name}=[{string.Join(",",paths.Select(path=>$"new({Literal(path.ColumnId)},{Literal(path.ColumnName)},{Literal(path.LogicalType)},{Literal(path.ControlId)},new global::Metarill.Data.Queries.RedundantSharedParentLevel[]{{{string.Join(",",path.Levels.Select(Level))}}})"))}];\n";
+    }
+    /// <summary>在查询中验证真实物理父键和目标账号范围；当前写入查询明确取锁。</summary>
+    internal static string ApplyAccountScope(GenerationModel model,TableModel table,PageModel page,string plan,string prefix,string locking)=>
+        HasAccountPath(model,table,page)?$"        query=global::Metarill.Data.Queries.RedundantSharedParentScopeSql.Apply(query,session,{plan},actor,{Literal(prefix)},{locking});\n":"";
+
+    private static string Literal(string? value)=>JsonSerializer.Serialize(value);
+
     /// <summary>候选只验证来源父，目标候选自身的父上下文仍走原逻辑。</summary>
     internal static IReadOnlyList<SharedRedundantParentPath> ForTable(GenerationModel model,TableModel table,PageModel page,TableModel target)=>page.Scopes.Where(scope=>scope.Source=="parent").SelectMany(scope=>ForColumn(model,table,page,scope.Column)).Where(path=>path.Level.Target.Source.Id==target.Source.Id).DistinctBy(Identity,StringComparer.Ordinal).ToArray();
     /// <summary>共享目标角色按完整祖先定义比较，重复表名不能合并两个角色。</summary>
@@ -76,7 +117,7 @@ internal static class SharedRedundantParentCompilation
         // 写前已按真实动作授权。写后以该事务的主键和项目／父键重新核验，避免要求额外详情权限。
         var exact=ExactDataManageCompilation.Declared(page);
         var fields=FixedPageQueryCompilation.For(table,page).IdentityScopes.Where(scope=>exact||scope.Source=="parent").Select(scope=>scope.Column).DistinctBy(column=>column.Source.Id).ToArray();
-        var storedQuery=exact?"query":$"Scope{page.Source.Id}(actor,parentId)";
+        var storedQuery=exact?"query":$"Scope{page.Source.Id}(actor,parentId{(HasAccountPath(model,table,page)?",locking:true":"")})";
         var result=new StringBuilder();
         result.AppendLine("    /// <summary>父ID不接受前导零、符号或空白。</summary>").AppendLine($"    private static long SharedR1ParentKey{page.Source.Id}(string? value){{if(!long.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||value!=id.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");return id;}}")
             .AppendLine("    /// <summary>按实际物理父及来源项目复核，目标父保持固定范围和当前锁读。</summary>").AppendLine($"    private async Task VerifySharedR1Parent{page.Source.Id}Async({table.EntityType} entity,RuntimeActor actor,string? parentId,CancellationToken cancellationToken)").AppendLine("    {").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);")

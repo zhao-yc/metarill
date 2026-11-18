@@ -29,7 +29,8 @@ internal static class NonRedundantCrossParentCompilation
         CrossTableWriteCompilation.ForService(model,table,page).Count>0;
 
     /// <summary>原写事务明确选当前锁读，不能沿用默认快照。</summary>
-    internal static string LockArgument(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)||FixedPageConditionCompilation.HasCrossFields(page)?",locking:true":"";
+    internal static string LockArgument(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)||FixedPageConditionCompilation.HasCrossFields(page)||
+        SharedRedundantParentCompilation.HasAccountPath(model,table,page)?",locking:true":"";
     /// <summary>路径归一化前不先锁祖先；空批次在末尾单独验证真实父记录。</summary>
     internal static string ParentArgument(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)?",includeManaged:false":"";
     /// <summary>关系省略时保持原始物理空位；真正提交的关系必须在归一化后满足原父范围。</summary>

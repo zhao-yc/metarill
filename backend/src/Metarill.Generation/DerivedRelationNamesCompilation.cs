@@ -62,6 +62,8 @@ internal static class DerivedRelationNamesCompilation
     internal static IReadOnlyList<string> Require(GenerationModel model,TableModel owner,PageModel page,RelationModel relation)
     {
         var target=relation.Target;var name=relation.NameColumn;
+        if(SharedRedundantParentCompilation.HasAccountPath(model,target,relation.TargetPage))
+            throw new InvalidOperationException("固定整数候选的独立读计划尚需接入目标页的冗余跨表账号父范围。");
         if (relation.SourceColumn.Source.ControlKind == "SelectPage" && Declared(model, relation))
             RequireSelection(model, owner, target, relation.TargetPage, name);
         var integerName = IsIntegerName(model, owner, target, name);

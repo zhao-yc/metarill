@@ -79,7 +79,7 @@ public static class RedundantSharedParents
             var targetColumns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id));var ts=MetadataStoragePolicy.ForTable(catalog,target);var primary=targetColumns.SingleOrDefault(c=>c.ColumnName=="id");var project=targetColumns.SingleOrDefault(c=>c.ColumnName=="yz_project_id");var global=GlobalCrossTableTarget.Declared(target);if(primary is null||primary.LogicalType!="int64"||primary.IsDbNotNull!=1||!Scalar(ts,target,primary)||!global&&(project is null||project.LogicalType is not("string" or "int64")||!Scalar(ts,target,project)))throw Unsupported();
             var display=targetColumns.Single(c=>c.ColumnName==Text(level,"nameField","name"));if(display.ColumnName=="id"||display.LogicalType is not("string" or "int32" or "int64")||display.IsVirtualColumn!=0)throw Unsupported();if(!ts.IsPhysical(display)&&!global){var read=NonRedundantReads.CompileMatch(catalog,target.Id,display.ColumnName);if(read.OutputTypes[display.ColumnName]!=display.LogicalType||NonRedundantReads.MatchReadsTable(catalog,target.Id,display.ColumnName,source.TableName))throw Unsupported();}
             var parent=previous is null?null:targetColumns.Single(c=>c.ColumnName==Text(level,"parentField",""));if(parent is not null&&(!Scalar(ts,target,parent)||parent.LogicalType is not("string" or "int64")||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=previous!.Id))throw Unsupported();
-            var required=new[]{display.Id}.Concat(parent is null?[]:new[]{parent.Id}).ToArray();var candidates=catalog.ConfigPages.Where(p=>p.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(f=>f.ConfigPageId==p.Id&&f.ConfigColumnId==id&&Readable(f)))).Select(p=>(Page:p,Condition:Condition(p,ts.PhysicalColumns))).Where(x=>x.Condition.Allowed).ToArray();if(candidates.Length!=1)throw Unsupported();var chosen=candidates[0];Realm(catalog,target,chosen.Page);if(global)GlobalCrossTableTarget.RequireCrossTableName(catalog,target,chosen.Page,display);var deleted=targetColumns.SingleOrDefault(c=>c.ColumnName=="delete_no");if(deleted is not null&&(deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0||!ts.IsPhysical(deleted)))throw Unsupported();
+            var required=new[]{display.Id}.Concat(parent is null?[]:new[]{parent.Id}).ToArray();var candidates=catalog.ConfigPages.Where(p=>p.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(f=>f.ConfigPageId==p.Id&&f.ConfigColumnId==id&&Readable(f)))).Select(p=>(Page:p,Condition:CrossTableParentCondition.Compile(catalog,target,p,ts))).Where(x=>x.Condition.Allowed).ToArray();if(candidates.Length!=1)throw Unsupported();var chosen=candidates[0];Realm(catalog,target,chosen.Page);if(global)GlobalCrossTableTarget.RequireCrossTableName(catalog,target,chosen.Page,display,allowAccount:true);if(chosen.Condition.Plan?.Variables.Count>0)_=AccountScopedCrossCache.Compile(catalog,source,target,chosen.Page);var deleted=targetColumns.SingleOrDefault(c=>c.ColumnName=="delete_no");if(deleted is not null&&(deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0||!ts.IsPhysical(deleted)))throw Unsupported();
             var id=sourceColumns.Single(c=>c.ColumnName==prefix+"_id");var name=sourceColumns.Single(c=>c.ColumnName==prefix+"_name");if(id.LogicalType is not("string" or "int64")||id.IsDbNotNull!=0||!sourceStorage.IsPhysical(id)||id.IsVirtualColumn!=0||Join(id)||id.ControlKind.Length>0&&!(id.ControlKind=="CascadeTree"&&controls.Any(c=>c.Id==id.Id))||id.LinkConfigTableId.Length>0&&id.LinkConfigTableId!=target.Id||name.LogicalType!="string"||name.IsDbNotNull!=0||!sourceStorage.IsPhysical(name))throw Unsupported();
             result.Add(new(key,prefix,target.Id,target.TableName,chosen.Page.Id,display.Id,parent?.ColumnName,global?null:project!.LogicalType,deleted is not null,chosen.Page.WhereSql,chosen.Condition.Plan));ids.Add(id);names.Add(name);previous=target;
         }
@@ -99,19 +99,17 @@ public static class RedundantSharedParents
         foreach(var uses in branches.SelectMany(b=>b.Ids.Select((id,index)=>(Branch:b,Id:id,Index:index))).GroupBy(x=>x.Id.Id,StringComparer.Ordinal))
         {
             var chosen=uses.OrderBy(x=>x.Branch.Control.Id==x.Id.Id?0:1).ThenBy(x=>x.Branch.Control.Id,StringComparer.Ordinal).First();var b=chosen.Branch;var level=b.Levels[chosen.Index];var target=catalog.ConfigTables.Single(t=>t.Id==level.TableId);var value=catalog.ConfigColumns.Single(c=>c.ConfigTableId==target.Id&&c.Id==level.NameId);var globals=b.Levels.Where(l=>l.ProjectType is null).ToDictionary(l=>l.Key,l=>l.PageId,StringComparer.Ordinal);
-            var definition=new RelationCacheDefinition(source.Id,chosen.Id.Id,target.Id,value.Id,b.Names[chosen.Index].Id,false){CrossTableColumnId=b.Control.Id,CrossTableLevelKey=level.Key,CrossTablePageId=level.ProjectType is null?level.PageId:null,CrossTableGlobalPages=globals.Count==0?null:new ReadOnlyDictionary<string,string>(globals)};
-            if(MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(value))physical.Add(definition);else derived.Add(definition);
+            var accountPage=level.Condition?.Variables.Count>0?level.PageId:null;
+            var definition=new RelationCacheDefinition(source.Id,chosen.Id.Id,target.Id,value.Id,b.Names[chosen.Index].Id,false)
+            {
+                CrossTableColumnId=b.Control.Id,CrossTableLevelKey=level.Key,
+                CrossTablePageId=level.ProjectType is null?level.PageId:null,
+                CrossTableGlobalPages=globals.Count==0?null:new ReadOnlyDictionary<string,string>(globals),
+                CrossTableAccountPageId=accountPage
+            };
+            if(accountPage is null&&MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(value))physical.Add(definition);else derived.Add(definition);
         }
         _=RelationMutationPlan.Compile(catalog,physical);DerivedCrossTableCaches.Validate(catalog,derived,physical);
-    }
-    /// <summary>同页只允许项目变量及固定物理常量，目标父上下文和精确权限另行证明。</summary>
-    private static (bool Allowed,FixedConditionSqlPlan? Plan) Condition(PageMetadata page,IReadOnlyList<ColumnMetadata> columns)
-    {
-        if(Exact(page))return(false,null);var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(c=>c.ColumnName));var constants=new List<FixedConditionTerm>();foreach(var term in syntax.Terms)
-        {
-            var variables=term.Values.Where(v=>v.Kind==FixedConditionValueKind.Variable).ToArray();if(variables.Length==0){constants.Add(term);continue;}if(variables.Any(v=>(v.Text.Equals("parentId",StringComparison.OrdinalIgnoreCase)||v.Text.Equals("parent_id",StringComparison.OrdinalIgnoreCase))))return(false,null);if(term.Field!="yz_project_id"||term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||variables.Length!=1||!variables[0].Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))throw Unsupported();
-        }
-        var fields=constants.Select(t=>t.Field).Distinct(StringComparer.Ordinal).ToArray();return(true,constants.Count==0?null:FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",constants.Select(t=>t.ToDefinition())),fields),fields.ToDictionary(f=>f,f=>columns.Single(c=>c.ColumnName==f).LogicalType,StringComparer.Ordinal)));
     }
     /// <summary>目标角色包含完整祖先，重复表名或数值ID不代表同一父身份。</summary>
     private static string Identity(RedundantSharedParentPlan plan)=>JsonSerializer.Serialize(plan.Levels.Select(LevelIdentity));

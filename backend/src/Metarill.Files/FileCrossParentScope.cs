@@ -58,7 +58,7 @@ internal sealed class FileCrossParentScope
             var name=level.TryGetProperty("nameField",out var label)&&!string.IsNullOrWhiteSpace(label.GetString())?label.GetString()!:"name";var parent=targets.Count==0?null:level.GetProperty("parentField").GetString();var display=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName==name);
             // 名称可来自已证明的单值联接，父键仍必须物理；下方完整跨表编译继续证明类型、终点与范围。
             var required=new[]{display.Id}.Concat(parent is null?Array.Empty<string>():new[]{columns.Single(column=>column.ColumnName==parent).Id}).ToArray();
-            var pages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==candidate.Id&&field.ConfigColumnId==id&&Readable(field)))).Select(candidate=>(Page:candidate,Condition:Condition(catalog,target,candidate,storage))).Where(item=>item.Condition.Allowed).ToArray();if(pages.Length!=1)throw new NotSupportedException("文件跨表每层需要唯一固定可读目标页。");
+            var pages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==candidate.Id&&field.ConfigColumnId==id&&Readable(field)))).Select(candidate=>(Page:candidate,Condition:CrossTableParentCondition.Compile(catalog,target,candidate,storage))).Where(item=>item.Condition.Allowed).ToArray();if(pages.Length!=1)throw new NotSupportedException("文件跨表每层需要唯一固定可读目标页。");
             var chosen=pages[0];bindings.Add(new(chosen.Page.Id,chosen.Condition.Plan));
             // 仅显式全局目标免项目等值；固定发布、常量页与普通来源项目仍由完整编译器核验。
             var global=GlobalCrossTableTarget.Declared(target);
@@ -70,34 +70,6 @@ internal sealed class FileCrossParentScope
     }
     /// <summary>原页面显式显示／编辑标志优先，与文件可读列及生成目标页规则保持同一语义。</summary>
     private static bool Readable(PageColumnMetadata field)=>Flag(field,"isInGrid",field.IsShow==1)||Flag(field,"isInEdit",field.IsEdit==1);
-    /// <summary>目标页的原账号条件只绑定真实物理归属列；父参数与精确页继续不作为固定目标。</summary>
-    private static (bool Allowed,FixedConditionSqlPlan? Plan) Condition(MetadataCatalog catalog,TableMetadata table,PageMetadata page,MetadataStoragePlan storage)
-    {
-        if(page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&exact.ValueKind!=JsonValueKind.Null&&!string.IsNullOrWhiteSpace(exact.ToString()))return(false,null);
-        var physical=storage.PhysicalColumns.Where(column=>GlobalPhysicalRelationValue.IsScalar(storage,table,column)&&
-            !CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,column.ColumnName))
-            .ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.Ordinal);
-        var syntax=FixedConditionPlan.Compile(page.WhereSql,physical.Keys);
-        var conditions=new List<FixedConditionTerm>();
-        foreach(var term in syntax.Terms)
-        {
-            var variables=term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable).ToArray();
-            if(variables.Length==0){conditions.Add(term);continue;}
-            if(variables.Any(value=>value.Text.Equals("parentId",StringComparison.OrdinalIgnoreCase)||
-                value.Text.Equals("parent_id",StringComparison.OrdinalIgnoreCase)))return(false,null);
-            if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||variables.Length!=1)
-                throw new NotSupportedException("文件跨表目标只支持已证明的账号等值条件。");
-            var variable=variables[0].Text;
-            if(term.Field=="yz_project_id"&&variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))continue;
-            if(term.Field=="yz_project_id"||!AccountConditionVariables.IsPageField(variable,term.Field)||
-                physical[term.Field] is not("string" or "int32" or "int64"))
-                throw new NotSupportedException("文件跨表目标包含未证明的上下文范围。");
-            conditions.Add(term);
-        }
-        if(conditions.Count==0)return(true,null);
-        var normalized=FixedConditionPlan.Compile(string.Join(" AND ",conditions.Select(term=>term.ToDefinition())),physical.Keys);
-        return(true,FixedConditionSqlPlan.Compile(normalized,physical));
-    }
     /// <summary>显示标志沿true／1判断，不把字符串true当作许可。</summary>
     private static bool Flag(PageColumnMetadata field,string key,bool fallback)=>field.Extra.TryGetValue(key,out var value)?value.ValueKind==JsonValueKind.True||value.ToString()=="1":fallback;
     /// <summary>同一控件只解析一次完整父链，多条父等值条件共同消费同一组实际节点。</summary>

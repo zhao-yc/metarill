@@ -45,6 +45,7 @@ internal static partial class BackendRenderer
         }
         if(NonRedundantCrossParentCompilation.Enabled(model,table,page))result.AppendLine($"        query=LogicalParentScope{suffix}(query,actor,parentId,locking);");
         result.Append(FixedPageConditionCompilation.Apply(page,"PageCondition"+suffix,"button_page_"+suffix,NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"CrossConditionPlan"+suffix),"locking"))
+            .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,table,page,"AccountParentScope"+suffix,"r1_button","locking"))
             .Append(ExactDataManageCompilation.Query(model,table,page,operation:"buttonId",prefix:"buttonExact",button:true,locking:"locking"));
         if(ManagerCredentialCompilation.Unsupported(table,page))result.AppendLine("        ManagerCredentialValue.RequirePublishedPage(false);");
         return result.AppendLine("        return locking?query.ForUpdate():query;").AppendLine("    }").ToString();

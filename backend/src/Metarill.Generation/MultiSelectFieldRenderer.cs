@@ -17,7 +17,9 @@ internal static class MultiSelectFieldRenderer
         {
             var suffix = page.Source.Id + "_" + def.Source.Source.Id;
             var caches=MultiNameWriteCompilation.ForSource(model,table,def);
-            result.Append(FixedPageConditionCompilation.Declaration(def.TargetPage,"MultiPageCondition"+suffix)).Append(DerivedMultiNamesCompilation.Declaration(model,page,def));
+            result.Append(FixedPageConditionCompilation.Declaration(def.TargetPage,"MultiPageCondition"+suffix))
+                .Append(SharedRedundantParentCompilation.AccountDeclaration(model,def.Target,def.TargetPage,"MultiAccountParentScope"+suffix))
+                .Append(DerivedMultiNamesCompilation.Declaration(model,page,def));
             // 每个逻辑名称缓存只在类型初始化时编译一次；HTTP请求只绑定选中ID和身份范围。
             foreach(var (cache,index) in caches.Select((cache,index)=>(cache,index)).Where(item=>DerivedMultiNamesCompilation.Declared(model,def.Target,item.cache.Value)))
             {
@@ -63,7 +65,8 @@ internal static class MultiSelectFieldRenderer
             var targetProject = def.Target.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
             if (targetProject is not null && (!def.Target.IsGlobal || def.TargetPage.Scopes.Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(row => row.{targetProject.Property} == {Scope(targetProject, "actor.ProjectId")});");
             foreach (var scope in def.TargetPage.Scopes.Where(scope => scope.Source == "parent")) result.AppendLine($"        query = query.Where(row => row.{scope.Column.Property} == {Scope(scope.Column, "targetParentId!")});");
-            result.Append(FixedPageConditionCompilation.Apply(def.TargetPage,"MultiPageCondition"+suffix,"multi_page_"+suffix));
+            result.Append(FixedPageConditionCompilation.Apply(def.TargetPage,"MultiPageCondition"+suffix,"multi_page_"+suffix))
+                .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,def.Target,def.TargetPage,"MultiAccountParentScope"+suffix,"r1_multi","true"));
             // 所有缓存都来自本次已授权候选的同一当前锁读；ID展示页也不能退化为旧RR快照。
             result.AppendLine("        query=query.OrderBy(row=>row.Id);").AppendLine("        query=query.ForUpdate();");
             // ORM只读取真实物理值；R0逻辑名称必须走与自树相同的固定当前读，不能投影IsIgnore属性。

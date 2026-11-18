@@ -45,16 +45,31 @@ public sealed class FileCommandFactoryTests
     }
     /// <summary>实际独立及共享父路径逐层发送参数。账号不满足任一级条件时不能取得文件父范围。</summary>
     [Theory]
-    [InlineData(false,false,false)]
-    [InlineData(false,true,true)]
-    [InlineData(true,false,true)]
-    [InlineData(true,true,false)]
-    public async Task Logical_file_parent_binds_real_account_on_each_target(bool shared,bool global,bool locking)
+    [InlineData(false,false,false,false)]
+    [InlineData(false,true,true,false)]
+    [InlineData(true,false,true,false)]
+    [InlineData(true,true,false,false)]
+    [InlineData(false,false,true,true)]
+    [InlineData(true,true,false,true)]
+    public async Task Logical_file_parent_binds_real_account_on_each_target(bool shared,bool global,bool locking,bool redundant)
     {
         const long storeId=9007199254740993L;
         const long merchantId=9007199254740994L;
-        var catalog=shared?FileSharedCrossParentScopeTests.Catalog("string","int64"):
+        var catalog=redundant?FileRedundantSharedParentScopeTests.Catalog("string","int64"):
+            shared?FileSharedCrossParentScopeTests.Catalog("string","int64"):
             FileCrossParentScopeTests.Catalog("file_actor","string","int64");
+        if(redundant)
+        {
+            // 只给本轮两条路径提供相同来源归属，移除指向同一目标的独立 List。
+            catalog.ConfigPages.RemoveAll(page=>page.Id=="105"||!shared&&page.Id=="104");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="105"||field.ConfigColumnId=="18"||
+                !shared&&(field.ConfigPageId=="104"||field.ConfigColumnId=="16"));
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="18"||!shared&&column.Id=="16");
+            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+                page.WhereSql+=" AND store_id=@current_store_id AND merchant_id=@current_merchant_id";
+            catalog.ConfigColumns.Add(new(){Id="190",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"});
+            catalog.ConfigColumns.Add(new(){Id="191",ConfigTableId="1",ColumnName="merchant_id",LogicalType="string"});
+        }
         var country=catalog.ConfigTables.Single(table=>table.Id=="2");
         var countryPage=catalog.ConfigPages.Single(page=>page.Id=="201");
         var areaPage=catalog.ConfigPages.Single(page=>page.Id=="301");
@@ -67,11 +82,11 @@ public sealed class FileCommandFactoryTests
         areaPage.WhereSql+=" AND merchant_id=@current_merchant_id";
         catalog.ConfigColumns.Add(new(){Id="290",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"});
         catalog.ConfigColumns.Add(new(){Id="390",ConfigTableId="3",ColumnName="merchant_id",LogicalType="string"});
-        var sourcePage=catalog.ConfigPages[0];
-        sourcePage.WhereSql+=" AND country_name <> '排除'";
+        var sourcePage=redundant?catalog.ConfigPages.Single(page=>page.Id==(shared?"104":"103")):catalog.ConfigPages[0];
+        if(!redundant)sourcePage.WhereSql+=" AND country_name <> '排除'";
         var scope=FileReferenceScope.CompilePage(catalog,catalog.ConfigTables[0],sourcePage);
-        Assert.NotNull(scope.LogicalConditionPlan);
-        var stored=new Dictionary<string,object?>{{"country_id",null},{"area_id",null},{"place_id",shared?null:"30"}};
+        Assert.Equal(!redundant,scope.LogicalConditionPlan is not null);
+        var stored=new Dictionary<string,object?>{{"country_id",redundant?"99":null},{"area_id",null},{"place_id",shared?null:"30"}};
         if(shared)stored.Add("warehouse_id","30");
         var actor=new RuntimeActor(14,"账号",false,"1","3"){ StoreId=storeId,MerchantId=merchantId };
 
@@ -115,7 +130,7 @@ public sealed class FileCommandFactoryTests
 
         async Task<bool> Check()
         {
-            Assert.Equal(10L,Assert.Single(await Read(actor)));
+            Assert.Equal(redundant?30L:10L,Assert.Single(await Read(actor)));
             Assert.Equal(new[]{30L,20L,10L},executions.Select(item=>item.Node));
             Assert.All(executions,item=>Assert.Same(session.CurrentTransaction,item.Transaction));
             executions.Clear();

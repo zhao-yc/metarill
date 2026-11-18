@@ -1,3 +1,7 @@
+using System.Reflection;
+using Metarill.Core.Persistence;
+using Metarill.Core.Security;
+using Metarill.Data;
 using System.Text.Json;
 using Xunit;
 namespace Metarill.Generation.Tests;
@@ -42,6 +46,73 @@ public sealed class SharedRedundantParentGenerationTests
     {
         var catalog=Catalog("shared_parent","string","int64",false,1,true,true);var model=GenerationModel.Create(catalog,"Example.SharedR1ParentFiles");Assert.Empty(GenerationCapabilityAudit.Collect(model));Assert.Single(new Metarill.Runtime.Files.FileMetadataContext([catalog]).Catalogs);
     }
+
+    /// <summary>原业务查询及文件范围逐级执行账号条件，并以来源实际存储父键为准。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,true)]
+    public async Task Account_parent_scope_is_fixed_in_business_and_file_plans(bool shared,bool global)
+    {
+        const string ns="Example.AccountR1Parent";
+        var catalog=Catalog("shared_parent","string","int64",false,global?1:0,true,true);
+        catalog.ConfigPages.RemoveAll(page=>page.Id=="206"||!shared&&page.Id=="205");
+        catalog.ConfigMenus.RemoveAll(menu=>menu.ConfigPageId=="206"||!shared&&menu.ConfigPageId=="205");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="206"||field.ConfigColumnId=="91"||
+            !shared&&(field.ConfigPageId=="205"||field.ConfigColumnId=="80"));
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="91"||!shared&&column.Id=="80");
+        foreach(var configuredPage in catalog.ConfigPages.Where(page=>page.ConfigTableId=="2"||page.Id is "301" or "401"))
+            configuredPage.WhereSql+=" AND store_id=@current_store_id";
+        foreach(var table in new[]{"2","3","4"})
+            catalog.ConfigColumns.Add(new(){Id=table+"991",ConfigTableId=table,YzProjectId=catalog.YzProjectId,
+                ColumnName="store_id",LogicalType=table=="4"?"string":"int64"});
+        var model=GenerationModel.Create(catalog,ns);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var source=model.Tables.Single(table=>table.Source.Id=="2");
+        const string pageId="204";
+        var page=source.Pages.Single(page=>page.Source.Id==pageId);
+        Assert.True(SharedRedundantParentCompilation.HasAccountPath(model,source,page));
+        var files=new Metarill.Runtime.Files.FileMetadataContext([catalog]);
+        Assert.Single(files.Catalogs);
+        var fileParent=Assert.Single(Metarill.Data.Queries.RedundantSharedParents.Compile(catalog,"2",pageId)).Value;
+        Assert.Equal("place_id",fileParent.ColumnName);
+        Assert.Equal(3,fileParent.Levels.Count);
+        Assert.Equal(2,fileParent.Levels.Count(level=>level.Condition?.Variables.Count>0));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-r1-account-parent");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var entity=assembly.GetType(ns+".Generated.Entities.SharedParentSource",true)!;
+            var serviceType=assembly.GetType(ns+".Generated.Services.SharedParentSourceService",true)!;
+            using var session=new DatabaseSession(new(){ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
+            var mapper=Activator.CreateInstance(assembly.GetType(ns+".Generated.Mappers.SharedParentSourceMapper",true)!,[session]);
+            var args=new object?[serviceType.GetConstructors().Single().GetParameters().Length];
+            args[0]=session;args[1]=mapper;args[2]=new SnowflakeIdGenerator(864);args[3]=Array.Empty<IRecordMutationObserver>();
+            var service=Activator.CreateInstance(serviceType,args)!;
+            var scope=serviceType.GetMethod("Scope"+pageId,BindingFlags.Instance|BindingFlags.NonPublic)!;
+            var actor=new RuntimeActor(1,"测试账号",false,"12","5"){StoreId=9007199254740993L};
+            object Query(RuntimeActor identity,bool locking=false)=>scope.Invoke(service,[identity,"9007199254742000",locking])!;
+            var sql=(string)GetType().GetMethod(nameof(Sql),BindingFlags.Static|BindingFlags.NonPublic)!.MakeGenericMethod(entity).Invoke(null,[Query(actor)])!;
+            sql=sql.Replace("\u0060","",StringComparison.Ordinal);
+            Assert.Contains("EXISTS (SELECT 1 FROM shared_parent_place rp2",sql);
+            Assert.Contains("BINARY CAST(rp2.id AS CHAR)",sql);
+            Assert.Contains("BINARY CAST(a.place_id AS CHAR)",sql);
+            Assert.Contains("INNER JOIN shared_parent_area rp1",sql);
+            Assert.Contains("INNER JOIN shared_parent_country rp0",sql);
+            Assert.Contains("rp0.store_id",sql);
+            Assert.Contains("rp1.store_id",sql);
+            Assert.Equal(!global,sql.Contains("rp0.yz_project_id=",StringComparison.Ordinal));
+            Assert.DoesNotContain(actor.StoreId!.Value.ToString(),sql);
+            Assert.IsType<UnauthorizedAccessException>(Assert.Throws<TargetInvocationException>(()=>Query(actor with{StoreId=null,IsAdministrator=true})).InnerException);
+            Assert.IsType<InvalidOperationException>(Assert.Throws<TargetInvocationException>(()=>Query(actor,true)).InnerException);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    private static string Sql<T>(object query) where T:class=>((FreeSql.ISelect<T>)query).ToSql();
+
     /// <summary>同一原目录只改变来源存储声明，来源页、字段、菜单及目标链全部沿用原工厂。</summary>
     internal static Metarill.Core.Metadata.MetadataCatalog Catalog(string prefix,string type,string parent,bool shorter,int mask,bool noProject,bool files=false)
     {
