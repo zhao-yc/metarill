@@ -496,14 +496,21 @@ public sealed class DerivedRelationNamesTests
     [InlineData(false,true,true,true,true,true,true)]
     [InlineData(true,false,false,true,true,true,true)]
     [InlineData(true,false,true,true,true,true,true,true)]
+    [InlineData(false,false,true,true,false,true,false,false,true,false)]
+    [InlineData(true,true,true,true,false,true,false,false,true,false)]
+    [InlineData(false,true,true,true,false,false,false,false,true,true)]
+    [InlineData(true,false,true,true,false,true,false,false,true,true)]
+    [InlineData(true,false,true,true,false,true,false,true,true,true)]
     public async Task Single_account_page_uses_published_scope_without_cascade(
         bool selection,bool derived,bool rowProject,bool cached,bool global=true,bool parent=false,
-        bool globalParent=false,bool independentParent=false)
+        bool globalParent=false,bool independentParent=false,bool physicalOnly=false,bool fixedConstant=true)
     {
         var catalog=Catalog("dr_names",parent);
         var target=catalog.ConfigPages.Single(page=>page.Id=="201");
-        target.WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+
-            "status=1 AND store_id=@current_store_id"+(parent?" AND group_id=@parent_id":"");
+        target.WhereSql=physicalOnly
+            ?"yz_project_id=@current_yz_project_id"+(fixedConstant?" AND status=1":"")+(parent?" AND group_id=@parent_id":"")
+            :(global?"":"yz_project_id=@current_yz_project_id AND ")+
+                "status=1 AND store_id=@current_store_id"+(parent?" AND group_id=@parent_id":"");
         if(selection)target.Extra["type"]=JsonSerializer.SerializeToElement(1);
         if(global&&parent&&selection)target.IsExport=1;
         if(global)
@@ -519,22 +526,22 @@ public sealed class DerivedRelationNamesTests
             catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="32");
             catalog.ConfigColumns.Add(new(){Id="317",ConfigTableId="3",ColumnName="store_id",LogicalType="int64"});
             catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="name <> '父页隐藏' AND store_id=@current_store_id";
-            if(independentParent)
+        }
+        if(independentParent)
+        {
+            var group=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="1"&&column.ColumnName=="group_id");
+            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
             {
-                var group=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="1"&&column.ColumnName=="group_id");
-                foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+                page.WhereSql="yz_project_id=@current_yz_project_id";
+                var field=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==group.Id);
+                if(field is null)
                 {
-                    page.WhereSql="yz_project_id=@current_yz_project_id";
-                    var field=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==group.Id);
-                    if(field is null)
-                    {
-                        field=new(){Id=page.Id+group.Id,ConfigPageId=page.Id,ConfigColumnId=group.Id};
-                        catalog.ConfigPageColumns.Add(field);
-                    }
-                    field.IsShow=1;field.IsEdit=1;
-                    field.Extra["isInGrid"]=JsonSerializer.SerializeToElement(1);
-                    field.Extra["isInEdit"]=JsonSerializer.SerializeToElement(1);
+                    field=new(){Id=page.Id+group.Id,ConfigPageId=page.Id,ConfigColumnId=group.Id};
+                    catalog.ConfigPageColumns.Add(field);
                 }
+                field.IsShow=1;field.IsEdit=1;
+                field.Extra["isInGrid"]=JsonSerializer.SerializeToElement(1);
+                field.Extra["isInEdit"]=JsonSerializer.SerializeToElement(1);
             }
         }
         if(!rowProject)
@@ -547,7 +554,7 @@ public sealed class DerivedRelationNamesTests
         var label=derived?"company_name":"name";
         foreign.ControlKind=selection?"SelectPage":"List";
         foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField=label,
-            whereSql=selection?"store_id=@current_store_id":""});
+            whereSql=selection&&!physicalOnly?"store_id=@current_store_id":""});
         var display=catalog.ConfigColumns.Single(column=>column.Id=="113");
         display.ColumnName="customer_"+label;
         display.Extra["columnFullName"]=JsonSerializer.SerializeToElement("customer."+label);
@@ -560,7 +567,7 @@ public sealed class DerivedRelationNamesTests
             foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
             {
                 page.OrderBy="id desc";
-                page.WhereSql+=" AND store_id=@current_store_id";
+                if(!physicalOnly)page.WhereSql+=" AND store_id=@current_store_id";
                 if(selection)
                     foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId=="15"))
                         field.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
@@ -592,7 +599,19 @@ public sealed class DerivedRelationNamesTests
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.SingleAccountPage");
             var service=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesOrderService.g.cs"));
-            Assert.Contains("OptionsPageCondition101_15.BindAccount(actor).ApplyConstants",service);
+            if(!physicalOnly)Assert.Contains("OptionsPageCondition101_15.BindAccount(actor).ApplyConstants",service);
+            else
+            {
+                var validation=service[service.IndexOf("private async Task ValidateRelations101Async(",StringComparison.Ordinal)..];
+                Assert.Contains("await OptionsScope101_15Async(",validation);
+                Assert.Contains("originalCandidateValues.CustomerId",service);
+                if(parent)Assert.Contains("entity.GroupId == long.Parse(targetParentId!",service);
+                if(independentParent)
+                {
+                    Assert.Contains("originalCandidateValues.GroupId",service);
+                    Assert.Contains("submitted.Contains(\"group_id\")) && entity.CustomerId",validation);
+                }
+            }
             Assert.Contains("OptionsPage101_15Async",service);
             Assert.Contains("OptionsSelected101_15Async",service);
             Assert.Contains("OptionsScope104_15Async",service);
@@ -616,8 +635,9 @@ public sealed class DerivedRelationNamesTests
             if(derived)
             {
                 Assert.Contains(global?"CompileGlobalCandidate(\"2\",\"201\"":"CompileRelation(\"2\"",service);
-                Assert.Contains("DerivedOptionsPlan101_15.BindAccount(actor)",service);
-                if(!global)Assert.Contains("OptionsPageCondition101_15.BindAccount(actor)",service);
+                Assert.Contains(physicalOnly?"DerivedOptionsPlan101_15,scope.Filters":"DerivedOptionsPlan101_15.BindAccount(actor)",service);
+                if(!global&&!physicalOnly)Assert.Contains("OptionsPageCondition101_15.BindAccount(actor)",service);
+                if(physicalOnly&&fixedConstant)Assert.Contains("OptionsPageCondition101_15",service);
                 Assert.Contains("currentRead:true",service);
             }
             if(global&&parent&&selection)
@@ -649,7 +669,7 @@ public sealed class DerivedRelationNamesTests
                 var cache=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(compiled);
                 Assert.Contains("customer_"+label,cache.MixedSourceColumns["dr_names_order"]);
                 Assert.Contains("dr_names_party",cache.MixedTargets);
-                if(globalParent)Assert.Contains("dr_names_group",cache.MixedTargets);
+                if(globalParent||physicalOnly&&parent)Assert.Contains("dr_names_group",cache.MixedTargets);
             }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

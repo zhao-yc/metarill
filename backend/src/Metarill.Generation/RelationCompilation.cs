@@ -126,7 +126,7 @@ internal static class RelationCompilation
     {
         if(source.Source.ControlKind!="List"||ForeignValidationRenderer.Target(model,source) is not {} target||
             ListTargetPage(target,page,source,requireExplicit:false) is not {} targetPage)return false;
-        if(HasFixedTargetScope(targetPage))return true;
+        if(HasFixedTargetScope(target,targetPage))return true;
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var effective=Text(Definition(field?.Extra.GetValueOrDefault("controlDetail").ToString()??""),"whereSql");
         if(string.IsNullOrWhiteSpace(effective))effective=Text(Definition(source.Source.ControlDetail),"whereSql");
@@ -137,15 +137,21 @@ internal static class RelationCompilation
     private static bool FixedSelectionTarget(GenerationModel model,PageModel page,ColumnModel source)
     {
         if(source.Source.ControlKind!="SelectPage"||ForeignValidationRenderer.Target(model,source) is not {Source.IsRongyu:0} target||
-            !target.Pages.Any(HasFixedTargetScope))return false;
+            !target.Pages.Any(candidate=>HasFixedTargetScope(target,candidate)))return false;
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var definition=SelectionControlDefinition.Resolve(source,field);
-        return target.Pages.Any(candidate=>candidate.Source.Id==definition.PageId&&HasFixedTargetScope(candidate));
+        return target.Pages.Any(candidate=>candidate.Source.Id==definition.PageId&&HasFixedTargetScope(target,candidate));
     }
 
-    /// <summary>目标页的逻辑条件和账号条件都要求内部最终值通过固定范围。</summary>
-    private static bool HasFixedTargetScope(PageModel targetPage)=>
-        FixedPageConditionCompilation.HasLogicalFields(targetPage)||FixedPageConditionCompilation.HasAccountVariables(targetPage);
+    /// <summary>目标页固定条件或父范围用于候选和内部最终值校验，包括原本隐藏的外键。</summary>
+    internal static bool HasFixedTargetScope(TableModel target,PageModel targetPage)=>
+        FixedPageConditionCompilation.HasLogicalFields(targetPage)||FixedPageConditionCompilation.HasAccountVariables(targetPage)||
+        HasProjectTargetScope(target,targetPage);
+
+    /// <summary>项目内 R0 目标的额外固定范围也用于保护手写规则提交的外键与父键。</summary>
+    internal static bool HasProjectTargetScope(TableModel target,PageModel targetPage)=>
+        !target.IsGlobal&&target.Source.IsRongyu==0&&
+        (targetPage.Condition is not null||targetPage.Scopes.Any(scope=>scope.Source=="parent"));
 
     /// <summary>运行时和私有写校验使用同一个原绑定页或原后台的无父目标页。</summary>
     private static PageModel? ListTargetPage(TableModel target,PageModel page,ColumnModel source,bool requireExplicit=true)

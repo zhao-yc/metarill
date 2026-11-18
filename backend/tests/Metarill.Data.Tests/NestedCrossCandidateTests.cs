@@ -550,8 +550,13 @@ public sealed class NestedCrossCandidateTests
     [InlineData("SelectPage","int64",true,true,true)]
     [InlineData("List","string",true,true,true,true)]
     [InlineData("SelectPage","int64",true,true,true,true)]
+    [InlineData("List","string",false,true,false,false,true,false)]
+    [InlineData("SelectPage","int64",false,true,false,false,true,false)]
+    [InlineData("List","string",false,false,false,false,true,true)]
+    [InlineData("SelectPage","int64",false,true,false,false,true,true)]
     public void Project_single_cache_uses_fixed_page_and_physical_parent(string kind,string key,
-        bool physicalAccount=false,bool withParent=true,bool global=false,bool globalParent=false)
+        bool physicalAccount=false,bool withParent=true,bool global=false,bool globalParent=false,
+        bool physicalOnly=false,bool fixedConstant=true)
     {
         var catalog=Catalog(false);
         var source=catalog.ConfigTables.Single(table=>table.Id=="90");
@@ -562,6 +567,8 @@ public sealed class NestedCrossCandidateTests
         page.YzAdminTypeId="5";
         if(physicalAccount)
             page.WhereSql="yz_project_id=@current_yz_project_id AND name <> '目标页隐藏' AND store_id=@current_store_id";
+        if(physicalOnly)
+            page.WhereSql="yz_project_id=@current_yz_project_id"+(fixedConstant?" AND store_id<>27":"");
         if(withParent)page.WhereSql+=" AND group_id=@parent_id";
         if(global)
         {
@@ -587,7 +594,7 @@ public sealed class NestedCrossCandidateTests
             catalog.ConfigColumns.Add(new(){Id="9116",ConfigTableId="91",ColumnName="store_id",LogicalType="int64"});
         }
         var sourcePage=new PageMetadata{Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
-            WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"+
+            WhereSql="yz_project_id=@current_yz_project_id"+(physicalOnly?"":" AND store_id=@current_store_id")+
                 (withParent?" AND group_id=@parent_id":"")};
         catalog.ConfigPages.Add(sourcePage);
         catalog.ConfigColumns.AddRange([
@@ -611,8 +618,16 @@ public sealed class NestedCrossCandidateTests
         var read=global?NonRedundantReads.Compile(catalog,source.Id,["id","shared_name"],["shared_name"]):
             NonRedundantReads.CompileProjectPage(catalog,source.Id,["id","shared_name"],["shared_name"],[],[readBinding]);
         var live=read.BindAccount(actor).MySql;
-        Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor with{StoreId=null}));
-        Assert.Contains(actor.StoreId!.Value,live.Constants.Values);
+        if(physicalOnly)
+        {
+            Assert.False(read.MySql.RequiresAccount);
+            Assert.Equal(fixedConstant,live.Constants.Values.Contains(27L));
+        }
+        else
+        {
+            Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor with{StoreId=null}));
+            Assert.Contains(actor.StoreId!.Value,live.Constants.Values);
+        }
         Assert.Equal(!global,live.From.Contains(" r0.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
         Assert.Contains("EXISTS (SELECT 1",live.From);
         if(global)
@@ -649,7 +664,15 @@ public sealed class NestedCrossCandidateTests
         var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
         var consumer=Assert.Single(maintenance.Mixed.Consumers,item=>item.Table.Option.Id==source.Id);
         var label=consumer.Read.Expression("shared_name");
-        Assert.Contains("b.`store_id`",label);
+        Assert.Equal(!physicalOnly,label.Contains("b.`store_id`",StringComparison.Ordinal));
+        if(physicalOnly)
+        {
+            Assert.False(consumer.Read.RequiresAccount);
+            Assert.DoesNotContain(" AND  ",label);
+            Assert.Equal(fixedConstant,label.Contains("r0.`store_id`",StringComparison.Ordinal));
+            Assert.Equal(fixedConstant,consumer.Read.Reverse.Any(item=>item.TargetTable==target.TableName&&
+                item.Outputs["shared_name"].Contains("store_id")));
+        }
         Assert.Equal(!global,consumer.Read.From.Contains(" r0.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
         if(withParent)
         {

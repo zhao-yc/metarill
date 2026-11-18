@@ -6,7 +6,7 @@ namespace Metarill.Core.Metadata;
 /// <summary>项目内冗余单值关系的固定目标页。所有来源入口必须能共享同一个名称副本。</summary>
 public static class ProjectScopedSingleRelationTarget
 {
-    /// <summary>实际使用逻辑或账号条件的关系须证明所有来源页共享同一目标及名称副本。</summary>
+    /// <summary>使用固定条件或父范围的关系须证明所有来源页共享同一目标及名称副本。</summary>
     public static (PageMetadata Page, ColumnMetadata Name)? Resolve(
         MetadataCatalog catalog, TableMetadata owner, ColumnMetadata foreign, TableMetadata target)
     {
@@ -20,9 +20,11 @@ public static class ProjectScopedSingleRelationTarget
         var scopedPages=pages.Where(page=>
         {
             var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
-            return condition.Variables.Any(AccountConditionVariables.IsSupported)||
-                condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field)||
-                    CrossTableStorageColumns.IsLogicalPathField(target,expanded,field));
+            // 项目本身已由物理范围处理。其余已声明条件必须进入名称副本。
+            return condition.Terms.Any(term=>term.Field!="yz_project_id"||
+                term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||
+                term.Values[0].Kind!=FixedConditionValueKind.Variable||
+                !term.Values[0].Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase));
         }).Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
         if(scopedPages.Count==0)return null;
 

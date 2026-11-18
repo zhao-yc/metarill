@@ -345,16 +345,18 @@ public static partial class MySqlNonRedundantReadCompiler
             var logical=RequireCrossCondition(table,page,condition,parentField,fields);
             if(GlobalCrossTableTarget.Declared(table))scopedGlobalCrossTarget=true;
             if(cacheOwner is {} row&&logical.Count==0)
-                return PhysicalAccountCacheCondition(table,alias,page,row,parentField);
+                return PhysicalAccountCacheCondition(table,alias,page,row,parentField,
+                    allowFixedOnly:!GlobalCrossTableTarget.Declared(table));
             return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
                 alias,cacheOwner,parentField,fields,sourceParent);
         }
 
         /// <summary>物理账号条件按来源行归属计算，并记录源字段和目标筛选列的反向依赖。</summary>
         private string PhysicalAccountCacheCondition(TableMetadata table,string alias,PageMetadata page,
-            CascadeCacheOwner owner,ColumnMetadata? parentField=null)
+            CascadeCacheOwner owner,ColumnMetadata? parentField=null,bool allowFixedOnly=false)
         {
-            var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,parentField,owner.GlobalSingleSource);
+            var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,
+                parentField,owner.GlobalSingleSource,allowFixedOnly);
             cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
             return AccountCacheScope(ownership,table,alias,owner.Alias,render:true,owner.Table);
         }
@@ -373,9 +375,11 @@ public static partial class MySqlNonRedundantReadCompiler
             var binding=parent?.SingleSource(catalog,table,foreign);
             var sourceParent=parent is {Logical:true}?SingleSourceParentValue(table,owner,binding!):null;
             var visible=PublishedSingleCondition(target,alias,proof.Page,cacheOwner,parent?.Target,sourceParent);
-            if(parent is {Logical:false})visible+=" AND "+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,cacheOwner);
+            if(parent is {Logical:false})
+                visible+=(visible.Length==0?"":" AND ")+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,cacheOwner);
             var label=Resolve(target,alias,value.ColumnName,cacheOwner);
-            return ("CASE WHEN "+alias+".`id` IS NOT NULL AND "+visible+" THEN "+label.Sql+" END",label.Type);
+            return ("CASE WHEN "+alias+".`id` IS NOT NULL"+(visible.Length==0?"":" AND "+visible)+
+                " THEN "+label.Sql+" END",label.Type);
         }
 
         /// <summary>先保留真实外键反查，再按最终缓存来源行核对内层账号、父键和级联范围。</summary>

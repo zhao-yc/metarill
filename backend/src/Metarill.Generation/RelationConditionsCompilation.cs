@@ -187,9 +187,13 @@ internal static class RelationConditionsCompilation
     private static IReadOnlyList<ColumnModel> MutationFields(GenerationModel model,TableModel table,PageModel page)
     {
         var result=new List<ColumnModel>();
-        foreach(var relation in RelationCompilation.ForPage(model,page).Where(relation=>relation.Conditions is not null))
+        var fixedTargets=RelationCompilation.ForPage(model,page,true)
+            .Where(relation=>RelationCompilation.HasProjectTargetScope(relation.Target,relation.TargetPage));
+        foreach(var relation in RelationCompilation.ForPage(model,page).Where(relation=>relation.Conditions is not null)
+            .Concat(fixedTargets).DistinctBy(relation=>relation.SourceColumn.Source.Id))
         {
-            result.Add(relation.SourceColumn);result.AddRange(relation.Conditions!.Forms.Select(binding=>binding.Column));
+            result.Add(relation.SourceColumn);
+            if(relation.Conditions is {} conditions)result.AddRange(conditions.Forms.Select(binding=>binding.Column));
             var targetParent=ControlRenderer.RelationContext(page,relation,false).TargetParentField;
             if(targetParent is not null)result.Add(table.Columns.Single(column=>column.JsonName==targetParent));
         }

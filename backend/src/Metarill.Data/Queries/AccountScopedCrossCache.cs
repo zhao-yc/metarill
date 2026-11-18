@@ -24,17 +24,18 @@ public sealed class AccountScopedCrossCache
         return Compile(catalog,source,target,targetPage,recursive:false);
     }
 
-    /// <summary>已证明的独立父键单独校验，账号范围仍从实际来源行绑定。</summary>
+    /// <summary>已证明的独立父键单独校验，账号范围仍从实际来源行绑定。项目内固定单值副本允许纯常量或物理父级。</summary>
     internal static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,
-        PageMetadata targetPage,bool globalTreeSource,ColumnMetadata? multiParent=null,bool globalSingleSource=false)=>
-        Compile(catalog,source,target,targetPage,recursive:false,multiParent:multiParent,globalTreeSource:globalTreeSource,globalSingleSource:globalSingleSource);
+        PageMetadata targetPage,bool globalTreeSource,ColumnMetadata? multiParent=null,bool globalSingleSource=false,bool allowFixedOnly=false)=>
+        Compile(catalog,source,target,targetPage,recursive:false,multiParent:multiParent,globalTreeSource:globalTreeSource,
+            globalSingleSource:globalSingleSource,allowFixedOnly:allowFixedOnly);
 
     /// <summary>递归候选允许逻辑字段的常量条件，账号等值仍须对应来源行真实物理归属。</summary>
     internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,
         ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false)
         =>Compile(catalog,source,target,targetPage,recursive:true,multiParent:multiParent,globalTreeSource:globalTreeSource,selfTreeFields:selfTreeFields,globalSingleSource:globalSingleSource);
 
-    private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false)
+    private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false,bool allowFixedOnly=false)
     {
         if(globalTreeSource)GlobalCachedRelationSource.RequireSelfTree(catalog,source);
         // GlobalSingleSource 只由已核对 ScopedSingleTarget 的缓存计划设置，编译器另外保留根行项目范围。
@@ -76,7 +77,7 @@ public sealed class AccountScopedCrossCache
         }
 
         var pages = catalog.ConfigPages.Where(page => page.ConfigTableId == source.Id).ToArray();
-        if ((!recursive&&account.Count==0)||account.Count>0&&pages.Length==0) throw Invalid();
+        if (account.Count==0 ? !recursive&&!allowFixedOnly : pages.Length==0) throw Invalid();
         var ownership = new List<(ColumnMetadata, ColumnMetadata)>();
         var sourceFields = MetadataStoragePolicy.ForTable(catalog,source).PhysicalColumns.Select(column=>column.ColumnName).ToArray();
         var sourceTerms = account.Count==0?[]:pages.Select(page => FixedConditionPlan.Compile(page.WhereSql, sourceFields).Terms).ToArray();
