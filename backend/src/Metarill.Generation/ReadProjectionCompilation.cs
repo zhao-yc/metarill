@@ -71,7 +71,8 @@ internal static class ReadProjectionCompilation
         {
             if (rejection is not null) Gap("", "已发布的非冗余读取合同无法编译：" + rejection);
             Add(table.Columns.Single(column => column.IsId), "记录标识、原导航和控件上下文", false);
-            foreach (var column in columns) Add(column, purpose == ReadProjectionPurpose.Detail ? "详情字段" : "列表字段");
+            foreach (var column in columns.Where(column => !column.IsLayoutOnly))
+                Add(column, purpose == ReadProjectionPurpose.Detail ? "详情字段" : "列表字段");
             foreach (var settings in model.Catalog.ConfigPageColumns.Where(field => field.ConfigPageId == page.Source.Id))
             {
                 var source = model.Catalog.ConfigColumns.Single(column => column.Id == settings.ConfigColumnId);

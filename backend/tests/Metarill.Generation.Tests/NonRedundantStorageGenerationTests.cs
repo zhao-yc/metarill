@@ -37,6 +37,97 @@ public sealed class NonRedundantStorageGenerationTests
     {
         var catalog=Catalog();var column=catalog.ConfigColumns.Single(item=>item.Id=="13");column.Extra.Clear();column.ColumnName="customer_id";column.LogicalType="int64";column.ControlKind="List";var root=Path.Combine(Path.GetTempPath(),"metarill-nonred-storage",Guid.NewGuid().ToString("N"));Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,root,"Example.Nonred"));Assert.False(Directory.Exists(root));
     }
+    /// <summary>原布局仍渲染，列表与详情读取只依赖真实字段，两种导出均留空布局单元格。</summary>
+    [Theory]
+    [InlineData("list")]
+    [InlineData("edit")]
+    public async Task Nonredundant_layout_preserves_frontend_and_stays_out_of_storage(string exportMode)
+    {
+        var catalog = LayoutCatalog();
+        var pageMetadata = Assert.Single(catalog.ConfigPages);
+        pageMetadata.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
+        var model = GenerationModel.Create(catalog, "Example.Layout");
+        var table = Assert.Single(model.Tables);
+        var page = Assert.Single(table.Pages);
+        var projections = ReadProjectionCompilation.ForPage(model, table, page);
+        foreach (var projection in new[] { projections.List, projections.Detail, projections.Selection })
+        {
+            Assert.Empty(projection.Gaps);
+            Assert.NotNull(projection.FixedRead);
+            Assert.Equal(new[] { "id", "name" }, projection.OutputFields.Select(field => field.JsonName));
+        }
+        Assert.DoesNotContain(page.Writable, column => column.IsLayoutOnly);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-nonred-layout");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        var generated = Path.Combine(directory, "generated");
+        try
+        {
+            new CSharpGenerator().Generate(catalog, generated, model.Namespace);
+            var detail = File.ReadAllText(Path.Combine(generated, "frontend/pages/yzp/orders-detail-4.vue"));
+            var list = File.ReadAllText(Path.Combine(generated, "frontend/pages/yzp/orders-list-4.vue"));
+            var service = File.ReadAllText(Path.Combine(generated, "Services/OrdersService.g.cs"));
+            var requests = File.ReadAllText(Path.Combine(generated, "DTOs/OrdersPage4Requests.g.cs"));
+            var response = File.ReadAllText(Path.Combine(generated, "VOs/OrdersPage4Vo.g.cs"));
+            foreach (var label in new[] { "原版标题", "原版标签" })
+            {
+                Assert.Contains(label, detail);
+                Assert.Contains(label, list);
+                Assert.Contains(JsonSerializer.Serialize(label), service);
+            }
+            Assert.Contains("readonlyDisplayText(entity.sectionTitle)", detail);
+            Assert.Contains("readonlyDisplayText(entity.sectionTab)", detail);
+            Assert.DoesNotContain("\"section_title\"", service);
+            Assert.DoesNotContain("\"section_tab\"", service);
+            Assert.DoesNotContain("SectionTitle", requests);
+            Assert.DoesNotContain("SectionTab", requests);
+            Assert.DoesNotContain("SectionTitle", response);
+            Assert.DoesNotContain("SectionTab", response);
+            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>布局可呈现在原页面，但布局字段不能作为查询条件、搜索或排序列。</summary>
+    [Theory]
+    [InlineData("condition")]
+    [InlineData("search")]
+    [InlineData("sort")]
+    public void Nonredundant_layout_cannot_be_used_as_a_query_dependency(string usage)
+    {
+        var catalog = LayoutCatalog();
+        var metadata = Assert.Single(catalog.ConfigPages);
+        var field = catalog.ConfigPageColumns.Single(column => column.ConfigColumnId == "13");
+        switch (usage)
+        {
+            case "condition": metadata.WhereSql = "section_title = '标题'"; break;
+            case "search": field.Extra["isSearch"] = JsonSerializer.SerializeToElement(1); break;
+            case "sort": metadata.OrderBy = "section_title desc"; break;
+        }
+        var directory = Path.Combine(Path.GetTempPath(), "metarill-nonred-layout", Guid.NewGuid().ToString("N"));
+        Assert.Throws<InvalidOperationException>(() => new CSharpGenerator().Generate(catalog, directory, "Example.Layout"));
+        Assert.False(Directory.Exists(directory));
+    }
+
+    /// <summary>同一业务页声明标题、标签及真实字段，保持原列表与表单配置。</summary>
+    private static MetadataCatalog LayoutCatalog()
+    {
+        var catalog = Catalog();
+        var title = catalog.ConfigColumns.Single(column => column.Id == "13");
+        title.Extra.Clear();
+        title.ColumnName = "section_title";
+        title.Name = "原版标题";
+        title.ControlKind = "Title";
+        catalog.ConfigColumns.Add(new() { Id = "14", ConfigTableId = "2", ColumnName = "section_tab", Name = "原版标签", LogicalType = "string", ControlKind = "Tab" });
+        catalog.ConfigPageColumns.Add(new() { Id = "24", ConfigPageId = "4", ConfigColumnId = "14" });
+        foreach (var field in catalog.ConfigPageColumns)
+            field.IsShow = field.IsEdit = 1;
+        catalog.ConfigPages[0].IsImport = 1;
+        return catalog;
+    }
+
     /// <summary>只保留已声明列及原页面，不构造可伪造的可信模块标记。</summary>
     private static MetadataCatalog Catalog()=>new()
     {

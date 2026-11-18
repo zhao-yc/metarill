@@ -164,6 +164,8 @@ internal sealed record ColumnModel(ColumnMetadata Source, string Property, strin
 {
     /// <summary>只有最终编译证明的跨表来源筛选可省去异步目标读取。</summary>
     public bool IsFixedCrossTableFilter {get;init;}
+    /// <summary>非冗余布局字段只用于渲染，不进入页面数据契约。</summary>
+    internal bool IsLayoutOnly { get; init; }
     public bool IsId => Source.ColumnName == "id"; public bool IsJsonArray => Type == "string?" && (IsManagedMultiNames || Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage"); public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;
     public bool IsSystem => Source.ColumnName is "id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id" or "insert_manager_name" or "update_manager_name" or "insert_manager_real_name" or "update_manager_real_name" or "insert_user_name" or "update_user_name" or "yz_project_id" or "yz_project_name";
 }
@@ -193,6 +195,12 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
             if (table.IsFunctionTable != 0 || table.IsView != 0) throw new InvalidOperationException($"首期生成器尚不支持函数表或视图：{table.TableName}");
             var columns = RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(x => x.ConfigTableId == table.Id)).Where(x=>x.IsVirtualColumn==0).OrderBy(x => x.SortNo).ThenBy(x => x.ColumnName, StringComparer.Ordinal)
                 .Select(x => new ColumnModel(x, Pascal(x.ColumnName), Camel(x.ColumnName), TypeFor(x))).ToArray();
+            if (table.IsRongyu == 0 && columns.Any(column => column.Source.ControlKind is "Title" or "Tab"))
+            {
+                var storage = MetadataStoragePolicy.ForTable(catalog, table);
+                columns = columns.Select(column => storage.Kind(column.Source) == MetadataFieldStorage.Layout
+                    ? column with { IsLayoutOnly = true } : column).ToArray();
+            }
             if (columns.Count(x => x.IsId && x.Type == "long") != 1) throw new InvalidOperationException($"表 {table.TableName} 必须声明 long 类型 id 主键。");
             if (columns.Select(x => x.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count() != columns.Length) throw new InvalidOperationException("字段在 C# 命名转换后冲突。");
             var pageModels = new List<PageModel>();
@@ -205,8 +213,8 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
                     if (!catalog.ConfigColumns.Any(x => x.Id == field.ConfigColumnId && x.ConfigTableId == table.Id)) throw new InvalidOperationException("页面字段跨表引用无效。");
                 bool Has(ColumnModel c, Func<PageColumnMetadata, bool> predicate) => fields.Any(f => f.ConfigColumnId == c.Source.Id && predicate(f));
                 var pageColumns = columns.OrderBy(c => fields.FirstOrDefault(f => f.ConfigColumnId == c.Source.Id)?.SortNo ?? int.MaxValue).ThenBy(c => c.Source.ColumnName, StringComparer.Ordinal).ToArray();
-                var readable = pageColumns.Where(c => c.IsId || Has(c, f => InGrid(f) || InEdit(f))).ToArray();
-                var writable = pageColumns.Where(c => !c.IsSystem && !Enabled(c.Source.Extra, "isJoinColumn") && Has(c, f => InEdit(f) && !Enabled(f.Extra, "isReadOnly"))).ToArray();
+                var readable = pageColumns.Where(c => !c.IsLayoutOnly && (c.IsId || Has(c, f => InGrid(f) || InEdit(f)))).ToArray();
+                var writable = pageColumns.Where(c => !c.IsLayoutOnly && !c.IsSystem && !Enabled(c.Source.Extra, "isJoinColumn") && Has(c, f => InEdit(f) && !Enabled(f.Extra, "isReadOnly"))).ToArray();
                 var search = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSearch") || Enabled(f.Extra, "isInFilter"))).ToArray();
                 var sortable = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSort") || Enabled(c.Source.Extra, "isSort"))).ToArray();
                 var (scopes,condition) = FixedPageConditionCompilation.Compile(catalog,table,columns,page.WhereSql);

@@ -575,7 +575,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var result = new StringBuilder().AppendLine("    /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>")
             .AppendLine($"    private async Task Notify{table.Name}Async(string pageId, {table.EntityType} entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation? authorizationOperation = null":"")}{(business?", string? businessButtonId = null":"")}{(batchInsert?", IReadOnlyDictionary<string,object?>? insertedCache = null":"")})")
             .AppendLine("    {").Append(RelationPropagationRenderer.Notify(model,table,ProjectExpression(table),batchInsert)).AppendLine("        var values = new Dictionary<string, object?>").AppendLine("        {");
-        foreach (var column in table.Columns) result.AppendLine($"            [{Literal(column.Source.ColumnName)}] = entity.{column.Property},");
+        foreach (var column in table.Columns.Where(column => !column.IsLayoutOnly))
+            result.AppendLine($"            [{Literal(column.Source.ColumnName)}] = entity.{column.Property},");
         result.AppendLine("        };")
             .AppendLine("        if (!allFields) values = values.Where(item => item.Key == \"id\" || submitted.Contains(item.Key)).ToDictionary(item => item.Key, item => item.Value);")
             .AppendLine("        var transaction = session.CurrentTransaction ?? throw new InvalidOperationException(\"写入观察者要求当前事务。\");")

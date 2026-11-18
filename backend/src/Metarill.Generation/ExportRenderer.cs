@@ -69,7 +69,8 @@ internal static class ExportRenderer
         var logicalReads=NonRedundantReadCompilation.Requires(model,table);
         if(logicalReads)
         {
-            var projection=columns.Concat(dependencies).Concat(crossDependencies).Concat(CascadeTreeExcelRenderer.ExportPlans(model,table,page,columns).Select(plan=>plan.Source)).Concat(table.Columns.Where(column=>column.IsId)).DistinctBy(column=>column.Source.Id).ToArray();
+            // 布局仍占原导出表头的位置，单元格留空，不从数据库读取布局字段。
+            var projection=columns.Where(column=>!column.IsLayoutOnly).Concat(dependencies).Concat(crossDependencies).Concat(CascadeTreeExcelRenderer.ExportPlans(model,table,page,columns).Select(plan=>plan.Source)).Concat(table.Columns.Where(column=>column.IsId)).DistinctBy(column=>column.Source.Id).ToArray();
             var plan=NonRedundantReadCompilation.ForPage(model,table,page);var names=projection.Select(column=>column.Source.ColumnName).Concat(multis.Select(multi=>multi.Names!.Source.ColumnName)).Distinct(StringComparer.Ordinal).ToArray();
             // 实际导出用途另编译窄投影，不能复用整页可读集合读取未导出列。
             NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,names,NonRedundantCrossTableCompilation.Bindings(model,table,page),plan.Dependencies,deferCascadeNames:true);
@@ -142,6 +143,11 @@ internal static class ExportRenderer
         result.AppendLine(admin is null ? "        var rows = entities.Select(entity => (IReadOnlyList<object?>)new object?[]" : "        var rows = entities.Select((entity,index) => (IReadOnlyList<object?>)new object?[]").AppendLine("        {");
         foreach (var column in columns)
         {
+            if (column.IsLayoutOnly)
+            {
+                result.AppendLine("            null,");
+                continue;
+            }
             var relation = relations.SingleOrDefault(relation => relation.SourceColumn == column);
             if(multis.SingleOrDefault(multi=>multi.Source.Source.Id==column.Source.Id) is{} multi)
             {
