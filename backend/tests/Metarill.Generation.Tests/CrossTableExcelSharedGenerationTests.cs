@@ -1022,6 +1022,11 @@ internal sealed class SharedExcelReadTransport:IDisposable
         (Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeOption>>)serviceType.GetMethod("CascadeOptions"+pageId+"_"+fieldId+"Async")!
             .Invoke(service,[request,actor,CancellationToken.None])!;
 
+    /// <summary>通过真实生成方法检查公开路径响应，内部 Excel 路径仍走原入口。</summary>
+    internal Task<Metarill.Core.Cascades.CascadeTreePath> CascadePath(string fieldId,CascadeTreePathRequest request)=>
+        (Task<Metarill.Core.Cascades.CascadeTreePath>)serviceType.GetMethod("CascadePath"+pageId+"_"+fieldId+"Async")!
+            .Invoke(service,[request,actor,CancellationToken.None])!;
+
     /// <summary>公开导出方法实际产生原列及单元格，记录导出结束时的锁数。</summary>
     internal async Task<PageExportRequest> Export(PageRequest? request=null)
     {

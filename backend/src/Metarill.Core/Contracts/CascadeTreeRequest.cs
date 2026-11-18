@@ -11,12 +11,13 @@ public sealed class CascadeTreeOptionsRequest
     public string? LevelKey { get; set; }
     public JsonElement SelectedPath { get; set; }
 
-    /// <summary>只接受原组件的层标识与parentId，不接受动态表、SQL或身份。</summary>
+    /// <summary>兼容原自树的空请求上下文；提供层标识或父对象时仍只接受固定结构。</summary>
     public long? ParseParent()
     {
-        if (LevelKey is null || !LevelKey.StartsWith("selfTree-",StringComparison.Ordinal) ||
-            !int.TryParse(LevelKey[9..],NumberStyles.None,CultureInfo.InvariantCulture,out var depth) || depth is <0 or >=64)
+        if (LevelKey is {} level && (!level.StartsWith("selfTree-",StringComparison.Ordinal) ||
+            !int.TryParse(level[9..],NumberStyles.None,CultureInfo.InvariantCulture,out var depth) || depth is <0 or >=64))
             throw new ArgumentException("自关联级联层标识无效或超过64层。");
+        if (SelectedPath.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return null;
         if (SelectedPath.ValueKind != JsonValueKind.Object) throw new ArgumentException("selectedPath必须为对象。");
         var fields=SelectedPath.EnumerateObject().ToArray();
         if (fields.Length>1 || fields.Any(field=>field.Name!="parentId")) throw new ArgumentException("自关联级联只接受一个parentId。");

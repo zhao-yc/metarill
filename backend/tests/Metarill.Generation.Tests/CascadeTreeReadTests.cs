@@ -17,6 +17,10 @@ public sealed class CascadeTreeReadTests
         var json=new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var valid=JsonSerializer.Deserialize<CascadeTreeOptionsRequest>("{\"levelKey\":\"selfTree-1\",\"selectedPath\":{\"parentId\":\"9007199254740993\"}}",json)!;
         Assert.Equal(9007199254740993L,valid.ParseParent());
+        foreach(var root in new[]{"{}","{\"levelKey\":\"selfTree-0\"}","{\"levelKey\":\"selfTree-0\",\"selectedPath\":null}","{\"selectedPath\":{}}"})
+            Assert.Null(JsonSerializer.Deserialize<CascadeTreeOptionsRequest>(root,json)!.ParseParent());
+        Assert.Equal(9007199254740993L,JsonSerializer.Deserialize<CascadeTreeOptionsRequest>(
+            "{\"selectedPath\":{\"parentId\":\"9007199254740993\"}}",json)!.ParseParent());
         foreach(var extra in new[]{"table","sql","projectId","orderBy","structureOnly","requireTargetList"})Assert.Throws<JsonException>(()=>JsonSerializer.Deserialize<CascadeTreePathRequest>("{\""+extra+"\":\"secret\"}",json));
         foreach(var path in new[]{"{\"parentId\":\"1\",\"parentId\":\"2\"}","{\"table\":\"secret\"}","[]","{\"parentId\":0}","{\"parentId\":\"1 OR 1=1\"}","{\"parentId\":1.0}"})
             Assert.Throws<ArgumentException>(()=>new CascadeTreeOptionsRequest{LevelKey="selfTree-0",SelectedPath=JsonSerializer.Deserialize<JsonElement>(path)}.ParseParent());
@@ -33,6 +37,24 @@ public sealed class CascadeTreeReadTests
         var choices=await reader.OptionsAsync(first);Assert.Equal(new[]{first+1,first+3},choices.Select(row=>long.Parse(row.Id)));Assert.True(choices[0].HasChildren);Assert.False(choices[1].HasChildren);
         var path=await reader.PathAsync(first+2);Assert.Equal("根/子/孙",path.DisplayText);Assert.Equal(new[]{first,first+1,first+2},path.Path.Select(row=>long.Parse(row.Id)));
         Assert.Empty((await reader.PathAsync(null)).Path);
+    }
+
+    /// <summary>显示文案跳过空白名称，内部路径保留空值供持久化及 Excel 校验。</summary>
+    [Fact]
+    public async Task Empty_names_are_skipped_only_in_display_text()
+    {
+        var reader=Reader([new(1,"根",null),new(2,null,"1"),new(3," ","2"),new(4,"叶","3")]);
+        var option=Assert.Single(await reader.OptionsAsync(1));
+        Assert.Equal("2",option.Id);
+        Assert.Equal("",option.Name);
+        Assert.Equal("",option.Text);
+        Assert.True(option.HasChildren);
+        var path=await reader.PathAsync(4);
+        Assert.Equal("根/叶",path.DisplayText);
+        Assert.Equal(4,path.Path.Count);
+        Assert.Null(path.Path[1].Name);
+        Assert.Equal(" ",path.Path[2].Name);
+        Assert.Throws<InvalidOperationException>(()=>CascadeTreeExcelPath.Format(path,"/"));
     }
 
     [Fact]
@@ -115,7 +137,29 @@ public sealed class CascadeTreeReadTests
             Assert.Equal(1,runtime.Snapshots);
             Assert.Equal(5,runtime.ReadCalls.Count(call=>call.Entity=="CascadeTree"&&call.Method=="ToListAsync"));
 
-            void Add(long id,string name,long? parent=null,string? project=null,int status=1)=>
+            const long empty=first+count+3;
+            Add(empty,null,first);
+            Add(empty+1," ",empty);
+            Add(empty+2,"有效叶",empty+1);
+            var roots=await runtime.CascadeOptions("25",new CascadeTreeOptionsRequest());
+            Assert.Equal(options.Select(option=>option.Id),roots.Select(option=>option.Id));
+            var children=await runtime.CascadeOptions("25",new CascadeTreeOptionsRequest
+            {
+                SelectedPath=JsonSerializer.SerializeToElement(new{parentId=first.ToString(CultureInfo.InvariantCulture)})
+            });
+            var child=Assert.Single(children);
+            Assert.Equal("",child.Name);
+            Assert.Equal("",child.Text);
+            Assert.True(child.HasChildren);
+            var path=await runtime.CascadePath("25",new CascadeTreePathRequest
+            {
+                LeafId=JsonSerializer.SerializeToElement((empty+2).ToString(CultureInfo.InvariantCulture))
+            });
+            Assert.Equal(new[]{first,empty,empty+1,empty+2}.Select(id=>id.ToString(CultureInfo.InvariantCulture)),path.Path.Select(node=>node.Id));
+            Assert.Equal(new[]{"同名",""," ","有效叶"},path.Path.Select(node=>node.Name));
+            Assert.Equal("同名/有效叶",path.DisplayText);
+
+            void Add(long id,string? name,long? parent=null,string? project=null,int status=1)=>
                 runtime.Add("CascadeTree",new Dictionary<string,object?>{["Id"]=id,["Name"]=name,["ParentCascadeTreeId"]=parent,
                     ["YzProjectId"]=project??catalog.YzProjectId,["Status"]=status});
 

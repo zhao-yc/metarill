@@ -40,7 +40,8 @@ public sealed class SelfTreeReader(
                 throw new InvalidOperationException("级联子节点标记超出候选范围。");
             hasChildren.UnionWith(matches);
         }
-        return rows.Select(row=>new CascadeTreeOption(Text(row.Id),row.Name,Text(row.Id),row.Name,hasChildren.Contains(row.Id))).ToArray();
+        // 原候选把没有名称的活动节点显示为空文本，节点ID及下一层标记仍有效。
+        return rows.Select(row=>new CascadeTreeOption(Text(row.Id),row.Name??"",Text(row.Id),row.Name??"",hasChildren.Contains(row.Id))).ToArray();
     }
 
     /// <summary>循环、断链和超过64层均整体拒绝，路径不得静默截断。</summary>
@@ -56,7 +57,9 @@ public sealed class SelfTreeReader(
             if(row is null || row.Id!=id)throw new InvalidOperationException("级联记录不存在、已删除或不在当前可读范围。");
             path.Add(new(Text(id),row.Name));current=Parent(row.ParentId);
         }
-        path.Reverse();return new(path,string.Join(displayJoiner,path.Select(row=>row.Name??"")));
+        path.Reverse();
+        // 展示文案沿用原版跳过空白层，完整路径仍保留节点和真实名称供写入、Excel 校验。
+        return new(path,string.Join(displayJoiner,path.Where(row=>!string.IsNullOrWhiteSpace(row.Name)).Select(row=>row.Name)));
     }
 
     /// <summary>根节点兼容原空文本与NULL，非空父键必须是有效正整数。</summary>
