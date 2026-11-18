@@ -66,10 +66,33 @@ public sealed class NestedCrossCandidateGenerationTests
             Assert.Equal(new[]{"id","name"},targetPlan.OutputTypes.Keys);
             if(cached)
             {
+                Assert.Contains("RecursiveCandidate=global::",service);
+                Assert.Contains("RedundantSharedParentScopeSql.Apply(query",service);
+                Assert.Contains("VerifySharedR1Parent900Async",service);
+                Assert.Single(SharedRedundantParentCompilation.AccountPlans(model,table,page));
                 var maintenance=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
                 var published=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(maintenance.GetProperty("Catalog")!.GetValue(null));
                 Assert.Contains("outer_root_name",published.MixedSourceColumns[table.Source.TableName]);
                 Assert.Contains(published.MixedTargets,target=>target.Contains("country",StringComparison.Ordinal));
+                var entity=assembly.GetType(ns+".Generated.Entities.ScopedCandidateOuter",true)!;
+                using var database=new Metarill.Data.DatabaseSession(new(){ExpectedDatabase="offline",
+                    ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
+                var mapper=Activator.CreateInstance(assembly.GetType(ns+".Generated.Mappers.ScopedCandidateOuterMapper",true)!,[database]);
+                var arguments=new object?[type.GetConstructors().Single().GetParameters().Length];
+                arguments[0]=database;arguments[1]=mapper;
+                arguments[2]=new Metarill.Core.Security.SnowflakeIdGenerator(864);
+                arguments[3]=Array.Empty<Metarill.Core.Persistence.IRecordMutationObserver>();
+                var instance=Activator.CreateInstance(type,arguments)!;
+                var scope=type.GetMethod("Scope900",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                var account=new Metarill.Core.Security.RuntimeActor(1,"父范围测试",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
+                var query=scope.Invoke(instance,[account,"9007199254742000",false])!;
+                var sql=(string)GetType().GetMethod(nameof(Sql),BindingFlags.Static|BindingFlags.NonPublic)!.MakeGenericMethod(entity).Invoke(null,[query])!;
+                Assert.Contains("r1_page_0_0_recursive_mt_candidate_",sql);
+                Assert.Contains("rp0",sql);
+                Assert.DoesNotContain("不可选路径",sql);
+                Assert.IsType<UnauthorizedAccessException>(Assert.Throws<TargetInvocationException>(()=>
+                    scope.Invoke(instance,[account with{StoreId=null},"9007199254742000",false])).InnerException);
+                Assert.Single(new Metarill.Runtime.Files.FileMetadataContext([catalog]).Catalogs);
             }
             if(mode is "row-project" or "without-project" or "cached-global")
             {
@@ -97,6 +120,8 @@ public sealed class NestedCrossCandidateGenerationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+
+    private static string Sql<T>(FreeSql.ISelect<T> query) where T:class=>query.ToSql();
 
     private static MetadataCatalog Catalog(bool shared,string mode)
     {
@@ -145,7 +170,12 @@ public sealed class NestedCrossCandidateGenerationTests
         {
             catalog.ConfigTables.Single(table=>table.Id=="90").IsRongyu=1;
             catalog.ConfigColumns.Add(new(){Id="9009",ConfigTableId="90",ColumnName="store_id",LogicalType="int64"});
-            catalog.ConfigPages.Single(page=>page.Id=="900").WhereSql+=" AND store_id=@current_store_id";
+            var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="900");
+            sourcePage.WhereSql+=" AND store_id=@current_store_id AND "+
+                (mode=="cached-global"?"outer_root_id":"outer_leaf_id")+"=@parent_id";
+            catalog.ConfigColumns.Add(new(){Id="9010",ConfigTableId="90",ColumnName="attachments",Name="附件",
+                LogicalType="string",ColumnLength="max",ControlKind="FileLibrary",
+                ControlDetail="{\"accessMode\":\"PROTECTED\",\"maxCount\":3}"});
         }
         catalog.ConfigColumns.Add(new(){Id="9104",ConfigTableId="91",ColumnName="root_id",LogicalType="int64",LinkConfigTableId=inner.Id});
         catalog.ConfigColumns.Add(new(){Id="9004",ConfigTableId="90",ColumnName="outer_leaf_id",Name="跨表候选",

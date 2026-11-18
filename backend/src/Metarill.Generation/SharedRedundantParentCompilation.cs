@@ -42,7 +42,9 @@ internal static class SharedRedundantParentCompilation
         var level=result[0].Level;
         if(level.Target.IsGlobal)
         {
-            if(cascadeParent)GlobalCrossTableTarget.RequireCrossTableName(model.Catalog,level.Target.Source,level.Page.Source,level.Name.Source,allowAccount:true);
+            if(cascadeParent&&FixedPageConditionCompilation.HasCrossFields(level.Page))
+                GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,level.Target.Source,level.Page.Source,level.Name.Source);
+            else if(cascadeParent)GlobalCrossTableTarget.RequireCrossTableName(model.Catalog,level.Target.Source,level.Page.Source,level.Name.Source,allowAccount:true);
             else GlobalCrossTableTarget.RequireSingle(model.Catalog,level.Target.Source,level.Page.Source);
         }
         return result;
@@ -70,14 +72,15 @@ internal static class SharedRedundantParentCompilation
     }
     /// <summary>公共元数据计划与生成器完整读取角色逐层一致，不能单独借用某个有效同伴。</summary>
     private static bool Matches(RedundantSharedParentPlan plan,SharedRedundantParentPath path)=>plan.Levels.Count==path.Index+1&&plan.Levels.Select((level,index)=>level.TableId==path.Read.Levels[index].Target.Source.Id&&level.PageId==path.Read.Levels[index].Page.Source.Id&&level.NameId==path.Read.Levels[index].Name.Source.Id&&level.Parent==path.Read.Levels[index].Parent?.Source.ColumnName).All(value=>value);
-    /// <summary>只有声明账号过滤的已证明祖先才需要额外相关范围，普通 R1 页沿用原查询。</summary>
+    /// <summary>有账号等值或递归条件的祖先需要额外相关范围，普通 R1 页沿用原查询。</summary>
     internal static IReadOnlyList<RedundantSharedParentPlan> AccountPlans(GenerationModel model,TableModel table,PageModel page)
     {
         if(table.Source.IsRongyu!=1||!page.Scopes.Any(scope=>scope.Source=="parent")||
-            !model.Tables.SelectMany(candidate=>candidate.Pages).Any(FixedPageConditionCompilation.HasAccountVariables)||
+            !model.Tables.SelectMany(candidate=>candidate.Pages).Any(candidate=>
+                FixedPageConditionCompilation.HasAccountVariables(candidate)||FixedPageConditionCompilation.HasCrossFields(candidate))||
             !Enabled(model,table,page))return [];
         return ParentPlans.GetValue(model,_=>new()).GetOrAdd((table.Source.Id,page.Source.Id),_=>CompileParents(model,table,page))
-            .Values.Where(path=>path.Levels.Any(level=>level.Condition?.Variables.Count>0))
+            .Values.Where(path=>path.Levels.Any(level=>level.RequiresCurrentScope))
             .OrderBy(path=>path.ColumnName,StringComparer.Ordinal).ToArray();
     }
 
@@ -92,7 +95,10 @@ internal static class SharedRedundantParentCompilation
         {
             var target=model.Tables.Single(candidate=>candidate.Source.Id==level.TableId);
             var scope=target.Pages.Single(candidate=>candidate.Source.Id==level.PageId).Condition;
-            return $"new({Literal(level.Key)},{Literal(level.Prefix)},{Literal(level.TableId)},{Literal(level.TableName)},{Literal(level.PageId)},{Literal(level.NameId)},{Literal(level.Parent)},{Literal(level.ProjectType)},{(level.SoftDelete?"true":"false")},{Literal(level.ConditionDefinition)},{FixedPageConditionCompilation.ConditionExpression(scope)})";
+            var declaration=$"new({Literal(level.Key)},{Literal(level.Prefix)},{Literal(level.TableId)},{Literal(level.TableName)},{Literal(level.PageId)},{Literal(level.NameId)},{Literal(level.Parent)},{Literal(level.ProjectType)},{(level.SoftDelete?"true":"false")},{Literal(level.ConditionDefinition)},{FixedPageConditionCompilation.ConditionExpression(scope)})";
+            if(level.RecursiveCandidate is null)return declaration;
+            var outputs=level.Parent is null?"\"id\"":"\"id\","+Literal(level.Parent);
+            return declaration+$"{{RecursiveCandidate=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileCrossPageCandidate({Literal(level.TableId)},{Literal(level.PageId)},new string[]{{{outputs}}},new string[]{{}})}}";
         }
         return $"    private static readonly global::Metarill.Data.Queries.RedundantSharedParentPlan[] {name}=[{string.Join(",",paths.Select(path=>$"new({Literal(path.ColumnId)},{Literal(path.ColumnName)},{Literal(path.LogicalType)},{Literal(path.ControlId)},new global::Metarill.Data.Queries.RedundantSharedParentLevel[]{{{string.Join(",",path.Levels.Select(Level))}}})"))}];\n";
     }

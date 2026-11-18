@@ -145,11 +145,13 @@ public sealed class FileCommandFactoryTests
 
     /// <summary>附件父节点复用递归候选 SQL，始终在原快照或写事务内核对实际嵌套范围。</summary>
     [Theory]
-    [InlineData(false,false,"ordinary")]
-    [InlineData(true,true,"ordinary")]
-    [InlineData(false,true,"row-project")]
-    [InlineData(true,false,"without-project")]
-    public async Task Logical_file_parent_checks_recursive_candidate_condition(bool shared,bool locking,string mode)
+    [InlineData(false,false,"ordinary",false)]
+    [InlineData(true,true,"ordinary",false)]
+    [InlineData(false,true,"row-project",false)]
+    [InlineData(true,false,"without-project",false)]
+    [InlineData(false,true,"ordinary",true)]
+    [InlineData(true,false,"without-project",true)]
+    public async Task Logical_file_parent_checks_recursive_candidate_condition(bool shared,bool locking,string mode,bool redundant)
     {
         const long storeId=9007199254740993L;
         var catalog=shared?FileSharedCrossParentScopeTests.Catalog("string","int64"):
@@ -198,7 +200,24 @@ public sealed class FileCommandFactoryTests
                 }
             })});
         var source=catalog.ConfigTables.Single(item=>item.Id=="1");
+        if(redundant)
+        {
+            source.IsRongyu=1;
+            if(!catalog.YzAdminTypes.Any(item=>item.Id=="9"))
+                catalog.YzAdminTypes.Add(new(){Id="9",YzProjectId=catalog.YzProjectId});
+            foreach(var record in catalog.ConfigTables.Cast<MetadataRecord>().Concat(catalog.ConfigPages))
+                record.YzProjectId=catalog.YzProjectId;
+            foreach(var page in catalog.ConfigPages)
+            {
+                page.YzAdminTypeId="9";
+                if(page.ConfigTableId==source.Id)page.WhereSql+=" AND store_id=@current_store_id";
+            }
+            catalog.ConfigColumns.Add(new(){Id="191",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"});
+        }
         var scope=FileReferenceScope.CompilePage(catalog,source,catalog.ConfigPages.Single(item=>item.Id=="101"));
+        var parent=Assert.Single(scope.Crosses);
+        Assert.Equal(redundant,parent.SourceId.StartsWith("r1:",StringComparison.Ordinal));
+        if(redundant)Assert.Equal("country_id",Assert.Single(parent.StorageNames));
         var stored=new Dictionary<string,object?>{{"country_id","10"},{"area_id",null},{"place_id",null}};
         if(shared)stored.Add("warehouse_id",null);
         var actor=new RuntimeActor(14,"候选附件账号",false,"1","3"){StoreId=storeId};

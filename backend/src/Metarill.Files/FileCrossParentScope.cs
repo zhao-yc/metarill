@@ -28,7 +28,14 @@ internal sealed class FileCrossParentScope
     /// <summary>共享包装器使用同一组身份与全局槽位，不能冒充某一条分支。</summary>
     internal FileCrossParentScope(string sourceId,int level,FileSharedCrossParentScope shared){SourceId=sourceId;Level=level;this.shared=shared;targets=[];}
     /// <summary>R1只读取实际物理父键，目标路径在发布时冻结，不重新编码来源祖先。</summary>
-    internal FileCrossParentScope(RedundantSharedParentPlan plan){redundant=plan;SourceId="r1:"+plan.ColumnId;Level=plan.Levels.Count-1;targets=plan.Levels.Select(level=>new Target(level.TableName,level.PageId,level.NameId,level.ProjectType,level.SoftDelete,level.Parent,level.Condition)).ToArray();}
+    internal FileCrossParentScope(RedundantSharedParentPlan plan)
+    {
+        redundant=plan;
+        SourceId="r1:"+plan.ColumnId;
+        Level=plan.Levels.Count-1;
+        targets=plan.Levels.Select(level=>new Target(level.TableName,level.PageId,level.NameId,level.ProjectType,
+            level.SoftDelete,level.Parent,level.Condition,level.RecursiveCandidate)).ToArray();
+    }
     /// <summary>只有普通R0固定跨表的ID位可取得逻辑父证明，selfTree及普通外键继续原边界。</summary>
     internal static FileCrossParentScope? Compile(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata column)
     {

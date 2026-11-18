@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using FreeSql;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
@@ -81,7 +82,7 @@ public static class RedundantSharedParentScopeSql
         {
             var path=paths[pathIndex];
             if(path.Levels.Count==0||path.LogicalType is not("string" or "int64")||
-                !path.Levels.Any(level=>level.Condition?.Variables.Count>0))throw new InvalidOperationException("冗余父范围缺少固定账号路径。");
+                !path.Levels.Any(level=>level.RequiresCurrentScope))throw new InvalidOperationException("冗余父范围缺少已发布的当前读取条件。");
             string Alias(int index)=>"rp"+index.ToString(CultureInfo.InvariantCulture);
             string Field(int index,string column)=>Alias(index)+"."+provider.QuoteIdentifier(column);
             var last=path.Levels.Count-1;
@@ -108,6 +109,11 @@ public static class RedundantSharedParentScopeSql
                     correlated.Add(Field(index,"yz_project_id")+"="+provider.ParameterPlaceholder(key+"_project"));
                 }
                 if(level.SoftDelete)correlated.Add(Field(index,"delete_no")+" IS NULL");
+                if(level.RecursiveCandidate is { } recursive)
+                {
+                    correlated.Add(RecursiveScope(provider,recursive,Field(index,"id"),actor,project,key,locking,parameters));
+                    continue;
+                }
                 if(level.Condition is not { } condition)continue;
                 var clause=condition.BindAccount(actor).RenderConstants(provider,key+"_scope",column=>Field(index,column));
                 correlated.Add(clause.Sql);
@@ -117,5 +123,32 @@ public static class RedundantSharedParentScopeSql
             predicates.Add("EXISTS ("+(locking?provider.BuildSelectForUpdate(sql):sql)+")");
         }
         return new(string.Join(" AND ",predicates),parameters);
+    }
+
+    /// <summary>在实际父节点上应用现有递归候选计划。写入同时锁定物理父和内层级联行。</summary>
+    private static string RecursiveScope(IDatabaseProvider provider,NonRedundantReadPlan recursive,string parentKey,
+        RuntimeActor actor,long project,string key,bool locking,Dictionary<string,object?> parameters)
+    {
+        var plan=recursive.BindAccount(actor).MySql;
+        if(plan.RequiresPublishedProjectIdentity&&plan.ProjectId!=actor.ProjectId)
+            throw new UnauthorizedAccessException("当前身份不属于已发布的全局候选项目。");
+        var constants=new Dictionary<string,object?>(plan.Constants,StringComparer.Ordinal)
+        {
+            ["project_scope_number"]=project,
+            ["project_scope_text"]=actor.ProjectId
+        };
+        var scope=plan.Scope.Length==0?"":" AND "+plan.Scope;
+        // 外层已经以排他锁保护物理父，递归子查询以共享锁读取其余依赖的当前值。
+        var sql="SELECT 1"+plan.From+" WHERE "+plan.Expression("id")+"="+parentKey+scope+
+            (locking?" FOR SHARE":"");
+        return "EXISTS ("+Regex.Replace(sql,@"@([A-Za-z_][A-Za-z0-9_]*)",match=>
+        {
+            var name=match.Groups[1].Value;
+            if(!constants.TryGetValue(name,out var value))
+                throw new InvalidOperationException("递归父范围中存在未绑定的固定参数。");
+            var parameter=key+"_recursive_"+name;
+            parameters.TryAdd(parameter,value);
+            return provider.ParameterPlaceholder(parameter);
+        },RegexOptions.CultureInvariant)+")";
     }
 }

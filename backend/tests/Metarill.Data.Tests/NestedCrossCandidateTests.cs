@@ -160,6 +160,59 @@ public sealed class NestedCrossCandidateTests
         Assert.ThrowsAny<Exception>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[definition with{CrossTableRecursivePageId="91"}]));
     }
 
+    /// <summary>冗余父范围按实际存储父键关联，常量或账号递归条件都进入查询和当前锁。</summary>
+    [Theory]
+    [InlineData(false,true)]
+    [InlineData(true,false)]
+    public void Redundant_parent_uses_the_same_recursive_candidate_for_reads_and_locks(bool global,bool account)
+    {
+        var catalog=Catalog(global);
+        var source=catalog.ConfigTables.Single(table=>table.Id=="90");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="1");
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="11");
+        source.IsRongyu=1;
+        catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+        catalog.ConfigPages.Add(new(){Id="900",ConfigTableId=source.Id,
+            WhereSql="yz_project_id=@current_yz_project_id AND outer_leaf_id=@parent_id"+(account?" AND store_id=@current_store_id":"")});
+        catalog.ConfigColumns.Add(new(){Id="9010",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"});
+        foreach(var table in catalog.ConfigTables)table.YzProjectId=catalog.YzProjectId;
+        foreach(var page in catalog.ConfigPages)
+        {
+            page.YzProjectId=catalog.YzProjectId;
+            page.YzAdminTypeId="5";
+        }
+        if(global)target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(!account)targetPage.WhereSql="country_name <> '限制文字'";
+        var path=Assert.Single(RedundantSharedParents.Compile(catalog,source.Id,"900")).Value;
+        Assert.Equal("outer_leaf_id",path.ColumnName);
+        Assert.Equal(2,path.Levels.Count);
+        Assert.NotNull(path.Levels[0].RecursiveCandidate);
+        Assert.True(path.Levels[0].RequiresCurrentScope);
+        Assert.Null(path.Levels[1].RecursiveCandidate);
+
+        var provider=new MySqlDatabaseProvider();
+        const long storeId=9007199254741993L;
+        var actor=new RuntimeActor(1,"父范围测试",false,catalog.YzProjectId,"5"){StoreId=account?storeId:null};
+        FixedConditionSqlPlan.Clause Render(RuntimeActor identity,bool locking)=>RedundantSharedParentScopeSql.Render(
+            provider,[path],identity,"test_parent",field=>"a."+provider.QuoteIdentifier(field),locking);
+        var read=Render(actor,false);
+        var write=Render(actor,true);
+        Assert.Contains("BINARY CAST(a.`outer_leaf_id` AS CHAR)",read.Sql);
+        Assert.Contains("b.`id`=rp0.`id`",read.Sql);
+        Assert.Contains("LEFT JOIN `nested_country`",read.Sql);
+        Assert.Contains("@test_parent_0_0_recursive_mt_candidate_",read.Sql);
+        Assert.DoesNotContain("限制文字",read.Sql);
+        Assert.Contains("限制文字",read.Parameters.Values);
+        Assert.Equal(!global,read.Sql.Contains("rp0.`yz_project_id`=",StringComparison.Ordinal));
+        Assert.Equal(account,read.Parameters.Values.Contains(storeId));
+        Assert.DoesNotContain("FOR UPDATE",read.Sql);
+        Assert.Contains(" FOR SHARE)",write.Sql);
+        Assert.EndsWith(" FOR UPDATE)",write.Sql);
+        Assert.Equal(read.Parameters,write.Parameters);
+        if(account)Assert.Throws<UnauthorizedAccessException>(()=>Render(actor with{StoreId=null,IsAdministrator=true},false));
+        if(global)Assert.Throws<UnauthorizedAccessException>(()=>Render(actor with{ProjectId="999"},false));
+    }
+
     [Fact]
     public void A_recursive_condition_cycle_is_rejected_instead_of_returning_wide_scope()
     {

@@ -8,7 +8,15 @@ using Metarill.Data.Relations;
 namespace Metarill.Data.Queries;
 
 /// <summary>发布时冻结的R1父路径，只保存标量及固定条件，不保留外部可变元数据。</summary>
-public sealed record RedundantSharedParentLevel(string Key,string Prefix,string TableId,string TableName,string PageId,string NameId,string? Parent,string? ProjectType,bool SoftDelete,string ConditionDefinition,FixedConditionSqlPlan? Condition);
+public sealed record RedundantSharedParentLevel(string Key,string Prefix,string TableId,string TableName,string PageId,string NameId,string? Parent,string? ProjectType,bool SoftDelete,string ConditionDefinition,FixedConditionSqlPlan? Condition)
+{
+    /// <summary>逻辑条件使用已发布非冗余读计划，物理父列仍来自当前来源记录。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public NonRedundantReadPlan? RecursiveCandidate{get;init;}
+    /// <summary>账号等值与递归条件均需在实际业务读取中复核父记录。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool RequiresCurrentScope=>Condition?.Variables.Count>0||RecursiveCandidate is not null;
+}
 /// <summary>来源实际物理父键及其唯一已证明目标角色。</summary>
 public sealed record RedundantSharedParentPlan(string ColumnId,string ColumnName,string LogicalType,string ControlId,IReadOnlyList<RedundantSharedParentLevel> Levels);
 /// <summary>生成与文件运行时共用R1物理父定义，覆盖独立单链和共享链。</summary>
@@ -79,9 +87,34 @@ public static class RedundantSharedParents
             var targetColumns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id));var ts=MetadataStoragePolicy.ForTable(catalog,target);var primary=targetColumns.SingleOrDefault(c=>c.ColumnName=="id");var project=targetColumns.SingleOrDefault(c=>c.ColumnName=="yz_project_id");var global=GlobalCrossTableTarget.Declared(target);if(primary is null||primary.LogicalType!="int64"||primary.IsDbNotNull!=1||!Scalar(ts,target,primary)||!global&&(project is null||project.LogicalType is not("string" or "int64")||!Scalar(ts,target,project)))throw Unsupported();
             var display=targetColumns.Single(c=>c.ColumnName==Text(level,"nameField","name"));if(display.ColumnName=="id"||display.LogicalType is not("string" or "int32" or "int64")||display.IsVirtualColumn!=0)throw Unsupported();if(!ts.IsPhysical(display)&&!global){var read=NonRedundantReads.CompileMatch(catalog,target.Id,display.ColumnName);if(read.OutputTypes[display.ColumnName]!=display.LogicalType||NonRedundantReads.MatchReadsTable(catalog,target.Id,display.ColumnName,source.TableName))throw Unsupported();}
             var parent=previous is null?null:targetColumns.Single(c=>c.ColumnName==Text(level,"parentField",""));if(parent is not null&&(!Scalar(ts,target,parent)||parent.LogicalType is not("string" or "int64")||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=previous!.Id))throw Unsupported();
-            var required=new[]{display.Id}.Concat(parent is null?[]:new[]{parent.Id}).ToArray();var candidates=catalog.ConfigPages.Where(p=>p.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(f=>f.ConfigPageId==p.Id&&f.ConfigColumnId==id&&Readable(f)))).Select(p=>(Page:p,Condition:CrossTableParentCondition.Compile(catalog,target,p,ts))).Where(x=>x.Condition.Allowed).ToArray();if(candidates.Length!=1)throw Unsupported();var chosen=candidates[0];Realm(catalog,target,chosen.Page);if(global)GlobalCrossTableTarget.RequireCrossTableName(catalog,target,chosen.Page,display,allowAccount:true);if(chosen.Condition.Plan?.Variables.Count>0)_=AccountScopedCrossCache.Compile(catalog,source,target,chosen.Page);var deleted=targetColumns.SingleOrDefault(c=>c.ColumnName=="delete_no");if(deleted is not null&&(deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0||!ts.IsPhysical(deleted)))throw Unsupported();
+            var required=new[]{display.Id}.Concat(parent is null?[]:new[]{parent.Id}).ToArray();
+            var candidates=catalog.ConfigPages.Where(p=>p.ConfigTableId==target.Id&&required.All(id=>
+                    catalog.ConfigPageColumns.Any(f=>f.ConfigPageId==p.Id&&f.ConfigColumnId==id&&Readable(f))))
+                .Select(p=>(Page:p,Condition:CrossTableParentCondition.Compile(catalog,target,p,ts,allowLogical:true)))
+                .Where(candidate=>candidate.Condition.Allowed).ToArray();
+            if(candidates.Length!=1)throw Unsupported();
+            var chosen=candidates[0];
+            Realm(catalog,target,chosen.Page);
+            NonRedundantReadPlan? recursive=null;
+            if(chosen.Condition.HasLogical)
+            {
+                if(global)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,chosen.Page,display);
+                _=AccountScopedCrossCache.CompileRecursive(catalog,source,target,chosen.Page);
+                recursive=NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,chosen.Page.Id,
+                    parent is null?["id"]:["id",parent.ColumnName],[]);
+            }
+            else
+            {
+                if(global)GlobalCrossTableTarget.RequireCrossTableName(catalog,target,chosen.Page,display,allowAccount:true);
+                if(chosen.Condition.Plan?.Variables.Count>0)_=AccountScopedCrossCache.Compile(catalog,source,target,chosen.Page);
+            }
+            var deleted=targetColumns.SingleOrDefault(c=>c.ColumnName=="delete_no");
+            if(deleted is not null&&(deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0||!ts.IsPhysical(deleted)))throw Unsupported();
             var id=sourceColumns.Single(c=>c.ColumnName==prefix+"_id");var name=sourceColumns.Single(c=>c.ColumnName==prefix+"_name");if(id.LogicalType is not("string" or "int64")||id.IsDbNotNull!=0||!sourceStorage.IsPhysical(id)||id.IsVirtualColumn!=0||Join(id)||id.ControlKind.Length>0&&!(id.ControlKind=="CascadeTree"&&controls.Any(c=>c.Id==id.Id))||id.LinkConfigTableId.Length>0&&id.LinkConfigTableId!=target.Id||name.LogicalType!="string"||name.IsDbNotNull!=0||!sourceStorage.IsPhysical(name))throw Unsupported();
-            result.Add(new(key,prefix,target.Id,target.TableName,chosen.Page.Id,display.Id,parent?.ColumnName,global?null:project!.LogicalType,deleted is not null,chosen.Page.WhereSql,chosen.Condition.Plan));ids.Add(id);names.Add(name);previous=target;
+            result.Add(new(key,prefix,target.Id,target.TableName,chosen.Page.Id,display.Id,parent?.ColumnName,global?null:project!.LogicalType,deleted is not null,chosen.Page.WhereSql,chosen.Condition.Plan)
+            {
+                RecursiveCandidate=recursive
+            });ids.Add(id);names.Add(name);previous=target;
         }
         if(ids[^1].Id!=control.Id)throw Unsupported();
         // 来源兼任候选时，真实父和名称不能被同一条链的归一化改写。
@@ -99,15 +132,17 @@ public static class RedundantSharedParents
         foreach(var uses in branches.SelectMany(b=>b.Ids.Select((id,index)=>(Branch:b,Id:id,Index:index))).GroupBy(x=>x.Id.Id,StringComparer.Ordinal))
         {
             var chosen=uses.OrderBy(x=>x.Branch.Control.Id==x.Id.Id?0:1).ThenBy(x=>x.Branch.Control.Id,StringComparer.Ordinal).First();var b=chosen.Branch;var level=b.Levels[chosen.Index];var target=catalog.ConfigTables.Single(t=>t.Id==level.TableId);var value=catalog.ConfigColumns.Single(c=>c.ConfigTableId==target.Id&&c.Id==level.NameId);var globals=b.Levels.Where(l=>l.ProjectType is null).ToDictionary(l=>l.Key,l=>l.PageId,StringComparer.Ordinal);
-            var accountPage=level.Condition?.Variables.Count>0?level.PageId:null;
+            var recursivePage=level.RecursiveCandidate is not null?level.PageId:null;
+            var accountPage=recursivePage is null&&level.Condition?.Variables.Count>0?level.PageId:null;
             var definition=new RelationCacheDefinition(source.Id,chosen.Id.Id,target.Id,value.Id,b.Names[chosen.Index].Id,false)
             {
                 CrossTableColumnId=b.Control.Id,CrossTableLevelKey=level.Key,
                 CrossTablePageId=level.ProjectType is null?level.PageId:null,
                 CrossTableGlobalPages=globals.Count==0?null:new ReadOnlyDictionary<string,string>(globals),
-                CrossTableAccountPageId=accountPage
+                CrossTableAccountPageId=accountPage,
+                CrossTableRecursivePageId=recursivePage
             };
-            if(accountPage is null&&MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(value))physical.Add(definition);else derived.Add(definition);
+            if(accountPage is null&&recursivePage is null&&MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(value))physical.Add(definition);else derived.Add(definition);
         }
         _=RelationMutationPlan.Compile(catalog,physical);DerivedCrossTableCaches.Validate(catalog,derived,physical);
     }
