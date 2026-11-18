@@ -14,7 +14,7 @@ internal static partial class BackendRenderer
         var accountPages=candidateLevels.Where(level=>FixedPageConditionCompilation.HasAccountVariables(level.Page))
             .Select(level=>level.Page.Source.Id).ToHashSet(StringComparer.Ordinal);
         // 保留参与递归范围证明的表及其候选页，避免无关页面条件进入精简运行目录。
-        var scopedPages=candidateLevels.Where(level=>FixedPageConditionCompilation.HasCrossFields(level.Page)).Select(level=>(level.Target,level.Page))
+        var scopedPages=candidateLevels.Where(level=>FixedPageConditionCompilation.HasLogicalFields(level.Page)).Select(level=>(level.Target,level.Page))
             .Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>NonRedundantReadCompilation.GlobalSelectionPage(table,page)&&
                 (FixedPageConditionCompilation.HasSelfTreeFields(page)||CrossTableWriteCompilation.ForService(model,table,page).Count>0)).Select(page=>(table,page))));
         scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page)))

@@ -13,7 +13,7 @@ internal static class NonRedundantCrossTableCompilation
     {
         if(table.Source.IsRongyu!=0)throw new InvalidOperationException("非冗余跨表要求已声明的非冗余来源。");
         if(table.IsGlobal)GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
-        foreach(var level in plan.Levels.Where(level=>level.Target.IsGlobal))GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,level.Target.Source,level.Page.Source);
+        foreach(var level in plan.Levels.Where(level=>level.Target.IsGlobal))NonRedundantCrossTargetsCompilation.RequireGlobal(model,level.Target,level.Page,level.Name);
         var shared=SharedCrossTableCompilation.ForSource(model,table,page,plan.Source.Source.Id);var storage=shared is null?CrossTableSparseSelection.Compile(table.Source,plan.Source.Source.Id,model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id)):SharedCrossTableSparseSelection.Compile(table.Source,plan.Source.Source.Id,model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id)).BranchSelection(plan.Source.Source.Id);
         if(!storage.Slots.Select(slot=>slot.ColumnName).SequenceEqual(plan.Levels.Select(level=>level.Prefix+"_id"),StringComparer.Ordinal))throw new InvalidOperationException("页级跨表定义不能改变固定存储层位。");
         if (!CrossTableFrontendProof.KeepsStorageDefinition(model, page, plan.Source))
@@ -37,7 +37,7 @@ internal static class NonRedundantCrossTableCompilation
 
     internal static string BoundPlan(IReadOnlyList<CrossTableWriteModel>? plans,string name,string actor)=>
         plans?.Any(plan=>plan.Read.Levels.Any(level=>FixedPageConditionCompilation.HasAccountVariables(level.Page)||
-            FixedPageConditionCompilation.HasCrossFields(level.Page)))==true
+            FixedPageConditionCompilation.HasLogicalFields(level.Page)))==true
             ?name+".BindAccount("+actor+")":name;
 
     /// <summary>共享匹配与普通跨表读取使用同一固定目标页字面量。</summary>

@@ -116,7 +116,7 @@ internal static class RelationPropagationCompilation
             foreach(var dependency in CrossTableWriteCompilation.ForService(model,root.Table,root.Page).SelectMany(path=>path.Read.Levels))
             {
                 tables.Add(dependency.Target.Source.Id);
-                if(FixedPageConditionCompilation.HasCrossFields(dependency.Page))
+                if(FixedPageConditionCompilation.HasLogicalFields(dependency.Page))
                     pending.Enqueue((dependency.Target,dependency.Page));
             }
         }

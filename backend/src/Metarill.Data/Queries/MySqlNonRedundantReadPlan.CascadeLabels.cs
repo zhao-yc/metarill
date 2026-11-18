@@ -66,6 +66,13 @@ public static partial class MySqlNonRedundantReadCompiler
         return CompileWithCrossTables(catalog,table.Id,["id"],bindings,conditionFields,deferCascadeNames:selfTreeFields.Count>0);
     }
 
+    /// <summary>从实际发布页发现逻辑叶名，然后校验其实际控件定义。</summary>
+    internal static IReadOnlySet<string> PublishedSelfTreeConditionFields(MetadataCatalog catalog,TableMetadata table,
+        PageMetadata page,IReadOnlyList<ColumnMetadata> declared)=>
+        table.IsRongyu==0?SelfTreeConditionFields(catalog,table,page,declared,
+            FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName)).Fields):
+            new HashSet<string>(StringComparer.Ordinal);
+
     /// <summary>只有与表级控件一致的叶名才能用于固定范围。附件和候选页共用同一份证明。</summary>
     internal static IReadOnlySet<string> SelfTreeConditionFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
         IReadOnlyList<ColumnMetadata> declared,IEnumerable<string> fields)
@@ -201,7 +208,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var name=Value(level,"nameField");
             if(name.Length==0)name="name";
             var parent=index==0?"":Value(level,"parentField");
-            var (page,condition)=CascadeLabelPage(catalog,target,name,parent);
+            var (page,condition)=CascadeLabelPage(catalog,target,name,parent,allowSelfTree:true);
             scopes.Add(new(page.Id,condition));
         }
         return new(source.Id,scopes.ToArray());

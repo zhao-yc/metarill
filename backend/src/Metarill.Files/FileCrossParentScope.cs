@@ -66,11 +66,15 @@ internal sealed class FileCrossParentScope
             var name=level.TryGetProperty("nameField",out var label)&&!string.IsNullOrWhiteSpace(label.GetString())?label.GetString()!:"name";var parent=targets.Count==0?null:level.GetProperty("parentField").GetString();var display=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName==name);
             // 名称可来自已证明的单值联接，父键仍必须物理；下方完整跨表编译继续证明类型、终点与范围。
             var required=new[]{display.Id}.Concat(parent is null?Array.Empty<string>():new[]{columns.Single(column=>column.ColumnName==parent).Id}).ToArray();
-            var pages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==candidate.Id&&field.ConfigColumnId==id&&Readable(field)))).Select(candidate=>(Page:candidate,Condition:CrossTableParentCondition.Compile(catalog,target,candidate,storage,allowLogical:true))).Where(item=>item.Condition.Allowed).ToArray();if(pages.Length!=1)throw new NotSupportedException("文件跨表每层需要唯一固定可读目标页。");
+            var pages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==target.Id&&required.All(id=>catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==candidate.Id&&field.ConfigColumnId==id&&Readable(field)))).Select(candidate=>(Page:candidate,Condition:CrossTableParentCondition.CompileNestedCandidate(catalog,target,candidate,storage))).Where(item=>item.Condition.Allowed).ToArray();if(pages.Length!=1)throw new NotSupportedException("文件跨表每层需要唯一固定可读目标页。");
             var chosen=pages[0];bindings.Add(new(chosen.Page.Id,chosen.Condition.Plan));
             // 仅显式全局目标免项目等值；固定发布、常量页与普通来源项目仍由完整编译器核验。
             var global=GlobalCrossTableTarget.Declared(target);
-            if(global)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,chosen.Page,display);
+            if(global)
+            {
+                if(chosen.Condition.HasSelfTree)GlobalCrossTableTarget.RequireScopedSelfTreeName(catalog,target,chosen.Page,display);
+                else GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,chosen.Page,display);
+            }
             var project=global?null:columns.Single(field=>field.ColumnName=="yz_project_id");
             var logical=chosen.Condition.HasLogical?NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,chosen.Page.Id,
                 parent is null?["id"]:["id",parent],[]):null;

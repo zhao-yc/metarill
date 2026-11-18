@@ -18,7 +18,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,MySqlCrossTableProjection> crossProjections=new(StringComparer.Ordinal);
         private readonly Dictionary<string,IReadOnlyDictionary<string,(string Sql,string Type)>> crossValues=new(StringComparer.Ordinal);
         private readonly Dictionary<string,object?> crossConstants=new(StringComparer.Ordinal);
-        private sealed record CrossLevel(TableMetadata Table,ColumnMetadata Name,ColumnMetadata? Parent,NonRedundantCrossTableTargetScope Scope,PageMetadata Page,IReadOnlySet<string> LogicalFields);
+        private sealed record CrossLevel(TableMetadata Table,ColumnMetadata Name,ColumnMetadata? Parent,NonRedundantCrossTableTargetScope Scope,PageMetadata Page,IReadOnlySet<string> LogicalFields,IReadOnlySet<string>? SelfTreeFields=null);
 
         /// <summary>一个控件只生成一条从末层向根的线性联接链，全部用途复用逻辑字段表达式。</summary>
         private (string Sql,string Type) CrossValue(TableMetadata table,string owner,ColumnMetadata source,CrossTableSparseSelection selection,NonRedundantCrossTableScope binding,string name,bool labelPath=false,bool scopeOnly=false,CascadeCacheOwner? cacheOwner=null)
@@ -50,10 +50,15 @@ public static partial class MySqlNonRedundantReadCompiler
                     var display=Column(target,Value(entry,"nameField") is {Length:>0} field?field:"name");
                     if(display.ColumnName=="id"||(display.LogicalType!="string"&&!MultiValueLabel.IsTyped(display.LogicalType))||ExactDataManageValues.IsSensitiveField(display.ColumnName))
                         throw new NotSupportedException("跨表名称须为已证明的非凭据单值。");
-                    if(global)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,page,display);
+                    var selfTreeFields=PublishedSelfTreeConditionFields(catalog,target,page,columns[target.Id].Values.ToArray());
+                    if(global)
+                    {
+                        if(selfTreeFields.Count>0)GlobalCrossTableTarget.RequireScopedSelfTreeName(catalog,target,page,display);
+                        else GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,page,display);
+                    }
                     if(target.IsRongyu==0)
                     {
-                        var proof=new Builder(catalog,target.Id,matching:!global).Compile([display.ColumnName],[]);if(proof.Types[display.ColumnName]!=display.LogicalType||proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
+                        var proof=new Builder(catalog,target.Id,matching:!global,deferCascadeNames:selfTreeFields.Count>0).Compile([display.ColumnName],[]);if(proof.Types[display.ColumnName]!=display.LogicalType||proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
                     }
                     else if(!global&&!CrossPhysical(target,display))throw new NotSupportedException("冗余目标联接名称仍需独立物理缓存证明。");
                     ColumnMetadata? parent=null;
@@ -65,9 +70,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     }
                     var slot=columns[table.Id][selection.Slots[index].ColumnName];if(slot.LinkConfigTableId.Length>0&&slot.LinkConfigTableId!=target.Id)throw new InvalidOperationException("跨表来源ID位与目标表声明不一致。");
                     var label=selection.Slots[index].ColumnName[..^3]+"_name";if(columns[table.Id].TryGetValue(label,out var declared)&&declared.LogicalType.ToLowerInvariant()!="string")throw new InvalidOperationException("跨表来源显示字段类型与逻辑名称不符。");
-                    var logical=RequireCrossCondition(target,page,binding.Levels[index].Condition);
+                    var logical=RequireCrossCondition(target,page,binding.Levels[index].Condition,selfTreeFields:selfTreeFields);
                     if(global&&(logical.Count>0||scopeOnly&&cacheOwner is not null))scopedGlobalCrossTarget=true;
-                    levels.Add(new(target,display,parent,binding.Levels[index],page,logical));
+                    levels.Add(new(target,display,parent,binding.Levels[index],page,logical,selfTreeFields));
                 }
                 if(trackReverse&&(labelPath||scopeOnly))
                     foreach(var slot in selection.Slots)
@@ -105,7 +110,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     joins.Add(join);
                     if(refreshFields is not null)maintenanceJoins.Add((alias,join));
                     // 子路径联接使用本层别名，先发布本层联接，再用完整子路径限制本层是否可见。
-                    if(level.LogicalFields.Count>0)rowConditions[index]=" AND "+NestedCrossCondition(level,alias,cacheOwner);
+                    if(level.LogicalFields.Count>0)rowConditions[index]=" AND "+NestedCrossCondition(level,alias,cacheOwner,selfTreeFields:level.SelfTreeFields);
                 }
                 var paths=Enumerable.Range(0,levels.Count).Select(deepest=>"("+selected[deepest]+" AND "+string.Join(" AND ",targetAliases.Take(deepest+1).Select((alias,index)=>alias+".`id` IS NOT NULL"+rowConditions[index]))+")").ToArray();
                 var requireVisible=scopeOnly||GlobalCrossCandidate||ScopedRootControls.Contains(source.Id)||levels.Any(level=>level.Scope.Condition?.Variables.Count>0||level.LogicalFields.Count>0);

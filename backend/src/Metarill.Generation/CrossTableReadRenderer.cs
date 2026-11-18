@@ -31,7 +31,7 @@ internal static class CrossTableReadRenderer
                 if(FixedPageQueryCompilation.SoftDeleteColumn(target) is{} deleted)output.AppendLine($"        query=query.Where(row=>row.{deleted.Property}==null);");
                 var scopes=level.Page.Scopes.ToList();var project=target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id");if(!target.IsGlobal&&project is not null&&!scopes.Any(scope=>scope.Column.Source.Id==project.Source.Id))scopes.Add((project,"project"));
                 foreach(var(column,_)in scopes)output.AppendLine($"        query=query.Where(row=>row.{column.Property}=={(column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")});");
-                var logicalPlan=FixedPageConditionCompilation.HasCrossFields(level.Page)?"CrossTargetPlan"+scope+".BindAccount(actor)":null;
+                var logicalPlan=FixedPageConditionCompilation.HasLogicalFields(level.Page)?"CrossTargetPlan"+scope+".BindAccount(actor)":null;
                 output.Append(FixedPageConditionCompilation.Apply(level.Page,"CrossCondition"+scope,logicalPlan is null?"cross_"+scope:"nested_scope",logicalPlan))
                     .AppendLine("        return query;").AppendLine("    }");
                 if(target.Source.IsRongyu==0)output.Append(NonRedundantCrossTargetsRenderer.Service(model,table,page,plan,index));

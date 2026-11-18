@@ -278,7 +278,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     {
                         var control=Column(table,field[..^5]+"_id");
                         if(!IsPhysicalTreeKey(table,storage[table.Id],control)||
-                            GlobalCrossCandidate&&table.Id==root.Id&&!PublishedGlobalSelfTreeField(column))
+                            GlobalCrossTableTarget.Declared(table)&&
+                                !GlobalCrossTableTarget.Declared(SelfTreeLabel(catalog,control).Target))
                             throw new NotSupportedException("自树固定条件缺少有效的叶子外键或全局发布证明。");
                         return SelfTreeLabelExpression(table,owner,control,column);
                     }

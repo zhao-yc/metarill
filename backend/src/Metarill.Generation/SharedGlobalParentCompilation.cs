@@ -34,7 +34,7 @@ internal static class SharedGlobalParentCompilation
         var result=paths.DistinctBy(Identity,StringComparer.Ordinal).ToArray();
         if(result.Length!=1)throw new NotSupportedException("全局共享父字段缺少唯一已证明层位，不能猜测重复目标角色。");
         var published=result[0].Level;
-        if(logical.Length>0)GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,target.Source,published.Page.Source,published.Name.Source);
+        if(logical.Length>0)NonRedundantCrossTargetsCompilation.RequireGlobal(model,target,published.Page,published.Name);
         else GlobalCrossTableTarget.RequireSingle(model.Catalog,target.Source,published.Page.Source);
         return result;
     }

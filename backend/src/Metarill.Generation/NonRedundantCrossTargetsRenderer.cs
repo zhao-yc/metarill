@@ -9,7 +9,7 @@ internal static class NonRedundantCrossTargetsRenderer
     {
         var level=plan.Levels[index];var suffix=page.Source.Id+"_"+plan.Source.Source.Id+"_"+index;var dependencies=NonRedundantCrossTargetsCompilation.Dependencies(model,level);var outputs=new[]{"id",level.Name.Source.ColumnName}.Concat(level.Parent is{} p?new[]{p.Source.ColumnName}:[]).ToArray();var parent=level.Parent is not{} parentColumn?"null":parentColumn.Type=="string?"?"NonRedundantReads.Value<string?>(row,"+Literal(parentColumn.Source.ColumnName)+")":"NonRedundantReads.Value<long?>(row,"+Literal(parentColumn.Source.ColumnName)+")?.ToString(CultureInfo.InvariantCulture)";var scopes=level.Page.Scopes.Select(scope=>"        bound.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+(scope.Column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")+"));");
         var label=MultiSelectExcelRenderer.LabelText(level.Name,$"NonRedundantReads.Value<{level.Name.Type}>(row,{Literal(level.Name.Source.ColumnName)})");
-        var scoped=FixedPageConditionCompilation.HasCrossFields(level.Page);
+        var scoped=FixedPageConditionCompilation.HasLogicalFields(level.Page);
         var start=scoped?$"CompileCrossPageCandidate({Literal(level.Target.Source.Id)},{Literal(level.Page.Source.Id)}":
             NonRedundantReadCompilation.RelationPlanStart(level.Target,level.Page);
         return $$"""

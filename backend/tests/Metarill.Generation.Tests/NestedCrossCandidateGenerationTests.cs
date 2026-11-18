@@ -17,19 +17,25 @@ public sealed class NestedCrossCandidateGenerationTests
     [InlineData(true,"without-project")]
     [InlineData(false,"cached-ordinary")]
     [InlineData(true,"cached-global")]
-    public async Task Logical_target_page_keeps_nested_scope_after_metadata_publication(bool shared,string mode)
+    [InlineData(false,"ordinary",true)]
+    [InlineData(true,"without-project",true)]
+    public async Task Logical_target_page_keeps_nested_scope_after_metadata_publication(bool shared,string mode,bool selfTreeScope=false)
     {
         const string ns="Example.NestedCrossScope";
-        var catalog=Catalog(shared,mode);
+        var catalog=Catalog(shared,mode,selfTreeScope);
         var before=JsonSerializer.Serialize(catalog);
         var model=GenerationModel.Create(catalog,ns);
         var table=model.Tables.Single(item=>item.Source.Id=="90");
         var page=Assert.Single(table.Pages);
+        var control=table.Columns.Single(column=>column.Source.Id=="9004");
+        var proof=CrossTableWriteCompilation.Resolve(model,table,page,control);
+        Assert.True(proof.Definition is not null,proof.Reason);
         var plans=CrossTableWriteCompilation.ForService(model,table,page);
         var plan=Assert.Single(plans,item=>item.Read.Source.Source.Id=="9004");
-        if(mode=="cached-global")Assert.Single(SharedCrossTableCompilation.ForPage(model,table,page).Groups);
+        if(mode=="cached-global"||shared&&selfTreeScope)Assert.Single(SharedCrossTableCompilation.ForPage(model,table,page).Groups);
         else Assert.Single(plans);
-        Assert.True(FixedPageConditionCompilation.HasCrossFields(plan.Read.Levels[0].Page));
+        Assert.True(selfTreeScope?FixedPageConditionCompilation.HasSelfTreeFields(plan.Read.Levels[0].Page):
+            FixedPageConditionCompilation.HasCrossFields(plan.Read.Levels[0].Page));
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var cached=mode.StartsWith("cached-",StringComparison.Ordinal);
         if(cached)
@@ -64,6 +70,26 @@ public sealed class NestedCrossCandidateGenerationTests
             }
             var targetPlan=(NonRedundantReadPlan)type.GetField("CrossTargetPlan900_9004_0",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
             Assert.Equal(new[]{"id","name"},targetPlan.OutputTypes.Keys);
+            if(selfTreeScope)
+            {
+                var read=Assert.IsType<NonRedundantReadPlan>(type.GetField("ReadPlan900",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                var mysql=typeof(NonRedundantReadPlan).GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(read)!;
+                var sql=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(mysql,["outer_root_name"]));
+                Assert.Contains("WITH RECURSIVE",sql);
+                Assert.Contains(".`visibility_id`",sql);
+                Assert.Contains(".`store_id`=@",sql);
+                Assert.DoesNotContain("不可选路径",sql);
+                var actor=new Metarill.Core.Security.RuntimeActor(12,"候选测试",false,catalog.YzProjectId,"5");
+                Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor));
+                read.BindAccount(actor with{StoreId=9007199254740993L});
+                Assert.Contains("LogicalParentScope900",service);
+                Assert.Contains("Export900Async",service);
+                var registry=new Metarill.Runtime.Files.FileMetadataContext([catalog]);
+                var frozen=registry.Catalogs.Single();
+                var fileScope=registry.GetType().GetMethod("PageScope",BindingFlags.Instance|BindingFlags.NonPublic)!
+                    .Invoke(registry,[frozen,frozen.ConfigPages.Single(item=>item.Id=="900")]);
+                Assert.NotNull(fileScope);
+            }
             if(cached)
             {
                 Assert.Contains("RecursiveCandidate=global::",service);
@@ -123,18 +149,19 @@ public sealed class NestedCrossCandidateGenerationTests
 
     private static string Sql<T>(FreeSql.ISelect<T> query) where T:class=>query.ToSql();
 
-    private static MetadataCatalog Catalog(bool shared,string mode)
+    private static MetadataCatalog Catalog(bool shared,string mode,bool selfTreeScope)
     {
         var catalog=shared?SharedCrossTableSparseGenerationTests.Catalog("string","int64"):
             NonRedundantCrossFullTests.Catalog("string","int64",false);
         // 无父参数的原目标页保留可见名称，父子页面继续由原范围区分。
         var inner=catalog.ConfigTables.Single(item=>item.Id=="2");
         var innerPage=catalog.ConfigPages.Single(item=>item.Id=="201");
-        innerPage.WhereSql+=" AND country_name <> '不可选路径' AND store_id=@current_store_id";
+        var logicalName=selfTreeScope?"visibility_name":"country_name";
+        innerPage.WhereSql+=$" AND {logicalName} <> '不可选路径' AND store_id=@current_store_id";
         if(mode is "row-project" or "without-project" or "cached-global")
         {
             inner.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-            innerPage.WhereSql="country_name <> '不可选路径' AND store_id=@current_store_id";
+            innerPage.WhereSql=$"{logicalName} <> '不可选路径' AND store_id=@current_store_id";
         }
         if(mode=="row-project")
         {
@@ -188,9 +215,9 @@ public sealed class NestedCrossCandidateGenerationTests
                     new{table="scoped_candidate_leaf",columnPrefix="outer_leaf",nameField="name",parentField="root_id"}
                 }
             })});
-        if(mode=="cached-global")
+        if(mode=="cached-global"||selfTreeScope&&shared)
         {
-            // 两条 R1 分支共享同一个递归候选层，只发布一份公共名称副本。
+            // 两条分支共享同一个递归候选层，验证生成、路径投影和附件父级共用该范围。
             catalog.ConfigTables.Add(new(){Id="92",TableName="scoped_candidate_alternate",IsRongyu=1});
             foreach(var column in catalog.ConfigColumns.Where(item=>item.ConfigTableId=="91").ToArray())
             {
@@ -207,7 +234,29 @@ public sealed class NestedCrossCandidateGenerationTests
                 ControlDetail=control.ControlDetail.Replace("scoped_candidate_leaf","scoped_candidate_alternate",StringComparison.Ordinal)
                     .Replace("outer_leaf","outer_alt",StringComparison.Ordinal)});
         }
-        foreach(var page in catalog.ConfigPages.Where(item=>item.ConfigTableId is "90" or "91" or "92"))
+        if(selfTreeScope)
+        {
+            var global=mode=="without-project";
+            var visibility=new TableMetadata{Id="93",TableName="scoped_candidate_visibility",IsRongyu=1};
+            if(global)visibility.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigTables.Add(visibility);
+            catalog.ConfigColumns.AddRange([
+                new(){Id="9301",ConfigTableId="93",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id="9302",ConfigTableId="93",ColumnName="yz_project_id",LogicalType="int64"},
+                new(){Id="9303",ConfigTableId="93",ColumnName="name",LogicalType="string"},
+                new(){Id="9304",ConfigTableId="93",ColumnName="parent_id",LogicalType="int64",LinkConfigTableId="93"},
+                new(){Id="9305",ConfigTableId="93",ColumnName="status",LogicalType="int32"},
+                new(){Id="8999",ConfigTableId=inner.Id,ColumnName="visibility_id",LogicalType="int64",ControlKind="CascadeTree",
+                    LinkConfigTableId="93",ControlDetail="""{"sourceMode":"selfTree","selfTree":{"table":"scoped_candidate_visibility","parentField":"parent_id"}}"""},
+                new(){Id="9010",ConfigTableId="90",ColumnName="attachments",Name="附件",LogicalType="string",ColumnLength="max",
+                    ControlKind="FileLibrary",ControlDetail="""{"accessMode":"PROTECTED","maxCount":3}"""}
+            ]);
+            if(!global)catalog.ConfigColumns.Add(new(){Id="8998",ConfigTableId=inner.Id,ColumnName="visibility_name",LogicalType="string",
+                Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("visibility.name")}});
+            catalog.ConfigPages.Add(new(){Id="930",ConfigTableId="93",YzAdminTypeId="5",WhereSql=global?"status=1":"yz_project_id=@current_yz_project_id AND status=1"});
+            catalog.ConfigPages.Single(page=>page.Id=="900").WhereSql+=" AND outer_root_id=@parent_id";
+        }
+        foreach(var page in catalog.ConfigPages.Where(item=>item.ConfigTableId is "90" or "91" or "92" or "93"))
             foreach(var column in catalog.ConfigColumns.Where(item=>item.ConfigTableId==page.ConfigTableId&&item.ColumnName!="yz_project_id"))
                 catalog.ConfigPageColumns.Add(new(){Id=page.Id+column.Id,ConfigPageId=page.Id,ConfigColumnId=column.Id,IsEdit=1,IsShow=1});
         foreach(var record in catalog.ConfigTables.Cast<MetadataRecord>().Concat(catalog.ConfigColumns)
