@@ -74,6 +74,14 @@ public sealed class NonRedundantCrossTableScopeSqlTests
         Assert.DoesNotContain("9007199254740993",sql);
         Assert.DoesNotContain("甲%乙",sql);
         Assert.Equal(new[]{"id"},plan.OutputTypes.Keys);
+
+        // 关系候选多投影名称和排序字段时，须仍使用同一关联范围和逻辑谓词。
+        var candidate=NonRedundantReads.CompilePageMembership(catalog,catalog.ConfigTables[0],pageScope,types.Keys.ToArray(),
+            crossFields,new HashSet<string>(StringComparer.Ordinal),["id","name"],["name","amount"]);
+        Assert.Equal(new[]{"id","name"},candidate.OutputTypes.Keys);
+        var candidateQuery=session.Select<Row>().Where(row=>row.Id>0);
+        NonRedundantCrossTableScopeSql.ApplyCondition(candidateQuery,session,candidate,condition,"b205",catalog.YzProjectId);
+        Assert.Equal(sql,candidateQuery.ToSql());
     }
 
     /// <summary>只生成SQL，离线端口不具备建表或数据访问条件。</summary>

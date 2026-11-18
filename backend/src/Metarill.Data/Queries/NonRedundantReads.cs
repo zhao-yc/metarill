@@ -119,9 +119,15 @@ public static class NonRedundantReads
     /// <summary>发布附件记录范围时复用已证明的跨表路径和自树叶名。</summary>
     public static NonRedundantReadPlan CompilePageMembership(MetadataCatalog metadata,TableMetadata table,PageMetadata page,
         IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields,IReadOnlySet<string> selfTreeFields)=>
+        CompilePageMembership(metadata,table,page,conditionFields,crossFields,selfTreeFields,["id"],[]);
+
+    /// <summary>关系候选可在同一逻辑页面范围中读取固定的名称和排序字段。</summary>
+    public static NonRedundantReadPlan CompilePageMembership(MetadataCatalog metadata,TableMetadata table,PageMetadata page,
+        IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields,IReadOnlySet<string> selfTreeFields,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>
         metadata.DatabaseProvider switch
         {
-            "mysql"=>new(MySqlNonRedundantReadCompiler.CompilePageMembership(metadata,table,page,conditionFields,crossFields,selfTreeFields)),
+            "mysql"=>new(MySqlNonRedundantReadCompiler.CompilePageMembership(metadata,table,page,conditionFields,crossFields,selfTreeFields,outputs,dependencies)),
             _=>throw new NotSupportedException("该数据库尚未完成逻辑页面范围适配。")
         };
 

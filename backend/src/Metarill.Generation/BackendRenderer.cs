@@ -193,7 +193,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var hasMulti = RequiresRelationAuthorization(model, table);
         var trustedSecurity=TrustedSecurityServiceCompilation.Applies(model,table);
         var result = new StringBuilder(CSharpGenerator.Header).AppendLine("using System.Globalization;").AppendLine("using System.Text.Json;").AppendLine("using FreeSql;")
-            .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;") .AppendLine("using Metarill.Data;").Append(NonRedundantReadCompilation.Requires(model,table)||table.Pages.Any(page=>CascadeTreeReadCompilation.ForService(model,table,page).Any(plan=>plan.UsesFixedRead)||MultiSelectCompilation.ForService(model,table,page).Any(multi=>DerivedMultiNamesCompilation.UsesFixedRead(model,multi))||DatabaseCheckboxCompilation.ForService(model,table,page).Any(checkbox=>checkbox.DerivedName))||table.Pages.Any(page=>RelationCompilation.ForPage(model,page).Concat(RelationCompilation.ForPage(model,page,true)).Any(relation=>DerivedRelationNamesCompilation.UsesFixedRead(model,relation)))||table.Pages.Any(page=>CrossTableReadCompilation.ForService(model,table,page).Any(plan=>plan.Levels.Any(level=>level.Target.Source.IsRongyu==0)))?"using Metarill.Data.Queries;\n":"").Append(trustedSecurity ? "using Metarill.Runtime.Security;\n" : "")
+            .AppendLine("using Metarill.Core.Contracts;").AppendLine("using Metarill.Core.Security;").AppendLine("using Metarill.Core.Persistence;") .AppendLine("using Metarill.Data;").Append(NonRedundantReadCompilation.Requires(model,table)||table.Pages.Any(page=>CascadeTreeReadCompilation.ForService(model,table,page).Any(plan=>plan.UsesFixedRead)||MultiSelectCompilation.ForService(model,table,page).Any(multi=>DerivedMultiNamesCompilation.UsesFixedRead(model,multi))||DatabaseCheckboxCompilation.ForService(model,table,page).Any(checkbox=>checkbox.DerivedName))||table.Pages.Any(page=>RelationCompilation.ForPage(model,page).Concat(RelationCompilation.ForPage(model,page,true)).Any(relation=>DerivedRelationNamesCompilation.UsesFixedRead(model,relation)||DerivedRelationNamesCompilation.UsesLogicalPage(relation)))||table.Pages.Any(page=>CrossTableReadCompilation.ForService(model,table,page).Any(plan=>plan.Levels.Any(level=>level.Target.Source.IsRongyu==0)))?"using Metarill.Data.Queries;\n":"").Append(trustedSecurity ? "using Metarill.Runtime.Security;\n" : "")
             .AppendLine($"using {model.Namespace}.Generated.Entities;").AppendLine(model.Tables.Any(candidate => candidate.Pages.Count != 0) ? $"using {model.Namespace}.Generated.DTOs;" : "")
             .AppendLine($"using {model.Namespace}.Generated.VOs;").AppendLine($"using {model.Namespace}.Generated.Mappers;")
             .AppendLine($"namespace {model.Namespace}.Generated.Services;").AppendLine($"public partial class {table.Name}Service").AppendLine("{").AppendLine("    private readonly DatabaseSession session;").AppendLine($"    private readonly {table.Name}Mapper mapper;").AppendLine("    private readonly IIdGenerator ids;").AppendLine("    private readonly IEnumerable<IRecordMutationObserver> observers;").AppendLine("    private readonly IEnumerable<IRecordMutationGuard> guards;").AppendLine(hasMulti ? "    private readonly IRuntimeAuthorization? relationAuthorization;" : "").AppendLine("    /// <summary>注入当前事务、类型持久化及可选的写入准备守卫。</summary>").AppendLine($"    public {table.Name}Service(DatabaseSession session, {table.Name}Mapper mapper, IIdGenerator ids, IEnumerable<IRecordMutationObserver> observers, IEnumerable<IRecordMutationGuard>? guards = null{(hasMulti ? ", IRuntimeAuthorization? relationAuthorization = null" : "")}) {{ this.session = session; this.mapper = mapper; this.ids = ids; this.observers = observers.ToArray(); {TrustedSecurityServiceCompilation.GuardsAssignment(model,table)} {(hasMulti ? "this.relationAuthorization = relationAuthorization;" : "")} }}")
@@ -833,6 +833,19 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         {
             var suffix = page.Source.Id + "_" + relation.SourceColumn.Source.Id;
             var accountParents=SharedRedundantParentCompilation.AccountPlans(model,relation.Target,relation.TargetPage);
+            string? logicalPlan=null;
+            if(DerivedRelationNamesCompilation.UsesLogicalPage(relation))
+            {
+                if(DerivedRelationNamesCompilation.UsesFixedRead(model,relation))
+                    logicalPlan=$"DerivedOptionsPlan{suffix}.BindAccount(actor)";
+                else
+                {
+                    _=DerivedRelationNamesCompilation.CompileLogicalPage(model,relation.Target,relation.TargetPage,["id"],[]);
+                    var arguments=DerivedRelationNamesCompilation.LogicalPageArguments(relation.Target,relation.TargetPage);
+                    result.AppendLine($"    private static readonly Metarill.Data.Queries.NonRedundantReadPlan OptionsMembership{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileRelationMembership({arguments},new string[]{{\"id\"}}, Array.Empty<string>());");
+                    logicalPlan=$"OptionsMembership{suffix}.BindAccount(actor)";
+                }
+            }
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
             result.Append(FixedPageConditionCompilation.Declaration(relation.TargetPage,"OptionsPageCondition"+suffix))
                 .Append(SharedRedundantParentCompilation.AccountDeclaration(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix));
@@ -848,7 +861,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 if (relation.ParentBinding.Binding is null) result.AppendLine($"        RejectBound{page.Source.Id}({Literal(relation.ParentBinding.Reason!)});");
                 else result.AppendLine($"        targetParentId = (await ResolveBound{suffix}Async(parentId, targetParentId, actor, locking, requireSourceList, cancellationToken)).ToString(CultureInfo.InvariantCulture);");
             }
-            else if (relation.Conditions is not null && relation.SourceParents.Count > 0)
+            else if ((relation.Conditions is not null || logicalPlan is not null) && relation.SourceParents.Count > 0)
             {
                 // 常量关系的写入必须读取真实父当前值；普通候选仍复用无锁验证，不改变旧项目产物。
                 result.AppendLine($"        if (!locking) await ValidateOptionsSourceParents{page.Source.Id}Async(parentId, actor, cancellationToken);")
@@ -874,7 +887,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                     {
                         var parent=relation.TargetParents[index];
                         if(!accountParents.Any(path=>path.Levels[^1].TableId==parent.Source.Id))
-                            Parent(parent,"targetParentKey","targetParent"+index,relation.Conditions is not null);
+                            Parent(parent,"targetParentKey","targetParent"+index,relation.Conditions is not null||logicalPlan is not null);
                     }
                 }
             }
@@ -886,7 +899,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent").DistinctBy(scope => scope.Column.Source.Id))
                 result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
-            result.Append(FixedPageConditionCompilation.Apply(relation.TargetPage,"OptionsPageCondition"+suffix,"options_page_"+suffix))
+            result.Append(FixedPageConditionCompilation.Apply(relation.TargetPage,"OptionsPageCondition"+suffix,"options_page_"+suffix,logicalPlan,"locking"))
                 .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix,"r1_options","locking"))
                 .Append(RelationConditionsCompilation.Apply(relation, suffix));
             if (relation.ParentBinding?.Binding?.SourceParent.Source.Id == "2076977530983813120")

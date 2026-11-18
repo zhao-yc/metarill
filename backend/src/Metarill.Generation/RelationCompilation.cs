@@ -29,7 +29,7 @@ internal static class RelationCompilation
         var relations = new List<RelationModel>();
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
         // 系统项目上下文保留既有List等接线，新缓存能力不额外追加隐藏候选或授权依赖。
-        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
+        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||LogicalListTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
         foreach (var source in candidates.Where(c => (c.Source.ControlKind == "List" || (owner.Source.IsRongyu==0||!c.IsSystem&&(ForeignValidationRenderer.Target(model,c)?.IsGlobal==true||DerivedRelationNamesCompilation.DeclaredSource(model,c)))&&c.Source.ControlKind=="SelectPage") && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
         {
             var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
@@ -53,11 +53,7 @@ internal static class RelationCompilation
             var typedName = DerivedRelationNamesCompilation.IsTypedName(model, owner, target, name);
             if (name.Type != "string?" && !typedName) continue;
             if (ManagerCredentialCompilation.IsCredential(target,name)) throw new InvalidOperationException("账号凭据不能作为关系名称、候选或导出读取列。");
-            var explicitPage = source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
-            var targetPage = selection?.TargetPage ?? (!string.IsNullOrWhiteSpace(explicitPage)
-                ? target.Pages.SingleOrDefault(candidate => candidate.Source.Id == explicitPage) ?? throw new InvalidOperationException("关联目标页不存在或不属于目标表。")
-                : target.Pages.FirstOrDefault(p => p.Source.YzAdminTypeId == page.Source.YzAdminTypeId && !p.Scopes.Any(s => s.Source == "parent"))
-                    ?? target.Pages.FirstOrDefault(p => !p.Scopes.Any(s => s.Source == "parent")));
+            var targetPage = selection?.TargetPage ?? ListTargetPage(target,page,source);
             if(target.IsGlobal&&(owner.Source.IsRongyu==0||!source.IsSystem))
             {
                 var global=owner.Source.IsRongyu==1?Metarill.Core.Metadata.GlobalSingleRelationTarget.RequireCached(model.Catalog,owner.Source,source.Source,target.Source):Metarill.Core.Metadata.GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source);targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);if(name.Source.Id!=global.Name.Id)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
@@ -70,9 +66,12 @@ internal static class RelationCompilation
             }
             if (targetPage is null) continue;
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
-            var (scopes, conditions) = RelationConditionsCompilation.Compile(model, owner, page, target, Mapped("whereSql"));
-            if (conditions is not null && ForeignValidationRenderer.Target(model,source)?.Source.Id != target.Source.Id)
-                throw new InvalidOperationException("常量候选必须与外键及显示来源的固定目标一致。");
+            // 原单选的外加条件已经逐项证明属于目标页，含逻辑项时由页面计划完整执行。
+            var where=selection is not null&&FixedPageConditionCompilation.HasLogicalFields(targetPage)?"":Mapped("whereSql");
+            var (scopes, conditions) = RelationConditionsCompilation.Compile(model, owner, page, target, where);
+            if ((conditions is not null||FixedPageConditionCompilation.HasLogicalFields(targetPage))&&
+                ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
+                throw new InvalidOperationException("固定条件的候选必须与外键及显示来源的目标一致。");
             var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column, owner, page)).DistinctBy(parent => parent.Source.Id).ToArray();
             var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,target,targetPage);
             var targetParents = targetPage.Scopes.Concat(scopes).Where(scope => scope.Source == "parent")
@@ -112,6 +111,22 @@ internal static class RelationCompilation
             relations.Add(relation);
         }
         return relations;
+    }
+
+    /// <summary>配置了逻辑范围的下拉即使隐藏，也要复核默认值和最终持久化值。</summary>
+    private static bool LogicalListTarget(GenerationModel model,PageModel page,ColumnModel source)=>
+        source.Source.ControlKind=="List"&&ForeignValidationRenderer.Target(model,source) is {} target&&
+        ListTargetPage(target,page,source,requireExplicit:false) is {} targetPage&&FixedPageConditionCompilation.HasLogicalFields(targetPage);
+
+    /// <summary>运行时和私有写校验使用同一个原绑定页或原后台的无父目标页。</summary>
+    private static PageModel? ListTargetPage(TableModel target,PageModel page,ColumnModel source,bool requireExplicit=true)
+    {
+        var explicitPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+        return !string.IsNullOrWhiteSpace(explicitPage)
+            ?target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage)
+                ??(requireExplicit?throw new InvalidOperationException("关联目标页不存在或不属于目标表。"):null)
+            :target.Pages.FirstOrDefault(candidate=>candidate.Source.YzAdminTypeId==page.Source.YzAdminTypeId&&!candidate.Scopes.Any(scope=>scope.Source=="parent"))
+                ??target.Pages.FirstOrDefault(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent"));
     }
 
     /// <summary>父范围必须引用真实已声明的表与项目键，不能按请求选择父定义。</summary>

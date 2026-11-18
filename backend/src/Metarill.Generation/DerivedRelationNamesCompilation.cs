@@ -9,6 +9,29 @@ internal static class DerivedRelationNamesCompilation
 {
     /// <summary>冗余物理缓存继续沿原路径；只识别实际非物理名称。</summary>
     internal static bool Declared(GenerationModel model,RelationModel relation)=>!NonRedundantReadCompilation.Physical(model,relation.Target,relation.NameColumn);
+    /// <summary>普通目标页的级联条件在原候选和当前读中重用同一发布范围。</summary>
+    internal static bool UsesLogicalPage(RelationModel relation)=>FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage);
+
+    /// <summary>在生成时证明目标页所有逻辑成员，同时保留原来源身份与物理父范围。</summary>
+    internal static NonRedundantReadPlan CompileLogicalPage(GenerationModel model,TableModel target,PageModel page,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
+    {
+        if(target.IsGlobal||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))
+            throw new NotSupportedException("单值关系的逻辑条件要求普通目标页及已证明的物理父范围。");
+        var condition=page.Condition!;
+        return NonRedundantReads.CompilePageMembership(model.Catalog,target.Source,page.Source,condition.Syntax.Fields,
+            condition.CrossFields,condition.SelfTreeFields,outputs,dependencies);
+    }
+
+    /// <summary>生成查询复用发布时核验的字段集合，调用方仅绑定身份和业务参数。</summary>
+    internal static string LogicalPageArguments(TableModel target,PageModel page)
+    {
+        var condition=page.Condition!;
+        string Fields(IEnumerable<string> fields)=>"new string[]{"+string.Join(",",fields.Select(field=>JsonSerializer.Serialize(field)))+"}";
+        return string.Join(",",JsonSerializer.Serialize(target.Source.Id),JsonSerializer.Serialize(page.Source.Id),
+            Fields(condition.Syntax.Fields),Fields(condition.CrossFields.Order(StringComparer.Ordinal)),Fields(condition.SelfTreeFields.Order(StringComparer.Ordinal)));
+    }
+
     /// <summary>有类型的物理名称与派生名称共用候选搜索、回显和工作簿范围。</summary>
     internal static bool UsesFixedRead(GenerationModel model, RelationModel relation) =>
         Declared(model, relation) || IsPhysicalTypedName(model, relation.Target, relation.NameColumn);
@@ -48,14 +71,17 @@ internal static class DerivedRelationNamesCompilation
     internal static void RequireSelection(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name)
     {
         if(!SupportedOwner(model,owner)||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!IsTypedName(model,owner,target,name)||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");
-        if(page.Scopes.Select(scope=>scope.Column).Concat(page.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)))throw new InvalidOperationException("派生单选名称的目标身份、父及条件必须为物理标量。");
+        if(page.Scopes.Any(scope=>scope.Column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,scope.Column)))
+            throw new InvalidOperationException("派生单选名称的目标身份与父字段必须为物理标量。");
         if (target.IsGlobal)
         {
             if (name.Type == "string?") GlobalCrossTableTarget.RequireSingleName(model.Catalog, target.Source, page.Source, name.Source);
             else GlobalCrossTableTarget.RequireSingle(model.Catalog, target.Source, page.Source);
         }
         // 全局候选按当前名称读取，不借用仅允许int64路径的精确管理匹配用途。
-        var plan=target.IsGlobal?NonRedundantReads.Compile(model.Catalog,target.Source.Id,[name.Source.ColumnName]):NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,name.Source.ColumnName);
+        var plan=FixedPageConditionCompilation.HasLogicalFields(page)
+            ?CompileLogicalPage(model,target,page,[name.Source.ColumnName],[name.Source.ColumnName])
+            :target.IsGlobal?NonRedundantReads.Compile(model.Catalog,target.Source.Id,[name.Source.ColumnName]):NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,name.Source.ColumnName);
         if (plan.OutputTypes[name.Source.ColumnName] != NameType(name))
             throw new InvalidOperationException("派生单选名称未落到与声明一致的固定标量。");
     }
@@ -95,14 +121,16 @@ internal static class DerivedRelationNamesCompilation
                 throw new InvalidOperationException("R1 标量名称要求同类型的只读物理缓存及完整写入、传播和维护计划。");
         }
         var fields=relation.TargetPage.Scopes.Concat(relation.Scopes).Select(scope=>scope.Column)
-            .Concat(relation.TargetPage.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[])
+            .Concat(UsesLogicalPage(relation)?[]:relation.TargetPage.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[])
             .Concat(relation.Conditions?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();
         if(fields.Any(column=>!NonRedundantReadCompilation.Physical(model,target,column)||column.IsJsonArray))throw new InvalidOperationException("派生名称候选的身份、父及附加范围必须为已发布物理标量。");
         var orderFields = relation.OptionsOrder?.Select(item => item.Column.Source.ColumnName) ?? [];
         var dependencies = fields.Select(column => column.Source.ColumnName).Concat(orderFields)
             .Concat(["id", name.Source.ColumnName]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var outputs = new[] { "id", name.Source.ColumnName };
-        var plan = target.IsGlobal && physicalTypedName || NonRedundantReadCompilation.HasGlobalRowProject(target)
+        var plan = UsesLogicalPage(relation)
+            ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies)
+            : target.IsGlobal && physicalTypedName || NonRedundantReadCompilation.HasGlobalRowProject(target)
             ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, relation.TargetPage.Source.Id, outputs, dependencies)
             : physicalTypedName && target.Source.IsRongyu == 1
                 ? NonRedundantReads.CompilePhysicalRelation(model.Catalog,target.Source.Id,outputs,dependencies,

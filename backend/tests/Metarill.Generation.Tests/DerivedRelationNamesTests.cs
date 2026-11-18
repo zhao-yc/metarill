@@ -28,6 +28,76 @@ public sealed class DerivedRelationNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>固定自树条件通过原单值候选、保存与 Excel 共用同一已发布计划。</summary>
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, false)]
+    public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent)
+    {
+        const string prefix="dr_names";
+        var catalog=Catalog(prefix,parent);
+        var target=catalog.ConfigPages.Single(page=>page.Id=="201");
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="15");
+        if(selection)
+        {
+            // 选择页原附加条件已经由目标页执行。去掉该夹具独立的 List 表单条件。
+            target.Extra["type"]=JsonSerializer.SerializeToElement(1);
+            foreign.ControlKind="SelectPage";
+        }
+        var label=derived?"company_name":"name";
+        foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField=label,
+            whereSql=selection?"tree_name <> '排除叶名'":parent?"segment=@formParameters.segment":""});
+        if(!derived)
+        {
+            var display=catalog.ConfigColumns.Single(column=>column.Id=="113");
+            display.ColumnName="customer_name";
+            display.Extra["columnFullName"]=JsonSerializer.SerializeToElement("customer.name");
+        }
+
+        catalog.ConfigTables.Add(new(){Id="6",TableName=prefix+"_tree",IsRongyu=1});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="61",ConfigTableId="6",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="62",ConfigTableId="6",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="63",ConfigTableId="6",ColumnName="name",LogicalType="string"},
+            new(){Id="64",ConfigTableId="6",ColumnName="delete_no",LogicalType="datetime"},
+            new(){Id="65",ConfigTableId="6",ColumnName="parent_dr_names_tree_id",LogicalType="int64",LinkConfigTableId="6"},
+            new(){Id="216",ConfigTableId="2",ColumnName="tree_id",LogicalType="int64",ControlKind="CascadeTree",LinkConfigTableId="6",
+                ControlDetail=JsonSerializer.Serialize(new{sourceMode="selfTree",selfTree=new{table=prefix+"_tree",parentField="parent_dr_names_tree_id"}})},
+            new(){Id="217",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"}
+        ]);
+        catalog.ConfigPages.Add(new(){Id="601",ConfigTableId="6",WhereSql="yz_project_id=@current_yz_project_id AND name <> '停用树节点'"});
+        foreach(var (page,field) in new[]{("601","63"),("601","65"),("201","216")})
+            catalog.ConfigPageColumns.Add(new(){Id=page+field,ConfigPageId=page,ConfigColumnId=field});
+        target.WhereSql+=" AND tree_name <> '排除叶名' AND store_id=@current_store_id";
+        catalog.YzAdminTypes.Clear();
+        RedundantMultiNameCacheTests.Published(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-single-relation-page-scope");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.ScopedSingleRelation");
+            var service=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesOrderService.g.cs"));
+            var scope=derived?"DerivedOptionsPlan101_15":"OptionsMembership101_15";
+            Assert.Contains("CompileRelationMembership(",service);
+            Assert.Contains($"ApplyCondition(query,session,{scope}.BindAccount(actor),OptionsPageCondition101_15.BindAccount(actor)",service);
+            Assert.Contains("OptionsSelected101_15Async",service);
+            Assert.Contains("OptionsPage101_15Async",service);
+            Assert.Contains("OptionsScope104_15Async",service);
+            Assert.DoesNotContain("public Task<IReadOnlyList<GeneratedOption>> OptionsSelected104_15Async",service);
+            Assert.DoesNotContain("public async Task<IReadOnlyList<GeneratedOption>> OptionsSelected104_15Async",service);
+            Assert.Contains("Import101Async",service);
+            Assert.Contains("Export101Async",service);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            foreach(var name in new[]{"DrNamesOrderService","DrNamesPartyService"})
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
+                    assembly.GetType("Example.ScopedSingleRelation.Generated.Services."+name,true)!.TypeHandle);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>业务编号与外键不同，保持联接整数投影、原候选文本及 Excel 精确匹配。</summary>
     [Theory]
     [InlineData("int32", "int", "-2000000001", false)]

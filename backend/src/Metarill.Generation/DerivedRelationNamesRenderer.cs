@@ -11,9 +11,13 @@ internal static class DerivedRelationNamesRenderer
         var dependencies=DerivedRelationNamesCompilation.Require(model,owner,page,relation);var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var name=relation.NameColumn.Source.ColumnName;
         var physicalTypedName = DerivedRelationNamesCompilation.IsPhysicalTypedName(model, relation.Target, relation.NameColumn);
         var accountParent = SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
-        var bindParent = accountParent ? ".BindAccount(actor)" : "";
+        var logical=DerivedRelationNamesCompilation.UsesLogicalPage(relation);
+        var bindParent = accountParent||logical ? ".BindAccount(actor)" : "";
+        var validateCurrent=accountParent||logical;
         var parentPlan = accountParent ? ",OptionsAccountParentScope"+suffix : "";
-        var planStart = physicalTypedName && relation.Target.IsGlobal
+        var planStart = logical
+            ? "CompileRelationMembership("+DerivedRelationNamesCompilation.LogicalPageArguments(relation.Target,relation.TargetPage)
+            : physicalTypedName && relation.Target.IsGlobal
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : physicalTypedName && relation.Target.Source.IsRongyu == 1
                 ? $"CompilePhysicalRelation({Literal(relation.Target.Source.Id)}"
@@ -36,9 +40,9 @@ internal static class DerivedRelationNamesRenderer
     /// <summary>生成和静态装载时编译，普通请求不解析元数据；名称联接与物理身份一同固定。</summary>
     private static readonly NonRedundantReadPlan DerivedOptionsPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{planStart}},new string[]{"id",{{Literal(name)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} }{{parentPlan}});
     /// <summary>先复用原真实父检查，再把同一页面及控件条件AND绑定到固定SQL读取。</summary>
-    private async Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)> DerivedOptionsScope{{suffix}}Async(string? parentId,string? targetParentId,RuntimeActor actor,CancellationToken cancellationToken,IReadOnlyDictionary<string,object?>? formValues=null{{(accountParent?",bool locking=false":"")}})
+    private async Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)> DerivedOptionsScope{{suffix}}Async(string? parentId,string? targetParentId,RuntimeActor actor,CancellationToken cancellationToken,IReadOnlyDictionary<string,object?>? formValues=null{{(validateCurrent?",bool locking=false":"")}})
     {
-        _=await OptionsScope{{suffix}}Async(parentId,targetParentId,actor,cancellationToken,{{(accountParent?"locking":"false")}},false{{(RelationConditionsCompilation.HasForms(relation)?",formValues:formValues":"")}});
+        _=await OptionsScope{{suffix}}Async(parentId,targetParentId,actor,cancellationToken,{{(validateCurrent?"locking":"false")}},false{{(RelationConditionsCompilation.HasForms(relation)?",formValues:formValues":"")}});
 {{(same?"        targetParentId??=parentId;":"")}}
         var filters=new List<FixedReadFilter>();
 {{filters}}
@@ -100,8 +104,8 @@ internal static class DerivedRelationNamesRenderer
     internal static string Import(GenerationModel model,RelationModel relation,PageModel page,ImportDependencyPlan dependency)
     {
         var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
-        var lockParents=accountParent?",locking:true":"";
-        var bindParent=accountParent?".BindAccount(actor)":"";
+        var lockParents=accountParent||DerivedRelationNamesCompilation.UsesLogicalPage(relation)?",locking:true":"";
+        var bindParent=accountParent||DerivedRelationNamesCompilation.UsesLogicalPage(relation)?".BindAccount(actor)":"";
         var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var mapped=dependency.Parents.GetValueOrDefault(relation.SourceColumn.Source.Id);
         var name = relation.NameColumn;
         var addMatchFilter = name.Type == "string?" ? $$"""
