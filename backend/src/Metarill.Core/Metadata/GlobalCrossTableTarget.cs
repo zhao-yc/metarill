@@ -32,8 +32,12 @@ public static class GlobalCrossTableTarget
     public static void RequireMultiCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
         =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:true);
 
-    /// <summary>只按明确用途开放R0，逻辑成员须在实际跨表计划中进一步证明。</summary>
-    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false)
+    /// <summary>只有会编译完整自树叶名的读取入口可以接受该类全局候选条件。</summary>
+    public static void RequireSelfTreeConditionCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowMultiParent=false)
+        =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:allowMultiParent,allowSelfTree:true);
+
+    /// <summary>只按明确用途开放R0，逻辑成员须在实际级联计划中进一步证明。</summary>
+    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false)
     {
         if(!Declared(table)||(table.IsRongyu!=1&&!(allowR0&&table.IsRongyu==0))||table.IsView!=0||table.IsFunctionTable!=0)throw new NotSupportedException("全局跨表目标要求显式声明的普通R0或R1实体。");
         if(table.IsRongyu==0)GlobalDerivedRelationSource.RequireTable(catalog,table);
@@ -41,7 +45,7 @@ public static class GlobalCrossTableTarget
         var columns=ConditionColumns(catalog,table,allowLogical);
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
         var allowed=columns.Where(column=>storage.IsPhysical(column)&&column.IsVirtualColumn==0||
-            LogicalConditionField(table,columns,column,allowLogical)).Select(column=>column.ColumnName);
+            LogicalConditionField(table,columns,column,allowLogical,allowSelfTree)).Select(column=>column.ColumnName);
         var condition=FixedConditionPlan.Compile(page.WhereSql,allowed);
         var multiParent=allowMultiParent&&condition.Fields.Any(field=>
             CrossTableStorageColumns.IsLogicalPathField(table,columns,field))
@@ -55,7 +59,7 @@ public static class GlobalCrossTableTarget
                 throw new NotSupportedException("全局跨表目标只允许已发布的固定条件或明确账号等值。");
             var column=columns.Single(item=>item.ColumnName==term.Field);
             if(column.LogicalType is not ("int32" or "int64" or "string")||
-                LogicalConditionField(table,columns,column,allowLogical)||!GlobalPhysicalRelationValue.IsScalar(storage,table,column))
+                LogicalConditionField(table,columns,column,allowLogical,allowSelfTree)||!GlobalPhysicalRelationValue.IsScalar(storage,table,column))
                 throw new NotSupportedException("全局跨表账号条件要求真实非凭据的业务归属列。");
         }
         if(page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&!string.IsNullOrWhiteSpace(exact.ToString()))throw new NotSupportedException("全局跨表目标的精确管理范围尚未接线。");
@@ -72,14 +76,14 @@ public static class GlobalCrossTableTarget
     public static void RequireSelfTreeName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)
         =>RequirePublishedName(catalog,table,page,name,true,allowTyped:true);
 
-    /// <summary>实时自树候选可以使用由其固定跨表路径证明的页面条件。</summary>
+    /// <summary>实时自树候选的名称与固定级联范围均来自实际发布页。</summary>
     public static void RequireScopedSelfTreeName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)
-        =>RequirePublishedName(catalog,table,page,name,true,allowAccount:true,allowLogical:true,allowTyped:true);
+        =>RequirePublishedName(catalog,table,page,name,true,allowAccount:true,allowLogical:true,allowTyped:true,allowSelfTree:true);
 
     /// <summary>名称资格与页条件共用原完整证明，存储模式资格由调用用途限定。</summary>
-    private static void RequirePublishedName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowTyped=false)
+    private static void RequirePublishedName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowTyped=false,bool allowSelfTree=false)
     {
-        RequireTarget(catalog,table,page,allowR0,allowAccount,allowLogical);var storage=MetadataStoragePolicy.ForTable(catalog,table);
+        RequireTarget(catalog,table,page,allowR0,allowAccount,allowLogical,allowSelfTree:allowSelfTree);var storage=MetadataStoragePolicy.ForTable(catalog,table);
         if(name.LogicalType!="string"&&!(name.ColumnName!="id"&&allowTyped&&MultiValueLabel.IsTyped(name.LogicalType)))
             throw new NotSupportedException("全局目标名称的类型超出当前用途。");
         if(GlobalPhysicalRelationValue.IsScalar(storage,table,name))return;
@@ -87,8 +91,8 @@ public static class GlobalCrossTableTarget
         var declared=ConditionColumns(catalog,table,allowLogical);
         var columns=declared.ToDictionary(column=>column.ColumnName,StringComparer.Ordinal);
         if(FixedConditionPlan.Compile(page.WhereSql,columns.Keys).Fields.Any(field=>
-            !GlobalPhysicalRelationValue.IsScalar(storage,table,columns[field])&&!LogicalConditionField(table,declared,columns[field],allowLogical)))
-            throw new NotSupportedException("全局名称候选仅接受非凭据物理标量或已声明跨表层位。");
+            !GlobalPhysicalRelationValue.IsScalar(storage,table,columns[field])&&!LogicalConditionField(table,declared,columns[field],allowLogical,allowSelfTree)))
+            throw new NotSupportedException("全局名称候选仅接受非凭据物理标量或已声明的逻辑级联字段。");
     }
 
     private static IReadOnlyList<ColumnMetadata> ConditionColumns(MetadataCatalog catalog,TableMetadata table,bool allowLogical)
@@ -98,8 +102,9 @@ public static class GlobalCrossTableTarget
     }
 
     /// <summary>逻辑条件只来自非冗余固定控件，凭据、虚拟字段和物理账号上下文仍分别处理。</summary>
-    private static bool LogicalConditionField(TableMetadata table,IReadOnlyList<ColumnMetadata> columns,ColumnMetadata field,bool allowLogical)=>
+    private static bool LogicalConditionField(TableMetadata table,IReadOnlyList<ColumnMetadata> columns,ColumnMetadata field,bool allowLogical,bool allowSelfTree)=>
         allowLogical&&field.IsVirtualColumn==0&&!ExactDataManageValues.IsSensitiveField(field.ColumnName)&&
-        CrossTableStorageColumns.IsLogicalPathField(table,columns,field.ColumnName);
+        (CrossTableStorageColumns.IsLogicalPathField(table,columns,field.ColumnName)||
+            allowSelfTree&&CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field.ColumnName));
 
 }

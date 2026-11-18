@@ -461,7 +461,10 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(false,true,true,true,"decimal")]
     [InlineData(false,false,false,false,"string",true)]
     [InlineData(false,true,false,false,"string",true)]
-    public async Task Fixed_cascade_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false,string nameKind="string",bool selfTreeCondition=false)
+    [InlineData(true,false,false,false,"string",true)]
+    [InlineData(true,false,false,false,"string",true,true)]
+    [InlineData(true,false,false,true,"string",true)]
+    public async Task Fixed_cascade_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false,string nameKind="string",bool selfTreeCondition=false,bool globalSelection=false)
     {
         const string ns="Example.FixedSelfTreeNode";
         var catalog=selfTreeCondition?Catalog("scoped_tree",automatic:true):
@@ -473,8 +476,21 @@ public sealed class NonRedundantSelfTreeTests
         targetPage.WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+scopeName+" <> '限制节点' AND store_id=@current_store_id";
         if(selfTreeCondition)
         {
-            catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql+=" AND merchant_id=@current_merchant_id";
-            catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="merchant_id",LogicalType="int64"});
+            var leafPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+            if(global)
+            {
+                catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                leafPage.WhereSql="status=1";
+                if(globalSelection)
+                    targetPage.Extra["type"]=JsonSerializer.SerializeToElement(2);
+                else
+                    catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="2"&&column.ColumnName=="yz_project_id");
+            }
+            else
+            {
+                leafPage.WhereSql+=" AND merchant_id=@current_merchant_id";
+                catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="merchant_id",LogicalType="int64"});
+            }
         }
         catalog.ConfigColumns.AddRange([
             new(){Id="27",ConfigTableId="2",ColumnName="node_parent_id",LogicalType="int64"},
@@ -558,7 +574,7 @@ public sealed class NonRedundantSelfTreeTests
                 foreach(var read in new[]{candidate,filter})
                 {
                     read.BindAccount(actor);
-                    Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor with{MerchantId=null}));
+                    if(!global)Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor with{MerchantId=null}));
                     Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor with{StoreId=null}));
                 }
                 var native=typeof(NonRedundantReadPlan).GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(filter)!;
@@ -567,11 +583,47 @@ public sealed class NonRedundantSelfTreeTests
                 Assert.Contains("`scoped_tree_source`",sql);
                 Assert.Contains("`scoped_tree_tree`",sql);
                 Assert.Contains(".`store_id`=@",sql);
-                Assert.Contains(".`merchant_id`=@",sql);
+                Assert.Contains(global?".`status`":".`merchant_id`=@",sql);
                 Assert.DoesNotContain("限制节点",sql);
+                if(global)
+                {
+                    var candidateScope=ReadScope(candidate);
+                    Assert.DoesNotContain(".`yz_project_id`",candidateScope);
+                    Assert.Contains(".`store_id`=@",candidateScope);
+                }
+                if(globalSelection)
+                {
+                    var targetService=assembly.GetType(ns+".Generated.Services.ScopedTreeSourceService",true)!;
+                    var selection=Assert.IsType<NonRedundantReadPlan>(targetService.GetField("CandidateReadPlan201",flags)!.GetValue(null));
+                    var ordinary=Assert.IsType<NonRedundantReadPlan>(targetService.GetField("ReadPlan201",flags)!.GetValue(null));
+                    Assert.Contains("SelectionSelected201",File.ReadAllText(Path.Combine(generated,"Services/ScopedTreeSourceService.g.cs")));
+                    Assert.Contains(".`yz_project_id`",ReadScope(ordinary));
+                    Assert.DoesNotContain(".`yz_project_id`",ReadScope(selection));
+                    Assert.Throws<UnauthorizedAccessException>(()=>selection.BindAccount(actor with{StoreId=null}));
+                }
+
+                string ReadScope(NonRedundantReadPlan plan)
+                {
+                    var mysql=typeof(NonRedundantReadPlan).GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(plan)!;
+                    return Assert.IsType<string>(mysql.GetType().GetProperty("Scope",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(mysql));
+                }
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>全局候选可能读取其它行项目，内层树必须显式全局才能用于该范围。</summary>
+    [Fact]
+    public void Global_self_tree_candidate_cannot_resolve_conditions_in_the_callers_private_tree()
+    {
+        var catalog=RedundantMultiNameCacheTests.Published(Catalog("private_tree",automatic:true));
+        var target=catalog.ConfigTables.Single(table=>table.Id=="2");
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        var page=catalog.ConfigPages.Single(item=>item.Id=="201");
+        page.WhereSql="tree_name IS NOT NULL";
+
+        var error=Assert.Throws<NotSupportedException>(()=>NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,page.Id,["id"],[]));
+        Assert.Contains("显式全局的内部目标树",error.Message);
     }
 
     /// <summary>固定目标页引用需要回读自己的同一树控件时，发布明确拒绝循环条件。</summary>

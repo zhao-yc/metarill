@@ -24,15 +24,16 @@ public static partial class MySqlNonRedundantReadCompiler
         if(table.IsRongyu!=0||page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
             page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new NotSupportedException("候选必须属于已发布项目的普通非冗余目标页。");
-        if(global)
-        {
-            if(displayBindings is null)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
-            else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page);
-        }
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId));
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         var logical=syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToHashSet(StringComparer.Ordinal);
         var treeNames=SelfTreeConditionFields(catalog,table,page,columns,syntax.Fields);
+        if(global)
+        {
+            if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,table,page,allowMultiParent:displayBindings is not null);
+            else if(displayBindings is null)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
+            else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page);
+        }
         if(logical.Count==0&&treeNames.Count==0&&(!global||displayBindings is not{Count:>0}))
             throw new InvalidOperationException("候选页未声明逻辑级联条件或已证明的全局跨表投影。");
         var parent=displayBindings is null?null:MultiTargetParentScope.Compile(catalog,table,syntax);
@@ -40,7 +41,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var scopes=logical.Count==0?[]:CrossMembershipBindings(catalog,table,page,logical);
         // 范围的绑定按发布页生成，其它绑定仅用于该独立选择页展示额外的路径。
         var bindings=scopes.Concat(displayBindings??[]).DistinctBy(path=>path.SourceColumnId,StringComparer.Ordinal).ToArray();
-        var builder=new Builder(catalog,tableId,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
+        var builder=new Builder(catalog,tableId,deferCascadeNames:treeNames.Count>0,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
         {
             CrossCandidateCondition=condition,
             SelfTreeCandidateFields=treeNames,

@@ -368,7 +368,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==root.Id))
                     {
                         // 页面投影由生成服务另外附加自己的父筛选；任意单值读取仍须用无父参数的候选。
-                        if(crossTables.Count>0)GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
+                        if(deferCascadeNames)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,allowMultiParent:crossTables.Count>0);
+                        else if(crossTables.Count>0)GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
                         else GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,root,page);
                     }
                 var controls=columns[root.Id].Values.Where(column=>crossTables.ContainsKey(column.Id)).ToArray();

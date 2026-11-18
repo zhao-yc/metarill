@@ -95,8 +95,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 column.Id!=control.Id&&(column.LogicalType!="string"||rootStorage.IsPhysical(column)||ExactDataManageValues.IsSensitiveField(column.ColumnName)))
                 return false;
             var proof=SelfTreeLabel(catalog,control);
-            if(!HasGlobalRowProject(root)&&!GlobalCrossTableTarget.Declared(proof.Target))
-                throw new NotSupportedException("无行项目列的全局来源要求全局目标树。");
+            // 全局候选可能跨行项目，内部叶名不能退化成按发起账号项目解析的私有树。
+            if((!HasGlobalRowProject(root)||GlobalCrossCandidate)&&!GlobalCrossTableTarget.Declared(proof.Target))
+                throw new NotSupportedException("全局共享候选要求显式全局的内部目标树。");
             ValidateTarget(proof.Target);
             cascadeLabelPages.Add(proof.Page.Id);
             return true;

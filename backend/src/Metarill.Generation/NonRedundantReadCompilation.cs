@@ -67,7 +67,10 @@ internal static class NonRedundantReadCompilation
         if(HasGlobalRowProject(table))GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
         else if(table.IsGlobal)
         {
-            if(table.Columns.Any(NonRedundantCrossTableSubset.Declared))
+            if(FixedPageConditionCompilation.HasSelfTreeFields(page))
+                GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(model.Catalog,table.Source,page.Source,
+                    allowMultiParent:FixedPageConditionCompilation.HasMultiTargetScope(table,page));
+            else if(table.Columns.Any(NonRedundantCrossTableSubset.Declared))
             {
                 if(FixedPageConditionCompilation.HasMultiTargetScope(table,page)&&page.Scopes.Any(scope=>scope.Source=="parent"))
                     GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source);
@@ -146,12 +149,14 @@ internal static class NonRedundantReadCompilation
         var readOutputs=outputs.Select(output=>output.Storage).Concat(CascadeTreeViewRenderer.ForPage(model,table,page).Select(plan=>plan.Source.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var compiled=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,readOutputs,NonRedundantCrossTableCompilation.Bindings(crossPlans),dependencies,deferCascadeNames:true);
         if(GlobalSelectionPage(table,page))
-            _=crossPlans.Count==0
-                ?CascadeTreeReadCompilation.ForService(model,table,page).Count>0
-                    ?NonRedundantReads.CompileGlobalPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies)
-                    :NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies)
-                :NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,
-                    NonRedundantCrossTableCompilation.Bindings(crossPlans));
+            _=crossPlans.Count>0
+                ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,
+                    NonRedundantCrossTableCompilation.Bindings(crossPlans))
+                :FixedPageConditionCompilation.HasSelfTreeFields(page)
+                    ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies)
+                    :CascadeTreeReadCompilation.ForService(model,table,page).Count>0
+                        ?NonRedundantReads.CompileGlobalPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies)
+                        :NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies);
         outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","double"=>"double?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();
         if(outputs.Select(output=>output.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count)throw new InvalidOperationException("派生显示属性冲突。");
         return new(outputs,dependencies,readOutputs);
