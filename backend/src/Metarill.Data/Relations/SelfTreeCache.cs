@@ -44,22 +44,31 @@ public static class SelfTreeCache
         if(globalSource)
         {
             GlobalCachedRelationSource.RequireSelfTree(catalog,source);
-            if(!global)throw Invalid();
+            // 普通目标只供处于相同发布项目的真实项目行使用，共享来源不能保存项目私有叶子。
+            if(!global&&(!sourceColumns.Any(column=>column.ColumnName=="yz_project_id")||
+                target.YzProjectId!=catalog.YzProjectId||
+                !columns.Any(column=>column.ColumnName=="yz_project_id"&&column.LogicalType is "int64" or "string"&&
+                    GlobalPhysicalRelationValue.IsScalar(storage,target,column))))throw Invalid();
         }
         var scoped=HasScopedPage(catalog,publishedPageId);
-        if(global||scoped)
+        if(global||scoped||globalSource)
         {
             var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==publishedPageId&&p.ConfigTableId==target.Id)??throw Invalid();
             if(source.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||
                 !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))throw Invalid();
-            if((scoped||globalSource)&&MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,value.ColumnName,parent.ColumnName).Page.Id!=page.Id)
-                throw Invalid();
+            if(scoped||globalSource)
+            {
+                var selected=MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,value.ColumnName,parent.ColumnName);
+                if(selected.Page.Id!=page.Id)throw Invalid();
+                if(!scoped&&selected.Condition?.Variables.Count>0)
+                    _=AccountScopedCrossCache.Compile(catalog,source,target,page,globalTreeSource:globalSource);
+            }
             if(scoped)
             {
                 _=AccountScopedCrossCache.CompileRecursive(catalog,source,target,page,globalTreeSource:globalSource);
                 if(global)GlobalCrossTableTarget.RequireScopedSelfTreeName(catalog,target,page,value);
             }
-            else GlobalCrossTableTarget.RequireSelfTreeName(catalog,target,page,value);
+            else if(global)GlobalCrossTableTarget.RequireSelfTreeName(catalog,target,page,value);
         }
         else if(publishedPageId is not null)throw Invalid();
         if(!global&&derived&&NonRedundantReads.CompileMatch(catalog,target.Id,value.ColumnName).OutputTypes[value.ColumnName]!=value.LogicalType)

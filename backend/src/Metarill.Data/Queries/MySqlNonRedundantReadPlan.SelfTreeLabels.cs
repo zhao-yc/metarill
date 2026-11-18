@@ -121,11 +121,12 @@ public static partial class MySqlNonRedundantReadCompiler
             var leafKey=PositiveText("CAST("+source+" AS CHAR)");
             var max=SelfTreeReader.MaximumDepth.ToString(CultureInfo.InvariantCulture);
             var display=prefix+"display";
+            // 名称副本的目标账号条件从来源行取值。普通候选仍绑定请求的真实身份。
+            var cacheOwner=cascadeCacheOwner??(trackReverse&&(proof.Scoped||publishedPageId is not null)
+                ?new CascadeCacheOwner(table,owner,publishedPageId is not null&&GlobalCrossTableTarget.Declared(table)):null);
             MySqlNonRedundantReadPlan? fixedTarget=null;
             if(proof.Scoped)
             {
-                var cacheOwner=cascadeCacheOwner??(trackReverse?new CascadeCacheOwner(table,owner,
-                    publishedPageId is not null&&GlobalCrossTableTarget.Declared(table)):null);
                 var fields=new[]{"id",proof.Name.ColumnName};
                 if(cacheOwner is {} cached)
                 {
@@ -239,7 +240,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         WithScope(fixedTarget.Scope)+")";
                 var scope=Scope(proof.Target,alias,projectScoped:!global);
                 if(proof.Condition is null)return scope;
-                var condition=CascadeLabelCondition(proof.Target,proof.Page,proof.Condition,alias,"mt_"+alias);
+                var condition=CascadeLabelCondition(proof.Target,proof.Page,proof.Condition,alias,"mt_"+alias,cacheOwner);
                 return scope.Length==0?condition:scope+" AND "+condition;
             }
 

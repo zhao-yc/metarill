@@ -11,6 +11,10 @@ internal static class SelfTreePropagationCompilation
     private static readonly ConditionalWeakTable<GenerationModel,ConcurrentDictionary<string,IReadOnlyList<RelationPropagationBinding>>> Cache=new();
     /// <summary>一个生成模型只编译一次，不使后续HTTP重新解释目录。</summary>
     internal static IReadOnlyList<RelationPropagationBinding> ForTable(GenerationModel model,TableModel table)=>Cache.GetValue(model,_=>new()).GetOrAdd(table.Source.Id,_=>Compile(model,table));
+    /// <summary>来自全局来源的自树缓存保留实际目标页，即使目标是项目内树也使用整条祖先链。</summary>
+    internal static string? PageId(TableModel owner,CascadeTreeReadModel read)=>
+        owner.IsGlobal||read.Target.IsGlobal||read.ScopedCondition?read.TargetPage.Source.Id:null;
+
     /// <summary>BackendOnly保留未证明用途的原门槛；Full另逐字段拒绝，不能借有效同伴发布坏字段。</summary>
     private static IReadOnlyList<RelationPropagationBinding> Compile(GenerationModel model,TableModel table)
     {
@@ -21,7 +25,7 @@ internal static class SelfTreePropagationCompilation
             var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;if(plan is null)continue;
             try
             {
-                var proof=SelfTreeCache.Compile(model.Catalog,table.Source.Id,source.Source.Id,plan.Read.Target.IsGlobal||plan.Read.ScopedCondition?plan.Read.TargetPage.Source.Id:null);if(proof.TargetTableId!=plan.Read.Target.Source.Id||proof.ValueColumnId!=plan.Read.Name.Source.Id||proof.CacheColumnId!=plan.Name.Source.Id)continue;
+                var proof=SelfTreeCache.Compile(model.Catalog,table.Source.Id,source.Source.Id,PageId(table,plan.Read));if(proof.TargetTableId!=plan.Read.Target.Source.Id||proof.ValueColumnId!=plan.Read.Name.Source.Id||proof.CacheColumnId!=plan.Name.Source.Id)continue;
                 if(plan.Read.UsesFixedRead||table.IsGlobal)DerivedCrossTableCaches.Validate(model.Catalog,[proof],[]);else _=RelationMutationPlan.Compile(model.Catalog,[proof]);result.Add(new(table,source,plan.Read.Target,plan.Read.Name,plan.Name,false){SelfTreePageId=proof.SelfTreePageId});
             }
             catch(Exception unsupported)when(unsupported is InvalidOperationException or NotSupportedException or ArgumentException or JsonException){/* 完整用途审计仍会报告此字段，不生成未经证明的缓存。 */}

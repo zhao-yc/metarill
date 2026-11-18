@@ -72,7 +72,13 @@ internal static class RelationPropagationCompilation
         var pages=new HashSet<string>(StringComparer.Ordinal);
         foreach(var definition in definitions)
         {
-            if(definition.SelfTreePageId is{} treePage)pages.Add(treePage);
+            if(definition.SelfTreePageId is{} treePage)
+            {
+                pages.Add(treePage);
+                var selected=model.Tables.Single(table=>table.Source.Id==definition.TargetTableId).Pages.Single(page=>page.Source.Id==treePage);
+                if(FixedPageConditionCompilation.HasAccountVariables(selected))
+                    pages.UnionWith(model.Catalog.ConfigPages.Where(page=>page.ConfigTableId==definition.SourceTableId).Select(page=>page.Id));
+            }
             var scopedTree=SelfTreeCache.HasScopedPage(model.Catalog,definition.SelfTreePageId)?definition.SelfTreePageId:null;
             if((definition.CrossTableAccountPageId??definition.CrossTableRecursivePageId??scopedTree) is{} accountPage)
             {

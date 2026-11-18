@@ -44,11 +44,13 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(true,true,true)]
     [InlineData(false,true,true,"string")]
     [InlineData(true,true,true,"int64")]
-    public async Task Explicit_global_self_tree_publishes_with_original_fixed_scope(bool keepsProjectColumn,bool redundantSource,bool globalSource=false,string? sourceProjectType=null)
+    [InlineData(true,true,true,"string",true)]
+    [InlineData(true,true,true,"int64",true)]
+    public async Task Explicit_global_self_tree_publishes_with_original_fixed_scope(bool keepsProjectColumn,bool redundantSource,bool globalSource=false,string? sourceProjectType=null,bool projectTarget=false)
     {
         var catalog = RedundantMultiNameCacheTests.Published(Catalog("nr_tree", automatic: true));
         var target = catalog.ConfigTables.Single(table => table.Id == "3");
-        target.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        if (!projectTarget) target.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
         var targetPage = catalog.ConfigPages.Single(page => page.ConfigTableId == target.Id);
         if (!keepsProjectColumn)
         {
@@ -56,7 +58,8 @@ public sealed class NonRedundantSelfTreeTests
             catalog.ConfigColumns.Remove(project);
             catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == project.Id);
         }
-        targetPage.WhereSql = "status=1";
+        targetPage.WhereSql = projectTarget && sourceProjectType=="string"
+            ? "yz_project_id=@current_yz_project_id AND status=1" : "status=1";
         if (!catalog.ConfigColumns.Any(column => column.ConfigTableId == target.Id && column.ColumnName == "status"))
             catalog.ConfigColumns.Add(new() { Id = "global_tree_status", ConfigTableId = target.Id, ColumnName = "status", LogicalType = "int32" });
         if(redundantSource)catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
@@ -79,7 +82,8 @@ public sealed class NonRedundantSelfTreeTests
         var scope = CascadeTreeReadRenderer.Service(model, source, page);
         Assert.Contains("CascadeScope201_25", scope);
         Assert.Contains("RequirePagePermission(\"301\",\"list\")", scope);
-        Assert.DoesNotContain("row.YzProjectId", scope);
+        if(projectTarget)Assert.Contains("row.YzProjectId",scope);
+        else Assert.DoesNotContain("row.YzProjectId", scope);
         if(redundantSource)Assert.Equal(targetPage.Id,Assert.Single(SelfTreePropagationCompilation.ForTable(model,source)).SelfTreePageId);
         if(globalSource)
         {
@@ -110,10 +114,17 @@ public sealed class NonRedundantSelfTreeTests
             AddNode(11, "上级");
             AddNode(12, "启用子项", 11);
             AddNode(13, "禁用子项", 11, 0);
+            if(projectTarget)
+            {
+                AddNode(14,"启用子项",11,project:"2");
+                AddNode(15,"其他项目子项",11,project:"2");
+            }
             var header = ImportRenderer.Header(source.Columns.Single(column => column.Source.Id == "25"));
             var value = await runtime.Parse(new() { [header] = "上级/启用子项" });
             Assert.Equal("12", value["treeId"].GetString());
             await Assert.ThrowsAsync<Metarill.Core.Contracts.PageImportException>(() => runtime.Parse(new() { [header] = "上级/禁用子项" }));
+            if(projectTarget)
+                await Assert.ThrowsAsync<Metarill.Core.Contracts.PageImportException>(()=>runtime.Parse(new(){[header]="上级/其他项目子项"}));
 
             if(sourceProjectType is not null)
             {
@@ -128,19 +139,44 @@ public sealed class NonRedundantSelfTreeTests
                 Assert.Contains("上级/启用子项",row);
             }
 
-            // 候选节点故意属于另一个行项目，仍须遵守固定的启用条件。
-            void AddNode(long id, string name, long? parent = null, int status = 1)
+            // 全局候选允许不同归属的节点；项目内候选使用同一启用条件并要求真实行项目。
+            void AddNode(long id, string name, long? parent = null, int status = 1, string? project=null)
             {
                 var row = new Dictionary<string, object?>
                     { ["Id"] = id, ["Name"] = name, ["ParentNrTreeTreeId"] = parent, ["Status"] = status };
-                if (keepsProjectColumn) row["YzProjectId"] = 2L;
+                if (keepsProjectColumn) row["YzProjectId"] = project??(projectTarget?catalog.YzProjectId:"2");
                 runtime.Add("NrTreeTree", row);
             }
 
-            targetPage.WhereSql = keepsProjectColumn ? "yz_project_id=@current_yz_project_id" : "status=@parent_id";
+            targetPage.WhereSql = keepsProjectColumn&&!projectTarget ? "yz_project_id=@current_yz_project_id" : "status=@parent_id";
             Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>只有物理账号条件时，独立包仍要保留来源页的归属证明。</summary>
+    [Fact]
+    public void Project_tree_account_filter_keeps_source_scope_in_published_metadata()
+    {
+        var catalog=Catalog("account_tree",automatic:true);
+        var source=catalog.ConfigTables.Single(table=>table.Id=="2");
+        source.IsRongyu=1;
+        source.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        foreach(var page in catalog.ConfigPages)page.WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id";
+        catalog.ConfigColumns.AddRange([
+            new(){Id="2010",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"},
+            new(){Id="3010",ConfigTableId="3",ColumnName="store_id",LogicalType="int64"}
+        ]);
+        RedundantMultiNameCacheTests.Published(catalog);
+        var model=GenerationModel.Create(catalog,"Example.ProjectAccountTree");
+        var binding=Assert.Single(RelationPropagationCompilation.DerivedBindings(model));
+        Assert.Equal("301",binding.SelfTreePageId);
+        var definitions=RelationPropagationCompilation.Definitions([binding]);
+        var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,definitions);
+        Assert.Contains("@current_store_id",published.ConfigPages.Single(page=>page.Id=="201").WhereSql);
+        Assert.Contains("@current_store_id",published.ConfigPages.Single(page=>page.Id=="301").WhereSql);
+        Assert.Contains("tree_name",MixedRelationPropagationCompilation.ForModel(model).MixedSourceColumns["account_tree_source"]);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
     }
 
     /// <summary>独立父项和树目标分别限定范围，Excel 和 CRUD 共用同一生成父校验。</summary>
@@ -328,6 +364,8 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(false,true,true)]
     [InlineData(true,false,true)]
     [InlineData(true,false,true,true)]
+    [InlineData(false,false,true,true)]
+    [InlineData(false,true,true,true)]
     public async Task Fixed_cross_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false)
     {
         const string ns="Example.FixedSelfTreeNode";
@@ -349,11 +387,11 @@ public sealed class NonRedundantSelfTreeTests
         ]);
         catalog.ConfigTables.Add(new(){Id="9",TableName="scoped_tree_consumer",IsRongyu=cache?1:0});
         catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="9",IsExport=1,IsImport=1,
-            WhereSql=cache?(globalSource?"":"yz_project_id=@current_yz_project_id AND ")+"store_id=@current_store_id":""});
+            WhereSql=cache?(globalSource&&global?"":"yz_project_id=@current_yz_project_id AND ")+"store_id=@current_store_id":""});
         if(globalSource)
         {
             catalog.ConfigTables.Single(item=>item.Id=="9").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-            catalog.ConfigColumns.RemoveAll(column=>column.Id=="92");
+            if(global)catalog.ConfigColumns.RemoveAll(column=>column.Id=="92");
         }
         if(cache)catalog.ConfigColumns.Add(new(){Id="96",ConfigTableId="9",ColumnName="store_id",LogicalType="int64"});
         catalog.ConfigPageColumns.Add(new(){Id="20127",ConfigPageId="201",ConfigColumnId="27"});

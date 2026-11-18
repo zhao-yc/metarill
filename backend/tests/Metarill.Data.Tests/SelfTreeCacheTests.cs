@@ -78,7 +78,9 @@ public sealed class SelfTreeCacheTests
     [InlineData("int64",null)]
     [InlineData("int64","string")]
     [InlineData("string","int64")]
-    public void Global_shared_source_uses_complete_published_tree(string type,string? projectType)
+    [InlineData("string","int64",true)]
+    [InlineData("int64","string",true,true)]
+    public void Global_shared_source_uses_complete_published_tree(string type,string? projectType,bool projectTarget=false,bool account=false)
     {
         var catalog=Catalog(type,"int64");
         var source=catalog.ConfigTables[0];
@@ -93,6 +95,16 @@ public sealed class SelfTreeCacheTests
             new(){Id="5",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5"},
             new(){Id="6",ConfigTableId=target.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",WhereSql="id>8"}
         ]);
+        if(projectTarget)target.Extra.Remove("scopeKind");
+        if(account)
+        {
+            catalog.ConfigColumns.AddRange([
+                new(){Id="source_store",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"},
+                new(){Id="target_store",ConfigTableId=target.Id,ColumnName="store_id",LogicalType="int64"}
+            ]);
+            catalog.ConfigPages[0].WhereSql="store_id=@current_store_id";
+            catalog.ConfigPages[1].WhereSql+=" AND store_id=@current_store_id";
+        }
         catalog.ConfigPageColumns.AddRange([
             new(){Id="61",ConfigPageId="6",ConfigColumnId="value"},
             new(){Id="62",ConfigPageId="6",ConfigColumnId="parent"}
@@ -126,8 +138,22 @@ public sealed class SelfTreeCacheTests
         Assert.Contains("cache_node",maintenance.MixedTargets);
         var reverse=Assert.Single(plan.Reverse,path=>path.TargetTable=="cache_node");
         Assert.Contains("parent_node_id",reverse.Outputs["tree_name"]);
-        Assert.DoesNotContain("yz_project_id",reverse.TargetPredicate);
+        if(projectTarget)
+        {
+            Assert.Contains("yz_project_id",reverse.TargetPredicate);
+            Assert.Contains("@project_scope_number",plan.Expression("tree_name"));
+        }
+        else Assert.DoesNotContain("yz_project_id",reverse.TargetPredicate);
+        if(account)
+        {
+            Assert.Contains("b.`store_id`",plan.Expression("tree_name"));
+            Assert.Contains("store_id",reverse.Outputs["tree_name"]);
+            catalog.ConfigPages[0].WhereSql="";
+            var rejected=Assert.Throws<InvalidOperationException>(()=>SelfTreeCache.Compile(catalog,source.Id,"foreign","6"));
+            Assert.Contains("物理账号归属",rejected.Message);
+        }
         target.Extra.Remove("scopeKind");
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="source_project");
         Assert.Throws<NotSupportedException>(()=>SelfTreeCache.Compile(catalog,source.Id,"foreign","6"));
     }
 

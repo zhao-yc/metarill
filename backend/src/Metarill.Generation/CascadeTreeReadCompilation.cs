@@ -56,7 +56,8 @@ internal static class CascadeTreeReadCompilation
             if(table.IsGlobal&&table.Source.IsRongyu==1)
             {
                 Metarill.Core.Metadata.GlobalCachedRelationSource.RequireSelfTree(model.Catalog,table.Source);
-                if(!target.IsGlobal)return Gap("全局R1自树来源要求显式全局目标树。");
+                if(!target.IsGlobal&&FixedPageQueryCompilation.GlobalSelfTreeProject(table) is null)
+                    return Gap("没有行项目列的全局R1来源要求显式全局目标树。");
             }
             if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))return Gap("目标缺少项目归属或明确全局声明。");
             var candidates=target.Pages.Where(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(candidate)&&candidate.Readable.Any(column=>column.Source.Id==name.Source.Id)&&candidate.Readable.Any(column=>column.Source.Id==parent.Source.Id)).ToArray();
