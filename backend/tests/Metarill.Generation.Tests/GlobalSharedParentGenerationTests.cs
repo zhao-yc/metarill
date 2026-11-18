@@ -56,15 +56,28 @@ public sealed class GlobalSharedParentGenerationTests
 
     /// <summary>同一已发布的全局R0名称层可作业务及附件的独立或共享逻辑父，实际父键仍由稀疏路径取得。</summary>
     [Theory]
-    [InlineData(false,false)]
-    [InlineData(true,true)]
-    public async Task Published_global_derived_parent_compiles_business_and_file_scopes(bool shared,bool rowProject)
+    [InlineData(false,false,false)]
+    [InlineData(true,true,false)]
+    [InlineData(false,true,true)]
+    [InlineData(true,false,true)]
+    public async Task Published_global_derived_parent_compiles_business_and_file_scopes(bool shared,bool rowProject,bool accountScoped)
     {
         const string packageNamespace="Example.GlobalDerivedParent";
         var catalog=Catalog("shared_parent","string","int64",false,1,!rowProject,true);
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
         target.IsRongyu=0;
         var countryPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+        if(accountScoped)
+        {
+            countryPage.WhereSql+=" AND store_id=@current_store_id";
+            catalog.ConfigColumns.Add(new(){Id="99017",ConfigTableId="3",YzProjectId=catalog.YzProjectId,ColumnName="store_id",LogicalType="int64"});
+            catalog.ConfigPages.Single(page=>page.Id=="202").WhereSql+=" AND country_name <> '停用'";
+            // 本用例证明逻辑父与固定条件；另一页的独立物理List保留原已验证组合。
+            catalog.ConfigPages.RemoveAll(page=>page.Id=="206");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="206"||field.ConfigColumnId=="91");
+            catalog.ConfigMenus.RemoveAll(menu=>menu.ConfigPageId=="206");
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="91");
+        }
         var name=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="3"&&column.ColumnName=="name");
         name.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
         name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.name");
@@ -109,6 +122,11 @@ public sealed class GlobalSharedParentGenerationTests
             var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/SharedParentSourceService.g.cs"));
             Assert.Contains("LogicalParentScope202",code);
             Assert.Contains("VerifyLogicalParent202Async",code);
+            if(accountScoped)
+            {
+                Assert.Contains("LogicalParentPlan202.BindAccount(actor)",code);
+                Assert.Contains("CrossConditionPlan202.BindAccount(actor)",code);
+            }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }

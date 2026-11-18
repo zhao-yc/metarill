@@ -42,7 +42,7 @@ internal sealed class FileSharedCrossParentScope
     }
 
     /// <summary>在同一读快照／写事务内检查全部已存末端，拒绝实际祖先冲突；共同物理位只读取一次。</summary>
-    internal async Task<long[]> PathAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,long project,bool locking,CancellationToken token)
+    internal async Task<long[]> PathAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,RuntimeActor actor,bool locking,CancellationToken token)
     {
         token.ThrowIfCancellationRequested();IReadOnlyDictionary<string,CrossTableSelectedNode?> selected;
         try{selected=selection.ReadBranchSelections(selection.Slots.ToDictionary(s=>s.ColumnName,s=>record.TryGetValue(s.ColumnName,out var v)?v:throw new InvalidOperationException("缺少实际共享稀疏位。")));}
@@ -50,7 +50,7 @@ internal sealed class FileSharedCrossParentScope
         var values=new long[selection.Slots.Count];var visited=new HashSet<string>(StringComparer.Ordinal);
         foreach(var branch in selection.Branches)
         {
-            if(selected[branch.SourceColumnId] is not{} node||!visited.Add(branch.Slots[node.Level].ColumnName))continue;var actual=await branches[branch.SourceColumnId].PathAsync(store,record,project,locking,token);
+            if(selected[branch.SourceColumnId] is not{} node||!visited.Add(branch.Slots[node.Level].ColumnName))continue;var actual=await branches[branch.SourceColumnId].PathAsync(store,record,actor,locking,token);
             for(var level=0;level<actual.Length;level++){var index=StorageNames.ToList().IndexOf(branch.Slots[level].ColumnName);if(values[index]!=0&&values[index]!=actual[level])throw new UnauthorizedAccessException("文件来源共享末端的实际祖先冲突。");values[index]=actual[level];}
         }
         if(visited.Count==0)throw new UnauthorizedAccessException("文件来源没有真实共享父选择。");return values;

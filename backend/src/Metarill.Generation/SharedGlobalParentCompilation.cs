@@ -31,7 +31,12 @@ internal static class SharedGlobalParentCompilation
             var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(column.Source.ControlDetail)))throw new NotSupportedException("全局物理父键的页覆盖不能替换固定关系。");
             var single=GlobalSingleRelationTarget.Require(model.Catalog,table.Source,column.Source,target.Source);paths=paths.Where(path=>path.Shared&&path.Level.Page.Source.Id==single.Page.Id&&path.Level.Name.Source.Id==single.Name.Id);
         }
-        var result=paths.DistinctBy(Identity,StringComparer.Ordinal).ToArray();if(result.Length!=1)throw new NotSupportedException("全局共享父字段缺少唯一已证明层位，不能猜测重复目标角色。");GlobalCrossTableTarget.RequireSingle(model.Catalog,target.Source,result[0].Level.Page.Source);return result;
+        var result=paths.DistinctBy(Identity,StringComparer.Ordinal).ToArray();
+        if(result.Length!=1)throw new NotSupportedException("全局共享父字段缺少唯一已证明层位，不能猜测重复目标角色。");
+        var published=result[0].Level;
+        if(logical.Length>0)GlobalCrossTableTarget.RequireCrossTableName(model.Catalog,target.Source,published.Page.Source,published.Name.Source,allowAccount:true);
+        else GlobalCrossTableTarget.RequireSingle(model.Catalog,target.Source,published.Page.Source);
+        return result;
     }
     /// <summary>候选来源父表去重后仍收齐原字段的层位证明；目标候选自身的父表不借用本入口。</summary>
     internal static IReadOnlyList<SharedGlobalParentPath> ForTable(GenerationModel model,TableModel table,PageModel page,TableModel target)=>page.Scopes.Where(scope=>scope.Source=="parent").SelectMany(scope=>ForColumn(model,table,page,scope.Column)).Where(path=>path.Level.Target.Source.Id==target.Source.Id).DistinctBy(Identity,StringComparer.Ordinal).ToArray();
@@ -55,7 +60,6 @@ internal static class SharedGlobalParentCompilation
                     throw new NotSupportedException("全局共享父范围不能使用变动页覆盖。");
 
             }
-            var names=slots.SelectMany(slot=>new[]{slot.ColumnName,slot.ColumnName[..^3]+"_name"}).ToHashSet(StringComparer.Ordinal);if(page.Condition?.Syntax.Fields.Any(names.Contains)==true)throw new NotSupportedException("全局共享来源逻辑常量范围尚需独立证明。");
             var scopes=peers.Select(peer=>new NonRedundantCrossTableScope(peer.Source.Source.Id,peer.Levels.Select(level=>new NonRedundantCrossTableTargetScope(level.Page.Source.Id,level.Page.Condition is{} condition?FixedConditionSqlPlan.Compile(condition.Syntax,condition.Types):null)).ToArray())).ToArray();_=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,["id"],scopes,slots.Select(slot=>slot.ColumnName).ToArray());result.AddRange(peers.Select(peer=>(peer,shared)));seen.UnionWith(peers.Select(peer=>peer.Source.Source.Id));
         }
         return result;

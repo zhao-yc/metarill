@@ -41,7 +41,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
             condition=null;
         }
         var record=await LockRecordAsync(context,columns,cancellationToken,condition);
-        var parents=await LockParentsAsync(context,scope,record,cancellationToken);
+        var parents=await LockParentsAsync(context,scope,record,actor,cancellationToken);
         var proofs=deletions.GetValue(context.Transaction,_=>new());if(!proofs.TryAdd((context.PageId,context.TableName,context.RecordId),new(actor,context.ProjectId,new ReadOnlyDictionary<string,object?>(record),Array.AsReadOnly(parents))))throw new InvalidOperationException("同一记录物理删除已经准备，不能覆盖证明。");
     }
 
@@ -87,7 +87,7 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         var scope = registry.PageScope(catalog,page);
         var proof = context.IsDelete&&!tableColumns.Any(column=>column.ColumnName=="delete_no")?await ConsumePhysicalDeletionAsync(context,actor,cancellationToken):null;
         var record = proof is null?await LockRecordAsync(context, tableColumns, cancellationToken):proof.Record.ToDictionary(pair=>pair.Key,pair=>pair.Value,StringComparer.Ordinal);
-        var parents=await LockParentsAsync(context, scope, record, cancellationToken);
+        var parents=await LockParentsAsync(context, scope, record, actor, cancellationToken);
         if(proof is not null&&!proof.Parents.SequenceEqual(parents))throw new UnauthorizedAccessException("物理删除后实际父范围已变化，文件解绑未提交。");
         var requested = new Dictionary<string, IReadOnlyList<long>>(StringComparer.Ordinal);
         var hiddenEmpty = new HashSet<string>(StringComparer.Ordinal);
@@ -187,10 +187,10 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
     }
 
     /// <summary>父键只取已锁源记录；父锁在文件/引用之前取得，当前读拒绝并发删除后的父行。</summary>
-    private async Task<long[]> LockParentsAsync(RecordMutationContext context, FilePageScope scope, IReadOnlyDictionary<string, object?> record, CancellationToken token)
+    private async Task<long[]> LockParentsAsync(RecordMutationContext context, FilePageScope scope, IReadOnlyDictionary<string, object?> record, RuntimeActor actor, CancellationToken token)
     {
         var parents = scope.Parents.Select(scope => (Scope: scope, Id: scope.Project is null ? FileReferenceScope.CanonicalId(record.GetValueOrDefault(scope.Source.ColumnName)) : FileReferenceScope.PositiveId(record.GetValueOrDefault(scope.Source.ColumnName)))).ToArray();
-        var logical=await FileCrossParentScope.ValuesAsync(scope.Crosses,store,record,FileReferenceScope.PositiveId(context.ProjectId),true,token);
+        var logical=await FileCrossParentScope.ValuesAsync(scope.Crosses,store,record,actor,true,token);
         var ids=parents.Select(parent=>parent.Id).Concat(scope.GlobalParents.Select(parent=>FileReferenceScope.CanonicalId(record.GetValueOrDefault(parent.ColumnName)))).Concat(logical).ToArray();
         // 同一页面的@parentId只有一个实际值，多条等值条件不得被解释为互不相干的父身份。
         if (ids.Distinct().Skip(1).Any()) throw new UnauthorizedAccessException("实际记录不满足同一父记录范围。");

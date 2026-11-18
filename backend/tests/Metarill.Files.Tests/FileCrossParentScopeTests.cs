@@ -97,7 +97,7 @@ public sealed class FileCrossParentScopeTests
     {
         var catalog=Catalog("file_sparse","string","string");var scope=FileReferenceScope.CompilePage(catalog,catalog.ConfigTables[0],catalog.ConfigPages[0]);using var session=new DatabaseSession(new(){ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"});var row=new Dictionary<string,object?>{{"country_id",null},{"area_id",null},{"place_id",null}};
         if(kind=="ambiguous"){row["country_id"]="1";row["place_id"]="3";}if(kind=="missing")row.Remove("area_id");if(kind=="noncanonical")row["place_id"]="03";
-        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>FileCrossParentScope.ValuesAsync(scope.Crosses,new SqlRowStore(session,catalog),row,1,false,default));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>FileCrossParentScope.ValuesAsync(scope.Crosses,new SqlRowStore(session,catalog),row,new Metarill.Core.Security.RuntimeActor(12,"测试",false,"1","3"),false,default));
     }
     /// <summary>普通R0来源及三个独立R1目标，名称只作为固定目标页定义，不增加文件数据投影。</summary>
     internal static MetadataCatalog Catalog(string prefix,string type,string parentType)
