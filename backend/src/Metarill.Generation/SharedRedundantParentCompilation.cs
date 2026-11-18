@@ -26,6 +26,8 @@ internal static class SharedRedundantParentCompilation
         var shared=SharedCrossTableCompilation.ForPage(model,table,page);
         var plans=CrossTableWriteCompilation.ForService(model,table,page);
         if(shared.Gaps.Count>0)throw new NotSupportedException("R1父范围的全部共享同伴必须通过完整证明。");
+        // 原物理 List 父由自己的发布证明处理；仅存在跨表写入链时才匹配级联目标角色。
+        if(plans.Count==0)return [];
         var paths=plans.SelectMany(plan=>plan.Levels.Select((level,index)=>new SharedRedundantParentPath(plan.Read,index))).ToArray();
         var matches=paths.Where(path=>path.Level.Prefix+"_id"==column.Source.ColumnName).ToArray();
         if(matches.Length==0)
