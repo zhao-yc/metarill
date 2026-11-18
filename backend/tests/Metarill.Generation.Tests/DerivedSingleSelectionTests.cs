@@ -30,10 +30,13 @@ public sealed class DerivedSingleSelectionTests
     [InlineData("int64", "9007199254740993", true)]
     [InlineData("bool", "true", false)]
     [InlineData("double", "0.125", true)]
-    public async Task Scalar_selection_keeps_name_filters_and_receipt_precision(string logicalType, string label, bool parent)
+    [InlineData("bool", "false", false, true)]
+    [InlineData("double", "0.125", true, true)]
+    public async Task Scalar_selection_keeps_name_filters_and_receipt_precision(string logicalType, string label, bool parent, bool automatic=false)
     {
         var catalog = Catalog("derived_single", parent);
         ConfigureIntegerSelection(catalog, logicalType);
+        if(automatic)RemoveDisplayColumn(catalog);
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-derived-integer-select");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try
@@ -87,11 +90,30 @@ public sealed class DerivedSingleSelectionTests
             var json = JsonSerializer.SerializeToElement(receipt, Metarill.Runtime.JsonDefaults.Options);
             Assert.Equal("9007199254740995", json.GetProperty("id").GetString());
             var value=json.GetProperty("companyName");
-            if(logicalType=="bool")Assert.True(value.GetBoolean());
+            if(logicalType=="bool")Assert.Equal((bool)expected,value.GetBoolean());
             else
             {
                 Assert.Equal(logicalType=="int64"?JsonValueKind.String:JsonValueKind.Number,value.ValueKind);
                 Assert.Equal(label,value.ToString());
+            }
+            if(automatic)
+            {
+                var sourcePlan=NonRedundantReadCompilation.ForPage(model,source,sourcePage);
+                var sourceRow=sourcePlan.ReadOutputs.ToDictionary(name=>name,name=>(object?)null);
+                sourceRow["id"]=9007199254741001L;
+                sourceRow["customer_id"]=9007199254740995L;
+                sourceRow["customer_company_name"]=expected;
+                var sourceVo=assembly.GetType("Example.IntegerSelection.Generated.VOs."+sourcePage.Name+"Vo",true)!;
+                var sourceReceipt=sourceVo.GetMethod("FromReadRow")!.Invoke(null,[sourceRow]);
+                Assert.Equal(expected,sourceVo.GetProperty("CustomerCompanyName")!.GetValue(sourceReceipt));
+                var dto=assembly.GetType("Example.IntegerSelection.Generated.DTOs."+sourcePage.Name+"UpdateRequest",true)!;
+                Assert.Null(dto.GetProperty("CustomerCompanyName"));
+                var controller=assembly.GetType("Example.IntegerSelection.Generated.Controllers."+sourcePage.Name+"Controller",true)!;
+                var contract=(LegacyPageWriteContract)controller.GetField("LegacyWrite",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
+                var entity=JsonSerializer.SerializeToElement(new{id="9007199254741001",customerId="9007199254740995",customerCompanyName=expected});
+                var normalized=contract.Normalize(entity,LegacyPageWriteOperation.Update,catalog.YzProjectId,"71");
+                Assert.False(normalized.TryGetProperty("customerCompanyName",out _));
+                Assert.Equal("9007199254740995",normalized.GetProperty("customerId").GetString());
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
@@ -103,7 +125,9 @@ public sealed class DerivedSingleSelectionTests
     [InlineData(0, "int64", true)]
     [InlineData(1, "int32", true)]
     [InlineData(1, "int64", false)]
-    public async Task Local_physical_number_reaches_both_control_contracts(int targetStorage, string logicalType, bool selectPage)
+    [InlineData(1, "double", false, true)]
+    [InlineData(0, "double", true, true)]
+    public async Task Local_physical_number_reaches_both_control_contracts(int targetStorage, string logicalType, bool selectPage, bool automatic=false)
     {
         var catalog = selectPage ? Catalog("local_number", true) : DerivedRelationNamesTests.Catalog("local_number", true);
         catalog.ConfigTables.Single(table => table.Id == "2").IsRongyu = targetStorage;
@@ -118,6 +142,7 @@ public sealed class DerivedSingleSelectionTests
         display.ColumnName = "customer_company_code";
         display.LogicalType = logicalType;
         display.Extra["columnFullName"] = JsonSerializer.SerializeToElement("customer.company_code");
+        if(automatic)RemoveDisplayColumn(catalog);
         catalog.ConfigPages.Single(page => page.Id == "201").OrderBy = "company_code desc";
 
         var model = GenerationModel.Create(catalog, "Example.LocalNumber");
@@ -125,7 +150,13 @@ public sealed class DerivedSingleSelectionTests
         var owner = model.Tables.Single(table => table.Source.Id == "1");
         var page = owner.Pages.Single(item => item.Source.Id == "101");
         var plan = NonRedundantReadCompilation.ForPage(model, owner, page);
-        Assert.Contains(plan.Outputs, output => output.Storage == "customer_company_code");
+        var nameOutput=Assert.Single(plan.Outputs,output=>output.Storage=="customer_company_code");
+        if(automatic)
+        {
+            Assert.Equal("double?",nameOutput.Type);
+            Assert.DoesNotContain(owner.Columns,column=>column.Source.ColumnName==nameOutput.Storage);
+            Assert.Contains("relationDisplayText(item.customerCompanyCode)",OriginalUniappListRenderer.Render(model,owner,page));
+        }
         var relation = Assert.Single(RelationCompilation.ForPage(model, page), candidate => candidate.SourceColumn.Source.Id == "15");
         Assert.Equal("201", relation.TargetPage.Source.Id);
         Assert.True(DerivedRelationNamesCompilation.UsesFixedRead(model, relation));
@@ -138,7 +169,9 @@ public sealed class DerivedSingleSelectionTests
             new CSharpGenerator().Generate(catalog, output, "Example.LocalNumber");
             var service = await File.ReadAllTextAsync(Path.Combine(output, "Services/LocalNumberOrderService.g.cs"));
             Assert.Contains((targetStorage == 1 ? "CompilePhysicalRelation" : "CompileRelation") + """("2",new string[]{"id","company_code"}""", service);
-            Assert.Contains("""new("company_code",FixedReadComparison.IntegerLabelContains,request.Keyword)""", service);
+            Assert.Contains(logicalType=="double"?
+                """new("company_code",FixedReadComparison.TypedLabelContains,request.Keyword)""":
+                """new("company_code",FixedReadComparison.IntegerLabelContains,request.Keyword)""", service);
             Assert.Contains("""scope.Filters.Add(new("company_code", FixedReadComparison.Equal, key));""", service);
             Assert.Contains("DerivedOptionsRows101_15Async", service);
             Assert.Contains("OptionsScope104_15Async", service);
@@ -147,7 +180,14 @@ public sealed class DerivedSingleSelectionTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
-    /// <summary>整数联接使用目标页的默认排序，选择弹层与辅助候选共用。</summary>
+    /// <summary>去掉显式回显列，实体和写请求应始终只保存关系 ID。</summary>
+    private static void RemoveDisplayColumn(MetadataCatalog catalog)
+    {
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="113");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="113");
+    }
+
+    /// <summary>标量联接使用目标页的默认排序，选择弹层与辅助候选共用。</summary>
     private static void ConfigureIntegerSelection(MetadataCatalog catalog, string logicalType)
     {
         DerivedRelationNamesTests.UseIntegerName(catalog, logicalType);
@@ -155,11 +195,12 @@ public sealed class DerivedSingleSelectionTests
     }
 
     /// <summary>完整包构建、原Vue回执及更新保护共同证明，没有另写单选页面。</summary>
-    [Theory][InlineData(false,"string")][InlineData(true,"string")][InlineData(true,"int64")][InlineData(false,"bool")]
-    public async Task Full_derived_selection_keeps_original_vue_and_handwritten_partial(bool parent, string logicalType)
+    [Theory][InlineData(false,"string")][InlineData(true,"string")][InlineData(true,"int64")][InlineData(false,"bool")][InlineData(false,"bool",true)]
+    public async Task Full_derived_selection_keeps_original_vue_and_handwritten_partial(bool parent, string logicalType, bool automatic=false)
     {
         var root=NonRedundantApplicationFixture.Root();var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-single-full");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var output=Path.Combine(directory,"application");var c=Catalog("derived_single",parent);
         if(logicalType!="string")ConfigureIntegerSelection(c,logicalType);
+        if(automatic)RemoveDisplayColumn(c);
         try
         {
             Assert.True(new ApplicationPackager().Create(c,output,"Example.DerivedSingleApplication",root).FrontendIncluded);foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(output,operation);

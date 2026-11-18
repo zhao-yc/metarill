@@ -31,7 +31,7 @@ internal static class NonRedundantSelectionCompilation
         if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))throw new InvalidOperationException("非冗余单选目标缺少项目归属。");
         if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))throw new InvalidOperationException(reason);
         var selection=new NonRedundantSelectionModel(target,targetPage,name,definition);
-        var display=SelectionDisplayFieldCompilation.Resolve(table,source);
+        var display=SelectionDisplayFieldCompilation.AutomaticSingle(table,source,name)??SelectionDisplayFieldCompilation.Resolve(table,source);
         if ((typedName || display.Source.Id != source.Source.Id) && !IsDisplay(source,display,name))
             throw new InvalidOperationException("非冗余单选辅助名称与真实外键、名称路径或类型不一致。");
         return selection;

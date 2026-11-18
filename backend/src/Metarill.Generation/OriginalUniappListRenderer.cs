@@ -132,7 +132,7 @@ internal static partial class OriginalUniappListRenderer
         return result.ToString();
     }
 
-    /// <summary>原列表展示组件和命名保留；关系名称只使用真实声明辅助列，不能凭空添加数据库字段。</summary>
+    /// <summary>原列表组件保留，名称使用已证明的辅助列或只读计算别名。</summary>
     private static string Cell(GenerationModel model, TableModel table, PageModel page, ColumnModel column)
     {
         var kind = Effective(column.Source, Field(model, page, column), "controlKind", column.Source.ControlKind);
@@ -150,7 +150,7 @@ internal static partial class OriginalUniappListRenderer
     }
 
     /// <summary>名称来自本页已证明的显示列或目录别名；ID展示与另一名称页不能借根配置串用隐藏缓存。</summary>
-    private static string RelationName(GenerationModel model,PageModel page,TableModel table,ColumnModel column)=>FixedOptionCatalogCompilation.Resolve(model,page,column).Definition?.JsonName ?? (FixedRoleAdminNameCompilation.Resolve(model,table,page,column).Definition is not null ? FixedRoleAdminNameModel.Alias : column.Source.ControlKind=="MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null ? FixedRoleCheckboxModel.Alias : column.Source.ControlKind=="MultiSelectPage" && MultiSelectCompilation.Resolve(model,table,page,column).Definition is{} multi ? multi.Names?.JsonName??column.JsonName : SelectionDisplayFieldCompilation.Resolve(table,column).JsonName);
+    private static string RelationName(GenerationModel model,PageModel page,TableModel table,ColumnModel column)=>FixedOptionCatalogCompilation.Resolve(model,page,column).Definition?.JsonName ?? (FixedRoleAdminNameCompilation.Resolve(model,table,page,column).Definition is not null ? FixedRoleAdminNameModel.Alias : column.Source.ControlKind=="MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null ? FixedRoleCheckboxModel.Alias : column.Source.ControlKind=="MultiSelectPage" && MultiSelectCompilation.Resolve(model,table,page,column).Definition is{} multi ? multi.Names?.JsonName??column.JsonName : (SelectionDisplayFieldCompilation.AutomaticSingle(model,table,page,column)??SelectionDisplayFieldCompilation.Resolve(table,column)).JsonName);
     /// <summary>页级控件设置按原规则覆盖字段，空值继承基础配置。</summary>
     private static string Effective(ColumnMetadata column, PageColumnMetadata field, string key, string fallback) => field.Extra.TryGetValue(key, out var value) && value.ValueKind != JsonValueKind.Null && value.ToString().Length > 0 ? value.ToString() : fallback;
     private static PageColumnMetadata Field(GenerationModel model, PageModel page, ColumnModel column) => model.Catalog.ConfigPageColumns.Single(field => field.ConfigPageId == page.Source.Id && field.ConfigColumnId == column.Source.Id);

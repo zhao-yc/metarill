@@ -149,7 +149,7 @@ internal static class NonRedundantReadCompilation
                     :NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies)
                 :NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,
                     NonRedundantCrossTableCompilation.Bindings(crossPlans));
-        outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();
+        outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","double"=>"double?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();
         if(outputs.Select(output=>output.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count)throw new InvalidOperationException("派生显示属性冲突。");
         return new(outputs,dependencies,readOutputs);
     }

@@ -116,7 +116,8 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
         if (column.Source.ControlKind == "MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null) return FixedRoleCheckboxModel.Alias;
         var stem = column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? column.Source.ColumnName[..^4] : column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) ? column.Source.ColumnName[..^3] : column.Source.ColumnName;
         var expected = stem + "_" + nameField + (column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? "s" : "");
-        return table.Columns.SingleOrDefault(item => item.Source.ColumnName == expected)?.JsonName ?? column.JsonName;
+        return table.Columns.SingleOrDefault(item => item.Source.ColumnName == expected)?.JsonName ??
+            SelectionDisplayFieldCompilation.AutomaticSingle(model,table,page,column,nameField)?.JsonName ?? column.JsonName;
     }
 }
 internal sealed record OriginalDetailField(ColumnModel Column, PageColumnMetadata Settings, string Detail, string Default, bool ReadOnly, bool Required, string GroupKey, int Span, bool Derived = false);
