@@ -48,7 +48,20 @@ public sealed class CascadeMultiLabelGenerationTests
     public Task Recursive_cascade_names_compile_in_original_endpoints(string kind,int mode,bool indirect)=>
         CompileCascadeLabel(kind,mode,selfTree:false,indirect,account:true,recursive:true);
 
-    private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,bool recursive=false)
+    /// <summary>多选和复选直接引用的目标页按自身逻辑范围生成原候选和写入。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,false)]
+    [InlineData("MultiSelectPage",1,false)]
+    [InlineData("MultiCheckBoxDatabase",0,false)]
+    [InlineData("MultiCheckBoxDatabase",1,false)]
+    [InlineData("MultiSelectPage",0,true)]
+    [InlineData("MultiSelectPage",1,true)]
+    [InlineData("MultiCheckBoxDatabase",0,true)]
+    [InlineData("MultiCheckBoxDatabase",1,true)]
+    public Task Selected_page_conditions_compile_in_original_endpoints(string kind,int mode,bool physical)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:physical);
+
+    private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,bool recursive=false,bool selectedPage=false,bool physical=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -64,6 +77,7 @@ public sealed class CascadeMultiLabelGenerationTests
             catalog.ConfigColumns.Add(new(){Id="29",ConfigTableId="2",ColumnName=display,LogicalType="string"});
             catalog.ConfigPageColumns.Add(new(){Id="20129",ConfigPageId="201",ConfigColumnId="29",IsEdit=0});
         }
+        if(physical)display="name";
         var targetTable="2";
         var targetPage="201";
         if(indirect)
@@ -92,7 +106,7 @@ public sealed class CascadeMultiLabelGenerationTests
             new(){Id="93",ConfigTableId="9",ColumnName="yz_project_id",LogicalType="int64"},
             new(){Id="94",ConfigTableId="9",ColumnName="delete_no",LogicalType="datetime"},
             new(){Id="95",ConfigTableId="9",ColumnName="selected_ids",Name="关联",LogicalType="string",ControlKind=kind,
-                LinkConfigTableId=targetTable,ControlDetail=JsonSerializer.Serialize(new{tableId=targetTable,pageId=targetPage,nameField=display})}
+                LinkConfigTableId=targetTable,ControlDetail=JsonSerializer.Serialize(new{tableId=targetTable,pageId=physical?(object)201L:targetPage,nameField=display})}
         ]);
         catalog.ConfigPageColumns.Add(new(){Id="90192",ConfigPageId="901",ConfigColumnId="92"});
         catalog.ConfigPageColumns.Add(new(){Id="90195",ConfigPageId="901",ConfigColumnId="95",Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
@@ -105,6 +119,13 @@ public sealed class CascadeMultiLabelGenerationTests
             catalog.ConfigPages.Single(item=>item.Id=="901").WhereSql+=" AND record_owner_id=@current_yz_manager_id";
         }
         if(recursive)AddRecursiveCountry(catalog,global:kind=="MultiCheckBoxDatabase");
+        if(selectedPage)
+        {
+            catalog.ConfigColumns.Add(new(){Id="219",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"});
+            catalog.ConfigColumns.Add(new(){Id="919",ConfigTableId="9",ColumnName="store_id",LogicalType="int64"});
+            catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND country_name <> '排除目标页名称' AND store_id=@current_store_id";
+            catalog.ConfigPages.Single(page=>page.Id=="901").WhereSql+=" AND store_id=@current_store_id";
+        }
         RedundantMultiNameCacheTests.Published(catalog);
 
         var model=GenerationModel.Create(catalog,ns);
@@ -117,6 +138,12 @@ public sealed class CascadeMultiLabelGenerationTests
             Assert.Contains("有效区域",metadata.ConfigPages.Single(page=>page.Id=="601").WhereSql);
             Assert.Contains(metadata.ConfigPageColumns,field=>field.Id=="30139"&&field.Extra.ContainsKey("controlDetail"));
         }
+        if(selectedPage)
+        {
+            var metadata=GenerationMetadataPublisher.ForRelations(catalog);
+            Assert.Contains("排除目标页名称",metadata.ConfigPages.Single(page=>page.Id=="201").WhereSql);
+            if(mode==1)Assert.Contains("store_id=@current_store_id",metadata.ConfigPages.Single(page=>page.Id=="901").WhereSql);
+        }
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cascade-multi-labels");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -127,6 +154,13 @@ public sealed class CascadeMultiLabelGenerationTests
                 var code=File.ReadAllText(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
                 Assert.Contains(".BindAccount(actor)",code);
                 Assert.Contains("记录不属于当前账号的数据范围",code);
+            }
+            if(selectedPage)
+            {
+                var code=File.ReadAllText(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
+                Assert.Contains("CompileScopedMultiLabel(\"2\",\"201\",\""+display+"\"",code);
+                Assert.Contains(".BindAccount(actor)",code);
+                Assert.DoesNotContain("MultiPageCondition901_95.ApplyConstants",code);
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var consumer=assembly.GetType(ns+".Generated.Services.LabelConsumerService",true)!;
@@ -140,12 +174,13 @@ public sealed class CascadeMultiLabelGenerationTests
                 var targets=MixedRelationPropagationCompilation.ForModel(model).MixedTargets;
                 Assert.Contains(selfTree?"label_cross_tree":"label_cross_country",targets);
                 if(indirect)Assert.Contains("label_cross_source",targets);
-                if(recursive)
+                if(recursive||selectedPage)
                 {
-                    Assert.Contains("label_scope_zone",targets);
+                    var target=recursive?"label_scope_zone":"label_cross_country";
+                    Assert.Contains(target,targets);
                     var runtime=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
                     var published=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(runtime.GetProperty("Catalog")!.GetValue(null));
-                    Assert.Contains("label_scope_zone",published.MixedTargets);
+                    Assert.Contains(target,published.MixedTargets);
                 }
             }
         }

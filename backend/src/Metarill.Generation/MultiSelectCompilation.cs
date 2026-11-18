@@ -61,7 +61,13 @@ internal static class MultiSelectCompilation
             var scalarLabel=name is not null&&SupportsTypedLabel(model,table,source,target,name);
             if (name is null || GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&!DerivedMultiNamesCompilation.Declared(model,target,name)&&!globalCachedName || name.IsJsonArray || name.Type != "string?" && !name.IsId&&!scalarLabel || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
-            if(DerivedMultiNamesCompilation.Declared(model,target,name))DerivedMultiNamesCompilation.Require(model,table,target,targetPage,name);
+            var scoped=FixedPageConditionCompilation.HasCrossFields(targetPage);
+            var derived=DerivedMultiNamesCompilation.Declared(model,target,name);
+            if(scoped||derived)DerivedMultiNamesCompilation.Require(model,table,target,targetPage,name);
+            var fixedPage=Scalar(root,"pageId");
+            if(fixedPage.Length==0)fixedPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+            if(pageId!=fixedPage&&(scoped||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasCrossFields(candidate))))
+                return Gap("带逻辑条件的目标页必须与表级读取和缓存绑定一致。");
             if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),new(pageId,name.Source.ColumnName,Value("buttonText"),Value("whereSql"),""),out _))return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
             var ordering = Value("orderBy");
             if (!string.IsNullOrWhiteSpace(ordering) && !GenerationModel.ValidateOrderBy(ordering, target.Columns).Select(item => (item.Column.Source.Id, item.Descending)).SequenceEqual(GenerationModel.ValidateOrderBy(targetPage.Source.OrderBy, target.Columns).Select(item => (item.Column.Source.Id, item.Descending)))) return Gap("控件排序与目标页不一致。");
@@ -105,7 +111,7 @@ internal static class MultiSelectCompilation
             }
             if(table.Source.IsRongyu==1&&target.IsGlobal){var proof=Metarill.Core.Metadata.GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)return Gap("全局多选缓存与固定目标页／名称声明不一致。");}
             // R1派生数组不能只证明候选：同一根定义还须取得数据层缓存证明，Full报告与实际发布保持一致。
-            if(table.Source.IsRongyu==1&&names is not null&&DerivedMultiNamesCompilation.Declared(model,target,name))Metarill.Data.Relations.DerivedCrossTableCaches.Validate(model.Catalog,[new(table.Source.Id,source.Source.Id,target.Source.Id,name.Source.Id,names.Source.Id,true)],[]);
+            if(table.Source.IsRongyu==1&&names is not null&&(scoped||derived))Metarill.Data.Relations.DerivedCrossTableCaches.Validate(model.Catalog,[new(table.Source.Id,source.Source.Id,target.Source.Id,name.Source.Id,names.Source.Id,true)],[]);
             return new(new(source, target, targetPage, name, names, same, targetField, targetParents, Value("buttonText", "选择")), null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }

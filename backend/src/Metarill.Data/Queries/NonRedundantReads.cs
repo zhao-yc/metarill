@@ -136,6 +136,15 @@ public static class NonRedundantReads
     public static NonRedundantReadPlan CompileMultiLabel(MetadataCatalog metadata,string tableId,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>metadata.DatabaseProvider switch
     {"mysql"=>new(MySqlNonRedundantReadCompiler.CompileMultiLabel(metadata,tableId,field,outputs,dependencies)),_=>throw new NotSupportedException("该数据库尚未完成固定名称读取适配。")};
 
+    /// <summary>生成和传播按表级多值定义识别固定逻辑目标页。</summary>
+    public static bool HasScopedMultiPage(MetadataCatalog metadata,TableMetadata target,ColumnMetadata relation)=>
+        MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(metadata,target,relation) is not null;
+
+    /// <summary>多值控件显式绑定的目标页在读取计划内冻结逻辑条件。</summary>
+    public static NonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>
+        new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies));
+
     /// <summary>生成期取得固定单值名称实际读取的来源物理列；同表其它角色可能形成安全超集，不返回SQL。</summary>
     public static IReadOnlyList<string> CompileSourceDependencies(MetadataCatalog metadata,string tableId,string field)
     {

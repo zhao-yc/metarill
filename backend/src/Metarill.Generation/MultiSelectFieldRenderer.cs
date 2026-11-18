@@ -17,13 +17,14 @@ internal static class MultiSelectFieldRenderer
         {
             var suffix = page.Source.Id + "_" + def.Source.Source.Id;
             var caches=MultiNameWriteCompilation.ForSource(model,table,def);
-            result.Append(FixedPageConditionCompilation.Declaration(def.TargetPage,"MultiPageCondition"+suffix))
+            var scoped=FixedPageConditionCompilation.HasCrossFields(def.TargetPage);
+            result.Append(scoped?"":FixedPageConditionCompilation.Declaration(def.TargetPage,"MultiPageCondition"+suffix))
                 .Append(SharedRedundantParentCompilation.AccountDeclaration(model,def.Target,def.TargetPage,"MultiAccountParentScope"+suffix))
                 .Append(DerivedMultiNamesCompilation.Declaration(model,page,def));
             // 每个逻辑名称缓存只在类型初始化时编译一次；HTTP请求只绑定选中ID和身份范围。
-            foreach(var (cache,index) in caches.Select((cache,index)=>(cache,index)).Where(item=>DerivedMultiNamesCompilation.Declared(model,def.Target,item.cache.Value)))
+            foreach(var (cache,index) in caches.Select((cache,index)=>(cache,index)).Where(item=>scoped||DerivedMultiNamesCompilation.Declared(model,def.Target,item.cache.Value)))
             {
-                var dependencies=def.TargetPage.Scopes.Select(s=>s.Column.Source.ColumnName).Concat(def.TargetPage.Condition?.Syntax.Fields??[]).Distinct().Select(Literal);
+                var dependencies=def.TargetPage.Scopes.Select(s=>s.Column.Source.ColumnName).Concat(scoped?[]:def.TargetPage.Condition?.Syntax.Fields??[]).Distinct().Select(Literal);
                 result.AppendLine($"    private static readonly NonRedundantReadPlan MultiCachePlan{suffix}_{index}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{NonRedundantReadCompilation.MultiLabelPlanStart(def.Target,def.TargetPage,cache.Value)},new string[]{{\"id\",{Literal(cache.Value.Source.ColumnName)}}},new string[]{{{string.Join(",",dependencies)}}});");
             }
             result.AppendLine("    /// <summary>保留旧JSON文本字节，数组请求持久化为JSON文本；不接受对象或其它标量。</summary>")
@@ -60,26 +61,42 @@ internal static class MultiSelectFieldRenderer
                     result.AppendLine("        if (!await parentQuery.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"多选目标父记录不存在、已删除或不属于当前项目。\");");
                 }
             }
-            result.AppendLine($"        var query = session.Select<{def.Target.EntityType}>().Where(row => selected.Contains(row.Id));");
-            if (def.Target.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(row => row.DeleteNo == null);");
-            var targetProject = def.Target.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
-            if (targetProject is not null && (!def.Target.IsGlobal || def.TargetPage.Scopes.Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(row => row.{targetProject.Property} == {Scope(targetProject, "actor.ProjectId")});");
-            foreach (var scope in def.TargetPage.Scopes.Where(scope => scope.Source == "parent")) result.AppendLine($"        query = query.Where(row => row.{scope.Column.Property} == {Scope(scope.Column, "targetParentId!")});");
-            result.Append(FixedPageConditionCompilation.Apply(def.TargetPage,"MultiPageCondition"+suffix,"multi_page_"+suffix))
-                .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,def.Target,def.TargetPage,"MultiAccountParentScope"+suffix,"r1_multi","true"));
-            // 所有缓存都来自本次已授权候选的同一当前锁读；ID展示页也不能退化为旧RR快照。
-            result.AppendLine("        query=query.OrderBy(row=>row.Id);").AppendLine("        query=query.ForUpdate();");
-            // ORM只读取真实物理值；R0逻辑名称必须走与自树相同的固定当前读，不能投影IsIgnore属性。
-            var projection=string.Concat(caches.Select((cache,index)=>(cache,index)).Where(item=>!DerivedMultiNamesCompilation.Declared(model,def.Target,item.cache.Value)).Select(item=>", "+(item.index==0?"Name":"CacheName"+item.index)+" = row."+item.cache.Value.Property));
-            result.AppendLine($"        var rows = await query.Limit(200).ToListAsync(row => new {{ row.Id{projection} }}, cancellationToken);")
-                .AppendLine("        if (rows.Count != selected.Length) throw new InvalidOperationException(\"多选项不存在、已删除或不在目标页范围，源记录未保存。\");");
+            var filters=new List<string>{"new(\"id\",FixedReadComparison.In,selected.Select(id=>(object?)id).ToArray())"};
+            foreach(var scope in def.TargetPage.Scopes)
+                filters.Add("new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+
+                    Scope(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+")");
+            if(scoped)
+            {
+                result.AppendLine("        if(selected.Length==0)").AppendLine("        {");
+                foreach(var cache in caches)
+                    result.AppendLine($"            if(refreshNames){{entity.{cache.Cache.Property}=\"[]\";submitted.Add({Literal(cache.Cache.Source.ColumnName)});}}");
+                result.AppendLine("            return;").AppendLine("        }");
+                if(caches.Count==0)
+                    result.AppendLine($"        var rows=await new NonRedundantReader(session).CurrentRowsAsync(MultiDerivedPlan{suffix}.BindAccount(actor),new FixedReadFilter[]{{{string.Join(",",filters)}}},new FixedReadOrder[]{{new(\"id\")}},200,cancellationToken,actor.ProjectId);")
+                        .AppendLine("        if(rows.Count!=selected.Length)throw new InvalidOperationException(\"多选项不存在、已删除或不在目标页范围，源记录未保存。\");");
+            }
+            else
+            {
+                result.AppendLine($"        var query = session.Select<{def.Target.EntityType}>().Where(row => selected.Contains(row.Id));");
+                if (def.Target.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(row => row.DeleteNo == null);");
+                var targetProject = def.Target.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
+                if (targetProject is not null && (!def.Target.IsGlobal || def.TargetPage.Scopes.Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(row => row.{targetProject.Property} == {Scope(targetProject, "actor.ProjectId")});");
+                foreach (var scope in def.TargetPage.Scopes.Where(scope => scope.Source == "parent")) result.AppendLine($"        query = query.Where(row => row.{scope.Column.Property} == {Scope(scope.Column, "targetParentId!")});");
+                result.Append(FixedPageConditionCompilation.Apply(def.TargetPage,"MultiPageCondition"+suffix,"multi_page_"+suffix))
+                    .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,def.Target,def.TargetPage,"MultiAccountParentScope"+suffix,"r1_multi","true"));
+                // 所有缓存都来自本次已授权候选的同一当前锁读；ID展示页也不能退化为旧RR快照。
+                result.AppendLine("        query=query.OrderBy(row=>row.Id);").AppendLine("        query=query.ForUpdate();");
+                // ORM只读取真实物理值；R0逻辑名称必须走与自树相同的固定当前读，不能投影IsIgnore属性。
+                var projection=string.Concat(caches.Select((cache,index)=>(cache,index)).Where(item=>!DerivedMultiNamesCompilation.Declared(model,def.Target,item.cache.Value)).Select(item=>", "+(item.index==0?"Name":"CacheName"+item.index)+" = row."+item.cache.Value.Property));
+                result.AppendLine($"        var rows = await query.Limit(200).ToListAsync(row => new {{ row.Id{projection} }}, cancellationToken);")
+                    .AppendLine("        if (rows.Count != selected.Length) throw new InvalidOperationException(\"多选项不存在、已删除或不在目标页范围，源记录未保存。\");");
+            }
             foreach(var (cache,index) in caches.Select((cache,index)=>(cache,index)))
             {
                 var variable=index==0?"names":"names"+index;var value=index==0?"Name":"CacheName"+index;
-                if(DerivedMultiNamesCompilation.Declared(model,def.Target,cache.Value))
+                if(scoped||DerivedMultiNamesCompilation.Declared(model,def.Target,cache.Value))
                 {
-                    var filters=new List<string>{"new(\"id\",FixedReadComparison.In,selected.Select(id=>(object?)id).ToArray())"};foreach(var scope in def.TargetPage.Scopes)filters.Add("new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Scope(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+")");
-                    var condition=FixedPageConditionCompilation.Bound(def.TargetPage,"MultiPageCondition"+suffix);
+                    var condition=scoped?"null":FixedPageConditionCompilation.Bound(def.TargetPage,"MultiPageCondition"+suffix);
                     var nameExpression=$"NonRedundantReads.Value<{cache.Value.Type}>(row,{Literal(cache.Value.Source.ColumnName)})";
                     nameExpression=MultiSelectExcelRenderer.LabelText(cache.Value,nameExpression);
                     result.AppendLine($"        var cacheRows{index}=await new NonRedundantReader(session).CurrentRowsAsync(MultiCachePlan{suffix}_{index}.BindAccount(actor),new FixedReadFilter[]{{{string.Join(",",filters)}}},new FixedReadOrder[]{{new(\"id\")}},200,cancellationToken,actor.ProjectId,{condition});")

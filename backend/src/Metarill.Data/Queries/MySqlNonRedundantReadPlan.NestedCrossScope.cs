@@ -45,6 +45,23 @@ public static partial class MySqlNonRedundantReadCompiler
     private sealed partial class Builder
     {
         internal FixedConditionSqlPlan? CrossCandidateCondition{get;init;}
+        internal PageMetadata? SelectedMultiPage{get;init;}
+
+        /// <summary>目标页的条件与名称共用当前记录和联接，维护用途按来源行归属绑定。</summary>
+        private string SelectedMultiScope(string scope)
+        {
+            var page=SelectedMultiPage!;
+            if(page.ConfigTableId!=root.Id||page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
+                throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
+            var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true);
+            if(condition is not {Allowed:true,HasLogical:true,Plan:{ } plan})
+                throw new NotSupportedException("多值目标页缺少固定的逻辑级联条件。");
+            var fields=RequireCrossCondition(root,page,plan);
+            output=cascadeLabelField!;
+            var level=new CrossLevel(root,Column(root,cascadeLabelField!),null,new(page.Id,plan),page,fields);
+            var selected=NestedCrossCondition(level,rootAlias);
+            return scope.Length==0?selected:scope+" AND "+selected;
+        }
         internal bool GlobalCrossCandidate{get;init;}
         internal IReadOnlySet<string> ScopedRootControls{get;init;}=new HashSet<string>(StringComparer.Ordinal);
 
@@ -134,8 +151,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 }
 
                 // 空选择允许原 IS NULL；已存但不可见或无法恢复的节点不能冒充空值放宽候选。
-                var paths=scopedCrossProjections.Where(pair=>pair.Key.StartsWith(owner+":",StringComparison.Ordinal))
-                    .Select(pair=>pair.Value);
+                var paths=bindings.Keys.Select(source=>
+                {
+                    var key=owner+":"+source;
+                    return scopedCrossProjections.GetValueOrDefault(key)??crossProjections[key];
+                });
                 return "("+string.Join(" AND ",new[]{predicate}.Concat(ValidScopedPaths(paths)))+")";
             }
             finally

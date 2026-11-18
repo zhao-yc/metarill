@@ -16,14 +16,17 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         var pages=new HashSet<string>(StringComparer.Ordinal);
         var owners=new HashSet<string>(StringComparer.Ordinal);
-        foreach(var (source,target,field) in DeclaredMultiNameTargets(catalog).Distinct())
+        foreach(var (source,target,field,relation) in DeclaredMultiNameTargets(catalog).Distinct())
             try
             {
                 var storage=MetadataStoragePolicy.ForTable(catalog,target);
                 var column=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(item=>item.ConfigTableId==target.Id))
                     .SingleOrDefault(item=>item.ColumnName==field);
-                if(column is not {LogicalType:"string"}||storage.IsPhysical(column))continue;
-                var plan=CompileMultiLabel(catalog,target.Id,field);
+                if(column is null)continue;
+                var selected=MultiTargetLogicalPage(catalog,target,relation);
+                if(selected is null&&(column.LogicalType!="string"||storage.IsPhysical(column)))continue;
+                var plan=selected is null?CompileMultiLabel(catalog,target.Id,field):
+                    CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[]);
                 pages.UnionWith(plan.CascadeLabelPages);
                 if(plan.RequiresAccount&&source?.IsRongyu==1)
                     owners.UnionWith(catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id).Select(page=>page.Id));
@@ -44,6 +47,40 @@ public static partial class MySqlNonRedundantReadCompiler
             table.IsRongyu!=0||crossFields.Count==0||
             !crossFields.IsSubsetOf(conditionFields))throw new NotSupportedException("固定跨表页面范围必须属于普通非冗余来源。");
         return CompileWithCrossTables(catalog,table.Id,["id"],CrossMembershipBindings(catalog,table,page,crossFields),conditionFields);
+    }
+
+    /// <summary>向显式绑定的多值目标页取得逻辑条件。原物理候选和未指定页面的复选维持原范围。</summary>
+    internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
+    {
+        if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table))return null;
+        var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
+        if(!members.Any(column=>column.ControlKind=="CascadeTree"))return null;
+        var pageId=MultiPageId(Definition(relation));
+        if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
+        var page=catalog.ConfigPages.SingleOrDefault(item=>item.ConfigTableId==table.Id&&item.Id==pageId);
+        if(page is null||page.WhereSql.Length==0)return null;
+        var syntax=FixedConditionPlan.Compile(page.WhereSql,RelationStorageColumns.Expand(table,members).Select(column=>column.ColumnName));
+        return syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,members,field))?page:null;
+    }
+
+    /// <summary>原发布元数据的页面 ID 可为精确整数或字符串。</summary>
+    private static string MultiPageId(System.Text.Json.JsonElement definition)=>
+        definition.TryGetProperty("pageId",out var value)&&value.ValueKind==System.Text.Json.JsonValueKind.Number&&value.TryGetInt64(out var id)
+            ?id.ToString(System.Globalization.CultureInfo.InvariantCulture):Value(definition,"pageId");
+
+    /// <summary>发布已绑定目标页及逻辑名称，原候选、导入、回读共用固定条件。</summary>
+    internal static MySqlNonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog catalog,string tableId,string pageId,
+        string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
+    {
+        MetadataValidation.Validate(catalog);
+        if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("多值目标页逻辑条件要求已发布的MySQL读取计划。");
+        var page=catalog.ConfigPages.Single(item=>item.ConfigTableId==tableId&&item.Id==pageId);
+        if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
+            throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
+        return new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field)
+        {
+            SelectedMultiPage=page
+        }.Compile(outputs,dependencies);
     }
 
     /// <summary>范围只冻结实际依赖的控件和共享同伴，页面覆盖必须保留相同路径定义。</summary>
@@ -69,17 +106,17 @@ public static partial class MySqlNonRedundantReadCompiler
     }
 
     /// <summary>发现实际多值控件绑定的目标名称，普通非关联输出仍使用原读取计划。</summary>
-    private static IEnumerable<(TableMetadata? Source,TableMetadata Table,string Field)> DeclaredMultiNameTargets(MetadataCatalog catalog)
+    private static IEnumerable<(TableMetadata? Source,TableMetadata Table,string Field,ColumnMetadata Relation)> DeclaredMultiNameTargets(MetadataCatalog catalog)
     {
         foreach(var relation in catalog.ConfigColumns.Where(column=>column.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"))
         {
-            (TableMetadata? Source,TableMetadata Table,string Field)? result=null;
+            (TableMetadata? Source,TableMetadata Table,string Field,ColumnMetadata Relation)? result=null;
             try
             {
                 var definition=Definition(relation);
                 var field=Value(definition,"nameField");
                 if(field.Length==0)field="name";
-                var pageId=Value(definition,"pageId");
+                var pageId=MultiPageId(definition);
                 if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
                 var tableId=Value(definition,"tableId");
                 if(tableId.Length==0)tableId=relation.LinkConfigTableId;
@@ -90,7 +127,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var target=catalog.ConfigTables.SingleOrDefault(table=>tableId.Length>0?table.Id==tableId:table.TableName==tableName);
                 if(target is null||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(target))continue;
                 var source=catalog.ConfigTables.SingleOrDefault(table=>table.Id==relation.ConfigTableId);
-                result=(source,target,field);
+                result=(source,target,field,relation);
             }
             catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
             {

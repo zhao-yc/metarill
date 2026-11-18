@@ -24,8 +24,10 @@ internal static class NonRedundantReadCompilation
             :"CompileRelation("+JsonSerializer.Serialize(table.Source.Id);
 
     /// <summary>普通多值名称携带固定字段用途，全局目标仍使用原候选页证明。</summary>
-    internal static string MultiLabelPlanStart(TableModel table,PageModel? page,ColumnModel name)=>table.IsGlobal
-        ?RelationPlanStart(table,page):"CompileMultiLabel("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(name.Source.ColumnName);
+    internal static string MultiLabelPlanStart(TableModel table,PageModel? page,ColumnModel name)=>
+        page is not null&&FixedPageConditionCompilation.HasCrossFields(page)
+            ?"CompileScopedMultiLabel("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(page.Source.Id)+","+JsonSerializer.Serialize(name.Source.ColumnName)
+            :table.IsGlobal?RelationPlanStart(table,page):"CompileMultiLabel("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(name.Source.ColumnName);
 
     /// <summary>没有派生关系的原纯物理非冗余页继续使用既有强类型路径。</summary>
     internal static bool Requires(GenerationModel model,TableModel table)=>HasGlobalRowProject(table)||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));

@@ -220,17 +220,20 @@ public static partial class MySqlNonRedundantReadCompiler
         =>CompileMultiLabel(catalog,tableId,field,outputs,dependencies,null);
 
     /// <summary>发布时验证名称缓存能以来源表真实行归属独立重算。</summary>
-    internal static MySqlNonRedundantReadPlan CompileMultiLabelForCache(MetadataCatalog catalog,TableMetadata source,TableMetadata target,string field)
-        =>CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner"));
+    internal static MySqlNonRedundantReadPlan CompileMultiLabelForCache(MetadataCatalog catalog,TableMetadata source,TableMetadata target,string field,PageMetadata? selectedPage=null)
+        =>CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner"),selectedPage);
 
-    private static MySqlNonRedundantReadPlan CompileMultiLabel(MetadataCatalog catalog,string tableId,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,CascadeCacheOwner? cacheOwner)
+    private static MySqlNonRedundantReadPlan CompileMultiLabel(MetadataCatalog catalog,string tableId,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,CascadeCacheOwner? cacheOwner,PageMetadata? selectedPage=null)
     {
         MetadataValidation.Validate(catalog);
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("多值名称要求已发布的MySQL读取计划。");
         if(outputs.Count==0||outputs.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count||
             !long.TryParse(catalog.YzProjectId,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var project)||project<=0)
             throw new InvalidOperationException("多值名称的项目或输出字段无效。");
-        return new Builder(catalog,tableId,true,multiLabel:true,cascadeLabelField:field,cascadeCacheOwner:cacheOwner).Compile(outputs,dependencies);
+        return new Builder(catalog,tableId,true,multiLabel:true,cascadeLabelField:field,cascadeCacheOwner:cacheOwner)
+        {
+            SelectedMultiPage=selectedPage
+        }.Compile(outputs,dependencies);
     }
     /// <summary>构造时消费元数据，最终只保留不可变的表达式文本、类型和项目范围。</summary>
     private sealed partial class Builder
@@ -363,6 +366,12 @@ public static partial class MySqlNonRedundantReadCompiler
                     fields.Add(name);
                 }
             }
+            var scope=candidatePage is null
+                ?Scope(root,rootAlias,projectScoped:!globalSource&&!GlobalCrossCandidate&&(!globalDerivedSource||HasGlobalRowProject(root)))
+                :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:!physicalCandidate);
+            if((globalSource||globalDerivedSource)&&scope.Length==0)scope="1=1";
+            if(CrossCandidateCondition is not null)scope=FixedCrossCandidateScope(scope,expressions);
+            if(SelectedMultiPage is not null)scope=SelectedMultiScope(scope);
             var reversePlans=reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,
                 new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))
             {
@@ -370,11 +379,6 @@ public static partial class MySqlNonRedundantReadCompiler
             }).Concat(customReverse).ToArray();
             // 全局是关联目标的读取资格；根自身已有真实项目列时仍保留该来源范围。
             var importLock=" FOR UPDATE OF "+rootAlias+(aliases.Count==0?"":" FOR SHARE OF "+string.Join(",",aliases.Values));
-            var scope=candidatePage is null
-                ?Scope(root,rootAlias,projectScoped:!globalSource&&!GlobalCrossCandidate&&(!globalDerivedSource||HasGlobalRowProject(root)))
-                :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:!physicalCandidate);
-            if((globalSource||globalDerivedSource)&&scope.Length==0)scope="1=1";
-            if(CrossCandidateCondition is not null)scope=FixedCrossCandidateScope(scope,expressions);
             // 计数只能省去以整数键查找单列主键的 LEFT JOIN。跨表有效性校验和当前锁读沿用完整联接。
             var aggregateFrom = aggregateJoinsPreserveCardinality && refreshFields is null &&
                 !matching && crossProjections.Count == 0 && aggregateJoins.Count > 0
@@ -511,7 +515,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!storage[table.Id].IsPhysical(relation)||relation.LogicalType!="string")throw new NotSupportedException("多值关系必须以物理字符串列存储JSON ID数组。");
             var definition=Definition(relation);TableMetadata? target=null;
             var id=Value(definition,"tableId");if(id.Length>0)target=tables.GetValueOrDefault(id);
-            var pageId=Value(definition,"pageId");if(target is null&&pageId.Length>0)target=PageTarget(pageId);
+            var pageId=MultiPageId(definition);if(target is null&&pageId.Length>0)target=PageTarget(pageId);
             if(target is null&&relation.LinkConfigTableId.Length>0)target=tables.GetValueOrDefault(relation.LinkConfigTableId);
             if(target is null&&Text(relation,"linkConfigPageId").Length>0)target=PageTarget(Text(relation,"linkConfigPageId"));
             if(target is null){var targetName=Value(definition,"table");if(targetName.Length==0)targetName=Text(relation,"joinTable");target=tables.Values.SingleOrDefault(item=>item.TableName==targetName);}
@@ -533,7 +537,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(HasGlobalRowProject(target)||integerCache)publishedPage=proof.Page;
             }
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
-            if(!storage[target.Id].IsPhysical(value))return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage);
+            var selectedScope=MultiTargetLogicalPage(catalog,target,relation);
+            if(selectedScope is not null||!storage[target.Id].IsPhysical(value))
+                return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage,selectedScope);
             var scalarLabel=integerCache||MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id]);
             if(value.LogicalType!="string"&&!scalarLabel)throw new NotSupportedException("多值物理名称类型未支持。");
             Use(table,relation);

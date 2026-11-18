@@ -67,6 +67,8 @@ public sealed class RelationMutationPlan
             if(!tables.TryGetValue(definition.SourceTableId,out var source)||!tables.TryGetValue(definition.TargetTableId,out var target))throw new InvalidOperationException("传播关系引用了未发布的表。");
             var foreign=columns[source.Id].GetValueOrDefault(definition.ForeignColumnId);var value=columns[target.Id].GetValueOrDefault(definition.ValueColumnId);var cache=columns[source.Id].GetValueOrDefault(definition.CacheColumnId);
             if(foreign is null||value is null||cache is null||foreign.Id==cache.Id||source.IsRongyu!=1)throw new InvalidOperationException("传播缓存必须属于冗余消费者的独立字段。");
+            if(definition.Multiple&&NonRedundantReads.HasScopedMultiPage(catalog,target,foreign))
+                throw new InvalidOperationException("带逻辑目标页的多值名称必须使用统一维护计划。");
             var storage=MetadataStoragePolicy.ForTable(catalog,source);var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);
             if(!storage.IsPhysical(foreign)||Enabled(foreign)||!storage.IsPhysical(cache)||cache.IsVirtualColumn!=0||!targetStorage.IsPhysical(value)||value.IsVirtualColumn!=0)throw new InvalidOperationException("传播只写已声明物理缓存，关系ID与目标值不能虚构。");
             var integerCache=definition.Multiple&&GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,targetStorage,target,value);

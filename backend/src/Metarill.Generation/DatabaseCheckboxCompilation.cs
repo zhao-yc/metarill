@@ -5,6 +5,7 @@ namespace Metarill.Generation;
 
 internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Target,ColumnModel Name,ColumnModel Names,IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,IReadOnlyList<TableModel> SourceParents,ColumnModel? SourceParent,bool DerivedName=false,PageModel? GlobalPage=null)
 {
+    internal PageModel? LogicalTargetPage { get; init; }
     internal bool IntegerLabel => Name.Type is ("int?" or "long?");
     internal bool TypedLabel => Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
     internal string Endpoint=>"findNameId"+GenerationModel.Pascal(Source.Source.ColumnName[..^4])+Source.Source.Id;
@@ -81,6 +82,14 @@ internal static class DatabaseCheckboxCompilation
                 return Gap("名称必须为已声明的非凭据且已证明的标量。");
             var derived=!NonRedundantReadCompilation.Physical(model,target,name);if(!derived&&GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&(!target.IsGlobal||!GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source)))return Gap("物理Join名称仍需独立缓存证明。");
             if(!target.IsGlobal&&!HasIdentity(model,target))return Gap("目标缺少真实项目归属。");
+            var explicitPage=definition.PageId.Length>0?definition.PageId:source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+            var logicalPage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage&&FixedPageConditionCompilation.HasCrossFields(candidate));
+            var fixedPage=baseline.PageId.Length>0?baseline.PageId:source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+            if(explicitPage!=fixedPage&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasCrossFields(candidate))))
+                return Gap("复选不能用页覆盖替换表级固定逻辑范围。");
+            if(logicalPage is not null&&(target.IsGlobal||logicalPage.Scopes.Any(scope=>scope.Source=="parent")||
+                ExactDataManageCompilation.Declared(logicalPage)))
+                return Gap("复选逻辑目标范围需要与实际目标页及项目归属一致。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
             if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量。");
             TableModel Parent(ColumnModel column)=>model.Tables.SingleOrDefault(parent=>column.Source.LinkConfigTableId.Length>0?parent.Source.Id==column.Source.LinkConfigTableId:parent.Source.TableName+"_id"==column.Source.ColumnName)??throw new InvalidOperationException("复选父范围缺少明确真实父表。");
@@ -93,8 +102,12 @@ internal static class DatabaseCheckboxCompilation
             var names=SelectionDisplayFieldCompilation.Resolve(table,source);
             if(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names))return Gap("冗余模式需要已证明的同一关系名称数组缓存，非冗余使用只读联接或自动名称。");
             if(table.Source.IsRongyu==0&&(!GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")||names.Source.IsVirtualColumn!=0))return Gap("非冗余名称必须是明确只读联接或自动投影。");
-            var result=new DatabaseCheckboxModel(source,target,name,names,scopes,conditions,order,parents,sourceParent,derived,globalPage);
-            if(derived)DerivedCheckboxNamesCompilation.Require(model,table,result);
+            var result=new DatabaseCheckboxModel(source,target,name,names,scopes,conditions,order,parents,sourceParent,derived,globalPage)
+            {
+                LogicalTargetPage=logicalPage,
+                DerivedName=derived||logicalPage is not null
+            };
+            if(result.DerivedName)DerivedCheckboxNamesCompilation.Require(model,table,result);
             return new(result,null);
         }
         catch(Exception error)when(error is ArgumentException or InvalidOperationException or JsonException or NotSupportedException){return Gap(error.Message);}

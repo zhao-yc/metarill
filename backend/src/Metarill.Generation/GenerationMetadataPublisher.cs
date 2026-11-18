@@ -44,7 +44,21 @@ public static class GenerationMetadataPublisher
         var multiProof=new Dictionary<string,HashSet<string>>(StringComparer.Ordinal);
         foreach(var field in published.ConfigColumns.Where(c=>c.ControlKind=="MultiSelectPage"&&published.ConfigTables.Any(t=>t.Id==c.ConfigTableId&&t.IsRongyu==1)))
         {
-            using var detail=JsonDocument.Parse(string.IsNullOrWhiteSpace(field.ControlDetail)?"{}":field.ControlDetail);var root=detail.RootElement;if(root.ValueKind!=JsonValueKind.Object)continue;var pageId=root.TryGetProperty("pageId",out var id)?id.ToString():field.Extra.GetValueOrDefault("linkConfigPageId").ToString();var targetPage=published.ConfigPages.SingleOrDefault(p=>p.Id==pageId);if(targetPage is null)continue;var target=published.ConfigTables.Single(t=>t.Id==targetPage.ConfigTableId);if(target.IsRongyu!=0)continue;var name=root.TryGetProperty("nameField",out var n)&&n.ValueKind==JsonValueKind.String&&!string.IsNullOrWhiteSpace(n.GetString())?n.GetString()!:"name";var value=published.ConfigColumns.SingleOrDefault(c=>c.ConfigTableId==target.Id&&c.ColumnName==name);if(value is null||MetadataStoragePolicy.ForTable(published,target).IsPhysical(value))continue;if(!multiProof.TryGetValue(pageId,out var names))multiProof[pageId]=names=new(StringComparer.Ordinal);names.Add(value.Id);
+            using var detail=JsonDocument.Parse(string.IsNullOrWhiteSpace(field.ControlDetail)?"{}":field.ControlDetail);
+            var definition=detail.RootElement;
+            if(definition.ValueKind!=JsonValueKind.Object)continue;
+            var pageId=definition.TryGetProperty("pageId",out var id)?id.ToString():field.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+            var targetPage=published.ConfigPages.SingleOrDefault(page=>page.Id==pageId);
+            if(targetPage is null)continue;
+            var target=published.ConfigTables.Single(table=>table.Id==targetPage.ConfigTableId);
+            if(target.IsRongyu!=0)continue;
+            var name=definition.TryGetProperty("nameField",out var label)&&label.ValueKind==JsonValueKind.String&&
+                !string.IsNullOrWhiteSpace(label.GetString())?label.GetString()!:"name";
+            var value=published.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==target.Id&&column.ColumnName==name);
+            if(value is null||MetadataStoragePolicy.ForTable(published,target).IsPhysical(value)&&
+                !Metarill.Data.Queries.NonRedundantReads.HasScopedMultiPage(published,target,field))continue;
+            if(!multiProof.TryGetValue(pageId,out var names))multiProof[pageId]=names=new(StringComparer.Ordinal);
+            names.Add(value.Id);
         }
         var labelPages=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.PublishedCascadeLabelPages(catalog,out var labelOwnershipPages)
             .Concat(selfTreeNamePages??[]).ToHashSet(StringComparer.Ordinal);

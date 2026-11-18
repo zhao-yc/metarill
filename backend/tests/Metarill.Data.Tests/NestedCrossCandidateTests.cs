@@ -215,9 +215,13 @@ public sealed class NestedCrossCandidateTests
 
     /// <summary>多值名称读取按当前账号，回填按各来源行归属，并记录内层节点的改名依赖。</summary>
     [Theory]
-    [InlineData("MultiSelectPage",false)]
-    [InlineData("MultiCheckBoxDatabase",true)]
-    public void Multi_label_cache_keeps_recursive_scope_and_its_reverse_dependencies(string kind,bool global)
+    [InlineData("MultiSelectPage",false,false,false)]
+    [InlineData("MultiCheckBoxDatabase",true,false,false)]
+    [InlineData("MultiSelectPage",false,true,false)]
+    [InlineData("MultiCheckBoxDatabase",true,true,false)]
+    [InlineData("MultiSelectPage",false,true,true)]
+    [InlineData("MultiCheckBoxDatabase",true,true,true)]
+    public void Multi_label_cache_keeps_recursive_scope_and_its_reverse_dependencies(string kind,bool global,bool rootCondition,bool physical)
     {
         var catalog=Catalog(global);
         var visible=catalog.ConfigTables.Single(table=>table.Id=="1");
@@ -230,31 +234,44 @@ public sealed class NestedCrossCandidateTests
         }
 
         catalog.ConfigPages.Add(new(){Id="900",ConfigTableId="90",YzProjectId=catalog.YzProjectId,
+            WhereSql=rootCondition?"outer_root_name <> '隐藏名称' AND store_id=@current_store_id":"",
             Extra=new(){["type"]=JsonSerializer.SerializeToElement(2)}});
+        if(rootCondition)catalog.ConfigColumns.Add(new(){Id="9008",ConfigTableId="90",ColumnName="store_id",LogicalType="int64"});
         catalog.ConfigColumns.Add(new(){Id="9007",ConfigTableId="90",ColumnName="outer_root_name",LogicalType="string"});
         catalog.ConfigPageColumns.Add(new(){Id="9009007",ConfigColumnId="9007",ConfigPageId="900",IsShow=1});
         catalog.ConfigTables.Add(new(){Id="98",TableName="nested_multis",IsRongyu=0,YzProjectId=catalog.YzProjectId});
+        var label=physical?"name":"outer_root_name";
+        var field="picked_"+label+"s";
+        if(physical)catalog.ConfigPageColumns.Add(new(){Id="9009003",ConfigColumnId="9003",ConfigPageId="900",IsShow=1});
         catalog.ConfigColumns.AddRange([
             new(){Id="9801",ConfigTableId="98",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
             new(){Id="9802",ConfigTableId="98",ColumnName="yz_project_id",LogicalType="int64"},
             new(){Id="9803",ConfigTableId="98",ColumnName="store_id",LogicalType="int64"},
             new(){Id="9804",ConfigTableId="98",ColumnName="picked_ids",LogicalType="string",ControlKind=kind,
-                LinkConfigTableId="90",ControlDetail="{\"tableId\":\"90\",\"pageId\":\"900\",\"nameField\":\"outer_root_name\"}"},
-            new(){Id="9805",ConfigTableId="98",ColumnName="picked_outer_root_names",LogicalType="string",Extra=new()
-                {["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("picked.outer_root_name")}}
+                LinkConfigTableId="90",ControlDetail=JsonSerializer.Serialize(new{tableId="90",pageId="900",nameField=label})},
+            new(){Id="9805",ConfigTableId="98",ColumnName=field,LogicalType="string",Extra=new()
+                {["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("picked."+label)}}
         ]);
         catalog.ConfigPages.Add(new(){Id="980",ConfigTableId="98",WhereSql="store_id=@current_store_id"});
 
-        const string field="picked_outer_root_names";
         var read=MySqlNonRedundantReadCompiler.Compile(catalog,"98",[field]);
         var actor=new RuntimeActor(1,"多值账号",false,catalog.YzProjectId,"5"){StoreId=9007199254741973L};
         Assert.True(read.RequiresAccount);
         Assert.Contains(actor.StoreId!.Value,read.BindAccount(actor).Constants.Values);
         Assert.Equal(global,read.RequiresPublishedProjectIdentity);
         Assert.Contains("mt_nested_",read.ArrayNamePredicates[field]);
+        if(rootCondition)
+        {
+            var selection=NonRedundantReads.CompileScopedMultiLabel(catalog,"90","900",label,["id",label],[]);
+            var bound=selection.BindAccount(actor).MySql;
+            Assert.Contains("隐藏名称",bound.Constants.Values);
+            Assert.Contains("mt_nested_",bound.Scope);
+            Assert.Contains("IS NOT NULL",bound.Scope);
+            Assert.Contains("隐藏名称",read.BindAccount(actor).Constants.Values);
+        }
 
         catalog.ConfigTables.Single(table=>table.Id=="98").IsRongyu=1;
-        var binding=new RelationCacheDefinition("98","9804","90","9007","9805",true);
+        var binding=new RelationCacheDefinition("98","9804","90",physical?"9003":"9007","9805",true);
         var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
         var compiled=maintenance.Plans["98"].Read!;
         var projection=compiled.MultiProjections[field];
@@ -262,6 +279,13 @@ public sealed class NestedCrossCandidateTests
         Assert.Equal(new[]{"store_id"},projection.Owner!.Fields);
         Assert.Contains("b.`store_id`",projection.NameExpression!);
         Assert.Contains("限制文字",compiled.Constants.Values);
+        if(rootCondition)
+        {
+            Assert.Contains("隐藏名称",compiled.Constants.Values);
+            Assert.Contains("mt_nested_",projection.TargetScope);
+            Assert.Contains("CASE WHEN",projection.NameExpression!);
+            Assert.Contains(compiled.Reverse,path=>path.TargetTable=="nested_outer"&&path.Outputs[field].Contains("store_id"));
+        }
         Assert.Contains("nested_country",maintenance.MixedTargets);
         Assert.Equal(global,maintenance.MixedTargets.Contains("nested_warehouse"));
         Assert.Contains(compiled.Reverse,path=>path.TargetTable=="nested_country"&&
@@ -276,9 +300,16 @@ public sealed class NestedCrossCandidateTests
             Assert.Contains(catalog.ConfigPages.Single(page=>page.ConfigTableId==table.Id).Id,pages);
         }
         Assert.Contains("980",owners);
+        Assert.Equal(rootCondition,pages.Contains("900"));
 
         catalog.ConfigPages.Add(new(){Id="981",ConfigTableId="98"});
         Assert.Throws<InvalidOperationException>(()=>DerivedCrossTableCaches.Validate(catalog,[binding],[]));
+        if(rootCondition)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="98").IsRongyu=0;
+            catalog.ConfigPages.Single(page=>page.Id=="900").YzProjectId="999";
+            Assert.Throws<UnauthorizedAccessException>(()=>MySqlNonRedundantReadCompiler.Compile(catalog,"98",[field]));
+        }
     }
 
     [Fact]

@@ -11,7 +11,10 @@ internal static class DerivedCheckboxNamesCompilation
         var fields=def.Scopes.Select(scope=>scope.Column).Concat(def.Conditions?.Syntax.Fields.Select(field=>def.Target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();
         if(fields.Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,def.Target,column)))throw new InvalidOperationException("派生复选的身份、父及附加条件必须为物理标量。");
         var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(def.Order.Select(item=>item.Column.Source.ColumnName)).Concat(new[]{"id",def.Name.Source.ColumnName}).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var plan=def.GlobalPage is null
+        var plan=def.LogicalTargetPage is { } scopePage
+            ?NonRedundantReads.CompileScopedMultiLabel(model.Catalog,def.Target.Source.Id,scopePage.Source.Id,
+                def.Name.Source.ColumnName,["id",def.Name.Source.ColumnName],dependencies)
+            :def.GlobalPage is null
             ?(def.Target.IsGlobal
                 ?NonRedundantReads.Compile(model.Catalog,def.Target.Source.Id,["id",def.Name.Source.ColumnName],dependencies)
                 :NonRedundantReads.CompileMultiLabel(model.Catalog,def.Target.Source.Id,def.Name.Source.ColumnName,["id",def.Name.Source.ColumnName],dependencies))

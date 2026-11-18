@@ -6,18 +6,23 @@ public static partial class MySqlNonRedundantReadCompiler
     private sealed partial class Builder
     {
         /// <summary>派生多值名称使用独立固定别名域，联接保持在目标子查询内，不把来源扩成多行。</summary>
-        private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,ColumnMetadata value,PageMetadata? publishedPage)
+        private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,ColumnMetadata value,PageMetadata? publishedPage,PageMetadata? selectedScope=null)
         {
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))throw new NotSupportedException("派生多选名称要求已证明来源、R0目标及原多选／数据库复选；其它组合尚未接线。");
             var global=GlobalCrossTableTarget.Declared(target);
-            var scalarLabel=MultiNameStorageColumns.IsDerivedScalarLabel(target,value,storage[target.Id]);
+            var scalarLabel=storage[target.Id].IsPhysical(value)
+                ?MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id])
+                :MultiNameStorageColumns.IsDerivedScalarLabel(target,value,storage[target.Id]);
             if(value.LogicalType!="string"&&!scalarLabel)throw new NotSupportedException("多值派生名称类型未支持。");
             // 全局单值路径已证明字符串键的二进制读取；这里不是仅允许int64键的精确管理匹配用途。
             var prefixForNames=publishedPage is null&&publishedArrayScopeCount==0?"multi_name_":aliasPrefix+"array"+publishedArrayScopeCount+"_";
             publishedArrayScopeCount++;
             var nested=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:publishedPage,multiLabel:true,cascadeLabelField:value.ColumnName,
-                cascadeCacheOwner:refreshFields is null?null:new(table,owner)).Compile([value.ColumnName],[]);
+                cascadeCacheOwner:refreshFields is null?null:new(table,owner))
+            {
+                SelectedMultiPage=selectedScope
+            }.Compile([value.ColumnName],[]);
             nested.CopyParametersTo(crossConstants);
             if(nested.RequiresPublishedProjectIdentity)publishedArrayIdentity=true;
             var cascadeLabel=nested.CascadeLabelOutputs.Contains(value.ColumnName);
@@ -28,6 +33,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var prefix=" FROM "+Q(target.TableName)+" multi_value";
             if(!nested.From.StartsWith(prefix,StringComparison.Ordinal))throw new InvalidOperationException("多选名称别名域与固定目标不一致。");
             var targetJoins=nested.From[prefix.Length..];var valueSql=nested.Expression(value.ColumnName);var scope=nested.Scope;
+            // 反向查找需要包含刚失去可见性的节点，数组的前置联接也不能引用后生成的级联别名。
+            var associationScope=selectedScope is null?scope:Scope(target,"multi_value",projectScoped:!global);
+            if(selectedScope is not null)valueSql="CASE WHEN "+scope+" THEN "+valueSql+" END";
             // 聚合、筛选、分批当前读和维护按同一文本名称计算，终点联接仍保持强类型。
             var name=MySqlMultiValueLabel.Text(valueSql,value.LogicalType);
             var source=owner+"."+Q(relation.ColumnName);var array=Array(source);
@@ -39,10 +47,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 customReverse.Add(new(target.TableName,from,ArrayMember(array,"@target_text"),"predicate",dependency));
                 foreach(var reverse in nested.Reverse)
                 {
-                    var match=reverse.TargetPredicate;var predicate="((SELECT 1"+reverse.From+" WHERE "+nested.Scope+" AND "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+" AND "+match+" LIMIT 1) IS NOT NULL)";var fields=reverse.Outputs.Values.SelectMany(v=>v).ToHashSet(StringComparer.Ordinal);customReverse.Add(new(reverse.TargetTable,from,predicate,"predicate",new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,fields}}));
+                    var match=reverse.TargetPredicate;var predicate="((SELECT 1"+reverse.From+" WHERE "+associationScope+" AND "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+" AND "+match+" LIMIT 1) IS NOT NULL)";var fields=reverse.Outputs.Values.SelectMany(v=>v).ToHashSet(StringComparer.Ordinal);customReverse.Add(new(reverse.TargetTable,from,predicate,"predicate",new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,fields}}));
                 }
             }
-            var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG("+name+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(global?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(scope.Length==0?"":" AND "+scope)+targetJoins+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
+            var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG("+name+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(global?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(associationScope.Length==0?"":" AND "+associationScope)+targetJoins+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
             multiProjections[expression]=new(source,Q(target.TableName),Q(value.ColumnName),scope,targetJoins,name,
                 nested.CascadeCacheOwnerFields.Count==0?null:new(owner,nested.CascadeCacheOwnerFields.Order(StringComparer.Ordinal).ToArray()));
             multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(scope.Length==0?"":" AND "+scope)+" AND "+name+" LIKE {parameter} ESCAPE '!')";
