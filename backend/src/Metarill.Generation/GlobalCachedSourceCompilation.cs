@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
 using Metarill.Data.Relations;
@@ -58,9 +59,34 @@ internal static class GlobalCachedSourceCompilation
             var cache=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==foreign.Source.ColumnName[..^3]+"_"+single.Name.ColumnName)??throw new NotSupportedException("全局List来源必须声明原物理名称副本。");
             var proof=GlobalCachedRelationSource.RequireCache(model.Catalog,table.Source,cache.Source);
             foreach(var field in model.Catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==foreign.Source.Id))
-                if(field.Extra.TryGetValue("controlDetail",out var overlay)&&!string.IsNullOrWhiteSpace(overlay.ToString())&&!JsonNode.DeepEquals(JsonNode.Parse(overlay.ToString()),JsonNode.Parse(foreign.Source.ControlDetail)))throw new NotSupportedException("全局List来源页覆盖不能替换固定关系定义。");
+                RequireSameTarget(foreign,field,proof);
             result.Add(new(table,foreign,target,target.Pages.Single(page=>page.Source.Id==proof.Page.Id),target.Columns.Single(column=>column.Source.Id==proof.Name.Id),cache,proof.ScopedSingle));
         }
         return result;
+    }
+
+    /// <summary>单选沿用原页面文案继承。后端固定页、名称、筛选和排序仍使用同一副本声明。</summary>
+    private static void RequireSameTarget(ColumnModel foreign,PageColumnMetadata field,GlobalCachedRelationBinding binding)
+    {
+        var overlay=field.Extra.GetValueOrDefault("controlDetail").ToString();
+        if(string.IsNullOrWhiteSpace(overlay)||
+            JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(foreign.Source.ControlDetail)))return;
+
+        if(foreign.Source.ControlKind=="SelectPage")
+        {
+            var baseline=SelectionControlDefinition.Resolve(foreign,null);
+            var effective=SelectionControlDefinition.Resolve(foreign,field);
+            using var document=JsonDocument.Parse(overlay);
+            var definition=document.RootElement;
+            bool Matches(string key,string expected)=>!definition.TryGetProperty(key,out var value)||
+                value.ValueKind==JsonValueKind.Null||
+                value.ValueKind is JsonValueKind.String or JsonValueKind.Number&&
+                (string.IsNullOrWhiteSpace(value.ToString())||value.ToString()==expected);
+
+            if(baseline==(effective with{ButtonText=baseline.ButtonText})&&
+                Matches("tableId",binding.Target.Id)&&Matches("table",binding.Target.TableName))return;
+        }
+
+        throw new NotSupportedException("全局单值来源页覆盖不能改变固定关系定义。");
     }
 }

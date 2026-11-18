@@ -85,8 +85,10 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true,true,"string")]
     [InlineData(true,true,true,false,false,true,false,false,true,true,true,true,true,true,null,true)]
     [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true,true,"string",true)]
+    [InlineData(true,true,true,false,false,true,false,false,true,true,true,true,true,true,null,true,true)]
+    [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true,true,"string",true,true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false,string? rowProjectType=null,bool pageOnly=false)
+        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false,string? rowProjectType=null,bool pageOnly=false,bool buttonOverride=false)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -290,6 +292,9 @@ public sealed class DerivedRelationNamesTests
                 new(){Id="80184",ConfigPageId="801",ConfigColumnId="84",IsShow=1,IsEdit=1},
                 new(){Id="80185",ConfigPageId="801",ConfigColumnId="85",IsShow=1,IsEdit=0}
             ]);
+            if(buttonOverride)
+                catalog.ConfigPageColumns.Single(column=>column.Id=="80184").Extra["controlDetail"]=
+                    JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{buttonText="查找中间记录"}));
         }
         catalog.YzAdminTypes.Clear();
         RedundantMultiNameCacheTests.Published(catalog);
@@ -413,8 +418,27 @@ public sealed class DerivedRelationNamesTests
                         {
                             var detail=File.ReadAllText(Path.Combine(directory,"generated/frontend/pages/yzp/dr_names_observer-detail-801.vue"));
                             Assert.Contains(":parent_id=\"parent_id\"",detail);
+                            if(buttonOverride)
+                            {
+                                Assert.Contains("'>查找中间记录</button>",detail);
+                                Assert.Contains("dr_names_order-list-101.vue",detail);
+                            }
                         }
                     }
+                }
+            }
+
+            if(buttonOverride)
+            {
+                // 纯文案可以继承。重设范围、排序或实体仍会在发布前被拒绝。
+                var overrideField=catalog.ConfigPageColumns.Single(column=>column.Id=="80184");
+                foreach(var item in new[]{new{Key="whereSql",Value="id IS NOT NULL"},new{Key="orderBy",Value="id asc"},
+                    new{Key="tableId",Value="2"},new{Key="table",Value=prefix+"_party"}})
+                {
+                    overrideField.Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(
+                        new Dictionary<string,string>{{"buttonText","查找中间记录"},{item.Key,item.Value}}));
+                    var error=Record.Exception(()=>GenerationModel.Create(catalog,"Example.ScopedSingleRelation"));
+                    Assert.True(error is NotSupportedException or InvalidOperationException);
                 }
             }
 
