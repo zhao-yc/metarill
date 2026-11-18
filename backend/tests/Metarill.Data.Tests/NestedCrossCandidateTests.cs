@@ -148,6 +148,32 @@ public sealed class NestedCrossCandidateTests
             ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new NonRedundantReader(session)
             .RowsAsync(plan.BindAccount(actor),[],[],1,projectId:"999"));
+        source.IsRongyu=1;
+        var sourcePage=new PageMetadata{Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
+            WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"};
+        catalog.ConfigPages.Add(sourcePage);
+        catalog.ConfigColumns.Add(new(){Id="9016",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"});
+        var cacheBinding=new RelationCacheDefinition(source.Id,"9014",target.Id,
+            catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="name").Id,"9015",false)
+            {ScopedSinglePageId=page.Id};
+        var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[cacheBinding]);
+        Assert.Empty(maintenance.Propagation.Bindings);
+        Assert.Throws<InvalidOperationException>(()=>RelationMutationPlan.Compile(catalog,[cacheBinding with{ScopedSinglePageId=null}]));
+        var consumer=Assert.Single(maintenance.Mixed.Consumers,item=>item.Table.Option.Id==source.Id);
+        Assert.Contains("store_id",consumer.Inputs);
+        Assert.Contains("b.`store_id`",consumer.Read.Expression("shared_name"));
+        Assert.Contains("CASE WHEN r0.`id` IS NOT NULL",consumer.Read.Expression("shared_name"));
+        Assert.False(consumer.Read.RequiresAccount);
+        Assert.Single(consumer.Read.Reverse,item=>item.TargetTable=="nested_visibility");
+        var direct=Assert.Single(consumer.Read.Reverse,item=>item.TargetTable==target.TableName);
+        Assert.Contains("visibility_id",direct.Outputs["shared_name"]);
+        Assert.Contains("store_id",direct.Outputs["shared_name"]);
+        sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
+        Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[cacheBinding]));
+        sourcePage.WhereSql+=" AND store_id=@current_store_id";
+        Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[cacheBinding with{ScopedSinglePageId="950"}]));
+        source.IsRongyu=0;
+
         var definition=page.WhereSql;
         catalog.ConfigColumns.Add(new(){Id="9511",ConfigTableId=target.Id,ColumnName="password",LogicalType="string"});
         page.WhereSql+=" AND password <> '测试占位'";

@@ -58,7 +58,7 @@ public static class GlobalSingleRelationTarget
         var targetColumns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
         var expanded=RelationStorageColumns.Expand(target,targetColumns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
-        var scopedSelfTree=!projectParent&&owner.IsRongyu==0&&condition.Fields
+        var scopedSelfTree=!projectParent&&(owner.IsRongyu==0||!GlobalCrossTableTarget.Declared(owner))&&condition.Fields
             .Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
         if(projectParent)RequireProjectParentPage(catalog,target,page);
         else if(scopedSelfTree)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page);

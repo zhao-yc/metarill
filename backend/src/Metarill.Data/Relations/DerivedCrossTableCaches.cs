@@ -12,6 +12,11 @@ public static class DerivedCrossTableCaches
         foreach(var d in derived)
         {
             var source=catalog.ConfigTables.SingleOrDefault(t=>t.Id==d.SourceTableId)??throw new InvalidOperationException("跨表来源未发布。");var target=catalog.ConfigTables.SingleOrDefault(t=>t.Id==d.TargetTableId)??throw new InvalidOperationException("派生目标未发布。");
+            if(d.ScopedSinglePageId is not null)
+            {
+                RequireScopedSingle(catalog,source,target,d);
+                continue;
+            }
             var global=GlobalCrossTableTarget.Declared(target);
             var globalSource=GlobalCrossTableTarget.Declared(source);
             var globalTree=globalSource&&d.SelfTreePageId is not null;
@@ -57,6 +62,34 @@ public static class DerivedCrossTableCaches
         }
         if(all.GroupBy(d=>(d.SourceTableId,d.CacheColumnId)).Any(g=>g.Distinct().Count()!=1))throw new InvalidOperationException("同一缓存存在相互冲突的物理／派生绑定。");
     }
+    /// <summary>固定单值副本只绑定原表级关系、同类型物理缓存及实际目标页。</summary>
+    private static void RequireScopedSingle(MetadataCatalog catalog,TableMetadata source,TableMetadata target,RelationCacheDefinition definition)
+    {
+        if(source.IsRongyu!=1||GlobalCrossTableTarget.Declared(source)||definition.Multiple||
+            definition.CrossTableColumnId is not null||definition.CrossTableLevelKey is not null||
+            definition.CrossTablePageId is not null||definition.CrossTableGlobalPages is not null||
+            definition.CrossTableRecursivePageId is not null||definition.CrossTableAccountPageId is not null||definition.SelfTreePageId is not null)
+            throw new InvalidOperationException("固定单值缓存要求独立的项目内冗余来源和全局目标页。");
+        var fields=catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id).ToArray();
+        var foreign=fields.Single(column=>column.Id==definition.ForeignColumnId);
+        var cache=fields.Single(column=>column.Id==definition.CacheColumnId);
+        var proof=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
+        var stem=foreign.ColumnName[..^3];
+        var storage=MetadataStoragePolicy.ForTable(catalog,source);
+        var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();
+        if(!proof.ScopedSelfTree||proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=definition.ValueColumnId||
+            cache.Id==foreign.Id||cache.ColumnName!=stem+"_"+proof.Name.ColumnName||cache.LogicalType!=proof.Name.LogicalType||
+            !storage.IsPhysical(cache)||!Enabled(cache)||cache.IsVirtualColumn!=0||cache.ControlKind is not("" or "TextArea")||
+            cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||
+            cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0||
+            new[]{foreign,cache,proof.Name}.Any(column=>column.YzProjectId.Length>0&&column.YzProjectId!=catalog.YzProjectId)||
+            ExactDataManageValues.IsSensitiveField(cache.ColumnName)||
+            path!=stem+"."+proof.Name.ColumnName&&path!=foreign.ColumnName+"."+proof.Name.ColumnName)
+            throw new InvalidOperationException("固定单值缓存与实际目标页或名称声明不一致。");
+        // 完整编译固定路径和行归属。任何缺失的内层证明都阻断生成。
+        _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cache.ColumnName],[definition]);
+    }
+
     /// <summary>只沿原明确联接标志，不把任意文本解释为关系。</summary>
     private static bool Enabled(ColumnMetadata c)=>c.Extra.TryGetValue("isJoinColumn",out var value)&&(value.ToString()=="1"||value.ValueKind==System.Text.Json.JsonValueKind.True);
 }

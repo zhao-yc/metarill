@@ -30,16 +30,20 @@ public sealed class DerivedRelationNamesTests
 
     /// <summary>固定自树条件通过原单值候选、保存与 Excel 共用同一已发布计划。</summary>
     [Theory]
-    [InlineData(false, false, false, null)]
-    [InlineData(true, false, true, null)]
-    [InlineData(false, true, true, null)]
-    [InlineData(true, true, false, null)]
-    [InlineData(false, false, false, false)]
-    [InlineData(true, false, false, true)]
-    [InlineData(false, true, false, true)]
-    [InlineData(true, true, false, false)]
+    [InlineData(false, false, false, null, false)]
+    [InlineData(true, false, true, null, false)]
+    [InlineData(false, true, true, null, false)]
+    [InlineData(true, true, false, null, false)]
+    [InlineData(false, false, false, false, false)]
+    [InlineData(true, false, false, true, false)]
+    [InlineData(false, true, false, true, false)]
+    [InlineData(true, true, false, false, false)]
+    [InlineData(false, false, false, false, true)]
+    [InlineData(true, false, false, true, true)]
+    [InlineData(false, true, false, true, true)]
+    [InlineData(true, true, false, false, true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject)
+        bool? globalWithProject,bool redundant)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -89,6 +93,22 @@ public sealed class DerivedRelationNamesTests
                 catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="22");
             }
         }
+        if(redundant)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=1;
+            // 夹具只保留本次要检查的名称副本，原来源父页仍照常校验。
+            catalog.ConfigColumns.RemoveAll(column=>column.Id is "16" or "17");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "16" or "17");
+            catalog.ConfigColumns.Add(new(){Id="118",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"});
+            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+            {
+                page.OrderBy="id desc";
+                page.WhereSql+=" AND store_id=@current_store_id";
+                if(selection)
+                    foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId=="15"))
+                        field.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+            }
+        }
         catalog.YzAdminTypes.Clear();
         RedundantMultiNameCacheTests.Published(catalog);
 
@@ -126,6 +146,18 @@ public sealed class DerivedRelationNamesTests
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
                     assembly.GetType("Example.ScopedSingleRelation.Generated.Services."+name,true)!.TypeHandle);
 
+            if(redundant)
+            {
+                var model=GenerationModel.Create(catalog,"Example.ScopedSingleRelation");
+                var cache=MixedRelationPropagationCompilation.ForModel(model);
+                Assert.Contains("dr_names_tree",cache.MixedTargets);
+                Assert.Contains("dr_names_party",cache.MixedTargets);
+                Assert.Contains("customer_"+label,cache.MixedSourceColumns["dr_names_order"]);
+                Assert.Contains("ProjectRelationMutationPropagator(session).AfterMutationAsync",service);
+                var published=assembly.GetType("Example.ScopedSingleRelation.Generated.GeneratedRelationMaintenance",true)!
+                    .GetProperty("Catalog")!.GetValue(null);
+                Assert.Contains("dr_names_tree",Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(published).MixedTargets);
+            }
             if(globalWithProject is not null)
             {
                 catalog.ConfigTables.Single(table=>table.Id=="6").Extra.Remove("scopeKind");

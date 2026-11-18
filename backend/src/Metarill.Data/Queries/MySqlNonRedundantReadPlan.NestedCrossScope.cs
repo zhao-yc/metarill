@@ -239,7 +239,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,MySqlCrossTableProjection> scopedCrossProjections=new(StringComparer.Ordinal);
 
         /// <summary>全局单值显示与候选使用同一逻辑范围，绑定当前账号并检查实际叶子路径。</summary>
-        private string PublishedSingleTreeCondition(TableMetadata table,string alias,PageMetadata page)
+        private string PublishedSingleTreeCondition(TableMetadata table,string alias,PageMetadata page,CascadeCacheOwner? cacheOwner=null)
         {
             var members=columns[table.Id].Values.ToArray();
             var fields=PublishedSelfTreeConditionFields(catalog,table,page,members);
@@ -248,7 +248,21 @@ public static partial class MySqlNonRedundantReadCompiler
             var logical=RequireCrossCondition(table,page,condition,selfTreeFields:fields);
             scopedGlobalCrossTarget=true;
             return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
-                alias,selfTreeFields:fields);
+                alias,cacheOwner,selfTreeFields:fields);
+        }
+
+        /// <summary>先按物理键联接以便失效后仍可反查，再按来源行归属计算可见名称。</summary>
+        private (string Sql,string Type) ScopedSingleCacheValue(TableMetadata table,string owner,ColumnMetadata foreign,
+            TableMetadata target,ColumnMetadata value,RelationCacheDefinition definition)
+        {
+            var proof=GlobalSingleRelationTarget.RequireCached(catalog,table,foreign,target);
+            if(!proof.ScopedSelfTree||proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=value.Id)
+                throw new InvalidOperationException("单值名称缓存的目标范围与发布证明不一致。");
+            var source=Resolve(table,owner,foreign.ColumnName);
+            var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true);
+            var visible=PublishedSingleTreeCondition(target,alias,proof.Page,new(table,owner));
+            var label=Resolve(target,alias,value.ColumnName);
+            return ("CASE WHEN "+alias+".`id` IS NOT NULL AND "+visible+" THEN "+label.Sql+" END",label.Type);
         }
 
         /// <summary>缓存通过已发布候选页求值，目标与内层依赖都进入原传播队列。</summary>

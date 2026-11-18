@@ -25,6 +25,9 @@ public sealed record RelationCacheDefinition(string SourceTableId,string Foreign
     /// <summary>固定递归候选页由混合维护计划按来源物理行重新求值。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? CrossTableRecursivePageId { get; init; }
+    /// <summary>单值名称副本按实际来源行与目标固定自树条件重算。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? ScopedSinglePageId { get; init; }
     /// <summary>自树全局叶子缓存只读取生成时选定的目标页。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? SelfTreePageId{get;init;}
@@ -63,7 +66,7 @@ public sealed class RelationMutationPlan
         }
         foreach(var definition in definitions.Distinct())
         {
-            if(definition.CrossTableAccountPageId is not null||definition.CrossTableRecursivePageId is not null||
+            if(definition.CrossTableAccountPageId is not null||definition.CrossTableRecursivePageId is not null||definition.ScopedSinglePageId is not null||
                 SelfTreeCache.UsesWholePath(catalog,catalog.ConfigTables.Single(table=>table.Id==definition.SourceTableId),definition.SelfTreePageId))
                 throw new InvalidOperationException("账号或递归条件的跨表缓存必须使用统一维护计划。");
             if(!tables.TryGetValue(definition.SourceTableId,out var source)||!tables.TryGetValue(definition.TargetTableId,out var target))throw new InvalidOperationException("传播关系引用了未发布的表。");
@@ -110,7 +113,13 @@ public sealed class RelationMutationPlan
                         if(proof.Name.Id!=value.Id)throw new InvalidOperationException("全局多值缓存名称与固定关系声明不一致。");
                         page=proof.Page;
                     }
-                    else page=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target).Page;
+                    else
+                    {
+                        var proof=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
+                        if(proof.ScopedSelfTree)
+                            throw new InvalidOperationException("带逻辑目标页的单值名称必须使用统一维护计划。");
+                        page=proof.Page;
+                    }
                     if(typedCache||target.IsRongyu==0&&columns[target.Id].Values.Any(column=>column.ColumnName=="yz_project_id"))
                         publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,page);
                 }

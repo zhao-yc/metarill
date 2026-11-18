@@ -410,6 +410,13 @@ internal static class ReadProjectionCompilation
                 var target = model.Tables.SingleOrDefault(candidate => candidate.Pages.Any(targetPage => targetPage.Source.Id == definition.PageId));
                 var targetPage = target?.Pages.Single(targetPage => targetPage.Source.Id == definition.PageId);
                 var name = target?.Columns.SingleOrDefault(candidate => candidate.Source.ColumnName == definition.NameField || candidate.JsonName == definition.NameField);
+                if(source.Source.ControlKind=="SelectPage"&&target is {IsGlobal:true}&&targetPage is not null&&FixedPageConditionCompilation.HasSelfTreeFields(targetPage))
+                {
+                    // 原确认页由固定R0计划返回名称；冗余消费者只提交外键并读取其原显示缓存。
+                    _=NonRedundantSelectionCompilation.Resolve(model,table,page,source);
+                    Auxiliary(source,SelectionDisplayFieldCompilation.Resolve(table,source));
+                    return;
+                }
                 if (target is null || targetPage is null || name is null || !targetPage.Readable.Any(candidate => candidate.Source.Id == name.Source.Id) || name.IsJsonArray || GenerationModel.Enabled(name.Source.Extra, "isJoinColumn"))
                 { Gap(source.Source.Id, "选择目标名称不在精确目标页可读投影内。"); return; }
                 if (!target.IsGlobal && !target.Columns.Any(candidate => candidate.Source.ColumnName == "yz_project_id"))

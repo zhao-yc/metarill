@@ -449,6 +449,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     var foreign=columns[table.Id].Values.Single(item=>item.Id==refresh.ForeignColumnId);var target=tables[refresh.TargetTableId];var value=columns[target.Id].Values.Single(item=>item.Id==refresh.ValueColumnId);
                     if(refresh.Multiple)return MultiDisplay(table,alias,foreign,value.ColumnName);
+                    if(refresh.ScopedSinglePageId is not null)return ScopedSingleCacheValue(table,alias,foreign,target,value,refresh);
                     if(SelfTreeCache.UsesWholePath(catalog,table,refresh.SelfTreePageId))
                         return (SelfTreeLabelExpression(table,alias,foreign,column!,refresh.SelfTreePageId),"string");
                     if(refresh.CrossTableRecursivePageId is not null)return RecursiveCacheValue(table,alias,foreign,target,value,refresh);
