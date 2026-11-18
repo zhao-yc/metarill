@@ -10,7 +10,7 @@ namespace Metarill.Data.Queries;
 public static partial class MySqlNonRedundantReadCompiler
 {
     private sealed record SelfTreeLabelProof(TableMetadata Target,ColumnMetadata Name,ColumnMetadata Parent,
-        PageMetadata Page,FixedConditionSqlPlan? Condition,bool Scoped);
+        PageMetadata Page,FixedConditionSqlPlan? Condition,bool Scoped,bool SelfTreeScoped);
 
     /// <summary>只将原控件的叶子名称标为逻辑来源，完整路径显示文本仍由原前端合同输出。</summary>
     private static bool IsSelfTreeLabel(ColumnMetadata control,string field)=>
@@ -46,9 +46,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 !GlobalPhysicalRelationValue.IsPublishedTypedCache(catalog,storage,target,name):
                 storage.Kind(name)!=MetadataFieldStorage.Join||target.IsRongyu!=0))
             throw new NotSupportedException("多值名称的自树父键或标量叶名无效。");
-        var (page,condition)=CascadeLabelPage(catalog,target,name.ColumnName,parent.ColumnName);
-        var scoped=FixedConditionPlan.Compile(page.WhereSql,members.Select(column=>column.ColumnName)).Fields
-            .Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,members,field));
+        var (page,condition)=CascadeLabelPage(catalog,target,name.ColumnName,parent.ColumnName,allowSelfTree:true);
+        var fields=FixedConditionPlan.Compile(page.WhereSql,members.Select(column=>column.ColumnName)).Fields;
+        var selfTreeScoped=fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,members,field));
+        var scoped=selfTreeScoped||fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,members,field));
         if(GlobalCrossTableTarget.Declared(target))
         {
             if(scoped)GlobalCrossTableTarget.RequireScopedSelfTreeName(catalog,target,page,name);
@@ -56,7 +57,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
         else if(!members.Any(column=>column.ColumnName=="yz_project_id"&&storage.IsPhysical(column)))
             throw new NotSupportedException("自树节点缺少真实项目范围。");
-        return new(target,name,parent,page,condition,scoped);
+        return new(target,name,parent,page,condition,scoped,selfTreeScoped);
     }
 
     /// <summary>同表父字段也可以承载原树控件，只有真实物理自关联键允许同时作为拓扑列。</summary>
@@ -77,6 +78,8 @@ public static partial class MySqlNonRedundantReadCompiler
     private sealed partial class Builder
     {
         private int selfTreeLabelCount;
+        internal IReadOnlySet<string> SelfTreeCandidateFields{get;init;}=new HashSet<string>(StringComparer.Ordinal);
+        internal HashSet<(string TableId,string ControlId)> ActiveSelfTreeScopes{get;init;}=[];
 
         /// <summary>只开放实际发布树的选择键和逻辑叶名。全局共享行不能依赖调用方的项目私有树。</summary>
         private bool PublishedGlobalSelfTreeField(ColumnMetadata column)
@@ -131,6 +134,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var fields=new[]{"id",proof.Name.ColumnName};
                 if(cacheOwner is {} cached)
                 {
+                    if(proof.SelfTreeScoped)throw new NotSupportedException("自树叶名限定的递归候选尚未接入名称副本维护。");
                     // 维护使用保存行的归属，不能借发起账号覆盖其它行的名称。
                     fixedTarget=new Builder(catalog,proof.Target.Id,rootAlias:display,aliasPrefix:prefix+"s_",
                         trackReverse:trackReverse,multiLabel:true,cascadeLabelField:"id",cascadeCacheOwner:cached)
@@ -144,8 +148,18 @@ public static partial class MySqlNonRedundantReadCompiler
                     }
                     cascadeCacheOwnerFields.UnionWith(fixedTarget.CascadeCacheOwnerFields);
                 }
-                else fixedTarget=CompileCrossPageCandidate(catalog,proof.Target.Id,proof.Page.Id,
-                    fields,[],rootAlias:display,aliasPrefix:prefix+"s_");
+                else
+                {
+                    // 候选条件依赖其它自树时可能再次进入同一控件，发布阶段拒绝循环条件。
+                    var key=(table.Id,control.Id);
+                    if(!ActiveSelfTreeScopes.Add(key))throw new NotSupportedException("自树候选条件存在循环依赖。");
+                    try
+                    {
+                        fixedTarget=CompileCrossPageCandidate(catalog,proof.Target.Id,proof.Page.Id,
+                            fields,[],rootAlias:display,aliasPrefix:prefix+"s_",activeSelfTreeScopes:ActiveSelfTreeScopes);
+                    }
+                    finally{ActiveSelfTreeScopes.Remove(key);}
+                }
                 fixedTarget.CopyParametersTo(crossConstants);
                 foreach(var reference in fixedTarget.PhysicalReferences)
                     references.TryAdd((reference.Table,reference.Column.Name),reference);

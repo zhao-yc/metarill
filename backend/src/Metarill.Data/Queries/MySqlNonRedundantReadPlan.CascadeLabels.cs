@@ -59,18 +59,26 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new NotSupportedException("固定逻辑页面范围必须属于普通非冗余来源。");
 
         var declared=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
-        foreach(var field in selfTreeFields)
+        if(!selfTreeFields.SetEquals(SelfTreeConditionFields(catalog,table,page,declared,selfTreeFields)))
+            throw new NotSupportedException("固定自树范围缺少已声明的叶名。");
+
+        var bindings=crossFields.Count==0?[]:CrossMembershipBindings(catalog,table,page,crossFields);
+        return CompileWithCrossTables(catalog,table.Id,["id"],bindings,conditionFields,deferCascadeNames:selfTreeFields.Count>0);
+    }
+
+    /// <summary>只有与表级控件一致的叶名才能用于固定范围。附件和候选页共用同一份证明。</summary>
+    private static IReadOnlySet<string> SelfTreeConditionFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        IReadOnlyList<ColumnMetadata> declared,IEnumerable<string> fields)
+    {
+        var names=fields.Where(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field)).ToHashSet(StringComparer.Ordinal);
+        foreach(var field in names)
         {
-            if(!CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field))
-                throw new NotSupportedException("固定自树范围缺少已声明的叶名。");
             var control=declared.Single(column=>column.ColumnName==field[..^5]+"_id");
             var overlay=catalog.ConfigPageColumns.SingleOrDefault(column=>column.ConfigPageId==page.Id&&column.ConfigColumnId==control.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
             if(!CrossTableStorageColumns.KeepsDefinition(control.ControlDetail,overlay))
                 throw new NotSupportedException("自树固定页面条件必须沿用表级级联定义。");
         }
-
-        var bindings=crossFields.Count==0?[]:CrossMembershipBindings(catalog,table,page,crossFields);
-        return CompileWithCrossTables(catalog,table.Id,["id"],bindings,conditionFields,deferCascadeNames:selfTreeFields.Count>0);
+        return names;
     }
 
     /// <summary>查找由原多值关系显式绑定的逻辑条件页。</summary>
@@ -201,7 +209,7 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>读页选择与原级联相同。只接受原账号等值条件与物理常量。</summary>
     internal static (PageMetadata Page,FixedConditionSqlPlan? Condition) CascadeLabelPage(
-        MetadataCatalog catalog, TableMetadata target, string name, string parent)
+        MetadataCatalog catalog, TableMetadata target, string name, string parent,bool allowSelfTree=false)
     {
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
         var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
@@ -218,12 +226,13 @@ public static partial class MySqlNonRedundantReadCompiler
             .ToArray();
         if(candidates.Length!=1)throw new NotSupportedException("级联多值名称要求每级唯一且无父参数的可读页面。");
         var (chosen,syntax)=candidates[0];
-        return(chosen,CascadeScopeCondition(target,storage,columns,syntax));
+        var treeNames=allowSelfTree?SelfTreeConditionFields(catalog,target,chosen,columns,syntax.Fields):null;
+        return(chosen,CascadeScopeCondition(target,storage,columns,syntax,selfTreeFields:treeNames));
     }
 
     /// <summary>固定页条件保留实际类型与原账号等值，只有已声明逻辑路径可以引用非物理层位。</summary>
     private static FixedConditionSqlPlan? CascadeScopeCondition(TableMetadata target,MetadataStoragePlan storage,
-        IReadOnlyList<ColumnMetadata> columns,FixedConditionPlan syntax,ColumnMetadata? multiParent=null)
+        IReadOnlyList<ColumnMetadata> columns,FixedConditionPlan syntax,ColumnMetadata? multiParent=null,IReadOnlySet<string>? selfTreeFields=null)
     {
         var terms=syntax.Terms.Where(term=>!IsProjectScope(term)&&!(multiParent?.ColumnName==term.Field&&
             term.Values.Count==1&&term.Values[0].Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(term.Values[0].Text))).ToArray();
@@ -232,11 +241,12 @@ public static partial class MySqlNonRedundantReadCompiler
             .ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.OrdinalIgnoreCase);
         foreach(var term in terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
             if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||term.Field=="yz_project_id"||
-                CrossTableStorageColumns.IsLogicalPathField(target,columns,term.Field)||!AccountConditionVariables.IsPageField(term.Values[0].Text,term.Field)||
+                CrossTableStorageColumns.IsLogicalPathField(target,columns,term.Field)||selfTreeFields?.Contains(term.Field)==true||!AccountConditionVariables.IsPageField(term.Values[0].Text,term.Field)||
                 !physical.TryGetValue(term.Field,out var type)||type is not("int32" or "int64" or "string"))
                 throw new NotSupportedException("级联多值名称只允许原账号字段的物理等值范围。");
         var types=new Dictionary<string,string>(physical,StringComparer.OrdinalIgnoreCase);
-        foreach(var column in columns.Where(column=>CrossTableStorageColumns.IsLogicalPathField(target,columns,column.ColumnName)))
+        foreach(var column in columns.Where(column=>CrossTableStorageColumns.IsLogicalPathField(target,columns,column.ColumnName)||
+            selfTreeFields?.Contains(column.ColumnName)==true))
             types.TryAdd(column.ColumnName,column.LogicalType);
         var condition=FixedConditionPlan.Compile(string.Join(" AND ",terms.Select(term=>term.ToDefinition())),types.Keys);
         return FixedConditionSqlPlan.Compile(condition,types);

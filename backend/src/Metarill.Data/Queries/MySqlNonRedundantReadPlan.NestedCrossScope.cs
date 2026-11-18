@@ -8,7 +8,8 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>候选与实际父路径使用同一发布页范围；调用端不能替换其中任一逻辑条件。</summary>
     internal static MySqlNonRedundantReadPlan CompileCrossPageCandidate(MetadataCatalog catalog,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
-        IReadOnlyList<NonRedundantCrossTableScope>? displayBindings=null,string rootAlias="b",string aliasPrefix="r")
+        IReadOnlyList<NonRedundantCrossTableScope>? displayBindings=null,string rootAlias="b",string aliasPrefix="r",
+        HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -31,16 +32,19 @@ public static partial class MySqlNonRedundantReadCompiler
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId));
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         var logical=syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToHashSet(StringComparer.Ordinal);
-        if(logical.Count==0&&(!global||displayBindings is not{Count:>0}))
-            throw new InvalidOperationException("候选页未声明逻辑跨表条件或已证明的全局跨表投影。");
+        var treeNames=SelfTreeConditionFields(catalog,table,page,columns,syntax.Fields);
+        if(logical.Count==0&&treeNames.Count==0&&(!global||displayBindings is not{Count:>0}))
+            throw new InvalidOperationException("候选页未声明逻辑级联条件或已证明的全局跨表投影。");
         var parent=displayBindings is null?null:MultiTargetParentScope.Compile(catalog,table,syntax);
-        var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target);
+        var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target,treeNames);
         var scopes=logical.Count==0?[]:CrossMembershipBindings(catalog,table,page,logical);
         // 范围的绑定按发布页生成，其它绑定仅用于该独立选择页展示额外的路径。
         var bindings=scopes.Concat(displayBindings??[]).DistinctBy(path=>path.SourceColumnId,StringComparer.Ordinal).ToArray();
         var builder=new Builder(catalog,tableId,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
         {
             CrossCandidateCondition=condition,
+            SelfTreeCandidateFields=treeNames,
+            ActiveSelfTreeScopes=activeSelfTreeScopes??new(),
             MultiCandidateParent=parent,
             MultiCandidatePage=page,
             GlobalCrossCandidate=global,

@@ -459,14 +459,23 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(false,false,true,true)]
     [InlineData(false,true,true,true)]
     [InlineData(false,true,true,true,"decimal")]
-    public async Task Fixed_cross_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false,string nameKind="string")
+    [InlineData(false,false,false,false,"string",true)]
+    [InlineData(false,true,false,false,"string",true)]
+    public async Task Fixed_cascade_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false,string nameKind="string",bool selfTreeCondition=false)
     {
         const string ns="Example.FixedSelfTreeNode";
-        var catalog=NonRedundantCrossTableGenerationTests.Catalog("scoped_tree","string","int64");
+        var catalog=selfTreeCondition?Catalog("scoped_tree",automatic:true):
+            NonRedundantCrossTableGenerationTests.Catalog("scoped_tree","string","int64");
         var target=catalog.ConfigTables.Single(table=>table.Id=="2");
         var targetPage=catalog.ConfigPages.Single(page=>page.ConfigTableId==target.Id);
         if(global)target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-        targetPage.WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+"country_name <> '限制节点' AND store_id=@current_store_id";
+        var scopeName=selfTreeCondition?"tree_name":"country_name";
+        targetPage.WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+scopeName+" <> '限制节点' AND store_id=@current_store_id";
+        if(selfTreeCondition)
+        {
+            catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql+=" AND merchant_id=@current_merchant_id";
+            catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="merchant_id",LogicalType="int64"});
+        }
         catalog.ConfigColumns.AddRange([
             new(){Id="27",ConfigTableId="2",ColumnName="node_parent_id",LogicalType="int64"},
             new(){Id="28",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"},
@@ -540,8 +549,46 @@ public sealed class NonRedundantSelfTreeTests
             Assert.NotNull(service.GetMethod("CascadePath901_94Async"));
             Assert.NotNull(service.GetMethod("Import901Async"));
             Assert.NotNull(service.GetMethod("Export901Async"));
+            if(selfTreeCondition)
+            {
+                const BindingFlags flags=BindingFlags.Static|BindingFlags.NonPublic;
+                var candidate=Assert.IsType<NonRedundantReadPlan>(service.GetField("DerivedCascadePlan901_94",flags)!.GetValue(null));
+                var filter=Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan901",flags)!.GetValue(null));
+                var actor=new RuntimeActor(29,"测试用户",false,catalog.YzProjectId,"5"){StoreId=37,MerchantId=38};
+                foreach(var read in new[]{candidate,filter})
+                {
+                    read.BindAccount(actor);
+                    Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor with{MerchantId=null}));
+                    Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor with{StoreId=null}));
+                }
+                var native=typeof(NonRedundantReadPlan).GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(filter)!;
+                var sql=Assert.IsType<string>(native.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(native,["node_name"]));
+                Assert.Contains("WITH RECURSIVE",sql);
+                Assert.Contains("`scoped_tree_source`",sql);
+                Assert.Contains("`scoped_tree_tree`",sql);
+                Assert.Contains(".`store_id`=@",sql);
+                Assert.Contains(".`merchant_id`=@",sql);
+                Assert.DoesNotContain("限制节点",sql);
+            }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>固定目标页引用需要回读自己的同一树控件时，发布明确拒绝循环条件。</summary>
+    [Fact]
+    public void Self_tree_candidate_rejects_a_recursive_page_condition()
+    {
+        var catalog=Catalog("tree_scope_loop",automatic:true);
+        var page=catalog.ConfigPages.Single(item=>item.Id=="201");
+        page.WhereSql+=" AND tree_name IS NOT NULL";
+        var control=catalog.ConfigColumns.Single(item=>item.Id=="25");
+        control.LinkConfigTableId="2";
+        control.ControlDetail="""{"sourceMode":"selfTree","selfTree":{"table":"tree_scope_loop_source","parentField":"parent_id"}}""";
+        catalog.ConfigColumns.Add(new(){Id="29",ConfigTableId="2",ColumnName="parent_id",LogicalType="int64",LinkConfigTableId="2"});
+        catalog.ConfigPageColumns.Add(new(){Id="2009",ConfigPageId="201",ConfigColumnId="29"});
+
+        var error=Assert.Throws<NotSupportedException>(()=>NonRedundantReads.CompileCrossPageCandidate(catalog,"2","201",["id"],[]));
+        Assert.Contains("循环依赖",error.Message);
     }
 
     /// <summary>真实生成页和原级联组件共同在Vue3挂载，网络受控；不替代浏览器或正式宿主验收。</summary>

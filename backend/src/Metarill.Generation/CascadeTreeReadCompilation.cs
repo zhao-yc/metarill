@@ -5,7 +5,7 @@ namespace Metarill.Generation;
 
 internal sealed record CascadeTreeReadModel(ColumnModel Source,TableModel Target,PageModel TargetPage,ColumnModel Name,ColumnModel Parent,string Joiner,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool Exact,bool DerivedName=false)
 {
-    internal bool ScopedCondition=>FixedPageConditionCompilation.HasCrossFields(TargetPage);
+    internal bool ScopedCondition=>FixedPageConditionCompilation.HasLogicalFields(TargetPage);
     internal bool UsesFixedRead=>DerivedName||ScopedCondition;
 }
 internal sealed record CascadeTreeReadResult(CascadeTreeReadModel? Definition,string? Reason);
@@ -64,7 +64,10 @@ internal static class CascadeTreeReadCompilation
             var candidates=target.Pages.Where(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(candidate)&&candidate.Readable.Any(column=>column.Source.Id==name.Source.Id)&&candidate.Readable.Any(column=>column.Source.Id==parent.Source.Id)).ToArray();
             if(candidates.Length!=1)return Gap("目标缺少唯一、无父参数的可读页面。");
             var targetPage=candidates[0];
-            var scoped=FixedPageConditionCompilation.HasCrossFields(targetPage);
+            var selfTreeScoped=FixedPageConditionCompilation.HasSelfTreeFields(targetPage);
+            if(selfTreeScoped&&(table.Source.IsRongyu!=0||target.IsGlobal))
+                return Gap("自树叶名限定的目标页要求非冗余来源及有项目归属的目标。");
+            var scoped=FixedPageConditionCompilation.HasLogicalFields(targetPage);
             if(target.IsGlobal)
             {
                 // 目标全局资格不改变来源记录的实际行归属。
@@ -73,8 +76,9 @@ internal static class CascadeTreeReadCompilation
             }
             var conditionFields=targetPage.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[];
             if(target.Source.IsRongyu==0&&(targetPage.Scopes.Any(scope=>!Physical(scope.Column))||
-                conditionFields.Any(column=>!Physical(column)&&targetPage.Condition?.CrossFields.Contains(column.Source.ColumnName)!=true)))
-                return Gap("目标范围必须由已证明的物理列或固定跨表路径执行。");
+                conditionFields.Any(column=>!Physical(column)&&targetPage.Condition?.CrossFields.Contains(column.Source.ColumnName)!=true&&
+                    targetPage.Condition?.SelfTreeFields.Contains(column.Source.ColumnName)!=true)))
+                return Gap("目标范围必须由已证明的物理列或固定级联路径执行。");
             var ordering=GenerationModel.ValidateOrderBy(Text(tree,"orderBy",name.Source.ColumnName+" asc"),target.Columns).ToList();
             if(ordering.Any(item=>!Physical(item.Column)&&!((derived||typedCache)&&item.Column.Source.Id==name.Source.Id)))return Gap("排序字段不是可排序物理标量。");
             if(!ordering.Any(item=>item.Column.IsId))ordering.Add((target.Columns.Single(column=>column.IsId),false));

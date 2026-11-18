@@ -470,9 +470,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     if(table.IsRongyu!=0||!name.Equals(tree.ColumnName[..^3]+"_name",StringComparison.OrdinalIgnoreCase))continue;
                     var definition=Definition(tree);if(Value(definition,"sourceMode")!="selfTree")continue;
-                    if(matching||alias!=rootAlias||!deferCascadeNames)throw new NotSupportedException("级联名称要求已证明的来源图投影，不能当作精确匹配或跨表派生值。");
-                    // 原叶名筛选和排序先验证整条可见祖先链，再参与 SQL 分页或统计。
-                    if(queryDependencies.Contains(name))
+                    var scopedLeaf=SelfTreeCandidateFields.Contains(name);
+                    if(matching||alias!=rootAlias||!deferCascadeNames&&!scopedLeaf)throw new NotSupportedException("级联名称要求已证明的来源图投影，不能当作精确匹配或跨表派生值。");
+                    // 原叶名筛选、排序和候选条件都验证整条可见祖先链。
+                    if(scopedLeaf||queryDependencies.Contains(name))
                     {
                         if(column is null||column.LogicalType!="string"||storage[table.Id].IsPhysical(column))
                             throw new NotSupportedException("自树名称查询依赖须为已声明的逻辑文本名称。");
