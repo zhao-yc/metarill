@@ -69,7 +69,10 @@ internal static class DatabaseCheckboxCompilation
             {
                 var proof=table.Source.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);
                 if(definition.PageId.Length>0&&definition.PageId!=proof.Page.Id)return Gap("全局复选页级目标覆盖与固定关系不一致。");
-                if(NonRedundantReadCompilation.HasGlobalRowProject(target))globalPage=target.Pages.Single(page=>page.Source.Id==proof.Page.Id);
+                // 复选的搜索、回读与 Excel 必须沿已发布缓存目标页的同一固定范围。
+                if(NonRedundantReadCompilation.HasGlobalRowProject(target)||
+                    GlobalPhysicalRelationValue.IsPublishedIntegerCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name))
+                    globalPage=target.Pages.Single(page=>page.Source.Id==proof.Page.Id);
             }
             if(definition.NameField!=baseline.NameField)return Gap("页级名称覆盖未绑定同一固定读取和缓存。");
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);

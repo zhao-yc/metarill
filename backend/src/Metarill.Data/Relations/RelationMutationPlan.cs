@@ -63,7 +63,8 @@ public sealed class RelationMutationPlan
             if(foreign is null||value is null||cache is null||foreign.Id==cache.Id||source.IsRongyu!=1)throw new InvalidOperationException("传播缓存必须属于冗余消费者的独立字段。");
             var storage=MetadataStoragePolicy.ForTable(catalog,source);var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);
             if(!storage.IsPhysical(foreign)||Enabled(foreign)||!storage.IsPhysical(cache)||cache.IsVirtualColumn!=0||!targetStorage.IsPhysical(value)||value.IsVirtualColumn!=0)throw new InvalidOperationException("传播只写已声明物理缓存，关系ID与目标值不能虚构。");
-            var scalarLabel=definition.Multiple&&MultiNameStorageColumns.IsPhysicalScalarLabel(source,foreign,target,value,targetStorage);
+            var integerCache=definition.Multiple&&GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,targetStorage,target,value);
+            var scalarLabel=definition.Multiple&&(integerCache||MultiNameStorageColumns.IsPhysicalScalarLabel(source,foreign,target,value,targetStorage));
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||
                 value.LogicalType is not("string" or "int64" or "int32" or "decimal" or "bool" or "date" or "datetime" or "time")&&!scalarLabel||
                 cache.LogicalType!=(definition.Multiple?"string":value.LogicalType)||foreign.LogicalType is not("string" or "int64"))
@@ -97,7 +98,7 @@ public sealed class RelationMutationPlan
                         page=proof.Page;
                     }
                     else page=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target).Page;
-                    if(target.IsRongyu==0&&columns[target.Id].Values.Any(column=>column.ColumnName=="yz_project_id"))
+                    if(integerCache||target.IsRongyu==0&&columns[target.Id].Values.Any(column=>column.ColumnName=="yz_project_id"))
                         publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,page);
                 }
                 // 跨表先证明完整控制列/层/目标页；三种关系统一使用同一受管全局名称资格。

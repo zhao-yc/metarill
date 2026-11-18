@@ -32,7 +32,8 @@ public static class GlobalMultipleRelationTarget
         var name=columns.SingleOrDefault(column=>column.ColumnName==nameField);
         // 物理列或固定联接名称由发布证明验证实际终点。
         var scalarLabel=name is not null&&(MultiNameStorageColumns.IsPhysicalScalarLabel(owner,foreign,target,name,physical)||
-            MultiNameStorageColumns.IsDerivedScalarLabel(target,name,physical));
+            MultiNameStorageColumns.IsDerivedScalarLabel(target,name,physical)||
+            GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,physical,target,name));
         if(name is null||name.LogicalType!="string"&&!scalarLabel||!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name))
             throw new NotSupportedException("全局多值名称必须为已证明的非凭据标量。");
         var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");

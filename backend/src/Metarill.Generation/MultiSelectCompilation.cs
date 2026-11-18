@@ -117,7 +117,8 @@ internal static class MultiSelectCompilation
         if(name.IsId||!Metarill.Core.Contracts.MultiValueLabel.IsTyped(name.Source.LogicalType))return false;
         var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
         return MultiNameStorageColumns.IsPhysicalScalarLabel(table.Source,source.Source,target.Source,name.Source,storage)||
-            MultiNameStorageColumns.IsDerivedScalarLabel(target.Source,name.Source,storage);
+            MultiNameStorageColumns.IsDerivedScalarLabel(target.Source,name.Source,storage)||
+            GlobalPhysicalRelationValue.IsPublishedIntegerCache(model.Catalog,storage,target.Source,name.Source);
     }
 
     /// <summary>重复键、数组配置或复杂映射值必须拒绝，未知合法键保持在原元数据。</summary>

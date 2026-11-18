@@ -32,6 +32,45 @@ public sealed class GlobalMultipleCachedTargetTests
         var c=Catalog(1,kind,inner);var plan=RelationMutationPlan.Compile(c,[new("3","34","1","14","35",true)]);var binding=Assert.Single(Get<IEnumerable>(plan,"Bindings").Cast<object>());
         Assert.Equal("int64",Get<string>(Get<object>(binding,"Source"),"ProjectType"));Assert.Equal("",Get<string>(Get<object>(binding,"Target"),"ProjectType"));Assert.Equal("global_target_name",Get<string>(binding,"Value"));Assert.Equal("global_source_global_target_names",Get<string>(binding,"Cache"));Assert.True(Get<bool>(binding,"Multiple"));Assert.Equal(kind=="MultiSelectPage"?200:5000,Get<int>(binding,"MaximumItems"));
     }
+    /// <summary>范围、字符串序列和缓存写入由同一目标页声明编译，沿用原控件预算。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage","int32")]
+    [InlineData("MultiSelectPage","int64")]
+    [InlineData("MultiCheckBoxDatabase","int32")]
+    [InlineData("MultiCheckBoxDatabase","int64")]
+    public void Integer_name_cache_preserves_fixed_page_and_array_dependencies(string kind, string type)
+    {
+        var catalog = Catalog(0,kind,"int64");
+        var cachedName = catalog.ConfigColumns.Single(column => column.Id == "14");
+        var leaf = catalog.ConfigColumns.Single(column => column.Id == "22");
+        cachedName.LogicalType = leaf.LogicalType = type;
+        catalog.ConfigColumns.Add(new() { Id = "18", ConfigTableId = "1", ColumnName = "status", LogicalType = "int32", YzProjectId = "100" });
+        catalog.ConfigPages.Single(page => page.Id == "10").WhereSql = "status=1";
+        const string arrayName = "global_source_global_target_names";
+        const string label = "CAST(multi_value.`global_target_name` AS CHAR)";
+        var reader = MySqlNonRedundantReadCompiler.Compile(catalog,"3",[arrayName]);
+        var sql = Get<IReadOnlyDictionary<string,string>>(reader,"Expressions")[arrayName];
+        Assert.Contains("JSON_ARRAYAGG(" + label + ")",sql);
+        Assert.Contains("ORDER BY multi_ids.ordinal",sql);
+        Assert.Contains("multi_value.`status`",sql);
+        var predicate = Get<IReadOnlyDictionary<string,string>>(reader,"ArrayNamePredicates")[arrayName];
+        Assert.Contains(label + " LIKE {parameter}",predicate);
+        Assert.Contains("multi_value.`status`",predicate);
+        Assert.Contains("b.`yz_project_id`=@project_scope_number",Get<string>(reader,"Scope"));
+
+        catalog.ConfigTables.Single(table => table.Id == "3").IsRongyu = 1;
+        var definition = new RelationCacheDefinition("3","34","1","14","35",true);
+        var propagation = RelationMutationPlan.Compile(catalog,[definition]);
+        var binding = Assert.Single(Get<IEnumerable>(propagation,"Bindings").Cast<object>());
+        Assert.Equal(type, Get<string>(binding,"ValueType"));
+        Assert.Equal("status=1",Get<string>(Get<object>(binding,"PublishedCondition"),"Definition"));
+        Assert.Equal(kind == "MultiSelectPage" ? 200 : 5000,Get<int>(binding,"MaximumItems"));
+        var maintenance = RelationMaintenanceCatalog.Compile(catalog,[definition]);
+        Assert.Contains("global_target_name",maintenance.MixedSourceColumns["global_source"]);
+        leaf.LogicalType = type == "int64" ? "int32" : "int64";
+        Assert.Throws<NotSupportedException>(() => RelationMutationPlan.Compile(catalog,[definition]));
+    }
+
     /// <summary>全局名称副本的允许范围不把数组伪装成固定单值匹配。</summary>
     [Theory][InlineData("MultiSelectPage")][InlineData("MultiCheckBoxDatabase")]
     public void Array_cannot_become_a_scalar_match(string kind)

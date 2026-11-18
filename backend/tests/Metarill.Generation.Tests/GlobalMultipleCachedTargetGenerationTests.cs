@@ -24,6 +24,60 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         }
         Assert.Equal(before,JsonSerializer.Serialize(c));
     }
+    /// <summary>整数缓存沿原多选和复选编译完整服务，覆盖 R0 读取和 R1 显式／自动物理数组。</summary>
+    [Theory]
+    [InlineData(0, false, "int32")]
+    [InlineData(0, true, "int64")]
+    [InlineData(1, false, "int64")]
+    [InlineData(1, true, "int32")]
+    public async Task Integer_cache_targets_drive_both_array_controls(int mode, bool automatic, string type)
+    {
+        var catalog = Catalog(mode,automatic);
+        foreach (var column in catalog.ConfigColumns.Where(column => column.Id is "14" or "22"))
+            column.LogicalType = type;
+        catalog.ConfigPageColumns.Single(field => field.Id == "3034").Extra["isSearch"] = JsonSerializer.SerializeToElement(1);
+        foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigColumnId is "35" or "40"))
+            field.Extra.Remove("isSearch");
+
+        const string application = "Example.GlobalMultipleIntegerCache";
+        var model = GenerationModel.Create(catalog,application);
+        var owner = model.Tables.Single(table => table.Source.Id == "3");
+        var page = Assert.Single(owner.Pages);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var multi = Assert.Single(MultiSelectCompilation.ForPage(model,owner,page));
+        var checkbox = Assert.Single(DatabaseCheckboxCompilation.ForPage(model,owner,page));
+        Assert.True(multi.TypedLabel);
+        Assert.Equal("10",checkbox.GlobalPage!.Source.Id);
+        Assert.Equal(type,checkbox.Name.Source.LogicalType);
+        Assert.Equal(mode == 1 ? SelectionNameFilterKind.JsonArrayAnyLike : SelectionNameFilterKind.JoinedJsonArrayAnyLike,
+            Assert.Single(SelectionNameFilterCompilation.ForPage(model,owner,page).Bindings).Kind);
+        var maintenance = MixedRelationPropagationCompilation.ForModel(model);
+        Assert.Equal(new[] { "global_target_name" }, maintenance.MixedSourceColumns["global_source"]);
+        Assert.Equal(mode == 1 ? 2 : 0, RelationPropagationCompilation.Bindings(model).Count(binding => binding.Source.Source.Id == "3"));
+
+        var boundary = Path.Combine(Path.GetTempPath(),"metarill-global-array-integer-cache");
+        var directory = Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,output,application);
+            var service = await File.ReadAllTextAsync(Path.Combine(output,"Services/CachedConsumerService.g.cs"));
+            Assert.Contains("ImportMulti30_34Async",service);
+            Assert.Contains("ImportCheckbox30_38Async",service);
+            Assert.Contains("CheckboxGlobalCondition30_38",service);
+            Assert.Contains("row.GlobalTargetName==key",service);
+            Assert.Contains("?.ToString(CultureInfo.InvariantCulture)",service);
+            Assert.Contains("Export30Async",service);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var generated = assembly.GetType(application + ".Generated.Services.CachedConsumerService",throwOnError:true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(generated.TypeHandle);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) await TestDirectoryCleanup.DeleteAsync(directory,boundary);
+        }
+    }
+
     /// <summary>四个完整包独立严格构建，重复更新保护手写代码，并执行真实原复选与多选Vue。</summary>
     [Theory][InlineData(0,false)][InlineData(0,true)][InlineData(1,false)][InlineData(1,true)]
     public async Task Full_applications_build_preserve_partial_and_original_array_interactions(int mode,bool automatic)
@@ -53,11 +107,28 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     {
         var c=PhysicalLabelCatalog(mode,automatic);var model=GenerationModel.Create(c,"Example.GlobalPhysicalLabel");Assert.Empty(GenerationCapabilityAudit.Collect(model));var table=model.Tables.Single(x=>x.Source.Id=="3");var page=table.Pages.Single(x=>x.Source.Id=="30");var multi=Assert.Single(MultiSelectCompilation.ForPage(model,table,page));var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,page));Assert.Equal("16",multi.Name.Source.Id);Assert.Equal("16",checkbox.Name.Source.Id);Assert.Equal("global_source_captions",multi.Names!.Source.ColumnName);Assert.Equal("selected_global_source_captions",checkbox.Names.Source.ColumnName);
     }
-    /// <summary>新nameField不会顺带开放普通项目复选的任意标签，缺口必须保留明确原因。</summary>
+    /// <summary>普通项目复选支持已声明名称，真实项目谓词不能被名称配置替代。</summary>
     [Theory][InlineData(0,false)][InlineData(0,true)][InlineData(1,false)][InlineData(1,true)]
-    public void Custom_non_global_checkbox_label_does_not_gain_a_new_permission_path(int mode,bool automatic)
+    public void Custom_non_global_checkbox_label_requires_real_project_scope(int mode,bool automatic)
     {
-        var c=PhysicalLabelCatalog(mode,automatic);c.ConfigTables.Single(x=>x.Id=="1").Extra.Clear();c.ConfigColumns.Add(new(){Id="17",ConfigTableId="1",YzProjectId="100",ColumnName="yz_project_id",LogicalType="int64"});var model=GenerationModel.Create(c,"Example.PrivatePhysicalLabel");Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.Column=="selected_global_source_ids"&&gap.Reason.Contains("自定义复选名称当前只开放已证明的全局目标",StringComparison.Ordinal));
+        var catalog = PhysicalLabelCatalog(mode,automatic);
+        catalog.ConfigTables.Single(table => table.Id == "1").Extra.Clear();
+        var project = new ColumnMetadata { Id = "17", ConfigTableId = "1", YzProjectId = "100", ColumnName = "yz_project_id", LogicalType = "int64" };
+        catalog.ConfigColumns.Add(project);
+        const string application = "Example.PrivatePhysicalLabel";
+        var model = GenerationModel.Create(catalog,application);
+        var owner = model.Tables.Single(table => table.Source.Id == "3");
+        var page = Assert.Single(owner.Pages);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        Assert.Contains("row.YzProjectId==long.Parse(actor.ProjectId",DatabaseCheckboxRenderer.Service(model,owner,page));
+
+        catalog.ConfigColumns.Remove(project);
+        var unscoped = GenerationModel.Create(catalog,application);
+        var unscopedOwner = unscoped.Tables.Single(table => table.Source.Id == "3");
+        var foreign = unscopedOwner.Columns.Single(column => column.Source.Id == "38");
+        var rejected = DatabaseCheckboxCompilation.Resolve(unscoped,unscopedOwner,Assert.Single(unscopedOwner.Pages),foreign);
+        Assert.Null(rejected.Definition);
+        Assert.Contains("目标缺少真实项目归属",rejected.Reason);
     }
     /// <summary>原全局生产链完整保留，只新增明确原始名称，验证物理分支与受管缓存分支没有混淆。</summary>
     private static MetadataCatalog PhysicalLabelCatalog(int mode,bool automatic)

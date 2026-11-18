@@ -7,7 +7,12 @@ public static class GlobalPhysicalRelationValue
 {
     /// <summary>只认可所属目标表的非凭据物理标量；数组、文件、虚拟值及已有联接缓存均拒绝。</summary>
     public static bool IsScalar(MetadataStoragePlan storage,TableMetadata target,ColumnMetadata column)=>column.ConfigTableId==target.Id&&storage.IsPhysical(column)&&column.IsVirtualColumn==0&&!(column.Extra.TryGetValue("isJoinColumn",out var cached)&&(cached.ValueKind==JsonValueKind.True||cached.ToString()=="1"))&&!ExactDataManageValues.IsSensitiveField(column.ColumnName)&&column.ControlKind is not("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList" or "CascadeTree")&&column.LogicalType is not("json" or "binary");
-    /// <summary>物理值保持原合同；名称缓存只有逐层证明同目录全局来源后才可作为单值全局目标。</summary>
+    /// <summary>整数名称副本必须是真实缓存，并通过完整的全局生产链证明。</summary>
+    public static bool IsPublishedIntegerCache(MetadataCatalog catalog,MetadataStoragePlan storage,TableMetadata target,ColumnMetadata column)
+        =>target.IsRongyu==1&&GlobalCrossTableTarget.Declared(target)&&column.LogicalType is "int32" or "int64"&&
+          storage.IsPhysical(column)&&!IsScalar(storage,target,column)&&IsPublishedScalar(catalog,storage,target,column);
+
+    /// <summary>物理值保持原合同；名称缓存须逐层证明属于同一发布目录。</summary>
     public static bool IsPublishedScalar(MetadataCatalog catalog,MetadataStoragePlan storage,TableMetadata target,ColumnMetadata column)
         =>IsPublishedScalar(catalog,storage,target,column,new HashSet<string>(StringComparer.Ordinal));
     /// <summary>显式传递本次证明栈，限制缓存链深度并拒绝循环；不保存请求状态或引入静态可变上下文。</summary>
