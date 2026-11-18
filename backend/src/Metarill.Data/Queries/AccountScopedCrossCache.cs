@@ -24,14 +24,20 @@ public sealed class AccountScopedCrossCache
         return Compile(catalog,source,target,targetPage,recursive:false);
     }
 
+    /// <summary>全局自树维护沿已发布来源行读取账号归属；普通调用保持原有边界。</summary>
+    internal static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,
+        PageMetadata targetPage,bool globalTreeSource)=>
+        Compile(catalog,source,target,targetPage,recursive:false,globalTreeSource:globalTreeSource);
+
     /// <summary>递归候选允许逻辑字段的常量条件，账号等值仍须对应来源行真实物理归属。</summary>
     internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,
-        ColumnMetadata? multiParent=null)
-        =>Compile(catalog,source,target,targetPage,recursive:true,multiParent:multiParent);
+        ColumnMetadata? multiParent=null,bool globalTreeSource=false)
+        =>Compile(catalog,source,target,targetPage,recursive:true,multiParent:multiParent,globalTreeSource:globalTreeSource);
 
-    private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null)
+    private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false)
     {
-        if (source.IsRongyu != 1 || targetPage.ConfigTableId != target.Id || GlobalCrossTableTarget.Declared(source) ||
+        if(globalTreeSource)GlobalCachedRelationSource.Require(catalog,source);
+        if (source.IsRongyu != 1 || targetPage.ConfigTableId != target.Id || GlobalCrossTableTarget.Declared(source)&&!globalTreeSource ||
             source.IsView != 0 || source.IsFunctionTable != 0 || target.IsView != 0 || target.IsFunctionTable != 0 ||
             targetPage.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length > 0)
             throw Invalid();

@@ -22,11 +22,15 @@ public static class SelfTreeCache
             .Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,fields,field));
     }
 
+    /// <summary>显式全局来源固定使用整条祖先链；普通来源兼容原有叶名路径。</summary>
+    public static bool UsesWholePath(MetadataCatalog catalog,TableMetadata source,string? pageId)=>
+        pageId is not null&&(GlobalCrossTableTarget.Declared(source)||HasScopedPage(catalog,pageId));
+
     /// <summary>核对已发布页和物理归属；维护从来源行确定目标范围。</summary>
     public static RelationCacheDefinition Compile(MetadataCatalog catalog,string sourceTableId,string controlId,string? publishedPageId)
     {
         var source=catalog.ConfigTables.Single(t=>t.Id==sourceTableId);var sourceColumns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(c=>c.ConfigTableId==source.Id));var foreign=sourceColumns.Single(c=>c.Id==controlId);var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);
-        if(source.IsRongyu!=1||source.IsView!=0||source.IsFunctionTable!=0||GlobalCrossTableTarget.Declared(source)||foreign.ControlKind!="CascadeTree"||foreign.LogicalType is not("string" or "int64")||!Scalar(sourceStorage,foreign)||!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal))throw Invalid();
+        if(source.IsRongyu!=1||source.IsView!=0||source.IsFunctionTable!=0||foreign.ControlKind!="CascadeTree"||foreign.LogicalType is not("string" or "int64")||!Scalar(sourceStorage,foreign)||!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal))throw Invalid();
         using var json=JsonDocument.Parse(foreign.ControlDetail);var root=json.RootElement;Object(root);if(Text(root,"sourceMode","")!="selfTree"||!root.TryGetProperty("selfTree",out var tree))throw Invalid();Object(tree);
         if(Extra(root)||Extra(tree)||Text(tree,"idField","id")!="id"||Text(tree,"rootMode","blank")!="blank"||Text(tree,"filterMatchMode","selfAndDescendants") is not("exact" or "selfAndDescendants"))throw Invalid();
         var target=catalog.ConfigTables.Single(t=>t.TableName==Text(tree,"table",""));if(target.IsRongyu is not(0 or 1)||target.IsView!=0||target.IsFunctionTable!=0||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id)throw Invalid();
@@ -36,17 +40,23 @@ public static class SelfTreeCache
         if(value.Id==parent.Id||value.ColumnName=="id"||value.LogicalType is not("string" or "int32" or "int64")||(!derived&&!integerCache&&!Scalar(storage,value))||derived&&(target.IsRongyu!=0||value.IsVirtualColumn!=0||storage.Kind(value)!=MetadataFieldStorage.Join)||parent.LogicalType is not("string" or "int64")||!Scalar(storage,parent)||parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id"||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=target.Id)throw Invalid();
         // 派生叶子须由同一匹配编译器证明，缓存一律使用原名称文本。
         var global=GlobalCrossTableTarget.Declared(target);
+        var globalSource=GlobalCrossTableTarget.Declared(source);
+        if(globalSource)
+        {
+            GlobalCachedRelationSource.Require(catalog,source);
+            if(!global)throw Invalid();
+        }
         var scoped=HasScopedPage(catalog,publishedPageId);
         if(global||scoped)
         {
             var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==publishedPageId&&p.ConfigTableId==target.Id)??throw Invalid();
             if(source.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||
                 !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))throw Invalid();
+            if((scoped||globalSource)&&MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,value.ColumnName,parent.ColumnName).Page.Id!=page.Id)
+                throw Invalid();
             if(scoped)
             {
-                if(MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,value.ColumnName,parent.ColumnName).Page.Id!=page.Id)
-                    throw Invalid();
-                _=AccountScopedCrossCache.CompileRecursive(catalog,source,target,page);
+                _=AccountScopedCrossCache.CompileRecursive(catalog,source,target,page,globalTreeSource:globalSource);
                 if(global)GlobalCrossTableTarget.RequireScopedSelfTreeName(catalog,target,page,value);
             }
             else GlobalCrossTableTarget.RequireSelfTreeName(catalog,target,page,value);

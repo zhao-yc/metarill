@@ -63,7 +63,7 @@ public sealed class RelationMutationPlan
         foreach(var definition in definitions.Distinct())
         {
             if(definition.CrossTableAccountPageId is not null||definition.CrossTableRecursivePageId is not null||
-                SelfTreeCache.HasScopedPage(catalog,definition.SelfTreePageId))
+                SelfTreeCache.UsesWholePath(catalog,catalog.ConfigTables.Single(table=>table.Id==definition.SourceTableId),definition.SelfTreePageId))
                 throw new InvalidOperationException("账号或递归条件的跨表缓存必须使用统一维护计划。");
             if(!tables.TryGetValue(definition.SourceTableId,out var source)||!tables.TryGetValue(definition.TargetTableId,out var target))throw new InvalidOperationException("传播关系引用了未发布的表。");
             var foreign=columns[source.Id].GetValueOrDefault(definition.ForeignColumnId);var value=columns[target.Id].GetValueOrDefault(definition.ValueColumnId);var cache=columns[source.Id].GetValueOrDefault(definition.CacheColumnId);

@@ -2,6 +2,7 @@ using System.Globalization;
 using Metarill.Core.Cascades;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
+using Metarill.Data.Relations;
 
 namespace Metarill.Data.Queries;
 
@@ -103,7 +104,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!storage[table.Id].IsPhysical(control)||control.LogicalType is not("int64" or "string"))
                 throw new NotSupportedException("自树多值名称要求物理选择位。");
             var proof=SelfTreeLabel(catalog,control);
-            if(publishedPageId is not null&&(publishedPageId!=proof.Page.Id||!proof.Scoped))
+            if(publishedPageId is not null&&(publishedPageId!=proof.Page.Id||!SelfTreeCache.UsesWholePath(catalog,table,publishedPageId)))
                 throw new InvalidOperationException("自树缓存与实际固定目标页不一致。");
             ValidateTarget(proof.Target);
             cascadeLabelPages.Add(proof.Page.Id);
@@ -123,7 +124,8 @@ public static partial class MySqlNonRedundantReadCompiler
             MySqlNonRedundantReadPlan? fixedTarget=null;
             if(proof.Scoped)
             {
-                var cacheOwner=cascadeCacheOwner??(trackReverse?new CascadeCacheOwner(table,owner):null);
+                var cacheOwner=cascadeCacheOwner??(trackReverse?new CascadeCacheOwner(table,owner,
+                    publishedPageId is not null&&GlobalCrossTableTarget.Declared(table)):null);
                 var fields=new[]{"id",proof.Name.ColumnName};
                 if(cacheOwner is {} cached)
                 {
@@ -162,6 +164,8 @@ public static partial class MySqlNonRedundantReadCompiler
 
             var nodeName=fixedTarget?.Expression(proof.Name.ColumnName)??display+"."+Q(proof.Name.ColumnName);
             var nodeFrom=fixedTarget?.From??" FROM "+targetTable+" "+display;
+            if(publishedPageId is not null&&fixedTarget is null&&storage[proof.Target.Id].IsPhysical(proof.Name))
+                origin=new(proof.Target.TableName,proof.Name.ColumnName);
             if(fixedTarget is null&&!storage[proof.Target.Id].IsPhysical(proof.Name))
             {
                 var nested=new Builder(catalog,proof.Target.Id,matching:!global,rootAlias:display,aliasPrefix:prefix+"label_",
@@ -173,6 +177,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     throw new NotSupportedException("自树叶名必须落到固定非凭据单值终点。");
                 nodeName=nested.Expression(proof.Name.ColumnName);
                 nodeFrom=nested.From;
+                if(publishedPageId is not null)origin=terminal;
                 foreach(var pair in nested.Constants)crossConstants.Add(pair.Key,pair.Value);
                 if(trackReverse)
                 {
@@ -193,7 +198,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 Use(proof.Target,proof.Parent);
                 if(storage[proof.Target.Id].IsPhysical(proof.Name))Use(proof.Target,proof.Name);
                 // 失效节点不能截断反向路径；名称重算再执行各层实际可见性。
-                var reverseCte=fixedTarget is null?cte:WalkCte(
+                var reverseCte=fixedTarget is null&&publishedPageId is null?cte:WalkCte(
                     Scope(proof.Target,seed,projectScoped:!global,includeDeleted:true),
                     Scope(proof.Target,ancestor,projectScoped:!global,includeDeleted:true));
                 if(fixedTarget is not null)

@@ -25,7 +25,9 @@ internal static class GlobalCachedSourceCompilation
             if(!catalog.MixedSourceColumns.GetValueOrDefault(binding.Source.Source.TableName,[]).Contains(binding.Cache.Source.ColumnName,StringComparer.Ordinal))throw new NotSupportedException("全局List来源尚未形成完整保存/传播/维护计划："+binding.Source.Source.TableName+"."+binding.Cache.Source.ColumnName);
     }
     /// <summary>完整目录的全局来源存在时，所有生成服务均固定Actor项目，目标事件也不能切换消费者目录。</summary>
-    internal static bool BindsActor(GenerationModel model)=>ForModel(model).Count>0||model.Tables.Any(table=>table.IsGlobal&&table.Source.IsRongyu==0);
+    internal static bool BindsActor(GenerationModel model)=>ForModel(model).Count>0||
+        model.Tables.Any(table=>table.IsGlobal&&(table.Source.IsRongyu==0||table.Columns.Any(column=>
+            column.Source.ControlKind=="CascadeTree"&&!NonRedundantCrossTableSubset.Declared(column))));
     /// <summary>快照获取连接前先核验原发布身份；普通目录保持原表达式和事务语义。</summary>
     internal static string ReadSession(GenerationModel model)=>BindsActor(model)?"PublishedReadSession(actor)":"session";
     /// <summary>只为固定发布身份的生成服务添加轻量守卫，不重写正文或元数据字面量。</summary>

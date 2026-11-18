@@ -126,7 +126,8 @@ public sealed class CascadeMultiLabelReadTests
     [InlineData(true)]
     [InlineData(false,true)]
     [InlineData(true,true)]
-    public void Scoped_self_tree_leaf_name_reuses_published_cross_filter(bool global,bool cache=false)
+    [InlineData(true,true,true)]
+    public void Scoped_self_tree_leaf_name_reuses_published_cross_filter(bool global,bool cache=false,bool globalSource=false)
     {
         var catalog=NonRedundantCrossTableReadTests.Catalog("mt_scoped_self","string","int64");
         var target=catalog.ConfigTables.Single(table=>table.Id=="1");
@@ -160,11 +161,16 @@ public sealed class CascadeMultiLabelReadTests
         {
             var source=catalog.ConfigTables.Single(table=>table.Id=="9");
             source.IsRongyu=1;
+            if(globalSource)
+            {
+                source.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                catalog.ConfigColumns.RemoveAll(field=>field.Id=="consumer_project");
+            }
             catalog.ConfigColumns.Add(new(){Id="consumer_store",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"});
             var sourcePage=new PageMetadata{Id="91",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5"};
             catalog.ConfigPages.Add(sourcePage);
             Assert.Throws<InvalidOperationException>(()=>SelfTreeCache.Compile(catalog,source.Id,"consumer_tree",pageId));
-            sourcePage.WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id";
+            sourcePage.WhereSql=(globalSource?"":"yz_project_id=@current_yz_project_id AND ")+"store_id=@current_store_id";
             var binding=SelfTreeCache.Compile(catalog,source.Id,"consumer_tree",pageId);
             Assert.Throws<InvalidOperationException>(()=>RelationMutationPlan.Compile(catalog,[binding]));
             var compiled=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);

@@ -343,7 +343,22 @@ public static partial class MySqlNonRedundantReadCompiler
                     column.LogicalType is "int32" or "int64" &&
                     GlobalPhysicalRelationValue.IsPublishedScalar(catalog,rootStorage,root,column);
             }
-            if(globalSource){GlobalCachedRelationSource.Require(catalog,root);foreach(var name in refreshFields!)GlobalCachedRelationSource.RequireCache(catalog,root,columns[root.Id][name]);}
+            if(globalSource)
+            {
+                GlobalCachedRelationSource.Require(catalog,root);
+                foreach(var name in refreshFields!)
+                {
+                    var field=columns[root.Id][name];
+                    var tree=refreshMultiples.SingleOrDefault(binding=>binding.CacheColumnId==field.Id&&
+                        SelfTreeCache.UsesWholePath(catalog,root,binding.SelfTreePageId));
+                    if(tree is null)GlobalCachedRelationSource.RequireCache(catalog,root,field);
+                    else
+                    {
+                        var proof=SelfTreeCache.Compile(catalog,root.Id,tree.ForeignColumnId,tree.SelfTreePageId);
+                        if(proof!=tree)throw new InvalidOperationException("全局自树回填字段与固定发布定义不一致。");
+                    }
+                }
+            }
             if(globalDerivedSource)
             {
                 // 带行归属的普通页可绑定自己的项目条件；候选计划仅证明实际发布的目标页。
@@ -430,7 +445,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     var foreign=columns[table.Id].Values.Single(item=>item.Id==refresh.ForeignColumnId);var target=tables[refresh.TargetTableId];var value=columns[target.Id].Values.Single(item=>item.Id==refresh.ValueColumnId);
                     if(refresh.Multiple)return MultiDisplay(table,alias,foreign,value.ColumnName);
-                    if(SelfTreeCache.HasScopedPage(catalog,refresh.SelfTreePageId))
+                    if(SelfTreeCache.UsesWholePath(catalog,table,refresh.SelfTreePageId))
                         return (SelfTreeLabelExpression(table,alias,foreign,column!,refresh.SelfTreePageId),"string");
                     if(refresh.CrossTableRecursivePageId is not null)return RecursiveCacheValue(table,alias,foreign,target,value,refresh);
                     // 标量级联缓存的精确目标由已验证定义确定，叶子无需伪装成普通List关系。
@@ -686,7 +701,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(condition is null)return scope;
             if(accountPhysicalCandidate&&table.Id==root.Id&&alias==rootAlias&&cascadeCacheOwner is {} owner&&condition.Variables.Count>0)
             {
-                var proof=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page);
+                var proof=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource);
                 cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                 var owned=AccountCacheScope(proof,table,alias,owner.Alias,render:true,owner.Table,"mt_global_scope_"+parameterKey);
                 return scope.Length==0?owned:scope+" AND "+owned;

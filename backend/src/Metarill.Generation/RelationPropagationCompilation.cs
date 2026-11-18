@@ -16,9 +16,10 @@ internal static class RelationPropagationCompilation
     private static IReadOnlyList<RelationPropagationBinding> AllBindings(GenerationModel model)
     {
         var result=new List<RelationPropagationBinding>();
-        foreach(var table in model.Tables.Where(table=>table.Source.IsRongyu==1&&!table.IsGlobal))
+        foreach(var table in model.Tables.Where(table=>table.Source.IsRongyu==1))
         {
             result.AddRange(SelfTreePropagationCompilation.ForTable(model,table));
+            if(table.IsGlobal)continue; // 全局来源只接入已证明的自树定义。
             foreach(var binding in MultiNameWriteCompilation.ForTable(model,table))result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache));
             foreach(var definition in table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))result.Add(new(table,definition.Source,definition.Target,definition.Name,definition.Names));
             // 完整写入链定义各级ID／名称归属；不按字段后缀猜目标，也不接受页间冲突定义。
@@ -50,7 +51,7 @@ internal static class RelationPropagationCompilation
     /// <summary>以逻辑存储计划判断，不把R0表的真实物理名称误作派生。</summary>
     private static bool Derived(GenerationModel model,RelationPropagationBinding binding)=>
         binding.CrossTableAccountPageId is not null||binding.CrossTableRecursivePageId is not null||
-        SelfTreeCache.HasScopedPage(model.Catalog,binding.SelfTreePageId)||
+        SelfTreeCache.UsesWholePath(model.Catalog,binding.Source.Source,binding.SelfTreePageId)||
         !NonRedundantReadCompilation.Physical(model,binding.Target,binding.Value)||
         binding.Multiple&&Metarill.Data.Queries.NonRedundantReads.HasScopedMultiPage(model.Catalog,binding.Target.Source,binding.Foreign.Source);
     /// <summary>只有静态绑定的精确来源才发布传播能力，不按后缀扩大范围。</summary>
@@ -108,8 +109,10 @@ internal static class RelationPropagationCompilation
         var recursive=definitions.Select(item=>item.CrossTableRecursivePageId??
             (SelfTreeCache.HasScopedPage(model.Catalog,item.SelfTreePageId)?item.SelfTreePageId:null)).OfType<string>().ToHashSet(StringComparer.Ordinal);
         var roots=model.Tables.SelectMany(table=>table.Pages.Where(page=>recursive.Contains(page.Source.Id)).Select(page=>(table,page)));
+        var treePages=definitions.Where(item=>item.SelfTreePageId is not null&&SelfTreeCache.UsesWholePath(model.Catalog,
+            model.Catalog.ConfigTables.Single(table=>table.Id==item.SourceTableId),item.SelfTreePageId)).Select(item=>item.SelfTreePageId!);
         return GenerationMetadataPublisher.ForRelations(model.Catalog,PublishedCascadePages(model,definitions),
-            nestedTables:PublishedRecursiveTables(model,roots));
+            selfTreeNamePages:treePages,nestedTables:PublishedRecursiveTables(model,roots));
     }
 
     /// <summary>映射按稳定键比较，不把字典引用或插入顺序当作不同权限范围。</summary>

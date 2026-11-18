@@ -149,6 +149,7 @@ public sealed class DerivedSelfTreeTests
     [InlineData(true, "owned")]
     [InlineData(false, "shared")]
     [InlineData(true, "shared")]
+    [InlineData(true,"cachedGlobal")]
     public async Task Global_derived_self_tree_builds_fixed_name_and_scope(bool rowProject,string sourceScope="ordinary")
     {
         const string ns = "Example.GlobalDerivedTree";
@@ -181,6 +182,7 @@ public sealed class DerivedSelfTreeTests
         {
             var sourceTable=catalog.ConfigTables.Single(table=>table.Id=="2");
             sourceTable.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            if(sourceScope=="cachedGlobal")sourceTable.IsRongyu=1;
             var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
             sourcePage.WhereSql="";
             sourcePage.Extra["type"]=JsonSerializer.SerializeToElement(sourceScope=="owned"?2:0);
@@ -188,7 +190,7 @@ public sealed class DerivedSelfTreeTests
             catalog.ConfigColumns.Add(new(){Id="26",ConfigTableId="2",ColumnName="tree_name",LogicalType="string"});
             catalog.ConfigPageColumns.Add(new(){Id="20126",ConfigPageId="201",ConfigColumnId="26",IsShow=1,IsEdit=0,
                 Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
-            if(sourceScope=="shared")catalog.ConfigColumns.RemoveAll(field=>field.ConfigTableId=="2"&&field.ColumnName=="yz_project_id");
+            if(sourceScope is "shared" or "cachedGlobal")catalog.ConfigColumns.RemoveAll(field=>field.ConfigTableId=="2"&&field.ColumnName=="yz_project_id");
         }
         var model = GenerationModel.Create(catalog, ns);
         var source = model.Tables.Single(table => table.Source.Id == "2");
@@ -210,7 +212,13 @@ public sealed class DerivedSelfTreeTests
             var read = Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
                 service.GetField("DerivedCascadePlan201_25", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null));
             Assert.Equal("string", read.OutputTypes["name"]);
-            if(sourceScope!="ordinary")
+            if(sourceScope=="cachedGlobal")
+            {
+                var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+                Assert.Contains("tree_name",maintenance.MixedSourceColumns["nr_tree_source"]);
+                Assert.Contains("nr_tree_company",maintenance.MixedTargets);
+            }
+            else if(sourceScope!="ordinary")
             {
                 var definition=BindingFlags.NonPublic|BindingFlags.Static;
                 var readPlan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("ReadPlan201",definition)!.GetValue(null));

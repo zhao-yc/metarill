@@ -72,6 +72,46 @@ public sealed class SelfTreeCacheTests
         catalog.ConfigPages[0].WhereSql="yz_project_id=@current_yz_project_id";
         Assert.Throws<NotSupportedException>(()=>RelationMutationPlan.Compile(catalog,[definition]));
     }
+    /// <summary>全局共享来源的副本必须使用发布树整链，项目列或普通目标不能借全局缓存读写。</summary>
+    [Theory]
+    [InlineData("string")]
+    [InlineData("int64")]
+    public void Global_shared_source_uses_complete_published_tree(string type)
+    {
+        var catalog=Catalog(type,"int64");
+        var source=catalog.ConfigTables[0];
+        var target=catalog.ConfigTables[1];
+        foreach(var table in catalog.ConfigTables)
+        {
+            table.YzProjectId=catalog.YzProjectId;
+            table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        }
+        catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+        catalog.ConfigPages.AddRange([
+            new(){Id="5",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5"},
+            new(){Id="6",ConfigTableId=target.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",WhereSql="id>8"}
+        ]);
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="61",ConfigPageId="6",ConfigColumnId="value"},
+            new(){Id="62",ConfigPageId="6",ConfigColumnId="parent"}
+        ]);
+        Assert.Throws<NotSupportedException>(()=>SelfTreeCache.Compile(catalog,source.Id,"foreign","6"));
+        catalog.ConfigColumns.RemoveAll(field=>field.Id=="source_project");
+        var binding=SelfTreeCache.Compile(catalog,source.Id,"foreign","6");
+        var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+        var plan=maintenance.Plans[source.Id].Read!;
+        Assert.True(plan.RequiresPublishedProjectIdentity);
+        Assert.DoesNotContain("yz_project_id",plan.Scope);
+        Assert.Contains("WITH RECURSIVE",plan.Expression("tree_name"));
+        Assert.Contains(8L,plan.Constants.Values);
+        Assert.Contains("cache_node",maintenance.MixedTargets);
+        var reverse=Assert.Single(plan.Reverse,path=>path.TargetTable=="cache_node");
+        Assert.Contains("parent_node_id",reverse.Outputs["tree_name"]);
+        Assert.DoesNotContain("yz_project_id",reverse.TargetPredicate);
+        target.Extra.Remove("scopeKind");
+        Assert.Throws<NotSupportedException>(()=>SelfTreeCache.Compile(catalog,source.Id,"foreign","6"));
+    }
+
     /// <summary>纯目录模型不需要数据库，固定实际父键和自定义物理名称。</summary>
     private static MetadataCatalog Catalog(string type,string parent)
     {

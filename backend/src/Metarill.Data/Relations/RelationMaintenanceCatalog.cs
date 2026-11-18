@@ -63,7 +63,13 @@ public sealed class RelationMaintenanceCatalog
                 var globalSource=GlobalCrossTableTarget.Declared(table);
                 if(table.IsFunctionTable!=0||table.IsView!=0)throw new NotSupportedException("维护回填要求同项目普通实体表。");
                 all.TryGetValue("yz_project_id",out var projectColumn);
-                if(globalSource){GlobalCachedRelationSource.Require(catalog,table);foreach(var field in fields)GlobalCachedRelationSource.RequireCache(catalog,table,field);}
+                if(globalSource)
+                {
+                    GlobalCachedRelationSource.Require(catalog,table);
+                    foreach(var field in fields.Where(field=>!bindings.Any(binding=>binding.CacheColumnId==field.Id&&
+                        SelfTreeCache.UsesWholePath(catalog,table,binding.SelfTreePageId))))
+                        GlobalCachedRelationSource.RequireCache(catalog,table,field);
+                }
                 else if(projectColumn is null||projectColumn.LogicalType is not("int64" or "string")||Enabled(projectColumn))throw new InvalidOperationException("维护表缺少真实项目列。");
                 foreach(var field in fields)if(field.ColumnName is "id" or "yz_project_id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id"||ExactDataManageValues.IsSensitiveField(field.ColumnName)||field.ColumnName=="salt"||field.ControlKind=="FileLibrary"||field.IsVirtualColumn!=0)throw new NotSupportedException("维护回填不能覆盖身份、审计或凭据字段。");
                 var read=MySqlNonRedundantReadCompiler.CompileRefresh(catalog,table.Id,fields.Select(column=>column.ColumnName).ToArray(),bindings,companionPaths);var results=new List<MaintenanceField>();

@@ -40,7 +40,9 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public async Task Explicit_global_self_tree_publishes_with_original_fixed_scope(bool keepsProjectColumn,bool redundantSource)
+    [InlineData(false,true,true)]
+    [InlineData(true,true,true)]
+    public async Task Explicit_global_self_tree_publishes_with_original_fixed_scope(bool keepsProjectColumn,bool redundantSource,bool globalSource=false)
     {
         var catalog = RedundantMultiNameCacheTests.Published(Catalog("nr_tree", automatic: true));
         var target = catalog.ConfigTables.Single(table => table.Id == "3");
@@ -56,6 +58,12 @@ public sealed class NonRedundantSelfTreeTests
         if (!catalog.ConfigColumns.Any(column => column.ConfigTableId == target.Id && column.ColumnName == "status"))
             catalog.ConfigColumns.Add(new() { Id = "global_tree_status", ConfigTableId = target.Id, ColumnName = "status", LogicalType = "int32" });
         if(redundantSource)catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
+        if(globalSource)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="2"&&column.ColumnName=="yz_project_id");
+            catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql="";
+        }
         var model = GenerationModel.Create(catalog, "Example.GlobalTree");
         var source = model.Tables.Single(table => table.Source.Id == "2");
         var page = Assert.Single(source.Pages);
@@ -64,6 +72,11 @@ public sealed class NonRedundantSelfTreeTests
         Assert.Contains("RequirePagePermission(\"301\",\"list\")", scope);
         Assert.DoesNotContain("row.YzProjectId", scope);
         if(redundantSource)Assert.Equal(targetPage.Id,Assert.Single(SelfTreePropagationCompilation.ForTable(model,source)).SelfTreePageId);
+        if(globalSource)
+        {
+            Assert.True(GlobalCachedSourceCompilation.BindsActor(model));
+            Assert.Contains("nr_tree_tree",MixedRelationPropagationCompilation.ForModel(model).MixedTargets);
+        }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
 
@@ -75,6 +88,13 @@ public sealed class NonRedundantSelfTreeTests
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service = assembly.GetType(model.Namespace + ".Generated.Services.NrTreeSourceService", true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            if(globalSource)
+            {
+                var validate=service.GetMethod("ValidateActor",BindingFlags.NonPublic|BindingFlags.Static)!;
+                var wrong=new RuntimeActor(1,"其它项目",true,"1","5");
+                var refused=Assert.Throws<TargetInvocationException>(()=>validate.Invoke(null,[wrong]));
+                Assert.IsType<UnauthorizedAccessException>(refused.InnerException);
+            }
             Assert.NotNull(service.GetMethod("Import201Async"));
             Assert.NotNull(service.GetMethod("Export201Async"));
             using var runtime = new SharedExcelReadTransport(assembly, model.Namespace, "NrTreeSource");
@@ -149,7 +169,8 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(false,false,true)]
     [InlineData(false,true,true)]
     [InlineData(true,false,true)]
-    public async Task Fixed_cross_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false)
+    [InlineData(true,false,true,true)]
+    public async Task Fixed_cross_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false)
     {
         const string ns="Example.FixedSelfTreeNode";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("scoped_tree","string","int64");
@@ -170,7 +191,12 @@ public sealed class NonRedundantSelfTreeTests
         ]);
         catalog.ConfigTables.Add(new(){Id="9",TableName="scoped_tree_consumer",IsRongyu=cache?1:0});
         catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="9",IsExport=1,IsImport=1,
-            WhereSql=cache?"yz_project_id=@current_yz_project_id AND store_id=@current_store_id":""});
+            WhereSql=cache?(globalSource?"":"yz_project_id=@current_yz_project_id AND ")+"store_id=@current_store_id":""});
+        if(globalSource)
+        {
+            catalog.ConfigTables.Single(item=>item.Id=="9").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="92");
+        }
         if(cache)catalog.ConfigColumns.Add(new(){Id="96",ConfigTableId="9",ColumnName="store_id",LogicalType="int64"});
         catalog.ConfigPageColumns.Add(new(){Id="20127",ConfigPageId="201",ConfigColumnId="27"});
         foreach(var id in new[]{"93","94","95"})

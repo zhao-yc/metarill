@@ -13,9 +13,13 @@ public static class DerivedCrossTableCaches
         {
             var source=catalog.ConfigTables.SingleOrDefault(t=>t.Id==d.SourceTableId)??throw new InvalidOperationException("跨表来源未发布。");var target=catalog.ConfigTables.SingleOrDefault(t=>t.Id==d.TargetTableId)??throw new InvalidOperationException("派生目标未发布。");
             var global=GlobalCrossTableTarget.Declared(target);
-            if(source.IsRongyu!=1||target.IsRongyu!=0&&d.CrossTableAccountPageId is null||GlobalCrossTableTarget.Declared(source)||source.IsView!=0||source.IsFunctionTable!=0||target.IsView!=0||target.IsFunctionTable!=0)throw new InvalidOperationException("派生跨表缓存要求普通R1来源及R0单值目标。");
+            var globalSource=GlobalCrossTableTarget.Declared(source);
+            var globalTree=globalSource&&d.SelfTreePageId is not null;
+            if(source.IsRongyu!=1||target.IsRongyu!=0&&d.CrossTableAccountPageId is null&&!globalTree||
+                globalSource&&!globalTree||source.IsView!=0||source.IsFunctionTable!=0||target.IsView!=0||target.IsFunctionTable!=0)
+                throw new InvalidOperationException("派生级联缓存要求已发布的R1来源和固定单值目标。");
             var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var columns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(c=>c.ConfigTableId==source.Id));var foreign=columns.SingleOrDefault(c=>c.Id==d.ForeignColumnId);var cache=columns.SingleOrDefault(c=>c.Id==d.CacheColumnId);var value=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id)).SingleOrDefault(c=>c.Id==d.ValueColumnId);
-            var scopedTree=SelfTreeCache.HasScopedPage(catalog,d.SelfTreePageId);
+            var scopedTree=SelfTreeCache.UsesWholePath(catalog,source,d.SelfTreePageId);
             var scopedMultiple=d.Multiple&&foreign is not null&&
                 Metarill.Data.Queries.NonRedundantReads.HasScopedMultiPage(catalog,target,foreign);
             if(foreign is null||cache is null||value is null||foreign.Id==cache.Id||!sourceStorage.IsPhysical(foreign)||Enabled(foreign)||!sourceStorage.IsPhysical(cache)||cache.IsVirtualColumn!=0||cache.LogicalType!="string"||foreign.LogicalType is not("string" or "int64")||value.IsVirtualColumn!=0||
@@ -24,7 +28,7 @@ public static class DerivedCrossTableCaches
             if(global&&d.Multiple){var proof=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);if(proof.Name.Id!=value.Id)throw new InvalidOperationException("全局派生数组副本与固定名称来源不一致。");}
             foreach(var table in new[]{source,target})
             {
-                if(table.YzProjectId.Length>0&&table.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("派生跨表实体超出发布项目。");var globalTarget=global&&table.Id==target.Id;var storage=MetadataStoragePolicy.ForTable(catalog,table);var members=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(c=>c.ConfigTableId==table.Id));var key=members.SingleOrDefault(c=>c.ColumnName=="id");var project=members.SingleOrDefault(c=>c.ColumnName=="yz_project_id");var deleted=members.SingleOrDefault(c=>c.ColumnName=="delete_no");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!storage.IsPhysical(key)||Enabled(key)||!globalTarget&&project is null||project is not null&&(project.LogicalType is not("int64" or "string")||!storage.IsPhysical(project)||Enabled(project))||deleted is not null&&(deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0||!storage.IsPhysical(deleted)||Enabled(deleted)))throw new InvalidOperationException("派生跨表实体缺少真实身份或活动范围。");
+                if(table.YzProjectId.Length>0&&table.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("派生跨表实体超出发布项目。");var globalTarget=global&&table.Id==target.Id||globalTree&&table.Id==source.Id;var storage=MetadataStoragePolicy.ForTable(catalog,table);var members=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(c=>c.ConfigTableId==table.Id));var key=members.SingleOrDefault(c=>c.ColumnName=="id");var project=members.SingleOrDefault(c=>c.ColumnName=="yz_project_id");var deleted=members.SingleOrDefault(c=>c.ColumnName=="delete_no");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!storage.IsPhysical(key)||Enabled(key)||!globalTarget&&project is null||project is not null&&(project.LogicalType is not("int64" or "string")||!storage.IsPhysical(project)||Enabled(project))||deleted is not null&&(deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0||!storage.IsPhysical(deleted)||Enabled(deleted)))throw new InvalidOperationException("派生跨表实体缺少真实身份或活动范围。");
             }
             foreach(var field in new[]{foreign,cache,value})if(field.YzProjectId.Length>0&&field.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("派生跨表字段超出发布项目。");
             var cross=CrossTableCacheProof.Require(catalog,source,foreign,target,value,cache,d,all);
