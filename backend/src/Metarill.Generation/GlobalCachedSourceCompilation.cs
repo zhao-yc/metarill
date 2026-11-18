@@ -16,7 +16,17 @@ internal static class GlobalCachedSourceCompilation
     internal static GenerationModel AddReadAliases(GenerationModel model)
     {
         var bindings=ForModel(model);if(bindings.Count==0)return model;
-        return model with{Tables=model.Tables.Select(table=>table with{Pages=table.Pages.Select(page=>page with{Readable=page.Readable.Concat(bindings.Where(binding=>binding.Source.Source.Id==table.Source.Id&&page.Readable.Any(column=>column.Source.Id==binding.Foreign.Source.Id)).Select(binding=>binding.Cache)).DistinctBy(column=>column.Source.Id).ToArray()}).ToArray()}).ToArray()};
+        var byTable=bindings.ToLookup(binding=>binding.Source.Source.Id,StringComparer.Ordinal);
+        return model with{Tables=model.Tables.Select(table=>table with
+        {
+            HasScopedGlobalCache=byTable[table.Source.Id].Any(binding=>binding.ScopedSingle),
+            Pages=table.Pages.Select(page=>page with
+            {
+                Readable=page.Readable.Concat(byTable[table.Source.Id]
+                    .Where(binding=>page.Readable.Any(column=>column.Source.Id==binding.Foreign.Source.Id))
+                    .Select(binding=>binding.Cache)).DistinctBy(column=>column.Source.Id).ToArray()
+            }).ToArray()
+        }).ToArray()};
     }
     /// <summary>维护和混合传播必须实际登记所有名称副本，不能只让元数据入口放行后发布半条链路。</summary>
     internal static void RequireComplete(GenerationModel model,RelationMaintenanceCatalog catalog)
@@ -40,8 +50,9 @@ internal static class GlobalCachedSourceCompilation
         foreach(var foreign in table.Columns.Where(column=>!column.IsSystem&&column.Source.ControlKind is "List" or "SelectPage"))
         {
             var rowProject=table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id");
-            if(rowProject&&GlobalCachedRelationSource.RowProjectSelfTreeParentPages(model.Catalog,table.Source,foreign.Source).Count==0)continue;
-            var target=ForeignValidationRenderer.Target(model,foreign);if(target is null||!rowProject&&!target.IsGlobal)continue;
+            var target=ForeignValidationRenderer.Target(model,foreign);
+            if(target is null||!target.IsGlobal&&(!rowProject||
+                GlobalCachedRelationSource.RowProjectSelfTreeParentPages(model.Catalog,table.Source,foreign.Source).Count==0))continue;
             var single=target.IsGlobal?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source)
                 :GlobalSingleRelationTarget.RequireProjectParent(model.Catalog,table.Source,foreign.Source,target.Source);
             var cache=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==foreign.Source.ColumnName[..^3]+"_"+single.Name.ColumnName)??throw new NotSupportedException("全局List来源必须声明原物理名称副本。");

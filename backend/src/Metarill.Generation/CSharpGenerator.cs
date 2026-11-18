@@ -180,6 +180,8 @@ internal sealed record TableModel(TableMetadata Source, string Name, IReadOnlyLi
     /// <summary>实体类型始终完整限定，业务表可与CLR、持久化或安全类型同名。</summary>
     internal string EntityType => "global::" + RootNamespace + ".Generated.Entities." + Name;
     internal string RootNamespace {get;init;} = "";
+    /// <summary>生成和维护共用已证明的全局单值缓存绑定，业务页据此约束实际行项目。</summary>
+    internal bool HasScopedGlobalCache {get;init;}
     public bool IsGlobal => Source.Extra.TryGetValue("scopeKind", out var scope) && scope.ToString() == "global"; }
 internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace, IReadOnlyList<TableModel> Tables)
 {

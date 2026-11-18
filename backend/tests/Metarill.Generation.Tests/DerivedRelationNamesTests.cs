@@ -81,8 +81,10 @@ public sealed class DerivedRelationNamesTests
     [InlineData(false,false,true,true,false,true,false,false,false,false,true,true,true,true)]
     [InlineData(true,true,true,false,false,true,false,false,true,true,true,true,true,true)]
     [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true,true)]
+    [InlineData(false,true,true,false,false,true,true,true,true,true,true,true,true,true,"int64")]
+    [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true,true,"string")]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false)
+        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false,string? rowProjectType=null)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -272,7 +274,8 @@ public sealed class DerivedRelationNamesTests
             if(globalCache)
             {
                 catalog.ConfigTables.Single(table=>table.Id=="8").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-                catalog.ConfigColumns.RemoveAll(column=>column.Id=="82");
+                if(rowProjectType is null)catalog.ConfigColumns.RemoveAll(column=>column.Id=="82");
+                else catalog.ConfigColumns.Single(column=>column.Id=="82").LogicalType=rowProjectType;
             }
             catalog.ConfigPageColumns.AddRange([
                 new(){Id="80184",ConfigPageId="801",ConfigColumnId="84",IsShow=1,IsEdit=1},
@@ -387,6 +390,16 @@ public sealed class DerivedRelationNamesTests
                     {
                         Assert.Contains("当前身份不属于已发布全局来源目录",observer);
                         Assert.Contains("ProjectRelationMutationPropagator(session).AfterMutationAsync",observer);
+                        if(rowProjectType is not null)
+                        {
+                            // 业务页及写入保持行项目隔离，候选、名称读取和维护仍共用发布目标页。
+                            var projectValue="long.Parse(actor.ProjectId, CultureInfo.InvariantCulture)"+
+                                (rowProjectType=="string"?".ToString(CultureInfo.InvariantCulture)":"");
+                            Assert.Contains("query = query.Where(entity => entity.YzProjectId == "+projectValue+")",observer);
+                            Assert.Contains("entity.YzProjectId = "+projectValue+";",observer);
+                            Assert.Contains("if(entity.YzProjectId!="+projectValue+")",observer);
+                            Assert.Contains("CompileCrossPageCandidate(\"1\",\"101\"",observer);
+                        }
                         if(selection)
                         {
                             var detail=File.ReadAllText(Path.Combine(directory,"generated/frontend/pages/yzp/dr_names_observer-detail-801.vue"));

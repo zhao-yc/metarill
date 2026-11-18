@@ -17,6 +17,12 @@ internal static class FixedPageQueryCompilation
             column.Source.ControlKind=="CascadeTree"&&!NonRedundantCrossTableSubset.Declared(column))
             ? table.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id") : null;
 
+    /// <summary>全局树与固定单值缓存来源保留实际行项目隔离，独立全局候选共用原发布条件。</summary>
+    internal static ColumnModel? ManagedGlobalProject(TableModel table)=>
+        table.HasScopedGlobalCache
+            ? table.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id")
+            : GlobalSelfTreeProject(table);
+
     /// <summary>带真实行归属的全局普通业务同样绑定当前项目，候选使用独立计划。</summary>
     internal static FixedPageQueryPlan For(TableModel table, PageModel page)
     {
@@ -24,7 +30,7 @@ internal static class FixedPageQueryCompilation
         var scopes = new List<(ColumnModel Column, string Source)>();
         var project = table.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
         if (project is not null && (!table.IsGlobal || NonRedundantReadCompilation.HasGlobalRowProject(table) ||
-            GlobalSelfTreeProject(table) is not null || page.Scopes.Any(scope => scope.Source == "project"))) scopes.Add((project, "project"));
+            ManagedGlobalProject(table) is not null || page.Scopes.Any(scope => scope.Source == "project"))) scopes.Add((project, "project"));
         scopes.AddRange(page.Scopes.Where(scope => scope.Source == "parent"));
         return new(table, page, SoftDeleteColumn(table), scopes, EffectiveOrder(table, page.Source.OrderBy));
     }

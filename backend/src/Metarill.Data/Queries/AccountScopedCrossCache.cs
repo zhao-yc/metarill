@@ -37,7 +37,7 @@ public sealed class AccountScopedCrossCache
     private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false)
     {
         if(globalTreeSource)GlobalCachedRelationSource.RequireSelfTree(catalog,source);
-        if(globalSingleSource)GlobalCachedRelationSource.Require(catalog,source);
+        // GlobalSingleSource 只由已核对 ScopedSingleTarget 的缓存计划设置，编译器另外保留根行项目范围。
         if (source.IsRongyu != 1 || targetPage.ConfigTableId != target.Id || GlobalCrossTableTarget.Declared(source)&&!globalTreeSource&&!globalSingleSource ||
             source.IsView != 0 || source.IsFunctionTable != 0 || target.IsView != 0 || target.IsFunctionTable != 0 ||
             targetPage.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length > 0)

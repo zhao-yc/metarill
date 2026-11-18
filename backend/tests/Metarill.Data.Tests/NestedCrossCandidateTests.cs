@@ -414,7 +414,8 @@ public sealed class NestedCrossCandidateTests
                 // 全局来源以目录项目证明身份，回填只使用真实父字段和实际账号字段。
                 var observer=catalog.ConfigTables.Single(table=>table.Id=="98");
                 observer.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-                catalog.ConfigColumns.RemoveAll(column=>column.Id=="9802");
+                var observerProject=catalog.ConfigColumns.Single(column=>column.Id=="9802");
+                catalog.ConfigColumns.Remove(observerProject);
                 if(kind=="SelectPage")sourcePage.Extra["type"]=JsonSerializer.SerializeToElement(1);
                 observerPage.WhereSql+=" AND store_id=@current_store_id";
                 var globalMaintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
@@ -425,6 +426,27 @@ public sealed class NestedCrossCandidateTests
                 Assert.Contains("b.`store_id`",globalRead.Expression(cache));
                 Assert.Contains("b.`scope_country_id`",globalRead.Expression(cache));
                 Assert.Contains(globalRead.Reverse,item=>item.TargetTable=="nested_source"&&item.Outputs[cache].Contains("name"));
+
+                // 恢复物理项目列后，两种原 ID 格式的缓存重算和反查只写目录所属行。
+                catalog.ConfigColumns.Add(observerProject);
+                foreach(var (type,parameter) in new[]{("int64","number"),("string","text")})
+                {
+                    observerProject.LogicalType=type;
+                    var rowMaintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+                    var rowRead=Assert.Single(rowMaintenance.Mixed.Consumers,item=>item.Table.Option.Id=="98").Read;
+                    Assert.True(rowRead.RequiresPublishedProjectIdentity);
+                    Assert.False(rowRead.RequiresAccount);
+                    Assert.Contains("b.`yz_project_id`=@project_scope_"+parameter,rowRead.Scope);
+                    Assert.Contains("b.`store_id`",rowRead.Expression(cache));
+                    Assert.Contains("b.`scope_country_id`",rowRead.Expression(cache));
+                    Assert.Contains(rowRead.PhysicalReferences,item=>item.Table=="nested_observer"&&
+                        item.Column.Name=="yz_project_id");
+                    Assert.Contains(rowRead.Reverse,item=>item.TargetTable=="nested_source"&&item.Outputs[cache].Contains("name"));
+                }
+                observerProject.LogicalType="int32";
+                Assert.Throws<NotSupportedException>(()=>GlobalCachedRelationSource.RequireCache(catalog,observer,
+                    catalog.ConfigColumns.Single(column=>column.Id=="9805")));
+                observerProject.LogicalType="int64";
                 if(kind=="SelectPage")
                 {
                     var relation=catalog.ConfigColumns.Single(column=>column.Id=="9804");

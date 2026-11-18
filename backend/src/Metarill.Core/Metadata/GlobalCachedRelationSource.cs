@@ -9,7 +9,7 @@ public sealed record GlobalCachedRelationBinding(ColumnMetadata Foreign,TableMet
     public bool ScopedSingle { get; init; }
 }
 
-/// <summary>原无项目列R1单值来源的发布证明；仅界定目录归属，不替代页面授权或真实登录身份。</summary>
+/// <summary>原全局 R1 单值来源的发布证明。项目列需要对应的用途证明，页面仍校验真实身份与权限。</summary>
 public static class GlobalCachedRelationSource
 {
     /// <summary>必须显式全局、同一发布目录、真实主键且完全没有项目列；不能以缺字段自动取得全局许可。</summary>
@@ -29,7 +29,7 @@ public static class GlobalCachedRelationSource
         var rowProject=columns.SingleOrDefault(column=>column.ColumnName=="yz_project_id");
         if(rowProject is not null&&(!allowsRowProject||rowProject.LogicalType is not("int64" or "string")||
             !storage.IsPhysical(rowProject)||Joined(rowProject)||rowProject.IsVirtualColumn!=0))
-            throw new NotSupportedException("全局R1来源的项目列需要已证明的自树用途及真实物理项目ID。");
+            throw new NotSupportedException("全局R1来源的项目列需要受支持的关系用途及真实物理项目ID。");
         if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!storage.IsPhysical(key)||Joined(key)||key.IsVirtualColumn!=0)throw Invalid();
         var deleted=columns.SingleOrDefault(column=>column.ColumnName=="delete_no");
         if(deleted is not null&&(deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0||!storage.IsPhysical(deleted)||Joined(deleted)||deleted.IsVirtualColumn!=0))throw Invalid();
@@ -64,11 +64,11 @@ public static class GlobalCachedRelationSource
         RequirePhysicalForeign(catalog,source,foreign);
     }
 
-    /// <summary>固定单选仍用原int64合同；目标type=1及其范围随后由实际发布页验证。</summary>
-    internal static void RequireSelectionSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign)
+    /// <summary>共同验证下拉和单选的物理来源。允许项目列的具体用途由实际目标页或自树父级继续证明。</summary>
+    internal static void RequireCachedSingleSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign)
     {
-        Require(catalog,source);
-        if(foreign.ControlKind!="SelectPage"||foreign.LogicalType!="int64")throw Invalid();
+        Require(catalog,source,allowsRowProject:true);
+        if(foreign.ControlKind!="List"&&(foreign.ControlKind!="SelectPage"||foreign.LogicalType!="int64"))throw Invalid();
         RequirePhysicalForeign(catalog,source,foreign);
     }
 
@@ -77,7 +77,7 @@ public static class GlobalCachedRelationSource
         var storage=MetadataStoragePolicy.ForTable(catalog,source);
         if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==foreign.Id),foreign)||foreign.ConfigTableId!=source.Id||!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)||foreign.LogicalType is not("int64" or "string")||!storage.IsPhysical(foreign)||foreign.IsVirtualColumn!=0||Joined(foreign))throw Invalid();
     }
-    /// <summary>物理名称副本须有精确单层路径和同一List目标，不能把任意join列作为全局写入。</summary>
+    /// <summary>物理名称副本须绑定精确的单层路径、实际外键和已发布目标页。</summary>
     public static GlobalCachedRelationBinding RequireCache(MetadataCatalog catalog,TableMetadata source,ColumnMetadata cache)
         =>RequireCache(catalog,source,cache,new HashSet<string>(StringComparer.Ordinal));
     /// <summary>缓存被其它全局关系引用时复用调用者的证明栈，所有上游仍须通过相同目录和目标检查。</summary>
@@ -88,8 +88,7 @@ public static class GlobalCachedRelationSource
         if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==cache.Id),cache)||cache.ConfigTableId!=source.Id||path.Length!=2||!Joined(cache)||cache.IsVirtualColumn!=0||!storage.IsPhysical(cache)||(cache.LogicalType!="string"&&!MultiValueLabel.IsTyped(cache.LogicalType))||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
         var foreign=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==source.Id&&(column.ColumnName==path[0]+"_id"||column.ColumnName==path[0]));
         if(foreign is null)throw Invalid();
-        if(foreign.ControlKind=="SelectPage")RequireSelectionSource(catalog,source,foreign);
-        else RequireSingle(catalog,source,foreign);
+        RequireCachedSingleSource(catalog,source,foreign);
         using var definition=JsonDocument.Parse(foreign.ControlDetail);var root=definition.RootElement;
         string Value(string key)=>root.TryGetProperty(key,out var value)&&value.ValueKind is JsonValueKind.String or JsonValueKind.Number?value.ToString():"";
         var targetId=foreign.LinkConfigTableId.Length>0?foreign.LinkConfigTableId:Value("tableId");var name=Value("table");
