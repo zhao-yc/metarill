@@ -259,7 +259,7 @@ public static partial class MySqlNonRedundantReadCompiler
             return "EXISTS (SELECT 1"+plan.From+" WHERE "+plan.Expression("id")+"="+alias+".`id` AND "+plan.Scope+")";
         }
 
-        /// <summary>全局单值副本以同一逻辑范围解析源行归属和实际级联路径。</summary>
+        /// <summary>单值副本按来源行归属重算，逻辑条件沿目标页的实际级联路径读取。</summary>
         private string PublishedSingleCondition(TableMetadata table,string alias,PageMetadata page,CascadeCacheOwner? cacheOwner=null,
             ColumnMetadata? parentField=null)
         {
@@ -269,6 +269,13 @@ public static partial class MySqlNonRedundantReadCompiler
             var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields);
             var logical=RequireCrossCondition(table,page,condition,parentField,fields);
             if(GlobalCrossTableTarget.Declared(table))scopedGlobalCrossTarget=true;
+            if(cacheOwner is {} row&&logical.Count==0&&parentField is null)
+            {
+                // 只有物理账号条件时直接按来源行归属比较，同时跟踪目标筛选列的反向依赖。
+                var ownership=AccountScopedCrossCache.Compile(catalog,row.Table,table,page,row.GlobalTreeSource);
+                cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
+                return AccountCacheScope(ownership,table,alias,row.Alias,render:true,row.Table);
+            }
             return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
                 alias,cacheOwner,parentField,fields);
         }

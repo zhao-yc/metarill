@@ -53,12 +53,13 @@ internal static class RelationPropagationCompilation
         foreach(var foreign in table.Columns.Where(column=>!column.IsSystem&&column.Source.ControlKind is "List" or "SelectPage"))
         {
             var target=ForeignValidationRenderer.Target(model,foreign);
-            if(target is null||!target.Pages.Any(FixedPageConditionCompilation.HasLogicalFields))continue;
+            if(target is null||!target.Pages.Any(page=>FixedPageConditionCompilation.HasLogicalFields(page)||
+                DerivedRelationNamesCompilation.HasGlobalAccountScope(target,page)))continue;
             (PageMetadata Page,ColumnMetadata Name) proof;
             if(target.IsGlobal)
             {
                 var global=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source);
-                if(!global.ScopedLogicalPage)continue;
+                if(!global.RequiresScopedPage)continue;
                 proof=(global.Page,global.Name);
             }
             else if(ProjectScopedSingleRelationTarget.Resolve(model.Catalog,table.Source,foreign.Source,target.Source) is {} project)

@@ -13,6 +13,10 @@ internal static class DerivedRelationNamesCompilation
     internal static bool UsesLogicalPage(RelationModel relation)=>
         FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||relation.Conditions?.HasLogicalFields==true;
 
+    /// <summary>全局非冗余目标的账号范围来自实际发布页，仅绑定认证的账号值。</summary>
+    internal static bool HasGlobalAccountScope(TableModel target,PageModel page)=>
+        target.IsGlobal&&target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(page);
+
     /// <summary>在生成时证明目标页所有逻辑成员，同时保留原来源身份与物理父范围。</summary>
     internal static NonRedundantReadPlan CompileLogicalPage(GenerationModel model,TableModel target,PageModel page,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,RelationConditionModel? additional=null)
@@ -95,7 +99,7 @@ internal static class DerivedRelationNamesCompilation
         {
             if(FixedPageConditionCompilation.HasSelfTreeFields(page))
                 GlobalCrossTableTarget.RequireScopedSelfTreeName(model.Catalog,target.Source,page.Source,name.Source);
-            else if(FixedPageConditionCompilation.HasCrossFields(page))
+            else if(FixedPageConditionCompilation.HasCrossFields(page)||HasGlobalAccountScope(target,page))
                 GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,target.Source,page.Source,name.Source);
             else if (name.Type == "string?") GlobalCrossTableTarget.RequireSingleName(model.Catalog, target.Source, page.Source, name.Source);
             else GlobalCrossTableTarget.RequireSingle(model.Catalog, target.Source, page.Source);
@@ -103,7 +107,10 @@ internal static class DerivedRelationNamesCompilation
         // 全局候选按当前名称读取，不借用仅允许int64路径的精确管理匹配用途。
         var plan=FixedPageConditionCompilation.HasLogicalFields(page)
             ?CompileLogicalPage(model,target,page,[name.Source.ColumnName],[name.Source.ColumnName])
-            :target.IsGlobal?NonRedundantReads.Compile(model.Catalog,target.Source.Id,[name.Source.ColumnName]):NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,name.Source.ColumnName);
+            :HasGlobalAccountScope(target,page)
+                ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,page.Source.Id,[name.Source.ColumnName])
+                :target.IsGlobal?NonRedundantReads.Compile(model.Catalog,target.Source.Id,[name.Source.ColumnName])
+                    :NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,name.Source.ColumnName);
         if (plan.OutputTypes[name.Source.ColumnName] != NameType(name))
             throw new InvalidOperationException("派生单选名称未落到与声明一致的固定标量。");
     }
@@ -153,7 +160,8 @@ internal static class DerivedRelationNamesCompilation
         var outputs = new[] { "id", name.Source.ColumnName };
         var plan = UsesLogicalPage(relation)
             ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies,relation.Conditions)
-            : target.IsGlobal && physicalTypedName || NonRedundantReadCompilation.HasGlobalRowProject(target)
+            : target.IsGlobal && physicalTypedName || NonRedundantReadCompilation.HasGlobalRowProject(target) ||
+                HasGlobalAccountScope(target,relation.TargetPage)
             ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, relation.TargetPage.Source.Id, outputs, dependencies)
             : physicalTypedName && target.Source.IsRongyu == 1
                 ? NonRedundantReads.CompilePhysicalRelation(model.Catalog,target.Source.Id,outputs,dependencies,

@@ -846,6 +846,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                     logicalPlan=$"OptionsMembership{suffix}.BindAccount(actor)";
                 }
             }
+            var lockScope=relation.Conditions is not null||logicalPlan is not null||
+                DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
             result.Append(FixedPageConditionCompilation.Declaration(relation.TargetPage,"OptionsPageCondition"+suffix))
                 .Append(SharedRedundantParentCompilation.AccountDeclaration(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix));
@@ -861,7 +863,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 if (relation.ParentBinding.Binding is null) result.AppendLine($"        RejectBound{page.Source.Id}({Literal(relation.ParentBinding.Reason!)});");
                 else result.AppendLine($"        targetParentId = (await ResolveBound{suffix}Async(parentId, targetParentId, actor, locking, requireSourceList, cancellationToken)).ToString(CultureInfo.InvariantCulture);");
             }
-            else if ((relation.Conditions is not null || logicalPlan is not null) && relation.SourceParents.Count > 0)
+            else if (lockScope && relation.SourceParents.Count > 0)
             {
                 // 常量关系的写入必须读取真实父当前值；普通候选仍复用无锁验证，不改变旧项目产物。
                 result.AppendLine($"        if (!locking) await ValidateOptionsSourceParents{page.Source.Id}Async(parentId, actor, cancellationToken);")
@@ -887,7 +889,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                     {
                         var parent=relation.TargetParents[index];
                         if(!accountParents.Any(path=>path.Levels[^1].TableId==parent.Source.Id))
-                            Parent(parent,"targetParentKey","targetParent"+index,relation.Conditions is not null||logicalPlan is not null);
+                            Parent(parent,"targetParentKey","targetParent"+index,lockScope);
                     }
                 }
             }

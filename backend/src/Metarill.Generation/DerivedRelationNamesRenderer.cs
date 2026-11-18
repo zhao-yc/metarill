@@ -12,12 +12,14 @@ internal static class DerivedRelationNamesRenderer
         var physicalTypedName = DerivedRelationNamesCompilation.IsPhysicalTypedName(model, relation.Target, relation.NameColumn);
         var accountParent = SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
         var logical=DerivedRelationNamesCompilation.UsesLogicalPage(relation);
-        var bindParent = accountParent||logical ? ".BindAccount(actor)" : "";
-        var validateCurrent=accountParent||logical;
+        var globalAccount=DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
+        var validateCurrent=accountParent||logical||globalAccount;
+        var bindParent=validateCurrent?".BindAccount(actor)":"";
+        var embedsPageScope=relation.Target.IsGlobal&&(logical||globalAccount);
         var parentPlan = accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var planStart = logical
             ? DerivedRelationNamesCompilation.LogicalPagePlanStart(relation.Target,relation.TargetPage,relation.Conditions)
-            : physicalTypedName && relation.Target.IsGlobal
+            : globalAccount || physicalTypedName && relation.Target.IsGlobal
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : physicalTypedName && relation.Target.Source.IsRongyu == 1
                 ? $"CompilePhysicalRelation({Literal(relation.Target.Source.Id)}"
@@ -46,7 +48,7 @@ internal static class DerivedRelationNamesRenderer
 {{(same?"        targetParentId??=parentId;":"")}}
         var filters=new List<FixedReadFilter>();
 {{filters}}
-        FixedConditionSqlPlan? condition={{(logical&&relation.Target.IsGlobal?"null":FixedPageConditionCompilation.Bound(relation.TargetPage,"OptionsPageCondition"+suffix))}};
+        FixedConditionSqlPlan? condition={{(embedsPageScope?"null":FixedPageConditionCompilation.Bound(relation.TargetPage,"OptionsPageCondition"+suffix))}};
 {{bind}}
         return(filters,condition);
     }
@@ -104,8 +106,10 @@ internal static class DerivedRelationNamesRenderer
     internal static string Import(GenerationModel model,RelationModel relation,PageModel page,ImportDependencyPlan dependency)
     {
         var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
-        var lockParents=accountParent||DerivedRelationNamesCompilation.UsesLogicalPage(relation)?",locking:true":"";
-        var bindParent=accountParent||DerivedRelationNamesCompilation.UsesLogicalPage(relation)?".BindAccount(actor)":"";
+        var validateCurrent=accountParent||DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
+            DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
+        var lockParents=validateCurrent?",locking:true":"";
+        var bindParent=validateCurrent?".BindAccount(actor)":"";
         var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var mapped=dependency.Parents.GetValueOrDefault(relation.SourceColumn.Source.Id);
         var name = relation.NameColumn;
         var addMatchFilter = name.Type == "string?" ? $$"""

@@ -159,7 +159,10 @@ public sealed class NestedCrossCandidateTests
     [InlineData("SelectPage",true,"int64",false)]
     [InlineData("List",false,"string",true)]
     [InlineData("SelectPage",true,"int64",true)]
-    public async Task Global_single_relation_joins_only_targets_visible_in_the_fixed_tree_page(string kind,bool rowProject,string key,bool cross)
+    [InlineData("List",false,"string",false,true)]
+    [InlineData("SelectPage",true,"int64",false,true)]
+    public async Task Global_single_relation_joins_only_targets_visible_in_the_fixed_tree_page(string kind,bool rowProject,string key,bool cross,
+        bool physicalAccount=false)
     {
         var catalog=Catalog(false);
         var source=catalog.ConfigTables.Single(table=>table.Id=="90");
@@ -176,7 +179,8 @@ public sealed class NestedCrossCandidateTests
             catalog.ConfigColumns.Remove(field);
             catalog.ConfigPageColumns.RemoveAll(item=>item.ConfigColumnId==field.Id);
         }
-        if(cross)page.WhereSql+=" AND country_name <> '限制叶子'";
+        if(physicalAccount)page.WhereSql+=" AND name <> '限制叶子'";
+        else if(cross)page.WhereSql+=" AND country_name <> '限制叶子'";
         else AddVisibilityLeafScope(catalog,source,target,page,true);
         catalog.ConfigColumns.Add(new(){Id="9014",ConfigTableId=source.Id,ColumnName="shared_id",LogicalType=key,ControlKind=kind,LinkConfigTableId=target.Id,
             ControlDetail=JsonSerializer.Serialize(new{tableId=target.Id,pageId=page.Id,nameField="name"})});
@@ -187,13 +191,20 @@ public sealed class NestedCrossCandidateTests
         }});
         var actor=new RuntimeActor(1,"发布项目账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
         var plan=NonRedundantReads.Compile(catalog,source.Id,["id","shared_name"]);
-        var candidate=NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,page.Id,["id","name"],[]);
+        var candidate=physicalAccount?NonRedundantReads.CompileGlobalCandidate(catalog,target.Id,page.Id,["id","name"]):
+            NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,page.Id,["id","name"],[]);
         Assert.True(plan.MySql.RequiresPublishedProjectIdentity);
         Assert.True(plan.MySql.RequiresAccount);
         Assert.Contains("b.`yz_project_id`=@project_scope_number",plan.MySql.Scope);
         Assert.DoesNotContain("r0.`yz_project_id`=",plan.MySql.From);
         Assert.DoesNotContain("b.`yz_project_id`=",candidate.MySql.Scope);
-        if(cross)
+        if(physicalAccount)
+        {
+            Assert.Contains("r0.`store_id`=",plan.MySql.From);
+            Assert.Contains("b.`store_id`=",candidate.MySql.Scope);
+            Assert.Empty(candidate.MySql.Crosses);
+        }
+        else if(cross)
         {
             var correlated=plan.MySql.From.IndexOf("EXISTS (SELECT 1 FROM `nested_source`",StringComparison.Ordinal);
             Assert.True(correlated>plan.MySql.From.IndexOf("LEFT JOIN `nested_source` r0 ON",StringComparison.Ordinal));
@@ -230,10 +241,11 @@ public sealed class NestedCrossCandidateTests
         Assert.Contains("b.`store_id`",consumer.Read.Expression("shared_name"));
         Assert.Contains("CASE WHEN r0.`id` IS NOT NULL",consumer.Read.Expression("shared_name"));
         Assert.False(consumer.Read.RequiresAccount);
-        Assert.Single(consumer.Read.Reverse,item=>item.TargetTable==(cross?"nested_country":"nested_visibility"));
+        if(!physicalAccount)
+            Assert.Single(consumer.Read.Reverse,item=>item.TargetTable==(cross?"nested_country":"nested_visibility"));
         if(cross)Assert.Single(consumer.Read.Reverse,item=>item.TargetTable=="nested_place");
         var direct=Assert.Single(consumer.Read.Reverse,item=>item.TargetTable==target.TableName);
-        Assert.Contains(cross?"country_id":"visibility_id",direct.Outputs["shared_name"]);
+        Assert.Contains(physicalAccount?"name":cross?"country_id":"visibility_id",direct.Outputs["shared_name"]);
         Assert.Contains("store_id",direct.Outputs["shared_name"]);
         sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
         Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[cacheBinding]));
@@ -247,7 +259,7 @@ public sealed class NestedCrossCandidateTests
         Assert.Throws<NotSupportedException>(()=>GlobalSingleRelationTarget.Require(catalog,source,
             catalog.ConfigColumns.Single(column=>column.Id=="9014"),target));
         page.WhereSql=definition;
-        if(!cross)
+        if(!cross&&!physicalAccount)
         {
             catalog.ConfigTables.Single(table=>table.Id=="95").Extra.Remove("scopeKind");
             Assert.Throws<NotSupportedException>(()=>NonRedundantReads.Compile(catalog,source.Id,["shared_name"]));

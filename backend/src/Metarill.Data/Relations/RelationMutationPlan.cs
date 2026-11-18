@@ -118,8 +118,8 @@ public sealed class RelationMutationPlan
                     else
                     {
                         var proof=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
-                        if(proof.ScopedLogicalPage)
-                            throw new InvalidOperationException("带逻辑目标页的单值名称必须使用统一维护计划。");
+                        if(proof.RequiresScopedPage)
+                            throw new InvalidOperationException("带逻辑或账号范围的目标页必须使用统一名称维护计划。");
                         page=proof.Page;
                     }
                     if(typedCache||target.IsRongyu==0&&columns[target.Id].Values.Any(column=>column.ColumnName=="yz_project_id"))

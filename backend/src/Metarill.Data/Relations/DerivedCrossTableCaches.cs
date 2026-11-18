@@ -97,11 +97,11 @@ public static class DerivedCrossTableCaches
         if(GlobalCrossTableTarget.Declared(target))
         {
             var global=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
-            if(global.ScopedLogicalPage)return(global.Page,global.Name);
+            if(global.RequiresScopedPage)return(global.Page,global.Name);
         }
         else if(ProjectScopedSingleRelationTarget.Resolve(catalog,source,foreign,target) is {} project)
             return project;
-        throw new InvalidOperationException("固定单值缓存缺少实际逻辑目标页。");
+        throw new InvalidOperationException("固定单值缓存缺少已发布的目标页范围。");
     }
 
     /// <summary>只沿原明确联接标志，不把任意文本解释为关系。</summary>

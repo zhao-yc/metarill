@@ -655,6 +655,7 @@ public static partial class MySqlNonRedundantReadCompiler
             PageMetadata? publishedPage=cachePage;
             var scopedSingle=false;
             var scopedCrossTable=false;
+            var scopedAccount=false;
             var projectParent=!global&&refreshFields is not null&&ownerAlias==rootAlias&&
                 GlobalCachedRelationSource.RowProjectSelfTreeParentPages(catalog,root,relation).Count>0;
             if(projectParent)publishedPage=GlobalSingleRelationTarget.RequireProjectParent(catalog,root,relation,target).Page;
@@ -664,8 +665,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 var proof=owner.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,owner,relation,target):GlobalSingleRelationTarget.Require(catalog,owner,relation,target);
                 scopedSingle=proof.ScopedLogicalPage;
                 scopedCrossTable=proof.ScopedCrossTable;
-                // 逻辑条件是全局目标的页面资格，有无物理项目列均按实际页联接。
-                if(scopedSingle||HasGlobalRowProject(target)||owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&
+                scopedAccount=proof.ScopedAccount;
+                // 账号条件是已发布目标的实际范围，目标有无项目列都须绑定发布身份。
+                if(scopedAccount)scopedGlobalCrossTarget=true;
+                if(proof.RequiresScopedPage||HasGlobalRowProject(target)||owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&
                     columns[owner.Id].ContainsKey("yz_project_id"))publishedPage=proof.Page;
             }
             // 混合文本或浮点键可能发生近似比较，同一源值可能匹配多个大整数主键。
@@ -676,12 +679,12 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 if(directSave)directSaveAliases.Add(existing);
                 Scope(target,existing,projectScoped:!global);
-                if(publishedPage is not null&&!scopedSingle)_=PublishedCondition(target,existing,publishedPage,projectParent:projectParent);
+                if(publishedPage is not null&&!scopedSingle)_=PublishedCondition(target,existing,publishedPage,allowAccount:scopedAccount,projectParent:projectParent);
                 if(account is not null)_=AccountCacheScope(account,target,existing,ownerAlias,render:false);
                 aggregateFields[existing].Add(output);
                 Touch(existing,"id");return existing;
             }
-            var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global){globalSingleAliases.Add(alias);if(target.IsRongyu==0)globalDerivedAliases.Add(alias);}var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=publishedPage is null?Scope(target,alias,projectScoped:!global):PublishedScope(target,alias,publishedPage,alias,projectParent:projectParent,scopedSingle:scopedSingle,scopedCrossTable:scopedCrossTable);
+            var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global){globalSingleAliases.Add(alias);if(target.IsRongyu==0)globalDerivedAliases.Add(alias);}var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=publishedPage is null?Scope(target,alias,projectScoped:!global):PublishedScope(target,alias,publishedPage,alias,allowAccount:scopedAccount,projectParent:projectParent,scopedSingle:scopedSingle,scopedCrossTable:scopedCrossTable);
             if(trackReverse)
             {
                 Touch(alias,"id");reverse.Add(alias,(target.TableName,prefix,source,sourceType));

@@ -253,6 +253,93 @@ public sealed class DerivedRelationNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>纯物理账号条件覆盖全局单值候选、原单选目标页、写入、工作簿和名称副本。</summary>
+    [Theory]
+    [InlineData(false,false,false,false)]
+    [InlineData(false,true,true,false)]
+    [InlineData(true,false,true,false)]
+    [InlineData(true,true,false,false)]
+    [InlineData(false,false,true,true)]
+    [InlineData(false,true,false,true)]
+    [InlineData(true,false,false,true)]
+    [InlineData(true,true,true,true)]
+    public async Task Global_single_account_page_uses_published_scope_without_cascade(
+        bool selection,bool derived,bool rowProject,bool cached)
+    {
+        var catalog=Catalog("dr_names",false);
+        var target=catalog.ConfigPages.Single(page=>page.Id=="201");
+        target.WhereSql="status=1 AND store_id=@current_store_id";
+        if(selection)target.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "2" or "4"))
+            table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="";
+        if(!rowProject)
+        {
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="22");
+            catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId=="22");
+        }
+        catalog.ConfigColumns.Add(new(){Id="217",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"});
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="15");
+        var label=derived?"company_name":"name";
+        foreign.ControlKind=selection?"SelectPage":"List";
+        foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField=label,
+            whereSql=selection?"store_id=@current_store_id":""});
+        var display=catalog.ConfigColumns.Single(column=>column.Id=="113");
+        display.ColumnName="customer_"+label;
+        display.Extra["columnFullName"]=JsonSerializer.SerializeToElement("customer."+label);
+        if(cached)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=1;
+            catalog.ConfigColumns.RemoveAll(column=>column.Id is "16" or "17");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "16" or "17");
+            catalog.ConfigColumns.Add(new(){Id="118",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"});
+            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+            {
+                page.OrderBy="id desc";
+                page.WhereSql+=" AND store_id=@current_store_id";
+                if(selection)
+                    foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId=="15"))
+                        field.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+            }
+        }
+        catalog.YzAdminTypes.Clear();
+        RedundantMultiNameCacheTests.Published(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-single-account-page");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.SingleAccountPage");
+            var service=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesOrderService.g.cs"));
+            Assert.Contains("OptionsPageCondition101_15.BindAccount(actor).ApplyConstants",service);
+            Assert.Contains("OptionsPage101_15Async",service);
+            Assert.Contains("OptionsSelected101_15Async",service);
+            Assert.Contains("OptionsScope104_15Async",service);
+            Assert.Contains("Import101Async",service);
+            Assert.Contains("Export101Async",service);
+            Assert.Contains(".ForUpdate()",service);
+            if(derived)
+            {
+                Assert.Contains("CompileGlobalCandidate(\"2\",\"201\"",service);
+                Assert.Contains("DerivedOptionsPlan101_15.BindAccount(actor)",service);
+                Assert.Contains("currentRead:true",service);
+            }
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            foreach(var serviceName in new[]{"DrNamesOrderService","DrNamesPartyService"})
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
+                    assembly.GetType("Example.SingleAccountPage.Generated.Services."+serviceName,true)!.TypeHandle);
+            if(cached)
+            {
+                var compiled=assembly.GetType("Example.SingleAccountPage.Generated.GeneratedRelationMaintenance",true)!
+                    .GetProperty("Catalog")!.GetValue(null);
+                var cache=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(compiled);
+                Assert.Contains("customer_"+label,cache.MixedSourceColumns["dr_names_order"]);
+                Assert.Contains("dr_names_party",cache.MixedTargets);
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>业务编号与外键不同，保持联接整数投影、原候选文本及 Excel 精确匹配。</summary>
     [Theory]
     [InlineData("int32", "int", "-2000000001", false)]

@@ -20,7 +20,8 @@ internal static partial class BackendRenderer
         scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page)))
             .Where(tree=>tree.ScopedCondition).Select(tree=>(tree.Target,tree.TargetPage)));
         var scopedRelations=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>RelationCompilation.ForPage(model,page)
-            .Concat(RelationCompilation.ForPage(model,page,true)))).Where(DerivedRelationNamesCompilation.UsesLogicalPage).ToArray();
+            .Concat(RelationCompilation.ForPage(model,page,true)))).Where(relation=>DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
+                DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)).ToArray();
         scopedPages=scopedPages.Concat(scopedRelations.Select(relation=>(relation.Target,relation.TargetPage)));
         // 目标页自身没有叶名条件时，仍保留由下拉附加条件实际引用的树页。
         scopedPages=scopedPages.Concat(scopedRelations.Where(relation=>relation.Conditions?.SelfTreeFields.Count>0)
@@ -48,6 +49,7 @@ internal static partial class BackendRenderer
         if(model.Tables.Any(table=>table.Pages.Any(page=>NonRedundantReadCompilation.GlobalSelectionPage(table,page))))
             helpers+="    /// <summary>原候选页的自树投影由固定图补齐显示路径。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileGlobalPage(string tableId,string pageId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalPage(Snapshot,tableId,pageId,outputs,dependencies);\n";
         if (model.Tables.Any(NonRedundantReadCompilation.HasGlobalRowProject) ||
+            scopedRelations.Any(relation=>DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)) ||
             model.Tables.SelectMany(table => table.Pages).SelectMany(page => RelationCompilation.ForPage(model, page, true))
                 .Any(relation => relation.Target.IsGlobal && DerivedRelationNamesCompilation.IsPhysicalTypedName(model, relation.Target, relation.NameColumn)))
             helpers+="    /// <summary>候选仅使用发布页的固定范围，普通记录仍按所属项目读写。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileGlobalCandidate(string tableId,string pageId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalCandidate(Snapshot,tableId,pageId,outputs,dependencies);\n";
