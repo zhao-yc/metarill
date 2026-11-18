@@ -173,7 +173,7 @@ public static partial class MySqlNonRedundantReadCompiler
             ??throw new InvalidOperationException("全局候选页必须属于固定目标表。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
-        if(pageType!="2"&&GlobalCrossTableTarget.PhysicalAccountParent(catalog,table,page) is not null)
+        if(pageType!="2"&&GlobalCrossTableTarget.PhysicalSingleParent(catalog,table,page) is not null)
             return CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies??[],accountParentPageType:pageType);
         return new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames).Compile(outputs,dependencies??[]);
     }
@@ -382,7 +382,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     {
                         // 页面投影由生成服务另外附加自己的父筛选；任意单值读取仍须用无父参数的候选。
                         var multiPage=page.Extra.GetValueOrDefault("type").ToString()=="2"||IsScopedMultiTarget(catalog,root,page.Id)||
-                            GlobalCrossTableTarget.PhysicalAccountParent(catalog,root,page) is not null;
+                            GlobalCrossTableTarget.PhysicalSingleParent(catalog,root,page) is not null;
                         if(deferCascadeNames)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,allowMultiParent:crossTables.Count>0||multiPage);
                         else if(crossTables.Count>0||multiPage)GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
                         else GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,root,page);
@@ -684,7 +684,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 scopedSingle=proof.ScopedLogicalPage;
                 scopedCrossTable=proof.ScopedCrossTable;
                 scopedAccount=proof.ScopedAccount;
-                accountParent=proof.AccountParent;
+                accountParent=proof.PhysicalParent;
                 // 账号条件是已发布目标的实际范围，目标有无项目列都须绑定发布身份。
                 if(scopedAccount)scopedGlobalCrossTarget=true;
                 if(proof.RequiresScopedPage||HasGlobalRowProject(target)||owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&

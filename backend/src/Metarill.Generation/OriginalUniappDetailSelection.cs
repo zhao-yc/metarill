@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Metarill.Core.Metadata;
 using static Metarill.Generation.OriginalDetailContext;
 
 namespace Metarill.Generation;
@@ -52,7 +53,7 @@ onPopSelect{{{id}}}(row) { this.permissionVersion++;if(this.{{{ro}}} || !this._s
     private static string TargetParent(OriginalDetailContext c,ColumnModel foreign,TableModel targetTable,PageModel target)
     {
         // 全局单选的父页与服务端共用这一列的固定证明，原弹层继续传 parent_id。
-        if(MultiGlobalParentCompilation.PhysicalAccountTarget(c.Model,targetTable,target) is {} fixedParent)
+        if(GlobalCrossTableTarget.PhysicalSingleParent(c.Model.Catalog,targetTable.Source,target.Source) is {} fixedParent)
         {
             var sourceKey=fixedParent.Source(c.Model.Catalog,c.Table.Source,foreign.Source,physicalSingle:true).Column;
             if(c.Page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==sourceKey.Id))return "parent_id";

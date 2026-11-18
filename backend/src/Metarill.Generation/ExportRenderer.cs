@@ -75,14 +75,14 @@ internal static class ExportRenderer
             var projection=columns.Where(column=>!column.IsLayoutOnly).Concat(dependencies).Concat(crossDependencies).Concat(CascadeTreeExcelRenderer.ExportPlans(model,table,page,columns).Select(plan=>plan.Source)).Concat(table.Columns.Where(column=>column.IsId)).DistinctBy(column=>column.Source.Id).ToArray();
             var plan=NonRedundantReadCompilation.ForPage(model,table,page);var names=projection.Select(column=>column.Source.ColumnName).Concat(multis.Select(multi=>multi.Names!.Source.ColumnName)).Distinct(StringComparer.Ordinal).ToArray();
             // 实际导出用途另编译窄投影，不能复用整页可读集合读取未导出列。
-            var accountSingle=NonRedundantReadCompilation.GlobalAccountSinglePage(table,page);
+            var accountSingle=NonRedundantReadCompilation.GlobalSingleParentPage(table,page);
             var crossScopes=NonRedundantCrossTableCompilation.Bindings(model,table,page);
             if(accountSingle)
-                NonRedundantReads.CompileGlobalAccountSinglePage(model.Catalog,table.Source.Id,page.Source.Id,names,plan.Dependencies,crossScopes);
+                NonRedundantReads.CompileGlobalSingleParentPage(model.Catalog,table.Source.Id,page.Source.Id,names,plan.Dependencies,crossScopes);
             else NonRedundantReadCompilation.CompilePage(model,table,names,plan.Dependencies,crossScopes,plan.SingleTargets);
             var outputs="new string[]{"+string.Join(",",names.Select(Literal))+"}";var fixedDependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
             var planCall=accountSingle
-                ?$"CompileGlobalAccountSinglePage({Literal(table.Source.Id)},{Literal(page.Source.Id)},{outputs},{fixedDependencies}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)})"
+                ?$"CompileGlobalSingleParentPage({Literal(table.Source.Id)},{Literal(page.Source.Id)},{outputs},{fixedDependencies}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)})"
                 :NonRedundantReadCompilation.PagePlanCall(model,table,page,plan,outputs,fixedDependencies);
             result.Insert(0,$"    /// <summary>导出只读取原列及必要依赖，普通请求不重编译元数据。</summary>\n    private static readonly Metarill.Data.Queries.NonRedundantReadPlan ExportReadPlan{page.Source.Id}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{planCall};\n");
             result.AppendLine($"        var rawRows=await new Metarill.Data.Queries.NonRedundantReader(session).RowsAsync({NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ExportReadPlan"+page.Source.Id)},{BackendRenderer.NonRedundantFilterCall(model,table,page,operation:"\"export\"",globalCandidate:accountSingle)},ReadOrder{page.Source.Id}(request),maxRows+1,cancellationToken,actor.ProjectId{(accountSingle?"":FixedPageConditionCompilation.ReadArgument(page))});")

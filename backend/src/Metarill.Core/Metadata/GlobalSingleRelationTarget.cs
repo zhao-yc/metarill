@@ -12,7 +12,8 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
     /// <summary>纯物理的账号条件同样必须按已发布页绑定。</summary>
     public bool ScopedAccount { get; internal init; }
     /// <summary>名称读取和维护从来源行取得持久父键，候选才使用实际父参数。</summary>
-    public MultiTargetParentScope? AccountParent { get; internal init; }
+    public MultiTargetParentScope? PhysicalParent { get; internal init; }
+    public MultiTargetParentScope? AccountParent=>ScopedAccount?PhysicalParent:null;
     public bool ScopedLogicalPage=>ScopedSelfTree||ScopedCrossTable;
     /// <summary>候选、名称联接和回填均须执行该页的实际范围。</summary>
     public bool RequiresScopedPage=>ScopedLogicalPage||ScopedAccount;
@@ -75,16 +76,16 @@ public static class GlobalSingleRelationTarget
         var scopedCrossTable=allowsLogical&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,expanded,field));
         var scopedAccount=allowsLogical&&target.IsRongyu==0&&!scopedSelfTree&&!scopedCrossTable&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
-        var accountParent=scopedAccount?GlobalCrossTableTarget.PhysicalAccountParent(catalog,target,page):null;
-        if(accountParent is not null)_=accountParent.Source(catalog,owner,foreign,physicalSingle:true);
+        var physicalParent=allowsLogical?GlobalCrossTableTarget.PhysicalSingleParent(catalog,target,page):null;
+        if(physicalParent is not null)_=physicalParent.Source(catalog,owner,foreign,physicalSingle:true);
         if(projectParent)RequireProjectParentPage(catalog,target,page);
-        else if(scopedSelfTree)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page);
-        else if(scopedCrossTable)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,page);
-        else if(scopedAccount)
+        else if(physicalParent is null)
         {
-            if(accountParent is null)GlobalCrossTableTarget.RequireAccountCandidate(catalog,target,page);
+            if(scopedSelfTree)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page);
+            else if(scopedCrossTable)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,page);
+            else if(scopedAccount)GlobalCrossTableTarget.RequireAccountCandidate(catalog,target,page);
+            else GlobalCrossTableTarget.RequireSingle(catalog,target,page);
         }
-        else GlobalCrossTableTarget.RequireSingle(catalog,target,page);
         var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var nameField=Value("nameField");if(nameField.Length==0)nameField="name";var name=targetColumns.SingleOrDefault(column=>column.ColumnName==nameField);
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(targetStorage,target,column);
         // 普通与显式全局来源使用同一终点证明；来源的存储模式和发布身份已由各入口核验。
@@ -105,7 +106,7 @@ public static class GlobalSingleRelationTarget
             throw new NotSupportedException("目标条件必须使用已证明的非凭据标量或逻辑级联字段。");
         }
         // 实时名称和回填使用同一张发布页，禁止任何来源页覆盖表、名称或父键所属的目标页。
-        if(accountParent is not null)
+        if(physicalParent is not null)
         {
             foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==foreign.Id))
             {
@@ -118,10 +119,10 @@ public static class GlobalSingleRelationTarget
                     ReadValue(scope,"tableId") is {Length:>0} selectedTable&&selectedTable!=target.Id||
                     ReadValue(scope,"table") is {Length:>0} selectedName&&selectedName!=target.TableName||
                     ReadValue(scope,"nameField") is {Length:>0} selectedField&&selectedField!=name.ColumnName)
-                    throw new InvalidOperationException("全局单值账号父范围要求各来源页使用同一发布目标和名称。");
+                    throw new InvalidOperationException("全局单值物理父范围要求各来源页使用同一发布目标和名称。");
             }
         }
-        return new(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,ScopedAccount=scopedAccount,AccountParent=accountParent};
+        return new(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,ScopedAccount=scopedAccount,PhysicalParent=physicalParent};
     }
 
     /// <summary>父表及固定页必须属于当前目录，项目列必须真实存在，维护与业务均按当前已验证项目读取。</summary>

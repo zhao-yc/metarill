@@ -60,8 +60,14 @@ public sealed class DerivedRelationNamesTests
     [InlineData(false, true, true, false, false, true, true, true)]
     [InlineData(false, false, false, true, true, false, true, true)]
     [InlineData(false, true, false, false, true, true, true, true)]
+    [InlineData(false, false, true, false, false)]
+    [InlineData(true, true, true, true, true)]
+    [InlineData(false, true, true, true, false, true)]
+    [InlineData(true, false, true, false, true, true)]
+    [InlineData(false, false, true, true, true, false, false, false, true)]
+    [InlineData(true, true, true, false, false, true, false, false, true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false)
+        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -138,6 +144,7 @@ public sealed class DerivedRelationNamesTests
                 table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             target.WhereSql=target.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
             if(listCondition&&parent)target.WhereSql=target.WhereSql.Replace(" AND group_id=@parent_id","",StringComparison.Ordinal);
+            if(selection&&parent)target.IsExport=1;
             catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="";
             catalog.ConfigPages.Single(page=>page.Id=="601").WhereSql="name <> '停用树节点'";
             if(!keepProject)
@@ -145,6 +152,13 @@ public sealed class DerivedRelationNamesTests
                 catalog.ConfigColumns.RemoveAll(column=>column.Id=="22");
                 catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="22");
             }
+        }
+        if(globalParent)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="32");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="32");
+            catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="name <> '父页隐藏'";
         }
         if(redundant)
         {
@@ -193,12 +207,15 @@ public sealed class DerivedRelationNamesTests
                 else
                 {
                     Assert.Contains("CompileCrossPageCandidate(\"2\",\"201\"",service);
-                    Assert.Contains($"ApplyCandidate(query,session,{scope}.BindAccount(actor),\"options_page_101_15\",actor.ProjectId,locking)",service);
+                    Assert.Contains($"ApplyCandidate(query,session,{scope}.BindAccount(actor),\"options_page_101_15\",actor.ProjectId,locking{(parent?",targetParentId":"")})",service);
                 }
                 var start=service.IndexOf(">> OptionsScope101_15Async(",StringComparison.Ordinal);
                 Assert.True(start>=0);
                 var end=service.IndexOf("\n    }",start,StringComparison.Ordinal);
-                Assert.Contains("sourceParentKey && entity.YzProjectId == ",service[start..end]);
+                if(globalParent)
+                    Assert.Contains("OptionsGlobalParent101_15.BindAccount(actor)",service[start..end]);
+                else
+                    Assert.Contains("sourceParentKey && entity.YzProjectId == ",service[start..end]);
                 Assert.DoesNotContain("query = query.Where(entity => entity.YzProjectId",service[start..end]);
             }
             else
@@ -221,6 +238,13 @@ public sealed class DerivedRelationNamesTests
             Assert.DoesNotContain("public async Task<IReadOnlyList<GeneratedOption>> OptionsSelected104_15Async",service);
             Assert.Contains("Import101Async",service);
             Assert.Contains("Export101Async",service);
+            if(selection&&parent&&globalWithProject is not null)
+            {
+                var targetService=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesPartyService.g.cs"));
+                Assert.Contains("CompileGlobalSingleParentPage(\"2\",\"201\"",targetService);
+                Assert.Contains("KeyRowsAsync(CandidateReadPlan201.BindAccount(actor)",targetService);
+                Assert.Contains("ExportReadPlan201=global::Example.ScopedSingleRelation.Generated.GeneratedNonRedundantReadCatalog.CompileGlobalSingleParentPage(",targetService);
+            }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             foreach(var name in new[]{"DrNamesOrderService","DrNamesPartyService"})
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
@@ -407,9 +431,9 @@ public sealed class DerivedRelationNamesTests
             if(global&&parent&&selection)
             {
                 var targetService=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesPartyService.g.cs"));
-                Assert.Contains("CompileGlobalAccountSinglePage(\"2\",\"201\"",targetService);
+                Assert.Contains("CompileGlobalSingleParentPage(\"2\",\"201\"",targetService);
                 Assert.Contains("KeyRowsAsync(CandidateReadPlan201.BindAccount(actor)",targetService);
-                Assert.Contains("ExportReadPlan201=global::Example.SingleAccountPage.Generated.GeneratedNonRedundantReadCatalog.CompileGlobalAccountSinglePage(",targetService);
+                Assert.Contains("ExportReadPlan201=global::Example.SingleAccountPage.Generated.GeneratedNonRedundantReadCatalog.CompileGlobalSingleParentPage(",targetService);
                 if(globalParent)
                 {
                     var detail=File.ReadAllText(Path.Combine(directory,"generated/frontend/pages/yzp/dr_names_order-detail-101.vue"));

@@ -57,15 +57,34 @@ public static class NonRedundantCrossTableScopeSql
 
     /// <summary>保存及导入在原事务内锁定通过已发布候选条件的目标。</summary>
     public static ISelect<T> ApplyCandidate<T>(ISelect<T> query,DatabaseSession session,NonRedundantReadPlan plan,
-        string parameterPrefix,string projectId,bool locking)where T:class
+        string parameterPrefix,string projectId,bool locking)where T:class=>
+        ApplyCandidate(query,session,plan,parameterPrefix,projectId,locking,parentId:null);
+
+    /// <summary>需要物理父的候选必须绑定服务端已证明的规范父ID，普通候选仍拒绝额外父参数。</summary>
+    public static ISelect<T> ApplyCandidate<T>(ISelect<T> query,DatabaseSession session,NonRedundantReadPlan plan,
+        string parameterPrefix,string projectId,bool locking,string? parentId)where T:class
     {
         MetadataValidation.RequireIdentifier(parameterPrefix);
         if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("固定候选锁定必须加入真实事务。");
         var compiled=plan.MySql;
-        if(session.Provider.Name!="mysql"||!compiled.HasPublishedCandidateCondition||compiled.RequiredMultiParent is not null||
-            compiled.CandidateParents.Count!=0||compiled.ProjectId!=projectId)
-            throw new InvalidOperationException("查询必须使用当前项目无独立父参数的固定候选页。");
-        return ApplyScope(query,session,compiled,parameterPrefix,projectId,locking,[],new(StringComparer.Ordinal));
+        if(session.Provider.Name!="mysql"||!compiled.HasPublishedCandidateCondition||compiled.CandidateParents.Count!=0||
+            compiled.ProjectId!=projectId||(compiled.RequiredMultiParent is null)!=(parentId is null))
+            throw new InvalidOperationException("查询必须使用当前项目的固定候选和已声明的父参数。");
+        var parameters=new Dictionary<string,object?>(StringComparer.Ordinal);
+        if(compiled.RequiredMultiParent is not {} field)
+            return ApplyScope(query,session,compiled,parameterPrefix,projectId,locking,[],parameters);
+        if(!Positive(parentId!,out var id))throw new ArgumentException("固定候选父ID必须为规范正整数。",nameof(parentId));
+        var name=parameterPrefix+"_parent";
+        var expression=compiled.Expression(field);
+        var placeholder=session.Provider.ParameterPlaceholder(name);
+        var predicate=compiled.Types[field] switch
+        {
+            "string"=>"BINARY ("+expression+")=BINARY "+placeholder,
+            "int64"=>expression+"="+placeholder,
+            _=>throw new InvalidOperationException("固定候选父字段类型不受支持。")
+        };
+        parameters.Add(name,compiled.Types[field]=="string"?parentId:(object)id);
+        return ApplyScope(query,session,compiled,parameterPrefix,projectId,locking,[predicate],parameters);
     }
 
     /// <summary>物理对象查询与固定逻辑谓词按同一主键关联，账户和条件值全部参数化。</summary>

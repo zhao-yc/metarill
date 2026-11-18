@@ -75,7 +75,7 @@ internal static class RelationCompilation
                 throw new InvalidOperationException("固定条件的候选必须与外键及显示来源的目标一致。");
             var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column, owner, page)).DistinctBy(parent => parent.Source.Id).ToArray();
             var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,target,targetPage);
-            var globalParent=MultiGlobalParentCompilation.PhysicalAccountTarget(model,target,targetPage);
+            var globalParent=Metarill.Core.Metadata.GlobalCrossTableTarget.PhysicalSingleParent(model.Catalog,target.Source,targetPage.Source);
             var targetParents = targetPage.Scopes.Concat(scopes).Where(scope => scope.Source == "parent")
                 .Select(scope => accountParent||globalParent?.Target.Id==scope.Column.Source.Id
                     ?Parent(model,scope.Column,target,targetPage):Parent(model,scope.Column))

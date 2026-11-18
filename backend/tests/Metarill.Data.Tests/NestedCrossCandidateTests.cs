@@ -161,8 +161,12 @@ public sealed class NestedCrossCandidateTests
     [InlineData("SelectPage",true,"int64",true)]
     [InlineData("List",false,"string",false,true)]
     [InlineData("SelectPage",true,"int64",false,true)]
+    [InlineData("List",false,"string",false,false,true)]
+    [InlineData("SelectPage",true,"int64",true,false,true)]
+    [InlineData("List",true,"string",true,false,true,true)]
+    [InlineData("SelectPage",false,"int64",false,false,true,true)]
     public async Task Global_single_relation_joins_only_targets_visible_in_the_fixed_tree_page(string kind,bool rowProject,string key,bool cross,
-        bool physicalAccount=false)
+        bool physicalAccount=false,bool physicalParent=false,bool globalParent=false)
     {
         var catalog=Catalog(false);
         var source=catalog.ConfigTables.Single(table=>table.Id=="90");
@@ -182,6 +186,22 @@ public sealed class NestedCrossCandidateTests
         if(physicalAccount)page.WhereSql+=" AND name <> '限制叶子'";
         else if(cross)page.WhereSql+=" AND country_name <> '限制叶子'";
         else AddVisibilityLeafScope(catalog,source,target,page,true);
+        if(physicalParent)
+        {
+            page.WhereSql+=" AND group_id=@parent_id";
+            catalog.ConfigColumns.AddRange([
+                new(){Id="9512",ConfigTableId=target.Id,ColumnName="group_id",LogicalType="int64",LinkConfigTableId="91"},
+                new(){Id="9017",ConfigTableId=source.Id,ColumnName="group_id",LogicalType=key,LinkConfigTableId="91"}
+            ]);
+            if(globalParent)
+            {
+                catalog.ConfigTables.Single(table=>table.Id=="91").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                var parent=catalog.ConfigPages.Single(item=>item.Id=="91");
+                parent.YzProjectId=catalog.YzProjectId;
+                parent.YzAdminTypeId="5";
+                parent.WhereSql="name <> '父页隐藏'";
+            }
+        }
         catalog.ConfigColumns.Add(new(){Id="9014",ConfigTableId=source.Id,ColumnName="shared_id",LogicalType=key,ControlKind=kind,LinkConfigTableId=target.Id,
             ControlDetail=JsonSerializer.Serialize(new{tableId=target.Id,pageId=page.Id,nameField="name"})});
         catalog.ConfigColumns.Add(new(){Id="9015",ConfigTableId=source.Id,ColumnName="shared_name",LogicalType="string",Extra=new()
@@ -189,6 +209,9 @@ public sealed class NestedCrossCandidateTests
             ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
             ["columnFullName"]=JsonSerializer.SerializeToElement("shared.name")
         }});
+        var sourcePage=new PageMetadata{Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
+            WhereSql="yz_project_id=@current_yz_project_id"+(physicalParent?" AND group_id=@parent_id":"")};
+        catalog.ConfigPages.Add(sourcePage);
         var actor=new RuntimeActor(1,"发布项目账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
         var plan=NonRedundantReads.Compile(catalog,source.Id,["id","shared_name"]);
         var candidate=physicalAccount?NonRedundantReads.CompileGlobalCandidate(catalog,target.Id,page.Id,["id","name"]):
@@ -196,7 +219,7 @@ public sealed class NestedCrossCandidateTests
         Assert.True(plan.MySql.RequiresPublishedProjectIdentity);
         Assert.True(plan.MySql.RequiresAccount);
         Assert.Contains("b.`yz_project_id`=@project_scope_number",plan.MySql.Scope);
-        Assert.DoesNotContain("r0.`yz_project_id`=",plan.MySql.From);
+        Assert.DoesNotContain(" r0.`yz_project_id`=",plan.MySql.From);
         Assert.DoesNotContain("b.`yz_project_id`=",candidate.MySql.Scope);
         if(physicalAccount)
         {
@@ -225,10 +248,24 @@ public sealed class NestedCrossCandidateTests
             ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
         await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new NonRedundantReader(session)
             .RowsAsync(plan.BindAccount(actor),[],[],1,projectId:"999"));
+        if(physicalParent)
+        {
+            var bound=candidate.BindAccount(actor);
+            Assert.Equal("group_id",bound.MySql.RequiredMultiParent);
+            Assert.Contains("nested_outer_leaf",bound.MySql.Scope);
+            Assert.Contains("b.`group_id`",plan.MySql.From);
+            Assert.Throws<InvalidOperationException>(()=>NonRedundantCrossTableScopeSql.ApplyCandidate(
+                session.Select<ScopeRow>(),session,bound,"options",actor.ProjectId,false));
+            Assert.Throws<ArgumentException>(()=>NonRedundantCrossTableScopeSql.ApplyCandidate(
+                session.Select<ScopeRow>(),session,bound,"options",actor.ProjectId,false,"071"));
+            var sql=NonRedundantCrossTableScopeSql.ApplyCandidate(session.Select<ScopeRow>(),session,bound,
+                "options",actor.ProjectId,false,"9007199254740993").ToSql();
+            Assert.Contains("b.`group_id`=@options_parent",sql);
+            Assert.DoesNotContain("9007199254740993",sql);
+            if(globalParent)Assert.Contains("父页隐藏",bound.MySql.Constants.Values);
+        }
         source.IsRongyu=1;
-        var sourcePage=new PageMetadata{Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
-            WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"};
-        catalog.ConfigPages.Add(sourcePage);
+        sourcePage.WhereSql+=" AND store_id=@current_store_id";
         catalog.ConfigColumns.Add(new(){Id="9016",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"});
         var cacheBinding=new RelationCacheDefinition(source.Id,"9014",target.Id,
             catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="name").Id,"9015",false)
@@ -241,6 +278,12 @@ public sealed class NestedCrossCandidateTests
         Assert.Contains("b.`store_id`",consumer.Read.Expression("shared_name"));
         Assert.Contains("CASE WHEN r0.`id` IS NOT NULL",consumer.Read.Expression("shared_name"));
         Assert.False(consumer.Read.RequiresAccount);
+        if(physicalParent)
+        {
+            Assert.Contains("group_id",consumer.Inputs);
+            Assert.Contains("nested_outer_leaf",consumer.Read.Expression("shared_name"));
+            Assert.Single(consumer.Read.Reverse,item=>item.TargetTable=="nested_outer_leaf");
+        }
         if(!physicalAccount)
             Assert.Single(consumer.Read.Reverse,item=>item.TargetTable==(cross?"nested_country":"nested_visibility"));
         if(cross)Assert.Single(consumer.Read.Reverse,item=>item.TargetTable=="nested_place");

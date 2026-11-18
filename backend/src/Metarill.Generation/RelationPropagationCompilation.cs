@@ -136,7 +136,7 @@ internal static class RelationPropagationCompilation
         {
             if(!visited.Add(root.Page.Source.Id))continue;
             tables.Add(root.Table.Source.Id);
-            if(MultiGlobalParentCompilation.PhysicalAccountTarget(model,root.Table,root.Page) is {} parent)
+            if(MultiGlobalParentCompilation.PhysicalSingleTarget(model,root.Table,root.Page) is {} parent)
             {
                 var parentTable=model.Tables.Single(table=>table.Source.Id==parent.Parent.Id);
                 var parentPageId=Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(model.Catalog,root.Table.Source.Id,root.Page.Source.Id);

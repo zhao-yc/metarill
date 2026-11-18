@@ -833,7 +833,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         {
             var suffix = page.Source.Id + "_" + relation.SourceColumn.Source.Id;
             var accountParents=SharedRedundantParentCompilation.AccountPlans(model,relation.Target,relation.TargetPage);
-            var fixedGlobalParent=MultiGlobalParentCompilation.PhysicalAccountTarget(model,relation.Target,relation.TargetPage);
+            var fixedGlobalParent=MultiGlobalParentCompilation.PhysicalSingleTarget(model,relation.Target,relation.TargetPage);
             var targetParentPlan="OptionsGlobalParent"+suffix;
             if(fixedGlobalParent is not null)
                 result.Append(MultiGlobalParentCompilation.Declaration(model,relation.TargetPage,targetParentPlan));
@@ -914,7 +914,10 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if(relation.Target.IsGlobal&&logicalPlan is not null)
             {
                 if(relation.Conditions?.HasLogicalFields!=true)
-                    result.AppendLine($"        query=NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,{logicalPlan},\"options_page_{suffix}\",actor.ProjectId,locking);");
+                {
+                    var bindsParent=Metarill.Core.Metadata.GlobalCrossTableTarget.PhysicalSingleParent(model.Catalog,relation.Target.Source,relation.TargetPage.Source) is not null;
+                    result.AppendLine($"        query=NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,{logicalPlan},\"options_page_{suffix}\",actor.ProjectId,locking{(bindsParent?",targetParentId":"")});");
+                }
             }
             else result.Append(FixedPageConditionCompilation.Apply(relation.TargetPage,"OptionsPageCondition"+suffix,"options_page_"+suffix,logicalPlan,"locking"));
             result.Append(SharedRedundantParentCompilation.ApplyAccountScope(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix,"r1_options","locking"))

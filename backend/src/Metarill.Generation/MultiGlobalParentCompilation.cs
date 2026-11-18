@@ -17,14 +17,14 @@ internal static class MultiGlobalParentCompilation
     internal static string Check(string plan,string key,string currentRead)=>
         $"        if((await new Metarill.Data.Queries.NonRedundantReader(session).KeyRowsAsync({plan}.BindAccount(actor),[],[{key}],cancellationToken,actor.ProjectId,currentRead:{currentRead})).Count!=1)throw new InvalidOperationException(\"全局父记录不存在、已删除或不在固定父范围。\");";
 
-    /// <summary>单值的账号范围只接受实际目标页声明的全局物理父键。</summary>
-    internal static MultiTargetParentScope? PhysicalAccountTarget(GenerationModel model,TableModel table,PageModel page)=>
-        GlobalCrossTableTarget.PhysicalAccountParent(model.Catalog,table.Source,page.Source) is {Global:true} parent?parent:null;
+    /// <summary>单值范围只接受实际目标页声明的全局物理父键。</summary>
+    internal static MultiTargetParentScope? PhysicalSingleTarget(GenerationModel model,TableModel table,PageModel page)=>
+        GlobalCrossTableTarget.PhysicalSingleParent(model.Catalog,table.Source,page.Source) is {Global:true} parent?parent:null;
 
     /// <summary>按目标页证明的实际全局父键，原多值引用保持已有同页校验。</summary>
     internal static PageModel? PhysicalTarget(GenerationModel model,TableModel table,PageModel page)
     {
-        if(PhysicalAccountTarget(model,table,page) is not null)return page;
+        if(PhysicalSingleTarget(model,table,page) is not null)return page;
         if(!FixedPageConditionCompilation.HasMultiTargetScope(table,page))return null;
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
         if(parents.Length!=1)return null;
@@ -73,12 +73,12 @@ internal static class MultiGlobalParentCompilation
         foreach(var foreign in table.Columns.Where(column=>column.Source.ControlKind is "List" or "SelectPage"&&column.Source.Id!=source.Source.Id))
         {
             if(ForeignValidationRenderer.Target(model,foreign) is not {IsGlobal:true} target||
-                !target.Pages.Any(page=>PhysicalAccountTarget(model,target,page)?.Parent.Id==parentTable.Source.Id))
+                !target.Pages.Any(page=>PhysicalSingleTarget(model,target,page)?.Parent.Id==parentTable.Source.Id))
                 continue;
             var proof=table.Source.IsRongyu==1
                 ?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source)
                 :GlobalSingleRelationTarget.Require(model.Catalog,table.Source,foreign.Source,target.Source);
-            if(proof.AccountParent is not {Global:true} parent||
+            if(proof.PhysicalParent is not {Global:true} parent||
                 parent.Source(model.Catalog,table.Source,foreign.Source,physicalSingle:true).Column.Id!=source.Source.Id)
                 continue;
             yield return (foreign,target.Pages.Single(page=>page.Source.Id==proof.Page.Id));
