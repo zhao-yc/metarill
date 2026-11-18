@@ -50,7 +50,7 @@ internal static class RelationCompilation
                 throw new InvalidOperationException("关联目标未声明项目归属或明确的全局范围：" + target.Source.TableName);
             var name = selection?.Name ?? target.Columns.SingleOrDefault(c => c.Source.ColumnName == Mapped("nameField", "name"));
             if (name is null) continue;
-            var integerName = DerivedRelationNamesCompilation.IsIntegerListName(model, owner, source, target, name);
+            var integerName = DerivedRelationNamesCompilation.IsIntegerName(model, owner, target, name);
             if (name.Type != "string?" && !integerName) continue;
             if (ManagerCredentialCompilation.IsCredential(target,name)) throw new InvalidOperationException("账号凭据不能作为关系名称、候选或导出读取列。");
             var explicitPage = source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
@@ -72,7 +72,10 @@ internal static class RelationCompilation
             var binding = FixedParentRelationCompilation.Resolve(model, page, source, sourceParents, targetParents, targetPage.Scopes.Concat(scopes).ToArray());
             IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
             var orderBy = Mapped("orderBy");
-            if (!string.IsNullOrWhiteSpace(orderBy) && (binding.Binding is not null ||
+            // 单选弹层和辅助回读采用同一目标排序，包括稳定的主键次序。
+            if (integerName && selection is not null)
+                ordering = FixedPageQueryCompilation.For(target, targetPage).DefaultOrder;
+            else if (!string.IsNullOrWhiteSpace(orderBy) && (binding.Binding is not null ||
                 source.Source.ControlKind == "List" && (integerName || NonRedundantReadCompilation.Physical(model, target, name))))
             {
                 try

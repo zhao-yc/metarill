@@ -105,11 +105,17 @@ internal static class GeneratedNonRedundantReadCatalog
         // 名称辅助键在SQL分页/统计之前解析；不能把IsIgnore实体列当持久化列查询。
         foreach(var binding in names.Bindings)
         {
-            if(binding.Kind is not(SelectionNameFilterKind.JoinedScalarLike or SelectionNameFilterKind.JoinedJsonArrayAnyLike))throw new InvalidOperationException("非冗余名称筛选缺少固定联接证明。");
+            var comparison = binding.Kind switch
+            {
+                SelectionNameFilterKind.JoinedScalarLike => "Contains",
+                SelectionNameFilterKind.JoinedIntegerLike => "IntegerLabelContains",
+                SelectionNameFilterKind.JoinedJsonArrayAnyLike => "JsonArrayAnyContains",
+                _ => throw new InvalidOperationException("非冗余名称筛选缺少固定联接证明。")
+            };
             result.AppendLine($"                case {Literal(binding.FilterKey)}:")
                 .AppendLine("                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(filter.Value.GetString()))break;")
                 .AppendLine("                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException(\"名称筛选只接受文本。\");")
-                .AppendLine($"                    result.Add(new({Literal(binding.StorageColumn.Source.ColumnName)},FixedReadComparison.{(binding.Kind==SelectionNameFilterKind.JoinedJsonArrayAnyLike?"JsonArrayAnyContains":"Contains")},filter.Value.GetString()!));break;");
+                .AppendLine($"                    result.Add(new({Literal(binding.StorageColumn.Source.ColumnName)},FixedReadComparison.{comparison},filter.Value.GetString()!));break;");
         }
         foreach(var group in names.Gaps.GroupBy(gap=>gap.FilterKey,StringComparer.Ordinal))
             result.AppendLine($"                case {Literal(group.Key)}:")
@@ -128,7 +134,13 @@ internal static class GeneratedNonRedundantReadCatalog
                     .AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,DateTime.Parse(filter.Value.GetString()!,CultureInfo.InvariantCulture)));break;");
             else
             {
-                var parse=column.Type=="TimeSpan?"?$"{TimeFieldCompilation.Value(column)}.Parse(filter.Value)":Checkbox(column)?"CheckboxBooleanJsonConverter.Parse(filter.Value)":$"JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(),JsonOptions)";
+                // 原数字筛选框提交文本；整数按精确值解析，保持选择弹层与普通列表的请求形状。
+                var parse = column.Type switch
+                {
+                    "TimeSpan?" => $"{TimeFieldCompilation.Value(column)}.Parse(filter.Value)",
+                    "int?" when !Checkbox(column) => "filter.Value.ValueKind==JsonValueKind.String?int.Parse(filter.Value.GetString()!,NumberStyles.Integer,CultureInfo.InvariantCulture):filter.Value.GetInt32()",
+                    _ => Checkbox(column) ? "CheckboxBooleanJsonConverter.Parse(filter.Value)" : $"JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(),JsonOptions)"
+                };
                 var parseArray=column.Type=="TimeSpan?"?$"filter.Value.EnumerateArray().Select({TimeFieldCompilation.Value(column)}.Parse).Cast<object?>().ToArray()":Checkbox(column)?"filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).Cast<object?>().ToArray()":$"JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(),JsonOptions)!.Cast<object?>().ToArray()";
                 result.AppendLine($"                    if(filter.Value.ValueKind==JsonValueKind.Array){{result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.In,{parseArray}));break;}}")
                     .AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.{(like?"LikePattern":"Equal")},{parse}));break;");

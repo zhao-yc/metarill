@@ -1,4 +1,9 @@
+using System.Globalization;
+using System.Reflection;
 using System.Text.Json;
+using Metarill.Core.Contracts;
+using Metarill.Core.Security;
+using Metarill.Data.Queries;
 using Metarill.Core.Metadata;
 using Xunit;
 namespace Metarill.Generation.Tests;
@@ -19,16 +24,84 @@ public sealed class DerivedSingleSelectionTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>从生成服务执行两个筛选入口，验证模糊联接名称、目标精确筛选和回执的原 JSON 类型。</summary>
+    [Theory]
+    [InlineData("int32", "-2000000001", false)]
+    [InlineData("int64", "9007199254740993", true)]
+    public async Task Integer_selection_keeps_name_filters_and_receipt_precision(string logicalType, string label, bool parent)
+    {
+        var catalog = Catalog("derived_single", parent);
+        ConfigureIntegerSelection(catalog, logicalType);
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-derived-integer-select");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, "Example.IntegerSelection");
+            var model = GenerationModel.Create(catalog, "Example.IntegerSelection");
+            Assert.Empty(GenerationCapabilityAudit.Collect(model));
+            var source = model.Tables.Single(table => table.Source.Id == "1");
+            var sourcePage = source.Pages.Single(page => page.Source.Id == "101");
+            var nameFilter = SelectionNameFilterCompilation.ForPage(model, source, sourcePage);
+            Assert.Empty(nameFilter.Gaps);
+            var binding = Assert.Single(nameFilter.Bindings);
+            Assert.Equal("customerCompanyName", binding.FilterKey);
+            Assert.Equal(SelectionNameFilterKind.JoinedIntegerLike, binding.Kind);
+            var service = await File.ReadAllTextAsync(Path.Combine(output, "Services/DerivedSingleOrderService.g.cs"));
+            Assert.Contains("""[new("company_name", true), new("id", true)]""", service);
+            Assert.Contains("""scope.Filters.Add(new("company_name", FixedReadComparison.Equal, key));""", service);
+            Assert.Contains("DerivedOptionsRows101_15Async", service);
+
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var actor = new RuntimeActor(9, "示例账号", false, catalog.YzProjectId, "5");
+            var request = new PageRequest { ParentId = "71", Filters = new() { [binding.FilterKey] = JsonSerializer.SerializeToElement(label[..^1]) } };
+            var sourceService = assembly.GetType("Example.IntegerSelection.Generated.Services.DerivedSingleOrderService")!;
+            var sourceFilters = (List<FixedReadFilter>)sourceService.GetMethod("ReadFilters101", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [request, actor])!;
+            var filter = Assert.Single(sourceFilters, item => item.Field == "customer_company_name");
+            Assert.Equal(FixedReadComparison.IntegerLabelContains, filter.Comparison);
+            Assert.Equal(label[..^1], filter.Value);
+
+            request.Filters = new() { ["companyName"] = JsonSerializer.SerializeToElement(label) };
+            var targetService = assembly.GetType("Example.IntegerSelection.Generated.Services.DerivedSinglePartyService")!;
+            var targetFilters = (List<FixedReadFilter>)targetService.GetMethod("ReadFilters201", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, [request, actor])!;
+            var exact = Assert.Single(targetFilters, item => item.Field == "company_name");
+            Assert.Equal(FixedReadComparison.Equal, exact.Comparison);
+            object expected = logicalType == "int32" ? (object)int.Parse(label, CultureInfo.InvariantCulture) : long.Parse(label, CultureInfo.InvariantCulture);
+            Assert.Equal(expected, exact.Value);
+
+            var target = model.Tables.Single(table => table.Source.Id == "2");
+            var page = target.Pages.Single(item => item.Source.Id == "201");
+            var targetVo = assembly.GetType("Example.IntegerSelection.Generated.VOs." + page.Name + "Vo")!;
+            var row = NonRedundantReadCompilation.ForPage(model, target, page).ReadOutputs.ToDictionary(name => name, name => (object?)null);
+            row["id"] = 9007199254740995L;
+            row["company_name"] = expected;
+            var receipt = targetVo.GetMethod("FromReadRow")!.Invoke(null, [row]);
+            var json = JsonSerializer.SerializeToElement(receipt, Metarill.Runtime.JsonDefaults.Options);
+            Assert.Equal("9007199254740995", json.GetProperty("id").GetString());
+            Assert.Equal(logicalType == "int32" ? JsonValueKind.Number : JsonValueKind.String, json.GetProperty("companyName").ValueKind);
+            Assert.Equal(label, json.GetProperty("companyName").ToString());
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>整数联接使用目标页的默认排序，选择弹层与辅助候选共用。</summary>
+    private static void ConfigureIntegerSelection(MetadataCatalog catalog, string logicalType)
+    {
+        DerivedRelationNamesTests.UseIntegerName(catalog, logicalType);
+        catalog.ConfigPages.Single(page => page.Id == "201").OrderBy = "company_name desc";
+    }
+
     /// <summary>完整包构建、原Vue回执及更新保护共同证明，没有另写单选页面。</summary>
-    [Theory][InlineData(false)][InlineData(true)]
-    public async Task Full_derived_selection_keeps_original_vue_and_handwritten_partial(bool parent)
+    [Theory][InlineData(false, false)][InlineData(true, false)][InlineData(true, true)]
+    public async Task Full_derived_selection_keeps_original_vue_and_handwritten_partial(bool parent, bool integerName)
     {
         var root=NonRedundantApplicationFixture.Root();var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-single-full");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));var output=Path.Combine(directory,"application");var c=Catalog("derived_single",parent);
+        if(integerName)ConfigureIntegerSelection(c,"int64");
         try
         {
             Assert.True(new ApplicationPackager().Create(c,output,"Example.DerivedSingleApplication",root).FrontendIncluded);foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(output,operation);
             foreach(var asset in new[]{"common/yzp_runtime/originalSelectionPageMixin.js","common/yzp_runtime/selectionPageMixin.js"})Assert.Equal(File.ReadAllBytes(Path.Combine(root,"frontend/metarill_uni_admin",asset)),File.ReadAllBytes(Path.Combine(output,"frontend",asset)));
-            var start=new System.Diagnostics.ProcessStartInfo("node"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true};foreach(var arg in new[]{Path.Combine(root,"backend/tests/Metarill.Generation.Tests/NonRedundantSingleSelectionProbe.mjs"),output,parent?"parent":"plain","derived_single","customerCompanyName","companyName"})start.ArgumentList.Add(arg);using var process=System.Diagnostics.Process.Start(start)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));try{await process.WaitForExitAsync(timeout.Token);}catch(Exception error){await SharedSourceBuildGate.StopOwnProcessAsync(process,stdout,stderr,error);throw;}Assert.True(process.ExitCode==0,await stdout+await stderr);
+            var start=new System.Diagnostics.ProcessStartInfo("node"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false,CreateNoWindow=true};foreach(var arg in new[]{Path.Combine(root,"backend/tests/Metarill.Generation.Tests/NonRedundantSingleSelectionProbe.mjs"),output,parent?"parent":"plain","derived_single","customerCompanyName","companyName",integerName?"int64":"string"})start.ArgumentList.Add(arg);using var process=System.Diagnostics.Process.Start(start)!;var stdout=process.StandardOutput.ReadToEndAsync();var stderr=process.StandardError.ReadToEndAsync();using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));try{await process.WaitForExitAsync(timeout.Token);}catch(Exception error){await SharedSourceBuildGate.StopOwnProcessAsync(process,stdout,stderr,error);throw;}Assert.True(process.ExitCode==0,await stdout+await stderr);
             using(var capabilities=JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(output,"backend/generated/generation-capabilities.json")))){var names=capabilities.RootElement.GetProperty("supportedControlSubsets").EnumerateArray().Where(item=>item.GetProperty("controlKind").GetString()=="SelectPage").ToArray();Assert.Equal(parent?3:2,names.Length);Assert.All(names,item=>Assert.True(item.GetProperty("derivedNameSupported").GetBoolean()));}
             var hand=Path.Combine(output,"backend/generated/Services/DerivedSingleOrderService.cs");await File.AppendAllTextAsync(hand,"\n// 原单选派生名称手写保护。\n");var bytes=await File.ReadAllBytesAsync(hand);var candidate=Path.Combine(directory,"candidate");new ApplicationPackager().Create(c,candidate,"Example.DerivedSingleApplication",root);var updater=new LocalGenerationUpdater();var plan=updater.Preview(output,candidate,["generate-project-config","sync-runtime","generate-all-page"]);Assert.True(plan.CanApply);updater.Apply(plan,plan.PlanSha256);Assert.Equal(bytes,await File.ReadAllBytesAsync(hand));
         }

@@ -35,18 +35,7 @@ public sealed class DerivedRelationNamesTests
     public async Task Derived_list_integer_name_compiles_lookup_and_preserves_precision(string logicalType, string clrType, string expected, bool contextual)
     {
         var catalog = Catalog("dr_names", contextual);
-        // 客户选公司时仍使用原字符串名称，订单选客户时使用独立的公司编号联接列。
-        catalog.ConfigColumns.Add(new()
-        {
-            Id = "45", ConfigTableId = "4", YzProjectId = catalog.YzProjectId, ColumnName = "code", LogicalType = logicalType
-        });
-        catalog.ConfigPageColumns.Add(new()
-        {
-            Id = "40145", ConfigPageId = "401", ConfigColumnId = "45", YzProjectId = catalog.YzProjectId
-        });
-        foreach (var column in catalog.ConfigColumns.Where(column => column.Id is "28" or "113"))
-            column.LogicalType = logicalType;
-        catalog.ConfigColumns.Single(column => column.Id == "28").Extra["columnFullName"] = JsonSerializer.SerializeToElement("company.code");
+        UseIntegerName(catalog, logicalType);
         var control = catalog.ConfigColumns.Single(column => column.Id == "15");
         var options = JsonSerializer.Deserialize<Dictionary<string, string>>(control.ControlDetail)!;
         options["orderBy"] = "status desc, company_name desc";
@@ -79,6 +68,23 @@ public sealed class DerivedRelationNamesTests
             Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog, "Example.IntegerList")));
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>List 与 SelectPage 共用同一派生业务编号模型，原公司名称仍是字符串。</summary>
+    internal static void UseIntegerName(MetadataCatalog catalog, string logicalType)
+    {
+        // 客户选公司时仍使用原字符串名称，订单选客户时使用独立的公司编号联接列。
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "45", ConfigTableId = "4", YzProjectId = catalog.YzProjectId, ColumnName = "code", LogicalType = logicalType
+        });
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id = "40145", ConfigPageId = "401", ConfigColumnId = "45", YzProjectId = catalog.YzProjectId
+        });
+        foreach (var column in catalog.ConfigColumns.Where(column => column.Id is "28" or "113"))
+            column.LogicalType = logicalType;
+        catalog.ConfigColumns.Single(column => column.Id == "28").Extra["columnFullName"] = JsonSerializer.SerializeToElement("company.code");
     }
 
     /// <summary>实际完整包包含原List组件和只读名称，重新更新保护手写partial。</summary>
