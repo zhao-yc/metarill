@@ -63,8 +63,8 @@ internal static class MultiSelectExcelRenderer
         _ => "MultiValueLabel.Text("+Literal(label.Source.LogicalType)+","+input+")"
     };
     /// <summary>原工作簿名称接收文本或数值，布尔名称另外兼容原始 JSON 布尔标量。</summary>
-    internal static string InvalidLabelKind(ColumnModel label,bool allowNumber)=>
-        "item.ValueKind is not (JsonValueKind.String"+(allowNumber?" or JsonValueKind.Number":"")+
+    internal static string InvalidLabelKind(ColumnModel label,bool allowNumber,string input="item")=>
+        input+".ValueKind is not (JsonValueKind.String"+(allowNumber?" or JsonValueKind.Number":"")+
         (label.Source.LogicalType=="bool"?" or JsonValueKind.True or JsonValueKind.False":"")+")";
     /// <summary>上下文值按声明物理类型绑定，不经浮点数。</summary>
     private static string Scope(ColumnModel column,string value)=>column.Type switch{"string?"=>value,"int?"=>$"int.Parse({value},CultureInfo.InvariantCulture)",_=>$"long.Parse({value},CultureInfo.InvariantCulture)"};

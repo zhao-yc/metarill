@@ -145,7 +145,7 @@ public sealed class CascadeTreeReadTests
         }
     }
 
-    private sealed class TreeListOnly(RuntimeActor actor):IRuntimeAuthorization
+    internal sealed class TreeListOnly(RuntimeActor actor):IRuntimeAuthorization
     {
         public RuntimeActor RequireActor()=>actor;
         public void RequirePagePermission(string page,string operation)

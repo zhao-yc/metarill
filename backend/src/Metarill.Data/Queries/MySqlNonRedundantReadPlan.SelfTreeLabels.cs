@@ -1,5 +1,6 @@
 using System.Globalization;
 using Metarill.Core.Cascades;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
 using Metarill.Data.Relations;
@@ -39,7 +40,7 @@ public static partial class MySqlNonRedundantReadCompiler
         if(parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id" or "insert_user_id" or "update_user_id"||
             parent.LogicalType is not("string" or "int64")||!GlobalPhysicalRelationValue.IsScalar(storage,target,parent)&&!IsSelfTreeParent(target,storage,parent)||
             parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=target.Id||
-            name.Id==parent.Id||name.ColumnName=="id"||name.LogicalType is not("string" or "int32" or "int64")||
+            name.Id==parent.Id||name.ColumnName=="id"||name.LogicalType!="string"&&!MultiValueLabel.IsTyped(name.LogicalType)||
             name.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(name.ColumnName)||
             (storage.IsPhysical(name)?!GlobalPhysicalRelationValue.IsScalar(storage,target,name)&&
                 !GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,storage,target,name):

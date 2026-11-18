@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
 using Metarill.Data.Queries;
@@ -37,7 +38,7 @@ public static class SelfTreeCache
         var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id));var storage=MetadataStoragePolicy.ForTable(catalog,target);var value=columns.Single(c=>c.ColumnName==Text(tree,"nameField","name"));var parent=columns.Single(c=>c.ColumnName==Text(tree,"parentField",""));
         var derived=!storage.IsPhysical(value);
         var integerCache=GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,storage,target,value);
-        if(value.Id==parent.Id||value.ColumnName=="id"||value.LogicalType is not("string" or "int32" or "int64")||(!derived&&!integerCache&&!Scalar(storage,value))||derived&&(target.IsRongyu!=0||value.IsVirtualColumn!=0||storage.Kind(value)!=MetadataFieldStorage.Join)||parent.LogicalType is not("string" or "int64")||!Scalar(storage,parent)||parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id"||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=target.Id)throw Invalid();
+        if(value.Id==parent.Id||value.ColumnName=="id"||value.LogicalType!="string"&&!MultiValueLabel.IsTyped(value.LogicalType)||(!derived&&!integerCache&&!Scalar(storage,value))||derived&&(target.IsRongyu!=0||value.IsVirtualColumn!=0||storage.Kind(value)!=MetadataFieldStorage.Join)||parent.LogicalType is not("string" or "int64")||!Scalar(storage,parent)||parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id"||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=target.Id)throw Invalid();
         // 派生叶子须由同一匹配编译器证明，缓存一律使用原名称文本。
         var global=GlobalCrossTableTarget.Declared(target);
         var globalSource=GlobalCrossTableTarget.Declared(source);

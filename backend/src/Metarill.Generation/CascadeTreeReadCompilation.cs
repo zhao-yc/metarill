@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Metarill.Core.Contracts;
 
 namespace Metarill.Generation;
 
@@ -40,7 +41,7 @@ internal static class CascadeTreeReadCompilation
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==Text(tree,"nameField","name"));
             var parent=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==Text(tree,"parentField"));
             bool Physical(ColumnModel column)=>NonRedundantReadCompilation.Physical(model,target,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&!column.IsJsonArray&&!ManagerCredentialCompilation.IsCredential(target,column);
-            if(name is null || parent is null || name.Source.Id==parent.Source.Id || name.Type is not("string?" or "int?" or "long?") || parent.Type is not("string?" or "long?") || !Physical(parent)||parent.IsSystem)return Gap("名称/父字段必须为非凭据物理标量，父字段为字符串或int64。");
+            if(name is null || parent is null || name.Source.Id==parent.Source.Id || name.IsJsonArray || name.Source.LogicalType!="string"&&!MultiValueLabel.IsTyped(name.Source.LogicalType) || parent.Type is not("string?" or "long?") || !Physical(parent)||parent.IsSystem)return Gap("名称/父字段必须为非凭据物理标量，父字段为字符串或int64。");
             var derived=!NonRedundantReadCompilation.Physical(model,target,name);
             var integerCache=Metarill.Core.Metadata.GlobalPhysicalRelationValue.IsPublishedIntegerCache(model.Catalog,
                 Metarill.Core.Metadata.MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source);

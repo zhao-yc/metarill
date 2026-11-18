@@ -45,32 +45,49 @@ public sealed class SelfTreeCacheTests
     [InlineData("string")]
     [InlineData("int32")]
     [InlineData("int64")]
-    public void Global_leaf_uses_the_same_target_condition_for_rename_and_backfill(string type)
+    [InlineData("bool")]
+    [InlineData("decimal")]
+    [InlineData("double")]
+    [InlineData("date")]
+    [InlineData("datetime")]
+    [InlineData("time")]
+    [InlineData("bool",false)]
+    [InlineData("decimal",false)]
+    [InlineData("double",false)]
+    [InlineData("date",false)]
+    [InlineData("datetime",false)]
+    [InlineData("time",false)]
+    public void Global_leaf_uses_the_same_target_condition_for_rename_and_backfill(string type,bool global=true)
     {
         var catalog=Catalog("string","int64");
         catalog.ConfigColumns.Single(column=>column.Id=="value").LogicalType=type;
         foreach(var table in catalog.ConfigTables)table.YzProjectId=catalog.YzProjectId;
-        catalog.ConfigTables[1].Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(global)catalog.ConfigTables[1].Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         catalog.ConfigColumns.Add(new(){Id="status",ConfigTableId="target",ColumnName="status",LogicalType="int32"});
         catalog.YzAdminTypes.Add(new(){Id="admin",YzProjectId=catalog.YzProjectId});
         catalog.ConfigPages.Add(new(){Id="tree_page",ConfigTableId="target",YzAdminTypeId="admin",YzProjectId=catalog.YzProjectId,WhereSql="status=1"});
-        var definition=SelfTreeCache.Compile(catalog,"source","foreign","tree_page");
+        var definition=SelfTreeCache.Compile(catalog,"source","foreign",global?"tree_page":null);
         var maintenance=RelationMaintenanceCatalog.Compile(catalog,[definition]);
         var binding=Assert.Single(maintenance.Propagation.Bindings);
         Assert.Equal("int64",binding.Source.ProjectType);
-        Assert.Empty(binding.Target.ProjectType);
-        Assert.Equal("status",Assert.Single(binding.PublishedCondition!.Fields));
+        Assert.Equal(global?"":"int64",binding.Target.ProjectType);
+        if(global)Assert.Equal("status",Assert.Single(binding.PublishedCondition!.Fields));
         var read=Assert.IsType<Metarill.Data.Queries.MySqlNonRedundantReadPlan>(maintenance.Plans["source"].Read);
         Assert.Equal(type!="string",binding.TextScalar);
         Assert.Equal("string",read.Types["tree_name"]);
-        Assert.Equal(type!="string",read.Expression("tree_name").Contains(" AS CHAR)",StringComparison.Ordinal));
+        if(type=="bool")Assert.Contains("THEN 'true' ELSE 'false'",read.Expression("tree_name"));
+        else if(type!="string")Assert.Contains(" AS CHAR)",read.Expression("tree_name"));
         Assert.Contains("b.`yz_project_id`",read.Scope);
-        Assert.Contains("r0.`status`",read.From);
-        Assert.DoesNotContain("r0.`yz_project_id`",read.From);
-        Assert.Contains(1,read.Constants.Values);
         Assert.ThrowsAny<Exception>(()=>RelationMutationPlan.Compile(catalog,[definition with{SelfTreePageId="missing"}]));
-        catalog.ConfigPages[0].WhereSql="yz_project_id=@current_yz_project_id";
-        Assert.Throws<NotSupportedException>(()=>RelationMutationPlan.Compile(catalog,[definition]));
+        if(global)
+        {
+            Assert.Contains("r0.`status`",read.From);
+            Assert.DoesNotContain("r0.`yz_project_id`",read.From);
+            Assert.Contains(1,read.Constants.Values);
+            catalog.ConfigPages[0].WhereSql="yz_project_id=@current_yz_project_id";
+            Assert.Throws<NotSupportedException>(()=>RelationMutationPlan.Compile(catalog,[definition]));
+        }
+        else Assert.Contains("r0.`yz_project_id`",read.From);
     }
     /// <summary>整链刷新和目标反查使用同一来源范围，目标项目列不改写全局节点资格。</summary>
     [Theory]

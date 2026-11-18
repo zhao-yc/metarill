@@ -25,7 +25,7 @@ internal static class CascadeTreeExcelRenderer
     private async Task<JsonElement> ImportCascade{{suffix}}Async(JsonElement cell,RuntimeActor actor,CancellationToken cancellationToken)
     {
         if(cell.ValueKind==JsonValueKind.Null||cell.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(cell.GetString()))return JsonSerializer.SerializeToElement<object?>(null);
-        if(cell.ValueKind is not(JsonValueKind.String or JsonValueKind.Number))throw PageImportException.Input(PageImportError.Relation);
+        if({{MultiSelectExcelRenderer.InvalidLabelKind(name,allowNumber:true,input:"cell")}})throw PageImportException.Input(PageImportError.Relation);
         if(session.CurrentTransaction is null)throw new InvalidOperationException("级联导入要求来源事务。");
         var id=await Metarill.Core.Cascades.CascadeTreeExcelPath.ResolveAsync(cell.ToString(),{{Literal(read.Joiner)}},async(text,parentId,ct)=>
         {

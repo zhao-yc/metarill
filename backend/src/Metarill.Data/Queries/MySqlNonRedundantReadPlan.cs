@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.Collections.Frozen;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Data.Relations;
 
@@ -461,9 +462,10 @@ public static partial class MySqlNonRedundantReadCompiler
                         :null;
                     var id=Resolve(table,alias,foreign.ColumnName);
                     var projected=Resolve(target,Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||publishedPage is not null,cachePage:publishedPage,account:account),value.ColumnName);
-                    // 级联名称即使来自整数列，原名称副本也按文本存储。
-                    return (foreign.ControlKind=="CascadeTree"||refresh.CrossTableColumnId is not null)&&projected.Type is "int32" or "int64"
-                        ?(MySqlMultiValueLabel.Text(projected.Sql,projected.Type),"string"):projected;
+                    // 自树所有受管标量名称使用同一文本格式，跨表级联继续沿用原整数名称规则。
+                    var textLabel=refresh.CrossTableColumnId is not null?projected.Type is "int32" or "int64":
+                        foreign.ControlKind=="CascadeTree"&&MultiValueLabel.IsTyped(projected.Type);
+                    return textLabel?(MySqlMultiValueLabel.Text(projected.Sql,projected.Type),"string"):projected;
                 }
                 foreach(var tree in columns[table.Id].Values.Where(item=>item.ControlKind=="CascadeTree"&&item.ColumnName.EndsWith("_id",StringComparison.Ordinal)))
                 {
@@ -480,7 +482,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(!storage[table.Id].IsPhysical(tree)||!definition.TryGetProperty("selfTree",out var settings)||settings.ValueKind!=JsonValueKind.Object)throw new InvalidOperationException("自树派生名称缺少物理来源和固定定义。");
                     var target=tables.Values.SingleOrDefault(item=>item.TableName==Value(settings,"table"))??throw new InvalidOperationException("自树名称目标不属于发布项目。");ValidateTarget(target);
                     var targetName=Value(settings,"nameField");if(targetName.Length==0)targetName="name";var value=Column(target,targetName);
-                    if(value.LogicalType is not("string" or "int32" or "int64")||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("自树叶子名称必须为已声明的非凭据标量。");
+                    if((value.LogicalType!="string"&&!MultiValueLabel.IsTyped(value.LogicalType))||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("自树叶子名称必须为已声明的非凭据标量。");
                     if(!storage[target.Id].IsPhysical(value))
                     {
                         if(target.IsRongyu!=0)throw new NotSupportedException("自树派生名称要求R0目标。");

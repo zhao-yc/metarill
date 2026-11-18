@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 namespace Metarill.Core.Metadata;
 
@@ -69,17 +70,18 @@ public static class GlobalCrossTableTarget
 
     /// <summary>自树选项和缓存使用同一已发布的名称，可按原文本协议展示业务整数。</summary>
     public static void RequireSelfTreeName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)
-        =>RequirePublishedName(catalog,table,page,name,true,allowInteger:true);
+        =>RequirePublishedName(catalog,table,page,name,true,allowTyped:true);
 
     /// <summary>实时自树候选可以使用由其固定跨表路径证明的页面条件。</summary>
     public static void RequireScopedSelfTreeName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)
-        =>RequirePublishedName(catalog,table,page,name,true,allowAccount:true,allowInteger:true,allowLogical:true);
+        =>RequirePublishedName(catalog,table,page,name,true,allowAccount:true,allowLogical:true,allowTyped:true);
 
     /// <summary>名称资格与页条件共用原完整证明，存储模式资格由调用用途限定。</summary>
-    private static void RequirePublishedName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowR0,bool allowAccount=false,bool allowInteger=false,bool allowLogical=false)
+    private static void RequirePublishedName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowR0,bool allowAccount=false,bool allowInteger=false,bool allowLogical=false,bool allowTyped=false)
     {
         RequireTarget(catalog,table,page,allowR0,allowAccount,allowLogical);var storage=MetadataStoragePolicy.ForTable(catalog,table);
-        if(name.LogicalType!="string"&&!(allowInteger&&name.ColumnName!="id"&&name.LogicalType is "int32" or "int64"))
+        if(name.LogicalType!="string"&&!(name.ColumnName!="id"&&(allowTyped&&MultiValueLabel.IsTyped(name.LogicalType)||
+            allowInteger&&name.LogicalType is "int32" or "int64")))
             throw new NotSupportedException("全局目标名称的类型超出当前用途。");
         if(GlobalPhysicalRelationValue.IsScalar(storage,table,name))return;
         if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,table,name))throw new NotSupportedException("全局跨表名称缺少完整物理或受管缓存证明。");

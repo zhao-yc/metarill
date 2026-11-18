@@ -154,6 +154,65 @@ public sealed class NonRedundantSelfTreeTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>候选、Excel 反查和导出的非字符串名称使用同一精确文本合同。</summary>
+    [Theory]
+    [InlineData("bool",true)]
+    [InlineData("decimal",false)]
+    [InlineData("double",true)]
+    [InlineData("date",false)]
+    [InlineData("datetime",true)]
+    [InlineData("time",false)]
+    public async Task Scalar_self_tree_labels_roundtrip_through_generated_options_and_excel(string kind,bool globalTarget)
+    {
+        var catalog=Catalog("typed_tree",automatic:true);
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
+        if(globalTarget)
+        {
+            var target=catalog.ConfigTables.Single(table=>table.Id=="3");
+            target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=1";
+        }
+        catalog.ConfigColumns.Single(column=>column.Id=="32").LogicalType=kind;
+        RedundantMultiNameCacheTests.Published(catalog);
+        const string ns="Example.TypedSelfTree";
+        var model=GenerationModel.Create(catalog,ns);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        (object value,string expected)=kind switch
+        {
+            "bool"=>((object)true,"true"),
+            "decimal"=>((object)1234567890.123456m,"1234567890.123456"),
+            "double"=>((object)0.125d,"0.125"),
+            "date"=>((object)new DateTime(2026,11,18),"2026-11-18"),
+            "datetime"=>((object)new DateTime(2026,11,18,13,14,15).AddTicks(1234560),"2026-11-18 13:14:15.123456"),
+            "time"=>((object)new TimeSpan(1,3,12,0).Add(TimeSpan.FromTicks(1234560)),"27:12:00.123456"),
+            _=>throw new InvalidOperationException("未知测试名称类型。")
+        };
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-typed-self-tree");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var actor=new RuntimeActor(9,"自树候选",false,catalog.YzProjectId,"5");
+            using var runtime=new SharedExcelReadTransport(assembly,ns,"TypedTreeSource",actor:actor,
+                authorization:new CascadeTreeReadTests.TreeListOnly(actor));
+            const long key=9007199254740998;
+            runtime.Add("TypedTreeTree",new Dictionary<string,object?>{["Id"]=key,["Name"]=value,["Status"]=1,["YzProjectId"]=catalog.YzProjectId});
+            runtime.Add("TypedTreeSource",new Dictionary<string,object?>{["Id"]=1L,["Name"]="来源",["TreeId"]=key,["YzProjectId"]=catalog.YzProjectId});
+            var request=new CascadeTreeOptionsRequest{LevelKey="selfTree-0",SelectedPath=JsonSerializer.SerializeToElement(new{parentId=""})};
+            var option=Assert.Single(await runtime.CascadeOptions("25",request));
+            Assert.Equal(expected,option.Name);
+            Assert.Equal(option.Name,option.Text);
+            Assert.Equal("9007199254740998",option.Id);
+            var header=ImportRenderer.Header(model.Tables.Single(table=>table.Source.Id=="2").Columns.Single(column=>column.Source.Id=="25"));
+            var row=await runtime.Parse(new(){[header]=kind=="bool"?value:expected});
+            Assert.Equal(option.Id,row["treeId"].GetString());
+            Assert.Contains(expected,Assert.Single((await runtime.Export()).Rows));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>只有物理账号条件时，独立包仍要保留来源页的归属证明。</summary>
     [Fact]
     public void Project_tree_account_filter_keeps_source_scope_in_published_metadata()
@@ -366,7 +425,8 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(true,false,true,true)]
     [InlineData(false,false,true,true)]
     [InlineData(false,true,true,true)]
-    public async Task Fixed_cross_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false)
+    [InlineData(false,true,true,true,"decimal")]
+    public async Task Fixed_cross_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false,string nameKind="string")
     {
         const string ns="Example.FixedSelfTreeNode";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("scoped_tree","string","int64");
@@ -402,10 +462,15 @@ public sealed class NonRedundantSelfTreeTests
         {
             catalog.ConfigColumns.AddRange([
                 new(){Id="210",ConfigTableId="2",ColumnName="company_id",LogicalType="int64",ControlKind="List",LinkConfigTableId="3",
-                    ControlDetail="{\"tableId\":\"3\",\"pageId\":\"301\",\"nameField\":\"name\"}"},
-                new(){Id="211",ConfigTableId="2",ColumnName="company_title",LogicalType="string",
-                    Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("company.name")}}
+                    ControlDetail=JsonSerializer.Serialize(new{tableId="3",pageId="301",nameField=nameKind=="string"?"name":"typed_title"})},
+                new(){Id="211",ConfigTableId="2",ColumnName="company_title",LogicalType=nameKind,
+                    Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement(nameKind=="string"?"company.name":"company.typed_title")}}
             ]);
+            if(nameKind!="string")
+            {
+                catalog.ConfigColumns.Add(new(){Id="3910",ConfigTableId="3",ColumnName="typed_title",LogicalType=nameKind});
+                catalog.ConfigPageColumns.Add(new(){Id="3013910",ConfigPageId="301",ConfigColumnId="3910"});
+            }
             catalog.ConfigPageColumns.Add(new(){Id="201211",ConfigPageId="201",ConfigColumnId="211",IsShow=1,IsEdit=0});
         }
         RedundantMultiNameCacheTests.Published(catalog);

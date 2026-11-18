@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Data.Queries;
 namespace Metarill.Data.Relations;
@@ -74,9 +75,7 @@ public sealed class RelationMutationPlan
             if(!storage.IsPhysical(foreign)||Enabled(foreign)||!storage.IsPhysical(cache)||cache.IsVirtualColumn!=0||!targetStorage.IsPhysical(value)||value.IsVirtualColumn!=0)throw new InvalidOperationException("传播只写已声明物理缓存，关系ID与目标值不能虚构。");
             var integerCache=definition.Multiple&&GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,targetStorage,target,value);
             var scalarLabel=definition.Multiple&&(integerCache||MultiNameStorageColumns.IsPhysicalScalarLabel(source,foreign,target,value,targetStorage));
-            if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||
-                value.LogicalType is not("string" or "int64" or "int32" or "decimal" or "bool" or "date" or "datetime" or "time")&&!scalarLabel||
-                foreign.LogicalType is not("string" or "int64"))
+            if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||foreign.LogicalType is not("string" or "int64"))
                 throw new InvalidOperationException("传播缓存与目标值类型不一致。");
             if(target.TableName=="yz_manager"&&value.ColumnName is "password" or "salt" or "old_password")throw new InvalidOperationException("账号凭据不能成为名称传播值。");
             var suffix=definition.Multiple?"_ids":"_id";if(!foreign.ColumnName.EndsWith(suffix,StringComparison.Ordinal)||definition.Multiple&&(foreign.LogicalType!="string"||value.LogicalType!="string"&&!scalarLabel||foreign.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase")))throw new InvalidOperationException("传播外键形状与声明不一致。");
@@ -84,6 +83,9 @@ public sealed class RelationMutationPlan
             var stem=foreign.ColumnName[..^suffix.Length];var expected=stem+"_"+(definition.Multiple&&!value.ColumnName.EndsWith('s')?value.ColumnName+"s":value.ColumnName);
             var cross=CrossTableCacheProof.Require(catalog,source,foreign,target,value,cache,definition,definitions);
             var selfTree=SelfTreeCache.Require(catalog,source,foreign,target,value,cache,definition,cross);
+            if(value.LogicalType is not("string" or "int64" or "int32" or "decimal" or "bool" or "date" or "datetime" or "time")&&
+                !scalarLabel&&!(selfTree&&MultiValueLabel.IsTyped(value.LogicalType)))
+                throw new InvalidOperationException("传播缓存与目标值类型不一致。");
             if(cache.LogicalType!=(definition.Multiple||selfTree||cross?"string":value.LogicalType))
                 throw new InvalidOperationException("传播缓存与目标值类型不一致。");
             if((!cross&&!selfTree&&cache.ColumnName!=expected)||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw new InvalidOperationException("传播字段不是同一关系的名称辅助列。");
@@ -116,7 +118,7 @@ public sealed class RelationMutationPlan
                 var published=GlobalPhysicalRelationValue.IsPublishedScalar(catalog,targetStorage,target,value);
                 if(!published)throw new NotSupportedException("全局缓存终点必须为非凭据物理标量或已证明的全局单值名称缓存。");
             }
-            result.Add(new(Table(source.Id),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000){PublishedCondition=publishedCondition,TextScalar=(selfTree||cross)&&value.LogicalType is "int32" or "int64"});
+            result.Add(new(Table(source.Id),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000){PublishedCondition=publishedCondition,TextScalar=selfTree&&MultiValueLabel.IsTyped(value.LogicalType)||cross&&value.LogicalType is "int32" or "int64"});
         }
         var sorted=result.Distinct().OrderBy(binding=>binding.Source.Name,StringComparer.Ordinal).ThenBy(binding=>binding.Cache,StringComparer.Ordinal).ToArray();if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Foreign)).Any(group=>group.Select(binding=>(binding.Target,binding.PublishedCondition?.Definition)).Distinct().Count()!=1))throw new InvalidOperationException("同一外键不能绑定不同传播目标。");if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Cache)).Any(group=>group.Count()!=1))throw new InvalidOperationException("同一缓存存在多个传播定义。");
         // 拒绝字段级循环；普通自关联的物理名称不是派生列，不属于此循环。
