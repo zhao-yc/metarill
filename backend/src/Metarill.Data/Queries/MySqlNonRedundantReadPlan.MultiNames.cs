@@ -18,14 +18,19 @@ public static partial class MySqlNonRedundantReadCompiler
             var prefixForNames=publishedPage is null&&publishedArrayScopeCount==0?"multi_name_":aliasPrefix+"array"+publishedArrayScopeCount+"_";
             publishedArrayScopeCount++;
             var parent=selectedScope is null?null:MultiParent(catalog,selectedScope);
-            var sourceParent=parent?.Source(catalog,table,relation);
-            if(sourceParent is not null){Use(table,sourceParent);Touch(owner,sourceParent.ColumnName);}
+            var sourceBinding=parent?.Source(catalog,table,relation);
+            var sourceParent=sourceBinding?.Column;
+            var logicalSource=sourceBinding?.LogicalPages.Count>0;
+            var parentAlias=logicalSource?"mt_parent_input":owner;
+            var sourceParentSql=logicalSource?MultiLogicalSource(table,owner,sourceBinding!):null;
+            if(sourceParent is not null&&!logicalSource){Use(table,sourceParent);Touch(owner,sourceParent.ColumnName);}
             var nested=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:selectedScope is null?publishedPage:null,multiLabel:true,cascadeLabelField:value.ColumnName,
                 cascadeCacheOwner:refreshFields is null?null:new(table,owner))
             {
                 SelectedMultiPage=selectedScope,
-                MultiParentOwner=sourceParent is null?null:(new(table,owner),sourceParent),
+                MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent),
+                CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
                 GlobalCrossCandidate=global&&selectedScope is not null
             }.Compile([value.ColumnName],[]);
             nested.CopyParametersTo(crossConstants);
@@ -38,11 +43,13 @@ public static partial class MySqlNonRedundantReadCompiler
             var prefix=" FROM "+Q(target.TableName)+" multi_value";
             if(!nested.From.StartsWith(prefix,StringComparison.Ordinal))throw new InvalidOperationException("多选名称别名域与固定目标不一致。");
             var targetJoins=nested.From[prefix.Length..];var valueSql=nested.Expression(value.ColumnName);var scope=nested.Scope;
+            // 行内查询使用已经还原的来源层位。批量回读通过专用参数别名绑定完全相同的值。
+            var inlineScope=sourceParentSql is null?scope:scope.Replace(parentAlias+"."+Q(sourceParent!.ColumnName),"("+sourceParentSql+")",StringComparison.Ordinal);
+            string ScopedName(string predicate)=>MySqlMultiValueLabel.Text(selectedScope is null?valueSql:"CASE WHEN "+predicate+" THEN "+valueSql+" END",value.LogicalType);
             // 反向查找需要包含刚失去可见性的节点，数组的前置联接也不能引用后生成的级联别名。
             var associationScope=selectedScope is null?scope:Scope(target,"multi_value",projectScoped:!global);
-            if(selectedScope is not null)valueSql="CASE WHEN "+scope+" THEN "+valueSql+" END";
             // 聚合、筛选、分批当前读和维护按同一文本名称计算，终点联接仍保持强类型。
-            var name=MySqlMultiValueLabel.Text(valueSql,value.LogicalType);
+            var name=ScopedName(inlineScope);
             var source=owner+"."+Q(relation.ColumnName);var array=Array(source);
             if(refreshFields is not null)
             {
@@ -62,13 +69,36 @@ public static partial class MySqlNonRedundantReadCompiler
                 }
             }
             var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG("+name+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(global?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(associationScope.Length==0?"":" AND "+associationScope)+targetJoins+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
-            multiProjections[expression]=new(source,Q(target.TableName),Q(value.ColumnName),scope,targetJoins,name,
-                nested.CascadeCacheOwnerFields.Count==0?null:new(owner,nested.CascadeCacheOwnerFields.Order(StringComparer.Ordinal).ToArray()));
-            multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(scope.Length==0?"":" AND "+scope)+" AND "+name+" LIKE {parameter} ESCAPE '!')";
-            if(global||cascadeLabel||scalarLabel&&relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(scope.Length==0?"":" AND "+scope)+" AND "+name+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
+            multiProjections[expression]=new(source,Q(target.TableName),Q(value.ColumnName),scope,targetJoins,ScopedName(scope),
+                nested.CascadeCacheOwnerFields.Count==0?null:new(parentAlias,nested.CascadeCacheOwnerFields.Order(StringComparer.Ordinal).ToArray(),
+                    sourceParentSql is null?null:new Dictionary<string,string>(StringComparer.Ordinal){{sourceParent!.ColumnName,sourceParentSql}}));
+            multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(inlineScope.Length==0?"":" AND "+inlineScope)+" AND "+name+" LIKE {parameter} ESCAPE '!')";
+            if(global||cascadeLabel||scalarLabel&&relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(inlineScope.Length==0?"":" AND "+inlineScope)+" AND "+name+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
             // 维护报告展示发布的逻辑来源字段，物理列清单由嵌套路径单独记录。
             origin=valueOrigin??new(target.TableName,value.ColumnName);
             return(expression,"string");
+        }
+
+        /// <summary>从来源行的固定可见级联还原父键，所有同伴的冲突及不可见路径都必须拒绝。</summary>
+        private string MultiLogicalSource(TableMetadata table,string owner,MultiSourceParent source)
+        {
+            if(table.Id!=root.Id||owner!=rootAlias||refreshFields is not null)
+                throw new NotSupportedException("逻辑父键须从当前普通R0来源读取。");
+            var field=source.Column.ColumnName;
+            var fields=new HashSet<string>(StringComparer.Ordinal){field};
+            var bindings=source.LogicalPages.SelectMany(page=>CrossMembershipBindings(catalog,table,page,fields))
+                .DistinctBy(binding=>binding.SourceColumnId,StringComparer.Ordinal).ToArray();
+            foreach(var binding in bindings)
+            {
+                if(crossTables.TryGetValue(binding.SourceColumnId,out var existing)&&
+                    (existing.Levels.Count!=binding.Levels.Count||existing.Levels.Zip(binding.Levels)
+                        .Any(pair=>pair.First.PageId!=pair.Second.PageId||!SameSharedCondition(pair.First.Condition,pair.Second.Condition))))
+                    throw new InvalidOperationException("多值来源父键的级联范围与当前读取页不一致。");
+                crossTables[binding.SourceColumnId]=binding;
+            }
+            var value=Resolve(table,owner,field).Sql;
+            var visible=ValidScopedPaths(bindings.Select(binding=>crossProjections[owner+":"+binding.SourceColumnId]));
+            return "CASE WHEN "+string.Join(" AND ",visible)+" THEN "+value+" END";
         }
     }
 }

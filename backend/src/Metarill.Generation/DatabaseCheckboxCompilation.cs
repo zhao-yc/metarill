@@ -6,6 +6,7 @@ namespace Metarill.Generation;
 internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Target,ColumnModel Name,ColumnModel Names,IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,IReadOnlyList<TableModel> SourceParents,ColumnModel? SourceParent,bool DerivedName=false,PageModel? GlobalPage=null)
 {
     internal PageModel? LogicalTargetPage { get; init; }
+    internal bool LogicalSourceParent { get; init; }
     internal bool IntegerLabel => Name.Type is ("int?" or "long?");
     internal bool TypedLabel => Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
     internal string Endpoint=>"findNameId"+GenerationModel.Pascal(Source.Source.ColumnName[..^4])+Source.Source.Id;
@@ -96,14 +97,20 @@ internal static class DatabaseCheckboxCompilation
             if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量。");
             TableModel Parent(ColumnModel column)=>model.Tables.SingleOrDefault(parent=>column.Source.LinkConfigTableId.Length>0?parent.Source.Id==column.Source.LinkConfigTableId:parent.Source.TableName+"_id"==column.Source.ColumnName)??throw new InvalidOperationException("复选父范围缺少明确真实父表。");
             var parentScopes=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();if(parentScopes.Length>1)return Gap("多个来源父范围尚待完整协议证明。");
-            var sourceParent=parentScopes.FirstOrDefault().Column;if(sourceParent is not null&&(!NonRedundantReadCompilation.Physical(model,table,sourceParent)||sourceParent.IsJsonArray||sourceParent.Type is not("long?" or "string?")))return Gap("来源父必须为物理标量ID。");var parents=parentScopes.Select(scope=>Parent(scope.Column)).ToArray();
+            var sourceParent=parentScopes.FirstOrDefault().Column;
+            var logicalSource=sourceParent is not null?NonRedundantCrossParentCompilation.Find(model,table,page,sourceParent):null;
+            if(sourceParent is not null&&(!NonRedundantReadCompilation.Physical(model,table,sourceParent)||sourceParent.IsJsonArray||sourceParent.Type is not("long?" or "string?")))return Gap("来源父必须为固定标量ID。");
+            if(logicalSource is not null&&logicalPage?.Scopes.All(scope=>scope.Source!="parent")!=false)
+                return Gap("来源逻辑父键须对应明确的目标页父范围。");
+            var parents=logicalSource is {} path?new[]{path.Read.Levels[path.Index].Target}:parentScopes.Select(scope=>Parent(scope.Column)).ToArray();
             if(parents.Any(parent=>Protected(parent)||!HasIdentity(model,parent)))return Gap("来源父必须具有普通业务表的真实物理项目归属。");
             foreach(var scope in scopes.Where(scope=>scope.Source=="parent"))if(sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id)return Gap("原parentId必须由来源页同一真实父表证明，不能猜测其他父范围。");
             if(logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true)
             {
                 var syntax=FixedConditionPlan.Compile(logicalPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
                 var binding=MultiTargetParentScope.Compile(model.Catalog,target.Source,syntax)!;
-                if(sourceParent?.Source.Id!=binding.Source(model.Catalog,table.Source,source.Source).Id)
+                var owner=binding.Source(model.Catalog,table.Source,source.Source);
+                if(sourceParent?.Source.Id!=owner.Column.Id||(owner.LogicalPages.Count>0)!=(logicalSource is not null))
                     return Gap("复选目标页父参数缺少同一来源父记录。");
                 scopes=scopes.Concat(logicalPage.Scopes.Where(scope=>scope.Source=="parent")).DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
             }
@@ -115,6 +122,7 @@ internal static class DatabaseCheckboxCompilation
             var result=new DatabaseCheckboxModel(source,target,name,names,scopes,conditions,order,parents,sourceParent,derived,globalPage)
             {
                 LogicalTargetPage=logicalPage,
+                LogicalSourceParent=logicalSource is not null,
                 DerivedName=derived||logicalPage is not null
             };
             if(result.DerivedName)DerivedCheckboxNamesCompilation.Require(model,table,result);

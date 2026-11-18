@@ -30,7 +30,7 @@ internal sealed record MySqlReverseProjection(string TargetTable,string From,str
 }
 
 internal sealed record MySqlMultiProjection(string SourceExpression,string TargetTable,string TargetName,string TargetScope,string Joins="",string? NameExpression=null,MySqlMultiOwner? Owner=null);
-internal sealed record MySqlMultiOwner(string Alias,IReadOnlyList<string> Fields);
+internal sealed record MySqlMultiOwner(string Alias,IReadOnlyList<string> Fields,IReadOnlyDictionary<string,string>? SourceExpressions=null);
 
 /// <summary>只由已发布元数据编译的单值读取计划，不提供SQL反序列化或任意表达式入口。</summary>
 public sealed class MySqlNonRedundantReadPlan
@@ -235,7 +235,7 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             SelectedMultiPage=selectedPage,
             MultiParentOwner=cacheOwner is null||selectedPage is null||MultiParent(catalog,selectedPage) is not {} parent?null:
-                (cacheOwner,parent.Source(catalog,cacheOwner.Table,relation??throw new InvalidOperationException("多值缓存缺少发布关系。"))),
+                (cacheOwner,parent.Source(catalog,cacheOwner.Table,relation??throw new InvalidOperationException("多值缓存缺少发布关系。")).Column),
             GlobalCrossCandidate=selectedPage is not null&&GlobalCrossTableTarget.Declared(catalog.ConfigTables.Single(table=>table.Id==tableId))
         }.Compile(outputs,dependencies);
     }

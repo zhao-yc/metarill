@@ -1,6 +1,9 @@
 namespace Metarill.Core.Metadata;
 
 /// <summary>原多值目标页的父参数绑定同一业务父表，可由实际物理列或稀疏级联还原。</summary>
+public sealed record MultiSourceParent(ColumnMetadata Column,IReadOnlyList<PageMetadata> LogicalPages);
+
+/// <summary>多值页的父键来自固定关系，不由候选请求决定外键路径。</summary>
 public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata Target,bool Logical)
 {
     public static bool IsParameter(string variable)=>variable.Equals("parent_id",StringComparison.OrdinalIgnoreCase)||
@@ -51,24 +54,35 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     }
 
     /// <summary>独立回读与回填从真实来源行取父键，不能从请求、当前账号或名称缓存猜测。</summary>
-    public ColumnMetadata Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation)
+    public MultiSourceParent Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation)
     {
         var columns=catalog.ConfigColumns.Where(item=>item.ConfigTableId==source.Id).ToArray();
         var keys=columns.Where(column=>PhysicalKey(catalog,source,column)&&References(column,Parent)).ToArray();
         var explicitKeys=keys.Where(column=>column.LinkConfigTableId==Parent.Id).ToArray();
+        var allFields=RelationStorageColumns.Expand(source,columns);
         var selected=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id).Select(page=>
         {
-            var fields=RelationStorageColumns.Expand(source,columns).Select(column=>column.ColumnName);
+            var fields=allFields.Select(column=>column.ColumnName);
             var scoped=FixedConditionPlan.Compile(page.WhereSql,fields).Terms.Where(term=>
                 term.Comparison==FixedConditionComparison.Equal&&term.Values.Count==1&&
                 term.Values[0].Kind==FixedConditionValueKind.Variable&&IsParameter(term.Values[0].Text)).ToArray();
-            if(scoped.Length==1&&keys.SingleOrDefault(key=>key.ColumnName==scoped[0].Field) is {} inherited)
-                return inherited;
-            return relation.ControlKind=="MultiSelectPage"&&explicitKeys.Length==1?explicitKeys[0]:null;
+            if(scoped.Length==1)
+            {
+                var field=scoped[0].Field;
+                if(keys.SingleOrDefault(key=>key.ColumnName==field) is {} inherited)
+                    return (Column:(ColumnMetadata?)inherited,Page:(PageMetadata?)null);
+                if(CrossTableStorageColumns.IsLogicalPathField(source,columns,field))
+                {
+                    var binding=Compile(catalog,source,FixedConditionPlan.Compile(page.WhereSql,fields));
+                    if(binding?.Parent.Id==Parent.Id)return (Column:(ColumnMetadata?)binding.Target,Page:(PageMetadata?)page);
+                }
+            }
+            return (Column:relation.ControlKind=="MultiSelectPage"&&explicitKeys.Length==1?explicitKeys[0]:null,Page:(PageMetadata?)null);
         }).ToArray();
-        if(selected.Length==0||selected.Any(column=>column is null)||
-            selected.Select(column=>column!.Id).Distinct(StringComparer.Ordinal).Count()!=1)throw Invalid();
-        return selected[0]!;
+        if(selected.Length==0||selected.Any(item=>item.Column is null)||
+            selected.Select(item=>item.Column!.Id).Distinct(StringComparer.Ordinal).Count()!=1||
+            selected.Any(item=>item.Page is not null)&&selected.Any(item=>item.Page is null))throw Invalid();
+        return new(selected[0].Column!,selected.Select(item=>item.Page).OfType<PageMetadata>().ToArray());
     }
 
     private static bool References(ColumnMetadata column,TableMetadata table)=>column.LinkConfigTableId.Length>0

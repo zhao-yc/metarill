@@ -120,7 +120,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             {
                 var multi=plan.MultiProjections[name];
                 var source=Input(multi.SourceExpression,"metarill_multi_input_");
-                var owners=multi.Owner is { } owner?owner.Fields.Select(field=>Input(Q(owner.Alias)+"."+Q(field),"metarill_multi_owner_")).ToArray():[];
+                var owners=multi.Owner is { } owner?owner.Fields.Select(field=>Input(owner.SourceExpressions?.GetValueOrDefault(field)??Q(owner.Alias)+"."+Q(field),"metarill_multi_owner_")).ToArray():[];
                 hidden.Add(name,(source,owners));
             }
 

@@ -7,6 +7,7 @@ namespace Metarill.Generation;
 internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, PageModel TargetPage, ColumnModel Name, ColumnModel? Names,
     bool SameParent, string? TargetParentField, IReadOnlyList<TableModel> TargetParents, string ButtonText)
 {
+    internal bool LogicalSourceParent { get; init; }
     internal bool IntegerLabel => !Name.IsId&&Name.Type is ("int?" or "long?");
     internal bool TypedLabel => !Name.IsId&&Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
 }
@@ -95,11 +96,14 @@ internal static class MultiSelectCompilation
                 targetField = fields[0].JsonName;
                 if (!forService && !page.Readable.Any(column => column.Source.Id == fields[0].Source.Id)) return Gap("来源页未开放目标父字段，前端不能猜测隐藏父值。");
             }
+            var logicalSourceParent=false;
             if(scopedParent is not null)
             {
                 var owner=scopedParent.Source(model.Catalog,table.Source,source.Source);
                 var actual=same?page.Scopes.Single(item=>item.Source=="parent").Column:table.Columns.Single(column=>column.JsonName==targetField);
-                if(actual.Source.Id!=owner.Id)return Gap("目标页父字段须与来源记录的物理父键一致。");
+                logicalSourceParent=owner.LogicalPages.Count>0;
+                if(actual.Source.Id!=owner.Column.Id||logicalSourceParent&&(!same||!NonRedundantCrossParentCompilation.Managed(model,table,page,actual)))
+                    return Gap("目标页父字段须与来源记录的固定父键一致。");
             }
             ColumnModel? names = null;
             if (!name.IsId)
@@ -123,7 +127,8 @@ internal static class MultiSelectCompilation
             if(table.Source.IsRongyu==1&&target.IsGlobal){var proof=Metarill.Core.Metadata.GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)return Gap("全局多选缓存与固定目标页／名称声明不一致。");}
             // R1派生数组不能只证明候选：同一根定义还须取得数据层缓存证明，Full报告与实际发布保持一致。
             if(table.Source.IsRongyu==1&&names is not null&&(scoped||derived))Metarill.Data.Relations.DerivedCrossTableCaches.Validate(model.Catalog,[new(table.Source.Id,source.Source.Id,target.Source.Id,name.Source.Id,names.Source.Id,true)],[]);
-            return new(new(source, target, targetPage, name, names, same, targetField, targetParents, Value("buttonText", "选择")), null);
+            return new(new(source, target, targetPage, name, names, same, targetField, targetParents, Value("buttonText", "选择"))
+                {LogicalSourceParent=logicalSourceParent}, null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }
     }

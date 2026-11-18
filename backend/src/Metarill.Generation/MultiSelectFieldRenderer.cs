@@ -38,7 +38,7 @@ internal static class MultiSelectFieldRenderer
                 .AppendLine("    /// <summary>非法历史JSON在写入口明确拒绝，不通过500HTML掩盖业务错误。</summary>")
                 .AppendLine($"    private static JsonDocument ParseMultiDocument{suffix}(string text) {{ try {{ return JsonDocument.Parse(text); }} catch (JsonException error) {{ throw new ArgumentException(\"多选字段JSON无效。\", error); }} }}")
                 .AppendLine("    /// <summary>来源字段省略不刷新名称；显式提交在同一事务内校验目标list权限及所有ID。</summary>")
-                .AppendLine($"    private async Task ValidateMulti{suffix}Async({table.EntityType} entity, RuntimeActor actor, ISet<string> submitted, bool refreshNames, CancellationToken cancellationToken, RecordMutationOperation? authorizationOperation = null)").AppendLine("    {")
+                .AppendLine($"    private async Task ValidateMulti{suffix}Async({table.EntityType} entity, RuntimeActor actor, ISet<string> submitted, bool refreshNames, CancellationToken cancellationToken, RecordMutationOperation? authorizationOperation = null{(def.LogicalSourceParent?", string? logicalRelationParentId = null":"")})").AppendLine("    {")
                 .AppendLine("        if (relationAuthorization is null || relationAuthorization.RequireActor() != actor) throw new UnauthorizedAccessException(\"多选字段要求真实当前身份。\");")
                 .AppendLine($"        if(authorizationOperation==RecordMutationOperation.Import)relationAuthorization.RequirePagePermission({Literal(page.Source.Id)}, \"import\");else relationAuthorization.RequirePagePermission({Literal(def.TargetPage.Source.Id)}, \"list\");")
                 .AppendLine($"        if (entity.{def.Source.Property} is null)").AppendLine("        {");
@@ -51,7 +51,7 @@ internal static class MultiSelectFieldRenderer
             var parentExpression = def.SameParent ? table.Columns.Single(column => column.Source.Id == page.Scopes.First(scope => scope.Source == "parent").Column.Source.Id) : table.Columns.SingleOrDefault(column => column.JsonName == def.TargetParentField);
             if (def.TargetParents.Count > 0)
             {
-                result.AppendLine($"        var targetParentId = Convert.ToString(entity.{parentExpression!.Property}, CultureInfo.InvariantCulture);")
+                result.AppendLine(def.LogicalSourceParent?"        var targetParentId = logicalRelationParentId;":$"        var targetParentId = Convert.ToString(entity.{parentExpression!.Property}, CultureInfo.InvariantCulture);")
                     .AppendLine("        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException(\"多选目标要求有效父记录。\");");
                 foreach (var parent in def.TargetParents)
                 {

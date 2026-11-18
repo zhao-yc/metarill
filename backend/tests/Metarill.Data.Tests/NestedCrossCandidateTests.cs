@@ -233,8 +233,12 @@ public sealed class NestedCrossCandidateTests
     [InlineData("MultiCheckBoxDatabase",false,true,true,true,true,true)]
     [InlineData("MultiCheckBoxDatabase",false,true,false,false,true,true)]
     [InlineData("MultiSelectPage",false,true,true,null,true,true,true)]
+    [InlineData("MultiSelectPage",false,true,false,null,true,false,false,true)]
+    [InlineData("MultiCheckBoxDatabase",false,true,true,true,true,true,false,true)]
+    [InlineData("MultiCheckBoxDatabase",false,true,true,false,true,true,true,true)]
+    [InlineData("MultiSelectPage",false,true,true,null,true,true,false,true,true)]
     public void Multi_label_cache_keeps_recursive_scope_and_its_reverse_dependencies(
-        string kind,bool global,bool rootCondition,bool physical,bool? globalRowProject,bool parent=false,bool logicalParent=false,bool onlyParent=false)
+        string kind,bool global,bool rootCondition,bool physical,bool? globalRowProject,bool parent=false,bool logicalParent=false,bool onlyParent=false,bool logicalSource=false,bool sharedSource=false)
     {
         var catalog=Catalog(global);
         var visible=catalog.ConfigTables.Single(table=>table.Id=="1");
@@ -277,17 +281,28 @@ public sealed class NestedCrossCandidateTests
         ]);
         catalog.ConfigPages.Add(new(){Id="980",ConfigTableId="98",WhereSql="store_id=@current_store_id"});
         var targetParentField=logicalParent?"outer_root_id":"target_scope_id";
-        var parentTable=logicalParent?"nested_source":"label_scope_parent";
+        var parentTable=logicalParent||logicalSource?"nested_source":"label_scope_parent";
         if(parent)
         {
-            if(!logicalParent)catalog.ConfigTables.Add(new(){Id="97",TableName="label_scope_parent",IsRongyu=1});
-            if(!logicalParent)catalog.ConfigColumns.AddRange([
+            if(!logicalParent&&!logicalSource)catalog.ConfigTables.Add(new(){Id="97",TableName="label_scope_parent",IsRongyu=1});
+            if(!logicalParent&&!logicalSource)catalog.ConfigColumns.AddRange([
                 new(){Id="9701",ConfigTableId="97",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
                 new(){Id="9702",ConfigTableId="97",ColumnName="yz_project_id",LogicalType="int64"},
                 new(){Id="9703",ConfigTableId="97",ColumnName="delete_no",LogicalType="datetime"},
-                new(){Id="9094",ConfigTableId="90",ColumnName="target_scope_id",LogicalType="string",LinkConfigTableId="97"}
             ]);
-            catalog.ConfigColumns.Add(new(){Id="9894",ConfigTableId="98",ColumnName="source_scope_id",LogicalType="int64",LinkConfigTableId=logicalParent?"1":"97"});
+            if(!logicalParent)catalog.ConfigColumns.Add(new(){Id="9094",ConfigTableId="90",ColumnName="target_scope_id",LogicalType="string",LinkConfigTableId=logicalSource?"1":"97"});
+            catalog.ConfigColumns.Add(new(){Id="9894",ConfigTableId="98",ColumnName="source_scope_id",LogicalType="int64",LinkConfigTableId=logicalParent||logicalSource?"1":"97"});
+            if(logicalSource)catalog.ConfigColumns.Add(new(){Id="9895",ConfigTableId="98",ColumnName="source_leaf_id",LogicalType="int64",LinkConfigTableId="91",ControlKind="CascadeTree",ControlDetail=JsonSerializer.Serialize(new
+            {
+                sourceMode="crossTable",levels=new object[]{new{table="nested_source",columnPrefix="source_scope"},
+                    new{table="nested_outer_leaf",columnPrefix="source_leaf",parentField="root_id"}}
+            })});
+            if(sharedSource)
+            {
+                var original=catalog.ConfigColumns.Single(column=>column.Id=="9895");
+                catalog.ConfigColumns.Add(new(){Id="9896",ConfigTableId="98",ColumnName="source_alt_id",LogicalType="int64",
+                    LinkConfigTableId="91",ControlKind="CascadeTree",ControlDetail=original.ControlDetail.Replace("source_leaf","source_alt",StringComparison.Ordinal)});
+            }
             var targetPage=catalog.ConfigPages.Single(page=>page.Id=="900");
             targetPage.WhereSql+=(targetPage.WhereSql.Length>0?" AND ":"")+targetParentField+"=@parent_id";
             catalog.ConfigPages.Single(page=>page.Id=="980").WhereSql+=" AND source_scope_id=@parentId";
@@ -326,6 +341,27 @@ public sealed class NestedCrossCandidateTests
                 Assert.True(bound.RequiresPublishedProjectIdentity);
             }
             if(!onlyParent)Assert.Contains("隐藏名称",read.BindAccount(actor).Constants.Values);
+        }
+        if(logicalSource)
+        {
+            var readProjection=read.MultiProjections[field];
+            Assert.Contains("CAST(mt_parent_input.`source_scope_id` AS CHAR)",readProjection.TargetScope);
+            Assert.Contains("CASE WHEN",readProjection.Owner!.SourceExpressions!["source_scope_id"]);
+            Assert.Contains("LEFT JOIN `nested_outer_leaf` cross",read.From);
+            Assert.Contains("source_leaf_id",read.ArrayNamePredicates[field]);
+            if(sharedSource)
+            {
+                Assert.Contains("source_alt_id",read.ArrayNamePredicates[field]);
+                Assert.Contains(read.Crosses,path=>path.RequireRowValidity&&path.SharedGroupKey is not null);
+            }
+            Assert.DoesNotContain("mt_parent_input.",read.ArrayNamePredicates[field]);
+            if(logicalParent)
+            {
+                Assert.Contains("cross0 ON ",readProjection.Joins);
+                Assert.DoesNotContain("` cross0 ON ",readProjection.Joins);
+            }
+            Assert.Contains("980",MySqlNonRedundantReadCompiler.PublishedCascadeLabelPages(catalog));
+            return;
         }
 
         catalog.ConfigTables.Single(table=>table.Id=="98").IsRongyu=1;

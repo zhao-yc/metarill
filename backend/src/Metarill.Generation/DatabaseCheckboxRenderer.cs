@@ -38,6 +38,12 @@ internal static class DatabaseCheckboxRenderer
                 .AppendLine("        ValidateActor(actor);if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"数据库复选要求真实当前身份。\");")
                 .AppendLine("        if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException(\"复选最终校验必须加入实际写事务。\");");
             if(def.SourceParent is null)result.AppendLine("        if(!string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前复选来源未声明父范围。\");");
+            else if(def.LogicalSourceParent)
+            {
+                var path=NonRedundantCrossParentCompilation.Find(model,table,page,def.SourceParent!)!.Value;
+                // 候选仍按来源页的实际可见级联核对父节点，不能用表项目归属替代其固定条件。
+                result.AppendLine($"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,locking,false).PathAsync({path.Index},LogicalParentId{page.Source.Id}(parentId),cancellationToken);");
+            }
             else
             {
                 result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0||parentId!=parentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"来源父ID必须为规范正整数字符串。\");");
@@ -78,16 +84,17 @@ internal static class DatabaseCheckboxRenderer
                     .AppendLine($"            return rows.Select(row=>{{var id=row.Id.ToString(CultureInfo.InvariantCulture);var label={LabelText(def,"row.Name")};return new DatabaseCheckboxOption(id,label,id,label);}}).ToArray();")
                     .AppendLine("        },cancellationToken);").AppendLine("    }");
             }
+            var writeParent=def.LogicalSourceParent?"logicalRelationParentId":ParentValue(def,"entity");
             result.AppendLine("    /// <summary>来源依赖变化重新校验完整所选集合，冗余名称仅在本事务派生；未提交无关字段不刷新。</summary>")
-                .AppendLine($"    private async Task ValidateCheckbox{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,RecordMutationOperation? operation=null)")
+                .AppendLine($"    private async Task ValidateCheckbox{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,RecordMutationOperation? operation=null{(def.LogicalSourceParent?",string? logicalRelationParentId=null":"")})")
                 .AppendLine("    {")
                 .AppendLine("        if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"复选保存要求真实当前身份。\");")
                 .AppendLine($"        if(operation==RecordMutationOperation.Import)relationAuthorization.RequirePagePermission({Literal(page.Source.Id)},\"import\");")
                 .AppendLine($"        var selected=DatabaseCheckboxValue.Parse(entity.{def.Source.Property});");
             if(int.TryParse(def.Source.Source.ColumnLength,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var sourceLimit)&&sourceLimit>0)result.AppendLine($"        if(entity.{def.Source.Property} is {{Length:>{sourceLimit}}})throw new ArgumentException(\"复选ID数组超过已声明物理列长度。\");");
             result
-                .Append(def.DerivedName?"":$"        var query=await CheckboxScope{suffix}Async({ParentValue(def,"entity")},actor,{EntityForm(def,"entity")},true,cancellationToken);\n")
-                .AppendLine(def.DerivedName?$"        var rows=await DerivedCheckboxRows{suffix}Async({ParentValue(def,"entity")},actor,{EntityForm(def,"entity")},selected,null,false,DatabaseCheckboxValue.MaximumItems,true,cancellationToken);":$"        var rows=await query.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>new {{row.Id,Name=row.{def.Name.Property}}},cancellationToken);")
+                .Append(def.DerivedName?"":$"        var query=await CheckboxScope{suffix}Async({writeParent},actor,{EntityForm(def,"entity")},true,cancellationToken);\n")
+                .AppendLine(def.DerivedName?$"        var rows=await DerivedCheckboxRows{suffix}Async({writeParent},actor,{EntityForm(def,"entity")},selected,null,false,DatabaseCheckboxValue.MaximumItems,true,cancellationToken);":$"        var rows=await query.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>new {{row.Id,Name=row.{def.Name.Property}}},cancellationToken);")
                 .AppendLine("        if(rows.Count!=selected.Length)throw new InvalidOperationException(\"复选项不存在、已删除或已离开当前固定候选范围，整笔未保存。\");");
             if(table.Source.IsRongyu==1)
                 result.AppendLine($"        var names=rows.ToDictionary(row=>row.Id,row=>{LabelText(def,"row.Name")});")

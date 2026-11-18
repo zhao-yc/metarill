@@ -13,6 +13,7 @@ public static partial class MySqlNonRedundantReadCompiler
     private sealed partial class Builder
     {
         private readonly Dictionary<string,NonRedundantCrossTableScope> crossTables;
+        internal string CrossAliasPrefix{get;init;}="cross";
         private readonly Dictionary<string,MySqlCrossTableProjection> crossProjections=new(StringComparer.Ordinal);
         private readonly Dictionary<string,IReadOnlyDictionary<string,(string Sql,string Type)>> crossValues=new(StringComparer.Ordinal);
         private readonly Dictionary<string,object?> crossConstants=new(StringComparer.Ordinal);
@@ -80,7 +81,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var rowConditions=new string?[levels.Count];
                 for(var index=levels.Count-1;index>=0;index--)
                 {
-                    var level=levels[index];var alias="cross"+aliases.Count;aliases.Add("cross:"+key+":"+index,alias);targetAliases[index]=alias;
+                    var level=levels[index];var alias=CrossAliasPrefix+aliases.Count;aliases.Add("cross:"+key+":"+index,alias);targetAliases[index]=alias;
                     var sourceText="CAST("+raw[selection.Slots[index].ColumnName]+" AS CHAR)";var effective="NULLIF(BINARY "+sourceText+",BINARY '')";
                     if(index+1<levels.Count){var parent=levels[index+1].Parent!;var parentValue=targetAliases[index+1]+"."+Q(parent.ColumnName);var parentText=parent.LogicalType.ToLowerInvariant()=="string"?PositiveText(parentValue):"CASE WHEN "+parentValue+">0 THEN CAST("+parentValue+" AS CHAR) END";effective="COALESCE("+effective+","+parentText+")";}
                     if(trackReverse&&(labelPath||scopeOnly))

@@ -30,6 +30,16 @@ public static partial class MySqlNonRedundantReadCompiler
                 pages.UnionWith(plan.CascadeLabelPages);
                 if(source is not null&&(plan.RequiresAccount&&source.IsRongyu==1||selected is not null&&plan.RequiredMultiParent is not null))
                     owners.UnionWith(catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id).Select(page=>page.Id));
+                if(source is not null&&selected is not null&&MultiParent(catalog,selected) is {} parent)
+                {
+                    var sourceParent=parent.Source(catalog,source,relation);
+                    foreach(var sourcePage in sourceParent.LogicalPages)
+                    {
+                        var fields=new HashSet<string>(StringComparer.Ordinal){sourceParent.Column.ColumnName};
+                        pages.Add(sourcePage.Id);
+                        pages.UnionWith(CrossMembershipBindings(catalog,source,sourcePage,fields).SelectMany(binding=>binding.Levels.Select(level=>level.PageId)));
+                    }
+                }
             }
             catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
             {

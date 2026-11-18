@@ -31,6 +31,12 @@ internal static class NonRedundantCrossParentCompilation
     /// <summary>原写事务明确选当前锁读，不能沿用默认快照。</summary>
     internal static string LockArgument(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)||FixedPageConditionCompilation.HasCrossFields(page)||
         SharedRedundantParentCompilation.HasAccountPath(model,table,page)?",locking:true":"";
+    /// <summary>多值写校验使用来源页已解析的父上下文，后续写入仍复核实际逻辑路径。</summary>
+    internal static bool UsesMultiParent(GenerationModel model,TableModel table,PageModel page)=>
+        Enabled(model,table,page)&&table.Columns.Any(column=>column.Source.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase");
+    internal static string MultiParentArgument(GenerationModel model,TableModel table,PageModel page)=>
+        UsesMultiParent(model,table,page)?", logicalRelationParentId: parentId":"";
+
     /// <summary>路径归一化前不先锁祖先；空批次在末尾单独验证真实父记录。</summary>
     internal static string ParentArgument(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)?",includeManaged:false":"";
     /// <summary>关系省略时保持原始物理空位；真正提交的关系必须在归一化后满足原父范围。</summary>
