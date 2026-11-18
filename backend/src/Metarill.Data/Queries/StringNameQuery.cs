@@ -22,4 +22,9 @@ public static class StringNameQuery
     /// <summary>固定映射列直接参与LIKE，继承实际列排序规则，关键词与数组名称使用相同参数化转义。</summary>
     public static ISelect<T> ApplyLike<T>(DatabaseSession session, ISelect<T> query, Expression<Func<T, string?>> storageColumn, string keyword) where T : class
         => JsonArrayNameQuery.ApplyNameLike(session, query, storageColumn, keyword, false);
+
+    /// <summary>整数名称缓存按十进制文本匹配字面关键词，保持原整数属性和查询别名。</summary>
+    public static ISelect<T> ApplyIntegerLike<T, TInteger>(DatabaseSession session, ISelect<T> query,
+        Expression<Func<T, TInteger?>> storageColumn, string keyword) where T : class where TInteger : struct
+        => JsonArrayNameQuery.ApplyNameLike(session, query, storageColumn, keyword, false);
 }

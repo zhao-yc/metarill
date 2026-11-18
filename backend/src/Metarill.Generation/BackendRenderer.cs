@@ -925,6 +925,8 @@ public partial class {{table.Name}}Service
             // 只有工厂签发管理图注册初始化；普通业务JSON或相同按钮ID不能取得此能力。
             result.AppendLine("        services.AddScoped<global::Metarill.Runtime.Security.IAdminAccountInitializer, global::Metarill.Runtime.Security.AdminAccountInitializationBusiness>();");
         }
-        return result.AppendLine("        return services;").AppendLine("    }").Append(TrustedSecurityPhysicalCompilation.Method(model)).AppendLine("}").Append(model.Tables.Any(table=>NonRedundantReadCompilation.Requires(model,table))?NonRedundantCatalog(model):"").Append(RelationPropagationRenderer.Catalog(model)).Append(RelationMaintenanceRenderer.Catalog(model)).ToString();
+        return result.AppendLine("        return services;").AppendLine("    }").Append(TrustedSecurityPhysicalCompilation.Method(model)).AppendLine("}").Append(model.Tables.Any(table => NonRedundantReadCompilation.Requires(model, table) ||
+            table.Pages.Any(page => RelationCompilation.ForPage(model, page, true).Any(relation => DerivedRelationNamesCompilation.UsesFixedRead(model, relation))))
+            ? NonRedundantCatalog(model) : "").Append(RelationPropagationRenderer.Catalog(model)).Append(RelationMaintenanceRenderer.Catalog(model)).ToString();
     }
 }

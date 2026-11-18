@@ -16,9 +16,9 @@ internal static class DerivedRelationNamesCompilation
     internal static bool IsPhysicalInteger(GenerationModel model, TableModel target, ColumnModel name) =>
         !name.IsJsonArray && name.Type is "int?" or "long?" && NonRedundantReadCompilation.Physical(model, target, name);
 
-    /// <summary>普通 R0 单值关系可使用物理和联接整数，页与项目范围由实际候选计划校验。</summary>
+    /// <summary>普通项目的单值关系可使用物理和联接整数，R1 来源还需证明缓存。</summary>
     internal static bool IsIntegerName(GenerationModel model, TableModel owner, TableModel target, ColumnModel name) =>
-        owner.Source.IsRongyu == 0 && !owner.IsGlobal && !name.IsJsonArray && name.Type is "int?" or "long?" &&
+        SupportedOwner(model, owner) && !owner.IsGlobal && !name.IsJsonArray && name.Type is "int?" or "long?" &&
         (target.Source.IsRongyu == 0 || target.Source.IsRongyu == 1 && IsPhysicalInteger(model, target, name));
 
     /// <summary>目标候选和来源筛选共用同一个名称终点类型。</summary>
@@ -77,6 +77,16 @@ internal static class DerivedRelationNamesCompilation
             if(proof.Page.Id!=relation.TargetPage.Source.Id||proof.Name.Id!=name.Source.Id)throw new InvalidOperationException("全局派生候选与固定名称或目标页不一致。");
         }
         if(owner.Source.IsRongyu==1&&(!NonRedundantReadCompilation.Physical(model,owner,relation.SourceColumn)||GenerationModel.Enabled(relation.SourceColumn.Source.Extra,"isJoinColumn")||relation.SourceColumn.Source.IsVirtualColumn!=0||relation.SourceColumn.Source.LogicalType is not("int64" or "string")))throw new InvalidOperationException("R1派生候选必须使用本表真实单值外键。");
+        if (integerName && owner.Source.IsRongyu == 1)
+        {
+            var cache = SelectionDisplayFieldCompilation.Resolve(owner, relation.SourceColumn);
+            if (!NonRedundantSelectionCompilation.IsDisplay(relation.SourceColumn, cache, name) ||
+                !NonRedundantReadCompilation.Physical(model, owner, cache) ||
+                page.Readable.Contains(relation.SourceColumn) && !page.Readable.Contains(cache) ||
+                !MixedRelationPropagationCompilation.ForModel(model).MixedSourceColumns.GetValueOrDefault(owner.Source.TableName, [])
+                    .Contains(cache.Source.ColumnName, StringComparer.Ordinal))
+                throw new InvalidOperationException("R1 整数名称要求同类型的只读物理缓存及完整写入、传播和维护计划。");
+        }
         var fields=relation.TargetPage.Scopes.Concat(relation.Scopes).Select(scope=>scope.Column)
             .Concat(relation.TargetPage.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[])
             .Concat(relation.Conditions?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();

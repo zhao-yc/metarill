@@ -52,9 +52,11 @@ public sealed partial class GlobalScopedCandidateTests
 
     /// <summary>全局逻辑编号沿原 List 和 SelectPage 发布，同项目普通 CRUD 保留项目约束。</summary>
     [Theory]
-    [InlineData("int32", false)]
-    [InlineData("int64", true)]
-    public async Task Global_derived_integer_reaches_both_generated_single_controls(string logicalType, bool rowProject)
+    [InlineData("int32", false, 0)]
+    [InlineData("int64", true, 0)]
+    [InlineData("int32", true, 1)]
+    [InlineData("int64", false, 1)]
+    public async Task Global_derived_integer_reaches_both_generated_single_controls(string logicalType, bool rowProject, int sourceStorage)
     {
         var catalog = rowProject ? Catalog(false, 0, "int64") : GlobalDerivedTargetGenerationTests.Catalog(0, "string", "int64");
         catalog.ConfigColumns.Add(new()
@@ -68,6 +70,7 @@ public sealed partial class GlobalScopedCandidateTests
         foreach (var column in catalog.ConfigColumns.Where(column => column.Id is "14" or "35" or "40"))
             column.LogicalType = logicalType;
         catalog.ConfigColumns.Single(column => column.Id == "14").Extra["columnFullName"] = JsonSerializer.SerializeToElement("global_target.code");
+        catalog.ConfigTables.Single(table => table.Id == "3").IsRongyu = sourceStorage;
         catalog.ConfigPageColumns.Single(field => field.Id == "3038").Extra["isSearch"] = JsonSerializer.SerializeToElement(1);
         catalog.ConfigPageColumns.Single(field => field.Id == "3040").Extra.Remove("isSearch");
 
@@ -75,9 +78,12 @@ public sealed partial class GlobalScopedCandidateTests
         var consumer = model.Tables.Single(table => table.Source.Id == "3");
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var binding = Assert.Single(SelectionNameFilterCompilation.ForPage(model, consumer, Assert.Single(consumer.Pages)).Bindings);
-        Assert.Equal(SelectionNameFilterKind.JoinedIntegerLike, binding.Kind);
-        var plan = NonRedundantReads.Compile(catalog, "3", ["global_source_global_target_name", "selected_global_source_global_target_name"]);
-        Assert.All(plan.OutputTypes, field => Assert.Equal(logicalType, field.Value));
+        var names = new[] { "global_source_global_target_name", "selected_global_source_global_target_name" };
+        Assert.Equal(sourceStorage == 0 ? SelectionNameFilterKind.JoinedIntegerLike : SelectionNameFilterKind.IntegerLike, binding.Kind);
+        if (sourceStorage == 0)
+            Assert.All(NonRedundantReads.Compile(catalog, "3", names).OutputTypes, field => Assert.Equal(logicalType, field.Value));
+        else
+            AssertManagedIntegerCache(model, "global_target", names);
 
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-integer");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
@@ -94,6 +100,7 @@ public sealed partial class GlobalScopedCandidateTests
             }
             Assert.Contains("FixedReadComparison.IntegerLabelContains", source);
             Assert.Contains(rowProject ? "CompileGlobalCandidate" : "CompileRelation", source);
+            if (sourceStorage == 1) Assert.Contains("StringNameQuery.ApplyIntegerLike", source);
             await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
         }
         finally
@@ -147,6 +154,69 @@ public sealed partial class GlobalScopedCandidateTests
         {
             if (Directory.Exists(directory)) await TestDirectoryCleanup.DeleteAsync(directory, boundary);
         }
+    }
+
+    /// <summary>R1 来源保存同类型整数缓存，普通或全局目标都挂接原维护和改名传播。</summary>
+    [Theory]
+    [InlineData(0, "int32", false)]
+    [InlineData(1, "int64", false)]
+    [InlineData(0, "int64", true)]
+    [InlineData(1, "int32", true)]
+    public async Task R1_source_integer_cache_is_written_filtered_propagated_and_backfilled(int storage, string logicalType, bool global)
+    {
+        var catalog = PhysicalNumberCatalog(storage, logicalType, rowProject: true);
+        catalog.ConfigTables.Single(table => table.Id == "3").IsRongyu = 1;
+        if (!global) catalog.ConfigTables.Single(table => table.Id == "1").Extra.Clear();
+        var model = GenerationModel.Create(catalog, ApplicationNamespace);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        AssertManagedIntegerCache(model, "global_source", ["global_source_code", "selected_global_source_code"]);
+        var owner = model.Tables.Single(table => table.Source.Id == "3");
+        var page = Assert.Single(owner.Pages);
+        Assert.DoesNotContain(page.Writable, column => column.Source.Id is "35" or "40");
+        Assert.Equal(SelectionNameFilterKind.IntegerLike, Assert.Single(SelectionNameFilterCompilation.ForPage(model, owner, page).Bindings).Kind);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-r1-integer-cache");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ApplicationNamespace);
+            var service = await File.ReadAllTextAsync(Path.Combine(output, "Services/CachedConsumerService.g.cs"));
+            Assert.Contains("StringNameQuery.ApplyIntegerLike", service);
+            Assert.Contains("AfterMutationAsync", service);
+            Assert.Contains("entity.GlobalSourceCode=Metarill.Data.Queries.NonRedundantReads.Value", service);
+            Assert.Contains("DerivedOptionsRows30_34Async", service);
+            Assert.Contains("ImportRelation30_38Async", service);
+            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) await TestDirectoryCleanup.DeleteAsync(directory, boundary);
+        }
+    }
+
+    /// <summary>整数缓存缺少维护标记或类型不符时，生成器停止发布该关系。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void R1_integer_cache_with_an_unmanaged_or_mismatched_column_is_rejected(bool wrongType)
+    {
+        var catalog = PhysicalNumberCatalog(1, "int64", rowProject: false);
+        catalog.ConfigTables.Single(table => table.Id == "3").IsRongyu = 1;
+        var cache = catalog.ConfigColumns.Single(column => column.Id == "35");
+        if (wrongType) cache.LogicalType = "int32";
+        else cache.Extra.Remove("isJoinColumn");
+        var model = GenerationModel.Create(catalog, ApplicationNamespace);
+        var owner = model.Tables.Single(table => table.Source.Id == "3");
+        Assert.Throws<InvalidOperationException>(() => RelationCompilation.ForPage(model, Assert.Single(owner.Pages)));
+    }
+
+    /// <summary>保留仓库真实维护目录，只有实际登记的字段与目标才接受生成。</summary>
+    private static void AssertManagedIntegerCache(GenerationModel model, string target, string[] fields)
+    {
+        var maintenance = MixedRelationPropagationCompilation.ForModel(model);
+        Assert.Equal(fields, maintenance.MixedSourceColumns["cached_consumer"]);
+        Assert.Contains(target, maintenance.MixedTargets);
     }
 
     /// <summary>目标直接存整数编码，源表使用原外键和标准辅助名称路径。</summary>

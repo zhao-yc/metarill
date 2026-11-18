@@ -32,16 +32,17 @@ internal static class NonRedundantSelectionCompilation
         if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))throw new InvalidOperationException(reason);
         var selection=new NonRedundantSelectionModel(target,targetPage,name,definition);
         var display=SelectionDisplayFieldCompilation.Resolve(table,source);
-        if ((integerName || display.Source.Id != source.Source.Id) && !IsDisplay(source,display,selection))
+        if ((integerName || display.Source.Id != source.Source.Id) && !IsDisplay(source,display,name))
             throw new InvalidOperationException("非冗余单选辅助名称与真实外键、名称路径或类型不一致。");
         return selection;
     }
     /// <summary>原名称筛选键只接受指向同一外键/名称的显式联接列，避免借别的派生列改变筛选含义。</summary>
-    internal static bool IsDisplay(ColumnModel source,ColumnModel storage,NonRedundantSelectionModel selection)
+    internal static bool IsDisplay(ColumnModel source, ColumnModel storage, ColumnModel name)
     {
         var path=storage.Source.Extra.GetValueOrDefault("columnFullName").ToString();
-        return storage.Type == selection.Name.Type && !storage.IsJsonArray && storage.Source.IsVirtualColumn == 0 &&
+        return source.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) &&
+            storage.Type == name.Type && !storage.IsJsonArray && storage.Source.IsVirtualColumn == 0 &&
             GenerationModel.Enabled(storage.Source.Extra, "isJoinColumn") &&
-            path.Equals(source.Source.ColumnName[..^3] + "." + selection.Name.Source.ColumnName, StringComparison.OrdinalIgnoreCase);
+            path.Equals(source.Source.ColumnName[..^3] + "." + name.Source.ColumnName, StringComparison.OrdinalIgnoreCase);
     }
 }

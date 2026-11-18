@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Metarill.Generation;
 
 /// <summary>仅描述实际可证明的名称存储匹配；JSON数组必须由已交付数据库方言按元素匹配。</summary>
-internal enum SelectionNameFilterKind { ScalarLike, JsonArrayAnyLike, JoinedScalarLike, JoinedIntegerLike, JoinedJsonArrayAnyLike }
+internal enum SelectionNameFilterKind { ScalarLike, IntegerLike, JsonArrayAnyLike, JoinedScalarLike, JoinedIntegerLike, JoinedJsonArrayAnyLike }
 internal sealed record SelectionNameFilterBinding(ColumnModel Source,ColumnModel StorageColumn,string FilterKey,SelectionNameFilterKind Kind);
 internal sealed record SelectionNameFilterGap(ColumnModel Source,string FilterKey,string Reason);
 internal sealed record SelectionNameFilterPlan(IReadOnlyList<SelectionNameFilterBinding> Bindings,IReadOnlyList<SelectionNameFilterGap> Gaps)
@@ -27,8 +27,8 @@ internal static class SelectionNameFilterCompilation
             if(EffectiveFilterKind(model,page,source)!=source.Source.ControlKind){Gap("页级controlKind改变了名称筛选的存储种类，尚未建立完整证明。");continue;}
             if(table.Source.IsRongyu is not(0 or 1)){Gap("未识别的存储模式不能建立名称谓词。");continue;}
             if(storage.Source.Id==source.Source.Id){Gap("没有独立已声明名称列；ID筛选必须使用独立合同。");continue;}
-            var integerStorage = table.Source.IsRongyu == 0 && source.Source.ControlKind == "SelectPage" && storage.Type is "int?" or "long?";
-            if(storage.Type!="string?"&&!integerStorage||storage.Source.IsVirtualColumn!=0||!(page.Readable.Any(column=>column.Source.Id==storage.Source.Id)||table.Source.IsRongyu==1&&storage.IsManagedMultiNames&&MultiNameStorageCompilation.IsImplicit(model,storage)&&page.Readable.Any(column=>column.Source.Id==source.Source.Id)||table.Source.IsRongyu==0&&source.Source.ControlKind=="MultiSelectPage"&&storage.IsManagedMultiNames&&page.Readable.Any(column=>column.Source.Id==source.Source.Id))||table.Source.IsRongyu==1&&GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")&&!storage.IsManagedMultiNames){Gap("辅助名称必须为本页可读的已证明名称列。");continue;}
+            var integerStorage = source.Source.ControlKind == "SelectPage" && storage.Type is "int?" or "long?";
+            if(storage.Type!="string?"&&!integerStorage||storage.Source.IsVirtualColumn!=0||!(page.Readable.Any(column=>column.Source.Id==storage.Source.Id)||table.Source.IsRongyu==1&&storage.IsManagedMultiNames&&MultiNameStorageCompilation.IsImplicit(model,storage)&&page.Readable.Any(column=>column.Source.Id==source.Source.Id)||table.Source.IsRongyu==0&&source.Source.ControlKind=="MultiSelectPage"&&storage.IsManagedMultiNames&&page.Readable.Any(column=>column.Source.Id==source.Source.Id))||table.Source.IsRongyu==1&&GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")&&!storage.IsManagedMultiNames&&!integerStorage){Gap("辅助名称必须为本页可读的已证明名称列。");continue;}
             try
             {
                 var settings=model.Catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);
@@ -56,7 +56,7 @@ internal static class SelectionNameFilterCompilation
                     else
                     {
                         var selection = NonRedundantSelectionCompilation.Resolve(model, table, page, source);
-                        if (!NonRedundantSelectionCompilation.IsDisplay(source, storage, selection))
+                        if (!NonRedundantSelectionCompilation.IsDisplay(source, storage, selection.Name))
                         { Gap("非冗余名称列没有绑定同一单值外键和目标名称。"); continue; }
                         var read = Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog, table.Source.Id, [storage.Source.ColumnName]);
                         if (read.OutputTypes[storage.Source.ColumnName] != DerivedRelationNamesCompilation.NameType(selection.Name))
@@ -69,6 +69,14 @@ internal static class SelectionNameFilterCompilation
                     var known=MultiSelectCompilation.Resolve(model,table,page,source);
                     if(known.Definition is not {} multi||multi.Names?.Source.Id!=storage.Source.Id){Gap(known.Reason??"多选名称辅助列与稳定显示属性不一致。");continue;}
                     kind=SelectionNameFilterKind.JsonArrayAnyLike;
+                }
+                else if (integerStorage)
+                {
+                    var selection = NonRedundantSelectionCompilation.Resolve(model, table, page, source);
+                    if (!NonRedundantSelectionCompilation.IsDisplay(source, storage, selection.Name) ||
+                        !NonRedundantReadCompilation.Physical(model, table, storage))
+                    { Gap("整数名称筛选需要同一选择关系的物理缓存。"); continue; }
+                    kind = SelectionNameFilterKind.IntegerLike;
                 }
                 else
                 {
@@ -118,7 +126,12 @@ internal static class SelectionNameFilterCompilation
         foreach(var binding in plan.Bindings)
         {
             if(binding.Kind is SelectionNameFilterKind.JoinedScalarLike or SelectionNameFilterKind.JoinedIntegerLike or SelectionNameFilterKind.JoinedJsonArrayAnyLike)throw new InvalidOperationException("非冗余名称谓词必须使用固定读取计划，不能查询忽略持久化的实体列。");
-            var predicate=binding.Kind==SelectionNameFilterKind.ScalarLike?$"query = Metarill.Data.Queries.StringNameQuery.ApplyLike(session, query, entity => entity.{binding.StorageColumn.Property}, value);":renderJsonPredicate?.Invoke(binding)??throw new InvalidOperationException("JSON数组名称筛选尚未提供数据库方言实现。");
+            var predicate = binding.Kind switch
+            {
+                SelectionNameFilterKind.ScalarLike => $"query = Metarill.Data.Queries.StringNameQuery.ApplyLike(session, query, entity => entity.{binding.StorageColumn.Property}, value);",
+                SelectionNameFilterKind.IntegerLike => $"query = Metarill.Data.Queries.StringNameQuery.ApplyIntegerLike(session, query, entity => entity.{binding.StorageColumn.Property}, value);",
+                _ => renderJsonPredicate?.Invoke(binding) ?? throw new InvalidOperationException("JSON数组名称筛选尚未提供数据库方言实现。")
+            };
             if(string.IsNullOrWhiteSpace(predicate))throw new InvalidOperationException("名称筛选生成分支不能为空。");
             result.AppendLine("case "+JsonSerializer.Serialize(binding.FilterKey)+": {")
                 .AppendLine("if (filter.Value.ValueKind == JsonValueKind.Null || filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) break;")

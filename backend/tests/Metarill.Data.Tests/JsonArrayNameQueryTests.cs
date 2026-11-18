@@ -49,6 +49,22 @@ public sealed class JsonArrayNameQueryTests
         Assert.DoesNotContain("JSON_SEARCH", sql); Assert.DoesNotContain("Café", sql); Assert.DoesNotContain("INSTR", sql, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>两种整数缓存保留真实列及别名，关键词通过参数传递。</summary>
+    [Fact]
+    public void Integer_name_like_casts_mapped_columns_without_inlining_keyword()
+    {
+        using var session = Session();
+        var query = session.Select<Row>().As("integer_source");
+        query = StringNameQuery.ApplyIntegerLike(session, query, row => row.Number, "-2_%!");
+        query = StringNameQuery.ApplyIntegerLike(session, query, row => row.LongNumber, "9007199254740993");
+        var sql = query.ToSql();
+        Assert.Contains("CAST(integer_source.`stored_number` AS CHAR) LIKE @mt_integer_name_", sql);
+        Assert.Contains("CAST(integer_source.`stored_long_number` AS CHAR) LIKE @mt_integer_name_", sql);
+        Assert.Contains("ESCAPE '!'", sql);
+        Assert.DoesNotContain("9007199254740993", sql);
+        Assert.DoesNotContain("-2_%!", sql);
+    }
+
     /// <summary>方法、常量、忽略列及空关键词都在附加条件前明确拒绝。</summary>
     [Fact]
     public void Only_mapped_direct_string_property_and_nonblank_keyword_are_accepted()
@@ -101,6 +117,8 @@ public sealed class JsonArrayNameQueryTests
         public long ProjectId { get; set; }
         [Column(Name = "stored_names")] public string? Names { get; set; }
         [Column(Name = "other_names")] public string? OtherNames { get; set; }
+        [Column(Name = "stored_number")] public int? Number { get; set; }
+        [Column(Name = "stored_long_number")] public long? LongNumber { get; set; }
         [Column(IsIgnore = true)] public string? Ignored { get; set; }
     }
 }

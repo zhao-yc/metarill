@@ -29,7 +29,7 @@ public static class JsonArrayNameQuery
     }
 
     /// <summary>名称字面搜索与原文本模式共用固定映射边界，模式只能由服务端方法决定。</summary>
-    internal static ISelect<T> ApplyNameLike<T>(DatabaseSession session, ISelect<T> query, Expression<Func<T, string?>> storageColumn, string keyword, bool jsonArray,bool preservePattern=false) where T : class
+    internal static ISelect<T> ApplyNameLike<T, TValue>(DatabaseSession session, ISelect<T> query, Expression<Func<T, TValue>> storageColumn, string keyword, bool jsonArray, bool preservePattern = false) where T : class
     {
         if(jsonArray&&preservePattern)throw new ArgumentException("数组名称不接受普通文本模式。",nameof(preservePattern));
         ArgumentNullException.ThrowIfNull(session);
@@ -39,16 +39,23 @@ public static class JsonArrayNameQuery
         if (preservePattern?StringNameQuery.IsPatternBlank(keyword):string.IsNullOrWhiteSpace(keyword)) throw new ArgumentException("名称关键词不能为空白。", nameof(keyword));
         if (!string.Equals(session.Provider.Name, "mysql", StringComparison.OrdinalIgnoreCase) || session.Orm.Ado.DataType != DataType.MySql)
             throw new NotSupportedException("当前数据库尚未实现名称字面筛选。");
-        // 列只能来自已映射实体的直接字符串属性，不能传方法、导航或任意SQL表达式。
+        var storageType = typeof(TValue);
+        var integerLike = storageType == typeof(int?) ? nameof(DatabaseFunctions.Integer32Like) :
+            storageType == typeof(long?) ? nameof(DatabaseFunctions.Integer64Like) : null;
+        if (storageType != typeof(string) && (integerLike is null || jsonArray || preservePattern))
+            throw new ArgumentException("当前名称用途只能读取字符串或直接整数属性。", nameof(storageColumn));
+        // 列必须来自实体映射，避免方法或导航借用源表别名。
         if (storageColumn.Body is not MemberExpression { Expression: ParameterExpression parameter, Member: PropertyInfo property } ||
-            parameter != storageColumn.Parameters[0] || property.PropertyType != typeof(string) || property.GetMethod is not { IsStatic: false, IsPublic: true })
-            throw new ArgumentException("名称存储列必须是已映射实体的直接字符串属性。", nameof(storageColumn));
+            parameter != storageColumn.Parameters[0] || property.PropertyType != storageType || property.GetMethod is not { IsStatic: false, IsPublic: true })
+            throw new ArgumentException("名称存储列必须是已映射实体的直接属性。", nameof(storageColumn));
         var table = session.Orm.CodeFirst.GetTableByEntity(typeof(T));
         if (table is null || !table.ColumnsByCs.TryGetValue(property.Name, out var mapped) || mapped.Attribute.IsIgnore)
             throw new ArgumentException("名称存储列没有实体映射。", nameof(storageColumn));
         MetadataValidation.RequireIdentifier(mapped.Attribute.Name);
         var pattern = preservePattern?"%"+keyword+"%":"%" + keyword.Replace("!", "!!", StringComparison.Ordinal).Replace("%", "!%", StringComparison.Ordinal).Replace("_", "!_", StringComparison.Ordinal) + "%";
-        var call = Expression.Call(typeof(DatabaseFunctions).GetMethod(preservePattern?nameof(DatabaseFunctions.ScalarPatternLike):jsonArray ? nameof(DatabaseFunctions.AnyLike) : nameof(DatabaseFunctions.ScalarLike))!, storageColumn.Body, Expression.Constant(pattern));
+        var function = integerLike ?? (preservePattern ? nameof(DatabaseFunctions.ScalarPatternLike) :
+            jsonArray ? nameof(DatabaseFunctions.AnyLike) : nameof(DatabaseFunctions.ScalarLike));
+        var call = Expression.Call(typeof(DatabaseFunctions).GetMethod(function)!, storageColumn.Body, Expression.Constant(pattern));
         return query.Where(Expression.Lambda<Func<T, bool>>(call, storageColumn.Parameters));
     }
 
@@ -90,6 +97,24 @@ public static class JsonArrayNameQuery
             var name = "mt_scalar_name_" + Guid.NewGuid().ToString("N");
             call.UserParameters.Add(new MySqlParameter(name, MySqlDbType.LongText) { Value = pattern });
             call.Result = $"({column} LIKE @{name} ESCAPE '!')";
+            return false;
+        }
+
+        /// <summary>保留 int32 缓存映射，将关键词作为独立参数绑定。</summary>
+        public static bool Integer32Like(int? document, [RawValue] string pattern) => IntegerLike(pattern);
+
+        /// <summary>保留 int64 缓存映射，十进制文本比较避免高位编号失真。</summary>
+        public static bool Integer64Like(long? document, [RawValue] string pattern) => IntegerLike(pattern);
+
+        /// <summary>只转换数据库列，关键词沿相同的字面转义规则绑定。</summary>
+        private static bool IntegerLike(string pattern)
+        {
+            var call = context.Value ?? throw new InvalidOperationException("整数名称谓词只能用于数据库表达式。");
+            if (call.DataType != DataType.MySql) throw new NotSupportedException("当前数据库尚未实现整数名称筛选。");
+            var column = call.ParsedContent["document"];
+            var name = "mt_integer_name_" + Guid.NewGuid().ToString("N");
+            call.UserParameters.Add(new MySqlParameter(name, MySqlDbType.LongText) { Value = pattern });
+            call.Result = $"(CAST({column} AS CHAR) LIKE @{name} ESCAPE '!')";
             return false;
         }
 
