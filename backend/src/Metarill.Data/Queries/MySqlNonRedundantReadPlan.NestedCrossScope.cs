@@ -6,7 +6,8 @@ public static partial class MySqlNonRedundantReadCompiler
 {
     /// <summary>候选与实际父路径使用同一发布页范围；调用端不能替换其中任一逻辑条件。</summary>
     internal static MySqlNonRedundantReadPlan CompileCrossPageCandidate(MetadataCatalog catalog,string tableId,string pageId,
-        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
+        IReadOnlyList<NonRedundantCrossTableScope>? displayBindings=null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -17,18 +18,25 @@ public static partial class MySqlNonRedundantReadCompiler
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("递归候选尚未完成当前方言适配。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
-        if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
+        var global=GlobalCrossTableTarget.Declared(table);
+        if(table.IsRongyu!=0||page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
             page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new NotSupportedException("候选必须属于已发布项目的普通非冗余目标页。");
+        if(global)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId));
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         var logical=syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToHashSet(StringComparer.Ordinal);
-        if(logical.Count==0)throw new InvalidOperationException("候选页未声明逻辑跨表条件。");
-        var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax)
-            ??throw new InvalidOperationException("候选页缺少固定范围。");
-        var builder=new Builder(catalog,tableId,crossTables:CrossMembershipBindings(catalog,table,page,logical))
+        if(logical.Count==0&&(!global||displayBindings is not{Count:>0}))
+            throw new InvalidOperationException("候选页未声明逻辑跨表条件或已证明的全局跨表投影。");
+        var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax);
+        var scopes=logical.Count==0?[]:CrossMembershipBindings(catalog,table,page,logical);
+        // 范围的绑定按发布页生成，其它绑定仅用于该独立选择页展示额外的路径。
+        var bindings=scopes.Concat(displayBindings??[]).DistinctBy(path=>path.SourceColumnId,StringComparer.Ordinal).ToArray();
+        var builder=new Builder(catalog,tableId,crossTables:bindings)
         {
-            CrossCandidateCondition=condition
+            CrossCandidateCondition=condition,
+            GlobalCrossCandidate=global,
+            ScopedRootControls=scopes.Select(path=>path.SourceColumnId).ToHashSet(StringComparer.Ordinal)
         };
         return builder.Compile(outputs,dependencies.Concat(syntax.Fields).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
@@ -36,16 +44,22 @@ public static partial class MySqlNonRedundantReadCompiler
     private sealed partial class Builder
     {
         internal FixedConditionSqlPlan? CrossCandidateCondition{get;init;}
+        internal bool GlobalCrossCandidate{get;init;}
+        internal IReadOnlySet<string> ScopedRootControls{get;init;}=new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>固定候选页过滤实际可见的整条路径，查询及计数无法省略范围。</summary>
         private string FixedCrossCandidateScope(string scope,IReadOnlyDictionary<string,string> expressions)
         {
-            var clause=CrossCandidateCondition!.RenderAccountProjection(new MySqlDatabaseProvider(),"mt_candidate",
+            var clause=CrossCandidateCondition?.RenderAccountProjection(new MySqlDatabaseProvider(),"mt_candidate",
                 field=>expressions[field]);
-            foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
-            return string.Join(" AND ",new[]{scope,clause.Sql}.Concat(ValidScopedPaths(crossProjections.Values))
+            if(clause is not null)
+                foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
+            var paths=ScopedRootControls.Select(source=>crossProjections[rootAlias+":"+source]);
+            return string.Join(" AND ",new[]{scope,clause?.Sql??""}.Concat(ValidScopedPaths(paths))
                 .Where(part=>part.Length>0));
         }
+        // 外层普通页含全局递归候选时，内层实体仍使用发布项目绑定的真实行范围。
+        private bool scopedGlobalCrossTarget;
         private readonly HashSet<string> activeCrossScopePages=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlCrossTableProjection> scopedCrossProjections=new(StringComparer.Ordinal);
 
@@ -53,7 +67,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private string NestedCrossCondition(CrossLevel level,string owner)
         {
             var table=level.Table;
-            if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||cascadeCacheOwner is not null||trackReverse)
+            if(table.IsRongyu!=0||cascadeCacheOwner is not null||trackReverse)
                 throw new NotSupportedException("递归候选要求普通非冗余目标；缓存维护需独立证明实际来源行的范围。");
             if(!activeCrossScopePages.Add(level.Page.Id))
                 throw new InvalidOperationException("跨表级联候选页条件存在循环依赖。");

@@ -48,6 +48,57 @@ public sealed class NestedCrossCandidateTests
         Assert.Equal(before,JsonSerializer.Serialize(catalog));
     }
 
+
+    /// <summary>全局只作用于候选根；普通下级和全局表自己的业务读取按原物理归属约束。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Global_recursive_candidate_omits_only_the_root_project_filter(bool rowProject)
+    {
+        var catalog=Catalog(!rowProject);
+        var table=catalog.ConfigTables.Single(item=>item.Id=="1");
+        var page=catalog.ConfigPages.Single(item=>item.Id=="11");
+        table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        table.YzProjectId=catalog.YzProjectId;
+        catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+        page.YzAdminTypeId="5";
+        if(!rowProject)
+        {
+            var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId==table.Id&&column.ColumnName=="yz_project_id");
+            catalog.ConfigColumns.Remove(project);
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId==project.Id);
+        }
+        var actor=new RuntimeActor(1,"发布项目账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
+        var plan=NonRedundantReads.CompileCrossPageCandidate(catalog,table.Id,page.Id,["id","name"],[]).BindAccount(actor);
+        var business=NonRedundantReads.CompileCrossPageMembership(catalog,table,page,["country_name","store_id"],
+            new HashSet<string>(StringComparer.Ordinal){"country_name"}).BindAccount(actor);
+        Assert.True(plan.MySql.RequiresPublishedProjectIdentity);
+        Assert.DoesNotContain("b.`yz_project_id`=",plan.MySql.Scope);
+        Assert.Contains(".`yz_project_id`=@project_scope_",plan.MySql.From);
+        Assert.Equal(rowProject,business.MySql.Scope.Contains("b.`yz_project_id`=",StringComparison.Ordinal));
+        Assert.Contains(actor.StoreId!.Value,plan.MySql.Constants.Values);
+
+        var condition=FixedConditionSqlPlan.Compile(
+            FixedConditionPlan.Compile("country_name <> '限制文字' AND store_id=@current_store_id",["country_name","store_id"]),
+            new Dictionary<string,string>{{"country_name","string"},{"store_id","int64"}});
+        var outer=NonRedundantReads.CompileWithCrossTables(catalog,"90",["id","outer_root_name"],
+            [new("9004",[new("11",condition),new("91")])]).BindAccount(actor);
+        Assert.True(outer.MySql.RequiresPublishedProjectIdentity);
+        Assert.Contains("b.`yz_project_id`=@project_scope_number",outer.MySql.Scope);
+        Assert.DoesNotContain("cross1.`yz_project_id`=",outer.MySql.From);
+        Assert.Contains("cross2.`yz_project_id`=@project_scope_",outer.MySql.From);
+        Assert.Contains("mt_nested_cross1_",outer.MySql.Expression("outer_root_name"));
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline",
+            ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new NonRedundantReader(session)
+            .RowsAsync(plan,[],[],1,projectId:"999"));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new NonRedundantReader(session)
+            .RowsAsync(outer,[],[],1,projectId:"999"));
+        // 全局资格不允许跳过请求上下文或把逻辑键当成账号字段。
+        page.WhereSql+=" AND yz_project_id=@current_yz_project_id";
+        Assert.ThrowsAny<Exception>(()=>NonRedundantReads.CompileCrossPageCandidate(catalog,table.Id,page.Id,["id"],[]));
+    }
+
     [Fact]
     public void A_recursive_condition_cycle_is_rejected_instead_of_returning_wide_scope()
     {

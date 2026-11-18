@@ -23,7 +23,7 @@ public static class CrossTableParentCondition
             !CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,column.ColumnName))
             .ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.Ordinal);
         var types=new Dictionary<string,string>(physical,StringComparer.Ordinal);
-        if(allowLogical&&table.IsRongyu==0&&!GlobalCrossTableTarget.Declared(table))
+        if(allowLogical&&table.IsRongyu==0)
             foreach(var column in RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
                 .Where(column=>CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,column.ColumnName)))
                 types.TryAdd(column.ColumnName,column.LogicalType);

@@ -39,7 +39,7 @@ internal static class NonRedundantCrossTableSubset
             var exports=plans.SelectMany(plan=>plan.Levels).Any(level=>ExportRenderer.IncludesColumn(page,level.Id)||ExportRenderer.IncludesColumn(page,level.Name));
             // 来源物理归属与路径内逻辑父各自用正式计划校验。额外的物理等值仍取交集。
             var parentColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
-            var pathSupported=model.Catalog.DatabaseProvider=="mysql"&&!table.IsGlobal&&
+            var pathSupported=model.Catalog.DatabaseProvider=="mysql"&&
                 (parentColumns.Length==0||parentTables.Count==1);
             if((imports||importsFixedPath)&&(!pathSupported||!SupportsImport(model,table,page,plans,importColumns)))
                 return CrossTableExcelRenderer.ImportAcceptancePending;

@@ -24,7 +24,15 @@ public static partial class MySqlNonRedundantReadCompiler
             origin=null;var key=owner+":"+source.Id;
             if(!crossValues.TryGetValue(key,out var values))
             {
-                if(!labelPath&&!scopeOnly&&(table.Id!=root.Id||owner!=rootAlias)||CrossText(table,"scopeKind")=="global"||!columns[table.Id].TryGetValue("yz_project_id",out var sourceProject)||!storage[table.Id].IsPhysical(sourceProject))throw new NotSupportedException("跨表逻辑投影要求当前非冗余来源的真实物理项目范围。");
+                if(!labelPath&&!scopeOnly&&(table.Id!=root.Id||owner!=rootAlias))
+                    throw new NotSupportedException("跨表逻辑投影要求当前实体或已证明的嵌套候选。");
+                if(GlobalCrossTableTarget.Declared(table))
+                {
+                    if(labelPath&&!scopeOnly)throw new NotSupportedException("全局递归名称缓存需独立证明实际来源行范围。");
+                    GlobalDerivedRelationSource.RequireTable(catalog,table);
+                }
+                else if(!columns[table.Id].TryGetValue("yz_project_id",out var sourceProject)||!storage[table.Id].IsPhysical(sourceProject))
+                    throw new NotSupportedException("项目内跨表逻辑投影要求真实物理项目列。");
                 var rootDefinition=Definition(source);if(HasExtraScope(rootDefinition))throw new NotSupportedException("跨表额外范围不能在固定读取中忽略。");
                 var entries=rootDefinition.GetProperty("levels").EnumerateArray().ToArray();if(entries.Length!=binding.Levels.Count)throw new InvalidOperationException("跨表目标页绑定与固定层数不符。");
                 var levels=new List<CrossLevel>();
@@ -39,7 +47,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var display=Column(target,Value(entry,"nameField") is {Length:>0} field?field:"name");
                     if(display.ColumnName=="id"||display.LogicalType.ToLowerInvariant() is not("string" or "int32" or "int64")||ExactDataManageValues.IsSensitiveField(display.ColumnName))
                         throw new NotSupportedException("跨表名称须为已证明的非凭据单值。");
-                    if(global)GlobalCrossTableTarget.RequireCrossTableName(catalog,target,page,display,allowAccount:true);
+                    if(global)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,page,display);
                     if(target.IsRongyu==0)
                     {
                         var proof=new Builder(catalog,target.Id,matching:!global).Compile([display.ColumnName],[]);if(proof.Types[display.ColumnName]!=display.LogicalType||proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
@@ -55,6 +63,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var slot=columns[table.Id][selection.Slots[index].ColumnName];if(slot.LinkConfigTableId.Length>0&&slot.LinkConfigTableId!=target.Id)throw new InvalidOperationException("跨表来源ID位与目标表声明不一致。");
                     var label=selection.Slots[index].ColumnName[..^3]+"_name";if(columns[table.Id].TryGetValue(label,out var declared)&&declared.LogicalType.ToLowerInvariant()!="string")throw new InvalidOperationException("跨表来源显示字段类型与逻辑名称不符。");
                     var logical=RequireCrossCondition(target,page,binding.Levels[index].Condition);
+                    if(global&&logical.Count>0)scopedGlobalCrossTarget=true;
                     levels.Add(new(target,display,parent,binding.Levels[index],page,logical));
                 }
                 if(trackReverse&&labelPath)
@@ -94,7 +103,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(level.LogicalFields.Count>0)rowConditions[index]=" AND "+NestedCrossCondition(level,alias);
                 }
                 var paths=Enumerable.Range(0,levels.Count).Select(deepest=>"("+selected[deepest]+" AND "+string.Join(" AND ",targetAliases.Take(deepest+1).Select((alias,index)=>alias+".`id` IS NOT NULL"+rowConditions[index]))+")").ToArray();
-                var requireVisible=scopeOnly||CrossCandidateCondition is not null||levels.Any(level=>level.Scope.Condition?.Variables.Count>0||level.LogicalFields.Count>0);
+                var requireVisible=scopeOnly||GlobalCrossCandidate||ScopedRootControls.Contains(source.Id)||levels.Any(level=>level.Scope.Condition?.Variables.Count>0||level.LogicalFields.Count>0);
                 var result=new Dictionary<string,(string Sql,string Type)>(StringComparer.OrdinalIgnoreCase);
                 for(var index=0;index<levels.Count;index++)
                 {

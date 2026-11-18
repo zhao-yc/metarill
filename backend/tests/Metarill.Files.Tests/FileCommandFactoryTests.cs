@@ -145,16 +145,34 @@ public sealed class FileCommandFactoryTests
 
     /// <summary>附件父节点复用递归候选 SQL，始终在原快照或写事务内核对实际嵌套范围。</summary>
     [Theory]
-    [InlineData(false,false)]
-    [InlineData(true,true)]
-    public async Task Logical_file_parent_checks_recursive_candidate_condition(bool shared,bool locking)
+    [InlineData(false,false,"ordinary")]
+    [InlineData(true,true,"ordinary")]
+    [InlineData(false,true,"row-project")]
+    [InlineData(true,false,"without-project")]
+    public async Task Logical_file_parent_checks_recursive_candidate_condition(bool shared,bool locking,string mode)
     {
         const long storeId=9007199254740993L;
         var catalog=shared?FileSharedCrossParentScopeTests.Catalog("string","int64"):
             FileCrossParentScopeTests.Catalog("file_nested","string","int64");
         var country=catalog.ConfigTables.Single(item=>item.Id=="2");
         country.IsRongyu=0;
-        catalog.ConfigPages.Single(item=>item.Id=="201").WhereSql+=" AND scope_zone_name <> '排除区域' AND store_id=@current_store_id";
+        var candidatePage=catalog.ConfigPages.Single(item=>item.Id=="201");
+        if(mode!="ordinary")
+        {
+            country.Extra["scopeKind"]=System.Text.Json.JsonSerializer.SerializeToElement("global");
+            country.YzProjectId=catalog.YzProjectId;
+            candidatePage.YzProjectId=catalog.YzProjectId;
+            candidatePage.YzAdminTypeId="9";
+            catalog.YzAdminTypes.Add(new(){Id="9",YzProjectId=catalog.YzProjectId});
+            candidatePage.WhereSql="enabled=1";
+        }
+        if(mode=="without-project")
+        {
+            var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId==country.Id&&column.ColumnName=="yz_project_id");
+            catalog.ConfigColumns.Remove(project);
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId==project.Id);
+        }
+        candidatePage.WhereSql+=" AND scope_zone_name <> '排除区域' AND store_id=@current_store_id";
         catalog.ConfigColumns.Add(new(){Id="290",ConfigTableId=country.Id,ColumnName="store_id",LogicalType="int64"});
         var prefix=country.TableName+"_scope";
         foreach(var (id,role) in new[]{("91","zone"),("92","site")})
@@ -195,6 +213,8 @@ public sealed class FileCommandFactoryTests
             Assert.Contains(prefix+"_zone",command.CommandText);
             Assert.Contains(prefix+"_site",command.CommandText);
             Assert.Contains("@mt_candidate_",command.CommandText);
+            Assert.Equal(mode=="ordinary",command.CommandText.Contains("b.`yz_project_id`=",StringComparison.Ordinal));
+            Assert.Contains("cross0.`yz_project_id`=@project_scope_number",command.CommandText);
             Assert.DoesNotContain("排除区域",command.CommandText);
             Assert.Equal(locking,command.CommandText.EndsWith(" FOR SHARE",StringComparison.Ordinal));
             Assert.Equal(10L,command.Parameters["filter_0"].Value);

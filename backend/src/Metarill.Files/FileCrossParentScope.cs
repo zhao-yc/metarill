@@ -63,7 +63,7 @@ internal sealed class FileCrossParentScope
             var chosen=pages[0];bindings.Add(new(chosen.Page.Id,chosen.Condition.Plan));
             // 仅显式全局目标免项目等值；固定发布、常量页与普通来源项目仍由完整编译器核验。
             var global=GlobalCrossTableTarget.Declared(target);
-            if(global)GlobalCrossTableTarget.RequireCrossTableName(catalog,target,chosen.Page,display,allowAccount:true);
+            if(global)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,chosen.Page,display);
             var project=global?null:columns.Single(field=>field.ColumnName=="yz_project_id");
             var logical=chosen.Condition.HasLogical?NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,chosen.Page.Id,
                 parent is null?["id"]:["id",parent],[]):null;

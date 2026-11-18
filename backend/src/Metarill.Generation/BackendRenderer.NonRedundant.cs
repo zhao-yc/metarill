@@ -14,17 +14,20 @@ internal static partial class BackendRenderer
         var accountPages=candidateLevels.Where(level=>FixedPageConditionCompilation.HasAccountVariables(level.Page))
             .Select(level=>level.Page.Source.Id).ToHashSet(StringComparer.Ordinal);
         // 保留参与递归范围证明的表及其候选页，避免无关页面条件进入精简运行目录。
-        var scopedPages=new Queue<CrossTableLevelModel>(candidateLevels.Where(level=>FixedPageConditionCompilation.HasCrossFields(level.Page)));
+        var scopedPages=new Queue<(TableModel Table,PageModel Page)>(
+            candidateLevels.Where(level=>FixedPageConditionCompilation.HasCrossFields(level.Page)).Select(level=>(level.Target,level.Page))
+                .Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>NonRedundantReadCompilation.GlobalSelectionPage(table,page)&&
+                    CrossTableWriteCompilation.ForService(model,table,page).Count>0).Select(page=>(table,page)))));
         var nestedTables=new HashSet<string>(StringComparer.Ordinal);
         var visitedPages=new HashSet<string>(StringComparer.Ordinal);
         while(scopedPages.TryDequeue(out var scoped))
         {
             if(!visitedPages.Add(scoped.Page.Source.Id))continue;
-            nestedTables.Add(scoped.Target.Source.Id);
-            foreach(var dependency in CrossTableWriteCompilation.ForService(model,scoped.Target,scoped.Page).SelectMany(path=>path.Read.Levels))
+            nestedTables.Add(scoped.Table.Source.Id);
+            foreach(var dependency in CrossTableWriteCompilation.ForService(model,scoped.Table,scoped.Page).SelectMany(path=>path.Read.Levels))
             {
                 nestedTables.Add(dependency.Target.Source.Id);
-                if(FixedPageConditionCompilation.HasCrossFields(dependency.Page))scopedPages.Enqueue(dependency);
+                if(FixedPageConditionCompilation.HasCrossFields(dependency.Page))scopedPages.Enqueue((dependency.Target,dependency.Page));
             }
         }
         var recursiveCandidates=visitedPages.Count>0;
@@ -34,7 +37,7 @@ internal static partial class BackendRenderer
         var cross=model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>CrossTableWriteCompilation.ForService(model,table,page).Count>0));
         var helpers=cross?"    /// <summary>目标条件与页面一起冻结，静态初始化不读取后声明字段。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileCross(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[] bindings)=>Metarill.Data.Queries.NonRedundantReads.CompileWithCrossTables(Snapshot,tableId,outputs,bindings,dependencies,deferCascadeNames:true);\n    /// <summary>与统一物理结构共用稀疏选择编码器。</summary>\n    internal static Metarill.Core.Metadata.CrossTableSparseSelection CompileSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.CrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n":"";
         if(model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0)))helpers+="    /// <summary>共享R0由整组编译，成员不能分别打包覆盖。</summary>\n    internal static Metarill.Core.Metadata.SharedCrossTableSparseSelection CompileSharedSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.SharedCrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n";
-        if(recursiveCandidates)helpers+="    /// <summary>候选通过发布目录保留实际依赖的跨表条件。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileCrossPageCandidate(string tableId,string pageId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(Snapshot,tableId,pageId,outputs,dependencies);\n";
+        if(recursiveCandidates)helpers+="    /// <summary>候选通过发布目录保留实际依赖的跨表条件。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileCrossPageCandidate(string tableId,string pageId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[]? bindings=null)=>bindings is null?Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(Snapshot,tableId,pageId,outputs,dependencies):Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(Snapshot,tableId,pageId,outputs,dependencies,bindings);\n";
         if(model.Tables.Any(table=>RuleRecordEntity(model,table)))helpers+="    /// <summary>规则实体保留根物理存储；父范围及条件使用同一冻结逻辑投影。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileRuleRecord(string tableId,string[] outputs,string[] storage,string[] dependencies,string[] rules,Metarill.Data.Queries.NonRedundantCrossTableScope[] bindings)=>Metarill.Data.Queries.NonRedundantReads.CompileRuleRecord(Snapshot,tableId,outputs,storage,bindings,dependencies,deferCascadeNames:true,logicalOutputs:rules);\n";
         if (model.Tables.Any(NonRedundantReadCompilation.HasGlobalRowProject) ||
             model.Tables.SelectMany(table => table.Pages).SelectMany(page => RelationCompilation.ForPage(model, page, true))
@@ -105,7 +108,8 @@ internal static class GeneratedNonRedundantReadCatalog
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);var suffix=page.Source.Id;var fixedQuery=FixedPageQueryCompilation.For(table,page);
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
         var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix);
-        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(FixedPageConditionCompilation.HasAccountVariables(page)?".BindAccount(actor)":""):readPlan;
+        var crossCandidate=globalCandidate&&CrossTableWriteCompilation.ForService(model,table,page).Count>0;
+        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(crossCandidate||FixedPageConditionCompilation.HasAccountVariables(page)?".BindAccount(actor)":""):readPlan;
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
         var logicalCondition=FixedPageConditionCompilation.HasCrossFields(page);
         var lockScope=NonRedundantCrossParentCompilation.Enabled(model,table,page)||logicalCondition;
@@ -123,7 +127,11 @@ internal static class GeneratedNonRedundantReadCatalog
             result.AppendLine("    /// <summary>当前对象只锁定页面条件依赖的路径，不读取其它显示列。</summary>")
                 .AppendLine($"    private static readonly NonRedundantReadPlan CrossConditionPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileCross({Literal(table.Source.Id)},new string[]{{\"id\"}},new string[]{{{string.Join(",",page.Condition!.Syntax.Fields.Select(Literal))}}}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)});");
         if(globalCandidate)
-            result.AppendLine($"    private static readonly NonRedundantReadPlan CandidateReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileGlobalCandidate({Literal(table.Source.Id)},{Literal(suffix)},{outputs},{dependencies});");
+        {
+            var compiler=crossCandidate?"CompileCrossPageCandidate":"CompileGlobalCandidate";
+            var bindings=crossCandidate?NonRedundantCrossTableCompilation.BindingArgument(model,table,page):"";
+            result.AppendLine($"    private static readonly NonRedundantReadPlan CandidateReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{compiler}({Literal(table.Source.Id)},{Literal(suffix)},{outputs},{dependencies}{bindings});");
+        }
         result.AppendLine("    /// <summary>生成校验和宿主静态初始化分别编译；普通请求不解释元数据。</summary>")
             .AppendLine($"    private static readonly NonRedundantReadPlan ReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{(CrossTableWriteCompilation.ForService(model,table,page).Count>0?"CompileCross":"Compile")}({Literal(table.Source.Id)},{outputs},{dependencies}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)});")
             .AppendLine(NonRedundantCrossParentCompilation.Enabled(model,table,page)?"    /// <summary>更新前按真实项目及物理／逻辑父范围锁定主记录。</summary>":"    /// <summary>更新前仅按真实物理项目/父范围锁定主记录。</summary>").AppendLine($"    private ISelect<{table.EntityType}> Scope{suffix}(RuntimeActor actor,string? parentId{ExactDataManageCompilation.Parameter(page,"detail")}{(lockScope?",bool locking=false":"")}{(derivedExact?",bool exactLocking=true":"")})").AppendLine("    {").AppendLine("        ValidateActor(actor);var query=mapper.Query();");
@@ -230,7 +238,8 @@ internal static class GeneratedNonRedundantReadCatalog
         var suffix=page.Source.Id;
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
         var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix);
-        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(FixedPageConditionCompilation.HasAccountVariables(page)?".BindAccount(actor)":""):readPlan;
+        var crossCandidate=globalCandidate&&CrossTableWriteCompilation.ForService(model,table,page).Count>0;
+        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(crossCandidate||FixedPageConditionCompilation.HasAccountVariables(page)?".BindAccount(actor)":""):readPlan;
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
         var result=new StringBuilder().AppendLine("    /// <summary>派生值在SQL完整范围内聚合，当前页统计仍折叠原VO。</summary>").AppendLine($"    internal {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$"=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async()=>":"")}").AppendLine("    {").AppendLine("        var statistics=new Dictionary<string,object?>(StringComparer.Ordinal);");
         if(definitions.Count==0)result.AppendLine("        await Task.CompletedTask;");

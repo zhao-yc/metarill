@@ -43,12 +43,12 @@ internal static class CrossTableReadCompilation
                 }
                 if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))return Gap("目标缺少项目归属或明确全局声明。");
                 var pages=target.Pages.Where(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(candidate)&&candidate.Readable.Any(column=>column.Source.Id==name.Source.Id)&&(parent is null||candidate.Readable.Any(column=>column.Source.Id==parent.Source.Id))).ToArray();if(pages.Length!=1)return Gap("每级需要唯一且无目标父参数的可读页面。");
-                if(FixedPageConditionCompilation.HasCrossFields(pages[0])&&(table.Source.IsRongyu!=0||target.IsGlobal))
-                    return Gap("全局候选及冗余来源缓存的递归条件仍需独立归属证明。");
+                if(FixedPageConditionCompilation.HasCrossFields(pages[0])&&table.Source.IsRongyu!=0)
+                    return Gap("冗余来源缓存的递归条件仍需独立的来源行归属证明。");
                 if(FixedPageConditionCompilation.HasAccountVariables(pages[0])&&table.Source.IsRongyu==1)
                     _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,pages[0].Source);
                 if(target.IsGlobal)
-                    Metarill.Core.Metadata.GlobalCrossTableTarget.RequireCrossTableName(model.Catalog,target.Source,pages[0].Source,name.Source,allowAccount:true);
+                    Metarill.Core.Metadata.GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,target.Source,pages[0].Source,name.Source);
                 var order=GenerationModel.ValidateOrderBy(Text(entry,"orderBy",name.Source.ColumnName+" asc"),target.Columns).ToList();if(order.Any(item=>!Physical(item.Column)&&!((derived||globalName)&&item.Column.Source.Id==name.Source.Id)))return Gap("排序必须是物理标量。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));result.Add(new(key,prefix,target,pages[0],name,parent,order,derived,derived&&target.Source.Id==table.Source.Id?Metarill.Data.Queries.NonRedundantReads.CompileSourceDependencies(model.Catalog,target.Source.Id,name.Source.ColumnName):null));
             }
             if(result[^1].Prefix+"_id"!=source.Source.ColumnName)return Gap("末级前缀与来源叶子字段不一致。");

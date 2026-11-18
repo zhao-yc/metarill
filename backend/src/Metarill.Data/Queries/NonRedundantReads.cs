@@ -120,6 +120,11 @@ public static class NonRedundantReads
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>
         new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies));
 
+    /// <summary>全局独立选择页可同时返回已证明的其它级联显示列；范围条件仍只读取实际依赖路径。</summary>
+    public static NonRedundantReadPlan CompileCrossPageCandidate(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings)=>
+        new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,bindings));
+
     /// <summary>匹配计划只编译必要单值路径，并验证最终物理值，不能借别名匹配凭据或文件数组。</summary>
     public static NonRedundantReadPlan CompileMatch(MetadataCatalog metadata,string tableId,string field)=>metadata.DatabaseProvider switch
     {"mysql"=>new(MySqlNonRedundantReadCompiler.CompileMatch(metadata,tableId,field)),_=>throw new NotSupportedException("该数据库尚未完成固定匹配读取适配。")};

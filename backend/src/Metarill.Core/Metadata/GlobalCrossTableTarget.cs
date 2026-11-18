@@ -20,21 +20,32 @@ public static class GlobalCrossTableTarget
         else RequirePublishedName(catalog,table,page,name,true,allowAccount:true);
     }
 
-    /// <summary>只按明确用途开放R0，不扩散到旧级联或文件父范围入口。</summary>
-    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false)
+    /// <summary>仅跨表固定用途接受由完整路径读取的逻辑条件，名称和发布身份仍按原规则校验。</summary>
+    public static void RequireCrossTableCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata? name=null)
+    {
+        if(name is null)RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true);
+        else RequirePublishedName(catalog,table,page,name,true,allowAccount:true,allowInteger:true,allowLogical:true);
+    }
+
+    /// <summary>只按明确用途开放R0，逻辑成员须在实际跨表计划中进一步证明。</summary>
+    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false)
     {
         if(!Declared(table)||(table.IsRongyu!=1&&!(allowR0&&table.IsRongyu==0))||table.IsView!=0||table.IsFunctionTable!=0)throw new NotSupportedException("全局跨表目标要求显式声明的普通R0或R1实体。");
         if(table.IsRongyu==0)GlobalDerivedRelationSource.RequireTable(catalog,table);
         if(table.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||page.ConfigTableId!=table.Id)throw new InvalidOperationException("全局跨表表及页面必须明确发布在当前模型中。");
-        var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();var storage=MetadataStoragePolicy.ForTable(catalog,table);var physical=columns.Where(column=>storage.IsPhysical(column)&&column.IsVirtualColumn==0).Select(column=>column.ColumnName);
-        var condition=FixedConditionPlan.Compile(page.WhereSql,physical);
+        var columns=ConditionColumns(catalog,table,allowLogical);
+        var storage=MetadataStoragePolicy.ForTable(catalog,table);
+        var allowed=columns.Where(column=>storage.IsPhysical(column)&&column.IsVirtualColumn==0||
+            LogicalConditionField(table,columns,column,allowLogical)).Select(column=>column.ColumnName);
+        var condition=FixedConditionPlan.Compile(page.WhereSql,allowed);
         foreach(var term in condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
         {
             if(!allowAccount||term.Field=="yz_project_id"||term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||
                 !AccountConditionVariables.IsPageField(term.Values[0].Text,term.Field))
                 throw new NotSupportedException("全局跨表目标只允许已发布的固定条件或明确账号等值。");
             var column=columns.Single(item=>item.ColumnName==term.Field);
-            if(column.LogicalType is not ("int32" or "int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(storage,table,column))
+            if(column.LogicalType is not ("int32" or "int64" or "string")||
+                LogicalConditionField(table,columns,column,allowLogical)||!GlobalPhysicalRelationValue.IsScalar(storage,table,column))
                 throw new NotSupportedException("全局跨表账号条件要求真实非凭据的业务归属列。");
         }
         if(page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&!string.IsNullOrWhiteSpace(exact.ToString()))throw new NotSupportedException("全局跨表目标的精确管理范围尚未接线。");
@@ -52,15 +63,29 @@ public static class GlobalCrossTableTarget
         =>RequirePublishedName(catalog,table,page,name,true,allowInteger:true);
 
     /// <summary>名称资格与页条件共用原完整证明，存储模式资格由调用用途限定。</summary>
-    private static void RequirePublishedName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowR0,bool allowAccount=false,bool allowInteger=false)
+    private static void RequirePublishedName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowR0,bool allowAccount=false,bool allowInteger=false,bool allowLogical=false)
     {
-        RequireTarget(catalog,table,page,allowR0,allowAccount);var storage=MetadataStoragePolicy.ForTable(catalog,table);
+        RequireTarget(catalog,table,page,allowR0,allowAccount,allowLogical);var storage=MetadataStoragePolicy.ForTable(catalog,table);
         if(name.LogicalType!="string"&&!(allowInteger&&name.ColumnName!="id"&&name.LogicalType is "int32" or "int64"))
             throw new NotSupportedException("全局目标名称的类型超出当前用途。");
         if(GlobalPhysicalRelationValue.IsScalar(storage,table,name))return;
         if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,table,name))throw new NotSupportedException("全局跨表名称缺少完整物理或受管缓存证明。");
-        var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToDictionary(column=>column.ColumnName,StringComparer.Ordinal);
-        if(FixedConditionPlan.Compile(page.WhereSql,columns.Keys).Fields.Any(field=>!GlobalPhysicalRelationValue.IsScalar(storage,table,columns[field])))throw new NotSupportedException("全局缓存名称目标页条件必须为非凭据物理标量。");
+        var declared=ConditionColumns(catalog,table,allowLogical);
+        var columns=declared.ToDictionary(column=>column.ColumnName,StringComparer.Ordinal);
+        if(FixedConditionPlan.Compile(page.WhereSql,columns.Keys).Fields.Any(field=>
+            !GlobalPhysicalRelationValue.IsScalar(storage,table,columns[field])&&!LogicalConditionField(table,declared,columns[field],allowLogical)))
+            throw new NotSupportedException("全局名称候选仅接受非凭据物理标量或已声明跨表层位。");
     }
+
+    private static IReadOnlyList<ColumnMetadata> ConditionColumns(MetadataCatalog catalog,TableMetadata table,bool allowLogical)
+    {
+        var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
+        return allowLogical&&table.IsRongyu==0?RelationStorageColumns.Expand(table,columns):columns;
+    }
+
+    /// <summary>逻辑条件只来自非冗余固定控件，凭据、虚拟字段和物理账号上下文仍分别处理。</summary>
+    private static bool LogicalConditionField(TableMetadata table,IReadOnlyList<ColumnMetadata> columns,ColumnMetadata field,bool allowLogical)=>
+        allowLogical&&field.IsVirtualColumn==0&&!ExactDataManageValues.IsSensitiveField(field.ColumnName)&&
+        CrossTableStorageColumns.IsLogicalPathField(table,columns,field.ColumnName);
 
 }

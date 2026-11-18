@@ -57,7 +57,12 @@ internal static class NonRedundantReadCompilation
     {
         // 固定候选约束实际发布页，普通业务页可使用自己的项目条件。
         if(HasGlobalRowProject(table))GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
-        else if(table.IsGlobal)GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog,table.Source,page.Source);
+        else if(table.IsGlobal)
+        {
+            if(table.Columns.Any(NonRedundantCrossTableSubset.Declared))
+                GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,table.Source,page.Source);
+            else GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog,table.Source,page.Source);
+        }
         // 导入沿用标准Service写事务，仅开放本页真实物理可写列，派生读取不参与覆盖匹配。
         if(ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>!Physical(model,table,column)))throw new InvalidOperationException("非冗余导入只能写入物理列。");
         // 物理文件ID数组沿用原FileLibrary事务。布局控件可以展示，但不能同时配置为联接字段。
@@ -126,7 +131,10 @@ internal static class NonRedundantReadCompilation
         var readOutputs=outputs.Select(output=>output.Storage).Concat(CascadeTreeViewRenderer.ForPage(model,table,page).Select(plan=>plan.Source.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var compiled=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,readOutputs,NonRedundantCrossTableCompilation.Bindings(crossPlans),dependencies,deferCascadeNames:true);
         if(GlobalSelectionPage(table,page))
-            _=NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies);
+            _=crossPlans.Count==0
+                ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies)
+                :NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,
+                    NonRedundantCrossTableCompilation.Bindings(crossPlans));
         outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();
         if(outputs.Select(output=>output.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count)throw new InvalidOperationException("派生显示属性冲突。");
         return new(outputs,dependencies,readOutputs);

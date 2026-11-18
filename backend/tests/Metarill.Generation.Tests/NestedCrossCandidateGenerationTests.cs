@@ -11,12 +11,14 @@ namespace Metarill.Generation.Tests;
 public sealed class NestedCrossCandidateGenerationTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Logical_target_page_keeps_nested_scope_after_metadata_publication(bool shared)
+    [InlineData(false,"ordinary")]
+    [InlineData(true,"ordinary")]
+    [InlineData(false,"row-project")]
+    [InlineData(true,"without-project")]
+    public async Task Logical_target_page_keeps_nested_scope_after_metadata_publication(bool shared,string mode)
     {
         const string ns="Example.NestedCrossScope";
-        var catalog=Catalog(shared);
+        var catalog=Catalog(shared,mode);
         var before=JsonSerializer.Serialize(catalog);
         var model=GenerationModel.Create(catalog,ns);
         var table=model.Tables.Single(item=>item.Source.Id=="90");
@@ -40,8 +42,24 @@ public sealed class NestedCrossCandidateGenerationTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var type=assembly.GetType(ns+".Generated.Services.ScopedCandidateOuterService",true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+            if(mode=="row-project")
+            {
+                var inner=model.Tables.Single(item=>item.Source.Id=="2");
+                var candidateType=assembly.GetType(ns+".Generated.Services."+inner.Name+"Service",true)!;
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(candidateType.TypeHandle);
+                Assert.IsType<NonRedundantReadPlan>(candidateType.GetField("CandidateReadPlan201",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                Assert.Null(candidateType.GetField("CandidateReadPlan202",BindingFlags.Static|BindingFlags.NonPublic));
+            }
             var targetPlan=(NonRedundantReadPlan)type.GetField("CrossTargetPlan900_9004_0",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
             Assert.Equal(new[]{"id","name"},targetPlan.OutputTypes.Keys);
+            if(mode!="ordinary")
+            {
+                var actor=new Metarill.Core.Security.RuntimeActor(1,"异项目账号",false,"999","5"){StoreId=9007199254740993L};
+                using var session=new Metarill.Data.DatabaseSession(new(){ExpectedDatabase="offline",
+                    ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new NonRedundantReader(session)
+                    .RowsAsync(targetPlan.BindAccount(actor),[],[],1,projectId:actor.ProjectId));
+            }
             if(shared)
             {
                 // 完整应用重新生成必须识别新增运行时文件，也要重新证明精简目录里的候选范围。
@@ -61,7 +79,7 @@ public sealed class NestedCrossCandidateGenerationTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
-    private static MetadataCatalog Catalog(bool shared)
+    private static MetadataCatalog Catalog(bool shared,string mode)
     {
         var catalog=shared?SharedCrossTableSparseGenerationTests.Catalog("string","int64"):
             NonRedundantCrossFullTests.Catalog("string","int64",false);
@@ -69,6 +87,24 @@ public sealed class NestedCrossCandidateGenerationTests
         var inner=catalog.ConfigTables.Single(item=>item.Id=="2");
         var innerPage=catalog.ConfigPages.Single(item=>item.Id=="201");
         innerPage.WhereSql+=" AND country_name <> '不可选路径' AND store_id=@current_store_id";
+        if(mode!="ordinary")
+        {
+            inner.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            innerPage.WhereSql="country_name <> '不可选路径' AND store_id=@current_store_id";
+        }
+        if(mode=="row-project")
+        {
+            // 复制的父级业务页仍按项目读取，仅原目标页发布全局候选。
+            Assert.Contains(innerPage.Extra.GetValueOrDefault("type").ToString(),new[]{"1","2"});
+            foreach(var sibling in catalog.ConfigPages.Where(page=>page.ConfigTableId==inner.Id&&page.Id!=innerPage.Id))
+                sibling.Extra.Remove("type");
+        }
+        if(mode=="without-project")
+        {
+            var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId==inner.Id&&column.ColumnName=="yz_project_id");
+            catalog.ConfigColumns.Remove(project);
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId==project.Id);
+        }
         catalog.ConfigColumns.Add(new(){Id="8900",ConfigTableId=inner.Id,ColumnName="store_id",LogicalType="int64"});
         catalog.ConfigTables.AddRange([
             new(){Id="90",TableName="scoped_candidate_outer",IsRongyu=0},

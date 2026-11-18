@@ -43,7 +43,9 @@ internal static class SharedCrossTableCompilation
             var component=new List<ColumnModel>{remaining[0]};remaining.RemoveAt(0);bool changed;do{changed=false;foreach(var c in remaining.ToArray())if(component.Any(other=>raw[c.Source.Id].Overlaps(raw[other.Source.Id]))){component.Add(c);remaining.Remove(c);changed=true;}}while(changed);if(component.Count<2)continue;members.UnionWith(component.Select(c=>c.Source.Id));
             try
             {
-                if(table.Source.IsRongyu is not(0 or 1)||table.IsGlobal)throw new NotSupportedException("共享级联要求普通实体来源。");
+                if(table.Source.IsRongyu is not(0 or 1)||table.IsGlobal&&table.Source.IsRongyu!=0)
+                    throw new NotSupportedException("共享级联要求普通实体或已发布的全局非冗余来源。");
+                if(table.IsGlobal)GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);var ids=component.Select(c=>c.Source.Id).ToHashSet(StringComparer.Ordinal);var plans=new List<CrossTableWriteModel>();var branches=new List<SharedCrossTableBranch>();
                 foreach(var control in component.OrderBy(c=>c.Source.Id,StringComparer.Ordinal))
                 {

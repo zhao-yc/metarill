@@ -41,7 +41,7 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields)
     {
         if(!catalog.ConfigPages.Contains(page)||page.ConfigTableId!=table.Id||
-            table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||crossFields.Count==0||
+            table.IsRongyu!=0||crossFields.Count==0||
             !crossFields.IsSubsetOf(conditionFields))throw new NotSupportedException("固定跨表页面范围必须属于普通非冗余来源。");
         return CompileWithCrossTables(catalog,table.Id,["id"],CrossMembershipBindings(catalog,table,page,crossFields),conditionFields);
     }
