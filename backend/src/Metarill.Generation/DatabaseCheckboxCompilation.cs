@@ -91,7 +91,7 @@ internal static class DatabaseCheckboxCompilation
             var logicalPage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage&&FixedPageConditionCompilation.HasMultiTargetScope(target,candidate));
             var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
             if(explicitPage!=fixedPage&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(target,candidate))))
-                return Gap("复选不能用页覆盖替换表级固定逻辑范围。");
+                return Gap("复选不能用页覆盖替换表级固定范围。");
             if(logicalPage is not null&&ExactDataManageCompilation.Declared(logicalPage))
                 return Gap("复选逻辑目标范围需要与实际目标页及项目归属一致。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);

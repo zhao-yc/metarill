@@ -34,6 +34,8 @@ public static class GlobalMultipleRelationTarget
         var scoped=selfTreeScope||target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
         if(selfTreeScope)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page,allowMultiParent:true);
         else if(scoped)GlobalCrossTableTarget.RequireMultiCandidate(catalog,target,page);
+        else if(target.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported))
+            GlobalCrossTableTarget.RequireAccountCandidate(catalog,target,page);
         else GlobalCrossTableTarget.RequireMultiple(catalog,target,page);
         if(target.IsRongyu==0&&foreign.ControlKind=="MultiSelectPage"&&page.Extra.GetValueOrDefault("type").ToString()!="2")
             throw new NotSupportedException("全局R0多选要求原type=2页面；复选继续使用独立候选入口。");

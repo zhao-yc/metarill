@@ -70,7 +70,7 @@ internal static class MultiSelectCompilation
             var fixedPage=Scalar(root,"pageId");
             if(fixedPage.Length==0)fixedPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
             if(pageId!=fixedPage&&(scoped||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(target,candidate))))
-                return Gap("带逻辑条件的目标页必须与表级读取和缓存绑定一致。");
+                return Gap("限定范围的目标页必须与表级读取和缓存绑定一致。");
             if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),new(pageId,name.Source.ColumnName,Value("buttonText"),Value("whereSql"),""),out _))return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
             var ordering = Value("orderBy");
             if (!string.IsNullOrWhiteSpace(ordering) && !GenerationModel.ValidateOrderBy(ordering, target.Columns).Select(item => (item.Column.Source.Id, item.Descending)).SequenceEqual(GenerationModel.ValidateOrderBy(targetPage.Source.OrderBy, target.Columns).Select(item => (item.Column.Source.Id, item.Descending)))) return Gap("控件排序与目标页不一致。");

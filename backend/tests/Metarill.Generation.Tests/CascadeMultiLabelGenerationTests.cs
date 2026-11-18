@@ -21,6 +21,86 @@ public sealed class CascadeMultiLabelGenerationTests
     public Task Cascade_names_compile_in_original_endpoints(string kind,int mode,bool selfTree)=>
         CompileCascadeLabel(kind,mode,selfTree,indirect:false);
 
+    /// <summary>全局目标只有物理账号条件时，原多值入口仍共享发布范围及名称副本。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,false,false)]
+    [InlineData("MultiSelectPage",1,true,false)]
+    [InlineData("MultiCheckBoxDatabase",0,true,false)]
+    [InlineData("MultiCheckBoxDatabase",1,false,false)]
+    [InlineData("MultiSelectPage",0,true,true)]
+    [InlineData("MultiSelectPage",1,false,true)]
+    [InlineData("MultiCheckBoxDatabase",0,false,true)]
+    [InlineData("MultiCheckBoxDatabase",1,true,true)]
+    public async Task Global_account_range_compiles_without_cascades(string kind,int mode,bool rowProject,bool derived)
+    {
+        const string ns="Example.GlobalAccountMulti";
+        var catalog=DerivedRelationNamesTests.Catalog("dr_names",false);
+        var target=catalog.ConfigPages.Single(page=>page.Id=="201");
+        target.Extra["type"]=JsonSerializer.SerializeToElement(2);
+        target.WhereSql="status=1 AND store_id=@current_store_id";
+        var companyPage=catalog.ConfigPages.Single(page=>page.Id=="401");
+        companyPage.WhereSql="";
+        foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "2" or "4"))
+            table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(!rowProject)
+        {
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="22");
+            catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId=="22");
+        }
+        catalog.ConfigColumns.Add(new(){Id="217",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"});
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="15");
+        var label=derived?"company_name":"name";
+        foreign.ColumnName="customer_ids";
+        foreign.ControlKind=kind;
+        foreign.LogicalType="string";
+        foreign.ColumnLength="max";
+        foreign.DefaultValue="";
+        foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField=label});
+        var display=catalog.ConfigColumns.Single(column=>column.Id=="113");
+        display.ColumnName="customer_"+label+"s";
+        display.ColumnLength="max";
+        display.Extra["columnFullName"]=JsonSerializer.SerializeToElement("customer."+label);
+        catalog.ConfigColumns.RemoveAll(column=>column.Id is "16" or "17");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "16" or "17");
+        var source=catalog.ConfigTables.Single(table=>table.Id=="1");
+        source.IsRongyu=mode;
+        catalog.ConfigColumns.Add(new(){Id="118",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"});
+        foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id))
+        {
+            page.OrderBy="id desc";
+            page.WhereSql+=" AND store_id=@current_store_id";
+        }
+        catalog.YzAdminTypes.Clear();
+        RedundantMultiNameCacheTests.Published(catalog);
+
+        var published=GenerationMetadataPublisher.ForRelations(catalog);
+        Assert.Contains("store_id=@current_store_id",published.ConfigPages.Single(page=>page.Id=="201").WhereSql);
+        if(mode==1)Assert.Contains("store_id=@current_store_id",published.ConfigPages.Single(page=>page.Id=="101").WhereSql);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-account-multi");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var code=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesOrderService.g.cs"));
+            Assert.Contains("CompileScopedMultiLabel(\"2\",\"201\",\""+label+"\"",code);
+            Assert.Contains(".BindAccount(actor)",code);
+            Assert.Contains("Import101Async",code);
+            Assert.Contains("Export101Async",code);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            foreach(var service in new[]{"DrNamesOrderService","DrNamesPartyService"})
+                RuntimeHelpers.RunClassConstructor(assembly.GetType(ns+".Generated.Services."+service,true)!.TypeHandle);
+            if(mode==1)
+            {
+                var runtime=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
+                var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(runtime.GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains("dr_names_party",maintenance.MixedTargets);
+                if(derived)Assert.Contains("dr_names_company",maintenance.MixedTargets);
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>通过普通关联取跨表祖先或自树叶名，发布与维护必须包含中间记录的依赖。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false)]

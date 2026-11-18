@@ -90,27 +90,28 @@ public static partial class MySqlNonRedundantReadCompiler
         return names;
     }
 
-    /// <summary>查找由原多值关系显式绑定的逻辑条件页。</summary>
+    /// <summary>查找由原多值关系显式绑定的固定范围页。</summary>
     internal static bool IsScopedMultiTarget(MetadataCatalog catalog,TableMetadata target,string pageId)=>
         DeclaredMultiNameTargets(catalog).Any(item=>item.Table.Id==target.Id&&MultiTargetLogicalPage(catalog,target,item.Relation)?.Id==pageId);
 
-    /// <summary>向显式绑定的多值目标页取得逻辑条件。原物理候选和未指定页面的复选维持原范围。</summary>
+    /// <summary>从实际目标页读取逻辑条件或全局账号范围，普通物理候选仍走原范围。</summary>
     internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
     {
         if(table.IsRongyu!=0)return null;
         var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
-        if(!members.Any(column=>column.ControlKind=="CascadeTree"))return null;
+        var global=GlobalCrossTableTarget.Declared(table);
+        if(!global&&!members.Any(column=>column.ControlKind=="CascadeTree"))return null;
         var pageId=MultiPageId(Definition(relation));
         if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
-        var global=GlobalCrossTableTarget.Declared(table);
         var candidates=catalog.ConfigPages.Where(item=>item.ConfigTableId==table.Id&&
             (item.Id==pageId||global&&pageId.Length==0)).Take(2).ToArray();
         var page=candidates.Length==1?candidates[0]:null;
         if(page is null||page.WhereSql.Length==0)return null;
         var declared=RelationStorageColumns.Expand(table,members);
         var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
-        return syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,members,field)||
-            CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field))?page:null;
+        return global&&syntax.Variables.Any(AccountConditionVariables.IsSupported)||
+            syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,members,field)||
+                CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field))?page:null;
     }
 
     /// <summary>原发布元数据的页面 ID 可为精确整数或字符串。</summary>
@@ -120,7 +121,7 @@ public static partial class MySqlNonRedundantReadCompiler
         definition.TryGetProperty(field,out var value)&&value.ValueKind==System.Text.Json.JsonValueKind.Number&&value.TryGetInt64(out var id)
             ?id.ToString(System.Globalization.CultureInfo.InvariantCulture):Value(definition,field);
 
-    /// <summary>发布已绑定目标页及逻辑名称，原候选、导入、回读共用固定条件。</summary>
+    /// <summary>发布已绑定目标页及名称，原候选、导入、回读共用固定条件。</summary>
     internal static MySqlNonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog catalog,string tableId,string pageId,
         string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
     {

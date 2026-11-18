@@ -731,6 +731,73 @@ public sealed class NestedCrossCandidateTests
         }
     }
 
+    /// <summary>全局多值的候选和实时名称绑定当前账号，回填使用持久归属并跟踪筛选列。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",true)]
+    [InlineData("MultiCheckBoxDatabase",false)]
+    public void Global_multi_account_scope_uses_source_row_for_maintenance(string kind,bool rowProject)
+    {
+        var catalog=Catalog(false);
+        var target=catalog.ConfigTables.Single(table=>table.Id=="1");
+        var source=catalog.ConfigTables.Single(table=>table.Id=="90");
+        var page=catalog.ConfigPages.Single(item=>item.Id=="11");
+        var name=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="name");
+        foreach(var table in catalog.ConfigTables)table.YzProjectId=catalog.YzProjectId;
+        catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+        page.YzAdminTypeId="5";
+        page.Extra["type"]=JsonSerializer.SerializeToElement(2);
+        page.WhereSql="name <> '范围外名称' AND store_id=@current_store_id";
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(!rowProject)
+        {
+            var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="yz_project_id");
+            catalog.ConfigColumns.Remove(project);
+            catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId==project.Id);
+        }
+        if(!catalog.ConfigPageColumns.Any(column=>column.ConfigPageId==page.Id&&column.ConfigColumnId==name.Id))
+            catalog.ConfigPageColumns.Add(new(){Id="publish_multi_name",ConfigPageId=page.Id,ConfigColumnId=name.Id});
+        catalog.ConfigPages.Add(new(){Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
+            WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="9014",ConfigTableId=source.Id,ColumnName="picked_ids",LogicalType="string",ControlKind=kind,
+                LinkConfigTableId=target.Id,ControlDetail=JsonSerializer.Serialize(new{tableId=target.Id,pageId=page.Id})},
+            new(){Id="9015",ConfigTableId=source.Id,ColumnName="picked_names",LogicalType="string",Extra=new()
+            {
+                ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                ["columnFullName"]=JsonSerializer.SerializeToElement("picked.name")
+            }},
+            new(){Id="9016",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"}
+        ]);
+        var actor=new RuntimeActor(1,"多值账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
+        var plan=NonRedundantReads.CompileScopedMultiLabel(catalog,target.Id,page.Id,"name",["id","name"],[]);
+        var bound=plan.BindAccount(actor).MySql;
+        Assert.True(bound.RequiresPublishedProjectIdentity);
+        Assert.Contains(actor.StoreId!.Value,bound.Constants.Values);
+        Assert.Contains("范围外名称",bound.Constants.Values);
+        Assert.DoesNotContain("b.`yz_project_id`=",bound.Scope);
+        Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+
+        var live=NonRedundantReads.Compile(catalog,source.Id,["picked_names"]).BindAccount(actor).MySql;
+        Assert.Contains("b.`yz_project_id`=@project_scope_number",live.Scope);
+        Assert.Contains("multi_value.`store_id`",live.ArrayNamePredicates["picked_names"]);
+        Assert.Contains(actor.StoreId.Value,live.Constants.Values);
+
+        source.IsRongyu=1;
+        var binding=new RelationCacheDefinition(source.Id,"9014",target.Id,name.Id,"9015",true);
+        var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+        var refresh=maintenance.Plans[source.Id].Read!;
+        var projection=refresh.MultiProjections["picked_names"];
+        Assert.False(refresh.RequiresAccount);
+        Assert.Contains("b.`store_id`",projection.TargetScope);
+        Assert.Contains("范围外名称",refresh.Constants.Values);
+        Assert.Contains(refresh.Reverse,entry=>entry.TargetTable==target.TableName&&entry.Outputs["picked_names"].Contains("store_id"));
+        var published=MySqlNonRedundantReadCompiler.PublishedCascadeLabelPages(catalog,out var owners);
+        Assert.Contains(page.Id,published);
+        Assert.Contains("900",owners);
+        catalog.ConfigPages.Single(item=>item.Id=="900").WhereSql="yz_project_id=@current_yz_project_id";
+        Assert.Throws<InvalidOperationException>(()=>DerivedCrossTableCaches.Validate(catalog,[binding],[]));
+    }
+
     [Fact]
     public void A_recursive_condition_cycle_is_rejected_instead_of_returning_wide_scope()
     {

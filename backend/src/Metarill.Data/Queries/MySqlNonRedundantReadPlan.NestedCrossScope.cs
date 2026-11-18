@@ -210,15 +210,27 @@ public static partial class MySqlNonRedundantReadCompiler
             if(page.ConfigTableId!=root.Id||page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
                 throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
             var treeNames=PublishedSelfTreeConditionFields(catalog,root,page,columns[root.Id].Values.ToArray());
-            if(GlobalCrossTableTarget.Declared(root))
+            var global=GlobalCrossTableTarget.Declared(root);
+            if(global)
             {
                 if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,allowMultiParent:MultiCandidateParent is not null);
                 else GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
             }
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
                 multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames);
-            if(!condition.Allowed||!condition.HasLogical)
-                throw new NotSupportedException("多值目标页缺少固定的逻辑级联条件。");
+            if(!condition.Allowed)
+                throw new NotSupportedException("多值目标页包含未接通的范围。");
+            if(!condition.HasLogical)
+            {
+                if(!global||condition.Plan?.Variables.Count is not >0)
+                    throw new NotSupportedException("多值目标页缺少固定的级联或全局账号范围。");
+                GlobalCrossTableTarget.RequireAccountCandidate(catalog,root,page);
+                cascadeLabelPages.Add(page.Id);
+                if(cascadeCacheOwner is not {} owner)
+                    return PublishedScope(root,rootAlias,page,aliasPrefix+"root",allowAccount:true);
+                var predicate=PhysicalAccountCacheCondition(root,rootAlias,page,owner);
+                return scope.Length==0?predicate:scope+" AND "+predicate;
+            }
             var plan=condition.Plan;
             var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target,treeNames);
             output=cascadeLabelField!;
@@ -270,14 +282,17 @@ public static partial class MySqlNonRedundantReadCompiler
             var logical=RequireCrossCondition(table,page,condition,parentField,fields);
             if(GlobalCrossTableTarget.Declared(table))scopedGlobalCrossTarget=true;
             if(cacheOwner is {} row&&logical.Count==0&&parentField is null)
-            {
-                // 只有物理账号条件时直接按来源行归属比较，同时跟踪目标筛选列的反向依赖。
-                var ownership=AccountScopedCrossCache.Compile(catalog,row.Table,table,page,row.GlobalTreeSource);
-                cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
-                return AccountCacheScope(ownership,table,alias,row.Alias,render:true,row.Table);
-            }
+                return PhysicalAccountCacheCondition(table,alias,page,row);
             return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
                 alias,cacheOwner,parentField,fields);
+        }
+
+        /// <summary>物理账号条件按来源行归属计算，并记录源字段和目标筛选列的反向依赖。</summary>
+        private string PhysicalAccountCacheCondition(TableMetadata table,string alias,PageMetadata page,CascadeCacheOwner owner)
+        {
+            var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource);
+            cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
+            return AccountCacheScope(ownership,table,alias,owner.Alias,render:true,owner.Table);
         }
 
         /// <summary>先按物理键联接以便失效后仍可反查，再按来源行归属计算可见名称。</summary>
