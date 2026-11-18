@@ -11,7 +11,7 @@ internal static class DerivedRelationNamesCompilation
     internal static bool Declared(GenerationModel model,RelationModel relation)=>!NonRedundantReadCompilation.Physical(model,relation.Target,relation.NameColumn);
     /// <summary>普通目标页的级联条件在原候选和当前读中重用同一发布范围。</summary>
     internal static bool UsesLogicalPage(RelationModel relation)=>
-        FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||relation.Conditions?.HasLogicalFields==true;
+        relation.FixedParent is {Logical:true}||FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||relation.Conditions?.HasLogicalFields==true;
 
     /// <summary>全局非冗余目标的账号范围来自实际发布页，仅绑定认证的账号值。</summary>
     internal static bool HasGlobalAccountScope(TableModel target,PageModel page)=>
@@ -21,7 +21,8 @@ internal static class DerivedRelationNamesCompilation
     internal static NonRedundantReadPlan CompileLogicalPage(GenerationModel model,TableModel target,PageModel page,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,RelationConditionModel? additional=null)
     {
-        if(ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))
+        if(ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&
+            GlobalCrossTableTarget.SingleParent(model.Catalog,target.Source,page.Source) is not {Logical:true})
             throw new NotSupportedException("单值关系的逻辑条件要求普通目标页及已证明的物理父范围。");
         if(target.IsGlobal)
             return additional is {HasLogicalFields:true}
@@ -92,11 +93,13 @@ internal static class DerivedRelationNamesCompilation
     /// <summary>type=1 单选独立证明目标；名称必须落到与声明类型一致的非凭据标量。</summary>
     internal static void RequireSelection(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name)
     {
-        if(!SupportedOwner(model,owner)||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!IsTypedName(model,owner,target,name)||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");
-        if(page.Scopes.Any(scope=>scope.Column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,scope.Column)))
+        var fixedParent=GlobalCrossTableTarget.SingleParent(model.Catalog,target.Source,page.Source);
+        if(!SupportedOwner(model,owner)||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!IsTypedName(model,owner,target,name)||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&fixedParent is not {Logical:true})throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");
+        if(page.Scopes.Any(scope=>scope.Column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,scope.Column)&&
+            (fixedParent is not {Logical:true}||fixedParent.Target.Id!=scope.Column.Source.Id)))
             throw new InvalidOperationException("派生单选名称的目标身份与父字段必须为物理标量。");
         // 物理父范围已经由候选证明；名称继续通过下面的固定投影。
-        if (target.IsGlobal&&GlobalCrossTableTarget.PhysicalSingleParent(model.Catalog,target.Source,page.Source) is null)
+        if (target.IsGlobal&&fixedParent is null)
         {
             if(FixedPageConditionCompilation.HasSelfTreeFields(page))
                 GlobalCrossTableTarget.RequireScopedSelfTreeName(model.Catalog,target.Source,page.Source,name.Source);
@@ -106,7 +109,7 @@ internal static class DerivedRelationNamesCompilation
             else GlobalCrossTableTarget.RequireSingle(model.Catalog, target.Source, page.Source);
         }
         // 全局候选按当前名称读取，不借用仅允许int64路径的精确管理匹配用途。
-        var plan=FixedPageConditionCompilation.HasLogicalFields(page)
+        var plan=fixedParent is {Logical:true}||FixedPageConditionCompilation.HasLogicalFields(page)
             ?CompileLogicalPage(model,target,page,[name.Source.ColumnName],[name.Source.ColumnName])
             :HasGlobalAccountScope(target,page)
                 ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,page.Source.Id,[name.Source.ColumnName])
@@ -126,7 +129,7 @@ internal static class DerivedRelationNamesCompilation
         if(!(typedName && owner.IsGlobal) && !SupportedOwner(model,owner) ||
             relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||
             target.Source.IsRongyu!=0&&!physicalTypedName||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
-            name.Type != "string?" && !typedName || name.IsJsonArray || relation.ParentBinding?.Declared==true||ExactDataManageCompilation.Declared(relation.TargetPage)||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage))
+            name.Type != "string?" && !typedName || name.IsJsonArray || relation.ParentBinding?.Declared==true||ExactDataManageCompilation.Declared(relation.TargetPage)||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage)&&relation.FixedParent is not {Logical:true})
             throw new InvalidOperationException("固定名称关系要求已发布来源、物理标量或已证明的派生目标及候选范围。");
         if (typedName && ForeignValidationRenderer.Target(model, relation.SourceColumn)?.Source.Id != target.Source.Id)
             throw new InvalidOperationException("名称候选必须与来源外键使用同一固定目标。");
@@ -154,7 +157,8 @@ internal static class DerivedRelationNamesCompilation
             .Concat(UsesLogicalPage(relation)?[]:relation.TargetPage.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[])
             .Concat(relation.Conditions is {HasLogicalFields:false} conditions
                 ?conditions.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field)):[]).DistinctBy(column=>column.Source.Id).ToArray();
-        if(fields.Any(column=>!NonRedundantReadCompilation.Physical(model,target,column)||column.IsJsonArray))throw new InvalidOperationException("派生名称候选的身份、父及附加范围必须为已发布物理标量。");
+        if(fields.Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)&&
+            (relation.FixedParent is not {Logical:true} logical||logical.Target.Id!=column.Source.Id)))throw new InvalidOperationException("派生名称候选的身份、父及附加范围必须为已发布物理标量。");
         var orderFields = relation.OptionsOrder?.Select(item => item.Column.Source.ColumnName) ?? [];
         var dependencies = fields.Select(column => column.Source.ColumnName).Concat(orderFields)
             .Concat(["id", name.Source.ColumnName]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();

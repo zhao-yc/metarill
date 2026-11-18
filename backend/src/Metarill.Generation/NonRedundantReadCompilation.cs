@@ -20,10 +20,13 @@ internal static class NonRedundantReadCompilation
         HasGlobalRowProject(table)&&page.Source.Extra.GetValueOrDefault("type").ToString() is "1" or "2"||
         GlobalAccountMultiPage(table,page)||GlobalSingleParentPage(table,page);
 
-    /// <summary>原独立单选在分页和详情中使用物理父级以及该页实际的账号或级联条件。</summary>
+    /// <summary>原独立单选在分页和详情中使用已证明的父级以及该页实际的账号或级联条件。</summary>
     internal static bool GlobalSingleParentPage(TableModel table,PageModel page)=>
-        page.Source.Extra.GetValueOrDefault("type").ToString()=="1"&&GlobalPhysicalParentScope(table,page)&&
-        (FixedPageConditionCompilation.HasAccountVariables(page)||FixedPageConditionCompilation.HasLogicalFields(page));
+        page.Source.Extra.GetValueOrDefault("type").ToString()=="1"&&table.IsGlobal&&table.Source.IsRongyu==0&&
+        (page.Scopes.Any(scope=>scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(
+            table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName))||
+            GlobalPhysicalParentScope(table,page)&&(FixedPageConditionCompilation.HasAccountVariables(page)||
+                FixedPageConditionCompilation.HasLogicalFields(page)));
 
     /// <summary>纯物理账号与父级同时限制全局多选时，独立分页需要同一带父参数的计划。</summary>
     internal static bool GlobalAccountMultiPage(TableModel table,PageModel page)=>
@@ -89,7 +92,7 @@ internal static class NonRedundantReadCompilation
     {
         // 固定候选约束实际发布页，普通业务页可使用自己的项目条件。
         if(HasGlobalRowProject(table))GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
-        else if(table.IsGlobal&&GlobalCrossTableTarget.PhysicalSingleParent(model.Catalog,table.Source,page.Source) is null)
+        else if(table.IsGlobal&&GlobalCrossTableTarget.SingleParent(model.Catalog,table.Source,page.Source) is null)
         {
             if(GlobalAccountParentScope(table,page))
                 GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source);

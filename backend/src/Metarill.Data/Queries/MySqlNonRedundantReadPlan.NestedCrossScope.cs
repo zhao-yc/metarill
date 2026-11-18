@@ -35,7 +35,7 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new NotSupportedException("全局下拉附加条件必须引用已发布的逻辑级联字段。");
         // 全局单值候选从自身发布页证明物理父键；旧多选仍满足原独立页合同。
         var physicalParent=global&&!projectSingle&&page.Extra.GetValueOrDefault("type").ToString()!="2"
-            ?GlobalCrossTableTarget.PhysicalSingleParent(catalog,table,page):null;
+            ?GlobalCrossTableTarget.SingleParent(catalog,table,page):null;
         var accountParentPage=accountParentPageType is not null;
         var hasParentScope=physicalParent is not null||accountParentPage||displayBindings is not null||
             listFields is null&&treeNames.Count>0&&IsScopedMultiTarget(catalog,table,pageId);
@@ -49,8 +49,8 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new InvalidOperationException("候选页未声明逻辑级联条件或已证明的全局跨表投影。");
         var parent=physicalParent??(hasParentScope||projectSingle?MultiTargetParentScope.Compile(catalog,table,syntax):null);
         if(accountParentPage&&(!global||page.Extra.GetValueOrDefault("type").ToString()!=accountParentPageType||
-            parent is not {Logical:false}||(accountParentPageType=="2"
-                ?!syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported):physicalParent is null)))
+            parent is null||(accountParentPageType=="2"
+                ?parent.Logical||!syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported):physicalParent is null)))
             throw new NotSupportedException("全局候选必须使用实际发布的条件和物理父键。");
         var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target,treeNames);
         // 附加条件只扩充真实路径与投影，页面条件仍由实际发布页决定。
@@ -320,7 +320,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         /// <summary>关联目标先按物理键联接。用固定候选子查询隔离跨表层，避免引用后声明的别名。</summary>
-        private string PublishedSingleCrossCondition(TableMetadata table,string alias,PageMetadata page)
+        private string PublishedSingleCrossCondition(TableMetadata table,string alias,PageMetadata page,string? sourceParent=null)
         {
             var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_single");
             var plan=CompileCrossPageCandidate(catalog,table.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
@@ -329,12 +329,14 @@ public static partial class MySqlNonRedundantReadCompiler
             foreach(var reference in plan.PhysicalReferences)
                 references.TryAdd((reference.Table,reference.Column.Name),reference);
             scopedGlobalCrossTarget=true;
-            return "EXISTS (SELECT 1"+plan.From+" WHERE "+plan.Expression("id")+"="+alias+".`id` AND "+plan.Scope+")";
+            var parentScope=sourceParent is null?"":" AND "+SameSingleParent(
+                plan.Expression(plan.RequiredMultiParent??throw new InvalidOperationException("固定单值目标缺少逻辑父表达式。")),sourceParent);
+            return "EXISTS (SELECT 1"+plan.From+" WHERE "+plan.Expression("id")+"="+alias+".`id` AND "+plan.Scope+parentScope+")";
         }
 
         /// <summary>单值副本按来源行归属重算，逻辑条件沿目标页的实际级联路径读取。</summary>
         private string PublishedSingleCondition(TableMetadata table,string alias,PageMetadata page,CascadeCacheOwner? cacheOwner=null,
-            ColumnMetadata? parentField=null)
+            ColumnMetadata? parentField=null,string? sourceParent=null)
         {
             var members=columns[table.Id].Values.ToArray();
             var fields=PublishedSelfTreeConditionFields(catalog,table,page,members);
@@ -345,7 +347,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(cacheOwner is {} row&&logical.Count==0)
                 return PhysicalAccountCacheCondition(table,alias,page,row,parentField);
             return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
-                alias,cacheOwner,parentField,fields);
+                alias,cacheOwner,parentField,fields,sourceParent);
         }
 
         /// <summary>物理账号条件按来源行归属计算，并记录源字段和目标筛选列的反向依赖。</summary>
@@ -368,11 +370,25 @@ public static partial class MySqlNonRedundantReadCompiler
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true);
             var parent=MultiParent(catalog,proof.Page);
             var cacheOwner=new CascadeCacheOwner(table,owner);
-            var visible=PublishedSingleCondition(target,alias,proof.Page,cacheOwner,parent?.Target);
-            if(parent is not null)visible+=" AND "+ScopedSingleParentCondition(table,owner,foreign,alias,parent,cacheOwner);
+            var sourceParent=parent is {Logical:true}?LogicalSingleSourceParent(table,owner,foreign,parent):null;
+            var visible=PublishedSingleCondition(target,alias,proof.Page,cacheOwner,parent?.Target,sourceParent);
+            if(parent is {Logical:false})visible+=" AND "+ScopedSingleParentCondition(table,owner,foreign,alias,parent,cacheOwner);
             var label=Resolve(target,alias,value.ColumnName);
             return ("CASE WHEN "+alias+".`id` IS NOT NULL AND "+visible+" THEN "+label.Sql+" END",label.Type);
         }
+
+        /// <summary>逻辑父从可见路径还原。来源必须读已证明的物理键，比较保持高位ID与字符串精度。</summary>
+        private string LogicalSingleSourceParent(TableMetadata source,string owner,ColumnMetadata foreign,MultiTargetParentScope parent)
+        {
+            var binding=parent.Source(catalog,source,foreign,physicalSingle:true).Column;
+            Use(source,binding);
+            Touch(owner,binding.ColumnName);
+            if(trackReverse)cascadeCacheOwnerFields.Add(binding.ColumnName);
+            return owner+"."+Q(binding.ColumnName);
+        }
+
+        private static string SameSingleParent(string target,string source)=>
+            "BINARY CAST("+target+" AS CHAR)=BINARY CAST("+source+" AS CHAR)";
 
         /// <summary>按来源行的持久物理键匹配项目父或全局发布父，并登记反向依赖。</summary>
         private string ScopedSingleParentCondition(TableMetadata source,string owner,ColumnMetadata foreign,
@@ -440,7 +456,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         /// <summary>同一条查询展开所需祖先，写入沿同一事务锁定全部联接。候选内部的存储校验不进入外层 VO。</summary>
-        private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null,ColumnMetadata? multiParent=null,IReadOnlySet<string>? selfTreeFields=null)
+        private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null,ColumnMetadata? multiParent=null,IReadOnlySet<string>? selfTreeFields=null,string? sourceParent=null)
         {
             var table=level.Table;
             cacheOwner??=cascadeCacheOwner;
@@ -490,7 +506,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     return CrossValue(table,owner,source,selection,path,field,scopeOnly:true,cacheOwner:cacheOwner).Sql;
                 }
                 // 同一可见路径既负责页面条件，也负责恢复可能没有实际落库的逻辑父键。
-                if(multiParent is not null&&level.LogicalFields.Contains(multiParent.ColumnName))
+                if(sourceParent is null&&multiParent is not null&&level.LogicalFields.Contains(multiParent.ColumnName))
                     selectedMultiParentSql=Projection(multiParent.ColumnName);
                 string predicate;
                 if(cacheOwner is {} row)
@@ -506,6 +522,12 @@ public static partial class MySqlNonRedundantReadCompiler
                     predicate=clause.Sql;
                 }
                 else predicate="1=1";
+                if(sourceParent is not null)
+                {
+                    if(multiParent is null||!level.LogicalFields.Contains(multiParent.ColumnName))
+                        throw new InvalidOperationException("全局单值缓存缺少已发布逻辑父层位。");
+                    predicate+=" AND "+SameSingleParent(Projection(multiParent.ColumnName),sourceParent);
+                }
 
                 // 空选择允许原 IS NULL；已存但不可见或无法恢复的节点不能冒充空值放宽候选。
                 var paths=bindings.Keys.Select(source=>

@@ -66,8 +66,11 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true, false, true, false, true, true)]
     [InlineData(false, false, true, true, true, false, false, false, true)]
     [InlineData(true, true, true, false, false, true, false, false, true)]
+    [InlineData(false,true,true,true,true,true,true,true,true,true)]
+    [InlineData(true,true,true,false,false,true,false,false,true,true)]
+    [InlineData(true,false,true,true,true,true,false,false,false,true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false)
+        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -82,6 +85,8 @@ public sealed class DerivedRelationNamesTests
         var label=derived?"company_name":"name";
         var logicalField=cross?"country_name":"tree_name";
         var controlWhere=selection||listCondition?logicalField+" <> '排除叶名'":parent?"segment=@formParameters.segment":"";
+        var parentOnly=logicalParent&&selection&&globalParent;
+        if(parentOnly)controlWhere="";
         if(listCondition&&parent)controlWhere+= " AND segment=@formParameters.segment";
         if(listCondition&&globalWithProject is not null)controlWhere+=" AND store_id=@current_store_id";
         foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField=label,whereSql=controlWhere});
@@ -132,7 +137,7 @@ public sealed class DerivedRelationNamesTests
             catalog.ConfigPageColumns.Add(new(){Id="70173",ConfigPageId="701",ConfigColumnId="73"});
             catalog.ConfigPageColumns.Add(new(){Id="70174",ConfigPageId="701",ConfigColumnId="74"});
         }
-        if(!listCondition)
+        if(!listCondition&&!parentOnly)
             target.WhereSql+=" AND "+logicalField+" <> '排除叶名' AND store_id=@current_store_id";
         else if(fixedTargetLogic)
             target.WhereSql+=" AND "+logicalField+" <> '目标页排除' AND store_id=@current_store_id";
@@ -153,7 +158,21 @@ public sealed class DerivedRelationNamesTests
                 catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="22");
             }
         }
-        if(globalParent)
+        if(logicalParent)
+        {
+            if(!globalParent)
+            {
+                catalog.ConfigTables.Single(table=>table.Id=="6").Extra.Remove("scopeKind");
+                catalog.ConfigPages.Single(page=>page.Id=="601").WhereSql="yz_project_id=@current_yz_project_id AND name <> '停用树节点'";
+            }
+            catalog.ConfigColumns.Single(column=>column.Id=="19").LinkConfigTableId="6";
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="29");
+            catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId=="29");
+            target.WhereSql=target.WhereSql.Contains("group_id=@parent_id",StringComparison.Ordinal)
+                ?target.WhereSql.Replace("group_id=@parent_id","country_id=@parent_id",StringComparison.Ordinal)
+                :target.WhereSql+" AND country_id=@parent_id";
+        }
+        if(globalParent&&!logicalParent)
         {
             catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             catalog.ConfigColumns.RemoveAll(column=>column.Id=="32");
@@ -217,6 +236,11 @@ public sealed class DerivedRelationNamesTests
                 else
                     Assert.Contains("sourceParentKey && entity.YzProjectId == ",service[start..end]);
                 Assert.DoesNotContain("query = query.Where(entity => entity.YzProjectId",service[start..end]);
+                if(logicalParent)
+                {
+                    Assert.DoesNotContain("query = query.Where(entity => entity.CountryId",service[start..end]);
+                    if(listCondition)Assert.Contains("actor.ProjectId,locking,targetParentId)",service[start..end]);
+                }
             }
             else
             {
@@ -244,6 +268,11 @@ public sealed class DerivedRelationNamesTests
                 Assert.Contains("CompileGlobalSingleParentPage(\"2\",\"201\"",targetService);
                 Assert.Contains("KeyRowsAsync(CandidateReadPlan201.BindAccount(actor)",targetService);
                 Assert.Contains("ExportReadPlan201=global::Example.ScopedSingleRelation.Generated.GeneratedNonRedundantReadCatalog.CompileGlobalSingleParentPage(",targetService);
+                if(logicalParent)
+                {
+                    var detail=File.ReadAllText(Path.Combine(directory,"generated/frontend/pages/yzp/dr_names_order-detail-101.vue"));
+                    Assert.Contains(":parent_id=\"parent_id\"",detail);
+                }
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             foreach(var name in new[]{"DrNamesOrderService","DrNamesPartyService"})

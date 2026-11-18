@@ -1,3 +1,4 @@
+using Metarill.Core.Metadata;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -6,7 +7,7 @@ namespace Metarill.Generation;
 internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target, PageModel TargetPage, ColumnModel NameColumn, string Endpoint,
     IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<TableModel> SourceParents, IReadOnlyList<TableModel> TargetParents,
     FixedParentRelationResult? ParentBinding = null, IReadOnlyList<(ColumnModel Column, bool Descending)>? OptionsOrder = null,
-    RelationConditionModel? Conditions = null, ColumnModel? FixedPhysicalSourceParent = null)
+    RelationConditionModel? Conditions = null, ColumnModel? FixedPhysicalSourceParent = null, MultiTargetParentScope? FixedParent = null)
 {
     /// <summary>原 V8 路由按来源字段去掉 Id/Ids 后缀，不能用目标表名替代业务别名。</summary>
     public string LegacyEndpoint
@@ -75,10 +76,11 @@ internal static class RelationCompilation
                 throw new InvalidOperationException("固定条件的候选必须与外键及显示来源的目标一致。");
             var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column, owner, page)).DistinctBy(parent => parent.Source.Id).ToArray();
             var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,target,targetPage);
-            var globalParent=Metarill.Core.Metadata.GlobalCrossTableTarget.PhysicalSingleParent(model.Catalog,target.Source,targetPage.Source);
+            var globalParent=GlobalCrossTableTarget.SingleParent(model.Catalog,target.Source,targetPage.Source);
             var targetParents = targetPage.Scopes.Concat(scopes).Where(scope => scope.Source == "parent")
-                .Select(scope => accountParent||globalParent?.Target.Id==scope.Column.Source.Id
-                    ?Parent(model,scope.Column,target,targetPage):Parent(model,scope.Column))
+                .Select(scope => globalParent?.Target.Id==scope.Column.Source.Id
+                    ?model.Tables.Single(table=>table.Source.Id==globalParent.Parent.Id)
+                    :accountParent?Parent(model,scope.Column,target,targetPage):Parent(model,scope.Column))
                 .DistinctBy(parent => parent.Source.Id).ToArray();
             var binding = FixedParentRelationCompilation.Resolve(model, page, source, sourceParents, targetParents, targetPage.Scopes.Concat(scopes).ToArray());
             IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
@@ -111,7 +113,7 @@ internal static class RelationCompilation
             }
             var fixedParentId=globalParent?.Source(model.Catalog,owner.Source,source.Source,physicalSingle:true).Column.Id;
             var fixedSourceParent=fixedParentId is null?null:owner.Columns.Single(column=>column.Source.Id==fixedParentId);
-            var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,fixedSourceParent);
+            var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,fixedSourceParent,globalParent);
             if(DerivedRelationNamesCompilation.UsesFixedRead(model,relation))_=DerivedRelationNamesCompilation.Require(model,owner,page,relation);
             relations.Add(relation);
         }

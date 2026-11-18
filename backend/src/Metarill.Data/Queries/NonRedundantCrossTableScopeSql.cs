@@ -26,7 +26,7 @@ public static class NonRedundantCrossTableScopeSql
 
     /// <summary>固定页面AND条件用已编译的逻辑值拦截实体读取；写入前沿原事务当前锁核验。</summary>
     public static ISelect<T> ApplyCondition<T>(ISelect<T> query,DatabaseSession session,NonRedundantReadPlan plan,
-        FixedConditionSqlPlan condition,string parameterPrefix,string projectId,bool locking=false)where T:class
+        FixedConditionSqlPlan condition,string parameterPrefix,string projectId,bool locking=false,string? parentId=null)where T:class
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(session);
@@ -47,8 +47,9 @@ public static class NonRedundantCrossTableScopeSql
             return compiled.Expression(field);
         });
         if(!usesLogicalField||clause.Sql.Length==0)throw new InvalidOperationException("页面条件缺少已证明的逻辑字段。");
-        return ApplyScope(query,session,compiled,parameterPrefix,projectId,locking,[clause.Sql],
-            new Dictionary<string,object?>(clause.Parameters,StringComparer.Ordinal));
+        var parameters=new Dictionary<string,object?>(clause.Parameters,StringComparer.Ordinal);
+        var predicates=parentId is null?new[]{clause.Sql}:new[]{clause.Sql,BindParent(compiled,session,parameterPrefix,parentId,parameters)};
+        return ApplyScope(query,session,compiled,parameterPrefix,projectId,locking,predicates,parameters);
     }
 
     /// <summary>实体查询和路径读取使用同一已发布候选，附加条件在编译时已纳入。</summary>
@@ -60,7 +61,7 @@ public static class NonRedundantCrossTableScopeSql
         string parameterPrefix,string projectId,bool locking)where T:class=>
         ApplyCandidate(query,session,plan,parameterPrefix,projectId,locking,parentId:null);
 
-    /// <summary>需要物理父的候选必须绑定服务端已证明的规范父ID，普通候选仍拒绝额外父参数。</summary>
+    /// <summary>需要父范围的候选必须绑定服务端已证明的规范父ID，普通候选仍拒绝额外父参数。</summary>
     public static ISelect<T> ApplyCandidate<T>(ISelect<T> query,DatabaseSession session,NonRedundantReadPlan plan,
         string parameterPrefix,string projectId,bool locking,string? parentId)where T:class
     {
@@ -71,9 +72,16 @@ public static class NonRedundantCrossTableScopeSql
             compiled.ProjectId!=projectId||(compiled.RequiredMultiParent is null)!=(parentId is null))
             throw new InvalidOperationException("查询必须使用当前项目的固定候选和已声明的父参数。");
         var parameters=new Dictionary<string,object?>(StringComparer.Ordinal);
-        if(compiled.RequiredMultiParent is not {} field)
-            return ApplyScope(query,session,compiled,parameterPrefix,projectId,locking,[],parameters);
-        if(!Positive(parentId!,out var id))throw new ArgumentException("固定候选父ID必须为规范正整数。",nameof(parentId));
+        var predicates=parentId is null?Array.Empty<string>():new[]{BindParent(compiled,session,parameterPrefix,parentId,parameters)};
+        return ApplyScope(query,session,compiled,parameterPrefix,projectId,locking,predicates,parameters);
+    }
+
+    /// <summary>候选附加条件与目标页使用同一已编译父表达式和规范键。</summary>
+    private static string BindParent(MySqlNonRedundantReadPlan compiled,DatabaseSession session,string parameterPrefix,
+        string parentId,Dictionary<string,object?> parameters)
+    {
+        var field=compiled.RequiredMultiParent??throw new InvalidOperationException("固定候选未声明父参数。");
+        if(!Positive(parentId,out var id))throw new ArgumentException("固定候选父ID必须为规范正整数。",nameof(parentId));
         var name=parameterPrefix+"_parent";
         var expression=compiled.Expression(field);
         var placeholder=session.Provider.ParameterPlaceholder(name);
@@ -84,7 +92,7 @@ public static class NonRedundantCrossTableScopeSql
             _=>throw new InvalidOperationException("固定候选父字段类型不受支持。")
         };
         parameters.Add(name,compiled.Types[field]=="string"?parentId:(object)id);
-        return ApplyScope(query,session,compiled,parameterPrefix,projectId,locking,[predicate],parameters);
+        return predicate;
     }
 
     /// <summary>物理对象查询与固定逻辑谓词按同一主键关联，账户和条件值全部参数化。</summary>

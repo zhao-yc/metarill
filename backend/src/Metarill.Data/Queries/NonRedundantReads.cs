@@ -173,7 +173,7 @@ public static class NonRedundantReads
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings)=>
         CompileGlobalSingleParentPage(metadata,tableId,pageId,outputs,dependencies,bindings);
 
-    /// <summary>全局独立单选同时核验物理父范围与该页的账号或级联条件。</summary>
+    /// <summary>全局独立单选同时核验发布的父范围及该页的账号或级联条件。</summary>
     public static NonRedundantReadPlan CompileGlobalSingleParentPage(MetadataCatalog metadata,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings)=>
         new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,

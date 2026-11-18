@@ -833,7 +833,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         {
             var suffix = page.Source.Id + "_" + relation.SourceColumn.Source.Id;
             var accountParents=SharedRedundantParentCompilation.AccountPlans(model,relation.Target,relation.TargetPage);
-            var fixedGlobalParent=MultiGlobalParentCompilation.PhysicalSingleTarget(model,relation.Target,relation.TargetPage);
+            var fixedGlobalParent=relation.FixedParent is {Global:true} globalParent?globalParent:null;
             var targetParentPlan="OptionsGlobalParent"+suffix;
             if(fixedGlobalParent is not null)
                 result.Append(MultiGlobalParentCompilation.Declaration(model,relation.TargetPage,targetParentPlan));
@@ -908,14 +908,15 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if (relation.Target.Columns.Any(c => c.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(entity => entity.DeleteNo == null);");
             var project = relation.Target.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
             if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
-            foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent").DistinctBy(scope => scope.Column.Source.Id))
+            foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent"&&
+                (relation.FixedParent is not {Logical:true} logicalParent||logicalParent.Target.Id!=s.Column.Source.Id)).DistinctBy(scope => scope.Column.Source.Id))
                 result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
             // 全局逻辑下拉的附加搜索已通过同一计划包含发布页范围，只需生成一次相关查询。
             if(relation.Target.IsGlobal&&logicalPlan is not null)
             {
                 if(relation.Conditions?.HasLogicalFields!=true)
                 {
-                    var bindsParent=Metarill.Core.Metadata.GlobalCrossTableTarget.PhysicalSingleParent(model.Catalog,relation.Target.Source,relation.TargetPage.Source) is not null;
+                    var bindsParent=relation.FixedParent is not null;
                     result.AppendLine($"        query=NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,{logicalPlan},\"options_page_{suffix}\",actor.ProjectId,locking{(bindsParent?",targetParentId":"")});");
                 }
             }

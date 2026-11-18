@@ -122,7 +122,8 @@ internal static class RelationConditionsCompilation
         if(condition.HasLogicalFields)
         {
             if(logicalPlan is null)throw new InvalidOperationException("下拉逻辑条件缺少已发布读取计划。");
-            return $"        query=NonRedundantCrossTableScopeSql.ApplyCondition(query,session,{logicalPlan},OptionsCondition{suffix}.BindVariables(new Dictionary<string,object?>{{ {variables} }}),\"options_{suffix}\",actor.ProjectId,locking);\n";
+            var parent=relation.FixedParent is {Logical:true}?",targetParentId":"";
+            return $"        query=NonRedundantCrossTableScopeSql.ApplyCondition(query,session,{logicalPlan},OptionsCondition{suffix}.BindVariables(new Dictionary<string,object?>{{ {variables} }}),\"options_{suffix}\",actor.ProjectId,locking{parent});\n";
         }
         return $"        query = OptionsCondition{suffix}.Apply(query, session, new Dictionary<string, object?> {{ {variables} }}, \"options_{suffix}\");\n";
     }

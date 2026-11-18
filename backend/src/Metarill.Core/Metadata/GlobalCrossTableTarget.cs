@@ -38,13 +38,17 @@ public static class GlobalCrossTableTarget
 
     /// <summary>全局非冗余页可按账号和真实物理父键限定单值候选。</summary>
     public static MultiTargetParentScope? PhysicalAccountParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
-        PhysicalSingleParent(catalog,table,page,allowLogical:false);
+        SingleParent(catalog,table,page,allowLogical:false);
 
     /// <summary>单值目标页可以同时执行真实物理父范围和已声明的级联条件。</summary>
     public static MultiTargetParentScope? PhysicalSingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
-        PhysicalSingleParent(catalog,table,page,allowLogical:true);
+        SingleParent(catalog,table,page) is {Logical:false} parent?parent:null;
 
-    private static MultiTargetParentScope? PhysicalSingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowLogical)
+    /// <summary>逻辑父仅接受已发布跨表层位，其完整路径由数据适配器展开。</summary>
+    public static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
+        SingleParent(catalog,table,page,allowLogical:true);
+
+    private static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowLogical)
     {
         if(!Declared(table)||table.IsRongyu!=0)return null;
         var columns=ConditionColumns(catalog,table,allowLogical:true);
@@ -58,7 +62,7 @@ public static class GlobalCrossTableTarget
         }
         else if(!condition.Variables.Any(AccountConditionVariables.IsSupported))return null;
         var parent=MultiTargetParentScope.Compile(catalog,table,condition);
-        if(parent is not {Logical:false})return null;
+        if(parent is null||parent.Logical&&(!allowLogical||page.Extra.GetValueOrDefault("type").ToString()=="2"))return null;
         RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:cross||tree,allowMultiParent:true,allowSelfTree:tree);
         return parent;
     }
