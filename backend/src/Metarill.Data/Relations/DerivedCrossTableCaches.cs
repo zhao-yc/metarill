@@ -111,7 +111,7 @@ public static class DerivedCrossTableCaches
         {
             var published=GlobalCachedRelationSource.RequireCache(catalog,source,cache);
             if(!published.ScopedSingle||published.Foreign.Id!=foreign.Id||published.Target.Id!=target.Id||published.Page.Id!=proof.Page.Id)
-                throw new InvalidOperationException("全局固定副本须与明确发布的物理List关系一致。");
+                throw new InvalidOperationException("全局固定副本须与明确发布的物理单值关系一致。");
         }
         // 完整编译固定路径和行归属。任何缺失的内层证明都阻断生成。
         _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cache.ColumnName],[definition]);

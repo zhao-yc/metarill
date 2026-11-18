@@ -415,7 +415,7 @@ public sealed class NestedCrossCandidateTests
                 var observer=catalog.ConfigTables.Single(table=>table.Id=="98");
                 observer.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
                 catalog.ConfigColumns.RemoveAll(column=>column.Id=="9802");
-                catalog.ConfigColumns.Single(column=>column.Id=="9804").ControlKind="List";
+                if(kind=="SelectPage")sourcePage.Extra["type"]=JsonSerializer.SerializeToElement(1);
                 observerPage.WhereSql+=" AND store_id=@current_store_id";
                 var globalMaintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
                 var globalRead=Assert.Single(globalMaintenance.Mixed.Consumers,item=>item.Table.Option.Id=="98").Read;
@@ -425,6 +425,13 @@ public sealed class NestedCrossCandidateTests
                 Assert.Contains("b.`store_id`",globalRead.Expression(cache));
                 Assert.Contains("b.`scope_country_id`",globalRead.Expression(cache));
                 Assert.Contains(globalRead.Reverse,item=>item.TargetTable=="nested_source"&&item.Outputs[cache].Contains("name"));
+                if(kind=="SelectPage")
+                {
+                    var relation=catalog.ConfigColumns.Single(column=>column.Id=="9804");
+                    sourcePage.Extra["type"]=JsonSerializer.SerializeToElement(2);
+                    Assert.Throws<NotSupportedException>(()=>GlobalSingleRelationTarget.RequireCached(catalog,observer,relation,source));
+                    sourcePage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+                }
                 observerPage.WhereSql="scope_country_id=@parent_id";
                 Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));
                 return;

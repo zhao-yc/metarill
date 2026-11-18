@@ -10,7 +10,9 @@ internal static class NonRedundantSelectionCompilation
     /// <summary>页面覆盖沿原标量合并；显示来源必须保持同表同名称，候选附加条件由目标页承接。</summary>
     internal static NonRedundantSelectionModel Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
-        var cached=table.Source.IsRongyu==1&&!table.IsGlobal&&table.Source.IsView==0&&table.Source.IsFunctionTable==0&&table.Source.YzProjectId==model.Catalog.YzProjectId&&table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"&&column.Source.LogicalType is "int64" or "string"&&NonRedundantReadCompilation.Physical(model,table,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn"));
+        var globalCached=table.IsGlobal&&table.Source.IsRongyu==1&&GlobalCachedSourceCompilation.ForModel(model)
+            .Any(binding=>binding.ScopedSingle&&binding.Foreign.Source.Id==source.Source.Id);
+        var cached=globalCached||table.Source.IsRongyu==1&&!table.IsGlobal&&table.Source.IsView==0&&table.Source.IsFunctionTable==0&&table.Source.YzProjectId==model.Catalog.YzProjectId&&table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"&&column.Source.LogicalType is "int64" or "string"&&NonRedundantReadCompilation.Physical(model,table,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn"));
         if(table.Source.IsRongyu!=0&&!cached||source.Source.ControlKind!="SelectPage"||source.Source.ConfigTableId!=table.Source.Id||source.Type!="long?"||!source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)||!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(source.Source))throw new InvalidOperationException("非冗余单选必须绑定本表物理int64外键。");
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);
         var definition=SelectionControlDefinition.Resolve(source,field);var baseline=SelectionControlDefinition.Resolve(source,null);

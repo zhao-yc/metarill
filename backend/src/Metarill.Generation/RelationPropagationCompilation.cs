@@ -23,7 +23,7 @@ internal static class RelationPropagationCompilation
             result.AddRange(SelfTreePropagationCompilation.ForTable(model,table));
             if(table.IsGlobal)
             {
-                // 仅登记明确发布、带页范围的原List缓存；其余全局角色沿各自已证明的合约。
+                // 原下拉和单选共用已发布的页范围绑定，其余全局角色沿各自已证明的合约。
                 result.AddRange(GlobalCachedSourceCompilation.ForModel(model)
                     .Where(binding=>binding.Source.Source.Id==table.Source.Id&&binding.ScopedSingle)
                     .Select(binding=>new RelationPropagationBinding(table,binding.Foreign,binding.Target,binding.Name,binding.Cache,false)

@@ -79,6 +79,8 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true)]
     [InlineData(false,true,true,false,false,true,true,true,true,true,true,true,true,true)]
     [InlineData(false,false,true,true,false,true,false,false,false,false,true,true,true,true)]
+    [InlineData(true,true,true,false,false,true,false,false,true,true,true,true,true,true)]
+    [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true,true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
         bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false)
     {
@@ -385,6 +387,11 @@ public sealed class DerivedRelationNamesTests
                     {
                         Assert.Contains("当前身份不属于已发布全局来源目录",observer);
                         Assert.Contains("ProjectRelationMutationPropagator(session).AfterMutationAsync",observer);
+                        if(selection)
+                        {
+                            var detail=File.ReadAllText(Path.Combine(directory,"generated/frontend/pages/yzp/dr_names_observer-detail-801.vue"));
+                            Assert.Contains(":parent_id=\"parent_id\"",detail);
+                        }
                     }
                 }
             }

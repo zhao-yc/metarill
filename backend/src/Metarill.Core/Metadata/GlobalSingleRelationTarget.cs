@@ -50,7 +50,8 @@ public static class GlobalSingleRelationTarget
         if(!cached&&GlobalCrossTableTarget.Declared(owner)&&owner.IsRongyu==0)GlobalDerivedRelationSource.RequireSingle(catalog,owner,foreign);
         else if(cached&&GlobalCrossTableTarget.Declared(owner))
         {
-            GlobalCachedRelationSource.RequireSingle(catalog,owner,foreign);
+            if(foreign.ControlKind=="SelectPage")GlobalCachedRelationSource.RequireSelectionSource(catalog,owner,foreign);
+            else GlobalCachedRelationSource.RequireSingle(catalog,owner,foreign);
             if(project is not null&&owner.Id==target.Id)
                 throw new NotSupportedException("带行项目列的自树父范围要求独立父表。");
         }
@@ -127,7 +128,12 @@ public static class GlobalSingleRelationTarget
                     throw new InvalidOperationException("全局单值物理父范围要求各来源页使用同一发布目标和名称。");
             }
         }
-        return new(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,ScopedAccount=scopedAccount,Parent=fixedParent,SourceParent=sourceParent};
+        var plan=new GlobalSingleRelationPlan(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,
+            ScopedAccount=scopedAccount,Parent=fixedParent,SourceParent=sourceParent};
+        if(owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&foreign.ControlKind=="SelectPage"&&
+            (!plan.RequiresScopedPage||page.Extra.GetValueOrDefault("type").ToString()!="1"))
+            throw new NotSupportedException("全局冗余单选要求有固定数据范围的已发布type=1目标页。");
+        return plan;
     }
 
     /// <summary>父表及固定页必须属于当前目录，项目列必须真实存在，维护与业务均按当前已验证项目读取。</summary>

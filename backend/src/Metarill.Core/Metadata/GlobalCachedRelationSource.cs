@@ -60,8 +60,22 @@ public static class GlobalCachedRelationSource
     public static void RequireSingle(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign)
     {
         Require(catalog,source,allowsRowProject:RowProjectSelfTreeParentPages(catalog,source,foreign).Count>0);
+        if(foreign.ControlKind!="List")throw Invalid();
+        RequirePhysicalForeign(catalog,source,foreign);
+    }
+
+    /// <summary>固定单选仍用原int64合同；目标type=1及其范围随后由实际发布页验证。</summary>
+    internal static void RequireSelectionSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign)
+    {
+        Require(catalog,source);
+        if(foreign.ControlKind!="SelectPage"||foreign.LogicalType!="int64")throw Invalid();
+        RequirePhysicalForeign(catalog,source,foreign);
+    }
+
+    private static void RequirePhysicalForeign(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign)
+    {
         var storage=MetadataStoragePolicy.ForTable(catalog,source);
-        if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==foreign.Id),foreign)||foreign.ConfigTableId!=source.Id||foreign.ControlKind!="List"||!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)||foreign.LogicalType is not("int64" or "string")||!storage.IsPhysical(foreign)||foreign.IsVirtualColumn!=0||Joined(foreign))throw Invalid();
+        if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==foreign.Id),foreign)||foreign.ConfigTableId!=source.Id||!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)||foreign.LogicalType is not("int64" or "string")||!storage.IsPhysical(foreign)||foreign.IsVirtualColumn!=0||Joined(foreign))throw Invalid();
     }
     /// <summary>物理名称副本须有精确单层路径和同一List目标，不能把任意join列作为全局写入。</summary>
     public static GlobalCachedRelationBinding RequireCache(MetadataCatalog catalog,TableMetadata source,ColumnMetadata cache)
@@ -73,7 +87,9 @@ public static class GlobalCachedRelationSource
         RequireSelfTree(catalog,source);var storage=MetadataStoragePolicy.ForTable(catalog,source);var path=cache.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
         if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==cache.Id),cache)||cache.ConfigTableId!=source.Id||path.Length!=2||!Joined(cache)||cache.IsVirtualColumn!=0||!storage.IsPhysical(cache)||(cache.LogicalType!="string"&&!MultiValueLabel.IsTyped(cache.LogicalType))||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
         var foreign=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==source.Id&&(column.ColumnName==path[0]+"_id"||column.ColumnName==path[0]));
-        if(foreign is null)throw Invalid();RequireSingle(catalog,source,foreign);
+        if(foreign is null)throw Invalid();
+        if(foreign.ControlKind=="SelectPage")RequireSelectionSource(catalog,source,foreign);
+        else RequireSingle(catalog,source,foreign);
         using var definition=JsonDocument.Parse(foreign.ControlDetail);var root=definition.RootElement;
         string Value(string key)=>root.TryGetProperty(key,out var value)&&value.ValueKind is JsonValueKind.String or JsonValueKind.Number?value.ToString():"";
         var targetId=foreign.LinkConfigTableId.Length>0?foreign.LinkConfigTableId:Value("tableId");var name=Value("table");
