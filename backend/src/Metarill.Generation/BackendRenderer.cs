@@ -855,7 +855,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 else
                 {
                     _=DerivedRelationNamesCompilation.CompileLogicalPage(model,relation.Target,relation.TargetPage,["id"],[],relation.Conditions);
-                    var planStart=DerivedRelationNamesCompilation.LogicalPagePlanStart(relation.Target,relation.TargetPage,relation.Conditions);
+                    var planStart=DerivedRelationNamesCompilation.LogicalPagePlanStart(model,relation.Target,relation.TargetPage,relation.Conditions);
                     result.AppendLine($"    private static readonly Metarill.Data.Queries.NonRedundantReadPlan OptionsMembership{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{planStart},new string[]{{\"id\"}}, Array.Empty<string>());");
                     logicalPlan=$"OptionsMembership{suffix}.BindAccount(actor)";
                 }
@@ -923,8 +923,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent"&&
                 (relation.FixedParent is not {Logical:true} logicalParent||logicalParent.Target.Id!=s.Column.Source.Id)).DistinctBy(scope => scope.Column.Source.Id))
                 result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
-            // 全局逻辑下拉的附加搜索已通过同一计划包含发布页范围，只需生成一次相关查询。
-            if(relation.Target.IsGlobal&&logicalPlan is not null)
+            // 固定候选包含已发布逻辑父层位，附加搜索继续复用同一相关查询。
+            if((relation.Target.IsGlobal||relation.FixedParent is {Logical:true})&&logicalPlan is not null)
             {
                 if(relation.Conditions?.HasLogicalFields!=true)
                 {

@@ -31,8 +31,9 @@ public static partial class MySqlNonRedundantReadCompiler
         var treeNames=SelfTreeConditionFields(catalog,table,page,columns,syntax.Fields);
         var listTrees=SelfTreeConditionFields(catalog,table,page,columns,listFields??[]);
         var listCrosses=(listFields??[]).Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToArray();
-        if(listFields is not null&&(!global||listTrees.Count==0&&listCrosses.Length==0))
-            throw new NotSupportedException("全局下拉附加条件必须引用已发布的逻辑级联字段。");
+        var projectParent=!global?ProjectScopedSingleRelationTarget.LogicalParent(catalog,table,page):null;
+        if(listFields is not null&&(!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0))
+            throw new NotSupportedException("固定下拉附加条件必须引用已发布的逻辑级联字段。");
         // 全局单值候选从自身发布页证明物理父键；旧多选仍满足原独立页合同。
         var physicalParent=global&&!projectSingle&&page.Extra.GetValueOrDefault("type").ToString()!="2"
             ?GlobalCrossTableTarget.SingleParent(catalog,table,page):null;
@@ -47,7 +48,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
         if(!projectSingle&&!accountParentPage&&physicalParent is null&&logical.Count==0&&treeNames.Count==0&&listFields is null&&(!global||displayBindings is not{Count:>0}))
             throw new InvalidOperationException("候选页未声明逻辑级联条件或已证明的全局跨表投影。");
-        var parent=physicalParent??(hasParentScope||projectSingle?MultiTargetParentScope.Compile(catalog,table,syntax):null);
+        var parent=physicalParent??projectParent??(hasParentScope||projectSingle?MultiTargetParentScope.Compile(catalog,table,syntax):null);
         if(accountParentPage&&(!global||page.Extra.GetValueOrDefault("type").ToString()!=accountParentPageType||
             parent is null||(accountParentPageType=="2"
                 ?parent.Logical||!syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported):physicalParent is null)))
@@ -297,8 +298,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("项目内单值读取须使用普通非冗余表的实际物理外键。");
             var page=catalog.ConfigPages.Single(item=>item.Id==binding.PageId&&item.ConfigTableId==target.Id);
             var parent=MultiParent(catalog,page);
-            if((parent is null)!=(binding.SourceParentId is null)||parent is {Global:true} or {Logical:true})
-                throw new InvalidOperationException("项目内单值读取缺少已证明的物理父绑定。");
+            if((parent is null)!=(binding.SourceParentId is null)||parent is {Global:true,Logical:false})
+                throw new InvalidOperationException("项目内单值读取缺少已证明的父绑定。");
 
             var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_page");
             var plan=CompileCrossPageCandidate(catalog,target.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
@@ -306,7 +307,18 @@ public static partial class MySqlNonRedundantReadCompiler
             plan.CopyParametersTo(crossConstants);
             var predicate=plan.Expression("id")+"="+alias+".`id`";
             if(plan.Scope.Length>0)predicate+=" AND "+plan.Scope;
-            if(parent is not null)
+            if(parent is {Logical:true})
+            {
+                // 目标由实际可见路径还原父级，来源则按同一父记录的持久键或已发布逻辑路径匹配。
+                var sourceParent=parent.SingleSource(catalog,root,relation);
+                if(sourceParent.Column.Id!=binding.SourceParentId)
+                    throw new InvalidOperationException("项目内单值读取父键与实际级联来源不一致。");
+                var sourceValue=SingleSourceParentValue(root,rootAlias,sourceParent);
+                predicate+=" AND "+SameSingleParent(plan.Expression(parent.Target.ColumnName),sourceValue);
+                foreach(var reference in plan.PhysicalReferences)
+                    references.TryAdd((reference.Table,reference.Column.Name),reference);
+            }
+            else if(parent is not null)
             {
                 var field=columns[root.Id].Values.Single(item=>item.Id==binding.SourceParentId);
                 if(field.Id==relation.Id||field.LogicalType is not("string" or "int64")||

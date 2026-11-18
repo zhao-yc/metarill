@@ -87,6 +87,10 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true,true,"string",true)]
     [InlineData(true,true,true,false,false,true,false,false,true,true,true,true,true,true,null,true,true)]
     [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true,true,"string",true,true)]
+    [InlineData(false,false,true,null,true,true,false,false,false,true)]
+    [InlineData(true,true,true,null,true,true,false,false,false,true)]
+    [InlineData(false,true,true,null,false,true,true,true,false,true,true)]
+    [InlineData(true,false,true,null,false,true,false,false,false,true,true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
         bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false,string? rowProjectType=null,bool pageOnly=false,bool buttonOverride=false)
     {
@@ -306,14 +310,14 @@ public sealed class DerivedRelationNamesTests
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.ScopedSingleRelation");
             var service=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesOrderService.g.cs"));
             var scope=derived?"DerivedOptionsPlan101_15":"OptionsMembership101_15";
-            if(globalWithProject is not null)
+            if(globalWithProject is not null||logicalParent)
             {
                 if(listCondition)
                 {
                     Assert.Contains("CompileGlobalListCandidate(\"2\",\"201\"",service);
                     Assert.Contains($"ApplyCondition(query,session,{scope}.BindAccount(actor),OptionsCondition101_15.BindVariables",service);
                     Assert.DoesNotContain($"ApplyCandidate(query,session,{scope}.BindAccount(actor)",service);
-                    Assert.Contains("AccountConditionVariables.Require(actor",service);
+                    if(globalWithProject is not null)Assert.Contains("AccountConditionVariables.Require(actor",service);
                     if(parent)Assert.Contains("FixedConditionFormValue.Require(formValues",service);
                     if(cross)Assert.Contains(JsonSerializer.Serialize("覆盖条件")[1..^1],service);
                     if(derived)Assert.Contains("condition=condition is null?bound:condition.And(bound)",service);
@@ -337,7 +341,7 @@ public sealed class DerivedRelationNamesTests
                     Assert.Contains("OptionsScope101_15Async(logicalRelationParentId, null",service);
                     Assert.Contains("logicalRelationParentId: parentId",service);
                 }
-                Assert.DoesNotContain("query = query.Where(entity => entity.YzProjectId",service[start..end]);
+                Assert.Equal(globalWithProject is null,service[start..end].Contains("query = query.Where(entity => entity.YzProjectId",StringComparison.Ordinal));
                 if(logicalParent)
                 {
                     Assert.DoesNotContain("query = query.Where(entity => entity.CountryId",service[start..end]);
@@ -375,6 +379,15 @@ public sealed class DerivedRelationNamesTests
                     var detail=File.ReadAllText(Path.Combine(directory,"generated/frontend/pages/yzp/dr_names_order-detail-101.vue"));
                     Assert.Contains(":parent_id=\"parent_id\"",detail);
                 }
+            }
+            if(logicalParent&&globalWithProject is null)
+            {
+                if(selection)
+                {
+                    var detail=File.ReadAllText(Path.Combine(directory,"generated/frontend/pages/yzp/dr_names_order-detail-101.vue"));
+                    Assert.Contains(":parent_id=\"parent_id\"",detail);
+                }
+                if(!redundant)Assert.Contains("ReadPlan101=global::Example.ScopedSingleRelation.Generated.GeneratedNonRedundantReadCatalog.CompileProjectPage(",service);
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             foreach(var name in new[]{"DrNamesOrderService","DrNamesPartyService"})

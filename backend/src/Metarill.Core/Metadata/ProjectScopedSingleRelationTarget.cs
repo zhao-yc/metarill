@@ -6,6 +6,19 @@ namespace Metarill.Core.Metadata;
 /// <summary>项目内冗余单值关系的固定目标页。所有来源入口必须能共享同一个名称副本。</summary>
 public static class ProjectScopedSingleRelationTarget
 {
+    /// <summary>项目内单值页可用已声明的跨表层位限定父级，独立目标和实际层位仍由统一父键模型核验。</summary>
+    public static MultiTargetParentScope? LogicalParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
+    {
+        if(target.IsRongyu!=0||GlobalCrossTableTarget.Declared(target)||page.ConfigTableId!=target.Id||
+            page.Extra.GetValueOrDefault("type").ToString()=="2")return null;
+        var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
+        var expanded=RelationStorageColumns.Expand(target,columns);
+        var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
+        if(!condition.Terms.Any(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
+            MultiTargetParentScope.IsParameter(value.Text))&&CrossTableStorageColumns.IsLogicalPathField(target,columns,term.Field)))return null;
+        return MultiTargetParentScope.Compile(catalog,target,condition) is {Logical:true} parent?parent:null;
+    }
+
     /// <summary>使用固定条件或父范围的关系须证明所有来源页共享同一目标及名称副本。</summary>
     public static (PageMetadata Page, ColumnMetadata Name)? Resolve(
         MetadataCatalog catalog, TableMetadata owner, ColumnMetadata foreign, TableMetadata target)

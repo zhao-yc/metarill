@@ -68,18 +68,19 @@ internal static class RelationCompilation
             }
             if (targetPage is null) continue;
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
-            // 原单选的外加条件已经逐项证明属于目标页，含逻辑项时由页面计划完整执行。
-            var where=selection is not null&&FixedPageConditionCompilation.HasLogicalFields(targetPage)?"":Mapped("whereSql");
+            // 原单选的附加条件已经逐项证明属于目标页，逻辑父和固定条件由同一页面计划执行。
+            var fixedParent=DerivedRelationNamesCompilation.SingleParent(model,target,targetPage);
+            var where=selection is not null&&(fixedParent is {Logical:true}||FixedPageConditionCompilation.HasLogicalFields(targetPage))
+                ?"":Mapped("whereSql");
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,allowLogicalList:selection is null);
             if ((conditions is not null||FixedPageConditionCompilation.HasLogicalFields(targetPage))&&
                 ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
                 throw new InvalidOperationException("固定条件的候选必须与外键及显示来源的目标一致。");
             var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column, owner, page)).DistinctBy(parent => parent.Source.Id).ToArray();
             var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,target,targetPage);
-            var globalParent=GlobalCrossTableTarget.SingleParent(model.Catalog,target.Source,targetPage.Source);
             var targetParents = targetPage.Scopes.Concat(scopes).Where(scope => scope.Source == "parent")
-                .Select(scope => globalParent?.Target.Id==scope.Column.Source.Id
-                    ?model.Tables.Single(table=>table.Source.Id==globalParent.Parent.Id)
+                .Select(scope => fixedParent?.Target.Id==scope.Column.Source.Id
+                    ?model.Tables.Single(table=>table.Source.Id==fixedParent.Parent.Id)
                     :accountParent?Parent(model,scope.Column,target,targetPage):Parent(model,scope.Column))
                 .DistinctBy(parent => parent.Source.Id).ToArray();
             var binding = FixedParentRelationCompilation.Resolve(model, page, source, sourceParents, targetParents, targetPage.Scopes.Concat(scopes).ToArray());
@@ -111,10 +112,10 @@ internal static class RelationCompilation
                     binding = new(true, null, "固定归属候选排序不能安全编译。");
                 }
             }
-            var sourceBinding=globalParent?.SingleSource(model.Catalog,owner.Source,source.Source);
+            var sourceBinding=fixedParent?.SingleSource(model.Catalog,owner.Source,source.Source);
             var fixedSourceParent=sourceBinding is null?null:owner.Columns.Single(column=>column.Source.Id==sourceBinding.Column.Id);
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,
-                fixedSourceParent,globalParent,sourceBinding?.LogicalPages.Count>0);
+                fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0);
             if(DerivedRelationNamesCompilation.UsesFixedRead(model,relation))_=DerivedRelationNamesCompilation.Require(model,owner,page,relation);
             relations.Add(relation);
         }

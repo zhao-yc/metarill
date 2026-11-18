@@ -721,6 +721,72 @@ public sealed class NestedCrossCandidateTests
         }
     }
 
+    /// <summary>项目内目标的非存储祖先参与候选与两种名称读取，父键由实际路径恢复。</summary>
+    [Theory]
+    [InlineData("List","string",false)]
+    [InlineData("SelectPage","int64",false)]
+    [InlineData("List","string",true)]
+    [InlineData("SelectPage","int64",true)]
+    public void Project_single_matches_logical_parent_in_candidate_live_read_and_cache(string kind,string key,bool account)
+    {
+        var catalog=Catalog(false);
+        var source=catalog.ConfigTables.Single(table=>table.Id=="90");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="1");
+        foreach(var table in catalog.ConfigTables)table.YzProjectId=catalog.YzProjectId;
+        var page=catalog.ConfigPages.Single(page=>page.Id=="11");
+        page.WhereSql="yz_project_id=@current_yz_project_id AND country_id=@parent_id"+
+            (account?" AND store_id=@current_store_id AND country_name <> '停用国家'":"");
+        if(kind=="SelectPage")page.Extra["type"]=JsonSerializer.SerializeToElement(1);
+
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="9004");
+        catalog.ConfigPages.Add(new(){Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,
+            WhereSql="yz_project_id=@current_yz_project_id AND group_id=@parent_id"+
+                (account?" AND store_id=@current_store_id":"")});
+        var relation=new ColumnMetadata{Id="9014",ConfigTableId=source.Id,ColumnName="shared_id",LogicalType=key,
+            ControlKind=kind,LinkConfigTableId=target.Id,ControlDetail=JsonSerializer.Serialize(new{tableId=target.Id,pageId=page.Id}),
+            Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement(page.Id)}};
+        catalog.ConfigColumns.AddRange([relation,
+            new(){Id="9015",ConfigTableId=source.Id,ColumnName="shared_name",LogicalType="string",
+                Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("shared.name")}},
+            new(){Id="9016",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"},
+            new(){Id="9017",ConfigTableId=source.Id,ColumnName="group_id",LogicalType=key,LinkConfigTableId="2"}]);
+
+        var actor=new RuntimeActor(1,"页面账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
+        var candidate=NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,page.Id,["id","name"],[]).BindAccount(actor);
+        Assert.Equal("country_id",candidate.MySql.RequiredMultiParent);
+        Assert.Contains("CASE WHEN",candidate.MySql.Expression("country_id"));
+        Assert.Contains("b.`yz_project_id`=@project_scope_number",candidate.MySql.Scope);
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline",
+            ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
+        Assert.Throws<InvalidOperationException>(()=>NonRedundantCrossTableScopeSql.ApplyCandidate(
+            session.Select<ScopeRow>(),session,candidate,"scope",actor.ProjectId,false));
+        var sql=NonRedundantCrossTableScopeSql.ApplyCandidate(session.Select<ScopeRow>(),session,candidate,
+            "scope",actor.ProjectId,false,"9007199254740993").ToSql();
+        Assert.Contains("@scope_parent",sql);
+        Assert.DoesNotContain("9007199254740993",sql);
+
+        var readBinding=new NonRedundantSingleTargetScope(relation.Id,page.Id,"9017");
+        var live=NonRedundantReads.CompileProjectPage(catalog,source.Id,["id","shared_name"],[],[],[readBinding]).MySql;
+        Assert.Equal(account,live.RequiresAccount);
+        Assert.Contains("CASE WHEN",live.From);
+        Assert.Contains("BINARY CAST(b.`group_id` AS CHAR)",live.From);
+        Assert.Throws<InvalidOperationException>(()=>NonRedundantReads.CompileProjectPage(catalog,source.Id,
+            ["shared_name"],[],[],[readBinding with{SourceParentId="9014"}]));
+
+        source.IsRongyu=1;
+        var name=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="name");
+        var cache=new RelationCacheDefinition(source.Id,relation.Id,target.Id,name.Id,"9015",false){ScopedSinglePageId=page.Id};
+        var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[cache]);
+        var consumer=Assert.Single(maintenance.Mixed.Consumers,item=>item.Table.Option.Id==source.Id);
+        Assert.False(consumer.Read.RequiresAccount);
+        var cacheSql=consumer.Read.Expression("shared_name");
+        Assert.Contains("CASE WHEN",cacheSql);
+        Assert.Contains("b.`group_id`",cacheSql);
+        Assert.Equal(account,cacheSql.Contains("b.`store_id`",StringComparison.Ordinal));
+        Assert.Contains("group_id",consumer.Inputs);
+        Assert.Contains(consumer.Read.Reverse,item=>item.TargetTable=="nested_country"&&item.Outputs.ContainsKey("shared_name"));
+    }
+
     /// <summary>回填使用来源行归属；内层路径变化与直接改名都能找到需要更新的缓存。</summary>
     [Theory]
     [InlineData(false,false,true)]

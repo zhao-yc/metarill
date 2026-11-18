@@ -15,10 +15,10 @@ internal static class DerivedRelationNamesRenderer
         var globalAccount=DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
         var validateCurrent=accountParent||logical||FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
         var bindParent=validateCurrent?".BindAccount(actor)":"";
-        var embedsPageScope=relation.Target.IsGlobal&&(logical||globalAccount);
+        var embedsPageScope=relation.FixedParent is {Logical:true}||relation.Target.IsGlobal&&(logical||globalAccount);
         var parentPlan = accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var planStart = logical
-            ? DerivedRelationNamesCompilation.LogicalPagePlanStart(relation.Target,relation.TargetPage,relation.Conditions)
+            ? DerivedRelationNamesCompilation.LogicalPagePlanStart(model,relation.Target,relation.TargetPage,relation.Conditions)
             : globalAccount || physicalTypedName && relation.Target.IsGlobal
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : physicalTypedName && relation.Target.Source.IsRongyu == 1

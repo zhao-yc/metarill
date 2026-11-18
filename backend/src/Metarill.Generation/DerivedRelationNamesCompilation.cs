@@ -17,14 +17,19 @@ internal static class DerivedRelationNamesCompilation
     internal static bool HasGlobalAccountScope(TableModel target,PageModel page)=>
         target.IsGlobal&&target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(page);
 
-    /// <summary>在生成时证明目标页所有逻辑成员，同时保留原来源身份与物理父范围。</summary>
+    /// <summary>单值候选父级来自实际发布页，项目内稀疏层位与显式全局父复用同一父键模型。</summary>
+    internal static MultiTargetParentScope? SingleParent(GenerationModel model,TableModel target,PageModel page)=>
+        target.IsGlobal?GlobalCrossTableTarget.SingleParent(model.Catalog,target.Source,page.Source)
+            :ProjectScopedSingleRelationTarget.LogicalParent(model.Catalog,target.Source,page.Source);
+
+    /// <summary>在生成时证明目标页所有逻辑成员，同时保留来源身份和实际父范围。</summary>
     internal static NonRedundantReadPlan CompileLogicalPage(GenerationModel model,TableModel target,PageModel page,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,RelationConditionModel? additional=null)
     {
-        if(ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&
-            GlobalCrossTableTarget.SingleParent(model.Catalog,target.Source,page.Source) is not {Logical:true})
-            throw new NotSupportedException("单值关系的逻辑条件要求普通目标页及已证明的物理父范围。");
-        if(target.IsGlobal)
+        var logicalParent=SingleParent(model,target,page) is {Logical:true};
+        if(ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&!logicalParent)
+            throw new NotSupportedException("单值关系的逻辑条件要求普通目标页及已证明的父范围。");
+        if(target.IsGlobal||logicalParent)
             return additional is {HasLogicalFields:true}
                 ?NonRedundantReads.CompileGlobalListCandidate(model.Catalog,target.Source.Id,page.Source.Id,additional.Syntax.Fields,outputs,dependencies)
                 :NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,dependencies);
@@ -33,11 +38,11 @@ internal static class DerivedRelationNamesCompilation
     }
 
     /// <summary>生成查询复用发布时核验的字段集合，调用方仅绑定身份和业务参数。</summary>
-    internal static string LogicalPagePlanStart(TableModel target,PageModel page,RelationConditionModel? additional=null)
+    internal static string LogicalPagePlanStart(GenerationModel model,TableModel target,PageModel page,RelationConditionModel? additional=null)
     {
         var targetIds=JsonSerializer.Serialize(target.Source.Id)+","+JsonSerializer.Serialize(page.Source.Id);
         string Fields(IEnumerable<string> names)=>"new string[]{"+string.Join(",",names.Select(name=>JsonSerializer.Serialize(name)))+"}";
-        if(target.IsGlobal)return additional is {HasLogicalFields:true}
+        if(target.IsGlobal||SingleParent(model,target,page) is {Logical:true})return additional is {HasLogicalFields:true}
             ?"CompileGlobalListCandidate("+targetIds+","+Fields(additional.Syntax.Fields)
             :"CompileCrossPageCandidate("+targetIds;
         var (fields,cross,tree)=LogicalMembership(page,additional);
@@ -93,7 +98,7 @@ internal static class DerivedRelationNamesCompilation
     /// <summary>type=1 单选独立证明目标；名称必须落到与声明类型一致的非凭据标量。</summary>
     internal static void RequireSelection(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name)
     {
-        var fixedParent=GlobalCrossTableTarget.SingleParent(model.Catalog,target.Source,page.Source);
+        var fixedParent=SingleParent(model,target,page);
         var globalCached=owner.IsGlobal&&owner.Source.IsRongyu==1&&GlobalCachedSourceCompilation.ForModel(model)
             .Any(binding=>binding.Source.Source.Id==owner.Source.Id&&binding.ScopedSingle&&binding.Page.Source.Id==page.Source.Id);
         if(!(globalCached||SupportedOwner(model,owner))||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!IsTypedName(model,owner,target,name)||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&fixedParent is not {Logical:true})throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");

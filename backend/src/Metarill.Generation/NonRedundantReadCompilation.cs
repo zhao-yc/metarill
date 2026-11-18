@@ -199,7 +199,7 @@ internal static class NonRedundantReadCompilation
         return new(outputs,dependencies,readOutputs,singleTargets);
     }
 
-    /// <summary>业务页单值读取只使用实际项目内非冗余目标和可证明的物理父范围。</summary>
+    /// <summary>业务页单值读取使用实际项目内非冗余目标以及已证明的父范围。</summary>
     internal static bool UsesProjectSingleRead(RelationModel relation)=>
         !relation.Target.IsGlobal&&relation.Target.Source.IsRongyu==0&&relation.ParentBinding?.Declared!=true&&
         (relation.TargetPage.Condition is not null||relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"));
@@ -219,8 +219,10 @@ internal static class NonRedundantReadCompilation
                 var context=ControlRenderer.RelationContext(page,relation,false);
                 parent=context.SameParent?page.Scopes.Single(scope=>scope.Source=="parent").Column:
                     table.Columns.SingleOrDefault(column=>column.JsonName==context.TargetParentField);
-                if(parent is null||!Physical(model,table,parent)||parent.Type is not("string?" or "long?" or "long"))
-                    throw new NotSupportedException("项目内实时名称缺少当前页已证明的物理来源父键。");
+                if(parent is null||(!Physical(model,table,parent)&&
+                    !(relation.LogicalSourceParent&&NonRedundantCrossParentCompilation.Managed(model,table,page,parent)))||
+                    parent.Type is not("string?" or "long?" or "long"))
+                    throw new NotSupportedException("项目内实时名称缺少当前页已证明的来源父键。");
             }
             result.Add(new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id,parent?.Source.Id));
         }

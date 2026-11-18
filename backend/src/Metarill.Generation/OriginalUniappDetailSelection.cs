@@ -52,8 +52,8 @@ onPopSelect{{{id}}}(row) { this.permissionVersion++;if(this.{{{ro}}} || !this._s
     /// <summary>单选目标父沿用同父或唯一声明外键；缺少可读映射必须拒绝，不能空父退全量。</summary>
     private static string TargetParent(OriginalDetailContext c,ColumnModel foreign,TableModel targetTable,PageModel target)
     {
-        // 全局单选的父页与服务端共用这一列的固定证明，原弹层继续传 parent_id。
-        if(GlobalCrossTableTarget.SingleParent(c.Model.Catalog,targetTable.Source,target.Source) is {} fixedParent)
+        // 单选弹层沿用服务端证明的实际父层位，继续传原 parent_id。
+        if(DerivedRelationNamesCompilation.SingleParent(c.Model,targetTable,target) is {} fixedParent)
         {
             var sourceKey=fixedParent.SingleSource(c.Model.Catalog,c.Table.Source,foreign.Source).Column;
             if(c.Page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==sourceKey.Id))return "parent_id";

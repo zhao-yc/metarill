@@ -19,7 +19,7 @@ internal static class MultiGlobalParentCompilation
 
     /// <summary>目标页的物理或逻辑父为全局表时，均按其实际发布页验证。</summary>
     internal static MultiTargetParentScope? SingleTarget(GenerationModel model,TableModel table,PageModel page)=>
-        GlobalCrossTableTarget.SingleParent(model.Catalog,table.Source,page.Source) is {Global:true} parent?parent:null;
+        DerivedRelationNamesCompilation.SingleParent(model,table,page) is {Global:true} parent?parent:null;
 
     /// <summary>实体范围只直接接入已证明的物理父；逻辑父走既有级联范围。</summary>
     internal static MultiTargetParentScope? PhysicalSingleTarget(GenerationModel model,TableModel table,PageModel page)=>
