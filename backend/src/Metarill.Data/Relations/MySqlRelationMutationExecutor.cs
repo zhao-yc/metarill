@@ -61,7 +61,7 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
     private async Task<Dictionary<(long,string),object?>> Targets(RelationCache[] bindings,long[] ids,DbTransaction transaction,string project,CancellationToken token)
     {
         var target=bindings[0].Target;var fields=bindings.Select(binding=>binding.Value).Distinct(StringComparer.Ordinal).ToArray();var result=new Dictionary<(long,string),object?>();
-        // 数组与自树叶名采用相同的文本转换，普通单值业务缓存保留原始标量。
+        // 数组与级联名称采用相同的文本转换，普通单值业务缓存保留原始标量。
         var labels=bindings.Where(binding=>binding.Multiple||binding.TextScalar).DistinctBy(binding=>binding.Value)
             .ToDictionary(binding=>binding.Value,binding=>binding.ValueType,StringComparer.Ordinal);
         var values=fields.Select(field=>labels.TryGetValue(field,out var type)?MySqlMultiValueLabel.Text("t."+Q(field),type):"t."+Q(field));

@@ -10,12 +10,25 @@ public sealed class NonRedundantCrossTableReadTests
 {
     internal const string BlockedTitle="不应进入SQL'条件";
     /// <summary>一个三层控件只联接三次，目标常量只进参数，源元数据及绑定数组后改不污染计划。</summary>
-    [Theory][InlineData("string","string")][InlineData("string","int64")][InlineData("int64","string")][InlineData("int64","int64")]
-    public void Fixed_scopes_compile_linear_paths_and_preserve_logical_output_types(string sourceType,string parentType)
+    [Theory][InlineData("string","string","string")][InlineData("string","int64","string")][InlineData("int64","string","string")][InlineData("int64","int64","string")]
+    [InlineData("int64","int64","int64")]
+    [InlineData("string","int64","int32")]
+    public void Fixed_scopes_compile_linear_paths_and_preserve_logical_output_types(string sourceType,string parentType,string nameType)
     {
-        var catalog=Catalog("nr_cross",sourceType,parentType);var before=JsonSerializer.Serialize(catalog);var levels=Targets(catalog);var scope=new NonRedundantCrossTableScope("15",levels);levels[0]=new("unknown");var plan=NonRedundantReads.CompileWithCrossTables(catalog,"1",["id","country_id","country_name","area_id","area_name","place_id","place_name"],crossTables:[scope]);
+        var catalog=Catalog("nr_cross",sourceType,parentType);
+        catalog.ConfigColumns.Single(column=>column.Id=="22").LogicalType=nameType;
+        var levels=Targets(catalog);
+        if (nameType!="string")
+        {
+            const string condition="is_enabled=1 AND title <> 999";
+            catalog.ConfigPages.Single(page=>page.Id=="21").WhereSql="yz_project_id=@current_yz_project_id AND "+condition;
+            levels[0]=new("21",FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(condition,["is_enabled","title"]),
+                new Dictionary<string,string>{{"is_enabled","bool"},{"title",nameType}}));
+        }
+        var before=JsonSerializer.Serialize(catalog);var scope=new NonRedundantCrossTableScope("15",levels);levels[0]=new("unknown");var plan=NonRedundantReads.CompileWithCrossTables(catalog,"1",["id","country_id","country_name","area_id","area_name","place_id","place_name"],crossTables:[scope]);
         Assert.Equal(7,plan.OutputTypes.Count);Assert.Equal(sourceType,plan.OutputTypes["country_id"]);Assert.Equal("string",plan.OutputTypes["country_name"]);Assert.Equal(before,JsonSerializer.Serialize(catalog));
         var mysql=MySqlNonRedundantReadCompiler.CompileWithCrossTables(catalog,"1",["country_id","country_name","area_name","place_name"],crossTables:[scope]);var sql=(string)typeof(MySqlNonRedundantReadPlan).GetProperty("From",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(mysql)!;Assert.Equal(3,sql.Split(" LEFT JOIN ").Length-1);Assert.DoesNotContain(BlockedTitle,sql);Assert.Contains("mt_cross_scope_",sql);Assert.Equal(" FOR UPDATE OF b FOR SHARE OF cross0,cross1,cross2",mysql.ImportMatchLock);
+        Assert.Equal(nameType!="string",mysql.Expression("country_name").Contains(".`title` AS CHAR)",StringComparison.Ordinal));
         catalog.ConfigColumns.Single(column=>column.Id=="22").ColumnName="changed_after_compile";catalog.ConfigPages.Single(page=>page.Id=="21").WhereSql="not valid";Assert.Equal(sql,typeof(MySqlNonRedundantReadPlan).GetProperty("From",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(mysql));Assert.Throws<NotSupportedException>(()=>((IList<NonRedundantCrossTableTargetScope>)scope.Levels).Add(new("extra")));
     }
     /// <summary>两个独立控件各有一条线性链，不能把整张来源表误限为一个所选ID。</summary>
@@ -39,7 +52,7 @@ public sealed class NonRedundantCrossTableReadTests
         var catalog=Catalog("nr_reject","string","string");IReadOnlyList<NonRedundantCrossTableScope>? scopes=Scopes(catalog);var levels=Targets(catalog);
         switch(kind)
         {
-            case "missing":scopes=null;break;case "wrongPage":levels[0]=new("31",levels[0].Condition);break;case "fewLevels":levels=levels[..2];break;case "foreign":catalog.ConfigTables.Single(table=>table.Id=="2").YzProjectId="999";break;case "global":catalog.ConfigTables.Single(table=>table.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");break;case "rootGlobal":catalog.ConfigTables.Single(table=>table.Id=="1").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");break;case "nameJoin":catalog.ConfigColumns.Single(column=>column.Id=="22").Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);break;case "nameType":catalog.ConfigColumns.Single(column=>column.Id=="22").LogicalType="int64";break;case "parentTarget":catalog.ConfigColumns.Single(column=>column.Id=="36").LinkConfigTableId="4";break;case "conditionMissing":levels[0]=new("21");break;case "conditionChanged":levels[0]=new("21",Condition("is_enabled=0"));break;case "conditionType":levels[0]=new("21",FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile("is_enabled='1'",["is_enabled"]),new Dictionary<string,string>{{"is_enabled","string"}}));break;case "parentContext":catalog.ConfigPages.Single(page=>page.Id=="31").WhereSql="country_id=@parentId";break;case "extra":catalog.ConfigColumns.Single(column=>column.Id=="15").ControlDetail=catalog.ConfigColumns.Single(column=>column.Id=="15").ControlDetail.Replace("\"sourceMode\":\"crossTable\"","\"whereSql\":\"1=1\",\"sourceMode\":\"crossTable\"");break;case "sourceTarget":catalog.ConfigColumns.Single(column=>column.Id=="15").LinkConfigTableId="2";break;case "unknownBinding":scopes=[new("unknown",levels)];break;
+            case "missing":scopes=null;break;case "wrongPage":levels[0]=new("31",levels[0].Condition);break;case "fewLevels":levels=levels[..2];break;case "foreign":catalog.ConfigTables.Single(table=>table.Id=="2").YzProjectId="999";break;case "global":catalog.ConfigTables.Single(table=>table.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");break;case "rootGlobal":catalog.ConfigTables.Single(table=>table.Id=="1").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");break;case "nameJoin":catalog.ConfigColumns.Single(column=>column.Id=="22").Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);break;case "nameType":catalog.ConfigColumns.Single(column=>column.Id=="22").LogicalType="json";break;case "parentTarget":catalog.ConfigColumns.Single(column=>column.Id=="36").LinkConfigTableId="4";break;case "conditionMissing":levels[0]=new("21");break;case "conditionChanged":levels[0]=new("21",Condition("is_enabled=0"));break;case "conditionType":levels[0]=new("21",FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile("is_enabled='1'",["is_enabled"]),new Dictionary<string,string>{{"is_enabled","string"}}));break;case "parentContext":catalog.ConfigPages.Single(page=>page.Id=="31").WhereSql="country_id=@parentId";break;case "extra":catalog.ConfigColumns.Single(column=>column.Id=="15").ControlDetail=catalog.ConfigColumns.Single(column=>column.Id=="15").ControlDetail.Replace("\"sourceMode\":\"crossTable\"","\"whereSql\":\"1=1\",\"sourceMode\":\"crossTable\"");break;case "sourceTarget":catalog.ConfigColumns.Single(column=>column.Id=="15").LinkConfigTableId="2";break;case "unknownBinding":scopes=[new("unknown",levels)];break;
         }
         if(kind is not("missing" or "unknownBinding"))scopes=[new("15",levels)];var before=JsonSerializer.Serialize(catalog);Assert.ThrowsAny<Exception>(()=>kind=="missing"?NonRedundantReads.Compile(catalog,"1",["id","country_name"]):NonRedundantReads.CompileWithCrossTables(catalog,"1",["id","country_name"],crossTables:scopes!));Assert.Equal(before,JsonSerializer.Serialize(catalog));
     }

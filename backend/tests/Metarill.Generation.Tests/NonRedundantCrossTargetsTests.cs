@@ -77,18 +77,22 @@ public sealed class NonRedundantCrossTargetsTests
 
     /// <summary>显式全局中层使用固定派生名称，来源自己的逻辑路径仍按原项目隔离。</summary>
     [Theory]
-    [InlineData(false, false, false)]
-    [InlineData(true, false, false)]
-    [InlineData(false, true, false)]
-    [InlineData(true, true, false)]
-    [InlineData(false, false, true)]
-    [InlineData(true, false, true)]
-    [InlineData(false, true, true)]
-    [InlineData(true, true, true)]
-    public async Task Independent_cross_tree_uses_published_global_derived_level(bool rowProject,bool redundantSource,bool accountScope)
+    [InlineData(false, false, false,"string")]
+    [InlineData(true, false, false,"string")]
+    [InlineData(false, true, false,"string")]
+    [InlineData(true, true, false,"string")]
+    [InlineData(false, false, true,"string")]
+    [InlineData(true, false, true,"string")]
+    [InlineData(false, true, true,"string")]
+    [InlineData(true, true, true,"string")]
+    [InlineData(false, false, true,"int64")]
+    [InlineData(true, true, true,"int32")]
+    public async Task Independent_cross_tree_uses_published_global_derived_level(bool rowProject,bool redundantSource,bool accountScope,string nameType)
     {
         const string ns = "Example.GlobalDerivedCross";
         var catalog = Catalog("nr_cross_target", "string", "int64", "mixed");
+        foreach (var name in catalog.ConfigColumns.Where(column=>column.ColumnName=="name"&&column.ConfigTableId is "4" or "6"))
+            name.LogicalType=nameType;
         var target = catalog.ConfigTables.Single(table => table.Id == "4");
         var producer = catalog.ConfigTables.Single(table => table.Id == "6");
         foreach (var table in new[] { target, producer })
@@ -99,7 +103,7 @@ public sealed class NonRedundantCrossTargetsTests
         catalog.ConfigColumns.Add(new()
         {
             Id = "global_company_name", ConfigTableId = target.Id, YzProjectId = catalog.YzProjectId,
-            ColumnName = "company_name", LogicalType = "string",
+            ColumnName = "company_name", LogicalType = nameType,
             Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1), ["columnFullName"] = JsonSerializer.SerializeToElement("company.name") }
         });
         if (!rowProject)

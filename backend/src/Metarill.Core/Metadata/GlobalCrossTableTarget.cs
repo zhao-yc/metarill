@@ -43,6 +43,10 @@ public static class GlobalCrossTableTarget
     public static void RequireName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)=>RequirePublishedName(catalog,table,page,name,false);
     /// <summary>仅供单值候选证明R0逻辑名称，跨表原入口不会因此放开。</summary>
     public static void RequireSingleName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)=>RequirePublishedName(catalog,table,page,name,true);
+    /// <summary>跨表层名称可来自已发布整数列，路径表示与级联缓存仍按文本处理。</summary>
+    public static void RequireCrossTableName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name,bool allowAccount=false)
+        =>RequirePublishedName(catalog,table,page,name,true,allowAccount,allowInteger:true);
+
     /// <summary>自树选项和缓存使用同一已发布的名称，可按原文本协议展示业务整数。</summary>
     public static void RequireSelfTreeName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)
         =>RequirePublishedName(catalog,table,page,name,true,allowInteger:true);

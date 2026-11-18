@@ -34,7 +34,7 @@ internal sealed record RelationCache(RelationTable Source,string Foreign,string 
 {
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public MySqlPublishedRelationCondition? PublishedCondition{get;init;}
-    /// <summary>自树整数叶名按原协议保存文本，普通单值业务缓存保留原类型。</summary>
+    /// <summary>级联整数名称按原协议保存文本，普通单值业务缓存保留原类型。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool TextScalar{get;init;}
 }
@@ -78,7 +78,7 @@ public sealed class RelationMutationPlan
             var stem=foreign.ColumnName[..^suffix.Length];var expected=stem+"_"+(definition.Multiple&&!value.ColumnName.EndsWith('s')?value.ColumnName+"s":value.ColumnName);
             var cross=CrossTableCacheProof.Require(catalog,source,foreign,target,value,cache,definition,definitions);
             var selfTree=SelfTreeCache.Require(catalog,source,foreign,target,value,cache,definition,cross);
-            if(cache.LogicalType!=(definition.Multiple||selfTree?"string":value.LogicalType))
+            if(cache.LogicalType!=(definition.Multiple||selfTree||cross?"string":value.LogicalType))
                 throw new InvalidOperationException("传播缓存与目标值类型不一致。");
             if((!cross&&!selfTree&&cache.ColumnName!=expected)||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw new InvalidOperationException("传播字段不是同一关系的名称辅助列。");
             if(Enabled(cache)){var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();if(!(selfTree&&path.Length==0)&&path!=stem+"."+value.ColumnName&&path!=foreign.ColumnName+"."+value.ColumnName)throw new InvalidOperationException("传播缓存的联接路径不一致。");}
@@ -90,7 +90,7 @@ public sealed class RelationMutationPlan
                 if(cross||selfTree)
                 {
                     // 级联缓存和维护共用同一全局叶子／层的发布条件，避免目标改名时读到页面外记录。
-                    var pageId=definition.SelfTreePageId??(target.IsRongyu==0?definition.CrossTablePageId:null);
+                    var pageId=definition.SelfTreePageId??(target.IsRongyu==0||value.LogicalType is "int32" or "int64"?definition.CrossTablePageId:null);
                     if(pageId is not null)publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,catalog.ConfigPages.Single(page=>page.Id==pageId));
                 }
                 else
@@ -110,7 +110,7 @@ public sealed class RelationMutationPlan
                 var published=GlobalPhysicalRelationValue.IsPublishedScalar(catalog,targetStorage,target,value);
                 if(!published)throw new NotSupportedException("全局缓存终点必须为非凭据物理标量或已证明的全局单值名称缓存。");
             }
-            result.Add(new(Table(source.Id),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000){PublishedCondition=publishedCondition,TextScalar=selfTree&&value.LogicalType is "int32" or "int64"});
+            result.Add(new(Table(source.Id),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000){PublishedCondition=publishedCondition,TextScalar=(selfTree||cross)&&value.LogicalType is "int32" or "int64"});
         }
         var sorted=result.Distinct().OrderBy(binding=>binding.Source.Name,StringComparer.Ordinal).ThenBy(binding=>binding.Cache,StringComparer.Ordinal).ToArray();if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Foreign)).Any(group=>group.Select(binding=>(binding.Target,binding.PublishedCondition?.Definition)).Distinct().Count()!=1))throw new InvalidOperationException("同一外键不能绑定不同传播目标。");if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Cache)).Any(group=>group.Count()!=1))throw new InvalidOperationException("同一缓存存在多个传播定义。");
         // 拒绝字段级循环；普通自关联的物理名称不是派生列，不属于此循环。

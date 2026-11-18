@@ -8,6 +8,7 @@ internal static class NonRedundantCrossTargetsRenderer
     internal static string Service(GenerationModel model,TableModel owner,PageModel page,CrossTableReadModel plan,int index)
     {
         var level=plan.Levels[index];var suffix=page.Source.Id+"_"+plan.Source.Source.Id+"_"+index;var dependencies=NonRedundantCrossTargetsCompilation.Dependencies(model,level);var outputs=new[]{"id",level.Name.Source.ColumnName}.Concat(level.Parent is{} p?new[]{p.Source.ColumnName}:[]).ToArray();var parent=level.Parent is not{} parentColumn?"null":parentColumn.Type=="string?"?"NonRedundantReads.Value<string?>(row,"+Literal(parentColumn.Source.ColumnName)+")":"NonRedundantReads.Value<long?>(row,"+Literal(parentColumn.Source.ColumnName)+")?.ToString(CultureInfo.InvariantCulture)";var scopes=level.Page.Scopes.Select(scope=>"        bound.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+(scope.Column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")+"));");
+        var label=MultiSelectExcelRenderer.LabelText(level.Name,$"NonRedundantReads.Value<{level.Name.Type}>(row,{Literal(level.Name.Source.ColumnName)})");
         return $$"""
     /// <summary>跨表本级计划只编译一次，不暴露外部字段、排序或SQL。</summary>
     private static readonly NonRedundantReadPlan CrossTargetPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{NonRedundantReadCompilation.RelationPlanStart(level.Target,level.Page)}},new string[]{ {{string.Join(",",outputs.Select(Literal))}} },new string[]{ {{string.Join(",",dependencies.Select(Literal))}} });
@@ -20,7 +21,7 @@ internal static class NonRedundantCrossTargetsRenderer
         var condition=(FixedConditionSqlPlan?){{FixedPageConditionCompilation.Bound(level.Page,"CrossCondition"+suffix)}};
         var plan=CrossTargetPlan{{suffix}}{{(level.Target.IsGlobal&&FixedPageConditionCompilation.HasAccountVariables(level.Page)?".BindAccount(actor)":"")}};
         var reader=new NonRedundantReader(session);var rows=take is{} limit?(currentRead?await reader.CurrentRowsAsync(plan,bound,CrossTargetOrder{{suffix}},limit,ct,actor.ProjectId,condition):await reader.RowsAsync(plan,bound,CrossTargetOrder{{suffix}},limit,ct,actor.ProjectId,condition)):await reader.AllRowsAsync(plan,bound,CrossTargetOrder{{suffix}},ct,actor.ProjectId,condition);
-        return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<string?>(row,{{Literal(level.Name.Source.ColumnName)}}),{{parent}})).ToArray();
+        return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(NonRedundantReads.Value<long>(row,"id"),{{label}},{{parent}})).ToArray();
     }
 
 """;

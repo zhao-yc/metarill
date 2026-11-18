@@ -33,7 +33,7 @@ internal static class CrossTableReadCompilation
                 var key=Text(entry,"key",nameOfTable);var prefix=Text(entry,"columnPrefix",nameOfTable);Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(prefix);
                 if(!keys.Add(key)||!prefixes.Add(prefix))return Gap("层标识或字段前缀重复。");if(Text(entry,"idField","id")!="id")return Gap("主键只支持id。");
                 bool Physical(ColumnModel column)=>NonRedundantReadCompilation.Physical(model,target,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&!column.IsJsonArray&&!ManagerCredentialCompilation.IsCredential(target,column);
-                var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==Text(entry,"nameField","name"));if(name is null||name.Type!="string?"||name.IsJsonArray)return Gap("名称必须为固定单值字符串。");var derived=!NonRedundantReadCompilation.Physical(model,target,name);var globalName=target.IsGlobal&&Metarill.Core.Metadata.GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,Metarill.Core.Metadata.MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source);if(!derived&&!Physical(name)&&!globalName)return Gap("物理联接名称仍需独立缓存证明。");
+                var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==Text(entry,"nameField","name"));if(name is null||name.Type is not("string?" or "int?" or "long?")||name.IsJsonArray)return Gap("名称必须为固定单值标量。");var derived=!NonRedundantReadCompilation.Physical(model,target,name);var globalName=target.IsGlobal&&Metarill.Core.Metadata.GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,Metarill.Core.Metadata.MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source);if(!derived&&!Physical(name)&&!globalName)return Gap("物理联接名称仍需独立缓存证明。");
                 ColumnModel? parent=null;
                 if(result.Count==0&&!string.IsNullOrWhiteSpace(Text(entry,"parentField","")))Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(Text(entry,"parentField",""));
                 if(result.Count>0)
@@ -46,7 +46,7 @@ internal static class CrossTableReadCompilation
                 if(FixedPageConditionCompilation.HasAccountVariables(pages[0])&&table.Source.IsRongyu==1)
                     _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,pages[0].Source);
                 if(target.IsGlobal)
-                    Metarill.Core.Metadata.GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog,target.Source,pages[0].Source,name.Source);
+                    Metarill.Core.Metadata.GlobalCrossTableTarget.RequireCrossTableName(model.Catalog,target.Source,pages[0].Source,name.Source,allowAccount:true);
                 var order=GenerationModel.ValidateOrderBy(Text(entry,"orderBy",name.Source.ColumnName+" asc"),target.Columns).ToList();if(order.Any(item=>!Physical(item.Column)&&!((derived||globalName)&&item.Column.Source.Id==name.Source.Id)))return Gap("排序必须是物理标量。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));result.Add(new(key,prefix,target,pages[0],name,parent,order,derived,derived&&target.Source.Id==table.Source.Id?Metarill.Data.Queries.NonRedundantReads.CompileSourceDependencies(model.Catalog,target.Source.Id,name.Source.ColumnName):null));
             }
             if(result[^1].Prefix+"_id"!=source.Source.ColumnName)return Gap("末级前缀与来源叶子字段不一致。");

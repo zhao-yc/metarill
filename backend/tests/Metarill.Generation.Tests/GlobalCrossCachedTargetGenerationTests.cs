@@ -8,6 +8,85 @@ namespace Metarill.Generation.Tests;
 [Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class GlobalCrossCachedTargetGenerationTests
 {
+    /// <summary>混合字符串与整数的跨表链沿原候选、路径、Excel 和维护执行。</summary>
+    [Theory]
+    [InlineData(0,"physical","int32")]
+    [InlineData(1,"physical","int64")]
+    [InlineData(0,"derived","int64")]
+    [InlineData(1,"derived","int32")]
+    [InlineData(0,"cached","int32")]
+    [InlineData(1,"cached","int64")]
+    [InlineData(0,"shared","int64")]
+    [InlineData(1,"shared","int32")]
+    [InlineData(0,"own","int64")]
+    [InlineData(1,"repeated","int32")]
+    public async Task Integer_cross_level_drives_original_paths_and_workbook(int mode,string shape,string type)
+    {
+        const string application = "Example.IntegerCrossLevel";
+        const string prefix = "integer_cross";
+        var catalog = shape switch
+        {
+            "cached" => GlobalCrossCachedTargetFixture.Create(mode,1,"string","int64",true),
+            "shared" => SharedCrossParentGenerationTests.Catalog(prefix,"string","int64",shorter:true),
+            "derived" => NonRedundantCrossTargetsTests.Catalog(prefix,"string","int64","mixed"),
+            "own" => NonRedundantCrossSourceTests.Catalog(prefix,1,"string","int64",false),
+            "repeated" => RedundantRepeatedCrossSourceTests.Catalog(prefix,5,"string","int64",custom:true),
+            _ => RedundantMultiNameCacheTests.Published(CrossTableNameCacheGenerationTests.Catalog(prefix,"string","int64",false))
+        };
+        var ownerId = shape == "cached" ? "3" : "2";
+        var pageId = shape == "cached" ? "30" : "201";
+        catalog.ConfigTables.Single(table => table.Id == ownerId).IsRongyu = mode;
+        var sourcePage = catalog.ConfigPages.Single(page => page.Id == pageId);
+        sourcePage.IsImport = sourcePage.IsExport = 1;
+
+        var names = shape switch
+        {
+            "cached" => catalog.ConfigColumns.Where(column => column.Id == "114" || column.ConfigTableId == "2" && column.ColumnName == "name"),
+            "own" => catalog.ConfigColumns.Where(column => column.ConfigTableId == ownerId && column.ColumnName == "name"),
+            "repeated" => catalog.ConfigColumns.Where(column => column.Id is "280" or "282"),
+            _ => catalog.ConfigColumns.Where(column => column.ColumnName == "name" &&
+                (column.ConfigTableId == "4" || shape == "derived" && column.ConfigTableId == "6"))
+        };
+        Assert.NotEmpty(names);
+        foreach (var name in names) name.LogicalType = type;
+
+        var model = GenerationModel.Create(catalog,application);
+        var owner = model.Tables.Single(table => table.Source.Id == ownerId);
+        var page = owner.Pages.Single(candidate => candidate.Source.Id == pageId);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var plans = CrossTableWriteCompilation.ForService(model,owner,page);
+        Assert.NotEmpty(plans);
+        Assert.All(plans,plan => Assert.Contains(plan.Levels,level => level.Read.Name.Source.LogicalType == type && level.Name.Type == "string?"));
+        if (mode == 1)
+        {
+            var maintenance = MixedRelationPropagationCompilation.ForModel(model);
+            var tables = (System.Collections.IDictionary)typeof(Metarill.Data.Relations.RelationMaintenanceCatalog)
+                .GetProperty("Plans",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(maintenance)!;
+            var result = tables[ownerId]!;
+            Assert.Null(result.GetType().GetProperty("Error")!.GetValue(result));
+        }
+
+        var boundary = Path.Combine(Path.GetTempPath(),"metarill-integer-cross-level");
+        var directory = Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,output,application);
+            var service = await File.ReadAllTextAsync(Path.Combine(output,"Services",owner.Name+"Service.g.cs"));
+            Assert.Contains((type == "int32" ? "int" : "long")+".TryParse(text,NumberStyles.AllowLeadingSign",service);
+            Assert.Contains("!=text)return [];",service);
+            Assert.Contains("CrossExcelResolve",service);
+            Assert.Contains("?.ToString(CultureInfo.InvariantCulture)",service);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var generated = assembly.GetType(application+".Generated.Services."+owner.Name+"Service",throwOnError:true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(generated.TypeHandle);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) await TestDirectoryCleanup.DeleteAsync(directory,boundary);
+        }
+    }
+
     /// <summary>八个模式保持物理父键、各级固定页、三个缓存及原文件/维护/导入导出入口。</summary>
     [Theory][InlineData(0,0,"string","string",false)][InlineData(1,0,"string","string",false)][InlineData(0,1,"string","int64",false)][InlineData(1,1,"string","int64",false)]
     [InlineData(0,2,"int64","string",false)][InlineData(1,2,"int64","string",false)][InlineData(0,0,"int64","int64",true)][InlineData(1,0,"int64","int64",true)]

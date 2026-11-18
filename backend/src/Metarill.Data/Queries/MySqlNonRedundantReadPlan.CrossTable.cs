@@ -37,11 +37,12 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||CrossText(page,"exactDataManageMatchField").Length>0)throw new NotSupportedException("跨表目标页的项目／精确权限范围尚未接线。");
                     var global=GlobalCrossTableTarget.Declared(target);if(!global&&(!columns[target.Id].TryGetValue("yz_project_id",out var project)||!storage[target.Id].IsPhysical(project)))throw new InvalidOperationException("跨表目标缺少真实物理项目范围。");
                     var display=Column(target,Value(entry,"nameField") is {Length:>0} field?field:"name");
-                    if(display.LogicalType.ToLowerInvariant()!="string"||ExactDataManageValues.IsSensitiveField(display.ColumnName))throw new NotSupportedException("跨表名称须为非凭据单值字符串。");
-                    if(global)GlobalCrossTableTarget.RequireAccountCandidate(catalog,target,page,display);
+                    if(display.ColumnName=="id"||display.LogicalType.ToLowerInvariant() is not("string" or "int32" or "int64")||ExactDataManageValues.IsSensitiveField(display.ColumnName))
+                        throw new NotSupportedException("跨表名称须为已证明的非凭据单值。");
+                    if(global)GlobalCrossTableTarget.RequireCrossTableName(catalog,target,page,display,allowAccount:true);
                     if(target.IsRongyu==0)
                     {
-                        var proof=new Builder(catalog,target.Id,matching:!global).Compile([display.ColumnName],[]);if(proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
+                        var proof=new Builder(catalog,target.Id,matching:!global).Compile([display.ColumnName],[]);if(proof.Types[display.ColumnName]!=display.LogicalType||proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
                     }
                     else if(!global&&!CrossPhysical(target,display))throw new NotSupportedException("冗余目标联接名称仍需独立物理缓存证明。");
                     ColumnMetadata? parent=null;
@@ -104,7 +105,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     result.Add(slot.ColumnName,(idExpression,slot.LogicalType));
                     if(trackReverse&&labelPath&&levels[index].Table.IsRongyu==1)Touch(targetAliases[index],levels[index].Name.ColumnName);
                     var label=levels[index].Table.IsRongyu==0?Resolve(levels[index].Table,targetAliases[index],levels[index].Name.ColumnName).Sql:targetAliases[index]+"."+Q(levels[index].Name.ColumnName);
-                    result.Add(slot.ColumnName[..^3]+"_name",("CASE WHEN "+string.Join(" OR ",paths.Skip(index))+" THEN "+label+" END","string"));
+                    var text=MySqlMultiValueLabel.Text(label,levels[index].Name.LogicalType);
+                    result.Add(slot.ColumnName[..^3]+"_name",("CASE WHEN "+string.Join(" OR ",paths.Skip(index))+" THEN "+text+" END","string"));
                 }
                 crossProjections.Add(key,new(selection,new ReadOnlyDictionary<string,string>(raw),valid,"("+string.Join(" OR ",paths)+")"));values=new ReadOnlyDictionary<string,(string Sql,string Type)>(result);crossValues.Add(key,values);
             }

@@ -19,6 +19,6 @@ internal static class NonRedundantCrossTargetsCompilation
         if(!target.IsGlobal)_=NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,level.Name.Source.ColumnName);
         var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(level.Order.Select(item=>item.Column.Source.ColumnName)).Append("id").Distinct(StringComparer.OrdinalIgnoreCase).ToArray();var outputs=new[]{"id",level.Name.Source.ColumnName}.Concat(level.Parent is{} p?new[]{p.Source.ColumnName}:[]).ToArray();var read=NonRedundantReadCompilation.HasGlobalRowProject(target)
             ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,level.Page.Source.Id,outputs,dependencies)
-            :NonRedundantReads.Compile(model.Catalog,target.Source.Id,outputs,dependencies);if(read.OutputTypes["id"]!="int64"||read.OutputTypes[level.Name.Source.ColumnName]!="string")throw new InvalidOperationException("跨表名称必须落到非凭据单值字符串。");return dependencies;
+            :NonRedundantReads.Compile(model.Catalog,target.Source.Id,outputs,dependencies);if(read.OutputTypes["id"]!="int64"||read.OutputTypes[level.Name.Source.ColumnName]!=level.Name.Source.LogicalType)throw new InvalidOperationException("跨表名称必须落到同类型的固定单值。");return dependencies;
     }
 }

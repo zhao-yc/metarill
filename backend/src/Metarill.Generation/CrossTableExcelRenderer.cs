@@ -29,20 +29,29 @@ internal static class CrossTableExcelRenderer
             {
                 var level=plan.Levels[index].Read;var scope=suffix+"_"+index;
                 result.AppendLine($"        case {index}:{{");
+                var lookup="text";
+                if(level.Name.Type is "int?" or "long?")
+                {
+                    // 旧简写会尝试每个层；非整数只表示本层无匹配，仍须检查其它字符串层。
+                    var type=level.Name.Type=="int?"?"int":"long";
+                    result.AppendLine($"            if(!{type}.TryParse(text,NumberStyles.AllowLeadingSign,CultureInfo.InvariantCulture,out var key)||key.ToString(CultureInfo.InvariantCulture)!=text)return [];");
+                    lookup="key";
+                }
                 if(level.Target.Source.IsRongyu==0)
                 {
-                    result.AppendLine($"            var filters=new List<FixedReadFilter>{{new({L(level.Name.Source.ColumnName)},FixedReadComparison.Equal,text)}};");
+                    result.AppendLine($"            var filters=new List<FixedReadFilter>{{new({L(level.Name.Source.ColumnName)},FixedReadComparison.Equal,{lookup})}};");
                     if(level.Parent is{} parent)result.AppendLine($"            if(bindParent)filters.Add(new({L(parent.Source.ColumnName)},FixedReadComparison.Equal,{(parent.Type=="string?"?"parent?.ToString(CultureInfo.InvariantCulture)":"parent")}));");
                     result.AppendLine($"            return await CrossTargetRows{scope}Async(actor,filters,2,currentRead,ct);");
                 }
                 else
                 {
-                    result.AppendLine($"            var query=CrossScope{scope}(actor,false).Where(row=>row.{level.Name.Property}==text);");
+                    result.AppendLine($"            var query=CrossScope{scope}(actor,false).Where(row=>row.{level.Name.Property}=={lookup});");
                     if(level.Parent is{} parent)result.AppendLine($"            if(bindParent){{var parentKey={(parent.Type=="string?"?"parent?.ToString(CultureInfo.InvariantCulture)":"parent")};query=query.Where(row=>row.{parent.Property}==parentKey);}}");
+                    var label=MultiSelectExcelRenderer.LabelText(level.Name,"row."+level.Name.Property);
                     var parentValue=level.Parent is not{} p?"null":p.Type=="string?"?"row."+p.Property:"row."+p.Property+"?.ToString(CultureInfo.InvariantCulture)";
                     var projection=$"row=>new {level.Target.EntityType}{{Id=row.Id,{level.Name.Property}=row.{level.Name.Property}{(level.Parent is{} parentColumn?","+parentColumn.Property+"=row."+parentColumn.Property:"")}}}";
                     result.AppendLine($"            if(currentRead)query=query.ForUpdate();var rows=await query.OrderBy(row=>row.Id).Limit(2).ToListAsync({projection},ct);")
-                        .AppendLine($"            return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,row.{level.Name.Property},{parentValue})).ToArray();");
+                        .AppendLine($"            return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,{label},{parentValue})).ToArray();");
                 }
                 result.AppendLine("        }");
             }

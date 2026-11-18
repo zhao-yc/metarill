@@ -16,6 +16,24 @@ public sealed class GlobalCrossCachePlanTests
         var c=Catalog(mask,type,noProject);var defs=Definitions(c);var before=JsonSerializer.Serialize(c);var mutation=RelationMutationPlan.Compile(c,defs);var bindings=((IEnumerable)Read(mutation,"Bindings")!).Cast<object>().ToArray();Assert.Equal(3,bindings.Length);Assert.All(bindings,b=>Assert.Equal("int64",Read(Read(b,"Source")!,"ProjectType")));var maintenance=RelationMaintenanceCatalog.Compile(c,defs);var table=Table(maintenance);Assert.Null(Read(table,"Error"));var read=Read(table,"Read")!;Assert.Contains("b.`yz_project_id`=@project_scope_number",(string)Read(read,"Scope")!);Assert.Equal(before,JsonSerializer.Serialize(c));Assert.Equal(3,bindings.Select(x=>Read(x,"Cache")).Distinct().Count());
         foreach(var binding in bindings){var name=(string)Read(Read(binding,"Target")!,"Name")!;var global=c.ConfigTables.Single(t=>t.TableName==name).Extra.GetValueOrDefault("scopeKind").ToString()=="global";Assert.Equal(global?"":"int64",Read(Read(binding,"Target")!,"ProjectType"));}
     }
+    /// <summary>数值目标也保留固定页及原文本缓存，传播和维护同源。</summary>
+    [Theory]
+    [InlineData("int32")]
+    [InlineData("int64")]
+    public void Global_cross_integer_name_casts_the_cache_under_published_scope(string nameType)
+    {
+        var catalog=Catalog(1,"int64",true);
+        catalog.ConfigColumns.Single(column=>column.Id=="country_label").LogicalType=nameType;
+        var maintenance=RelationMaintenanceCatalog.Compile(catalog,Definitions(catalog));
+        var binding=Assert.Single(maintenance.Propagation.Bindings,entry=>entry.Cache=="country_name");
+        Assert.True(binding.TextScalar);
+        Assert.Contains("caption",binding.PublishedCondition!.Fields);
+        var read=Assert.IsType<Metarill.Data.Queries.MySqlNonRedundantReadPlan>(maintenance.Plans["source"].Read);
+        Assert.Contains(".`caption` AS CHAR)",read.Expression("country_name"));
+        Assert.Equal("string",read.Types["country_name"]);
+        Assert.Contains(".`caption` IS NOT NULL",read.From);
+    }
+
     /// <summary>缺页、跨项目页、未发布来源、变动上下文、派生名称及断父链都在触库前拒绝。</summary>
     [Theory][InlineData("pageMissing")][InlineData("pageForeign")][InlineData("pageTable")][InlineData("pageVariable")][InlineData("targetUnpublished")][InlineData("sourceUnpublished")][InlineData("sourceGlobal")][InlineData("targetR0")][InlineData("cachedName")][InlineData("wrongParent")][InlineData("missingGlobal")][InlineData("ordinaryPage")][InlineData("pageConflict")][InlineData("otherControl")]
     public void Invalid_global_cross_proof_rejects_entire_chain(string kind)
