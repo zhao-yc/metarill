@@ -101,6 +101,46 @@ public sealed class NonRedundantSelfTreeTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>同一全局表的直接父项和独立书签共用祖先结构，普通写入仍按存在的行项目列限制。</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Global_same_table_tree_and_bookmark_keep_generated_topology(bool rowProject)
+    {
+        const string ns="Example.GlobalOwnTree";
+        var catalog=RedundantMultiNameCacheTests.Published(CascadeTreeSameRowTests.Catalog("published_tree"));
+        var table=Assert.Single(catalog.ConfigTables);
+        table.IsRongyu=0;
+        table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(!rowProject)catalog.ConfigColumns.RemoveAll(column=>column.ColumnName=="yz_project_id");
+        var parent=catalog.ConfigColumns.Single(column=>column.ColumnName=="parent_id");
+        parent.ControlKind="CascadeTree";
+        parent.ControlDetail=catalog.ConfigColumns.Single(column=>column.ColumnName=="bookmark_id").ControlDetail;
+        foreach(var page in catalog.ConfigPages)page.WhereSql=page.Id=="202"?"status=1":"";
+        var project=GenerationModel.Create(catalog,ns);
+        Assert.Empty(GenerationCapabilityAudit.Collect(project));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-own-tree");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var code=File.ReadAllText(Path.Combine(generated,"Services/PublishedTreeNodeService.g.cs"));
+            Assert.Contains("CascadeTopology202_5",code);
+            Assert.Contains("CascadeReader202_6",code);
+            Assert.Equal(rowProject,code.Contains("query.Where(entity=>entity.YzProjectId==",StringComparison.Ordinal));
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.PublishedTreeNodeService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("CascadeOptions202_5Async"));
+            Assert.NotNull(service.GetMethod("CascadePath202_6Async"));
+            Assert.NotNull(service.GetMethod("Import203Async"));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>真实生成页和原级联组件共同在Vue3挂载，网络受控；不替代浏览器或正式宿主验收。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public Task Original_self_tree_vue_keeps_paths_selection_clear_readonly_and_physical_write_contract(bool automatic)=>ExerciseOriginalVue(automatic,false);

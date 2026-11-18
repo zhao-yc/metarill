@@ -42,13 +42,19 @@ internal static class CascadeTreeReadCompilation
                 Metarill.Core.Metadata.MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source);
             if(!derived&&!integerCache&&!Physical(name))return Gap("物理Join名称仍需独立缓存证明。");
             if(!string.IsNullOrWhiteSpace(parent.Source.LinkConfigTableId)&&parent.Source.LinkConfigTableId!=target.Source.Id)return Gap("父字段未指向自身。");
+            if(table.IsGlobal&&table.Source.IsRongyu==0)
+            {
+                Metarill.Core.Metadata.GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
+                // 全局共享来源没有行项目列时，所存叶ID也必须来自全局目标。
+                if(!NonRedundantReadCompilation.HasGlobalRowProject(table)&&!target.IsGlobal)
+                    return Gap("无行项目列的全局来源要求全局目标树。");
+            }
             if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))return Gap("目标缺少项目归属或明确全局声明。");
             var candidates=target.Pages.Where(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(candidate)&&candidate.Readable.Any(column=>column.Source.Id==name.Source.Id)&&candidate.Readable.Any(column=>column.Source.Id==parent.Source.Id)).ToArray();
             if(candidates.Length!=1)return Gap("目标缺少唯一、无父参数的可读页面。");
             if(target.IsGlobal)
             {
-                // 显式全局树只改变目标候选范围。来源仍按真实项目执行，目标页不能带项目或父变量。
-                if(target.Source.IsRongyu==0&&table.IsGlobal)return Gap("全局非冗余自树名称需要普通项目来源。");
+                // 目标全局资格不改变来源记录的实际行归属，固定目标页继续限制节点可见性。
                 Metarill.Core.Metadata.GlobalCrossTableTarget.RequireSelfTreeName(model.Catalog,target.Source,candidates[0].Source,name.Source);
             }
             // 此树入口使用实体最小三列查询，派生条件不能被当作物理列或忽略后扩大范围。

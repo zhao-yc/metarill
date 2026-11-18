@@ -153,7 +153,12 @@ public sealed class MySqlNonRedundantReadPlan
 public static partial class MySqlNonRedundantReadCompiler
 {
     /// <summary>输出由生成用途指定；依赖独立编译，不擅自扩成整表读取或读取权限。</summary>
-    public static MySqlNonRedundantReadPlan CompileGlobalCandidate(MetadataCatalog catalog,string tableId,string pageId,IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies=null)
+    public static MySqlNonRedundantReadPlan CompileGlobalCandidate(MetadataCatalog catalog,string tableId,string pageId,IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies=null)=>
+        CompileGlobalCandidate(catalog,tableId,pageId,outputs,dependencies,deferCascadeNames:false);
+
+    /// <summary>全局候选页面由生成的固定树图补齐显示路径，单值候选仍直接读取标量。</summary>
+    internal static MySqlNonRedundantReadPlan CompileGlobalCandidate(MetadataCatalog catalog,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies,bool deferCascadeNames)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -163,7 +168,7 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new InvalidOperationException("输出字段不能为空或重复。");
         var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==pageId&&item.ConfigTableId==tableId)
             ??throw new InvalidOperationException("全局候选页必须属于固定目标表。");
-        return new Builder(catalog,tableId,candidatePage:page).Compile(outputs,dependencies??[]);
+        return new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames).Compile(outputs,dependencies??[]);
     }
 
     /// <summary>普通读取及导出按对象本身的行项目归属。</summary>
@@ -357,8 +362,8 @@ public static partial class MySqlNonRedundantReadCompiler
                          SelectedMultiPage is not null&&(field==cascadeLabelField||
                          MultiCandidateParent is {Logical:true}&&field==MultiCandidateParent.Target.ColumnName)&&
                          CrossTableStorageColumns.IsLogicalPathField(root,columns[root.Id].Values.ToArray(),field));
-                    if(!logical&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage[root.Id],root,column))
-                        throw new NotSupportedException("全局R0读取只接受已证明的物理标量、单值名称与固定跨表层位。");
+                    if(!logical&&!PublishedGlobalSelfTreeField(column)&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage[root.Id],root,column))
+                        throw new NotSupportedException("全局R0读取只接受已证明的标量、单值名称与固定级联字段。");
                 }
             }
             queryDependencies=new HashSet<string>(dependencies,StringComparer.OrdinalIgnoreCase);
@@ -458,7 +463,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(!storage[target.Id].IsPhysical(value))
                     {
                         if(target.IsRongyu!=0)throw new NotSupportedException("自树派生名称要求R0目标。");
-                        var nested=new Builder(catalog,target.Id,matching:true).Compile([value.ColumnName],[]);
+                        var globalTarget=GlobalCrossTableTarget.Declared(target);
+                        var targetPage=globalTarget?SelfTreeLabel(catalog,tree).Page:null;
+                        var nested=new Builder(catalog,target.Id,matching:!globalTarget,candidatePage:targetPage).Compile([value.ColumnName],[]);
                         if(nested.Types[value.ColumnName]!=value.LogicalType||nested.MultiProjections.Count>0||nested.Crosses.Count>0||!nested.Origins.TryGetValue(value.ColumnName,out var terminal)||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("自树名称必须落到同类型的非凭据标量。");
                     }
                     // 明确交由生成服务的固定图投影，SQL阶段不读取未经完整祖先范围证明的叶子名称。

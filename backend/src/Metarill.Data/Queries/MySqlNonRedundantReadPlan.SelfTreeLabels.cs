@@ -36,7 +36,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var parent=members.Single(column=>column.ColumnName==Value(tree,"parentField"));
         var name=members.Single(column=>column.ColumnName==(Value(tree,"nameField") is {Length:>0} field?field:"name"));
         if(parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id" or "insert_user_id" or "update_user_id"||
-            parent.LogicalType is not("string" or "int64")||!GlobalPhysicalRelationValue.IsScalar(storage,target,parent)||
+            parent.LogicalType is not("string" or "int64")||!GlobalPhysicalRelationValue.IsScalar(storage,target,parent)&&!IsSelfTreeParent(target,storage,parent)||
             parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=target.Id||
             name.Id==parent.Id||name.ColumnName=="id"||name.LogicalType is not("string" or "int32" or "int64")||
             name.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(name.ColumnName)||
@@ -54,9 +54,45 @@ public static partial class MySqlNonRedundantReadCompiler
         return new(target,name,parent,page,condition);
     }
 
+    /// <summary>同表父字段也可以承载原树控件，只有真实物理自关联键允许同时作为拓扑列。</summary>
+    private static bool IsSelfTreeParent(TableMetadata table,MetadataStoragePlan storage,ColumnMetadata column)
+    {
+        if(column.ControlKind!="CascadeTree"||!IsPhysicalTreeKey(table,storage,column))return false;
+        var definition=Definition(column);
+        return Value(definition,"sourceMode")=="selfTree"&&definition.TryGetProperty("selfTree",out var settings)&&
+            Value(settings,"table")==table.TableName&&Value(settings,"parentField")==column.ColumnName&&
+            (column.LinkConfigTableId.Length==0||column.LinkConfigTableId==table.Id);
+    }
+
+    private static bool IsPhysicalTreeKey(TableMetadata table,MetadataStoragePlan storage,ColumnMetadata column)=>
+        column.ConfigTableId==table.Id&&column.IsVirtualColumn==0&&storage.IsPhysical(column)&&!CrossFlag(column,"isJoinColumn")&&
+        column.LogicalType is "string" or "int64"&&column.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
+        !ExactDataManageValues.IsSensitiveField(column.ColumnName);
+
     private sealed partial class Builder
     {
         private int selfTreeLabelCount;
+
+        /// <summary>只开放实际发布树的选择键和逻辑叶名。全局共享行不能依赖调用方的项目私有树。</summary>
+        private bool PublishedGlobalSelfTreeField(ColumnMetadata column)
+        {
+            var rootStorage=storage[root.Id];
+            if(matching)return false;
+            if(!deferCascadeNames)return IsSelfTreeParent(root,rootStorage,column)&&SelfTreeLabel(catalog,column).Target.Id==root.Id;
+            var control=column.ControlKind=="CascadeTree"?column:
+                column.ColumnName.EndsWith("_name",StringComparison.Ordinal)?
+                    columns[root.Id].GetValueOrDefault(column.ColumnName[..^5]+"_id"):null;
+            if(control is not {ControlKind:"CascadeTree"}||Value(Definition(control),"sourceMode")!="selfTree"||
+                !IsPhysicalTreeKey(root,rootStorage,control)||column.IsVirtualColumn!=0||
+                column.Id!=control.Id&&(column.LogicalType!="string"||rootStorage.IsPhysical(column)||ExactDataManageValues.IsSensitiveField(column.ColumnName)))
+                return false;
+            var proof=SelfTreeLabel(catalog,control);
+            if(!HasGlobalRowProject(root)&&!GlobalCrossTableTarget.Declared(proof.Target))
+                throw new NotSupportedException("无行项目列的全局来源要求全局目标树。");
+            ValidateTarget(proof.Target);
+            cascadeLabelPages.Add(proof.Page.Id);
+            return true;
+        }
 
         /// <summary>沿原64层、活动节点与根语义检查完整祖先链，取该链的真实叶名。</summary>
         private string SelfTreeLabelExpression(TableMetadata table,string owner,ColumnMetadata control,ColumnMetadata column)

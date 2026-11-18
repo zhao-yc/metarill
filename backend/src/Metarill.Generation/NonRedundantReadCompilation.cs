@@ -36,7 +36,7 @@ internal static class NonRedundantReadCompilation
     /// <summary>固定叶名与目标页一起发布；仅显示、顺序等范围不变的页面覆盖可以继续使用表级读取定义。</summary>
     internal static IReadOnlyList<CascadeTreeReadModel> SelfTreeNameQueries(GenerationModel model, TableModel table, PageModel page)
     {
-        if (table.Source.IsRongyu != 0 || table.IsGlobal) return [];
+        if (table.Source.IsRongyu != 0) return [];
         var fields = page.Searchable.Concat(page.Sortable)
             .Concat(FixedPageQueryCompilation.For(table, page).DefaultOrder.Select(order => order.Column))
             .Select(column => column.Source.Id).ToHashSet(StringComparer.Ordinal);
@@ -144,7 +144,9 @@ internal static class NonRedundantReadCompilation
         var compiled=NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,readOutputs,NonRedundantCrossTableCompilation.Bindings(crossPlans),dependencies,deferCascadeNames:true);
         if(GlobalSelectionPage(table,page))
             _=crossPlans.Count==0
-                ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies)
+                ?CascadeTreeReadCompilation.ForService(model,table,page).Count>0
+                    ?NonRedundantReads.CompileGlobalPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies)
+                    :NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies)
                 :NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,
                     NonRedundantCrossTableCompilation.Bindings(crossPlans));
         outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();

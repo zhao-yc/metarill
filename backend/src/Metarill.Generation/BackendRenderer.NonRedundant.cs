@@ -20,6 +20,10 @@ internal static partial class BackendRenderer
         var nestedTables=RelationPropagationCompilation.PublishedRecursiveTables(model,scopedPages);
         var recursiveCandidates=nestedTables.Count>0;
         var selfTreeNamePages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page)))
+            .Concat(model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page)))
+                .Where(tree=>tree.Target.IsGlobal))
+            .Concat(model.Tables.Where(table=>table.IsGlobal&&table.Source.IsRongyu==0)
+                .SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page))))
             .Select(tree=>tree.TargetPage.Source.Id).ToHashSet(StringComparer.Ordinal);
         var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog,accountPages,selfTreeNamePages,nestedTables),new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var cross=model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>CrossTableWriteCompilation.ForService(model,table,page).Count>0));
@@ -27,6 +31,8 @@ internal static partial class BackendRenderer
         if(model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0)))helpers+="    /// <summary>共享R0由整组编译，成员不能分别打包覆盖。</summary>\n    internal static Metarill.Core.Metadata.SharedCrossTableSparseSelection CompileSharedSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.SharedCrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n";
         if(recursiveCandidates)helpers+="    /// <summary>候选通过发布目录保留实际依赖的跨表条件。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileCrossPageCandidate(string tableId,string pageId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[]? bindings=null)=>bindings is null?Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(Snapshot,tableId,pageId,outputs,dependencies):Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(Snapshot,tableId,pageId,outputs,dependencies,bindings);\n";
         if(model.Tables.Any(table=>RuleRecordEntity(model,table)))helpers+="    /// <summary>规则实体保留根物理存储；父范围及条件使用同一冻结逻辑投影。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileRuleRecord(string tableId,string[] outputs,string[] storage,string[] dependencies,string[] rules,Metarill.Data.Queries.NonRedundantCrossTableScope[] bindings)=>Metarill.Data.Queries.NonRedundantReads.CompileRuleRecord(Snapshot,tableId,outputs,storage,bindings,dependencies,deferCascadeNames:true,logicalOutputs:rules);\n";
+        if(model.Tables.Any(table=>table.Pages.Any(page=>NonRedundantReadCompilation.GlobalSelectionPage(table,page))))
+            helpers+="    /// <summary>原候选页的自树投影由固定图补齐显示路径。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileGlobalPage(string tableId,string pageId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalPage(Snapshot,tableId,pageId,outputs,dependencies);\n";
         if (model.Tables.Any(NonRedundantReadCompilation.HasGlobalRowProject) ||
             model.Tables.SelectMany(table => table.Pages).SelectMany(page => RelationCompilation.ForPage(model, page, true))
                 .Any(relation => relation.Target.IsGlobal && DerivedRelationNamesCompilation.IsPhysicalInteger(model, relation.Target, relation.NameColumn)))
@@ -107,7 +113,8 @@ internal static class GeneratedNonRedundantReadCatalog
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
         var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix);
         var crossCandidate=globalCandidate&&CrossTableWriteCompilation.ForService(model,table,page).Count>0;
-        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(crossCandidate||FixedPageConditionCompilation.HasAccountVariables(page)?".BindAccount(actor)":""):readPlan;
+        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(crossCandidate||FixedPageConditionCompilation.HasAccountVariables(page)||
+            NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page).Any(tree=>FixedPageConditionCompilation.HasAccountVariables(tree.TargetPage))?".BindAccount(actor)":""):readPlan;
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
         var logicalCondition=FixedPageConditionCompilation.HasCrossFields(page);
         var lockScope=NonRedundantCrossParentCompilation.Enabled(model,table,page)||logicalCondition;
@@ -126,7 +133,8 @@ internal static class GeneratedNonRedundantReadCatalog
                 .AppendLine($"    private static readonly NonRedundantReadPlan CrossConditionPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileCross({Literal(table.Source.Id)},new string[]{{\"id\"}},new string[]{{{string.Join(",",page.Condition!.Syntax.Fields.Select(Literal))}}}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)});");
         if(globalCandidate)
         {
-            var compiler=crossCandidate?"CompileCrossPageCandidate":"CompileGlobalCandidate";
+            var compiler=crossCandidate?"CompileCrossPageCandidate":
+                CascadeTreeReadCompilation.ForService(model,table,page).Count>0?"CompileGlobalPage":"CompileGlobalCandidate";
             var bindings=crossCandidate?NonRedundantCrossTableCompilation.BindingArgument(model,table,page):"";
             result.AppendLine($"    private static readonly NonRedundantReadPlan CandidateReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{compiler}({Literal(table.Source.Id)},{Literal(suffix)},{outputs},{dependencies}{bindings});");
         }
@@ -237,7 +245,8 @@ internal static class GeneratedNonRedundantReadCatalog
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
         var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix);
         var crossCandidate=globalCandidate&&CrossTableWriteCompilation.ForService(model,table,page).Count>0;
-        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(crossCandidate||FixedPageConditionCompilation.HasAccountVariables(page)?".BindAccount(actor)":""):readPlan;
+        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(crossCandidate||FixedPageConditionCompilation.HasAccountVariables(page)||
+            NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page).Any(tree=>FixedPageConditionCompilation.HasAccountVariables(tree.TargetPage))?".BindAccount(actor)":""):readPlan;
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
         var result=new StringBuilder().AppendLine("    /// <summary>派生值在SQL完整范围内聚合，当前页统计仍折叠原VO。</summary>").AppendLine($"    internal {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$"=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async()=>":"")}").AppendLine("    {").AppendLine("        var statistics=new Dictionary<string,object?>(StringComparer.Ordinal);");
         if(definitions.Count==0)result.AppendLine("        await Task.CompletedTask;");

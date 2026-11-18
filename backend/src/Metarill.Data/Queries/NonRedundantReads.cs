@@ -36,6 +36,11 @@ public static class NonRedundantReads
             _=>throw new NotSupportedException("该数据库尚未完成固定全局候选读取适配。")
         };
     }
+    /// <summary>已发布全局页面投影的树路径由生成服务补齐，固定查询依赖仍在SQL中执行。</summary>
+    public static NonRedundantReadPlan CompileGlobalPage(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>
+        new(MySqlNonRedundantReadCompiler.CompileGlobalCandidate(metadata,tableId,pageId,outputs,dependencies,deferCascadeNames:true));
+
     /// <summary>生成的项目内 R1 单值候选使用物理投影和项目范围，保留独立的数据库适配入口。</summary>
     public static NonRedundantReadPlan CompilePhysicalRelation(MetadataCatalog metadata, string tableId, IReadOnlyList<string> outputs,
         IReadOnlyList<string>? dependencies = null)

@@ -67,6 +67,59 @@ public sealed class CascadeMultiLabelReadTests
     }
 
 
+    /// <summary>来源行归属和全局节点范围独立编译，选中ID与逻辑名称使用同一已发布树。</summary>
+    [Theory]
+    [InlineData(true,true)]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    [InlineData(false,false)]
+    public void Global_self_tree_projects_leaf_in_fixed_page_scope(bool sourceProject,bool targetGlobal)
+    {
+        var catalog=DerivedMultipleCacheTests.Catalog("string","int64");
+        var source=catalog.ConfigTables.Single(table=>table.Id=="source");
+        source.IsRongyu=0;
+        source.YzProjectId=catalog.YzProjectId;
+        source.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(!sourceProject)catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId==source.Id&&column.ColumnName=="yz_project_id");
+        var tree=catalog.ConfigTables.Single(table=>table.Id=="tree");
+        tree.IsRongyu=1;
+        tree.YzProjectId=catalog.YzProjectId;
+        if(targetGlobal)tree.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        var leaf=catalog.ConfigColumns.Single(column=>column.Id=="foreign");
+        leaf.ColumnName="tree_id";
+        catalog.ConfigColumns.RemoveAll(column=>column.Id is "choices" or "choice_names");
+        catalog.ConfigColumns.Single(column=>column.Id=="tree_name").Extra.Clear();
+        var page=new PageMetadata{Id="global_tree_source",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="18"};
+        catalog.ConfigPages.Add(page);
+        catalog.YzAdminTypes.Add(new(){Id="18",YzProjectId=catalog.YzProjectId});
+        var targetPage=catalog.ConfigPages.Single(item=>item.Id=="201");
+        targetPage.YzProjectId=catalog.YzProjectId;
+        targetPage.YzAdminTypeId="18";
+        targetPage.WhereSql=targetGlobal?"id > 8":"yz_project_id=@current_yz_project_id AND id > 8";
+        catalog.ConfigPageColumns.Add(new(){Id="201parent",ConfigPageId=targetPage.Id,ConfigColumnId="parent"});
+        if(!sourceProject&&!targetGlobal)
+        {
+            Assert.Throws<NotSupportedException>(()=>NonRedundantReads.Compile(catalog,source.Id,["id","tree_id"],["tree_name"],deferCascadeNames:true));
+            return;
+        }
+
+        var regular=NonRedundantReads.Compile(catalog,source.Id,["id","tree_id"],["tree_name"],deferCascadeNames:true).MySql;
+        Assert.True(regular.RequiresPublishedProjectIdentity);
+        Assert.Equal(sourceProject,regular.Scope.Contains("b.`yz_project_id`",StringComparison.Ordinal));
+        var name=regular.Expression("tree_name");
+        Assert.Contains("WITH RECURSIVE",name);
+        Assert.Equal(!targetGlobal,name.Contains(".`yz_project_id`=",StringComparison.Ordinal));
+        Assert.Contains("delete_no",name);
+        Assert.Contains(regular.Constants.Values,value=>Equals(value,8L));
+        Assert.Contains(targetPage.Id,regular.CascadeLabelPages);
+        if(sourceProject)
+        {
+            var candidate=NonRedundantReads.CompileGlobalPage(catalog,source.Id,page.Id,["id","tree_id"],["tree_name"]).MySql;
+            Assert.DoesNotContain("b.`yz_project_id`",candidate.Scope);
+            Assert.Equal(name,candidate.Expression("tree_name"));
+        }
+    }
+
     /// <summary>共享祖先名称必须同时核对两个来源分支，冲突不能作为有效名称。</summary>
     [Theory]
     [InlineData(false)]

@@ -7,9 +7,10 @@ internal static class NonRedundantSelfTreeSubset
     /// <summary>独立／同表R0目标及独立R1目标树、物理父归属和本页其它关系必须全部可执行，不能丢弃坏同伴字段。</summary>
     internal static bool Supports(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
-        if(table.Source.IsRongyu!=0||table.IsGlobal||source.Source.ControlKind!="CascadeTree")return false;
+        if(table.Source.IsRongyu!=0||source.Source.ControlKind!="CascadeTree")return false;
         try
         {
+            if(table.IsGlobal)Metarill.Core.Metadata.GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
             _=ParentTables(model,table,page);
             if(!FixedTarget(model,table,page,source))return false;
             var trees=table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").ToArray();

@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Xunit;
@@ -145,7 +146,10 @@ public sealed class DerivedSelfTreeTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Global_derived_self_tree_builds_fixed_name_and_scope(bool rowProject)
+    [InlineData(true, "owned")]
+    [InlineData(false, "shared")]
+    [InlineData(true, "shared")]
+    public async Task Global_derived_self_tree_builds_fixed_name_and_scope(bool rowProject,string sourceScope="ordinary")
     {
         const string ns = "Example.GlobalDerivedTree";
         var catalog = Catalog("nr_tree", "string", "int64", true);
@@ -173,6 +177,19 @@ public sealed class DerivedSelfTreeTests
             catalog.ConfigColumns.Remove(field);
             catalog.ConfigPageColumns.RemoveAll(pageField => pageField.ConfigColumnId == field.Id);
         }
+        if(sourceScope!="ordinary")
+        {
+            var sourceTable=catalog.ConfigTables.Single(table=>table.Id=="2");
+            sourceTable.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+            sourcePage.WhereSql="";
+            sourcePage.Extra["type"]=JsonSerializer.SerializeToElement(sourceScope=="owned"?2:0);
+            sourcePage.OrderBy="tree_name asc";
+            catalog.ConfigColumns.Add(new(){Id="26",ConfigTableId="2",ColumnName="tree_name",LogicalType="string"});
+            catalog.ConfigPageColumns.Add(new(){Id="20126",ConfigPageId="201",ConfigColumnId="26",IsShow=1,IsEdit=0,
+                Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
+            if(sourceScope=="shared")catalog.ConfigColumns.RemoveAll(field=>field.ConfigTableId=="2"&&field.ColumnName=="yz_project_id");
+        }
         var model = GenerationModel.Create(catalog, ns);
         var source = model.Tables.Single(table => table.Source.Id == "2");
         var page = Assert.Single(source.Pages);
@@ -193,6 +210,15 @@ public sealed class DerivedSelfTreeTests
             var read = Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
                 service.GetField("DerivedCascadePlan201_25", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null));
             Assert.Equal("string", read.OutputTypes["name"]);
+            if(sourceScope!="ordinary")
+            {
+                var definition=BindingFlags.NonPublic|BindingFlags.Static;
+                var readPlan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("ReadPlan201",definition)!.GetValue(null));
+                Assert.Equal("string",readPlan.OutputTypes["tree_name"]);
+                Assert.NotNull(service.GetMethod("Import201Async"));
+                Assert.NotNull(service.GetMethod("Export201Async"));
+                if(sourceScope=="owned")Assert.NotNull(service.GetField("CandidateReadPlan201",definition)!.GetValue(null));
+            }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }

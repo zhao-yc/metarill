@@ -58,7 +58,8 @@ internal static class SelectionPageRenderer
         if(NonRedundantReadCompilation.Requires(model,table))
         {
             var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
-            var bindAccount=globalCandidate&&(CrossTableWriteCompilation.ForService(model,table,page).Count>0||FixedPageConditionCompilation.HasAccountVariables(page));
+            var bindAccount=globalCandidate&&(CrossTableWriteCompilation.ForService(model,table,page).Count>0||FixedPageConditionCompilation.HasAccountVariables(page)||
+                NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page).Any(tree=>FixedPageConditionCompilation.HasAccountVariables(tree.TargetPage)));
             return result.AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=request.ParentId}},actor{(globalCandidate?",globalCandidate:true":"")});")
                 .AppendLine("        if(selected.Length==0)return [];")
                 .AppendLine($"        var selectedRows=await new Metarill.Data.Queries.NonRedundantReader(session).KeyRowsAsync({(globalCandidate?"CandidateReadPlan":"ReadPlan")}{suffix}{(bindAccount?".BindAccount(actor)":"")},filters,selected,cancellationToken,projectId:actor.ProjectId{(globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page,true))});")
