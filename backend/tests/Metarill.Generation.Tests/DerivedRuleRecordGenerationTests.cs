@@ -27,6 +27,7 @@ public sealed partial class DerivedRuleRecordGenerationTests
     /// <summary>物理/派生精确范围均保留；真实装载null与未装载默认值不同，客户端回显不能覆盖原记录。</summary>
     [Theory][InlineData(false,false,false)][InlineData(true,false,false)][InlineData(false,true,false)]
     [InlineData(false,false,true)][InlineData(false,true,true)]
+    [InlineData(true,false,true)][InlineData(true,true,true)]
     public async Task Actual_generated_rule_record_loads_derived_values_in_one_snapshot_and_preserves_scope(
         bool derivedScope,bool webWithoutParent,bool scopeTarget)
     {
@@ -121,6 +122,15 @@ public sealed partial class DerivedRuleRecordGenerationTests
                 var permission=(Task)serviceType.GetMethod("RequireButtonCurrent101Async",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(service,[Transport.Id,"86000",actor,CancellationToken.None])!;await permission;
                 var query=serviceType.GetMethod("ButtonRecordQuery101",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(service,[Transport.Id,"71","86000",actor,true])!;
                 var sql=(string)typeof(DerivedRuleRecordGenerationTests).GetMethod(nameof(QuerySql),BindingFlags.NonPublic|BindingFlags.Static)!.MakeGenericMethod(entityType).Invoke(null,[query])!;Assert.Contains("FOR UPDATE",sql,StringComparison.OrdinalIgnoreCase);
+                if(scopeTarget&&derivedScope)
+                {
+                    // 原按钮先锁根记录时，精确权限的派生匹配就必须带目标页条件。
+                    Assert.Contains(".`store_id`",sql);
+                    Assert.Contains(".`status`",sql);
+                    Assert.Matches(@"@mt_e_\w+_constant_\w+",sql);
+                    Assert.DoesNotContain(storeId.ToString(),sql);
+                    Assert.Equal(!webWithoutParent,sql.Contains("BINARY CAST(b.`group_id` AS CHAR)",StringComparison.Ordinal));
+                }
                 var locked=(Task)serviceType.GetMethod("ReadRuleRecord101Async",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(service,[Transport.Id,"71","86000",actor,true,true,CancellationToken.None])!;await locked;
                 var row=Assert.IsAssignableFrom<IGeneratedRuleRecord>(locked.GetType().GetProperty("Result")!.GetValue(locked));Assert.True(row.TryGetLoadedRuleValue("customer_notes",out var current));Assert.Equal("禁止",current);
                 Assert.All(transport.Commands,command=>{Assert.Same(session.CurrentTransaction,command.Transaction);Assert.Contains("FOR SHARE",command.Sql,StringComparison.OrdinalIgnoreCase);AssertScopedTarget(command.Sql,command.Values);});return true;

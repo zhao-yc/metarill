@@ -59,10 +59,31 @@ public sealed class ExactDataManageGenerationTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>隐藏派生匹配参与实际生成程序集的读取过滤及私有锁计划，不进入本页VO。</summary>
-    [Fact]
-    public async Task Derived_match_compiles_as_hidden_read_dependency_and_separate_lock_plan()
+    [Theory]
+    [InlineData(false,true)][InlineData(true,true)][InlineData(true,false)]
+    public async Task Derived_match_compiles_as_hidden_read_dependency_and_separate_lock_plan(bool scopedTarget,bool withParent)
     {
-        var catalog=Catalog(true);catalog.ConfigPages.Single(page=>page.Id=="101").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("customer_notes");
+        var catalog=Catalog(true);
+        var metadataPage=catalog.ConfigPages.Single(page=>page.Id=="101");
+        metadataPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("customer_notes");
+        const long storeId=9007199254741993;
+        if(scopedTarget)
+        {
+            catalog.ConfigTables.Single(target=>target.Id=="2").IsRongyu=0;
+            catalog.ConfigColumns.AddRange([
+                new(){Id="217",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"},
+                new(){Id="218",ConfigTableId="2",ColumnName="status",LogicalType="int32"}
+            ]);
+            // 有父的单选页与无父的 List 页都按实际目标页匹配角色值。
+            var targetPage=catalog.ConfigPages.Single(target=>target.Id=="201");
+            if(!withParent)
+            {
+                targetPage.WhereSql="";
+                targetPage.Extra["type"]=JsonSerializer.SerializeToElement(0);
+                catalog.ConfigColumns.Single(column=>column.Id=="15").ControlKind="List";
+            }
+            targetPage.WhereSql+=(withParent?" AND ":"")+"store_id=@current_store_id AND status=2";
+        }
         foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="101"&&field.ConfigColumnId=="16")){field.IsShow=0;field.IsEdit=0;field.Extra["isInGrid"]=JsonSerializer.SerializeToElement(0);field.Extra["isInEdit"]=JsonSerializer.SerializeToElement(0);}
         var model=GenerationModel.Create(catalog,"Example.DerivedScope");var table=model.Tables.Single(table=>table.Source.Id=="1");var page=table.Pages.Single(page=>page.Source.Id=="101");
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-exact-scope");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -70,7 +91,7 @@ public sealed class ExactDataManageGenerationTests
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="metarill_business_test",ConnectionString="Server=127.0.0.1;Database=metarill_business_test;User ID=unused;Password=unused;"});
-            var actor=new RuntimeActor(1,"离线派生范围",false,catalog.YzProjectId,page.Source.YzAdminTypeId);var authorization=new Authorization(actor);
+            var actor=new RuntimeActor(1,"离线派生范围",false,catalog.YzProjectId,page.Source.YzAdminTypeId){StoreId=scopedTarget?storeId:null};var authorization=new Authorization(actor);
             var type=assembly.GetType(model.Namespace+".Generated.Services."+table.Name+"Service",true)!;var mapper=Activator.CreateInstance(assembly.GetType(model.Namespace+".Generated.Mappers."+table.Name+"Mapper",true)!,[session]);
             var service=Activator.CreateInstance(type,[session,mapper,new SnowflakeIdGenerator(862),Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),authorization])!;
             var plan=Assert.IsType<NonRedundantReadPlan>(type.GetField("ExactReadPlan101",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));Assert.Equal("string",Assert.Single(plan.OutputTypes).Value);Assert.Equal("customer_notes",Assert.Single(plan.OutputTypes).Key);
@@ -80,6 +101,29 @@ public sealed class ExactDataManageGenerationTests
             // 反射调用须显式占位可选参数，保留生成方法默认启用真实事务锁的合同。
             var scope=type.GetMethod("Scope101",BindingFlags.NonPublic|BindingFlags.Instance)!;var locking=Assert.Single(scope.GetParameters().Skip(3));Assert.Equal("exactLocking",locking.Name);Assert.True(locking.IsOptional);Assert.Equal(true,locking.DefaultValue);
             var error=Assert.Throws<TargetInvocationException>(()=>scope.Invoke(service,[actor,"71","update",Type.Missing]));Assert.IsType<InvalidOperationException>(error.InnerException);Assert.Contains("真实写事务",error.InnerException!.Message);
+            if(scopedTarget)
+            {
+                // 执行实际生成的不加锁记录入口，核对写前锁定复用的同一个匹配计划。
+                var entity=assembly.GetType(model.Namespace+".Generated.Entities."+table.Name,true)!;
+                var toSql=typeof(ExactDataManageGenerationTests).GetMethod(nameof(TypedSql),BindingFlags.NonPublic|BindingFlags.Static)!.MakeGenericMethod(entity);
+                string Sql(RuntimeActor current,string operation)=>(string)toSql.Invoke(null,
+                    [scope.Invoke(service,[current,"71",operation,false])!])!;
+                foreach(var operation in new[]{"update","delete","copy","import"})
+                {
+                    var sql=Sql(actor,operation);
+                    Assert.Equal(operation,authorization.LastOperation);
+                    Assert.Contains(".`store_id`",sql);
+                    Assert.Contains(".`status`",sql);
+                    Assert.Matches(@"@mt_e_\w+_constant_\w+",sql);
+                    Assert.DoesNotContain(storeId.ToString(),sql);
+                    Assert.DoesNotContain("只允许甲",sql);
+                    Assert.Equal(withParent,sql.Contains("BINARY CAST(b.`group_id` AS CHAR)",StringComparison.Ordinal));
+                    Assert.DoesNotContain("FOR UPDATE",sql,StringComparison.OrdinalIgnoreCase);
+                }
+                authorization.Actor=actor with{StoreId=null};
+                var denied=Assert.Throws<TargetInvocationException>(()=>Sql(authorization.Actor,"update"));
+                Assert.IsType<UnauthorizedAccessException>(denied.InnerException);
+            }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
@@ -131,8 +175,9 @@ public sealed class ExactDataManageGenerationTests
     private sealed class Authorization(RuntimeActor actor):IRuntimeAuthorization
     {
         internal bool Restricted=true;internal string Value="[\"只允许甲\",\"只允许乙\"]";internal string LastOperation="";
-        /// <summary>当前身份固定于本测试上下文。</summary>
-        public RuntimeActor RequireActor()=>actor;
+        internal RuntimeActor Actor=actor;
+        /// <summary>返回当前测试身份，可切换为缺少归属的真实登录形状。</summary>
+        public RuntimeActor RequireActor()=>Actor;
         /// <summary>本类只测试计划消费，不冒充角色权限决策。</summary>
         public void RequirePagePermission(string pageId,string operation){}
         /// <summary>记录计划传来的固定动作，并提供原JSON数组形状。</summary>
