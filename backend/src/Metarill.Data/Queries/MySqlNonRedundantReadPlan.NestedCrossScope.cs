@@ -511,7 +511,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     if(multiParent is null||!level.LogicalFields.Contains(multiParent.ColumnName))
                         throw new InvalidOperationException("全局单值缓存缺少已发布逻辑父层位。");
-                    predicate+=" AND "+SameSingleParent(Projection(multiParent.ColumnName),sourceParent);
+                    predicate+=(predicate.Length==0?"":" AND ")+SameSingleParent(Projection(multiParent.ColumnName),sourceParent);
                 }
 
                 // 空选择允许原 IS NULL；已存但不可见或无法恢复的节点不能冒充空值放宽候选。

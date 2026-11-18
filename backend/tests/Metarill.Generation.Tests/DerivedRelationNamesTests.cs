@@ -74,6 +74,7 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true,false,true,true,false,true,false,false,false,false,true)]
     [InlineData(false,true,true,true,false,true,true,true,true,true,true,true)]
     [InlineData(true,false,true,true,false,true,false,false,false,false,true,true)]
+    [InlineData(true,true,true,false,true,true,false,false,true,true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
         bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false)
     {
@@ -209,6 +210,7 @@ public sealed class DerivedRelationNamesTests
                     catalog.ConfigPageColumns.Add(new(){Id=source.Id+"121",ConfigPageId=source.Id,ConfigColumnId="121",IsShow=1,IsEdit=1});
             }
         }
+        if(parentOnly&&redundant)target.WhereSql="country_id=@parent_id";
         if(globalParent&&!logicalParent)
         {
             catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");

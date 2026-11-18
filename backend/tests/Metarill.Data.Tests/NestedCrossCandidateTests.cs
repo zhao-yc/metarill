@@ -420,6 +420,19 @@ public sealed class NestedCrossCandidateTests
         var direct=Assert.Single(consumer.Read.Reverse,item=>item.TargetTable==target.TableName);
         Assert.Contains(physicalAccount?"name":cross?"country_id":"visibility_id",direct.Outputs["shared_name"]);
         Assert.Contains("store_id",direct.Outputs["shared_name"]);
+        if(logicalParent)
+        {
+            // 单值副本纯粹由逻辑父限制时也须成立，SQL 不能留下空条件的 AND。
+            var previous=page.WhereSql;
+            page.WhereSql="country_id=@parent_id";
+            var onlyParent=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[cacheBinding]);
+            var parentRead=Assert.Single(onlyParent.Mixed.Consumers,item=>item.Table.Option.Id==source.Id).Read;
+            Assert.DoesNotContain("( AND",parentRead.Expression("shared_name"));
+            Assert.Contains("=BINARY CAST(b.`group_id` AS CHAR)",parentRead.Expression("shared_name"));
+            Assert.False(parentRead.RequiresAccount);
+            Assert.Contains(parentRead.Reverse,entry=>entry.TargetTable=="nested_country"&&entry.Outputs.ContainsKey("shared_name"));
+            page.WhereSql=previous;
+        }
         sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
         Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[cacheBinding]));
         sourcePage.WhereSql+=" AND store_id=@current_store_id";

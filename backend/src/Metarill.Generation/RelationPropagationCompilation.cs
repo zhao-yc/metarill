@@ -54,7 +54,8 @@ internal static class RelationPropagationCompilation
         {
             var target=ForeignValidationRenderer.Target(model,foreign);
             if(target is null||target.Source.IsRongyu!=0||!target.Pages.Any(page=>FixedPageConditionCompilation.HasLogicalFields(page)||
-                FixedPageConditionCompilation.HasAccountVariables(page)))continue;
+                FixedPageConditionCompilation.HasAccountVariables(page)||target.IsGlobal&&
+                GlobalCrossTableTarget.SingleParent(model.Catalog,target.Source,page.Source) is {Logical:true}))continue;
             (PageMetadata Page,ColumnMetadata Name) proof;
             if(target.IsGlobal)
             {
