@@ -238,8 +238,21 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly HashSet<string> activeCrossScopePages=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlCrossTableProjection> scopedCrossProjections=new(StringComparer.Ordinal);
 
-        /// <summary>全局单值显示与候选使用同一逻辑范围，绑定当前账号并检查实际叶子路径。</summary>
-        private string PublishedSingleTreeCondition(TableMetadata table,string alias,PageMetadata page,CascadeCacheOwner? cacheOwner=null)
+        /// <summary>关联目标先按物理键联接。用固定候选子查询隔离跨表层，避免引用后声明的别名。</summary>
+        private string PublishedSingleCrossCondition(TableMetadata table,string alias,PageMetadata page)
+        {
+            var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_single");
+            var plan=CompileCrossPageCandidate(catalog,table.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
+                activeSelfTreeScopes:ActiveSelfTreeScopes);
+            plan.CopyParametersTo(crossConstants);
+            foreach(var reference in plan.PhysicalReferences)
+                references.TryAdd((reference.Table,reference.Column.Name),reference);
+            scopedGlobalCrossTarget=true;
+            return "EXISTS (SELECT 1"+plan.From+" WHERE "+plan.Expression("id")+"="+alias+".`id` AND "+plan.Scope+")";
+        }
+
+        /// <summary>全局单值副本以同一逻辑范围解析源行归属和实际级联路径。</summary>
+        private string PublishedSingleCondition(TableMetadata table,string alias,PageMetadata page,CascadeCacheOwner? cacheOwner=null)
         {
             var members=columns[table.Id].Values.ToArray();
             var fields=PublishedSelfTreeConditionFields(catalog,table,page,members);
@@ -256,11 +269,11 @@ public static partial class MySqlNonRedundantReadCompiler
             TableMetadata target,ColumnMetadata value,RelationCacheDefinition definition)
         {
             var proof=GlobalSingleRelationTarget.RequireCached(catalog,table,foreign,target);
-            if(!proof.ScopedSelfTree||proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=value.Id)
+            if(!proof.ScopedLogicalPage||proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=value.Id)
                 throw new InvalidOperationException("单值名称缓存的目标范围与发布证明不一致。");
             var source=Resolve(table,owner,foreign.ColumnName);
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true);
-            var visible=PublishedSingleTreeCondition(target,alias,proof.Page,new(table,owner));
+            var visible=PublishedSingleCondition(target,alias,proof.Page,new(table,owner));
             var label=Resolve(target,alias,value.ColumnName);
             return ("CASE WHEN "+alias+".`id` IS NOT NULL AND "+visible+" THEN "+label.Sql+" END",label.Type);
         }

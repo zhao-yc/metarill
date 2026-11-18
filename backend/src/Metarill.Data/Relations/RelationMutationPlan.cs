@@ -116,7 +116,7 @@ public sealed class RelationMutationPlan
                     else
                     {
                         var proof=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
-                        if(proof.ScopedSelfTree)
+                        if(proof.ScopedLogicalPage)
                             throw new InvalidOperationException("带逻辑目标页的单值名称必须使用统一维护计划。");
                         page=proof.Page;
                     }

@@ -77,7 +77,7 @@ public static class DerivedCrossTableCaches
         var stem=foreign.ColumnName[..^3];
         var storage=MetadataStoragePolicy.ForTable(catalog,source);
         var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();
-        if(!proof.ScopedSelfTree||proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=definition.ValueColumnId||
+        if(!proof.ScopedLogicalPage||proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=definition.ValueColumnId||
             cache.Id==foreign.Id||cache.ColumnName!=stem+"_"+proof.Name.ColumnName||cache.LogicalType!=proof.Name.LogicalType||
             !storage.IsPhysical(cache)||!Enabled(cache)||cache.IsVirtualColumn!=0||cache.ControlKind is not("" or "TextArea")||
             cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||

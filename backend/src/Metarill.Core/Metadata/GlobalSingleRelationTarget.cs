@@ -7,6 +7,10 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
 {
     /// <summary>此目标页必须通过完整自树路径执行条件，不能回退到物理列查询。</summary>
     public bool ScopedSelfTree { get; init; }
+    /// <summary>跨表范围须以完整的稀疏路径还原实际层位。</summary>
+    public bool ScopedCrossTable { get; internal init; }
+    /// <summary>选择、名称联接和回填使用同一个已发布逻辑范围。</summary>
+    public bool ScopedLogicalPage=>ScopedSelfTree||ScopedCrossTable;
 }
 
 /// <summary>普通单值全局关系的静态证明，目标和页面必须来自同一明确发布目录。</summary>
@@ -58,10 +62,12 @@ public static class GlobalSingleRelationTarget
         var targetColumns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
         var expanded=RelationStorageColumns.Expand(target,targetColumns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
-        var scopedSelfTree=!projectParent&&(owner.IsRongyu==0||!GlobalCrossTableTarget.Declared(owner))&&condition.Fields
-            .Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
+        var allowsLogical=!projectParent&&(owner.IsRongyu==0||!GlobalCrossTableTarget.Declared(owner));
+        var scopedSelfTree=allowsLogical&&condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
+        var scopedCrossTable=allowsLogical&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,expanded,field));
         if(projectParent)RequireProjectParentPage(catalog,target,page);
         else if(scopedSelfTree)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page);
+        else if(scopedCrossTable)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,page);
         else GlobalCrossTableTarget.RequireSingle(catalog,target,page);
         var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var nameField=Value("nameField");if(nameField.Length==0)nameField="name";var name=targetColumns.SingleOrDefault(column=>column.ColumnName==nameField);
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(targetStorage,target,column);
@@ -77,12 +83,12 @@ public static class GlobalSingleRelationTarget
         {
             var column=expanded.Single(item=>item.ColumnName==field);
             if(Scalar(column))continue;
-            if(scopedSelfTree&&!ExactDataManageValues.IsSensitiveField(field)&&
-                (CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field)||
-                    CrossTableStorageColumns.IsLogicalPathField(target,expanded,field)))continue;
+            if(!ExactDataManageValues.IsSensitiveField(field)&&
+                (scopedSelfTree&&CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field)||
+                    scopedCrossTable&&CrossTableStorageColumns.IsLogicalPathField(target,expanded,field)))continue;
             throw new NotSupportedException("目标条件必须使用已证明的非凭据标量或逻辑级联字段。");
         }
-        return new(page,name){ScopedSelfTree=scopedSelfTree};
+        return new(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable};
     }
 
     /// <summary>父表及固定页必须属于当前目录，项目列必须真实存在，维护与业务均按当前已验证项目读取。</summary>

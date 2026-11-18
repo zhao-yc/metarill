@@ -51,7 +51,7 @@ internal static class SelectionNameFilterCompilation
                 var readable=page.Readable.Any(column=>column.Source.Id==storage.Source.Id)||
                     implicitNames&&page.Readable.Any(column=>column.Source.Id==source.Source.Id);
                 var scopedCache=table.Source.IsRongyu==1&&source.Source.ControlKind=="SelectPage"&&target.IsGlobal&&
-                    FixedPageConditionCompilation.HasSelfTreeFields(targetPage)&&NonRedundantSelectionCompilation.IsDisplay(source,storage,name)&&
+                    FixedPageConditionCompilation.HasLogicalFields(targetPage)&&NonRedundantSelectionCompilation.IsDisplay(source,storage,name)&&
                     NonRedundantReadCompilation.Physical(model,table,storage);
                 if(storage.Type!="string?"&&!typedStorage||storage.Source.IsVirtualColumn!=0||!readable||
                     table.Source.IsRongyu==1&&GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")&&!storage.IsManagedMultiNames&&!typedStorage&&!scopedCache)

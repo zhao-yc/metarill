@@ -53,9 +53,9 @@ internal static class RelationPropagationCompilation
         foreach(var foreign in table.Columns.Where(column=>!column.IsSystem&&column.Source.ControlKind is "List" or "SelectPage"))
         {
             var target=ForeignValidationRenderer.Target(model,foreign);
-            if(target is not {IsGlobal:true}||!target.Pages.Any(FixedPageConditionCompilation.HasSelfTreeFields))continue;
+            if(target is not {IsGlobal:true}||!target.Pages.Any(FixedPageConditionCompilation.HasLogicalFields))continue;
             var proof=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source);
-            if(!proof.ScopedSelfTree)continue;
+            if(!proof.ScopedLogicalPage)continue;
             var cache=SelectionDisplayFieldCompilation.Resolve(table,foreign);
             if(cache.Source.Id==foreign.Source.Id)continue;
             var value=target.Columns.Single(column=>column.Source.Id==proof.Name.Id);

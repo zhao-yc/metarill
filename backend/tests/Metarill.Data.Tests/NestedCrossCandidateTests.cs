@@ -102,9 +102,11 @@ public sealed class NestedCrossCandidateTests
 
     /// <summary>原单值名称联接执行同一全局目标页，来源行继续绑定本项目和真实账号。</summary>
     [Theory]
-    [InlineData("List",false,"string")]
-    [InlineData("SelectPage",true,"int64")]
-    public async Task Global_single_relation_joins_only_targets_visible_in_the_fixed_tree_page(string kind,bool rowProject,string key)
+    [InlineData("List",false,"string",false)]
+    [InlineData("SelectPage",true,"int64",false)]
+    [InlineData("List",false,"string",true)]
+    [InlineData("SelectPage",true,"int64",true)]
+    public async Task Global_single_relation_joins_only_targets_visible_in_the_fixed_tree_page(string kind,bool rowProject,string key,bool cross)
     {
         var catalog=Catalog(false);
         var source=catalog.ConfigTables.Single(table=>table.Id=="90");
@@ -121,7 +123,8 @@ public sealed class NestedCrossCandidateTests
             catalog.ConfigColumns.Remove(field);
             catalog.ConfigPageColumns.RemoveAll(item=>item.ConfigColumnId==field.Id);
         }
-        AddVisibilityLeafScope(catalog,source,target,page,true);
+        if(cross)page.WhereSql+=" AND country_name <> '限制叶子'";
+        else AddVisibilityLeafScope(catalog,source,target,page,true);
         catalog.ConfigColumns.Add(new(){Id="9014",ConfigTableId=source.Id,ColumnName="shared_id",LogicalType=key,ControlKind=kind,LinkConfigTableId=target.Id,
             ControlDetail=JsonSerializer.Serialize(new{tableId=target.Id,pageId=page.Id,nameField="name"})});
         catalog.ConfigColumns.Add(new(){Id="9015",ConfigTableId=source.Id,ColumnName="shared_name",LogicalType="string",Extra=new()
@@ -137,8 +140,18 @@ public sealed class NestedCrossCandidateTests
         Assert.Contains("b.`yz_project_id`=@project_scope_number",plan.MySql.Scope);
         Assert.DoesNotContain("r0.`yz_project_id`=",plan.MySql.From);
         Assert.DoesNotContain("b.`yz_project_id`=",candidate.MySql.Scope);
-        Assert.Contains("nested_visibility",plan.MySql.From);
-        Assert.Contains("nested_visibility",candidate.MySql.Scope);
+        if(cross)
+        {
+            var correlated=plan.MySql.From.IndexOf("EXISTS (SELECT 1 FROM `nested_source`",StringComparison.Ordinal);
+            Assert.True(correlated>plan.MySql.From.IndexOf("LEFT JOIN `nested_source` r0 ON",StringComparison.Ordinal));
+            Assert.Contains("nested_country",plan.MySql.From[correlated..]);
+            Assert.Contains("nested_place",candidate.MySql.From);
+        }
+        else
+        {
+            Assert.Contains("nested_visibility",plan.MySql.From);
+            Assert.Contains("nested_visibility",candidate.MySql.Scope);
+        }
         Assert.DoesNotContain("限制叶子",plan.MySql.From);
         Assert.Contains("限制叶子",plan.BindAccount(actor).MySql.Constants.Values);
         Assert.Contains(actor.StoreId!.Value,plan.BindAccount(actor).MySql.Constants.Values);
@@ -164,9 +177,10 @@ public sealed class NestedCrossCandidateTests
         Assert.Contains("b.`store_id`",consumer.Read.Expression("shared_name"));
         Assert.Contains("CASE WHEN r0.`id` IS NOT NULL",consumer.Read.Expression("shared_name"));
         Assert.False(consumer.Read.RequiresAccount);
-        Assert.Single(consumer.Read.Reverse,item=>item.TargetTable=="nested_visibility");
+        Assert.Single(consumer.Read.Reverse,item=>item.TargetTable==(cross?"nested_country":"nested_visibility"));
+        if(cross)Assert.Single(consumer.Read.Reverse,item=>item.TargetTable=="nested_place");
         var direct=Assert.Single(consumer.Read.Reverse,item=>item.TargetTable==target.TableName);
-        Assert.Contains("visibility_id",direct.Outputs["shared_name"]);
+        Assert.Contains(cross?"country_id":"visibility_id",direct.Outputs["shared_name"]);
         Assert.Contains("store_id",direct.Outputs["shared_name"]);
         sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
         Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[cacheBinding]));
@@ -180,8 +194,11 @@ public sealed class NestedCrossCandidateTests
         Assert.Throws<NotSupportedException>(()=>GlobalSingleRelationTarget.Require(catalog,source,
             catalog.ConfigColumns.Single(column=>column.Id=="9014"),target));
         page.WhereSql=definition;
-        catalog.ConfigTables.Single(table=>table.Id=="95").Extra.Remove("scopeKind");
-        Assert.Throws<NotSupportedException>(()=>NonRedundantReads.Compile(catalog,source.Id,["shared_name"]));
+        if(!cross)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="95").Extra.Remove("scopeKind");
+            Assert.Throws<NotSupportedException>(()=>NonRedundantReads.Compile(catalog,source.Id,["shared_name"]));
+        }
     }
 
     /// <summary>回填使用来源行归属；内层路径变化与直接改名都能找到需要更新的缓存。</summary>

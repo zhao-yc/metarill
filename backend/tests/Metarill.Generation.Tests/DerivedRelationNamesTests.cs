@@ -42,8 +42,12 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true, false, false, true, true)]
     [InlineData(false, true, false, true, true)]
     [InlineData(true, true, false, false, true)]
+    [InlineData(false, false, false, false, false, true)]
+    [InlineData(true, true, false, true, false, true)]
+    [InlineData(false, true, false, true, true, true)]
+    [InlineData(true, false, false, false, true, true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant)
+        bool? globalWithProject,bool redundant,bool cross=false)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -56,8 +60,9 @@ public sealed class DerivedRelationNamesTests
             foreign.ControlKind="SelectPage";
         }
         var label=derived?"company_name":"name";
+        var logicalField=cross?"country_name":"tree_name";
         foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField=label,
-            whereSql=selection?"tree_name <> '排除叶名'":parent?"segment=@formParameters.segment":""});
+            whereSql=selection?logicalField+" <> '排除叶名'":parent?"segment=@formParameters.segment":""});
         if(!derived)
         {
             var display=catalog.ConfigColumns.Single(column=>column.Id=="113");
@@ -79,7 +84,27 @@ public sealed class DerivedRelationNamesTests
         catalog.ConfigPages.Add(new(){Id="601",ConfigTableId="6",WhereSql="yz_project_id=@current_yz_project_id AND name <> '停用树节点'"});
         foreach(var (page,field) in new[]{("601","63"),("601","65"),("201","216")})
             catalog.ConfigPageColumns.Add(new(){Id=page+field,ConfigPageId=page,ConfigColumnId=field});
-        target.WhereSql+=" AND tree_name <> '排除叶名' AND store_id=@current_store_id";
+        if(cross)
+        {
+            var control=catalog.ConfigColumns.Single(column=>column.Id=="216");
+            control.ColumnName="area_id";control.LinkConfigTableId="7";
+            control.ControlDetail=JsonSerializer.Serialize(new{sourceMode="crossTable",levels=new object[]
+            {
+                new{table=prefix+"_tree",columnPrefix="country"},
+                new{table=prefix+"_area",columnPrefix="area",parentField="dr_names_tree_id"}
+            }});
+            catalog.ConfigTables.Add(new(){Id="7",TableName=prefix+"_area",IsRongyu=1});
+            catalog.ConfigColumns.AddRange([
+                new(){Id="71",ConfigTableId="7",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id="72",ConfigTableId="7",ColumnName="yz_project_id",LogicalType="int64"},
+                new(){Id="73",ConfigTableId="7",ColumnName="name",LogicalType="string"},
+                new(){Id="74",ConfigTableId="7",ColumnName="dr_names_tree_id",LogicalType="int64",LinkConfigTableId="6"}
+            ]);
+            catalog.ConfigPages.Add(new(){Id="701",ConfigTableId="7",WhereSql="yz_project_id=@current_yz_project_id"});
+            catalog.ConfigPageColumns.Add(new(){Id="70173",ConfigPageId="701",ConfigColumnId="73"});
+            catalog.ConfigPageColumns.Add(new(){Id="70174",ConfigPageId="701",ConfigColumnId="74"});
+        }
+        target.WhereSql+=" AND "+logicalField+" <> '排除叶名' AND store_id=@current_store_id";
         if(globalWithProject is {} keepProject)
         {
             foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "2" or "4" or "6"))
@@ -152,13 +177,14 @@ public sealed class DerivedRelationNamesTests
                 var cache=MixedRelationPropagationCompilation.ForModel(model);
                 Assert.Contains("dr_names_tree",cache.MixedTargets);
                 Assert.Contains("dr_names_party",cache.MixedTargets);
+                if(cross)Assert.Contains("dr_names_area",cache.MixedTargets);
                 Assert.Contains("customer_"+label,cache.MixedSourceColumns["dr_names_order"]);
                 Assert.Contains("ProjectRelationMutationPropagator(session).AfterMutationAsync",service);
                 var published=assembly.GetType("Example.ScopedSingleRelation.Generated.GeneratedRelationMaintenance",true)!
                     .GetProperty("Catalog")!.GetValue(null);
                 Assert.Contains("dr_names_tree",Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(published).MixedTargets);
             }
-            if(globalWithProject is not null)
+            if(globalWithProject is not null&&!cross)
             {
                 catalog.ConfigTables.Single(table=>table.Id=="6").Extra.Remove("scopeKind");
                 Assert.Throws<NotSupportedException>(()=>Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(
