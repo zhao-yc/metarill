@@ -396,6 +396,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     var foreign=columns[table.Id].Values.Single(item=>item.Id==refresh.ForeignColumnId);var target=tables[refresh.TargetTableId];var value=columns[target.Id].Values.Single(item=>item.Id==refresh.ValueColumnId);
                     if(refresh.Multiple)return MultiDisplay(table,alias,foreign,value.ColumnName);
+                    if(refresh.CrossTableRecursivePageId is not null)return RecursiveCacheValue(table,alias,foreign,target,value,refresh);
                     // 标量级联缓存的精确目标由已验证定义确定，叶子无需伪装成普通List关系。
                     ValidateTarget(target);var crossGlobal=refresh.CrossTableColumnId is not null&&GlobalCrossTableTarget.Declared(target);
                     if(crossGlobal)_=CrossTableCacheProof.Require(catalog,table,foreign,target,value,column!,refresh,refreshMultiples);

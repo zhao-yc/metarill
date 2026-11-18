@@ -14,23 +14,11 @@ internal static partial class BackendRenderer
         var accountPages=candidateLevels.Where(level=>FixedPageConditionCompilation.HasAccountVariables(level.Page))
             .Select(level=>level.Page.Source.Id).ToHashSet(StringComparer.Ordinal);
         // 保留参与递归范围证明的表及其候选页，避免无关页面条件进入精简运行目录。
-        var scopedPages=new Queue<(TableModel Table,PageModel Page)>(
-            candidateLevels.Where(level=>FixedPageConditionCompilation.HasCrossFields(level.Page)).Select(level=>(level.Target,level.Page))
-                .Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>NonRedundantReadCompilation.GlobalSelectionPage(table,page)&&
-                    CrossTableWriteCompilation.ForService(model,table,page).Count>0).Select(page=>(table,page)))));
-        var nestedTables=new HashSet<string>(StringComparer.Ordinal);
-        var visitedPages=new HashSet<string>(StringComparer.Ordinal);
-        while(scopedPages.TryDequeue(out var scoped))
-        {
-            if(!visitedPages.Add(scoped.Page.Source.Id))continue;
-            nestedTables.Add(scoped.Table.Source.Id);
-            foreach(var dependency in CrossTableWriteCompilation.ForService(model,scoped.Table,scoped.Page).SelectMany(path=>path.Read.Levels))
-            {
-                nestedTables.Add(dependency.Target.Source.Id);
-                if(FixedPageConditionCompilation.HasCrossFields(dependency.Page))scopedPages.Enqueue((dependency.Target,dependency.Page));
-            }
-        }
-        var recursiveCandidates=visitedPages.Count>0;
+        var scopedPages=candidateLevels.Where(level=>FixedPageConditionCompilation.HasCrossFields(level.Page)).Select(level=>(level.Target,level.Page))
+            .Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>NonRedundantReadCompilation.GlobalSelectionPage(table,page)&&
+                CrossTableWriteCompilation.ForService(model,table,page).Count>0).Select(page=>(table,page))));
+        var nestedTables=RelationPropagationCompilation.PublishedRecursiveTables(model,scopedPages);
+        var recursiveCandidates=nestedTables.Count>0;
         var selfTreeNamePages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page)))
             .Select(tree=>tree.TargetPage.Source.Id).ToHashSet(StringComparer.Ordinal);
         var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog,accountPages,selfTreeNamePages,nestedTables),new JsonSerializerOptions(JsonSerializerDefaults.Web));

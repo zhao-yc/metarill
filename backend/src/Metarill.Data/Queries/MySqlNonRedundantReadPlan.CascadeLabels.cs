@@ -119,7 +119,7 @@ public static partial class MySqlNonRedundantReadCompiler
     }
 
     /// <summary>读页选择与原级联相同。只接受原账号等值条件与物理常量。</summary>
-    private static (PageMetadata Page,FixedConditionSqlPlan? Condition) CascadeLabelPage(
+    internal static (PageMetadata Page,FixedConditionSqlPlan? Condition) CascadeLabelPage(
         MetadataCatalog catalog, TableMetadata target, string name, string parent)
     {
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
@@ -179,9 +179,9 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly HashSet<string> cascadeCacheOwnerFields=new(StringComparer.Ordinal);
 
         /// <summary>读候选绑定请求账号。重算缓存绑定来源记录的物理归属，两条路径复用同一候选条件。</summary>
-        private string CascadeLabelCondition(TableMetadata target,PageMetadata page,FixedConditionSqlPlan condition,string alias,string prefix)
+        private string CascadeLabelCondition(TableMetadata target,PageMetadata page,FixedConditionSqlPlan condition,string alias,string prefix,CascadeCacheOwner? cacheOwner=null)
         {
-            if(cascadeCacheOwner is {} owner&&condition.Variables.Count>0)
+            if((cacheOwner??cascadeCacheOwner) is {} owner&&condition.Variables.Count>0)
             {
                 var proof=AccountScopedCrossCache.Compile(catalog,owner.Table,target,page);
                 cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));

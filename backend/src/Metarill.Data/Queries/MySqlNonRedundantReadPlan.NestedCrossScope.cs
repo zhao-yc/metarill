@@ -1,4 +1,5 @@
 using Metarill.Core.Metadata;
+using Metarill.Data.Relations;
 
 namespace Metarill.Data.Queries;
 
@@ -63,11 +64,27 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly HashSet<string> activeCrossScopePages=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlCrossTableProjection> scopedCrossProjections=new(StringComparer.Ordinal);
 
+        /// <summary>缓存通过已发布候选页求值，目标与内层依赖都进入原传播队列。</summary>
+        private (string Sql,string Type) RecursiveCacheValue(TableMetadata table,string owner,ColumnMetadata foreign,
+            TableMetadata target,ColumnMetadata value,RelationCacheDefinition definition)
+        {
+            var page=CrossTableCacheProof.RequireRecursivePage(catalog,target,value,definition);
+            var condition=CrossTableParentCondition.Compile(catalog,target,page,storage[target.Id],allowLogical:true).Plan!;
+            var logical=RequireCrossCondition(target,page,condition);
+            var sourceId=Resolve(table,owner,foreign.ColumnName);
+            var alias=Join(owner,foreign,target,sourceId.Sql,sourceId.Type,
+                validatedCrossGlobal:GlobalCrossTableTarget.Declared(target));
+            var level=new CrossLevel(target,value,null,new(page.Id,condition),page,logical);
+            var visible=NestedCrossCondition(level,alias,new(table,owner));
+            var name=Resolve(target,alias,value.ColumnName);
+            return ("CASE WHEN "+alias+".`id` IS NOT NULL AND "+visible+" THEN "+MySqlMultiValueLabel.Text(name.Sql,name.Type)+" END","string");
+        }
+
         /// <summary>同一条查询展开所需祖先，写入沿同一事务锁定全部联接。候选内部的存储校验不进入外层 VO。</summary>
-        private string NestedCrossCondition(CrossLevel level,string owner)
+        private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null)
         {
             var table=level.Table;
-            if(table.IsRongyu!=0||cascadeCacheOwner is not null||trackReverse)
+            if(table.IsRongyu!=0||cacheOwner is null&&(trackReverse||cascadeCacheOwner is not null))
                 throw new NotSupportedException("递归候选要求普通非冗余目标；缓存维护需独立证明实际来源行的范围。");
             if(!activeCrossScopePages.Add(level.Page.Id))
                 throw new InvalidOperationException("跨表级联候选页条件存在循环依赖。");
@@ -75,7 +92,8 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 var bindings=CrossMembershipBindings(catalog,table,level.Page,level.LogicalFields)
                     .ToDictionary(path=>path.SourceColumnId,StringComparer.Ordinal);
-                var clause=level.Scope.Condition!.RenderAccountProjection(new MySqlDatabaseProvider(),"mt_nested_"+(multiLabel?aliasPrefix:"")+owner,field=>
+                var parameterPrefix="mt_nested_"+(multiLabel?aliasPrefix:"")+owner;
+                string Projection(string field)
                 {
                     var column=Column(table,field);
                     if(!level.LogicalFields.Contains(field))
@@ -89,17 +107,29 @@ public static partial class MySqlNonRedundantReadCompiler
                         columns[table.Id].Values.Single(source=>source.Id==binding.SourceColumnId),field));
                     var group=SharedCrossGroup(table,path.SourceColumnId);
                     if(group is not null)
-                        return SharedCrossValue(table,owner,group,field,scopedBindings:bindings).Sql;
+                        return SharedCrossValue(table,owner,group,field,scopedBindings:bindings,cacheOwner:cacheOwner).Sql;
                     var source=columns[table.Id].Values.Single(item=>item.Id==path.SourceColumnId);
                     var selection=CrossTableSparseSelection.Compile(table,source.Id,columns[table.Id].Values);
-                    return CrossValue(table,owner,source,selection,path,field,scopeOnly:true).Sql;
-                });
-                foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
+                    return CrossValue(table,owner,source,selection,path,field,scopeOnly:true,cacheOwner:cacheOwner).Sql;
+                }
+                string predicate;
+                if(cacheOwner is {} row)
+                {
+                    var proof=AccountScopedCrossCache.CompileRecursive(catalog,row.Table,table,level.Page);
+                    cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
+                    predicate=AccountCacheScope(proof,table,owner,row.Alias,render:true,row.Table,parameterPrefix,Projection);
+                }
+                else
+                {
+                    var clause=level.Scope.Condition!.RenderAccountProjection(new MySqlDatabaseProvider(),parameterPrefix,Projection);
+                    foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
+                    predicate=clause.Sql;
+                }
 
                 // 空选择允许原 IS NULL；已存但不可见或无法恢复的节点不能冒充空值放宽候选。
                 var paths=scopedCrossProjections.Where(pair=>pair.Key.StartsWith(owner+":",StringComparison.Ordinal))
                     .Select(pair=>pair.Value);
-                return "("+string.Join(" AND ",new[]{clause.Sql}.Concat(ValidScopedPaths(paths)))+")";
+                return "("+string.Join(" AND ",new[]{predicate}.Concat(ValidScopedPaths(paths)))+")";
             }
             finally
             {

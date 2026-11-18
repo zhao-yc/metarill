@@ -1,15 +1,36 @@
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
+using Metarill.Data.Queries;
 namespace Metarill.Data.Relations;
 
 /// <summary>级联固定名称缓存使用控制列及层标识证明，不能把任意标量副本冒充普通名称辅助列。</summary>
 internal static class CrossTableCacheProof
 {
+    /// <summary>递归缓存绑定和原跨表读取相同的唯一可读目标页，不能替换为同表其它页。</summary>
+    internal static PageMetadata RequireRecursivePage(MetadataCatalog catalog,TableMetadata target,ColumnMetadata name,
+        RelationCacheDefinition definition)
+    {
+        if(target.IsRongyu!=0||definition.CrossTableRecursivePageId is not { } id)
+            throw new InvalidOperationException("递归名称缓存缺少已发布的非冗余候选页。");
+        var source=catalog.ConfigColumns.Single(column=>column.Id==definition.CrossTableColumnId&&column.ConfigTableId==definition.SourceTableId);
+        using var json=JsonDocument.Parse(source.ControlDetail);
+        var levels=json.RootElement.GetProperty("levels").EnumerateArray().ToArray();
+        var index=Array.FindIndex(levels,level=>Text(level,"key",Text(level,"table",""))==definition.CrossTableLevelKey);
+        if(index<0)throw new InvalidOperationException("递归名称缓存缺少固定层位。");
+        var parent=index==0?"":Text(levels[index],"parentField","");
+        var (page,condition)=MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,name.ColumnName,parent);
+        var scope=CrossTableParentCondition.Compile(catalog,target,page,MetadataStoragePolicy.ForTable(catalog,target),allowLogical:true);
+        if(page.Id!=id||scope is not {Allowed:true,HasLogical:true}||condition is null||
+            GlobalCrossTableTarget.Declared(target)&&definition.CrossTablePageId!=id)
+            throw new InvalidOperationException("递归名称缓存与已发布候选页的完整逻辑范围不一致。");
+        return page;
+    }
+
     /// <summary>完整检查固定链，返回所选层是否为物理字符串名称缓存；不读取业务库或接受SQL。</summary>
     internal static bool Require(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,ColumnMetadata cache,RelationCacheDefinition definition,IReadOnlyList<RelationCacheDefinition> definitions)
     {
-        if(definition.CrossTableColumnId is null&&definition.CrossTableLevelKey is null){if(definition.CrossTablePageId is not null||definition.CrossTableGlobalPages is not null||definition.CrossTableAccountPageId is not null)throw new InvalidOperationException("目标页不能脱离完整跨表控制列及层位。");return false;}
+        if(definition.CrossTableColumnId is null&&definition.CrossTableLevelKey is null){if(definition.CrossTablePageId is not null||definition.CrossTableGlobalPages is not null||definition.CrossTableAccountPageId is not null||definition.CrossTableRecursivePageId is not null)throw new InvalidOperationException("目标页不能脱离完整跨表控制列及层位。");return false;}
         if(definition.Multiple||string.IsNullOrWhiteSpace(definition.CrossTableColumnId)||string.IsNullOrWhiteSpace(definition.CrossTableLevelKey))throw new InvalidOperationException("跨表名称缓存缺少完整控制列及层标识。");
         var control=catalog.ConfigColumns.SingleOrDefault(x=>x.ConfigTableId==source.Id&&x.Id==definition.CrossTableColumnId);if(control is null||control.ControlKind!="CascadeTree"||control.IsVirtualColumn!=0||control.LogicalType is not("string" or "int64")||Enabled(control)||!MetadataStoragePolicy.ForTable(catalog,source).IsPhysical(control))throw new InvalidOperationException("跨表名称缓存控制列不是来源的真实级联ID。");
         using var json=JsonDocument.Parse(control.ControlDetail);var root=json.RootElement;Object(root);if(Text(root,"sourceMode","crossTable")!="crossTable"||Extra(root)||!root.TryGetProperty("levels",out var levels)||levels.ValueKind!=JsonValueKind.Array||levels.GetArrayLength()<2)throw new InvalidOperationException("跨表名称缓存必须使用完整固定层级。");
@@ -33,10 +54,20 @@ internal static class CrossTableCacheProof
                 if(definition.CrossTableGlobalPages?.TryGetValue(key,out var mapped)==true)candidates=candidates.Append(mapped);var pages=candidates.Where(value=>value is not null).Distinct(StringComparer.Ordinal).ToArray();
                 if(pages.Length!=1||string.IsNullOrWhiteSpace(pages[0]))throw new InvalidOperationException("全局跨表缓存缺少唯一冻结目标页。");
                 var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==pages[0])??throw new InvalidOperationException("全局跨表缓存目标页未发布。");
-                GlobalCrossTableTarget.RequireCrossTableName(catalog,node,page,name,allowAccount:true);
-                var hasAccount=FixedConditionPlan.Compile(page.WhereSql,storage.PhysicalColumns.Select(item=>item.ColumnName)).Variables.Count>0;
-                if(key==definition.CrossTableLevelKey&&hasAccount&&definition.CrossTableAccountPageId!=page.Id)
-                    throw new InvalidOperationException("全局账号名称缓存必须绑定该层的逐行回填计划。");
+                var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+                var logical=syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(node,columns,field));
+                if(logical)
+                {
+                    GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,node,page,name);
+                    if(key==definition.CrossTableLevelKey&&definition.CrossTableRecursivePageId!=page.Id)
+                        throw new InvalidOperationException("全局递归名称缓存必须绑定该层的逐行回填计划。");
+                }
+                else
+                {
+                    GlobalCrossTableTarget.RequireCrossTableName(catalog,node,page,name,allowAccount:true);
+                    if(key==definition.CrossTableLevelKey&&syntax.Variables.Count>0&&definition.CrossTableAccountPageId!=page.Id)
+                        throw new InvalidOperationException("全局账号名称缓存必须绑定该层的逐行回填计划。");
+                }
             }
             else if(key==definition.CrossTableLevelKey&&definition.CrossTablePageId is not null)throw new InvalidOperationException("普通跨表层不能冒用全局目标页证明。");
             if(previous is not null){var parent=columns.SingleOrDefault(x=>x.ColumnName==Text(level,"parentField",""));if(parent is null||parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id" or "insert_user_id" or "update_user_id"||parent.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList"||parent.LogicalType is not("string" or "int64")||!storage.IsPhysical(parent)||Enabled(parent)||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=previous.Id)throw new InvalidOperationException("跨表名称缓存父键不是已声明物理关系。");}

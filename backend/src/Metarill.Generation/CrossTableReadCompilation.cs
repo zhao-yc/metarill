@@ -43,9 +43,9 @@ internal static class CrossTableReadCompilation
                 }
                 if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))return Gap("目标缺少项目归属或明确全局声明。");
                 var pages=target.Pages.Where(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(candidate)&&candidate.Readable.Any(column=>column.Source.Id==name.Source.Id)&&(parent is null||candidate.Readable.Any(column=>column.Source.Id==parent.Source.Id))).ToArray();if(pages.Length!=1)return Gap("每级需要唯一且无目标父参数的可读页面。");
-                if(FixedPageConditionCompilation.HasCrossFields(pages[0])&&table.Source.IsRongyu!=0)
-                    return Gap("冗余来源缓存的递归条件仍需独立的来源行归属证明。");
-                if(FixedPageConditionCompilation.HasAccountVariables(pages[0])&&table.Source.IsRongyu==1)
+                // 递归R1的完整来源行归属在混合传播目录中一次性校验。
+                if(!FixedPageConditionCompilation.HasCrossFields(pages[0])&&
+                    FixedPageConditionCompilation.HasAccountVariables(pages[0])&&table.Source.IsRongyu==1)
                     _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,pages[0].Source);
                 if(target.IsGlobal)
                     Metarill.Core.Metadata.GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,target.Source,pages[0].Source,name.Source);

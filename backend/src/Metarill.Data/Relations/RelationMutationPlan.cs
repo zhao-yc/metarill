@@ -21,6 +21,9 @@ public sealed record RelationCacheDefinition(string SourceTableId,string Foreign
     /// <summary>账号过滤级联由按来源行匹配的维护计划处理，同一缓存不能进入逐账号传播器。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? CrossTableAccountPageId { get; init; }
+    /// <summary>固定递归候选页由混合维护计划按来源物理行重新求值。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CrossTableRecursivePageId { get; init; }
     /// <summary>自树全局叶子缓存只读取生成时选定的目标页。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? SelfTreePageId{get;init;}
@@ -59,8 +62,8 @@ public sealed class RelationMutationPlan
         }
         foreach(var definition in definitions.Distinct())
         {
-            if(definition.CrossTableAccountPageId is not null)
-                throw new InvalidOperationException("账号过滤的跨表缓存必须使用统一维护计划。");
+            if(definition.CrossTableAccountPageId is not null||definition.CrossTableRecursivePageId is not null)
+                throw new InvalidOperationException("账号或递归条件的跨表缓存必须使用统一维护计划。");
             if(!tables.TryGetValue(definition.SourceTableId,out var source)||!tables.TryGetValue(definition.TargetTableId,out var target))throw new InvalidOperationException("传播关系引用了未发布的表。");
             var foreign=columns[source.Id].GetValueOrDefault(definition.ForeignColumnId);var value=columns[target.Id].GetValueOrDefault(definition.ValueColumnId);var cache=columns[source.Id].GetValueOrDefault(definition.CacheColumnId);
             if(foreign is null||value is null||cache is null||foreign.Id==cache.Id||source.IsRongyu!=1)throw new InvalidOperationException("传播缓存必须属于冗余消费者的独立字段。");

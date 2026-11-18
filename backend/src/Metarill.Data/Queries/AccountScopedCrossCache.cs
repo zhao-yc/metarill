@@ -21,6 +21,15 @@ public sealed class AccountScopedCrossCache
     /// <summary>从全部已发布的来源页证明同一物理归属列，并将目标常量与账号等值分开编译。</summary>
     public static AccountScopedCrossCache Compile(MetadataCatalog catalog, TableMetadata source, TableMetadata target, PageMetadata targetPage)
     {
+        return Compile(catalog,source,target,targetPage,recursive:false);
+    }
+
+    /// <summary>递归候选允许逻辑字段的常量条件，账号等值仍须对应来源行真实物理归属。</summary>
+    internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage)
+        =>Compile(catalog,source,target,targetPage,recursive:true);
+
+    private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive)
+    {
         if (source.IsRongyu != 1 || targetPage.ConfigTableId != target.Id || GlobalCrossTableTarget.Declared(source) ||
             source.IsView != 0 || source.IsFunctionTable != 0 || target.IsView != 0 || target.IsFunctionTable != 0 ||
             targetPage.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length > 0)
@@ -28,7 +37,17 @@ public sealed class AccountScopedCrossCache
 
         var targets = Physical(catalog, target);
         var sources = Physical(catalog, source);
-        var syntax = FixedConditionPlan.Compile(targetPage.WhereSql, targets.Keys);
+        var types=targets.ToDictionary(pair=>pair.Key,pair=>pair.Value.LogicalType,StringComparer.Ordinal);
+        if(recursive)
+        {
+            var storage=MetadataStoragePolicy.ForTable(catalog,target);
+            if(CrossTableParentCondition.Compile(catalog,target,targetPage,storage,allowLogical:true) is not {Allowed:true,HasLogical:true})
+                throw Invalid();
+            var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
+            foreach(var column in columns.Where(column=>CrossTableStorageColumns.IsLogicalPathField(target,columns,column.ColumnName)))
+                types.TryAdd(column.ColumnName,column.LogicalType);
+        }
+        var syntax = FixedConditionPlan.Compile(targetPage.WhereSql, types.Keys);
         var constants = new List<FixedConditionTerm>();
         var account = new List<(ColumnMetadata Target, string Variable)>();
         foreach (var term in syntax.Terms)
@@ -42,15 +61,15 @@ public sealed class AccountScopedCrossCache
             if (term.Field == "yz_project_id" && variable.Equals("current_yz_project_id", StringComparison.OrdinalIgnoreCase) &&
                 !GlobalCrossTableTarget.Declared(target)) continue;
             if (term.Field == "yz_project_id" || !AccountConditionVariables.IsPageField(variable, term.Field) ||
-                targets[term.Field].LogicalType is not ("int32" or "int64" or "string")) throw Invalid();
-            account.Add((targets[term.Field], variable));
+                !targets.TryGetValue(term.Field,out var targetOwner)||targetOwner.LogicalType is not ("int32" or "int64" or "string")) throw Invalid();
+            account.Add((targetOwner, variable));
         }
 
         var pages = catalog.ConfigPages.Where(page => page.ConfigTableId == source.Id).ToArray();
-        if (account.Count == 0 || pages.Length == 0) throw Invalid();
+        if ((!recursive&&account.Count==0)||account.Count>0&&pages.Length==0) throw Invalid();
         var ownership = new List<(ColumnMetadata, ColumnMetadata)>();
         var sourceFields = MetadataStoragePolicy.ForTable(catalog,source).PhysicalColumns.Select(column=>column.ColumnName).ToArray();
-        var sourceTerms = pages.Select(page => FixedConditionPlan.Compile(page.WhereSql, sourceFields).Terms).ToArray();
+        var sourceTerms = account.Count==0?[]:pages.Select(page => FixedConditionPlan.Compile(page.WhereSql, sourceFields).Terms).ToArray();
         foreach (var (field, variable) in account)
         {
             var fields = sourceTerms.Select(terms => terms.Where(term => term.Field != "yz_project_id" &&
@@ -66,8 +85,7 @@ public sealed class AccountScopedCrossCache
         }
 
         var plan = constants.Count == 0 ? null : FixedConditionSqlPlan.Compile(
-            FixedConditionPlan.Compile(string.Join(" AND ", constants.Select(term => term.ToDefinition())), targets.Keys),
-            targets.ToDictionary(pair => pair.Key, pair => pair.Value.LogicalType, StringComparer.Ordinal));
+            FixedConditionPlan.Compile(string.Join(" AND ", constants.Select(term => term.ToDefinition())), types.Keys),types);
         return new(targetPage.Id, plan, ownership.AsReadOnly());
     }
 

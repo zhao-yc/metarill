@@ -16,7 +16,7 @@ public static class DerivedCrossTableCaches
             if(source.IsRongyu!=1||target.IsRongyu!=0&&d.CrossTableAccountPageId is null||GlobalCrossTableTarget.Declared(source)||source.IsView!=0||source.IsFunctionTable!=0||target.IsView!=0||target.IsFunctionTable!=0)throw new InvalidOperationException("派生跨表缓存要求普通R1来源及R0单值目标。");
             var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var columns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(c=>c.ConfigTableId==source.Id));var foreign=columns.SingleOrDefault(c=>c.Id==d.ForeignColumnId);var cache=columns.SingleOrDefault(c=>c.Id==d.CacheColumnId);var value=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id)).SingleOrDefault(c=>c.Id==d.ValueColumnId);
             if(foreign is null||cache is null||value is null||foreign.Id==cache.Id||!sourceStorage.IsPhysical(foreign)||Enabled(foreign)||!sourceStorage.IsPhysical(cache)||cache.IsVirtualColumn!=0||cache.LogicalType!="string"||foreign.LogicalType is not("string" or "int64")||value.IsVirtualColumn!=0||
-                (targetStorage.IsPhysical(value)?d.CrossTableAccountPageId is null:targetStorage.Kind(value)!=MetadataFieldStorage.Join&&!(d.Multiple&&targetStorage.Kind(value)==MetadataFieldStorage.RelationDisplay)))throw new InvalidOperationException("派生跨表关系ID、缓存或逻辑名称不明确。");
+                (targetStorage.IsPhysical(value)?d.CrossTableAccountPageId is null&&d.CrossTableRecursivePageId is null:targetStorage.Kind(value)!=MetadataFieldStorage.Join&&!(d.Multiple&&targetStorage.Kind(value)==MetadataFieldStorage.RelationDisplay)))throw new InvalidOperationException("派生跨表关系ID、缓存或逻辑名称不明确。");
             if(cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0||ExactDataManageValues.IsSensitiveField(cache.ColumnName)||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id)throw new InvalidOperationException("派生跨表缓存不属于同一固定关系。");
             if(global&&d.Multiple){var proof=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);if(proof.Name.Id!=value.Id)throw new InvalidOperationException("全局派生数组副本与固定名称来源不一致。");}
             foreach(var table in new[]{source,target})
@@ -25,6 +25,13 @@ public static class DerivedCrossTableCaches
             }
             foreach(var field in new[]{foreign,cache,value})if(field.YzProjectId.Length>0&&field.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("派生跨表字段超出发布项目。");
             var cross=CrossTableCacheProof.Require(catalog,source,foreign,target,value,cache,d,all);
+            if(d.CrossTableRecursivePageId is not null)
+            {
+                if(!cross||d.Multiple||d.SelfTreePageId is not null||d.CrossTableAccountPageId is not null)
+                    throw new InvalidOperationException("递归名称缓存必须绑定单一固定跨表层。");
+                var page=CrossTableCacheProof.RequireRecursivePage(catalog,target,value,d);
+                _=Metarill.Data.Queries.AccountScopedCrossCache.CompileRecursive(catalog,source,target,page);
+            }
             if(d.CrossTableAccountPageId is{} pageId)
             {
                 if(!cross||d.Multiple||d.SelfTreePageId is not null)throw new InvalidOperationException("账号过滤仅支持固定跨表名称缓存。");

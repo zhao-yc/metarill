@@ -19,7 +19,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private sealed record CrossLevel(TableMetadata Table,ColumnMetadata Name,ColumnMetadata? Parent,NonRedundantCrossTableTargetScope Scope,PageMetadata Page,IReadOnlySet<string> LogicalFields);
 
         /// <summary>一个控件只生成一条从末层向根的线性联接链，全部用途复用逻辑字段表达式。</summary>
-        private (string Sql,string Type) CrossValue(TableMetadata table,string owner,ColumnMetadata source,CrossTableSparseSelection selection,NonRedundantCrossTableScope binding,string name,bool labelPath=false,bool scopeOnly=false)
+        private (string Sql,string Type) CrossValue(TableMetadata table,string owner,ColumnMetadata source,CrossTableSparseSelection selection,NonRedundantCrossTableScope binding,string name,bool labelPath=false,bool scopeOnly=false,CascadeCacheOwner? cacheOwner=null)
         {
             origin=null;var key=owner+":"+source.Id;
             if(!crossValues.TryGetValue(key,out var values))
@@ -63,10 +63,10 @@ public static partial class MySqlNonRedundantReadCompiler
                     var slot=columns[table.Id][selection.Slots[index].ColumnName];if(slot.LinkConfigTableId.Length>0&&slot.LinkConfigTableId!=target.Id)throw new InvalidOperationException("跨表来源ID位与目标表声明不一致。");
                     var label=selection.Slots[index].ColumnName[..^3]+"_name";if(columns[table.Id].TryGetValue(label,out var declared)&&declared.LogicalType.ToLowerInvariant()!="string")throw new InvalidOperationException("跨表来源显示字段类型与逻辑名称不符。");
                     var logical=RequireCrossCondition(target,page,binding.Levels[index].Condition);
-                    if(global&&logical.Count>0)scopedGlobalCrossTarget=true;
+                    if(global&&(logical.Count>0||scopeOnly&&cacheOwner is not null))scopedGlobalCrossTarget=true;
                     levels.Add(new(target,display,parent,binding.Levels[index],page,logical));
                 }
-                if(trackReverse&&labelPath)
+                if(trackReverse&&(labelPath||scopeOnly))
                     foreach(var slot in selection.Slots)
                     {
                         Use(table,columns[table.Id][slot.ColumnName]);
@@ -82,7 +82,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var level=levels[index];var alias="cross"+aliases.Count;aliases.Add("cross:"+key+":"+index,alias);targetAliases[index]=alias;
                     var sourceText="CAST("+raw[selection.Slots[index].ColumnName]+" AS CHAR)";var effective="NULLIF(BINARY "+sourceText+",BINARY '')";
                     if(index+1<levels.Count){var parent=levels[index+1].Parent!;var parentValue=targetAliases[index+1]+"."+Q(parent.ColumnName);var parentText=parent.LogicalType.ToLowerInvariant()=="string"?PositiveText(parentValue):"CASE WHEN "+parentValue+">0 THEN CAST("+parentValue+" AS CHAR) END";effective="COALESCE("+effective+","+parentText+")";}
-                    if(trackReverse&&labelPath)
+                    if(trackReverse&&(labelPath||scopeOnly))
                     {
                         Touch(alias,"id");
                         if(level.Parent is {} parent)Touch(alias,parent.ColumnName);
@@ -92,15 +92,17 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(level.Scope.Condition is{} condition&&level.LogicalFields.Count==0)
                     {
                         var conditionSql=CascadeLabelCondition(level.Table,level.Page,condition,alias,
-                            "mt_cross_scope_"+(multiLabel?aliasPrefix:"")+alias);
+                            "mt_cross_scope_"+(multiLabel?aliasPrefix:"")+alias,cacheOwner);
                         // 缓存可见性从外层已锁来源行取值，校验有效路径时再使用它。
-                        if(cascadeCacheOwner is not null&&condition.Variables.Count>0)
+                        if((cacheOwner??cascadeCacheOwner) is not null&&condition.Variables.Count>0)
                             rowConditions[index]=" AND "+conditionSql;
                         else if(conditionSql.Length>0)scope+=(scope.Length==0?"":" AND ")+conditionSql;
                     }
-                    joins.Add(" LEFT JOIN "+Q(level.Table.TableName)+" "+alias+" ON BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+effective+(scope.Length==0?"":" AND "+scope));
+                    var join=" LEFT JOIN "+Q(level.Table.TableName)+" "+alias+" ON BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+effective+(scope.Length==0?"":" AND "+scope);
+                    joins.Add(join);
+                    if(refreshFields is not null)maintenanceJoins.Add((alias,join));
                     // 子路径联接使用本层别名，先发布本层联接，再用完整子路径限制本层是否可见。
-                    if(level.LogicalFields.Count>0)rowConditions[index]=" AND "+NestedCrossCondition(level,alias);
+                    if(level.LogicalFields.Count>0)rowConditions[index]=" AND "+NestedCrossCondition(level,alias,cacheOwner);
                 }
                 var paths=Enumerable.Range(0,levels.Count).Select(deepest=>"("+selected[deepest]+" AND "+string.Join(" AND ",targetAliases.Take(deepest+1).Select((alias,index)=>alias+".`id` IS NOT NULL"+rowConditions[index]))+")").ToArray();
                 var requireVisible=scopeOnly||GlobalCrossCandidate||ScopedRootControls.Contains(source.Id)||levels.Any(level=>level.Scope.Condition?.Variables.Count>0||level.LogicalFields.Count>0);
@@ -115,7 +117,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     // 来源varchar与目标CAST可能采用不同默认排序规则；逻辑ID显式保持二进制精确比较。
                     if(slot.LogicalType=="string")idExpression="CONVERT(("+idExpression+") USING utf8mb4) COLLATE utf8mb4_bin";
                     result.Add(slot.ColumnName,(idExpression,slot.LogicalType));
-                    if(trackReverse&&labelPath&&levels[index].Table.IsRongyu==1)Touch(targetAliases[index],levels[index].Name.ColumnName);
+                    if(trackReverse&&(labelPath||scopeOnly)&&levels[index].Table.IsRongyu==1)Touch(targetAliases[index],levels[index].Name.ColumnName);
                     var label=levels[index].Table.IsRongyu==0?Resolve(levels[index].Table,targetAliases[index],levels[index].Name.ColumnName).Sql:targetAliases[index]+"."+Q(levels[index].Name.ColumnName);
                     var text=MySqlMultiValueLabel.Text(label,levels[index].Name.LogicalType);
                     result.Add(slot.ColumnName[..^3]+"_name",("CASE WHEN "+string.Join(" OR ",paths.Skip(index))+" THEN "+text+" END","string"));
@@ -134,7 +136,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private static string Nonempty(string expression)=>"("+expression+" IS NOT NULL AND BINARY CAST("+expression+" AS CHAR)<>BINARY '')";
         /// <summary>名称回填和传播用相同来源行范围，目标归属及常量列加入反向依赖。</summary>
         private string AccountCacheScope(AccountScopedCrossCache account,TableMetadata target,string alias,string owner,bool render,
-            TableMetadata? sourceTable=null,string? parameterPrefix=null)
+            TableMetadata? sourceTable=null,string? parameterPrefix=null,Func<string,string>? projection=null)
         {
             var predicates=new List<string>();
             foreach(var (targetColumn,sourceColumn) in account.Ownership)
@@ -151,6 +153,7 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 var clause=constants.RenderConstants(new MySqlDatabaseProvider(),parameterPrefix??"mt_cross_cache_"+alias,field=>
                 {
+                    if(projection is not null)return projection(field);
                     Use(target,Column(target,field));Touch(alias,field);
                     return alias+"."+Q(field);
                 });

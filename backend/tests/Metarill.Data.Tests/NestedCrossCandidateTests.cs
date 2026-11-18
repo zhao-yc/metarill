@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
 using Metarill.Data.Queries;
+using Metarill.Data.Relations;
 using Xunit;
 
 namespace Metarill.Data.Tests;
@@ -97,6 +98,66 @@ public sealed class NestedCrossCandidateTests
         // 全局资格不允许跳过请求上下文或把逻辑键当成账号字段。
         page.WhereSql+=" AND yz_project_id=@current_yz_project_id";
         Assert.ThrowsAny<Exception>(()=>NonRedundantReads.CompileCrossPageCandidate(catalog,table.Id,page.Id,["id"],[]));
+    }
+
+    /// <summary>回填使用来源行归属；内层路径变化与直接改名都能找到需要更新的缓存。</summary>
+    [Theory]
+    [InlineData(false,false,true)]
+    [InlineData(true,false,false)]
+    [InlineData(false,true,false)]
+    [InlineData(true,true,true)]
+    public void Recursive_cache_tracks_nested_dependencies_and_binds_row_ownership(bool shared,bool global,bool account)
+    {
+        var catalog=Catalog(shared);
+        var source=catalog.ConfigTables.Single(table=>table.Id=="90");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="1");
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="11");
+        source.IsRongyu=1;
+        foreach(var table in catalog.ConfigTables)table.YzProjectId=catalog.YzProjectId;
+        if(global)
+        {
+            target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+            targetPage.YzAdminTypeId="5";
+        }
+        if(!account)targetPage.WhereSql="country_name <> '限制文字'";
+        catalog.ConfigPages.Add(new(){Id="900",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,
+            WhereSql=account?"store_id=@current_store_id":""});
+        catalog.ConfigColumns.Add(new(){Id="9010",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"});
+        var columns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id));
+        ColumnMetadata Field(string name)=>columns.Single(column=>column.ColumnName==name);
+        var definition=new RelationCacheDefinition(source.Id,Field("outer_root_id").Id,target.Id,
+            catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="name").Id,
+            Field("outer_root_name").Id,false)
+        {
+            CrossTableColumnId="9004",CrossTableLevelKey="nested_source",CrossTableRecursivePageId=targetPage.Id,
+            CrossTablePageId=global?targetPage.Id:null,
+            CrossTableGlobalPages=global?new Dictionary<string,string>{{"nested_source",targetPage.Id}}:null
+        };
+        var plan=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[definition]);
+        var read=plan.Plans[source.Id].Read!;
+        var mixed=Assert.Single(plan.Mixed.Consumers).Read;
+        Assert.Equal(new[]{"outer_root_name"},plan.MixedSourceColumns[source.TableName]);
+        Assert.Contains("nested_country",plan.MixedTargets);
+        Assert.Contains("nested_place",plan.MixedTargets);
+        Assert.Contains("nested_source",plan.MixedTargets);
+        Assert.Equal(shared,plan.MixedTargets.Contains("nested_warehouse"));
+        Assert.Contains("CASE WHEN",read.Expression("outer_root_name"));
+        Assert.Contains("限制文字",read.Constants.Values);
+        Assert.Equal(account,read.Expression("outer_root_name").Contains("b.`store_id`",StringComparison.Ordinal));
+        Assert.Matches(@"cross\d+\.`yz_project_id`=@project_scope_number",read.From);
+        Assert.Equal(!global,read.From.Contains("r0.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
+        Assert.Contains("`offline`.`nested_country`",read.QualifiedMaintenanceFrom("`offline`"));
+        var country=catalog.ConfigTables.Single(table=>table.TableName=="nested_country");
+        var countryName=catalog.ConfigColumns.Single(column=>column.ConfigTableId==country.Id&&column.ColumnName is "name" or "title").ColumnName;
+        Assert.Contains(read.PhysicalReferences,reference=>reference.Table==country.TableName&&reference.Column.Name==countryName);
+        Assert.Contains(mixed.Reverse,path=>path.TargetTable==country.TableName&&path.Outputs["outer_root_name"].Contains(countryName));
+        if(account)
+        {
+            catalog.ConfigPages.Add(new(){Id="901",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId});
+            Assert.ThrowsAny<Exception>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[definition]));
+        }
+        Assert.ThrowsAny<Exception>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[definition with{CrossTableRecursivePageId="91"}]));
     }
 
     [Fact]

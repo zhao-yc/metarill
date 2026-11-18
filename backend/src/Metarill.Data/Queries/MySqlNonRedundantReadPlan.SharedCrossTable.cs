@@ -16,7 +16,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
         /// <summary>显式绑定所有同伴范围，冲突值使计数和每行读取均失败，不静默选COALESCE的第一个来源。</summary>
         private (string Sql,string Type) SharedCrossValue(TableMetadata table,string owner,SharedCrossTableSparseSelection group,string name,bool labelPath=false,
-            IReadOnlyDictionary<string,NonRedundantCrossTableScope>? scopedBindings=null)
+            IReadOnlyDictionary<string,NonRedundantCrossTableScope>? scopedBindings=null,CascadeCacheOwner? cacheOwner=null)
         {
             var projections=scopedBindings is null?crossProjections:scopedCrossProjections;
             var bindings=scopedBindings??crossTables;
@@ -35,7 +35,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         // 全局目标沿用单链发布／固定条件证明，来源项目与共享同伴页面仍分别核验。
                         if(GlobalCrossTableTarget.Declared(target)){var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==scope.PageId&&p.ConfigTableId==target.Id)??throw new InvalidOperationException("共享全局目标页与实际目标表不符。");GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,page);}if(scopes.TryGetValue(slot.ColumnName,out var old)&&(old.PageId!=scope.PageId||!SameSharedCondition(old.Condition,scope.Condition)))throw new InvalidOperationException("共享稀疏同一槽的候选页或固定条件不一致。");scopes[slot.ColumnName]=scope;
                     }
-                    _=CrossValue(table,owner,control,group.BranchSelection(branch.SourceColumnId),binding,branch.Slots[^1].ColumnName,labelPath,scopeOnly:scopedBindings is not null);
+                    _=CrossValue(table,owner,control,group.BranchSelection(branch.SourceColumnId),binding,branch.Slots[^1].ColumnName,labelPath,scopeOnly:scopedBindings is not null,cacheOwner:cacheOwner);
                 }
                 var values=group.Branches.Select(b=>crossValues[owner+":"+b.SourceColumnId]).ToArray();var clauses=new List<string>();
                 foreach(var slot in group.Slots)

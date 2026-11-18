@@ -7,6 +7,7 @@ internal sealed record RelationPropagationBinding(TableModel Source,ColumnModel 
     internal IReadOnlyDictionary<string,string>? CrossTableGlobalPages{get;init;}
     internal string? SelfTreePageId{get;init;}
     internal string? CrossTableAccountPageId { get; init; }
+    internal string? CrossTableRecursivePageId { get; init; }
 }
 /// <summary>下发已证明的普通多值及跨表级联物理名称依赖，平台固定配置仍由其专用协调器维护。</summary>
 internal static class RelationPropagationCompilation
@@ -25,11 +26,20 @@ internal static class RelationPropagationCompilation
             {
                 var globalPages=plan.Read.Levels.Any(level=>level.Target.IsGlobal&&
                     (level.Target.Source.IsRongyu==0||FixedPageConditionCompilation.HasAccountVariables(level.Page)))||SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is not null?GlobalPages(plan):null;
-                foreach(var level in plan.Levels)result.Add(new(table,level.Id,level.Read.Target,level.Read.Name,level.Name,false,plan.Read.Source.Source.Id,level.Read.Key,level.Read.Target.IsGlobal?level.Read.Page.Source.Id:null){CrossTableGlobalPages=globalPages,CrossTableAccountPageId=FixedPageConditionCompilation.HasAccountVariables(level.Read.Page)?level.Read.Page.Source.Id:null});
+                foreach(var level in plan.Levels)
+                {
+                    var recursive=FixedPageConditionCompilation.HasCrossFields(level.Read.Page);
+                    result.Add(new(table,level.Id,level.Read.Target,level.Read.Name,level.Name,false,plan.Read.Source.Source.Id,level.Read.Key,level.Read.Target.IsGlobal?level.Read.Page.Source.Id:null)
+                    {
+                        CrossTableGlobalPages=globalPages,
+                        CrossTableAccountPageId=!recursive&&FixedPageConditionCompilation.HasAccountVariables(level.Read.Page)?level.Read.Page.Source.Id:null,
+                        CrossTableRecursivePageId=recursive?level.Read.Page.Source.Id:null
+                    });
+                }
             }
         }
         foreach(var group in result.GroupBy(binding=>(binding.Source.Source.Id,binding.Cache.Source.Id)))
-            if(group.Select(binding=>(binding.Foreign.Source.Id,binding.Target.Source.Id,binding.Value.Source.Id,binding.Multiple,binding.CrossTableColumnId,binding.CrossTableLevelKey,binding.CrossTablePageId,binding.SelfTreePageId,binding.CrossTableAccountPageId,PagesIdentity(binding.CrossTableGlobalPages))).Distinct().Count()!=1&&!group.All(binding=>SharedCrossTableCompilation.Equivalent(model,group.First(),binding)))throw new InvalidOperationException("同一名称缓存存在相互冲突的页面关系定义，未发布传播计划。");
+            if(group.Select(binding=>(binding.Foreign.Source.Id,binding.Target.Source.Id,binding.Value.Source.Id,binding.Multiple,binding.CrossTableColumnId,binding.CrossTableLevelKey,binding.CrossTablePageId,binding.SelfTreePageId,binding.CrossTableAccountPageId,binding.CrossTableRecursivePageId,PagesIdentity(binding.CrossTableGlobalPages))).Distinct().Count()!=1&&!group.All(binding=>SharedCrossTableCompilation.Equivalent(model,group.First(),binding)))throw new InvalidOperationException("同一名称缓存存在相互冲突的页面关系定义，未发布传播计划。");
         var bindings=result.GroupBy(binding=>(binding.Source.Source.Id,binding.Cache.Source.Id)).Select(group=>group.OrderByDescending(binding=>binding.CrossTableColumnId==binding.Foreign.Source.Id).ThenBy(binding=>binding.CrossTableColumnId,StringComparer.Ordinal).First()).OrderBy(binding=>binding.Source.Source.TableName,StringComparer.Ordinal).ThenBy(binding=>binding.Cache.Source.ColumnName,StringComparer.Ordinal).ToArray();
         var physical=bindings.Where(binding=>!Derived(model,binding)).ToArray();var derived=bindings.Where(binding=>Derived(model,binding)).ToArray();if(physical.Length>0)_=RelationMutationPlan.Compile(model.Catalog,Definitions(physical));if(derived.Length>0)DerivedCrossTableCaches.Validate(model.Catalog,Definitions(derived),Definitions(physical));return bindings;
     }
@@ -39,11 +49,12 @@ internal static class RelationPropagationCompilation
     internal static IReadOnlyList<RelationPropagationBinding> DerivedBindings(GenerationModel model)=>AllBindings(model).Where(binding=>Derived(model,binding)).ToArray();
     /// <summary>以逻辑存储计划判断，不把R0表的真实物理名称误作派生。</summary>
     private static bool Derived(GenerationModel model,RelationPropagationBinding binding)=>
-        binding.CrossTableAccountPageId is not null||!NonRedundantReadCompilation.Physical(model,binding.Target,binding.Value);
+        binding.CrossTableAccountPageId is not null||binding.CrossTableRecursivePageId is not null||
+        !NonRedundantReadCompilation.Physical(model,binding.Target,binding.Value);
     /// <summary>只有静态绑定的精确来源才发布传播能力，不按后缀扩大范围。</summary>
     internal static bool Supports(GenerationModel model,TableModel table,ColumnModel source)=>Bindings(model).Concat(DerivedBindings(model)).Any(binding=>binding.Source.Source.Id==table.Source.Id&&binding.Foreign.Source.Id==source.Source.Id);
     /// <summary>稳定ID是编译器与数据层之间唯一的关系输入，不传SQL或客户端路径。</summary>
-    internal static RelationCacheDefinition[] Definitions(IReadOnlyList<RelationPropagationBinding> bindings)=>bindings.Select(binding=>new RelationCacheDefinition(binding.Source.Source.Id,binding.Foreign.Source.Id,binding.Target.Source.Id,binding.Value.Source.Id,binding.Cache.Source.Id,binding.Multiple){CrossTableColumnId=binding.CrossTableColumnId,CrossTableLevelKey=binding.CrossTableLevelKey,CrossTablePageId=binding.CrossTablePageId,CrossTableGlobalPages=binding.CrossTableGlobalPages,SelfTreePageId=binding.SelfTreePageId,CrossTableAccountPageId=binding.CrossTableAccountPageId}).ToArray();
+    internal static RelationCacheDefinition[] Definitions(IReadOnlyList<RelationPropagationBinding> bindings)=>bindings.Select(binding=>new RelationCacheDefinition(binding.Source.Source.Id,binding.Foreign.Source.Id,binding.Target.Source.Id,binding.Value.Source.Id,binding.Cache.Source.Id,binding.Multiple){CrossTableColumnId=binding.CrossTableColumnId,CrossTableLevelKey=binding.CrossTableLevelKey,CrossTablePageId=binding.CrossTablePageId,CrossTableGlobalPages=binding.CrossTableGlobalPages,SelfTreePageId=binding.SelfTreePageId,CrossTableAccountPageId=binding.CrossTableAccountPageId,CrossTableRecursivePageId=binding.CrossTableRecursivePageId}).ToArray();
     /// <summary>派生级联或共享控制列携带完整全局页映射，供独立维护编译验证同一层链。</summary>
     internal static IReadOnlyDictionary<string,string>? GlobalPages(CrossTableWriteModel plan)
     {
@@ -59,7 +70,7 @@ internal static class RelationPropagationCompilation
         foreach(var definition in definitions)
         {
             if(definition.SelfTreePageId is{} treePage)pages.Add(treePage);
-            if(definition.CrossTableAccountPageId is{} accountPage)
+            if((definition.CrossTableAccountPageId??definition.CrossTableRecursivePageId) is{} accountPage)
             {
                 pages.Add(accountPage);
                 pages.UnionWith(model.Catalog.ConfigPages.Where(page=>page.ConfigTableId==definition.SourceTableId).Select(page=>page.Id));
@@ -69,6 +80,34 @@ internal static class RelationPropagationCompilation
         }
         return pages;
     }
+    /// <summary>维护和生成读取目录保留实际递归候选涉及的页面、控件和可见性声明。</summary>
+    internal static IReadOnlySet<string> PublishedRecursiveTables(GenerationModel model,IEnumerable<(TableModel Table,PageModel Page)> roots)
+    {
+        var pending=new Queue<(TableModel Table,PageModel Page)>(roots);
+        var tables=new HashSet<string>(StringComparer.Ordinal);
+        var visited=new HashSet<string>(StringComparer.Ordinal);
+        while(pending.TryDequeue(out var root))
+        {
+            if(!visited.Add(root.Page.Source.Id))continue;
+            tables.Add(root.Table.Source.Id);
+            foreach(var dependency in CrossTableWriteCompilation.ForService(model,root.Table,root.Page).SelectMany(path=>path.Read.Levels))
+            {
+                tables.Add(dependency.Target.Source.Id);
+                if(FixedPageConditionCompilation.HasCrossFields(dependency.Page))
+                    pending.Enqueue((dependency.Target,dependency.Page));
+            }
+        }
+        return tables;
+    }
+    /// <summary>精简维护目录与生成校验使用同一页范围，宿主可重新证明递归依赖。</summary>
+    internal static MetadataCatalog PublishedMaintenanceMetadata(GenerationModel model,IReadOnlyList<RelationCacheDefinition> definitions)
+    {
+        var recursive=definitions.Select(item=>item.CrossTableRecursivePageId).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        var roots=model.Tables.SelectMany(table=>table.Pages.Where(page=>recursive.Contains(page.Source.Id)).Select(page=>(table,page)));
+        return GenerationMetadataPublisher.ForRelations(model.Catalog,PublishedCascadePages(model,definitions),
+            nestedTables:PublishedRecursiveTables(model,roots));
+    }
+
     /// <summary>映射按稳定键比较，不把字典引用或插入顺序当作不同权限范围。</summary>
     internal static string PagesIdentity(IReadOnlyDictionary<string,string>? pages)=>pages is null?"":System.Text.Json.JsonSerializer.Serialize(pages.OrderBy(pair=>pair.Key,StringComparer.Ordinal).ToArray());
 
