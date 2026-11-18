@@ -84,11 +84,11 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         /// <summary>从来源行的固定可见级联还原父键，所有同伴的冲突及不可见路径都必须拒绝。</summary>
-        private string LogicalRelationSourceParent(TableMetadata table,string owner,MultiSourceParent source)
+        private string LogicalRelationSourceParent(TableMetadata table,string owner,MultiSourceParent source,CascadeCacheOwner? cacheOwner=null)
         {
             var nested=table.Id!=root.Id||owner!=rootAlias;
-            if(table.IsRongyu!=0||refreshFields is not null||nested&&trackReverse)
-                throw new NotSupportedException("逻辑来源父要求非冗余实时读取，维护用途须另证来源行归属。");
+            if(table.IsRongyu!=0||cacheOwner is null&&(refreshFields is not null||nested&&trackReverse))
+                throw new NotSupportedException("逻辑来源父要求非冗余来源，维护用途须证明实际缓存行归属。");
             var field=source.Column.ColumnName;
             var fields=new HashSet<string>(StringComparer.Ordinal){field};
             var bindings=source.LogicalPages.SelectMany(page=>CrossMembershipBindings(catalog,table,page,fields))
@@ -97,7 +97,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(nested)
             {
                 // 先联接中间来源的实际祖先，再用其父键限制后续目标。外层记录不承担中间路径的存储有效性。
-                value=ScopedCrossField(table,owner,bindings.ToDictionary(binding=>binding.SourceColumnId,StringComparer.Ordinal),field);
+                value=ScopedCrossField(table,owner,bindings.ToDictionary(binding=>binding.SourceColumnId,StringComparer.Ordinal),field,cacheOwner);
             }
             else
             {

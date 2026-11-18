@@ -453,7 +453,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 MultiCandidateParent is {Logical:true}&&ScopedRootControls.Count>0,RequiredMultiParent=MultiParentOwner is null?MultiCandidateParent?.Target.ColumnName:null,CandidateParents=candidateParents,AggregateFrom=aggregateFrom,CascadeLabelOutputs=cascadeLabelOutputs.ToFrozenSet(StringComparer.OrdinalIgnoreCase),CascadeLabelPages=cascadeLabelPages.ToFrozenSet(StringComparer.Ordinal),CascadeCacheOwnerFields=cascadeCacheOwnerFields.ToFrozenSet(StringComparer.Ordinal),ImportMatchLock=importLock,ScalarCacheTarget=maintenanceJoins.Count==1?scalarCacheTarget:null,RequiresPublishedProjectIdentity=globalSource||globalDerivedSource||physicalCandidate||trackReverse&&globalDerivedAliases.Count>0||publishedArrayIdentity||scopedGlobalCrossTarget};
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
-        private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name)
+        private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name,CascadeCacheOwner? singleCacheOwner=null)
         {
             MetadataValidation.RequireIdentifier(name);var key=table.Id+":"+name;
             if(!resolving.Add(key))throw new InvalidOperationException("非冗余字段存在循环依赖。");
@@ -561,9 +561,24 @@ public static partial class MySqlNonRedundantReadCompiler
                     {
                         var path=(alias==rootAlias&&table.Id==root.Id&&refreshPaths.TryGetValue(column.ColumnName,out var refreshPath)?refreshPath:Text(column,"columnFullName")).Split('.');if(path.Length<2||path.Any(string.IsNullOrWhiteSpace))throw new InvalidOperationException("联接字段缺少有效来源路径。");
                         var current=table;var currentAlias=alias;
+                        List<string>? visibility=null;
                         foreach(var segment in path[..^1])
-                        {MetadataValidation.RequireIdentifier(segment);var relation=columns[current.Id].GetValueOrDefault(segment+"_id")??columns[current.Id].GetValueOrDefault(segment)??throw new InvalidOperationException("联接路径关系不存在。");var target=Target(relation);var id=Resolve(current,currentAlias,relation.ColumnName);currentAlias=Join(currentAlias,relation,target,id.Sql,id.Type,ordinaryRelation:true);current=target;}
-                        return Resolve(current,currentAlias,path[^1]);
+                        {
+                            MetadataValidation.RequireIdentifier(segment);
+                            var relation=columns[current.Id].GetValueOrDefault(segment+"_id")??columns[current.Id].GetValueOrDefault(segment)
+                                ??throw new InvalidOperationException("联接路径关系不存在。");
+                            var target=Target(relation);var id=Resolve(current,currentAlias,relation.ColumnName);
+                            if(singleCacheOwner is {} row&&GlobalCrossTableTarget.Declared(target)&&
+                                JoinNestedSingleCache(current,currentAlias,relation,target,id,row) is {} joined)
+                            {
+                                currentAlias=joined.Alias;
+                                (visibility??=new()).Add(joined.Visibility);
+                            }
+                            else currentAlias=Join(currentAlias,relation,target,id.Sql,id.Type,ordinaryRelation:true);
+                            current=target;
+                        }
+                        var value=Resolve(current,currentAlias,path[^1],singleCacheOwner);
+                        return visibility is null?value:("CASE WHEN "+string.Join(" AND ",visibility)+" THEN "+value.Sql+" END",value.Type);
                     }
                     if(kind is MetadataFieldStorage.Virtual or MetadataFieldStorage.Layout)throw new NotSupportedException("当前单值计划不支持虚拟或布局读取字段。");
                     if(name is "insert_manager_real_name" or "update_manager_real_name")
@@ -656,7 +671,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var key=Column(target,"id");if(key.LogicalType!="int64"||key.IsDbNotNull!=1||!storage[target.Id].IsPhysical(key))throw new InvalidOperationException("关联目标必须使用非空int64物理主键。");
         }
         /// <summary>同一路径复用别名，不同角色到同表和自关联分别命名。</summary>
-        private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType,bool validatedCrossGlobal=false,bool ordinaryRelation=false,PageMetadata? cachePage=null,AccountScopedCrossCache? account=null)
+        private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType,bool validatedCrossGlobal=false,bool ordinaryRelation=false,PageMetadata? cachePage=null,AccountScopedCrossCache? account=null,bool scopedCacheLink=false)
         {
             // 生成的单值控件将物理字符串外键保存为规范整数文本。读联接按同一表示匹配，避免相邻 bigint 被折叠。
             var fixedTextKey = sourceType=="string" && ordinaryRelation &&
@@ -695,7 +710,8 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             // 混合文本或浮点键可能发生近似比较，同一源值可能匹配多个大整数主键。
             aggregateJoinsPreserveCardinality &= sourceType is "int64" or "int32";
-            var path=ownerAlias+":"+relation.Id+(cachePage is null?"":":"+cachePage.Id)+(account is null?"":":account:"+account.PageId);
+            var path=ownerAlias+":"+relation.Id+(cachePage is null?"":":"+cachePage.Id)+(account is null?"":":account:"+account.PageId)+
+                (scopedCacheLink?":scoped-cache:"+output:"");
             var directSave=refreshFields is not null&&ordinaryRelation&&ownerAlias==rootAlias&&storage[root.Id].IsPhysical(relation)&&source==ownerAlias+"."+Q(relation.ColumnName);
             if(aliases.TryGetValue(path,out var existing))
             {

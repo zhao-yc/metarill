@@ -75,8 +75,10 @@ public sealed class DerivedRelationNamesTests
     [InlineData(false,true,true,true,false,true,true,true,true,true,true,true)]
     [InlineData(true,false,true,true,false,true,false,false,false,false,true,true)]
     [InlineData(true,true,true,false,true,true,false,false,true,true)]
+    [InlineData(false,true,true,false,false,true,true,true,true,true,true,true,true)]
+    [InlineData(true,false,true,true,false,true,false,false,false,false,true,true,true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false)
+        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -246,8 +248,10 @@ public sealed class DerivedRelationNamesTests
             catalog.ConfigTables.Single(table=>table.Id=="1").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             if(selection)catalog.ConfigPages.Single(page=>page.Id=="101").Extra["type"]=JsonSerializer.SerializeToElement(1);
             var display=catalog.ConfigColumns.Single(column=>column.Id=="113").ColumnName;
-            catalog.ConfigTables.Add(new(){Id="8",TableName=prefix+"_observer",IsRongyu=0});
-            catalog.ConfigPages.Add(new(){Id="801",ConfigTableId="8",WhereSql="scope_country_id=@parent_id",IsImport=1,IsExport=1});
+            catalog.ConfigTables.Add(new(){Id="8",TableName=prefix+"_observer",IsRongyu=nestedCache?1:0});
+            catalog.ConfigPages.Add(new(){Id="801",ConfigTableId="8",WhereSql="scope_country_id=@parent_id"+
+                (nestedCache?" AND store_id=@current_store_id":""),IsImport=1,IsExport=1});
+            if(nestedCache)catalog.ConfigColumns.Add(new(){Id="86",ConfigTableId="8",ColumnName="store_id",LogicalType="int64"});
             catalog.ConfigColumns.AddRange([
                 new(){Id="81",ConfigTableId="8",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
                 new(){Id="82",ConfigTableId="8",ColumnName="yz_project_id",LogicalType="int64"},
@@ -360,6 +364,17 @@ public sealed class DerivedRelationNamesTests
                 Assert.Contains("Export801Async",observer);
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
                     assembly.GetType("Example.ScopedSingleRelation.Generated.Services.DrNamesObserverService",true)!.TypeHandle);
+                if(nestedCache)
+                {
+                    var cache=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                        assembly.GetType("Example.ScopedSingleRelation.Generated.GeneratedRelationMaintenance",true)!
+                            .GetProperty("Catalog")!.GetValue(null));
+                    Assert.Contains("dr_names_tree",cache.MixedTargets);
+                    Assert.Contains("dr_names_area",cache.MixedTargets);
+                    Assert.Contains("dr_names_party",cache.MixedTargets);
+                    Assert.Contains("dr_names_order",cache.MixedTargets);
+                    Assert.Contains("dr_names_observer",cache.MixedSourceColumns.Keys);
+                }
             }
 
             if(redundant)

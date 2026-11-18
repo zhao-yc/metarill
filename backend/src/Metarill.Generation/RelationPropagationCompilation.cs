@@ -166,6 +166,8 @@ internal static class RelationPropagationCompilation
             model.Catalog.ConfigTables.Single(table=>table.Id==item.SourceTableId),item.SelfTreePageId)).Select(item=>item.SelfTreePageId!);
         // 维护目录保留来源页的选择控件覆盖，重新验证副本的固定实际目标。
         var scopedTables=PublishedRecursiveTables(model,roots).ToHashSet(StringComparer.Ordinal);
+        var scalarReferences=DerivedCrossTableCaches.ScopedSingleReferencedTables(model.Catalog,definitions);
+        scopedTables.UnionWith(model.Tables.Where(table=>scalarReferences.Contains(table.Source.TableName)).Select(table=>table.Source.Id));
         scopedTables.UnionWith(definitions.Where(definition=>definition.ScopedSinglePageId is not null&&
             model.Tables.Any(table=>table.Source.Id==definition.TargetTableId&&!table.IsGlobal))
             .Select(definition=>definition.SourceTableId));

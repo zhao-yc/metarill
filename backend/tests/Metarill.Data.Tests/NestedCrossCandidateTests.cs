@@ -337,12 +337,14 @@ public sealed class NestedCrossCandidateTests
                 Assert.Contains("b.`origin_alt_id`",plan.MySql.From);
                 Assert.All(plan.MySql.Crosses,projection=>Assert.NotNull(projection.SharedGroupKey));
                 // 只声明逻辑父的页面同样是固定候选，写入必须以绑定后的路径限定。
+                var priorScope=page.WhereSql;
                 page.WhereSql="country_id=@parent_id";
                 var onlyParent=NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,page.Id,["id","name"],[]);
                 var scoped=NonRedundantCrossTableScopeSql.ApplyCandidate(session.Select<ScopeRow>(),session,onlyParent,
                     "only_parent",actor.ProjectId,false,"9007199254740993").ToSql();
                 Assert.Contains("CASE WHEN",scoped);
                 Assert.Contains("@only_parent_parent",scoped);
+                page.WhereSql=priorScope;
             }
             if(nested)
             {
@@ -380,6 +382,34 @@ public sealed class NestedCrossCandidateTests
                 // 查询及聚合必须保留目标联接条件引用的中间路径别名。
                 Assert.Null(chained.MySql.AggregateFrom);
                 Assert.Contains("b.`yz_project_id`=@project_scope_number",chained.MySql.Scope);
+
+                // 根缓存行的实际门店用于终端和级联的维护，不引入请求账号参数。
+                catalog.ConfigTables.Single(table=>table.Id=="98").IsRongyu=1;
+                catalog.ConfigColumns.Add(new(){Id="9806",ConfigTableId="98",ColumnName="store_id",LogicalType="int64"});
+                var observerPage=catalog.ConfigPages.Single(item=>item.Id=="980");
+                observerPage.WhereSql+=" AND store_id=@current_store_id";
+                var binding=new RelationCacheDefinition("98","9804","90","9015","9805",false){ScopedSinglePageId="900"};
+                var nestedMaintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+                var nestedConsumer=Assert.Single(nestedMaintenance.Mixed.Consumers,item=>item.Table.Option.Id=="98");
+                const string cache="middle_shared_name";
+                var read=nestedConsumer.Read;
+                Assert.False(read.RequiresAccount);
+                Assert.Contains("b.`store_id`",read.Expression(cache));
+                Assert.Contains("r0.`origin_place_id`",read.Expression(cache));
+                Assert.Contains("b.`scope_country_id`",read.Expression(cache));
+                Assert.Contains("nested_place",read.FromForFields([cache]));
+                Assert.Empty(read.Crosses);
+                Assert.Contains("store_id",nestedConsumer.Inputs);
+                var edges=read.Reverse.Where(item=>item.Outputs.ContainsKey(cache)).ToArray();
+                Assert.Contains(edges,item=>item.TargetTable=="nested_outer"&&item.Outputs[cache].Contains("shared_id")&&
+                    item.Outputs[cache].Contains("origin_place_id"));
+                Assert.Contains(edges,item=>item.TargetTable=="nested_source"&&item.Outputs[cache].Contains("name")&&
+                    item.Outputs[cache].Contains("store_id"));
+                Assert.Contains(edges,item=>item.TargetTable=="nested_place"&&item.Outputs[cache].Contains("area_id"));
+                Assert.Contains(edges,item=>item.TargetTable=="nested_country"&&item.From.Contains("nested_observer",StringComparison.Ordinal));
+                Assert.All(edges,item=>Assert.StartsWith(" FROM `nested_observer` b",item.From));
+                observerPage.WhereSql="scope_country_id=@parent_id";
+                Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));
                 return;
             }
             // 发布中新增另一无父来源页会让同一字段无法确定范围，应在编译时拒绝。

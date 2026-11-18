@@ -62,6 +62,27 @@ public static class DerivedCrossTableCaches
         }
         if(all.GroupBy(d=>(d.SourceTableId,d.CacheColumnId)).Any(g=>g.Distinct().Count()!=1))throw new InvalidOperationException("同一缓存存在相互冲突的物理／派生绑定。");
     }
+    /// <summary>发布目录按实际维护计划保留多层单值名称涉及的表及页面范围。</summary>
+    public static IReadOnlySet<string> ScopedSingleReferencedTables(MetadataCatalog catalog,IReadOnlyList<RelationCacheDefinition> definitions)
+    {
+        var referenced=new HashSet<string>(StringComparer.Ordinal);
+        var byTable=definitions.Where(definition=>definition.ScopedSinglePageId is not null)
+            .Where(definition=>
+            {
+                var target=catalog.ConfigTables.Single(table=>table.Id==definition.TargetTableId);
+                var value=catalog.ConfigColumns.Single(column=>column.Id==definition.ValueColumnId);
+                return GlobalCrossTableTarget.Declared(target)&&!MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(value);
+            }).GroupBy(definition=>definition.SourceTableId);
+        foreach(var group in byTable)
+        {
+            var bindings=group.ToArray();
+            var outputs=bindings.Select(binding=>catalog.ConfigColumns.Single(column=>column.Id==binding.CacheColumnId).ColumnName).ToArray();
+            var read=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,group.Key,outputs,bindings);
+            referenced.UnionWith(read.PhysicalReferences.Select(reference=>reference.Table));
+        }
+        return referenced;
+    }
+
     /// <summary>固定单值副本只绑定原表级关系、同类型物理缓存及实际目标页。</summary>
     private static void RequireScopedSingle(MetadataCatalog catalog,TableMetadata source,TableMetadata target,RelationCacheDefinition definition)
     {

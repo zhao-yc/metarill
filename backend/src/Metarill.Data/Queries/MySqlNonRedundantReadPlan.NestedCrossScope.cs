@@ -367,21 +367,42 @@ public static partial class MySqlNonRedundantReadCompiler
             if(proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=value.Id)
                 throw new InvalidOperationException("单值名称缓存的目标范围与发布证明不一致。");
             var source=Resolve(table,owner,foreign.ColumnName);
-            var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true);
+            var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true,scopedCacheLink:true);
             var parent=MultiParent(catalog,proof.Page);
             var cacheOwner=new CascadeCacheOwner(table,owner);
             var binding=parent?.SingleSource(catalog,table,foreign);
             var sourceParent=parent is {Logical:true}?SingleSourceParentValue(table,owner,binding!):null;
             var visible=PublishedSingleCondition(target,alias,proof.Page,cacheOwner,parent?.Target,sourceParent);
             if(parent is {Logical:false})visible+=" AND "+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,cacheOwner);
-            var label=Resolve(target,alias,value.ColumnName);
+            var label=Resolve(target,alias,value.ColumnName,cacheOwner);
             return ("CASE WHEN "+alias+".`id` IS NOT NULL AND "+visible+" THEN "+label.Sql+" END",label.Type);
         }
 
-        /// <summary>来源父键来自发布页的可见级联或持久字段，保持高位 ID 和字符串精度。</summary>
-        private string SingleSourceParentValue(TableMetadata source,string owner,MultiSourceParent parent)
+        /// <summary>先保留真实外键反查，再按最终缓存来源行核对内层账号、父键和级联范围。</summary>
+        private (string Alias,string Visibility)? JoinNestedSingleCache(TableMetadata table,string owner,ColumnMetadata foreign,
+            TableMetadata target,(string Sql,string Type) source,CascadeCacheOwner cacheOwner)
         {
-            if(parent.LogicalPages.Count>0)return LogicalRelationSourceParent(source,owner,parent);
+            var proof=table.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,table,foreign,target)
+                :GlobalSingleRelationTarget.Require(catalog,table,foreign,target);
+            if(!proof.RequiresScopedPage)return null;
+            var parent=proof.Parent;
+            var binding=proof.SourceParent;
+            var sourceParent=binding is not null&&(parent?.Logical==true||binding.LogicalPages.Count>0)
+                ?SingleSourceParentValue(table,owner,binding,cacheOwner):null;
+            // 反查需要从最终写回的根表出发，保存中间记录及逻辑父表达式引用的祖先别名。
+            var sourceFrom=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);
+            var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true,scopedCacheLink:true);
+            var visible=PublishedSingleCondition(target,alias,proof.Page,cacheOwner,parent?.Target,parent?.Logical==true?sourceParent:null);
+            if(parent is {Logical:false})
+                visible+=(visible.Length==0?"":" AND ")+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,
+                    cacheOwner,sourceParent,sourceFrom);
+            return (alias,alias+".`id` IS NOT NULL"+(visible.Length==0?"":" AND ("+visible+")"));
+        }
+
+        /// <summary>来源父键来自发布页的可见级联或持久字段，保持高位 ID 和字符串精度。</summary>
+        private string SingleSourceParentValue(TableMetadata source,string owner,MultiSourceParent parent,CascadeCacheOwner? cacheOwner=null)
+        {
+            if(parent.LogicalPages.Count>0)return LogicalRelationSourceParent(source,owner,parent,cacheOwner);
             var binding=parent.Column;
             Use(source,binding);
             Touch(owner,binding.ColumnName);
@@ -394,7 +415,7 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>项目内和全局父均要求来源和目标实际父键相同；全局父再执行唯一发布页范围。</summary>
         private string SinglePhysicalParentCondition(TableMetadata source,string owner,string targetAlias,
-            MultiTargetParentScope parent,ColumnMetadata binding,CascadeCacheOwner? cacheOwner=null,string? sourceParent=null)
+            MultiTargetParentScope parent,ColumnMetadata binding,CascadeCacheOwner? cacheOwner=null,string? sourceParent=null,string? sourceFrom=null)
         {
             var parentAlias=aliasPrefix+"single_parent_"+targetAlias;
             var sourceKey=sourceParent??owner+"."+Q(binding.ColumnName);
@@ -406,7 +427,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var canonical="BINARY CAST("+primary+" AS CHAR)";
             var sameSource=canonical+"=BINARY CAST("+sourceKey+" AS CHAR)";
             var sameTarget=canonical+"=BINARY CAST("+targetKey+" AS CHAR)";
-            var ownerFrom=" FROM "+Q(source.TableName)+" "+owner;
+            var ownerFrom=sourceFrom??" FROM "+Q(source.TableName)+" "+owner;
             var parentFrom=" FROM "+Q(parent.Parent.TableName)+" "+parentAlias;
             string parentScope;
             IReadOnlySet<string> dependencies;
