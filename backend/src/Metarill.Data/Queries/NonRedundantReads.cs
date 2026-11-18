@@ -36,6 +36,18 @@ public static class NonRedundantReads
             _=>throw new NotSupportedException("该数据库尚未完成固定全局候选读取适配。")
         };
     }
+    /// <summary>生成的项目内 R1 单值候选使用物理投影和项目范围，保留独立的数据库适配入口。</summary>
+    public static NonRedundantReadPlan CompilePhysicalRelation(MetadataCatalog metadata, string tableId, IReadOnlyList<string> outputs,
+        IReadOnlyList<string>? dependencies = null)
+    {
+        ArgumentNullException.ThrowIfNull(metadata);
+        return metadata.DatabaseProvider switch
+        {
+            "mysql" => new(MySqlNonRedundantReadCompiler.CompilePhysicalRelation(metadata, tableId, outputs, dependencies)),
+            _ => throw new NotSupportedException("该数据库尚未完成项目内物理候选读取适配。")
+        };
+    }
+
     /// <summary>判断物理外键槽是否属于已声明共享逻辑字段；名称和祖先ID使用同一组存储证明。</summary>
     public static SharedCrossTableSparseSelection? SharedExactGroup(MetadataCatalog metadata,TableMetadata table,string field)=>
         SharedCrossTableSparseSelection.CompileAll(table,metadata.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))

@@ -30,6 +30,21 @@ public sealed class GlobalSingleRelationReadTests
         if(kind=="cachedOutput"){c.ConfigColumns.Single(x=>x.Id=="25").Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);output="shared_score";}
         Assert.ThrowsAny<Exception>(()=>NonRedundantReads.Compile(c,"1",[output]));
     }
+    /// <summary>项目内物理候选只允许已声明标量并始终保留真实项目与软删除谓词。</summary>
+    [Fact]
+    public void Local_physical_candidate_keeps_project_and_soft_delete_predicates()
+    {
+        var catalog = Catalog("int64", false);
+        catalog.ConfigColumns.Add(Col("35", "3", "code", "int64"));
+        var plan = MySqlNonRedundantReadCompiler.CompilePhysicalRelation(catalog, "3", ["id", "code"], []);
+        Assert.Contains("b.`yz_project_id`=@project_scope_number", plan.Scope);
+        Assert.Contains("b.`delete_no` IS NULL", plan.Scope);
+        Assert.Equal("int64", plan.Types["code"]);
+        Assert.Throws<InvalidOperationException>(() => MySqlNonRedundantReadCompiler.CompilePhysicalRelation(catalog, "2", ["id", "score"], []));
+        catalog.ConfigColumns.RemoveAll(field => field.Id == "33");
+        Assert.Throws<InvalidOperationException>(() => MySqlNonRedundantReadCompiler.CompilePhysicalRelation(catalog, "3", ["id", "code"], []));
+    }
+
     /// <summary>构造完整静态目录，普通目标与全局目标故意保留相同主键形态。</summary>
     private static MetadataCatalog Catalog(string type,bool noProject)
     {

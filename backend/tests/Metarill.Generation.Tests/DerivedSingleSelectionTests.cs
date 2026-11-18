@@ -84,6 +84,56 @@ public sealed class DerivedSingleSelectionTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>普通项目的两种目标存储都能把物理编号用于候选、回显和工作簿。</summary>
+    [Theory]
+    [InlineData(0, "int32", false)]
+    [InlineData(0, "int64", true)]
+    [InlineData(1, "int32", true)]
+    [InlineData(1, "int64", false)]
+    public async Task Local_physical_number_reaches_both_control_contracts(int targetStorage, string logicalType, bool selectPage)
+    {
+        var catalog = selectPage ? Catalog("local_number", true) : DerivedRelationNamesTests.Catalog("local_number", true);
+        catalog.ConfigTables.Single(table => table.Id == "2").IsRongyu = targetStorage;
+        var number = catalog.ConfigColumns.Single(column => column.Id == "28");
+        number.Extra.Remove("isJoinColumn");
+        number.Extra.Remove("columnFullName");
+        number.ColumnName = "company_code";
+        number.LogicalType = logicalType;
+        var source = catalog.ConfigColumns.Single(column => column.Id == "15");
+        source.ControlDetail = source.ControlDetail.Replace("company_name", "company_code", StringComparison.Ordinal);
+        var display = catalog.ConfigColumns.Single(column => column.Id == "113");
+        display.ColumnName = "customer_company_code";
+        display.LogicalType = logicalType;
+        display.Extra["columnFullName"] = JsonSerializer.SerializeToElement("customer.company_code");
+        catalog.ConfigPages.Single(page => page.Id == "201").OrderBy = "company_code desc";
+
+        var model = GenerationModel.Create(catalog, "Example.LocalNumber");
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var owner = model.Tables.Single(table => table.Source.Id == "1");
+        var page = owner.Pages.Single(item => item.Source.Id == "101");
+        var plan = NonRedundantReadCompilation.ForPage(model, owner, page);
+        Assert.Contains(plan.Outputs, output => output.Storage == "customer_company_code");
+        var relation = Assert.Single(RelationCompilation.ForPage(model, page), candidate => candidate.SourceColumn.Source.Id == "15");
+        Assert.Equal("201", relation.TargetPage.Source.Id);
+        Assert.True(DerivedRelationNamesCompilation.UsesFixedRead(model, relation));
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-local-physical-number");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, "Example.LocalNumber");
+            var service = await File.ReadAllTextAsync(Path.Combine(output, "Services/LocalNumberOrderService.g.cs"));
+            Assert.Contains((targetStorage == 1 ? "CompilePhysicalRelation" : "CompileRelation") + """("2",new string[]{"id","company_code"}""", service);
+            Assert.Contains("""new("company_code",FixedReadComparison.IntegerLabelContains,request.Keyword)""", service);
+            Assert.Contains("""scope.Filters.Add(new("company_code", FixedReadComparison.Equal, key));""", service);
+            Assert.Contains("DerivedOptionsRows101_15Async", service);
+            Assert.Contains("OptionsScope104_15Async", service);
+            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>整数联接使用目标页的默认排序，选择弹层与辅助候选共用。</summary>
     private static void ConfigureIntegerSelection(MetadataCatalog catalog, string logicalType)
     {

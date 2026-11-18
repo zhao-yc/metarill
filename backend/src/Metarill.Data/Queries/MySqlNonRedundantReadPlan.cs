@@ -165,7 +165,16 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>普通读取及导出按对象本身的行项目归属。</summary>
     public static MySqlNonRedundantReadPlan Compile(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputNames,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)=>CompileWithCrossTables(catalog,tableId,outputNames,[],dependencies,deferCascadeNames);
     /// <summary>冻结目标页绑定仅用于跨表逻辑投影，现有公开编译入口及其二进制签名保持。</summary>
-    public static MySqlNonRedundantReadPlan CompileWithCrossTables(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputNames,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)
+    public static MySqlNonRedundantReadPlan CompileWithCrossTables(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputNames,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false) =>
+        CompileRelationScope(catalog, tableId, outputNames, crossTables, dependencies, deferCascadeNames);
+
+    /// <summary>普通 R1 候选只读取已声明的物理标量，并按当前项目及逻辑删除过滤。</summary>
+    internal static MySqlNonRedundantReadPlan CompilePhysicalRelation(MetadataCatalog catalog, string tableId, IReadOnlyList<string> outputs, IReadOnlyList<string>? dependencies) =>
+        CompileRelationScope(catalog, tableId, outputs, [], dependencies, false, scopedPhysicalCandidate: true);
+
+    /// <summary>共用方言、输出与发布目录校验，候选用途单独由构建器核验。</summary>
+    private static MySqlNonRedundantReadPlan CompileRelationScope(MetadataCatalog catalog, string tableId, IReadOnlyList<string> outputNames,
+        IReadOnlyList<NonRedundantCrossTableScope> crossTables, IReadOnlyList<string>? dependencies, bool deferCascadeNames, bool scopedPhysicalCandidate = false)
     {
         ArgumentNullException.ThrowIfNull(crossTables);
         ArgumentNullException.ThrowIfNull(catalog); ArgumentNullException.ThrowIfNull(outputNames);
@@ -173,7 +182,7 @@ public static partial class MySqlNonRedundantReadCompiler
         if(!long.TryParse(catalog.YzProjectId,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var projectId)||projectId<=0)throw new InvalidOperationException("发布项目标识必须为正整数。");
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("当前固定读取执行仅完成MySQL适配。");
         if(outputNames.Count==0||outputNames.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputNames.Count)throw new InvalidOperationException("输出字段不能为空或重复。");
-        var builder=new Builder(catalog,tableId,deferCascadeNames:deferCascadeNames,crossTables:crossTables);
+        var builder = new Builder(catalog, tableId, deferCascadeNames: deferCascadeNames, crossTables: crossTables, scopedPhysicalCandidate: scopedPhysicalCandidate);
         return builder.Compile(outputNames,dependencies??[]);
     }
     /// <summary>维护用途只重算声明的物理副本；普通读取仍坚持原冗余／非冗余边界。</summary>
@@ -255,15 +264,17 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,string> idPredicates=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlMultiProjection> multiProjections=new(StringComparer.Ordinal);
         private readonly HashSet<string> resolving=new(StringComparer.Ordinal);
-        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false,string? cascadeLabelField=null,CascadeCacheOwner? cascadeCacheOwner=null)
+        private readonly bool scopedPhysicalCandidate;
+        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false,string? cascadeLabelField=null,CascadeCacheOwner? cascadeCacheOwner=null,bool scopedPhysicalCandidate=false)
         {
+            this.scopedPhysicalCandidate = scopedPhysicalCandidate;
             this.rootAlias=rootAlias;this.aliasPrefix=aliasPrefix;this.candidatePage=candidatePage;this.multiLabel=multiLabel;this.cascadeLabelField=cascadeLabelField;this.cascadeCacheOwner=cascadeCacheOwner;
             this.crossTables=(crossTables??[]).ToDictionary(scope=>scope.SourceColumnId,StringComparer.Ordinal);
             this.catalog=catalog;this.matching=matching;this.trackReverse=trackReverse||refreshFields is not null;this.deferCascadeNames=deferCascadeNames;this.refreshFields=refreshFields;this.refreshMultiples=refreshMultiples??[];this.refreshPaths=refreshPaths??new Dictionary<string,string>();
             tables=catalog.ConfigTables.Where(table=>(table.YzProjectId.Length==0?catalog.YzProjectId:table.YzProjectId)==catalog.YzProjectId).ToDictionary(table=>table.Id,StringComparer.Ordinal);
             root=tables.GetValueOrDefault(tableId)??throw new InvalidOperationException("源表不属于当前项目。");
             var physicalCandidate = candidatePage is not null && refreshFields is null && root.IsRongyu == 1;
-            if ((!physicalCandidate && (refreshFields is null ? root.IsRongyu != 0 : root.IsRongyu != 1)) ||
+            if ((!physicalCandidate && !scopedPhysicalCandidate && (refreshFields is null ? root.IsRongyu != 0 : root.IsRongyu != 1)) ||
                 root.IsFunctionTable != 0 || root.IsView != 0)
                 throw new InvalidOperationException("固定读取要求非冗余实体表或明确发布的物理候选。");
             if (candidatePage is not null)
@@ -275,6 +286,10 @@ public static partial class MySqlNonRedundantReadCompiler
             if(catalog.ConfigColumns.Any(column=>tables.ContainsKey(column.ConfigTableId)&&column.YzProjectId.Length>0&&column.YzProjectId!=catalog.YzProjectId))throw new InvalidOperationException("字段归属与发布项目不一致。");
             columns=tables.Values.ToDictionary(table=>table.Id,table=>RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id)).ToDictionary(column=>column.ColumnName,StringComparer.OrdinalIgnoreCase),StringComparer.Ordinal);
             storage=tables.Values.ToDictionary(table=>table.Id,table=>MetadataStoragePolicy.ForTable(catalog,table),StringComparer.Ordinal);
+            if (scopedPhysicalCandidate && (root.IsRongyu != 1 || GlobalCrossTableTarget.Declared(root) ||
+                !columns[root.Id].TryGetValue("yz_project_id", out var project) ||
+                project.LogicalType is not ("int64" or "string") || !GlobalPhysicalRelationValue.IsScalar(storage[root.Id], root, project)))
+                throw new InvalidOperationException("项目内物理候选要求普通 R1 实体及其真实项目列。");
             foreach(var binding in this.crossTables.Values)if(!columns[root.Id].Values.Any(column=>column.Id==binding.SourceColumnId&&column.ControlKind=="CascadeTree"))throw new InvalidOperationException("跨表读取绑定不属于当前来源表。");
         }
         /// <summary>主键作为稳定排序依赖；根及每个目标分别保留软删和项目范围。</summary>
@@ -283,9 +298,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var globalSource=refreshFields is not null&&GlobalCrossTableTarget.Declared(root);
             var globalDerivedSource = refreshFields is null && root.IsRongyu == 0 && GlobalCrossTableTarget.Declared(root);
             var physicalCandidate = candidatePage is not null && root.IsRongyu == 1;
-            if (physicalCandidate && outputs.Concat(dependencies).Append("id").Any(field =>
+            if ((physicalCandidate || scopedPhysicalCandidate) && outputs.Concat(dependencies).Append("id").Any(field =>
                 !GlobalPhysicalRelationValue.IsScalar(storage[root.Id], root, Column(root, field))))
-                throw new NotSupportedException("全局物理候选只读取已发布的非凭据物理标量。");
+                throw new NotSupportedException("物理候选只读取已声明的非凭据物理标量。");
             if(globalSource){GlobalCachedRelationSource.Require(catalog,root);foreach(var name in refreshFields!)GlobalCachedRelationSource.RequireCache(catalog,root,columns[root.Id][name]);}
             if(globalDerivedSource)
             {

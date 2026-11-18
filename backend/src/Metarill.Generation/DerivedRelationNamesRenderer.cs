@@ -9,9 +9,12 @@ internal static class DerivedRelationNamesRenderer
     internal static string Service(GenerationModel model,TableModel owner,PageModel page,RelationModel relation,bool visible)
     {
         var dependencies=DerivedRelationNamesCompilation.Require(model,owner,page,relation);var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var name=relation.NameColumn.Source.ColumnName;
-        var planStart = DerivedRelationNamesCompilation.IsPhysicalGlobalInteger(model, relation.Target, relation.NameColumn)
+        var physicalInteger = DerivedRelationNamesCompilation.IsPhysicalInteger(model, relation.Target, relation.NameColumn);
+        var planStart = physicalInteger && relation.Target.IsGlobal
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
-            : NonRedundantReadCompilation.RelationPlanStart(relation.Target, relation.TargetPage);
+            : physicalInteger && relation.Target.Source.IsRongyu == 1
+                ? $"CompilePhysicalRelation({Literal(relation.Target.Source.Id)}"
+                : NonRedundantReadCompilation.RelationPlanStart(relation.Target, relation.TargetPage);
         var label = MultiSelectExcelRenderer.LabelText(relation.NameColumn, $"NonRedundantReads.Value<{relation.NameColumn.Type}>(row,{Literal(name)})");
         var search = relation.NameColumn.Type == "string?" ? "Contains" : "IntegerLabelContains";
         var order = relation.OptionsOrder is { } ordering

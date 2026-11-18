@@ -8,20 +8,18 @@ internal static class DerivedRelationNamesCompilation
 {
     /// <summary>冗余物理缓存继续沿原路径；只识别实际非物理名称。</summary>
     internal static bool Declared(GenerationModel model,RelationModel relation)=>!NonRedundantReadCompilation.Physical(model,relation.Target,relation.NameColumn);
-    /// <summary>全局物理整数也走固定 SQL，和派生名称共用候选搜索、回显与工作簿。</summary>
+    /// <summary>物理整数和派生名称共用固定候选搜索、回显与工作簿。</summary>
     internal static bool UsesFixedRead(GenerationModel model, RelationModel relation) =>
-        Declared(model, relation) || IsPhysicalGlobalInteger(model, relation.Target, relation.NameColumn);
+        Declared(model, relation) || IsPhysicalInteger(model, relation.Target, relation.NameColumn);
 
-    /// <summary>区分全局物理编号与联接名称，物理编号读取必须绑定发布页。</summary>
-    internal static bool IsPhysicalGlobalInteger(GenerationModel model, TableModel target, ColumnModel name) =>
-        target.IsGlobal && !name.IsJsonArray && name.Type is "int?" or "long?" &&
-        NonRedundantReadCompilation.Physical(model, target, name);
+    /// <summary>识别直接读取的整数业务编号，保留实际声明的存储类型。</summary>
+    internal static bool IsPhysicalInteger(GenerationModel model, TableModel target, ColumnModel name) =>
+        !name.IsJsonArray && name.Type is "int?" or "long?" && NonRedundantReadCompilation.Physical(model, target, name);
 
-    /// <summary>普通 R0 单值关系可使用联接整数和明确发布的全局物理整数。</summary>
+    /// <summary>普通 R0 单值关系可使用物理和联接整数，页与项目范围由实际候选计划校验。</summary>
     internal static bool IsIntegerName(GenerationModel model, TableModel owner, TableModel target, ColumnModel name) =>
         owner.Source.IsRongyu == 0 && !owner.IsGlobal && !name.IsJsonArray && name.Type is "int?" or "long?" &&
-        (IsPhysicalGlobalInteger(model, target, name) ||
-            target.Source.IsRongyu == 0 && !NonRedundantReadCompilation.Physical(model, target, name));
+        (target.Source.IsRongyu == 0 || target.Source.IsRongyu == 1 && IsPhysicalInteger(model, target, name));
 
     /// <summary>目标候选和来源筛选共用同一个名称终点类型。</summary>
     internal static string NameType(ColumnModel name) => name.Type switch
@@ -40,7 +38,9 @@ internal static class DerivedRelationNamesCompilation
         var name="name";
         if(!string.IsNullOrWhiteSpace(source.Source.ControlDetail)){using var json=JsonDocument.Parse(source.Source.ControlDetail);if(json.RootElement.TryGetProperty("nameField",out var field)&&field.ValueKind==JsonValueKind.String&&!string.IsNullOrWhiteSpace(field.GetString()))name=field.GetString()!;}
         var display=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==name);
-        return display is not null&&!NonRedundantReadCompilation.Physical(model,target,display);
+        if (display is null) return false;
+        var owner = model.Tables.Single(table => table.Source.Id == source.Source.ConfigTableId);
+        return !NonRedundantReadCompilation.Physical(model, target, display) || IsIntegerName(model, owner, target, display);
     }
     /// <summary>type=1 单选独立证明目标；字符串和整数都必须落到声明一致的非凭据标量。</summary>
     internal static void RequireSelection(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name)
@@ -64,9 +64,9 @@ internal static class DerivedRelationNamesCompilation
         if (relation.SourceColumn.Source.ControlKind == "SelectPage" && Declared(model, relation))
             RequireSelection(model, owner, target, relation.TargetPage, name);
         var integerName = IsIntegerName(model, owner, target, name);
-        var physicalGlobalInteger = IsPhysicalGlobalInteger(model, target, name);
+        var physicalInteger = IsPhysicalInteger(model, target, name);
         if(!SupportedOwner(model,owner)||relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||
-            target.Source.IsRongyu!=0&&!physicalGlobalInteger||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
+            target.Source.IsRongyu!=0&&!physicalInteger||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
             name.Type != "string?" && !integerName || name.IsJsonArray || relation.ParentBinding?.Declared==true||ExactDataManageCompilation.Declared(relation.TargetPage)||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage))
             throw new InvalidOperationException("派生名称关系要求普通R0或已发布R1物理来源、普通R0目标及已证明的候选范围。");
         if (integerName && ForeignValidationRenderer.Target(model, relation.SourceColumn)?.Source.Id != target.Source.Id)
@@ -84,9 +84,12 @@ internal static class DerivedRelationNamesCompilation
         var orderFields = relation.OptionsOrder?.Select(item => item.Column.Source.ColumnName) ?? [];
         var dependencies = fields.Select(column => column.Source.ColumnName).Concat(orderFields)
             .Concat(["id", name.Source.ColumnName]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var plan=physicalGlobalInteger || NonRedundantReadCompilation.HasGlobalRowProject(target)
-            ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,relation.TargetPage.Source.Id,["id",name.Source.ColumnName],dependencies)
-            :NonRedundantReads.Compile(model.Catalog,target.Source.Id,["id",name.Source.ColumnName],dependencies);
+        var outputs = new[] { "id", name.Source.ColumnName };
+        var plan = target.IsGlobal && physicalInteger || NonRedundantReadCompilation.HasGlobalRowProject(target)
+            ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, relation.TargetPage.Source.Id, outputs, dependencies)
+            : physicalInteger && target.Source.IsRongyu == 1
+                ? NonRedundantReads.CompilePhysicalRelation(model.Catalog, target.Source.Id, outputs, dependencies)
+                : NonRedundantReads.Compile(model.Catalog, target.Source.Id, outputs, dependencies);
         if (plan.OutputTypes["id"] != "int64" || plan.OutputTypes[name.Source.ColumnName] != NameType(name))
             throw new InvalidOperationException("关系名称必须编译为与声明一致的固定标量。");
         return dependencies;
