@@ -15,9 +15,14 @@ internal static class NonRedundantCrossTargetsCompilation
     internal static IReadOnlyList<string> Dependencies(GenerationModel model,CrossTableLevelModel level)
     {
         var target=level.Target;var fields=level.Page.Scopes.Select(scope=>scope.Column).Concat(level.Page.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).Concat(level.Parent is{} parent?new[]{parent}:[]).DistinctBy(column=>column.Source.Id).ToArray();
-        if(fields.Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)||GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")))throw new InvalidOperationException("非冗余跨表父键、身份和条件必须为物理标量。");
+        var logical=level.Page.Condition?.CrossFields;
+        if(fields.Any(column=>column.IsJsonArray||
+            !NonRedundantReadCompilation.Physical(model,target,column)&&logical?.Contains(column.Source.ColumnName)!=true||
+            GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")))throw new InvalidOperationException("非冗余跨表父键、身份和条件必须为物理标量。");
         if(!target.IsGlobal)_=NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,level.Name.Source.ColumnName);
-        var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(level.Order.Select(item=>item.Column.Source.ColumnName)).Append("id").Distinct(StringComparer.OrdinalIgnoreCase).ToArray();var outputs=new[]{"id",level.Name.Source.ColumnName}.Concat(level.Parent is{} p?new[]{p.Source.ColumnName}:[]).ToArray();var read=NonRedundantReadCompilation.HasGlobalRowProject(target)
+        var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(level.Order.Select(item=>item.Column.Source.ColumnName)).Append("id").Distinct(StringComparer.OrdinalIgnoreCase).ToArray();var outputs=new[]{"id",level.Name.Source.ColumnName}.Concat(level.Parent is{} p?new[]{p.Source.ColumnName}:[]).ToArray();var read=logical?.Count>0
+            ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,level.Page.Source.Id,outputs,dependencies)
+            :NonRedundantReadCompilation.HasGlobalRowProject(target)
             ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,level.Page.Source.Id,outputs,dependencies)
             :NonRedundantReads.Compile(model.Catalog,target.Source.Id,outputs,dependencies);if(read.OutputTypes["id"]!="int64"||read.OutputTypes[level.Name.Source.ColumnName]!=level.Name.Source.LogicalType)throw new InvalidOperationException("跨表名称必须落到同类型的固定单值。");return dependencies;
     }

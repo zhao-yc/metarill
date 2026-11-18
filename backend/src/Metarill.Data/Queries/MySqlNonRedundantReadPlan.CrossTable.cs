@@ -16,15 +16,15 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,MySqlCrossTableProjection> crossProjections=new(StringComparer.Ordinal);
         private readonly Dictionary<string,IReadOnlyDictionary<string,(string Sql,string Type)>> crossValues=new(StringComparer.Ordinal);
         private readonly Dictionary<string,object?> crossConstants=new(StringComparer.Ordinal);
-        private sealed record CrossLevel(TableMetadata Table,ColumnMetadata Name,ColumnMetadata? Parent,NonRedundantCrossTableTargetScope Scope,PageMetadata Page);
+        private sealed record CrossLevel(TableMetadata Table,ColumnMetadata Name,ColumnMetadata? Parent,NonRedundantCrossTableTargetScope Scope,PageMetadata Page,IReadOnlySet<string> LogicalFields);
 
         /// <summary>一个控件只生成一条从末层向根的线性联接链，全部用途复用逻辑字段表达式。</summary>
-        private (string Sql,string Type) CrossValue(TableMetadata table,string owner,ColumnMetadata source,CrossTableSparseSelection selection,NonRedundantCrossTableScope binding,string name,bool labelPath=false)
+        private (string Sql,string Type) CrossValue(TableMetadata table,string owner,ColumnMetadata source,CrossTableSparseSelection selection,NonRedundantCrossTableScope binding,string name,bool labelPath=false,bool scopeOnly=false)
         {
             origin=null;var key=owner+":"+source.Id;
             if(!crossValues.TryGetValue(key,out var values))
             {
-                if(!labelPath&&(table.Id!=root.Id||owner!=rootAlias)||CrossText(table,"scopeKind")=="global"||!columns[table.Id].TryGetValue("yz_project_id",out var sourceProject)||!storage[table.Id].IsPhysical(sourceProject))throw new NotSupportedException("跨表逻辑投影要求当前非冗余来源的真实物理项目范围。");
+                if(!labelPath&&!scopeOnly&&(table.Id!=root.Id||owner!=rootAlias)||CrossText(table,"scopeKind")=="global"||!columns[table.Id].TryGetValue("yz_project_id",out var sourceProject)||!storage[table.Id].IsPhysical(sourceProject))throw new NotSupportedException("跨表逻辑投影要求当前非冗余来源的真实物理项目范围。");
                 var rootDefinition=Definition(source);if(HasExtraScope(rootDefinition))throw new NotSupportedException("跨表额外范围不能在固定读取中忽略。");
                 var entries=rootDefinition.GetProperty("levels").EnumerateArray().ToArray();if(entries.Length!=binding.Levels.Count)throw new InvalidOperationException("跨表目标页绑定与固定层数不符。");
                 var levels=new List<CrossLevel>();
@@ -54,7 +54,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     }
                     var slot=columns[table.Id][selection.Slots[index].ColumnName];if(slot.LinkConfigTableId.Length>0&&slot.LinkConfigTableId!=target.Id)throw new InvalidOperationException("跨表来源ID位与目标表声明不一致。");
                     var label=selection.Slots[index].ColumnName[..^3]+"_name";if(columns[table.Id].TryGetValue(label,out var declared)&&declared.LogicalType.ToLowerInvariant()!="string")throw new InvalidOperationException("跨表来源显示字段类型与逻辑名称不符。");
-                    RequireCrossCondition(target,page,binding.Levels[index].Condition);levels.Add(new(target,display,parent,binding.Levels[index],page));
+                    var logical=RequireCrossCondition(target,page,binding.Levels[index].Condition);
+                    levels.Add(new(target,display,parent,binding.Levels[index],page,logical));
                 }
                 if(trackReverse&&labelPath)
                     foreach(var slot in selection.Slots)
@@ -79,7 +80,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         reverse.Add(alias,(level.Table.TableName," FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),effective,"string"));
                     }
                     var scope=Scope(level.Table,alias,projectScoped:!GlobalCrossTableTarget.Declared(level.Table));
-                    if(level.Scope.Condition is{} condition)
+                    if(level.Scope.Condition is{} condition&&level.LogicalFields.Count==0)
                     {
                         var conditionSql=CascadeLabelCondition(level.Table,level.Page,condition,alias,
                             "mt_cross_scope_"+(multiLabel?aliasPrefix:"")+alias);
@@ -89,16 +90,18 @@ public static partial class MySqlNonRedundantReadCompiler
                         else if(conditionSql.Length>0)scope+=(scope.Length==0?"":" AND ")+conditionSql;
                     }
                     joins.Add(" LEFT JOIN "+Q(level.Table.TableName)+" "+alias+" ON BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+effective+(scope.Length==0?"":" AND "+scope));
+                    // 子路径联接使用本层别名，先发布本层联接，再用完整子路径限制本层是否可见。
+                    if(level.LogicalFields.Count>0)rowConditions[index]=" AND "+NestedCrossCondition(level,alias);
                 }
                 var paths=Enumerable.Range(0,levels.Count).Select(deepest=>"("+selected[deepest]+" AND "+string.Join(" AND ",targetAliases.Take(deepest+1).Select((alias,index)=>alias+".`id` IS NOT NULL"+rowConditions[index]))+")").ToArray();
-                var accountScoped=levels.Any(level=>level.Scope.Condition?.Variables.Count>0);
+                var requireVisible=scopeOnly||CrossCandidateCondition is not null||levels.Any(level=>level.Scope.Condition?.Variables.Count>0||level.LogicalFields.Count>0);
                 var result=new Dictionary<string,(string Sql,string Type)>(StringComparer.OrdinalIgnoreCase);
                 for(var index=0;index<levels.Count;index++)
                 {
                     var slot=selection.Slots[index];var resolved=targetAliases[index]+".`id`";if(slot.LogicalType=="string")resolved="CAST("+resolved+" AS CHAR)";
                     var ancestors=index+1<levels.Count?string.Join(" OR ",paths.Skip(index+1)):"FALSE";
                     // 账号范围之外的目标不能借直接选择的物理ID参与公开投影、匹配或统计。
-                    var direct=accountScoped?paths[index]:selected[index];
+                    var direct=requireVisible?paths[index]:selected[index];
                     var idExpression="CASE WHEN "+direct+" THEN "+raw[slot.ColumnName]+" WHEN "+ancestors+" THEN "+resolved+" END";
                     // 来源varchar与目标CAST可能采用不同默认排序规则；逻辑ID显式保持二进制精确比较。
                     if(slot.LogicalType=="string")idExpression="CONVERT(("+idExpression+") USING utf8mb4) COLLATE utf8mb4_bin";
@@ -108,7 +111,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var text=MySqlMultiValueLabel.Text(label,levels[index].Name.LogicalType);
                     result.Add(slot.ColumnName[..^3]+"_name",("CASE WHEN "+string.Join(" OR ",paths.Skip(index))+" THEN "+text+" END","string"));
                 }
-                crossProjections.Add(key,new(selection,new ReadOnlyDictionary<string,string>(raw),valid,"("+string.Join(" OR ",paths)+")"));values=new ReadOnlyDictionary<string,(string Sql,string Type)>(result);crossValues.Add(key,values);
+                (scopeOnly?scopedCrossProjections:crossProjections).Add(key,new(selection,new ReadOnlyDictionary<string,string>(raw),valid,"("+string.Join(" OR ",paths)+")"));values=new ReadOnlyDictionary<string,(string Sql,string Type)>(result);crossValues.Add(key,values);
             }
             // 有条件的整条路径不能冒充单一物理来源；派生名称编译的临时origin不得泄漏到其它输出。
             origin=null;return values[name];
@@ -154,10 +157,17 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>真实物理标量与凭据排除共用发布类型，不把JSON或文件数组当作父键或名称。</summary>
         private bool CrossPhysical(TableMetadata table,ColumnMetadata column)=>storage[table.Id].IsPhysical(column)&&column.IsVirtualColumn==0&&!CrossEnabled(column,"isJoinColumn")&&!ExactDataManageValues.IsSensitiveField(column.ColumnName)&&column.ControlKind is not("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList")&&column.LogicalType.ToLowerInvariant() is not("json" or "binary");
         /// <summary>完整元数据中的目标固定条件必须与绑定相符；精简发布目录也必须提供冻结的常量绑定。</summary>
-        private void RequireCrossCondition(TableMetadata table,PageMetadata page,FixedConditionSqlPlan? binding)
+        private IReadOnlySet<string> RequireCrossCondition(TableMetadata table,PageMetadata page,FixedConditionSqlPlan? binding)
         {
-            var physical=columns[table.Id].Values.Where(column=>CrossPhysical(table,column)).ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.OrdinalIgnoreCase);binding?.RequirePhysicalTypes(physical);
-            var syntax=FixedConditionPlan.Compile(page.WhereSql,physical.Keys);var conditions=new List<FixedConditionTerm>();
+            var physical=columns[table.Id].Values.Where(column=>CrossPhysical(table,column))
+                .ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.OrdinalIgnoreCase);
+            var syntax=FixedConditionPlan.Compile(page.WhereSql,columns[table.Id].Keys);
+            var logical=syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field))
+                .ToHashSet(StringComparer.Ordinal);
+            var types=new Dictionary<string,string>(physical,StringComparer.OrdinalIgnoreCase);
+            foreach(var field in logical)types[field]=Column(table,field).LogicalType;
+            binding?.RequirePhysicalTypes(types);
+            var conditions=new List<FixedConditionTerm>();
             foreach(var term in syntax.Terms)
             {
                 var variables=term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable).ToArray();
@@ -167,17 +177,19 @@ public static partial class MySqlNonRedundantReadCompiler
                 var variable=variables[0].Text;
                 if(term.Field=="yz_project_id"&&variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))continue;
                 if(term.Field=="yz_project_id"||!AccountConditionVariables.IsPageField(variable,term.Field)||
-                    physical[term.Field] is not("string" or "int32" or "int64"))
+                    logical.Contains(term.Field)||!physical.TryGetValue(term.Field,out var physicalType)||
+                    physicalType is not("string" or "int32" or "int64"))
                     throw new NotSupportedException("跨表目标的父上下文或未知账号范围不能忽略。");
                 conditions.Add(term);
             }
             if(conditions.Count>0)
             {
-                var expected=FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",conditions.Select(term=>term.ToDefinition())),physical.Keys),physical);
+                var expected=FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",conditions.Select(term=>term.ToDefinition())),types.Keys),types);
                 if(binding is null||!binding.SameConstants(expected))throw new InvalidOperationException("跨表目标固定条件缺失或与发布目录不一致。");
             }
             if(binding?.Variables.Count>0&&conditions.Count==0)
                 throw new InvalidOperationException("跨表账号条件必须来自完整发布页。");
+            return logical;
         }
         /// <summary>沿原整数1／布尔true合同判断开关，不额外解释文本true为启用。</summary>
         private static bool CrossEnabled(ColumnMetadata column,string key)=>column.Extra.TryGetValue(key,out var value)&&(value.ValueKind==JsonValueKind.True||value.ToString()=="1");

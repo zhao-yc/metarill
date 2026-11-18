@@ -366,6 +366,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 ?Scope(root,rootAlias,projectScoped:!globalSource&&(!globalDerivedSource||HasGlobalRowProject(root)))
                 :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:!physicalCandidate);
             if((globalSource||globalDerivedSource)&&scope.Length==0)scope="1=1";
+            if(CrossCandidateCondition is not null)scope=FixedCrossCandidateScope(scope,expressions);
             // 计数只能省去以整数键查找单列主键的 LEFT JOIN。跨表有效性校验和当前锁读沿用完整联接。
             var aggregateFrom = aggregateJoinsPreserveCardinality && refreshFields is null &&
                 !matching && crossProjections.Count == 0 && aggregateJoins.Count > 0

@@ -142,6 +142,86 @@ public sealed class FileCommandFactoryTests
         else await session.InReadSnapshotAsync(Check,default);
     }
 
+
+    /// <summary>附件父节点复用递归候选 SQL，始终在原快照或写事务内核对实际嵌套范围。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,true)]
+    public async Task Logical_file_parent_checks_recursive_candidate_condition(bool shared,bool locking)
+    {
+        const long storeId=9007199254740993L;
+        var catalog=shared?FileSharedCrossParentScopeTests.Catalog("string","int64"):
+            FileCrossParentScopeTests.Catalog("file_nested","string","int64");
+        var country=catalog.ConfigTables.Single(item=>item.Id=="2");
+        country.IsRongyu=0;
+        catalog.ConfigPages.Single(item=>item.Id=="201").WhereSql+=" AND scope_zone_name <> '排除区域' AND store_id=@current_store_id";
+        catalog.ConfigColumns.Add(new(){Id="290",ConfigTableId=country.Id,ColumnName="store_id",LogicalType="int64"});
+        var prefix=country.TableName+"_scope";
+        foreach(var (id,role) in new[]{("91","zone"),("92","site")})
+        {
+            catalog.ConfigTables.Add(new(){Id=id,TableName=prefix+"_"+role,IsRongyu=1});
+            catalog.ConfigColumns.AddRange([
+                new(){Id=id+"01",ConfigTableId=id,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id=id+"02",ConfigTableId=id,ColumnName="yz_project_id",LogicalType="int64"},
+                new(){Id=id+"03",ConfigTableId=id,ColumnName="name",LogicalType="string"}
+            ]);
+            catalog.ConfigPages.Add(new(){Id=id+"0",ConfigTableId=id,WhereSql="yz_project_id=@current_yz_project_id"});
+            catalog.ConfigPageColumns.Add(new(){Id=id+"003",ConfigPageId=id+"0",ConfigColumnId=id+"03",IsShow=1});
+        }
+        catalog.ConfigColumns.Add(new(){Id="9204",ConfigTableId="92",ColumnName="zone_id",LogicalType="int64",LinkConfigTableId="91"});
+        catalog.ConfigPageColumns.Add(new(){Id="92004",ConfigPageId="920",ConfigColumnId="9204",IsShow=1});
+        catalog.ConfigColumns.Add(new(){Id="291",ConfigTableId=country.Id,ColumnName="scope_site_id",LogicalType="int64",
+            ControlKind="CascadeTree",LinkConfigTableId="92",ControlDetail=System.Text.Json.JsonSerializer.Serialize(new
+            {
+                sourceMode="crossTable",
+                levels=new object[]{
+                    new{table=prefix+"_zone",nameField="name",columnPrefix="scope_zone"},
+                    new{table=prefix+"_site",nameField="name",columnPrefix="scope_site",parentField="zone_id"}
+                }
+            })});
+        var source=catalog.ConfigTables.Single(item=>item.Id=="1");
+        var scope=FileReferenceScope.CompilePage(catalog,source,catalog.ConfigPages.Single(item=>item.Id=="101"));
+        var stored=new Dictionary<string,object?>{{"country_id","10"},{"area_id",null},{"place_id",null}};
+        if(shared)stored.Add("warehouse_id",null);
+        var actor=new RuntimeActor(14,"候选附件账号",false,"1","3"){StoreId=storeId};
+        var provider=new Provider();
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline"},null,provider);
+        var store=new SqlRowStore(session,catalog);
+        var reads=0;
+        provider.Read=command=>
+        {
+            reads++;
+            Assert.Same(session.CurrentTransaction,command.Transaction);
+            Assert.Contains(prefix+"_zone",command.CommandText);
+            Assert.Contains(prefix+"_site",command.CommandText);
+            Assert.Contains("@mt_candidate_",command.CommandText);
+            Assert.DoesNotContain("排除区域",command.CommandText);
+            Assert.Equal(locking,command.CommandText.EndsWith(" FOR SHARE",StringComparison.Ordinal));
+            Assert.Equal(10L,command.Parameters["filter_0"].Value);
+            var data=new DataTable();
+            data.Columns.Add("id",typeof(long));
+            data.Columns.Add("metarill_cross_valid_0",typeof(int));
+            data.Columns.Add("metarill_cross_input_1",typeof(long));
+            data.Columns.Add("metarill_cross_input_2",typeof(long));
+            if(command.Parameters.Cast<DbParameter>().Any(parameter=>Equals(parameter.Value,storeId)))
+                data.Rows.Add(10L,1,DBNull.Value,99L);
+            return data.CreateDataReader();
+        };
+        Task<long[]> Read(RuntimeActor identity)=>FileCrossParentScope.ValuesAsync(scope.Crosses,store,stored,identity,locking,default);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Read(actor with{StoreId=null}));
+        Assert.Equal(0,provider.Connections);
+        async Task<bool> Verify()
+        {
+            Assert.Equal(10L,Assert.Single(await Read(actor)));
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Read(actor with{StoreId=31}));
+            return true;
+        }
+        if(locking)await session.InTransactionAsync(Verify);
+        else await session.InReadSnapshotAsync(Verify);
+        Assert.Equal(2,reads);
+        Assert.Equal(1,provider.Connections);
+    }
+
     /// <summary>只给固定身份；本用例没有任何文件行，不触发或替代来源权限判定。</summary>
     private sealed class Authorization:IRuntimeAuthorization
     {

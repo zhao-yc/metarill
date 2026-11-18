@@ -115,6 +115,11 @@ public static class NonRedundantReads
             _=>throw new NotSupportedException("该数据库尚未完成逻辑页面范围适配。")
         };
 
+    /// <summary>候选范围由完整已发布页面固定，调用方只能提供业务身份与原候选筛选。</summary>
+    public static NonRedundantReadPlan CompileCrossPageCandidate(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>
+        new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies));
+
     /// <summary>匹配计划只编译必要单值路径，并验证最终物理值，不能借别名匹配凭据或文件数组。</summary>
     public static NonRedundantReadPlan CompileMatch(MetadataCatalog metadata,string tableId,string field)=>metadata.DatabaseProvider switch
     {"mysql"=>new(MySqlNonRedundantReadCompiler.CompileMatch(metadata,tableId,field)),_=>throw new NotSupportedException("该数据库尚未完成固定匹配读取适配。")};

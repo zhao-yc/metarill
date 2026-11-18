@@ -43,6 +43,13 @@ public static partial class MySqlNonRedundantReadCompiler
         if(!catalog.ConfigPages.Contains(page)||page.ConfigTableId!=table.Id||
             table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||crossFields.Count==0||
             !crossFields.IsSubsetOf(conditionFields))throw new NotSupportedException("固定跨表页面范围必须属于普通非冗余来源。");
+        return CompileWithCrossTables(catalog,table.Id,["id"],CrossMembershipBindings(catalog,table,page,crossFields),conditionFields);
+    }
+
+    /// <summary>范围只冻结实际依赖的控件和共享同伴，页面覆盖必须保留相同路径定义。</summary>
+    private static IReadOnlyList<NonRedundantCrossTableScope> CrossMembershipBindings(MetadataCatalog catalog,TableMetadata table,
+        PageMetadata page,IReadOnlySet<string> crossFields)
+    {
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         var selected=columns.Where(column=>column.ControlKind=="CascadeTree"&&
             crossFields.Any(field=>CrossTableStorageColumns.ContainsPathField(column,field))).Select(column=>column.Id).ToHashSet(StringComparer.Ordinal);
@@ -51,7 +58,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 selected.UnionWith(group.Branches.Select(branch=>branch.SourceColumnId));
         if(selected.Count==0||crossFields.Any(field=>!CrossTableStorageColumns.IsLogicalPathField(table,columns,field)))
             throw new NotSupportedException("固定页面范围找不到已声明的跨表层位。");
-        var bindings=columns.Where(column=>selected.Contains(column.Id)).Select(column=>
+        return columns.Where(column=>selected.Contains(column.Id)).Select(column=>
         {
             var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==column.Id)
                 ?.Extra.GetValueOrDefault("controlDetail").ToString();
@@ -59,7 +66,6 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("固定页面范围不能忽略级联页覆盖引起的路径变化。");
             return CascadeLabelScope(catalog,column);
         }).ToArray();
-        return CompileWithCrossTables(catalog,table.Id,["id"],bindings,conditionFields);
     }
 
     /// <summary>发现实际多值控件绑定的目标名称，普通非关联输出仍使用原读取计划。</summary>
@@ -131,19 +137,27 @@ public static partial class MySqlNonRedundantReadCompiler
             .ToArray();
         if(candidates.Length!=1)throw new NotSupportedException("级联多值名称要求每级唯一且无父参数的可读页面。");
         var (chosen,syntax)=candidates[0];
+        return(chosen,CascadeScopeCondition(target,storage,columns,syntax));
+    }
+
+    /// <summary>固定页条件保留实际类型与原账号等值，只有已声明逻辑路径可以引用非物理层位。</summary>
+    private static FixedConditionSqlPlan? CascadeScopeCondition(TableMetadata target,MetadataStoragePlan storage,
+        IReadOnlyList<ColumnMetadata> columns,FixedConditionPlan syntax)
+    {
         var terms=syntax.Terms.Where(term=>!IsProjectScope(term)).ToArray();
-        if(terms.Any(term=>CrossTableStorageColumns.IsLogicalPathField(target,columns,term.Field)))
-            throw new NotSupportedException("级联目标页的逻辑路径条件缺少递归候选证明。");
-        if(terms.Length==0)return(chosen,null);
+        if(terms.Length==0)return null;
         var physical=columns.Where(column=>GlobalPhysicalRelationValue.IsScalar(storage,target,column))
             .ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.OrdinalIgnoreCase);
         foreach(var term in terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
             if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||term.Field=="yz_project_id"||
-                !AccountConditionVariables.IsPageField(term.Values[0].Text,term.Field)||
+                CrossTableStorageColumns.IsLogicalPathField(target,columns,term.Field)||!AccountConditionVariables.IsPageField(term.Values[0].Text,term.Field)||
                 !physical.TryGetValue(term.Field,out var type)||type is not("int32" or "int64" or "string"))
                 throw new NotSupportedException("级联多值名称只允许原账号字段的物理等值范围。");
-        var condition=FixedConditionPlan.Compile(string.Join(" AND ",terms.Select(term=>term.ToDefinition())),physical.Keys);
-        return(chosen,FixedConditionSqlPlan.Compile(condition,physical));
+        var types=new Dictionary<string,string>(physical,StringComparer.OrdinalIgnoreCase);
+        foreach(var column in columns.Where(column=>CrossTableStorageColumns.IsLogicalPathField(target,columns,column.ColumnName)))
+            types.TryAdd(column.ColumnName,column.LogicalType);
+        var condition=FixedConditionPlan.Compile(string.Join(" AND ",terms.Select(term=>term.ToDefinition())),types.Keys);
+        return FixedConditionSqlPlan.Compile(condition,types);
     }
 
     /// <summary>项目等值由同一物理范围生成，不在内部候选再绑定请求字段。</summary>

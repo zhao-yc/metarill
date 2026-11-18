@@ -9,15 +9,32 @@ internal static partial class BackendRenderer
     /// <summary>项目元数据仅嵌入和反序列化一次；各页只持有自己的不可变固定计划。</summary>
     private static string NonRedundantCatalog(GenerationModel model)
     {
-        var accountPages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CrossTableWriteCompilation.ForService(model,table,page)))
-            .SelectMany(plan=>plan.Read.Levels).Where(level=>FixedPageConditionCompilation.HasAccountVariables(level.Page))
+        var candidateLevels=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CrossTableWriteCompilation.ForService(model,table,page)))
+            .SelectMany(plan=>plan.Read.Levels).ToArray();
+        var accountPages=candidateLevels.Where(level=>FixedPageConditionCompilation.HasAccountVariables(level.Page))
             .Select(level=>level.Page.Source.Id).ToHashSet(StringComparer.Ordinal);
+        // 保留参与递归范围证明的表及其候选页，避免无关页面条件进入精简运行目录。
+        var scopedPages=new Queue<CrossTableLevelModel>(candidateLevels.Where(level=>FixedPageConditionCompilation.HasCrossFields(level.Page)));
+        var nestedTables=new HashSet<string>(StringComparer.Ordinal);
+        var visitedPages=new HashSet<string>(StringComparer.Ordinal);
+        while(scopedPages.TryDequeue(out var scoped))
+        {
+            if(!visitedPages.Add(scoped.Page.Source.Id))continue;
+            nestedTables.Add(scoped.Target.Source.Id);
+            foreach(var dependency in CrossTableWriteCompilation.ForService(model,scoped.Target,scoped.Page).SelectMany(path=>path.Read.Levels))
+            {
+                nestedTables.Add(dependency.Target.Source.Id);
+                if(FixedPageConditionCompilation.HasCrossFields(dependency.Page))scopedPages.Enqueue(dependency);
+            }
+        }
+        var recursiveCandidates=visitedPages.Count>0;
         var selfTreeNamePages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page)))
             .Select(tree=>tree.TargetPage.Source.Id).ToHashSet(StringComparer.Ordinal);
-        var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog,accountPages,selfTreeNamePages),new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog,accountPages,selfTreeNamePages,nestedTables),new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var cross=model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>CrossTableWriteCompilation.ForService(model,table,page).Count>0));
         var helpers=cross?"    /// <summary>目标条件与页面一起冻结，静态初始化不读取后声明字段。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileCross(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[] bindings)=>Metarill.Data.Queries.NonRedundantReads.CompileWithCrossTables(Snapshot,tableId,outputs,bindings,dependencies,deferCascadeNames:true);\n    /// <summary>与统一物理结构共用稀疏选择编码器。</summary>\n    internal static Metarill.Core.Metadata.CrossTableSparseSelection CompileSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.CrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n":"";
         if(model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0)))helpers+="    /// <summary>共享R0由整组编译，成员不能分别打包覆盖。</summary>\n    internal static Metarill.Core.Metadata.SharedCrossTableSparseSelection CompileSharedSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.SharedCrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n";
+        if(recursiveCandidates)helpers+="    /// <summary>候选通过发布目录保留实际依赖的跨表条件。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileCrossPageCandidate(string tableId,string pageId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(Snapshot,tableId,pageId,outputs,dependencies);\n";
         if(model.Tables.Any(table=>RuleRecordEntity(model,table)))helpers+="    /// <summary>规则实体保留根物理存储；父范围及条件使用同一冻结逻辑投影。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileRuleRecord(string tableId,string[] outputs,string[] storage,string[] dependencies,string[] rules,Metarill.Data.Queries.NonRedundantCrossTableScope[] bindings)=>Metarill.Data.Queries.NonRedundantReads.CompileRuleRecord(Snapshot,tableId,outputs,storage,bindings,dependencies,deferCascadeNames:true,logicalOutputs:rules);\n";
         if (model.Tables.Any(NonRedundantReadCompilation.HasGlobalRowProject) ||
             model.Tables.SelectMany(table => table.Pages).SelectMany(page => RelationCompilation.ForPage(model, page, true))

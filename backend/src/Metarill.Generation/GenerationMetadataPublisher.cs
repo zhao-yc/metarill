@@ -32,7 +32,8 @@ public static class GenerationMetadataPublisher
     }
 
     /// <summary>关系执行目录先脱敏，再去掉品牌、菜单及布局；纯配置更新不因此强制更新后端生成代码。</summary>
-    internal static MetadataCatalog ForRelations(MetadataCatalog catalog,IReadOnlySet<string>? cascadePages=null,IEnumerable<string>? selfTreeNamePages=null)
+    internal static MetadataCatalog ForRelations(MetadataCatalog catalog,IReadOnlySet<string>? cascadePages=null,
+        IEnumerable<string>? selfTreeNamePages=null,IReadOnlySet<string>? nestedTables=null)
     {
         // 关系编译维持生成器的定义错误合同；直接发布保留原ArgumentException及原门禁边界。
         MetadataCatalog published;
@@ -47,21 +48,35 @@ public static class GenerationMetadataPublisher
         }
         var labelPages=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.PublishedCascadeLabelPages(catalog,out var labelOwnershipPages)
             .Concat(selfTreeNamePages??[]).ToHashSet(StringComparer.Ordinal);
+        var nestedPages=published.ConfigPages.Where(page=>nestedTables?.Contains(page.ConfigTableId)==true)
+            .Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
+        bool KeepsVisibility(string pageId)=>labelPages.Contains(pageId)||nestedPages.Contains(pageId);
         published.ConfigMenus=[];published.ConfigCustomPages=[];
-        published.ConfigPageColumns=published.ConfigPageColumns.Where(f=>labelPages.Contains(f.ConfigPageId)||
+        published.ConfigPageColumns=published.ConfigPageColumns.Where(f=>KeepsVisibility(f.ConfigPageId)||
             multiProof.TryGetValue(f.ConfigPageId,out var names)&&names.Contains(f.ConfigColumnId)).Select(f=>new PageColumnMetadata
             {
                 Id=f.Id,ConfigPageId=f.ConfigPageId,ConfigColumnId=f.ConfigColumnId,YzProjectId=f.YzProjectId,
-                IsShow=labelPages.Contains(f.ConfigPageId)?f.IsShow:1,
-                IsEdit=labelPages.Contains(f.ConfigPageId)?f.IsEdit:1,
-                Extra=labelPages.Contains(f.ConfigPageId)?f.Extra.Where(pair=>pair.Key is "isInGrid" or "isInEdit").ToDictionary():new()
+                IsShow=KeepsVisibility(f.ConfigPageId)?f.IsShow:1,
+                IsEdit=KeepsVisibility(f.ConfigPageId)?f.IsEdit:1,
+                Extra=KeepsVisibility(f.ConfigPageId)?f.Extra.Where(pair=>pair.Key is "isInGrid" or "isInEdit"||
+                    nestedPages.Contains(f.ConfigPageId)&&pair.Key=="controlDetail").ToDictionary():new()
             }).OrderBy(f=>f.Id,StringComparer.Ordinal).ToList();
         published.ConfigChildren=[];published.ConfigIndexes=[];published.ConfigIndexColumns=[];
         // 全局R0页面类型参与多值关系证明，即使名称为物理缓存且来源为R0也不能按界面配置裁掉。
         var globalR0Pages=published.ConfigPages.Where(page=>published.ConfigTables.Any(table=>table.Id==page.ConfigTableId&&table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table))).Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
         // 只有实际参与传播或维护的级联目标页才下发其常量条件。
         var globalRowProjects=published.ConfigColumns.Where(column=>column.ColumnName=="yz_project_id").Select(column=>column.ConfigTableId).ToHashSet(StringComparer.Ordinal);
-        published.ConfigPages=published.ConfigPages.Select(page=>new PageMetadata{WhereSql=(globalR0Pages.Contains(page.Id)&&globalRowProjects.Contains(page.ConfigTableId)||cascadePages?.Contains(page.Id)==true||labelPages.Contains(page.Id)||labelOwnershipPages.Contains(page.Id))?page.WhereSql:"",Id=page.Id,ConfigTableId=page.ConfigTableId,YzProjectId=page.YzProjectId,YzAdminTypeId=page.YzAdminTypeId,Extra=(multiProof.ContainsKey(page.Id)||globalR0Pages.Contains(page.Id))&&page.Extra.TryGetValue("type",out var kind)?new(){["type"]=kind.Clone()}:new()}).ToList();
+        published.ConfigPages=published.ConfigPages.Select(page=>new PageMetadata{WhereSql=(globalR0Pages.Contains(page.Id)&&globalRowProjects.Contains(page.ConfigTableId)||cascadePages?.Contains(page.Id)==true||labelPages.Contains(page.Id)||labelOwnershipPages.Contains(page.Id)||nestedPages.Contains(page.Id))?page.WhereSql:"",Id=page.Id,ConfigTableId=page.ConfigTableId,YzProjectId=page.YzProjectId,YzAdminTypeId=page.YzAdminTypeId,Extra=ExecutionPageFlags(page)}).ToList();
+        // 精简目录保留会影响候选资格的原页面属性，避免多个页面在发布后意外变成同一候选。
+        Dictionary<string,JsonElement> ExecutionPageFlags(PageMetadata page)
+        {
+            var flags=new Dictionary<string,JsonElement>(StringComparer.Ordinal);
+            if((multiProof.ContainsKey(page.Id)||globalR0Pages.Contains(page.Id))&&page.Extra.TryGetValue("type",out var kind))
+                flags["type"]=kind.Clone();
+            if(nestedPages.Contains(page.Id)&&page.Extra.TryGetValue("exactDataManageMatchField",out var exact))
+                flags["exactDataManageMatchField"]=exact.Clone();
+            return flags;
+        }
         published.YzAdminTypes=published.YzAdminTypes.Select(admin=>new AdminTypeMetadata{Id=admin.Id,YzProjectId=admin.YzProjectId}).ToList();
         published.ConfigButtons=published.ConfigButtons.Where(button=>button.TryGetProperty("sql",out var path)&&path.ValueKind==JsonValueKind.String&&path.GetString() is "/admin/sys/system_maintenance/tables" or "/admin/sys/system_maintenance/backfill_join_columns").Select(button=>JsonSerializer.SerializeToElement(new{id=button.GetProperty("id").ToString(),sql=button.GetProperty("sql").GetString()})).ToList();
         // 固定记录集合的发布次序；不重排业务扩展数组，也不改变SortNo和原始输入。

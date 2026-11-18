@@ -15,14 +15,17 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!sharedSelections.TryGetValue(table.Id,out var groups)){groups=new ReadOnlyDictionary<string,SharedCrossTableSparseSelection>(SharedCrossTableSparseSelection.CompileAll(table,columns[table.Id].Values).SelectMany(g=>g.Branches.Select(b=>(b.SourceColumnId,Group:g))).ToDictionary(x=>x.SourceColumnId,x=>x.Group,StringComparer.Ordinal));sharedSelections.Add(table.Id,groups);}return groups.GetValueOrDefault(source);
         }
         /// <summary>显式绑定所有同伴范围，冲突值使计数和每行读取均失败，不静默选COALESCE的第一个来源。</summary>
-        private (string Sql,string Type) SharedCrossValue(TableMetadata table,string owner,SharedCrossTableSparseSelection group,string name,bool labelPath=false)
+        private (string Sql,string Type) SharedCrossValue(TableMetadata table,string owner,SharedCrossTableSparseSelection group,string name,bool labelPath=false,
+            IReadOnlyDictionary<string,NonRedundantCrossTableScope>? scopedBindings=null)
         {
+            var projections=scopedBindings is null?crossProjections:scopedCrossProjections;
+            var bindings=scopedBindings??crossTables;
             origin=null;var groupKey=owner+":shared:"+group.Branches[0].SourceColumnId;if(!sharedCrossValues.TryGetValue(groupKey,out var merged))
             {
                 var scopes=new Dictionary<string,NonRedundantCrossTableTargetScope>(StringComparer.Ordinal);
                 foreach(var branch in group.Branches)
                 {
-                    if(!crossTables.TryGetValue(branch.SourceColumnId,out var binding)||binding.Levels.Count!=branch.Slots.Count)throw new NotSupportedException("共享逻辑读取要求全部同伴完整固定的目标页范围。");var control=columns[table.Id].Values.Single(c=>c.Id==branch.SourceColumnId);var levels=Definition(control).GetProperty("levels").EnumerateArray().ToArray();
+                    if(!bindings.TryGetValue(branch.SourceColumnId,out var binding)||binding.Levels.Count!=branch.Slots.Count)throw new NotSupportedException("共享逻辑读取要求全部同伴完整固定的目标页范围。");var control=columns[table.Id].Values.Single(c=>c.Id==branch.SourceColumnId);var levels=Definition(control).GetProperty("levels").EnumerateArray().ToArray();
                     for(var index=0;index<branch.Slots.Count;index++)
                     {
                         var target=tables.Values.Single(t=>t.TableName==levels[index].GetProperty("table").GetString());var slot=branch.Slots[index];var scope=binding.Levels[index];
@@ -32,7 +35,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         // 全局目标沿用单链发布／固定条件证明，来源项目与共享同伴页面仍分别核验。
                         if(GlobalCrossTableTarget.Declared(target)){var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==scope.PageId&&p.ConfigTableId==target.Id)??throw new InvalidOperationException("共享全局目标页与实际目标表不符。");GlobalCrossTableTarget.RequireAccountCandidate(catalog,target,page);}if(scopes.TryGetValue(slot.ColumnName,out var old)&&(old.PageId!=scope.PageId||!SameSharedCondition(old.Condition,scope.Condition)))throw new InvalidOperationException("共享稀疏同一槽的候选页或固定条件不一致。");scopes[slot.ColumnName]=scope;
                     }
-                    _=CrossValue(table,owner,control,group.BranchSelection(branch.SourceColumnId),binding,branch.Slots[^1].ColumnName,labelPath);
+                    _=CrossValue(table,owner,control,group.BranchSelection(branch.SourceColumnId),binding,branch.Slots[^1].ColumnName,labelPath,scopeOnly:scopedBindings is not null);
                 }
                 var values=group.Branches.Select(b=>crossValues[owner+":"+b.SourceColumnId]).ToArray();var clauses=new List<string>();
                 foreach(var slot in group.Slots)
@@ -44,7 +47,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     var peers=values.Where(v=>v.ContainsKey(field)).Select(v=>v[field]).ToArray();if(peers.Select(p=>p.Type).Distinct(StringComparer.Ordinal).Count()!=1)throw new InvalidOperationException("共享逻辑字段类型不一致。");var sql=peers.Length==1?peers[0].Sql:"COALESCE("+string.Join(",",peers.Select(p=>"("+p.Sql+")"))+")";result.Add(field,(sql,peers[0].Type));
                 }
-                var keys=group.Branches.Select(b=>owner+":"+b.SourceColumnId).ToArray();var validity=string.Join(" AND ",keys.Select(k=>"("+crossProjections[k].Validity+")").Concat(clauses));for(var index=0;index<keys.Length;index++){var projection=crossProjections[keys[index]];crossProjections[keys[index]]=projection with{SharedGroupKey=groupKey,RequireRowValidity=index==0,Validity=index==0?validity:projection.Validity};}
+                var keys=group.Branches.Select(b=>owner+":"+b.SourceColumnId).ToArray();var validity=string.Join(" AND ",keys.Select(k=>"("+projections[k].Validity+")").Concat(clauses));for(var index=0;index<keys.Length;index++){var projection=projections[keys[index]];projections[keys[index]]=projection with{SharedGroupKey=groupKey,RequireRowValidity=index==0,Validity=index==0?validity:projection.Validity};}
                 merged=new ReadOnlyDictionary<string,(string Sql,string Type)>(result);sharedCrossValues.Add(groupKey,merged);
             }
             origin=null;return merged[name];

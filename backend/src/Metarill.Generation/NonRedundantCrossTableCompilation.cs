@@ -35,7 +35,8 @@ internal static class NonRedundantCrossTableCompilation
             :BoundPlan(CrossTableWriteCompilation.ForService(model,table,page),name,actor);
 
     internal static string BoundPlan(IReadOnlyList<CrossTableWriteModel>? plans,string name,string actor)=>
-        plans?.Any(plan=>plan.Read.Levels.Any(level=>FixedPageConditionCompilation.HasAccountVariables(level.Page)))==true
+        plans?.Any(plan=>plan.Read.Levels.Any(level=>FixedPageConditionCompilation.HasAccountVariables(level.Page)||
+            FixedPageConditionCompilation.HasCrossFields(level.Page)))==true
             ?name+".BindAccount("+actor+")":name;
 
     /// <summary>共享匹配与普通跨表读取使用同一固定目标页字面量。</summary>
