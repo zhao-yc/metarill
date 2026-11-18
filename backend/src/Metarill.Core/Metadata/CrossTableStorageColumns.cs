@@ -45,6 +45,11 @@ public static class CrossTableStorageColumns
     public static bool ContainsPathField(ColumnMetadata source,string field)=>
         LevelPrefixes(source).Any(prefix=>field==prefix+"_id"||field==prefix+"_name");
 
+    /// <summary>固定条件在非冗余表上引用跨表层位时，按逻辑路径比较，原稀疏存储位不作为值。</summary>
+    public static bool IsLogicalPathField(TableMetadata table,IEnumerable<ColumnMetadata> columns,string field)=>
+        table.IsRongyu==0&&columns.Any(source=>source.ConfigTableId==table.Id&&source.ControlKind=="CascadeTree"&&
+            source.IsVirtualColumn==0&&!Enabled(source,"isJoinColumn")&&ContainsPathField(source,field));
+
     /// <summary>只使用全局固定层级的结构形状；页覆盖不能改变表结构，系统列前缀不作托管列。</summary>
     internal static IReadOnlyList<string> LevelPrefixes(ColumnMetadata source)
     {

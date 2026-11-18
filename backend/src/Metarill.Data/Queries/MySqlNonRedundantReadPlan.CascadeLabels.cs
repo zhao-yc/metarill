@@ -36,6 +36,32 @@ public static partial class MySqlNonRedundantReadCompiler
         return pages;
     }
 
+    /// <summary>固定记录范围只编译条件实际依赖的跨表组，保留整组祖先证明和真实目标页条件。</summary>
+    internal static MySqlNonRedundantReadPlan CompileCrossPageMembership(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields)
+    {
+        if(!catalog.ConfigPages.Contains(page)||page.ConfigTableId!=table.Id||
+            table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||crossFields.Count==0||
+            !crossFields.IsSubsetOf(conditionFields))throw new NotSupportedException("固定跨表页面范围必须属于普通非冗余来源。");
+        var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
+        var selected=columns.Where(column=>column.ControlKind=="CascadeTree"&&
+            crossFields.Any(field=>CrossTableStorageColumns.ContainsPathField(column,field))).Select(column=>column.Id).ToHashSet(StringComparer.Ordinal);
+        foreach(var group in SharedCrossTableSparseSelection.CompileAll(table,columns))
+            if(group.Branches.Any(branch=>selected.Contains(branch.SourceColumnId)))
+                selected.UnionWith(group.Branches.Select(branch=>branch.SourceColumnId));
+        if(selected.Count==0||crossFields.Any(field=>!CrossTableStorageColumns.IsLogicalPathField(table,columns,field)))
+            throw new NotSupportedException("固定页面范围找不到已声明的跨表层位。");
+        var bindings=columns.Where(column=>selected.Contains(column.Id)).Select(column=>
+        {
+            var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==column.Id)
+                ?.Extra.GetValueOrDefault("controlDetail").ToString();
+            if(!CrossTableStorageColumns.KeepsDefinition(column.ControlDetail,overlay))
+                throw new NotSupportedException("固定页面范围不能忽略级联页覆盖引起的路径变化。");
+            return CascadeLabelScope(catalog,column);
+        }).ToArray();
+        return CompileWithCrossTables(catalog,table.Id,["id"],bindings,conditionFields);
+    }
+
     /// <summary>发现实际多值控件绑定的目标名称，普通非关联输出仍使用原读取计划。</summary>
     private static IEnumerable<(TableMetadata? Source,TableMetadata Table,string Field)> DeclaredMultiNameTargets(MetadataCatalog catalog)
     {
@@ -106,6 +132,8 @@ public static partial class MySqlNonRedundantReadCompiler
         if(candidates.Length!=1)throw new NotSupportedException("级联多值名称要求每级唯一且无父参数的可读页面。");
         var (chosen,syntax)=candidates[0];
         var terms=syntax.Terms.Where(term=>!IsProjectScope(term)).ToArray();
+        if(terms.Any(term=>CrossTableStorageColumns.IsLogicalPathField(target,columns,term.Field)))
+            throw new NotSupportedException("级联目标页的逻辑路径条件缺少递归候选证明。");
         if(terms.Length==0)return(chosen,null);
         var physical=columns.Where(column=>GlobalPhysicalRelationValue.IsScalar(storage,target,column))
             .ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.OrdinalIgnoreCase);

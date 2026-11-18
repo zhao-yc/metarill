@@ -14,6 +14,16 @@ internal sealed record FilePageScope(IReadOnlyList<FileParentScope> Parents,Fixe
     internal IReadOnlyList<FileCrossParentScope> Crosses{get;init;}=[];
     /// <summary>同页共享路径已经证明的物理全局父，只比较实际锁定源值，不再按不存在的项目列查询。</summary>
     internal IReadOnlyList<ColumnMetadata> GlobalParents{get;init;}=[];
+    internal NonRedundantReadPlan? LogicalConditionPlan { get; init; }
+
+    /// <summary>同一固定条件只验证真实来源主键；调用方沿文件读取快照或业务写事务执行。</summary>
+    internal static async Task<bool> MatchesAsync(Metarill.Data.DatabaseSession session,NonRedundantReadPlan plan,
+        FixedConditionSqlPlan? condition,long recordId,string projectId,bool currentRead,CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(condition);
+        var rows=await new NonRedundantReader(session).KeyRowsAsync(plan,[],[recordId],token,projectId,condition,currentRead);
+        return rows.Count==1;
+    }
 }
 
 /// <summary>发布时固定项目/父等值及物理标量常量，与生成页面共用条件AST和数据类型绑定。</summary>
@@ -27,28 +37,34 @@ internal static class FileReferenceScope
         try
         {
             var result=new List<FileParentScope>();var globalParents=new List<ColumnMetadata>();var pending=new List<(ColumnMetadata Source,TableMetadata Parent,ColumnMetadata? Project,bool Deleted)>();var crosses=new List<FileCrossParentScope>();var constants=new List<FixedConditionTerm>();
-            var columns=MetadataStoragePolicy.ForTable(catalog,table).PhysicalColumns;
-            var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+            var storage=MetadataStoragePolicy.ForTable(catalog,table);
+            var columns=storage.PhysicalColumns;
+            var declared=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
+            var crossFields=new HashSet<string>(StringComparer.Ordinal);
+            var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
             var redundant=RedundantSharedParents.Compile(catalog,table.Id,page.Id);
             foreach(var term in syntax.Terms)
             {
-                var column=columns.Single(candidate=>candidate.ColumnName==term.Field);
+                var column=declared.Single(candidate=>candidate.ColumnName==term.Field);
+                var logical=CrossTableStorageColumns.IsLogicalPathField(table,declared,column.ColumnName);
                 var variables=term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable).ToArray();
                 if(variables.Length==0)
                 {
                     var multiNames=columns.Any(source=>source.ControlKind=="MultiSelectPage"&&source.ColumnName.EndsWith("_ids",StringComparison.Ordinal)&&column.ColumnName==source.ColumnName[..^4]+"_names");
                     var credential=table.Id=="6031906809708544"&&table.TableName=="yz_manager"&&column.ColumnName is "password" or "salt" or "old_password";
-                    if(column.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)||column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||multiNames||credential)throw Unsupported();
-                    if(FileCrossParentScope.Compile(catalog,table,page,column) is not null)throw Unsupported();
+                    if(column.IsVirtualColumn!=0||(!logical&&!storage.IsPhysical(column))||
+                        column.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)||column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||multiNames||credential)throw Unsupported();
+                    if(logical)crossFields.Add(column.ColumnName);
                     constants.Add(term);continue;
                 }
+                if(!storage.IsPhysical(column))throw Unsupported();
                 if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||variables.Length!=1)throw Unsupported();
                 var variable=variables[0].Text;
                 if(AccountConditionVariables.IsSupported(variable))
                 {
                     if(column.ColumnName=="yz_project_id"||!AccountConditionVariables.IsPageField(variable,column.ColumnName)||!IdentityType(column.LogicalType)||
                         !GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,table),table,column)||
-                        FileCrossParentScope.Compile(catalog,table,page,column) is not null)throw Unsupported();
+                        logical)throw Unsupported();
                     constants.Add(term);
                     continue;
                 }
@@ -79,8 +95,12 @@ internal static class FileReferenceScope
                 var proof=GlobalSingleRelationTarget.Require(catalog,table,candidate.Source,candidate.Parent);if(!crosses.Any(cross=>cross.CoversGlobalParent(candidate.Parent.TableName,proof.Page.Id,proof.Name.Id)))throw Unsupported();globalParents.Add(candidate.Source);
             }
             var fields=constants.Select(term=>term.Field).Distinct(StringComparer.Ordinal).ToArray();
-            var condition=constants.Count==0?null:FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",constants.Select(term=>term.ToDefinition())),fields),fields.ToDictionary(field=>field,field=>columns.Single(column=>column.ColumnName==field).LogicalType,StringComparer.Ordinal));
-            return new(result.AsReadOnly(),condition,Array.AsReadOnly(fields)){Crosses=crosses.AsReadOnly(),GlobalParents=globalParents.AsReadOnly()};
+            var condition=constants.Count==0?null:FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",constants.Select(term=>term.ToDefinition())),fields),fields.ToDictionary(field=>field,field=>declared.Single(column=>column.ColumnName==field).LogicalType,StringComparer.Ordinal));
+            var membership=crossFields.Count==0?null:NonRedundantReads.CompileCrossPageMembership(catalog,table,page,fields,crossFields);
+            return new(result.AsReadOnly(),condition,Array.AsReadOnly(fields))
+            {
+                Crosses=crosses.AsReadOnly(),GlobalParents=globalParents.AsReadOnly(),LogicalConditionPlan=membership
+            };
         }
         catch(Exception invalid)when(invalid is ArgumentException or InvalidOperationException or JsonException){throw Unsupported();}
     }

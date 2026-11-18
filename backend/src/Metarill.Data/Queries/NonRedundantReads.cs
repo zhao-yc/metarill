@@ -93,6 +93,15 @@ public static class NonRedundantReads
         ArgumentNullException.ThrowIfNull(metadata);ArgumentNullException.ThrowIfNull(crossTables);
         return metadata.DatabaseProvider switch{"mysql"=>new(MySqlNonRedundantReadCompiler.CompileWithCrossTables(metadata,tableId,outputs,crossTables,dependencies,deferCascadeNames)),_=>throw new NotSupportedException("该数据库尚未完成固定非冗余读取适配。")};
     }
+    /// <summary>附件等固定入口只证明记录是否满足条件，不将路径或其他业务字段对外投影。</summary>
+    public static NonRedundantReadPlan CompileCrossPageMembership(MetadataCatalog metadata,TableMetadata table,PageMetadata page,
+        IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields)=>
+        metadata.DatabaseProvider switch
+        {
+            "mysql"=>new(MySqlNonRedundantReadCompiler.CompileCrossPageMembership(metadata,table,page,conditionFields,crossFields)),
+            _=>throw new NotSupportedException("该数据库尚未完成逻辑页面范围适配。")
+        };
+
     /// <summary>匹配计划只编译必要单值路径，并验证最终物理值，不能借别名匹配凭据或文件数组。</summary>
     public static NonRedundantReadPlan CompileMatch(MetadataCatalog metadata,string tableId,string field)=>metadata.DatabaseProvider switch
     {"mysql"=>new(MySqlNonRedundantReadCompiler.CompileMatch(metadata,tableId,field)),_=>throw new NotSupportedException("该数据库尚未完成固定匹配读取适配。")};

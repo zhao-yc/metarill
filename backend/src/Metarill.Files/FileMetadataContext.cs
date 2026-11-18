@@ -9,8 +9,10 @@ namespace Metarill.Runtime.Files;
 public sealed class FileMetadataContext
 {
     public IReadOnlyList<MetadataCatalog> Catalogs { get; }
-    /// <summary>只有带真实文件字段的逻辑父页需要来源／目标共用读快照。</summary>
+    /// <summary>带逻辑父范围的文件来源从真实路径核验父身份。</summary>
     internal bool HasLogicalFileParents{get;}
+    /// <summary>路径条件、逻辑父与附件引用读取须共用快照。</summary>
+    internal bool NeedsFileReadSnapshot{get;}
     private readonly Dictionary<(string Project,string Table),IReadOnlyList<ColumnMetadata>> physicalColumns=[];
     private readonly Dictionary<(string Project,string Page,string Field),NonRedundantReadPlan> derivedExactPlans=[];
     private readonly Dictionary<(string Project,string Page),(ColumnMetadata Column,bool Derived,bool Shared)> exactKinds=[];
@@ -52,7 +54,11 @@ public sealed class FileMetadataContext
             catch(Exception invalid)when(invalid is NotSupportedException or ArgumentException or InvalidOperationException){/* 坏定义只使该来源拒绝，不影响其它合法文件页面。 */}
             pageScopes.Add((catalog.YzProjectId,page.Id),scope);
         }
-        HasLogicalFileParents=snapshots.Any(catalog=>catalog.ConfigPages.Any(page=>pageScopes[(catalog.YzProjectId,page.Id)] is{Crosses.Count:>0}&&physicalColumns[(catalog.YzProjectId,page.ConfigTableId)].Any(column=>column.ControlKind=="FileLibrary")));
+        var fileScopes=snapshots.SelectMany(catalog=>catalog.ConfigPages
+            .Where(page=>physicalColumns[(catalog.YzProjectId,page.ConfigTableId)].Any(column=>column.ControlKind=="FileLibrary"))
+            .Select(page=>pageScopes[(catalog.YzProjectId,page.Id)])).ToArray();
+        HasLogicalFileParents=fileScopes.Any(scope=>scope is {Crosses.Count:>0});
+        NeedsFileReadSnapshot=HasLogicalFileParents||fileScopes.Any(scope=>scope?.LogicalConditionPlan is not null);
         foreach(var catalog in snapshots)foreach(var page in catalog.ConfigPages)CompileDerivedExact(catalog,page);
     }
     /// <summary>文件父范围和精确读取使用同一张已发布表的规范字段身份。</summary>
@@ -87,7 +93,8 @@ public sealed class FileMetadataContext
             var match=cross?NonRedundantReads.CompileCrossExactMatch(catalog,table.Id,column.ColumnName,bindings):
                 NonRedundantReads.CompileMatch(catalog,table.Id,column.ColumnName);
             if(match.OutputTypes[column.ColumnName]!=column.LogicalType)throw new NotSupportedException("文件来源派生匹配类型不一致。");
-            var dependencies=new[]{column.ColumnName}.Concat(scope.ConditionFields).Distinct(StringComparer.Ordinal).ToArray();
+            // 固定逻辑范围已由独立成员查询核验；精确范围计划不将其再次作为物理筛选字段。
+            var dependencies=new[]{column.ColumnName}.Concat(scope.LogicalConditionPlan is null?scope.ConditionFields:[]).Distinct(StringComparer.Ordinal).ToArray();
             foreach(var file in physical.Where(item=>item.ControlKind=="FileLibrary"))
             {
                 var names=new[]{file.ColumnName,"id"}.Concat(physical.Any(item=>item.ColumnName=="yz_project_id")?new[]{"yz_project_id"}:Array.Empty<string>())

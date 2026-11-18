@@ -32,7 +32,16 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         if(columns.Any(column=>column.ColumnName=="delete_no"))throw new InvalidOperationException("逻辑删除不能获取物理删除证明。");
         if(context.Transaction is null||context.Transaction.Connection is null||!ReferenceEquals(context.Transaction,store.Session.CurrentTransaction))throw new InvalidOperationException("物理删除准备要求原业务连接及事务。");
         var actor=authorization.RequireActor();if(actor.ProjectId!=context.ProjectId||catalog.YzProjectId!=context.ProjectId||context.RecordId<=0)throw new UnauthorizedAccessException("物理删除项目范围无效。");RequireMutationPermission(context,authorization);
-        var scope=registry.PageScope(catalog,page);var record=await LockRecordAsync(context,columns,cancellationToken,scope.Condition?.BindAccount(actor));var parents=await LockParentsAsync(context,scope,record,cancellationToken);
+        var scope=registry.PageScope(catalog,page);
+        var condition=scope.Condition?.BindAccount(actor);
+        if(scope.LogicalConditionPlan is { } logical)
+        {
+            if(!await FilePageScope.MatchesAsync(store.Session,logical.BindAccount(actor),condition,context.RecordId,actor.ProjectId,true,cancellationToken))
+                throw new UnauthorizedAccessException("实际文件记录不满足当前页面逻辑范围。");
+            condition=null;
+        }
+        var record=await LockRecordAsync(context,columns,cancellationToken,condition);
+        var parents=await LockParentsAsync(context,scope,record,cancellationToken);
         var proofs=deletions.GetValue(context.Transaction,_=>new());if(!proofs.TryAdd((context.PageId,context.TableName,context.RecordId),new(actor,context.ProjectId,new ReadOnlyDictionary<string,object?>(record),Array.AsReadOnly(parents))))throw new InvalidOperationException("同一记录物理删除已经准备，不能覆盖证明。");
     }
 

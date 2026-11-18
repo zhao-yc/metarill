@@ -115,6 +115,60 @@ public sealed class GlobalCrossCachedTargetGenerationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>同一固定条件生成到读取、写入锁、业务按钮、覆盖导入和带附件的完整应用。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Fixed_cross_page_conditions_generate_for_reads_mutations_import_and_files(bool shared)
+    {
+        const string application="Example.LogicalPageCondition";
+        var catalog=shared?GlobalCrossCachedTargetFixture.CreateShared(0,"string","int64",shorter:true)
+            :GlobalCrossCachedTargetFixture.Create(0,2,"int64","string");
+        var source=catalog.ConfigPages.Single(page=>page.Id=="30");
+        var name=shared?"warehouse_name":"place_name";
+        var country=shared?"'9007199254740993'":"9007199254740993";
+        source.WhereSql+=$" AND country_id={country} AND {name} LIKE '甲%乙' AND name <> '隐藏'";
+        source.IsDelete=1;
+        catalog.ConfigColumns.Single(column=>column.ConfigTableId=="3"&&column.ColumnName=="name").SortNo=-10;
+        source.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+        source.Extra["exportMethod"]=JsonSerializer.SerializeToElement(shared?"edit":"list");
+        var target=catalog.ConfigPages.Single(page=>page.Id=="10");
+        target.WhereSql+=" AND store_id=@current_store_id";
+        catalog.ConfigColumns.Add(new(){Id="166",ConfigTableId="1",ColumnName="store_id",YzProjectId="100",LogicalType="int64"});
+        var model=GenerationModel.Create(catalog,application);
+        var table=model.Tables.Single(table=>table.Source.Id=="3");
+        var page=Assert.Single(table.Pages);
+        Assert.Equal(new[]{"country_id",name},page.Condition!.CrossFields.Order(StringComparer.Ordinal));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-r0-cross-page-condition");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        var generated=Path.Combine(directory,"generated");
+        try
+        {
+            new CSharpGenerator().Generate(catalog,generated,application);
+            var code=File.ReadAllText(Path.Combine(generated,"Services/CrossConsumerService.g.cs"));
+            Assert.Contains("CrossConditionPlan30.BindAccount(actor),PageCondition30",code);
+            Assert.Contains("ApplyCondition(query,session",code);
+            Assert.Contains("locking:true).Where",code);
+            Assert.Contains("ReadAgentRecord30Async",code);
+            Assert.Contains("ButtonRecordQuery30",code);
+            Assert.Contains("Import30Async",code);
+            Assert.Contains("Export30Async",code);
+            Assert.Contains("RowsAsync(ExportReadPlan30.BindAccount(actor)",code);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(application+".Generated.Services.CrossConsumerService",true)!;
+            const BindingFlags flags=BindingFlags.NonPublic|BindingFlags.Static;
+            var plan=Assert.IsType<NonRedundantReadPlan>(service.GetField("CrossConditionPlan30",flags)!.GetValue(null));
+            Assert.Equal(new[]{"id"},plan.OutputTypes.Keys);
+            var actor=new RuntimeActor(29,"测试用户",false,"100","9");
+            Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor));
+            Assert.NotSame(plan,plan.BindAccount(actor with{StoreId=38}));
+        }
+        finally {await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>混合字符串与整数的跨表链沿原候选、路径、Excel 和维护执行。</summary>
     [Theory]
     [InlineData(0,"physical","int32")]

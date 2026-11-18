@@ -1,4 +1,5 @@
 using FreeSql.DataAnnotations;
+using Metarill.Core.Metadata;
 using Metarill.Data.Queries;
 using Xunit;
 namespace Metarill.Data.Tests;
@@ -38,6 +39,43 @@ public sealed class NonRedundantCrossTableScopeSqlTests
         Assert.Throws<InvalidOperationException>(()=>NonRedundantCrossTableScopeSql.Apply(query,session,plan,"country_id","p",valid,catalog.YzProjectId,true));
         Assert.Equal(before,query.ToSql());
     }
+    /// <summary>当前对象匹配使用祖先与名称表达式，既不嵌入常量也不读取未经编译的物理名称列。</summary>
+    [Theory]
+    [InlineData("string")]
+    [InlineData("int64")]
+    public void Fixed_page_condition_binds_logical_ids_names_and_physical_terms(string type)
+    {
+        var catalog=NonRedundantCrossTableReadTests.Catalog("scope_page",type,"string");
+        foreach(var page in catalog.ConfigPages)
+            foreach(var column in catalog.ConfigColumns.Where(column=>column.ConfigTableId==page.ConfigTableId))
+                catalog.ConfigPageColumns.Add(new(){Id=page.Id+"_"+column.Id,ConfigPageId=page.Id,ConfigColumnId=column.Id,IsShow=1});
+        var types=new Dictionary<string,string>{{"country_id",type},{"place_name","string"},{"amount","decimal"}};
+        var crossFields=new HashSet<string>(StringComparer.Ordinal){"country_id","place_name"};
+        var pageScope=new PageMetadata(){Id="11",ConfigTableId="1",YzProjectId=catalog.YzProjectId};
+        catalog.ConfigPages.Add(pageScope);
+        var plan=NonRedundantReads.CompileCrossPageMembership(catalog,catalog.ConfigTables[0],pageScope,types.Keys.ToArray(),crossFields);
+        var key=type=="string"?"'9007199254740993'":"9007199254740993";
+        var condition=FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(
+            $"country_id={key} AND place_name LIKE '甲%乙' AND amount>=12.5",types.Keys),types);
+        using var session=Session();
+        var query=session.Select<Row>().Where(row=>row.Id>0);
+        var before=query.ToSql();
+        Assert.Throws<InvalidOperationException>(()=>NonRedundantCrossTableScopeSql.ApplyCondition(query,session,plan,condition,"b205",catalog.YzProjectId,true));
+        Assert.Equal(before,query.ToSql());
+        NonRedundantCrossTableScopeSql.ApplyCondition(query,session,plan,condition,"b205",catalog.YzProjectId);
+        var sql=query.ToSql();
+        Assert.Contains("EXISTS",sql);
+        Assert.Contains("b.`id`=`a`.`id`",sql);
+        Assert.Contains("CASE WHEN",sql);
+        Assert.Contains("b.`amount`",sql);
+        Assert.Contains("@b205_condition_",sql);
+        Assert.Contains("@b205_constant_mt_cross_scope_",sql);
+        Assert.DoesNotContain("b.`place_name`",sql);
+        Assert.DoesNotContain("9007199254740993",sql);
+        Assert.DoesNotContain("甲%乙",sql);
+        Assert.Equal(new[]{"id"},plan.OutputTypes.Keys);
+    }
+
     /// <summary>只生成SQL，离线端口不具备建表或数据访问条件。</summary>
     private static DatabaseSession Session()=>new(new(){ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"});
     [Table(Name="scope_fixed_source",DisableSyncStructure=true)]

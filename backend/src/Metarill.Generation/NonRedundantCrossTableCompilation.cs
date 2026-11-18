@@ -17,10 +17,6 @@ internal static class NonRedundantCrossTableCompilation
         if(!storage.Slots.Select(slot=>slot.ColumnName).SequenceEqual(plan.Levels.Select(level=>level.Prefix+"_id"),StringComparer.Ordinal))throw new InvalidOperationException("页级跨表定义不能改变固定存储层位。");
         if (!CrossTableFrontendProof.KeepsStorageDefinition(model, page, plan.Source))
             throw new InvalidOperationException("非冗余跨表页级目标覆盖仍待独立存储证明。");
-        var slots=storage.Slots.Select(slot=>slot.ColumnName).ToHashSet(StringComparer.Ordinal);
-        // 精确范围由独立的动作权限计划绑定。普通 SQL 条件仍不能直接使用稀疏槽。
-        if(page.Condition?.Syntax.Fields.Any(slots.Contains)==true)
-            throw new InvalidOperationException("非冗余跨表来源逻辑常量条件尚需独立证明。");
         _=NonRedundantSelfTreeSubset.ParentTables(model,table,page);
     }
     /// <summary>从完整生成模型冻结真实目标页的常量条件，不从精简关系目录猜测条件。</summary>

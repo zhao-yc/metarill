@@ -33,8 +33,33 @@ public sealed class FileCrossParentScopeTests
         Assert.Contains("store_id",sql);
         Assert.Equal(9007199254740993L,Assert.Single(command.Parameters.Cast<System.Data.Common.DbParameter>()).Value);
     }
-    /// <summary>页覆盖、目标动态条件／错误绑定、来源逻辑常量、目标隐藏字段不能被当作无范围。</summary>
-    [Theory][InlineData("override")][InlineData("target")][InlineData("ambiguous")][InlineData("hidden")][InlineData("constant")][InlineData("exact")][InlineData("targetType")]
+    /// <summary>固定页面条件按逻辑层位和账号范围编译，附件快照只需要真实来源主键。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Fixed_file_scope_proves_a_logical_condition_on_independent_and_shared_chains(bool shared)
+    {
+        var catalog=shared?FileSharedCrossParentScopeTests.Catalog("string","int64"):Catalog("file_condition","string","int64");
+        var source=catalog.ConfigPages.Single(page=>page.Id=="101");
+        source.WhereSql="yz_project_id=@current_yz_project_id AND country_id='9007199254740993' AND "+(shared?"warehouse_name":"place_name")+" LIKE '甲%乙'";
+        var target=catalog.ConfigPages.Single(page=>page.Id=="201");
+        target.WhereSql+=" AND store_id=@current_store_id";
+        catalog.ConfigColumns.Add(new(){Id="208",ConfigTableId=target.ConfigTableId,ColumnName="store_id",LogicalType="int64"});
+        var registry=new FileMetadataContext([catalog]);
+        var frozen=registry.Catalogs.Single();
+        var scope=registry.PageScope(frozen,frozen.ConfigPages.Single(page=>page.Id==source.Id));
+        Assert.True(registry.NeedsFileReadSnapshot);
+        Assert.Empty(scope.Crosses);
+        Assert.NotNull(scope.Condition);
+        var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(scope.LogicalConditionPlan);
+        Assert.Equal(new[]{"id"},plan.OutputTypes.Keys);
+        var actor=new Metarill.Core.Security.RuntimeActor(12,"账号",false,"1","3");
+        Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor));
+        Assert.NotSame(plan,plan.BindAccount(actor with{StoreId=29}));
+    }
+
+    /// <summary>页覆盖、未知或派生身份条件、歧义与目标隐藏字段继续拒绝。</summary>
+    [Theory][InlineData("override")][InlineData("target")][InlineData("ambiguous")][InlineData("hidden")][InlineData("logicalAccount")][InlineData("targetType")]
     public void Unproved_file_cross_scope_is_rejected_at_publication(string defect)
     {
         var catalog=Catalog("file_bad","string","string");var page=catalog.ConfigPages.Single(page=>page.Id=="101");
@@ -44,12 +69,28 @@ public sealed class FileCrossParentScopeTests
             case "target":catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql="name=@unknown";break;
             case "ambiguous":var copy=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(catalog.ConfigPages.Single(page=>page.Id=="201")))!;copy.Id="202";catalog.ConfigPages.Add(copy);foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="201").ToArray()){var clone=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;clone.Id="extra"+field.Id;clone.ConfigPageId="202";catalog.ConfigPageColumns.Add(clone);}break;
             case "hidden":catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="22").IsShow=0;break;
-            case "constant":page.WhereSql+=" AND country_id='1'";break;
-            case "exact":page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");break;
-            case "targetType":catalog.ConfigColumns.Single(column=>column.Id=="32").LogicalType="int64";break;
+            case "logicalAccount":page.WhereSql+=" AND country_id=@current_yz_manager_id";break;
+            case "targetType":catalog.ConfigColumns.Single(column=>column.Id=="32").LogicalType="binary";break;
         }
         Assert.Throws<NotSupportedException>(()=>FileReferenceScope.CompilePage(catalog,catalog.ConfigTables[0],page));
     }
+    /// <summary>已接通的整数名称和物理精确匹配保留同一逻辑父范围。</summary>
+    [Fact]
+    public void Integer_labels_and_physical_exact_scope_remain_supported()
+    {
+        var catalog=Catalog("file_existing_scope","string","int64");
+        var source=catalog.ConfigPages.Single(page=>page.Id=="101");
+        source.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");
+        catalog.ConfigColumns.Single(column=>column.Id=="32").LogicalType="int64";
+        var registry=new FileMetadataContext([catalog]);
+        var published=registry.Catalogs.Single();
+        var page=published.ConfigPages.Single(candidate=>candidate.Id==source.Id);
+        Assert.Single(registry.PageScope(published,page).Crosses);
+        var exact=registry.ExactField(published,page);
+        Assert.Equal("name",exact.Column.ColumnName);
+        Assert.False(exact.Derived);
+    }
+
     /// <summary>歧义、非规范ID、缺槽和空选择只能拒绝，离线端口证明未查询目标或猜最深值。</summary>
     [Theory][InlineData("ambiguous")][InlineData("missing")][InlineData("noncanonical")][InlineData("empty")]
     public async Task Bad_sparse_storage_fails_without_a_database_query(string kind)
