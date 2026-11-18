@@ -68,7 +68,7 @@ internal static class RelationCompilation
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
             // 原单选的外加条件已经逐项证明属于目标页，含逻辑项时由页面计划完整执行。
             var where=selection is not null&&FixedPageConditionCompilation.HasLogicalFields(targetPage)?"":Mapped("whereSql");
-            var (scopes, conditions) = RelationConditionsCompilation.Compile(model, owner, page, target, where);
+            var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,allowLogicalList:selection is null);
             if ((conditions is not null||FixedPageConditionCompilation.HasLogicalFields(targetPage))&&
                 ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
                 throw new InvalidOperationException("固定条件的候选必须与外键及显示来源的目标一致。");
@@ -114,9 +114,16 @@ internal static class RelationCompilation
     }
 
     /// <summary>配置了逻辑范围的下拉即使隐藏，也要复核默认值和最终持久化值。</summary>
-    private static bool LogicalListTarget(GenerationModel model,PageModel page,ColumnModel source)=>
-        source.Source.ControlKind=="List"&&ForeignValidationRenderer.Target(model,source) is {} target&&
-        ListTargetPage(target,page,source,requireExplicit:false) is {} targetPage&&FixedPageConditionCompilation.HasLogicalFields(targetPage);
+    private static bool LogicalListTarget(GenerationModel model,PageModel page,ColumnModel source)
+    {
+        if(source.Source.ControlKind!="List"||ForeignValidationRenderer.Target(model,source) is not {} target||
+            ListTargetPage(target,page,source,requireExplicit:false) is not {} targetPage)return false;
+        if(FixedPageConditionCompilation.HasLogicalFields(targetPage))return true;
+        var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
+        var effective=Text(Definition(field?.Extra.GetValueOrDefault("controlDetail").ToString()??""),"whereSql");
+        if(string.IsNullOrWhiteSpace(effective))effective=Text(Definition(source.Source.ControlDetail),"whereSql");
+        return RelationConditionsCompilation.HasLogicalListFields(target,effective);
+    }
 
     /// <summary>冗余单选绑定逻辑候选页时原入口也须校验相同范围。</summary>
     private static bool LogicalSelectionTarget(GenerationModel model,PageModel page,ColumnModel source)

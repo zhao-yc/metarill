@@ -4,9 +4,14 @@ using Metarill.Data.Queries;
 
 namespace Metarill.Generation;
 
-/// <summary>关系附加条件只接入已证明的物理字段、常量和原身份/父变量；表单依赖从同一发布计划接通。</summary>
+/// <summary>关系附加条件使用固定字段和受限变量，逻辑字段由发布的完整级联定义求值。</summary>
 internal sealed record RelationConditionModel(string Definition, FixedConditionPlan Syntax,
-    IReadOnlyDictionary<string, string> Types, IReadOnlyList<RelationFormBinding> Forms);
+    IReadOnlyDictionary<string, string> Types, IReadOnlyList<RelationFormBinding> Forms)
+{
+    internal IReadOnlySet<string> CrossFields { get; init; }=new HashSet<string>(StringComparer.Ordinal);
+    internal IReadOnlySet<string> SelfTreeFields { get; init; }=new HashSet<string>(StringComparer.Ordinal);
+    internal bool HasLogicalFields=>CrossFields.Count>0||SelfTreeFields.Count>0;
+}
 
 /// <summary>表单变量固定绑定本对象已声明的物理标量，嵌套槽沿用原表名驼峰结构。</summary>
 internal sealed record RelationFormBinding(string Variable,ColumnModel Column,IReadOnlyList<string> Path,IReadOnlyList<string> FallbackPath);
@@ -15,16 +20,18 @@ internal static class RelationConditionsCompilation
 {
     /// <summary>生成前验证整个条件及字面量类型，不把未支持的变量或派生字段降级为宽查询。</summary>
     internal static (IReadOnlyList<(ColumnModel Column, string Source)> Scopes, RelationConditionModel? Conditions) Compile(
-        GenerationModel model, TableModel owner, PageModel page, TableModel target, string definition)
+        GenerationModel model, TableModel owner, PageModel page, TableModel target, string definition,bool allowLogicalList=false)
     {
-        try { return CompileCore(model,owner,page,target,definition); }
+        try { return CompileCore(model,owner,page,target,definition,allowLogicalList); }
         catch(ArgumentException error) { throw new InvalidOperationException("关系固定条件不能按已发布物理类型安全编译。",error); }
     }
 
     /// <summary>完整分析后才签发关系条件，语法和类型错误统一保留生成失败合同。</summary>
-    private static (IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions) CompileCore(GenerationModel model,TableModel owner,PageModel page,TableModel target,string definition)
+    private static (IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions) CompileCore(GenerationModel model,TableModel owner,PageModel page,TableModel target,string definition,bool allowLogicalList)
     {
         var syntax=FixedConditionPlan.Compile(definition,target.Columns.Select(column=>column.Source.ColumnName));
+        var (crossFields,selfTreeFields)=LogicalFields(target,syntax,allowLogicalList);
+        bool Logical(string field)=>crossFields.Contains(field)||selfTreeFields.Contains(field);
         var scopes=new List<(ColumnModel Column,string Source)>();
         var forms=new Dictionary<string,RelationFormBinding>(StringComparer.Ordinal);
         var storage=MetadataStoragePolicy.ForTable(model.Catalog,owner.Source);
@@ -42,6 +49,8 @@ internal static class RelationConditionsCompilation
                 if(Kind(column.Source.LogicalType)!=Kind(targetColumn.Source.LogicalType))throw new InvalidOperationException("表单依赖与候选字段逻辑类型不一致。");
                 forms.TryAdd(variable,new(variable,column,Array.AsReadOnly(path),Array.AsReadOnly(path.Length==1?new[]{GenerationModel.Camel(owner.Source.TableName),path[0]}:new[]{path[^1]})));continue;
             }
+            if(Logical(term.Field))
+                throw new InvalidOperationException("账号、项目或父级条件必须使用真实物理字段。");
             if(Metarill.Core.Security.AccountConditionVariables.IsSupported(variable))
             {
                 if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||!FixedPageConditionCompilation.IsAccountColumn(target.Columns.Single(column=>column.Source.ColumnName==term.Field)))
@@ -64,12 +73,35 @@ internal static class RelationConditionsCompilation
         foreach(var field in syntax.Fields)
         {
             var column=target.Columns.Single(column=>column.Source.ColumnName==field);
-            if(!physical.IsPhysical(column.Source)||column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,column))
-                throw new InvalidOperationException("关系固定条件必须使用非凭据的物理标量字段。");
+            if(!physical.IsPhysical(column.Source)&&!Logical(field)||column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,column))
+                throw new InvalidOperationException("关系固定条件必须使用非凭据物理字段或已声明的逻辑级联字段。");
         }
         var types=syntax.Fields.ToDictionary(field=>field,field=>target.Columns.Single(column=>column.Source.ColumnName==field).Source.LogicalType,StringComparer.Ordinal);
         FixedConditionSqlPlan.Compile(syntax,types);
-        return (scopes.AsReadOnly(),new(definition,syntax,types,Array.AsReadOnly(forms.Values.ToArray())));
+        return (scopes.AsReadOnly(),new(definition,syntax,types,Array.AsReadOnly(forms.Values.ToArray()))
+        {
+            CrossFields=crossFields,SelfTreeFields=selfTreeFields
+        });
+    }
+
+    /// <summary>隐藏下拉的最终值校验也须登记实际逻辑条件。</summary>
+    internal static bool HasLogicalListFields(TableModel target,string definition)
+    {
+        if(target.IsGlobal||target.Source.IsRongyu!=0||string.IsNullOrWhiteSpace(definition))return false;
+        var syntax=FixedConditionPlan.Compile(definition,target.Columns.Select(column=>column.Source.ColumnName));
+        var (cross,tree)=LogicalFields(target,syntax,true);
+        return cross.Count>0||tree.Count>0;
+    }
+
+    /// <summary>从表级级联结构恢复逻辑字段，控件附加条件不能声明或改写路径。</summary>
+    private static (IReadOnlySet<string> Cross,IReadOnlySet<string> Tree) LogicalFields(
+        TableModel target,FixedConditionPlan syntax,bool allowed)
+    {
+        if(!allowed||target.IsGlobal||target.Source.IsRongyu!=0)
+            return(new HashSet<string>(StringComparer.Ordinal),new HashSet<string>(StringComparer.Ordinal));
+        var columns=target.Columns.Select(column=>column.Source).ToArray();
+        return(syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(target.Source,columns,field)).ToHashSet(StringComparer.Ordinal),
+            syntax.Fields.Where(field=>CascadeTreeStorageColumns.IsLogicalNameField(target.Source,columns,field)).ToHashSet(StringComparer.Ordinal));
     }
 
     /// <summary>生成静态不可变计划，在首次装载时校验同版运行时；普通请求只绑定真实Actor、目标父及已声明的表单叶值。</summary>
@@ -83,10 +115,15 @@ internal static class RelationConditionsCompilation
     }
 
     /// <summary>表单只按声明叶值绑定，客户端不能覆盖当前身份或真实父。</summary>
-    internal static string Apply(RelationModel relation,string suffix)
+    internal static string Apply(RelationModel relation,string suffix,string? logicalPlan=null)
     {
         if(relation.Conditions is not {} condition)return "";
         var variables=Variables(condition,"targetParentId");
+        if(condition.HasLogicalFields)
+        {
+            if(logicalPlan is null)throw new InvalidOperationException("下拉逻辑条件缺少已发布读取计划。");
+            return $"        query=NonRedundantCrossTableScopeSql.ApplyCondition(query,session,{logicalPlan},OptionsCondition{suffix}.BindVariables(new Dictionary<string,object?>{{ {variables} }}),\"options_{suffix}\",actor.ProjectId,locking);\n";
+        }
         return $"        query = OptionsCondition{suffix}.Apply(query, session, new Dictionary<string, object?> {{ {variables} }}, \"options_{suffix}\");\n";
     }
 

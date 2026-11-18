@@ -22,6 +22,12 @@ internal static partial class BackendRenderer
         var scopedRelations=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>RelationCompilation.ForPage(model,page)
             .Concat(RelationCompilation.ForPage(model,page,true)))).Where(DerivedRelationNamesCompilation.UsesLogicalPage).ToArray();
         scopedPages=scopedPages.Concat(scopedRelations.Select(relation=>(relation.Target,relation.TargetPage)));
+        // 目标页自身没有叶名条件时，仍保留由下拉附加条件实际引用的树页。
+        scopedPages=scopedPages.Concat(scopedRelations.Where(relation=>relation.Conditions?.SelfTreeFields.Count>0)
+            .SelectMany(relation=>CascadeTreeReadCompilation.ForService(model,relation.Target,relation.TargetPage)
+                .Where(tree=>relation.Conditions!.SelfTreeFields.Contains(
+                    CascadeTreeViewRenderer.Name(relation.Target,tree.Source)!.Source.ColumnName))
+                .Select(tree=>(tree.Target,tree.TargetPage))));
         var nestedTables=RelationPropagationCompilation.PublishedRecursiveTables(model,scopedPages);
         var recursiveCandidates=nestedTables.Count>0;
         var selfTreeNamePages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page)))

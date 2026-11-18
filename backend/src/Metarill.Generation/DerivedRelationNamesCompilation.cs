@@ -10,31 +10,41 @@ internal static class DerivedRelationNamesCompilation
     /// <summary>冗余物理缓存继续沿原路径；只识别实际非物理名称。</summary>
     internal static bool Declared(GenerationModel model,RelationModel relation)=>!NonRedundantReadCompilation.Physical(model,relation.Target,relation.NameColumn);
     /// <summary>普通目标页的级联条件在原候选和当前读中重用同一发布范围。</summary>
-    internal static bool UsesLogicalPage(RelationModel relation)=>FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage);
+    internal static bool UsesLogicalPage(RelationModel relation)=>
+        FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||relation.Conditions?.HasLogicalFields==true;
 
     /// <summary>在生成时证明目标页所有逻辑成员，同时保留原来源身份与物理父范围。</summary>
     internal static NonRedundantReadPlan CompileLogicalPage(GenerationModel model,TableModel target,PageModel page,
-        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,RelationConditionModel? additional=null)
     {
         if(ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))
             throw new NotSupportedException("单值关系的逻辑条件要求普通目标页及已证明的物理父范围。");
-        var condition=page.Condition!;
         if(target.IsGlobal)
             return NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,dependencies);
-        return NonRedundantReads.CompilePageMembership(model.Catalog,target.Source,page.Source,condition.Syntax.Fields,
-            condition.CrossFields,condition.SelfTreeFields,outputs,dependencies);
+        var (fields,cross,tree)=LogicalMembership(page,additional);
+        return NonRedundantReads.CompilePageMembership(model.Catalog,target.Source,page.Source,fields,cross,tree,outputs,dependencies);
     }
 
     /// <summary>生成查询复用发布时核验的字段集合，调用方仅绑定身份和业务参数。</summary>
-    internal static string LogicalPagePlanStart(TableModel target,PageModel page)
+    internal static string LogicalPagePlanStart(TableModel target,PageModel page,RelationConditionModel? additional=null)
     {
         var targetIds=JsonSerializer.Serialize(target.Source.Id)+","+JsonSerializer.Serialize(page.Source.Id);
         if(target.IsGlobal)return "CompileCrossPageCandidate("+targetIds;
-        var condition=page.Condition!;
-        string Fields(IEnumerable<string> fields)=>"new string[]{"+string.Join(",",fields.Select(field=>JsonSerializer.Serialize(field)))+"}";
+        var (fields,cross,tree)=LogicalMembership(page,additional);
+        string Fields(IEnumerable<string> names)=>"new string[]{"+string.Join(",",names.Select(name=>JsonSerializer.Serialize(name)))+"}";
         return "CompileRelationMembership("+string.Join(",",targetIds,
-            Fields(condition.Syntax.Fields),Fields(condition.CrossFields.Order(StringComparer.Ordinal)),Fields(condition.SelfTreeFields.Order(StringComparer.Ordinal)));
+            Fields(fields),Fields(cross.Order(StringComparer.Ordinal)),Fields(tree.Order(StringComparer.Ordinal)));
     }
+
+    /// <summary>固定页面与下拉附加条件共用一份完整路径和最小字段集合。</summary>
+    private static (IReadOnlyList<string> Fields,IReadOnlySet<string> Cross,IReadOnlySet<string> Tree) LogicalMembership(
+        PageModel page,RelationConditionModel? additional)=>
+        ((page.Condition?.Syntax.Fields??[]).Concat(additional is {HasLogicalFields:true}?additional.Syntax.Fields:[])
+            .Distinct(StringComparer.Ordinal).ToArray(),
+        (page.Condition?.CrossFields??Enumerable.Empty<string>()).Concat(additional?.CrossFields??Enumerable.Empty<string>())
+            .ToHashSet(StringComparer.Ordinal),
+        (page.Condition?.SelfTreeFields??Enumerable.Empty<string>()).Concat(additional?.SelfTreeFields??Enumerable.Empty<string>())
+            .ToHashSet(StringComparer.Ordinal));
 
     /// <summary>有类型的物理名称与派生名称共用候选搜索、回显和工作簿范围。</summary>
     internal static bool UsesFixedRead(GenerationModel model, RelationModel relation) =>
@@ -130,14 +140,15 @@ internal static class DerivedRelationNamesCompilation
         }
         var fields=relation.TargetPage.Scopes.Concat(relation.Scopes).Select(scope=>scope.Column)
             .Concat(UsesLogicalPage(relation)?[]:relation.TargetPage.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[])
-            .Concat(relation.Conditions?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();
+            .Concat(relation.Conditions is {HasLogicalFields:false} conditions
+                ?conditions.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field)):[]).DistinctBy(column=>column.Source.Id).ToArray();
         if(fields.Any(column=>!NonRedundantReadCompilation.Physical(model,target,column)||column.IsJsonArray))throw new InvalidOperationException("派生名称候选的身份、父及附加范围必须为已发布物理标量。");
         var orderFields = relation.OptionsOrder?.Select(item => item.Column.Source.ColumnName) ?? [];
         var dependencies = fields.Select(column => column.Source.ColumnName).Concat(orderFields)
             .Concat(["id", name.Source.ColumnName]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var outputs = new[] { "id", name.Source.ColumnName };
         var plan = UsesLogicalPage(relation)
-            ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies)
+            ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies,relation.Conditions)
             : target.IsGlobal && physicalTypedName || NonRedundantReadCompilation.HasGlobalRowProject(target)
             ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, relation.TargetPage.Source.Id, outputs, dependencies)
             : physicalTypedName && target.Source.IsRongyu == 1

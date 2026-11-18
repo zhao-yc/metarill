@@ -840,8 +840,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                     logicalPlan=$"DerivedOptionsPlan{suffix}.BindAccount(actor)";
                 else
                 {
-                    _=DerivedRelationNamesCompilation.CompileLogicalPage(model,relation.Target,relation.TargetPage,["id"],[]);
-                    var planStart=DerivedRelationNamesCompilation.LogicalPagePlanStart(relation.Target,relation.TargetPage);
+                    _=DerivedRelationNamesCompilation.CompileLogicalPage(model,relation.Target,relation.TargetPage,["id"],[],relation.Conditions);
+                    var planStart=DerivedRelationNamesCompilation.LogicalPagePlanStart(relation.Target,relation.TargetPage,relation.Conditions);
                     result.AppendLine($"    private static readonly Metarill.Data.Queries.NonRedundantReadPlan OptionsMembership{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{planStart},new string[]{{\"id\"}}, Array.Empty<string>());");
                     logicalPlan=$"OptionsMembership{suffix}.BindAccount(actor)";
                 }
@@ -903,7 +903,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 ?$"        query=NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,{logicalPlan},\"options_page_{suffix}\",actor.ProjectId,locking);\n"
                 :FixedPageConditionCompilation.Apply(relation.TargetPage,"OptionsPageCondition"+suffix,"options_page_"+suffix,logicalPlan,"locking"))
                 .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix,"r1_options","locking"))
-                .Append(RelationConditionsCompilation.Apply(relation, suffix));
+                .Append(RelationConditionsCompilation.Apply(relation,suffix,logicalPlan));
             if (relation.ParentBinding?.Binding?.SourceParent.Source.Id == "2076977530983813120")
             {
                 foreach (var flag in relation.Target.Columns.Where(column => column.Source.ColumnName is "is_virtual_column" or "is_join_column"))

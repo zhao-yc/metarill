@@ -16,7 +16,7 @@ internal static class DerivedRelationNamesRenderer
         var validateCurrent=accountParent||logical;
         var parentPlan = accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var planStart = logical
-            ? DerivedRelationNamesCompilation.LogicalPagePlanStart(relation.Target,relation.TargetPage)
+            ? DerivedRelationNamesCompilation.LogicalPagePlanStart(relation.Target,relation.TargetPage,relation.Conditions)
             : physicalTypedName && relation.Target.IsGlobal
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : physicalTypedName && relation.Target.Source.IsRongyu == 1

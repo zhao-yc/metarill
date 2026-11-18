@@ -50,8 +50,12 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true, false, true, null, true)]
     [InlineData(false, true, true, null, true, true)]
     [InlineData(true, true, false, null, true, true)]
+    [InlineData(false, false, false, null, false, false, true)]
+    [InlineData(false, true, true, null, false, false, true)]
+    [InlineData(false, false, false, null, false, true, true)]
+    [InlineData(false, true, true, null, false, true, true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant,bool cross=false)
+        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -65,8 +69,15 @@ public sealed class DerivedRelationNamesTests
         }
         var label=derived?"company_name":"name";
         var logicalField=cross?"country_name":"tree_name";
-        foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField=label,
-            whereSql=selection?logicalField+" <> '排除叶名'":parent?"segment=@formParameters.segment":""});
+        var controlWhere=selection||listCondition?logicalField+" <> '排除叶名'":parent?"segment=@formParameters.segment":"";
+        if(listCondition&&parent)controlWhere+= " AND segment=@formParameters.segment";
+        foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField=label,whereSql=controlWhere});
+        if(listCondition&&cross)
+            catalog.ConfigPageColumns.Single(column=>column.ConfigPageId=="101"&&column.ConfigColumnId=="15")
+                .Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new
+                {
+                    whereSql=controlWhere.Replace("排除叶名","覆盖条件",StringComparison.Ordinal)
+                }));
         if(!derived)
         {
             var display=catalog.ConfigColumns.Single(column=>column.Id=="113");
@@ -108,7 +119,8 @@ public sealed class DerivedRelationNamesTests
             catalog.ConfigPageColumns.Add(new(){Id="70173",ConfigPageId="701",ConfigColumnId="73"});
             catalog.ConfigPageColumns.Add(new(){Id="70174",ConfigPageId="701",ConfigColumnId="74"});
         }
-        target.WhereSql+=" AND "+logicalField+" <> '排除叶名' AND store_id=@current_store_id";
+        target.WhereSql+=listCondition?" AND store_id=@current_store_id":
+            " AND "+logicalField+" <> '排除叶名' AND store_id=@current_store_id";
         if(globalWithProject is {} keepProject)
         {
             foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "2" or "4" or "6"))
@@ -167,7 +179,15 @@ public sealed class DerivedRelationNamesTests
             else
             {
                 Assert.Contains("CompileRelationMembership(",service);
-                Assert.Contains($"ApplyCondition(query,session,{scope}.BindAccount(actor),OptionsPageCondition101_15.BindAccount(actor)",service);
+                if(listCondition)
+                {
+                    Assert.Contains($"ApplyCondition(query,session,{scope}.BindAccount(actor),OptionsCondition101_15.BindVariables",service);
+                    Assert.Contains("\"options_101_15\",actor.ProjectId,locking)",service);
+                    Assert.Contains("OptionsPageCondition101_15.BindAccount(actor)",service);
+                    if(parent)Assert.Contains("FixedConditionFormValue.Require(formValues",service);
+                    if(cross)Assert.Contains(JsonSerializer.Serialize("覆盖条件")[1..^1],service);
+                }
+                else Assert.Contains($"ApplyCondition(query,session,{scope}.BindAccount(actor),OptionsPageCondition101_15.BindAccount(actor)",service);
             }
             Assert.Contains("OptionsSelected101_15Async",service);
             Assert.Contains("OptionsPage101_15Async",service);
