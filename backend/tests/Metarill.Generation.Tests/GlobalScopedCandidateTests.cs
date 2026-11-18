@@ -156,6 +156,85 @@ public sealed partial class GlobalScopedCandidateTests
         }
     }
 
+    /// <summary>全局 R0 来源的原 List 和 SelectPage 读取相同的固定整数名称，保持来源页项目归属。</summary>
+    [Theory]
+    [InlineData(0, false, "int32", false, false)]
+    [InlineData(0, false, "int64", true, true)]
+    [InlineData(1, false, "int32", true, false)]
+    [InlineData(1, false, "int64", false, true)]
+    [InlineData(0, true, "int32", false, true)]
+    [InlineData(0, true, "int64", true, false)]
+    public async Task Global_R0_source_reads_integer_names_and_keeps_original_workbook(
+        int targetStorage, bool derived, string logicalType, bool targetHasProject, bool sourceHasProject)
+    {
+        var catalog = derived
+            ? targetHasProject ? Catalog(false, 0, "string") : GlobalDerivedTargetGenerationTests.Catalog(0, "string", "int64")
+            : PhysicalNumberCatalog(targetStorage, logicalType, targetHasProject);
+        var source = catalog.ConfigTables.Single(table => table.Id == "3");
+        source.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        // 复用编号夹具中的标量页，附件仍由独立的文件所有者模型验证。
+        catalog.ConfigColumns.RemoveAll(column => column.Id == "39");
+        catalog.ConfigPageColumns.RemoveAll(column => column.ConfigColumnId == "39");
+        if (!sourceHasProject)
+        {
+            catalog.ConfigColumns.RemoveAll(column => column.Id == "32");
+            catalog.ConfigPages.Single(page => page.Id == "30").WhereSql = "";
+        }
+        if (derived)
+        {
+            catalog.ConfigColumns.Add(new() { Id = "25", ConfigTableId = "2", YzProjectId = "100", ColumnName = "code", LogicalType = logicalType });
+            foreach (var column in catalog.ConfigColumns.Where(column => column.Id is "14" or "35" or "40"))
+                column.LogicalType = logicalType;
+            catalog.ConfigColumns.Single(column => column.Id == "14").Extra["columnFullName"] = JsonSerializer.SerializeToElement("global_target.code");
+            catalog.ConfigPageColumns.Single(field => field.Id == "3038").Extra["isSearch"] = JsonSerializer.SerializeToElement(1);
+            catalog.ConfigPageColumns.Single(field => field.Id == "3040").Extra.Remove("isSearch");
+        }
+
+        var model = GenerationModel.Create(catalog, ApplicationNamespace);
+        var owner = model.Tables.Single(table => table.Source.Id == "3");
+        var page = Assert.Single(owner.Pages);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        Assert.Equal(SelectionNameFilterKind.JoinedIntegerLike, Assert.Single(SelectionNameFilterCompilation.ForPage(model, owner, page).Bindings).Kind);
+        var names = catalog.ConfigColumns.Where(column => column.Id is "35" or "40").Select(column => column.ColumnName).ToArray();
+        var read = NonRedundantReads.Compile(catalog, "3", names);
+        Assert.All(read.OutputTypes, field => Assert.Equal(logicalType, field.Value));
+        Assert.DoesNotContain("cached_consumer", MixedRelationPropagationCompilation.ForModel(model).MixedSourceColumns.Keys);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-r0-integer-names");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ApplicationNamespace);
+            var service = await File.ReadAllTextAsync(Path.Combine(output, "Services/CachedConsumerService.g.cs"));
+            foreach (var id in new[] { "34", "38" })
+            {
+                Assert.Contains("DerivedOptionsPlan30_" + id, service);
+                Assert.Contains("ImportRelation30_" + id + "Async", service);
+                Assert.Contains("DerivedOptionsRows30_" + id + "Async(request.ParentId", service);
+            }
+            Assert.Contains("FixedReadComparison.IntegerLabelContains", service);
+            Assert.Contains("actor.ProjectId!=\"100\"", service);
+            Assert.Contains("Export30Async", service);
+            Assert.Contains("Detail30Async", service);
+            Assert.Equal(sourceHasProject, service.Contains("query=query.Where(entity=>entity.YzProjectId==", StringComparison.Ordinal));
+            Assert.Equal(sourceHasProject, service.Contains("result.Add(new(\"yz_project_id\",FixedReadComparison.Equal,", StringComparison.Ordinal));
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var type = assembly.GetType(ApplicationNamespace + ".Generated.Services.CachedConsumerService", throwOnError: true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+            if (derived)
+            {
+                // 最后一层与元数据整数类型不一致时，生成的联接不能借中间别名掩盖类型错误。
+                catalog.ConfigColumns.Single(column => column.Id == "25").LogicalType = logicalType == "int64" ? "int32" : "int64";
+                Assert.Throws<NotSupportedException>(() => NonRedundantReads.Compile(catalog, "3", names));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) await TestDirectoryCleanup.DeleteAsync(directory, boundary);
+        }
+    }
+
     /// <summary>R1 来源保存同类型整数缓存，普通或全局目标都挂接原维护和改名传播。</summary>
     [Theory]
     [InlineData(0, "int32", false)]

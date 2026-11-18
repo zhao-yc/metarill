@@ -16,9 +16,9 @@ internal static class DerivedRelationNamesCompilation
     internal static bool IsPhysicalInteger(GenerationModel model, TableModel target, ColumnModel name) =>
         !name.IsJsonArray && name.Type is "int?" or "long?" && NonRedundantReadCompilation.Physical(model, target, name);
 
-    /// <summary>识别固定整数终点；全局 R1 来源在编译关系时逐项核验原 List 和物理副本。</summary>
+    /// <summary>识别固定整数终点；全局来源仍要求同目录固定目标，R1 另核验物理副本。</summary>
     internal static bool IsIntegerName(GenerationModel model, TableModel owner, TableModel target, ColumnModel name) =>
-        (owner.IsGlobal ? owner.Source.IsRongyu == 1 && target.IsGlobal : SupportedOwner(model, owner)) &&
+        (owner.IsGlobal ? owner.Source.IsRongyu is 0 or 1 && target.IsGlobal : SupportedOwner(model, owner)) &&
         !name.IsJsonArray && name.Type is "int?" or "long?" &&
         (target.Source.IsRongyu == 0 || target.Source.IsRongyu == 1 && IsPhysicalInteger(model, target, name));
 

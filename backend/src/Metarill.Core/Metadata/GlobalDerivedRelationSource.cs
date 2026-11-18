@@ -38,9 +38,14 @@ public static class GlobalDerivedRelationSource
         if(terminal.LogicalType!=name.LogicalType||ExactDataManageValues.IsSensitiveField(terminal.ColumnName))throw Invalid();
         if(name.LogicalType!="string")
         {
-            // 全局非字符串名称只允许终止于明确的真实列，不能通过名称缓存或另一派生别名取得。
-            if(!GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,current),current,terminal))throw Invalid();
-            return;
+            var terminalStorage = MetadataStoragePolicy.ForTable(catalog,current);
+            if (GlobalPhysicalRelationValue.IsScalar(terminalStorage,current,terminal)) return;
+            // 全局 R0 消费者读取目标的逻辑整数时，沿同一证明栈追到真实同类型列。
+            if (name.LogicalType is "int32" or "int64" && current.IsRongyu == 0 &&
+                terminalStorage.Kind(terminal) == MetadataFieldStorage.Join &&
+                (last?.Name.Id == terminal.Id ||
+                 GlobalPhysicalRelationValue.IsPublishedScalar(catalog,terminalStorage,current,terminal,resolving))) return;
+            throw Invalid();
         }
         // 常用名称就是上一步已证终点，避免同一递归链被重复展开成指数工作量。
         if(last?.Name.Id==terminal.Id)return;
