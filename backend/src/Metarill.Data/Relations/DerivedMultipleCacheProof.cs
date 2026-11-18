@@ -50,7 +50,7 @@ internal static class DerivedMultipleCacheProof
             ?MultiNameStorageColumns.IsPhysicalScalarLabel(source,foreign,target,value,storage)
             :MultiNameStorageColumns.IsDerivedScalarLabel(target,value,storage);
         if(value.LogicalType!="string"&&!typed)throw Invalid();
-        var read=global?NonRedundantReads.Compile(catalog,target.Id,[value.ColumnName]).MySql:
+        var read=global&&scoped is null?NonRedundantReads.Compile(catalog,target.Id,[value.ColumnName]).MySql:
             MySqlNonRedundantReadCompiler.CompileMultiLabelForCache(catalog,source,target,value.ColumnName,scoped);
         if(read.Types[value.ColumnName]!=value.LogicalType)throw Invalid();
     }

@@ -71,9 +71,10 @@ internal static class DatabaseCheckboxCompilation
                 var proof=table.Source.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);
                 if(definition.PageId.Length>0&&definition.PageId!=proof.Page.Id)return Gap("全局复选页级目标覆盖与固定关系不一致。");
                 // 复选的搜索、回读与 Excel 必须沿已发布缓存目标页的同一固定范围。
-                if(NonRedundantReadCompilation.HasGlobalRowProject(target)||
+                var publishedPage=target.Pages.Single(page=>page.Source.Id==proof.Page.Id);
+                if(NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasCrossFields(publishedPage)||
                     GlobalPhysicalRelationValue.IsPublishedIntegerCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name))
-                    globalPage=target.Pages.Single(page=>page.Source.Id==proof.Page.Id);
+                    globalPage=publishedPage;
             }
             if(definition.NameField!=baseline.NameField)return Gap("页级名称覆盖未绑定同一固定读取和缓存。");
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
@@ -82,12 +83,14 @@ internal static class DatabaseCheckboxCompilation
                 return Gap("名称必须为已声明的非凭据且已证明的标量。");
             var derived=!NonRedundantReadCompilation.Physical(model,target,name);if(!derived&&GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&(!target.IsGlobal||!GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source)))return Gap("物理Join名称仍需独立缓存证明。");
             if(!target.IsGlobal&&!HasIdentity(model,target))return Gap("目标缺少真实项目归属。");
-            var explicitPage=definition.PageId.Length>0?definition.PageId:source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+            var linkedPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+            if(linkedPage.Length==0&&globalPage is not null)linkedPage=globalPage.Source.Id;
+            var explicitPage=definition.PageId.Length>0?definition.PageId:linkedPage;
             var logicalPage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage&&FixedPageConditionCompilation.HasCrossFields(candidate));
-            var fixedPage=baseline.PageId.Length>0?baseline.PageId:source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+            var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
             if(explicitPage!=fixedPage&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasCrossFields(candidate))))
                 return Gap("复选不能用页覆盖替换表级固定逻辑范围。");
-            if(logicalPage is not null&&(target.IsGlobal||logicalPage.Scopes.Any(scope=>scope.Source=="parent")||
+            if(logicalPage is not null&&(logicalPage.Scopes.Any(scope=>scope.Source=="parent")||
                 ExactDataManageCompilation.Declared(logicalPage)))
                 return Gap("复选逻辑目标范围需要与实际目标页及项目归属一致。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);

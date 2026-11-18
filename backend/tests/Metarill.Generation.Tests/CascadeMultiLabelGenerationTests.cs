@@ -61,7 +61,19 @@ public sealed class CascadeMultiLabelGenerationTests
     public Task Selected_page_conditions_compile_in_original_endpoints(string kind,int mode,bool physical)=>
         CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:physical);
 
-    private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,bool recursive=false,bool selectedPage=false,bool physical=false)
+    /// <summary>全局根有无项目列，仍保留内层普通项目、账号条件和原多值生成入口。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,true,true)]
+    [InlineData("MultiSelectPage",1,false,false)]
+    [InlineData("MultiSelectPage",1,true,true)]
+    [InlineData("MultiCheckBoxDatabase",0,false,true)]
+    [InlineData("MultiCheckBoxDatabase",1,true,false)]
+    [InlineData("MultiCheckBoxDatabase",1,false,true)]
+    public Task Global_selected_page_conditions_compile_in_original_endpoints(string kind,int mode,bool physical,bool rowProject)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:physical,globalRowProject:rowProject);
+
+    private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
+        bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -123,7 +135,19 @@ public sealed class CascadeMultiLabelGenerationTests
         {
             catalog.ConfigColumns.Add(new(){Id="219",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"});
             catalog.ConfigColumns.Add(new(){Id="919",ConfigTableId="9",ColumnName="store_id",LogicalType="int64"});
-            catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND country_name <> '排除目标页名称' AND store_id=@current_store_id";
+            var scopePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+            scopePage.WhereSql+=" AND country_name <> '排除目标页名称' AND store_id=@current_store_id";
+            if(globalRowProject is { } rowProject)
+            {
+                catalog.ConfigTables.Single(table=>table.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                scopePage.WhereSql=scopePage.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
+                if(!rowProject)
+                {
+                    var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="2"&&column.ColumnName=="yz_project_id");
+                    catalog.ConfigColumns.Remove(project);
+                    catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId==project.Id);
+                }
+            }
             catalog.ConfigPages.Single(page=>page.Id=="901").WhereSql+=" AND store_id=@current_store_id";
         }
         RedundantMultiNameCacheTests.Published(catalog);

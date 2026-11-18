@@ -52,12 +52,15 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>向显式绑定的多值目标页取得逻辑条件。原物理候选和未指定页面的复选维持原范围。</summary>
     internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
     {
-        if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table))return null;
+        if(table.IsRongyu!=0)return null;
         var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         if(!members.Any(column=>column.ControlKind=="CascadeTree"))return null;
         var pageId=MultiPageId(Definition(relation));
         if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
-        var page=catalog.ConfigPages.SingleOrDefault(item=>item.ConfigTableId==table.Id&&item.Id==pageId);
+        var global=GlobalCrossTableTarget.Declared(table);
+        var candidates=catalog.ConfigPages.Where(item=>item.ConfigTableId==table.Id&&
+            (item.Id==pageId||global&&pageId.Length==0)).Take(2).ToArray();
+        var page=candidates.Length==1?candidates[0]:null;
         if(page is null||page.WhereSql.Length==0)return null;
         var syntax=FixedConditionPlan.Compile(page.WhereSql,RelationStorageColumns.Expand(table,members).Select(column=>column.ColumnName));
         return syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,members,field))?page:null;
@@ -79,7 +82,8 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
         return new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field)
         {
-            SelectedMultiPage=page
+            SelectedMultiPage=page,
+            GlobalCrossCandidate=GlobalCrossTableTarget.Declared(catalog.ConfigTables.Single(table=>table.Id==tableId))
         }.Compile(outputs,dependencies);
     }
 
@@ -125,7 +129,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(tableName.Length==0)tableName=Text(relation,"joinTable");
                 if(tableName.Length==0&&relation.ColumnName.EndsWith("_ids",StringComparison.Ordinal))tableName=relation.ColumnName[..^4];
                 var target=catalog.ConfigTables.SingleOrDefault(table=>tableId.Length>0?table.Id==tableId:table.TableName==tableName);
-                if(target is null||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(target))continue;
+                if(target is null||target.IsRongyu!=0||
+                    GlobalCrossTableTarget.Declared(target)&&MultiTargetLogicalPage(catalog,target,relation) is null)continue;
                 var source=catalog.ConfigTables.SingleOrDefault(table=>table.Id==relation.ConfigTableId);
                 result=(source,target,field,relation);
             }

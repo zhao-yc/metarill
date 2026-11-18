@@ -232,7 +232,8 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new InvalidOperationException("多值名称的项目或输出字段无效。");
         return new Builder(catalog,tableId,true,multiLabel:true,cascadeLabelField:field,cascadeCacheOwner:cacheOwner)
         {
-            SelectedMultiPage=selectedPage
+            SelectedMultiPage=selectedPage,
+            GlobalCrossCandidate=selectedPage is not null&&GlobalCrossTableTarget.Declared(catalog.ConfigTables.Single(table=>table.Id==tableId))
         }.Compile(outputs,dependencies);
     }
     /// <summary>构造时消费元数据，最终只保留不可变的表达式文本、类型和项目范围。</summary>
@@ -334,7 +335,7 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 // 带行归属的普通页可绑定自己的项目条件；候选计划仅证明实际发布的目标页。
                 GlobalDerivedRelationSource.RequireTable(catalog,root);
-                if(!HasGlobalRowProject(root))
+                if(!HasGlobalRowProject(root)&&SelectedMultiPage is null)
                     foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==root.Id))
                         GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,root,page);
                 var controls=columns[root.Id].Values.Where(column=>crossTables.ContainsKey(column.Id)).ToArray();
@@ -342,7 +343,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     var column=Column(root,field);
                     var logical=column.IsVirtualColumn==0&&!Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(field)&&
-                        controls.Any(control=>CrossTableStorageColumns.ContainsPathField(control,field));
+                        (controls.Any(control=>CrossTableStorageColumns.ContainsPathField(control,field))||
+                         SelectedMultiPage is not null&&field==cascadeLabelField&&
+                         CrossTableStorageColumns.IsLogicalPathField(root,columns[root.Id].Values.ToArray(),field));
                     if(!logical&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage[root.Id],root,column))
                         throw new NotSupportedException("全局R0读取只接受已证明的物理标量、单值名称与固定跨表层位。");
                 }

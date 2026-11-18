@@ -28,7 +28,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     throw new NotSupportedException("跨表逻辑投影要求当前实体或已证明的嵌套候选。");
                 if(GlobalCrossTableTarget.Declared(table))
                 {
-                    if(labelPath&&!scopeOnly)throw new NotSupportedException("全局递归名称缓存需独立证明实际来源行范围。");
+                    if(labelPath&&!scopeOnly&&(SelectedMultiPage is null||table.Id!=root.Id||owner!=rootAlias))
+                        throw new NotSupportedException("全局递归名称要求实际绑定的多值目标页。");
                     GlobalDerivedRelationSource.RequireTable(catalog,table);
                 }
                 else if(!columns[table.Id].TryGetValue("yz_project_id",out var sourceProject)||!storage[table.Id].IsPhysical(sourceProject))

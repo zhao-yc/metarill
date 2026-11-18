@@ -53,6 +53,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var page=SelectedMultiPage!;
             if(page.ConfigTableId!=root.Id||page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
                 throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
+            if(GlobalCrossTableTarget.Declared(root))GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,root,page);
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true);
             if(condition is not {Allowed:true,HasLogical:true,Plan:{ } plan})
                 throw new NotSupportedException("多值目标页缺少固定的逻辑级联条件。");

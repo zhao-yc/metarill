@@ -57,7 +57,8 @@ internal static class MultiSelectCompilation
             if (!target.IsGlobal && !target.Columns.Any(column => column.Source.ColumnName == "yz_project_id")) return Gap("目标未声明项目归属或明确全局范围。");
             var name = target.Columns.SingleOrDefault(column => column.Source.ColumnName == Value("nameField", "name"));
             // R1全局名称副本必须通过完整发布证明，普通物理Join与任意缓存继续拒绝。
-            var globalCachedName=name is not null&&target.IsGlobal&&GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source);
+            var globalCachedName=name is not null&&target.IsGlobal&&NonRedundantReadCompilation.Physical(model,target,name)&&
+                GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source);
             var scalarLabel=name is not null&&SupportsTypedLabel(model,table,source,target,name);
             if (name is null || GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&!DerivedMultiNamesCompilation.Declared(model,target,name)&&!globalCachedName || name.IsJsonArray || name.Type != "string?" && !name.IsId&&!scalarLabel || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");

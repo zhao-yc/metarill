@@ -23,10 +23,19 @@ public static class GlobalMultipleRelationTarget
         string Extra(string key)=>foreign.Extra.TryGetValue(key,out var value)&&value.ValueKind!=JsonValueKind.Null?value.ToString():"";
         var tableId=Value("tableId");var tableName=Value("table");var pageId=Value("pageId");var linkedPage=Extra("linkConfigPageId");
         if(tableId.Length>0&&tableId!=target.Id||tableName.Length>0&&tableName!=target.TableName||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id||Extra("joinTable") is {Length:>0} joined&&joined!=target.TableName||pageId.Length>0&&linkedPage.Length>0&&pageId!=linkedPage)throw new InvalidOperationException("全局多值的表、页面或显示来源声明冲突。");
-        if(pageId.Length==0)pageId=linkedPage;var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id&&(pageId.Length==0||page.Id==pageId)).ToArray();if(pages.Length!=1)throw new InvalidOperationException("全局多值关系必须明确指定真实目标页，省略时目标页必须唯一。");var page=pages[0];GlobalCrossTableTarget.RequireMultiple(catalog,target,page);
+        if(pageId.Length==0)pageId=linkedPage;
+        var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id&&(pageId.Length==0||page.Id==pageId)).ToArray();
+        if(pages.Length!=1)throw new InvalidOperationException("全局多值关系必须明确指定真实目标页，省略时目标页必须唯一。");
+        var page=pages[0];
+        var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
+        var expanded=RelationStorageColumns.Expand(target,columns);
+        var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
+        var scoped=target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
+        if(scoped)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,page);
+        else GlobalCrossTableTarget.RequireMultiple(catalog,target,page);
         if(target.IsRongyu==0&&foreign.ControlKind=="MultiSelectPage"&&page.Extra.GetValueOrDefault("type").ToString()!="2")
             throw new NotSupportedException("全局R0多选要求原type=2页面；复选继续使用独立候选入口。");
-        var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();var physical=MetadataStoragePolicy.ForTable(catalog,target);
+        var physical=MetadataStoragePolicy.ForTable(catalog,target);
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(physical,target,column);
         var nameField=Value("nameField");if(nameField.Length==0)nameField="name";
         var name=columns.SingleOrDefault(column=>column.ColumnName==nameField);
@@ -34,9 +43,14 @@ public static class GlobalMultipleRelationTarget
         var scalarLabel=name is not null&&(MultiNameStorageColumns.IsPhysicalScalarLabel(owner,foreign,target,name,physical)||
             MultiNameStorageColumns.IsDerivedScalarLabel(target,name,physical)||
             GlobalPhysicalRelationValue.IsPublishedIntegerCache(catalog,physical,target,name));
-        if(name is null||name.LogicalType!="string"&&!scalarLabel||!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name))
+        // 逻辑层名必须来自该全局候选自身的固定级联，实际路径和可见性由数据层完成证明。
+        var pathLabel=scoped&&name is {LogicalType:"string",IsVirtualColumn:0}&&
+            !ExactDataManageValues.IsSensitiveField(name.ColumnName)&&CrossTableStorageColumns.IsLogicalPathField(target,columns,name.ColumnName);
+        if(name is null||name.LogicalType!="string"&&!scalarLabel||!pathLabel&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name))
             throw new NotSupportedException("全局多值名称必须为已证明的非凭据标量。");
         var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");
-        if(FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName)).Fields.Any(field=>!Scalar(columns.Single(column=>column.ColumnName==field))))throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");return new(page,name);
+        if(!scoped&&condition.Fields.Any(field=>!Scalar(columns.Single(column=>column.ColumnName==field))))
+            throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");
+        return new(page,name);
     }
 }

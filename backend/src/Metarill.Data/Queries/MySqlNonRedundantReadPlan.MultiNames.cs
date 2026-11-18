@@ -18,10 +18,11 @@ public static partial class MySqlNonRedundantReadCompiler
             var prefixForNames=publishedPage is null&&publishedArrayScopeCount==0?"multi_name_":aliasPrefix+"array"+publishedArrayScopeCount+"_";
             publishedArrayScopeCount++;
             var nested=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
-                trackReverse:refreshFields is not null,candidatePage:publishedPage,multiLabel:true,cascadeLabelField:value.ColumnName,
+                trackReverse:refreshFields is not null,candidatePage:selectedScope is null?publishedPage:null,multiLabel:true,cascadeLabelField:value.ColumnName,
                 cascadeCacheOwner:refreshFields is null?null:new(table,owner))
             {
-                SelectedMultiPage=selectedScope
+                SelectedMultiPage=selectedScope,
+                GlobalCrossCandidate=global&&selectedScope is not null
             }.Compile([value.ColumnName],[]);
             nested.CopyParametersTo(crossConstants);
             if(nested.RequiresPublishedProjectIdentity)publishedArrayIdentity=true;
