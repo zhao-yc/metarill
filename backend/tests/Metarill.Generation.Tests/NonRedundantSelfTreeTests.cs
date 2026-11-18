@@ -147,14 +147,17 @@ public sealed class NonRedundantSelfTreeTests
     [Theory]
     [InlineData("string", "OnlyNew")]
     [InlineData("int64", "OverWriteByFirstColumn")]
-    public async Task Global_cached_self_tree_honors_independent_published_parent(string foreignType, string importMode)
+    [InlineData("string", "OnlyNew", "int64")]
+    [InlineData("int64", "OverWriteByFirstColumn", "string")]
+    public async Task Global_cached_self_tree_honors_independent_published_parent(string foreignType, string importMode, string? projectType=null)
     {
         const string ns = "Example.GlobalTreeParent";
         var catalog = Catalog("parent_tree", automatic: true);
         foreach (var table in catalog.ConfigTables)
             table.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
         catalog.ConfigTables.Single(table => table.Id == "2").IsRongyu = 1;
-        catalog.ConfigColumns.RemoveAll(column => column.ConfigTableId == "2" && column.ColumnName == "yz_project_id");
+        if(projectType is null)catalog.ConfigColumns.RemoveAll(column => column.ConfigTableId == "2" && column.ColumnName == "yz_project_id");
+        else catalog.ConfigColumns.Single(column=>column.ConfigTableId=="2"&&column.ColumnName=="yz_project_id").LogicalType=projectType;
         var page = catalog.ConfigPages.Single(item => item.Id == "201");
         page.WhereSql = "family_id=@parent_id";
         page.IsDelete = 1;
@@ -194,6 +197,16 @@ public sealed class NonRedundantSelfTreeTests
         Assert.Equal("271", parent.Foreign.Source.Id);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
+        if(projectType is not null)
+        {
+            var published=RelationPropagationCompilation.PublishedCascadePages(model,RelationPropagationCompilation.Definitions(
+                RelationPropagationCompilation.DerivedBindings(model)));
+            Assert.Contains("201",published);
+            Assert.Contains("401",published);
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("family_name",maintenance.MixedSourceColumns["parent_tree_source"]);
+            Assert.Contains("tree_name",maintenance.MixedSourceColumns["parent_tree_source"]);
+        }
 
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-self-tree-parent");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
@@ -216,8 +229,18 @@ public sealed class NonRedundantSelfTreeTests
             runtime.Add("ParentTreeFamily", new Dictionary<string, object?> { ["Id"] = accepted, ["Status"] = 1 });
             runtime.Add("ParentTreeFamily", new Dictionary<string, object?> { ["Id"] = disabled, ["Status"] = 0 });
             runtime.Add("ParentTreeFamily", new Dictionary<string, object?> { ["Id"] = removed, ["Status"] = 1, ["DeleteNo"] = new DateTime(2026, 10, 1) });
-            runtime.Add("ParentTreeSource", new Dictionary<string, object?> { ["Id"] = 1L, ["Name"] = "允许行", ["FamilyId"] = accepted });
-            runtime.Add("ParentTreeSource", new Dictionary<string, object?> { ["Id"] = 2L, ["Name"] = "其他父行", ["FamilyId"] = disabled });
+            const string secondParent = "9007199254741995";
+            runtime.Add("ParentTreeFamily", new Dictionary<string, object?> { ["Id"] = secondParent, ["Status"] = 1 });
+            AddSource(1L,"允许行",accepted,catalog.YzProjectId);
+            AddSource(2L,"其他父行",secondParent,catalog.YzProjectId);
+            if(projectType is not null)AddSource(3L,"其他项目行",accepted,"2");
+
+            void AddSource(long id,string name,string family,string project)
+            {
+                var values=new Dictionary<string,object?>{["Id"]=id,["Name"]=name,["FamilyId"]=family};
+                if(projectType is not null)values["YzProjectId"]=project;
+                runtime.Add("ParentTreeSource",values);
+            }
 
             var export = await runtime.Export(new PageRequest { ParentId = accepted });
             Assert.Contains("允许行", Assert.Single(export.Rows));

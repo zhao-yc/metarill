@@ -131,6 +131,62 @@ public sealed class SelfTreeCacheTests
         Assert.Throws<NotSupportedException>(()=>SelfTreeCache.Compile(catalog,source.Id,"foreign","6"));
     }
 
+    /// <summary>带行项目列的来源同时维护父名和叶名；父页固定条件影响反查，来源更新仍按项目隔离。</summary>
+    [Theory]
+    [InlineData("string", "int64")]
+    [InlineData("int64", "string")]
+    public void Published_global_parent_and_project_source_share_the_maintenance_scope(string parentType,string projectType)
+    {
+        var catalog=Catalog(parentType,"int64");
+        var source=catalog.ConfigTables[0];
+        var tree=catalog.ConfigTables[1];
+        var family=new TableMetadata{Id="family",TableName="cache_family",IsRongyu=1};
+        catalog.ConfigTables.Add(family);
+        foreach(var table in catalog.ConfigTables)
+        {
+            table.YzProjectId=catalog.YzProjectId;
+            table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        }
+        catalog.ConfigColumns.Single(field=>field.Id=="source_project").LogicalType=projectType;
+        var key=new ColumnMetadata{Id="family_key",ConfigTableId=source.Id,ColumnName="family_id",LogicalType=parentType,
+            ControlKind="List",LinkConfigTableId=family.Id,ControlDetail=JsonSerializer.Serialize(new{tableId=family.Id,pageId="family_page"})};
+        var cache=new ColumnMetadata{Id="family_cache",ConfigTableId=source.Id,ColumnName="family_name",LogicalType="string",
+            Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("family.name")}};
+        catalog.ConfigColumns.AddRange([key,cache,
+            new(){Id="family_id",ConfigTableId=family.Id,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="family_name",ConfigTableId=family.Id,ColumnName="name",LogicalType="string"},
+            new(){Id="family_status",ConfigTableId=family.Id,ColumnName="status",LogicalType="int32"}
+        ]);
+        catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+        var sourcePage=new PageMetadata{Id="source_page",ConfigTableId=source.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",WhereSql="family_id=@parentId"};
+        catalog.ConfigPages.AddRange([sourcePage,
+            new(){Id="tree_page",ConfigTableId=tree.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",WhereSql="id>8"},
+            new(){Id="family_page",ConfigTableId=family.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",WhereSql="status=1"}
+        ]);
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="61",ConfigPageId="tree_page",ConfigColumnId="value"},
+            new(){Id="62",ConfigPageId="tree_page",ConfigColumnId="parent"}
+        ]);
+
+        Assert.Equal(sourcePage,Assert.Single(GlobalCachedRelationSource.RowProjectSelfTreeParentPages(catalog,source,key)));
+        var definition=SelfTreeCache.Compile(catalog,source.Id,"foreign","tree_page");
+        var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[definition]);
+        var plan=maintenance.Plans[source.Id].Read!;
+        Assert.Contains(projectType=="string"?"@project_scope_text":"@project_scope_number",plan.Scope);
+        Assert.Contains("b.`yz_project_id`",plan.Scope);
+        Assert.Contains("r0.`status`",plan.From);
+        var parent=Assert.Single(plan.Reverse,reverse=>reverse.TargetTable==family.TableName);
+        Assert.Contains("status",parent.Outputs["family_name"]);
+        Assert.Contains("name",parent.Outputs["family_name"]);
+        Assert.Contains("tree_name",maintenance.MixedSourceColumns[source.TableName]);
+        Assert.Contains("family_name",maintenance.MixedSourceColumns[source.TableName]);
+
+        sourcePage.WhereSql="family_id=@parent_id AND tree_id=@parent_id";
+        Assert.Throws<NotSupportedException>(()=>GlobalCachedRelationSource.RequireCache(catalog,source,cache));
+        sourcePage.WhereSql="";
+        Assert.Throws<NotSupportedException>(()=>GlobalCachedRelationSource.RequireCache(catalog,source,cache));
+    }
+
     /// <summary>纯目录模型不需要数据库，固定实际父键和自定义物理名称。</summary>
     private static MetadataCatalog Catalog(string type,string parent)
     {

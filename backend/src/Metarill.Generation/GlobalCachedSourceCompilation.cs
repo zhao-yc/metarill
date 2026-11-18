@@ -36,9 +36,11 @@ internal static class GlobalCachedSourceCompilation
     private static IReadOnlyList<GlobalCachedSourceBinding> Compile(GenerationModel model)
     {
         var result=new List<GlobalCachedSourceBinding>();
-        foreach(var table in model.Tables.Where(table=>table.IsGlobal&&table.Source.IsRongyu==1&&!table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id")))
+        foreach(var table in model.Tables.Where(table=>table.IsGlobal&&table.Source.IsRongyu==1))
         foreach(var foreign in table.Columns.Where(column=>!column.IsSystem&&column.Source.ControlKind=="List"))
         {
+            if(table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id")&&
+                GlobalCachedRelationSource.RowProjectSelfTreeParentPages(model.Catalog,table.Source,foreign.Source).Count==0)continue;
             var target=ForeignValidationRenderer.Target(model,foreign);if(target is null||!target.IsGlobal)continue;
             var single=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source);
             var cache=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==foreign.Source.ColumnName[..^3]+"_"+single.Name.ColumnName)??throw new NotSupportedException("全局List来源必须声明原物理名称副本。");

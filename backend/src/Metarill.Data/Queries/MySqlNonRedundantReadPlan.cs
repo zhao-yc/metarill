@@ -649,7 +649,9 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 var owner=tables[relation.ConfigTableId];
                 var proof=owner.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,owner,relation,target):GlobalSingleRelationTarget.Require(catalog,owner,relation,target);
-                if(HasGlobalRowProject(target))publishedPage=proof.Page;
+                // 带项目列的全局 R1 来源已证明是自树物理父角色，回填遵守实际父页条件。
+                if(HasGlobalRowProject(target)||owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&
+                    columns[owner.Id].ContainsKey("yz_project_id"))publishedPage=proof.Page;
             }
             // 混合文本或浮点键可能发生近似比较，同一源值可能匹配多个大整数主键。
             aggregateJoinsPreserveCardinality &= sourceType is "int64" or "int32";

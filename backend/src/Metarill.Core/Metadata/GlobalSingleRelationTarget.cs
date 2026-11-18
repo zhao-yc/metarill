@@ -19,7 +19,12 @@ public static class GlobalSingleRelationTarget
         var fields=catalog.ConfigColumns.Where(column=>column.ConfigTableId==owner.Id).ToArray();var storage=MetadataStoragePolicy.ForTable(catalog,owner);var project=fields.SingleOrDefault(column=>column.ColumnName=="yz_project_id");
         // 无项目列来源只能进入独立发布证明；原项目来源及R0路径保持原门槛。
         if(!cached&&GlobalCrossTableTarget.Declared(owner)&&owner.IsRongyu==0)GlobalDerivedRelationSource.RequireSingle(catalog,owner,foreign);
-        else if(cached&&GlobalCrossTableTarget.Declared(owner))GlobalCachedRelationSource.RequireSingle(catalog,owner,foreign);
+        else if(cached&&GlobalCrossTableTarget.Declared(owner))
+        {
+            GlobalCachedRelationSource.RequireSingle(catalog,owner,foreign);
+            if(project is not null&&owner.Id==target.Id)
+                throw new NotSupportedException("带行项目列的自树父范围要求独立父表。");
+        }
         else if(owner.IsRongyu!=(cached?1:0)||GlobalCrossTableTarget.Declared(owner)||owner.IsView!=0||owner.IsFunctionTable!=0||owner.YzProjectId!=catalog.YzProjectId||project is null||project.LogicalType is not("int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(storage,owner,project))throw new NotSupportedException("全局单值关系要求明确发布且有真实项目列的普通R0来源或已证明的R1消费者。");
         return RequirePublishedTarget(catalog,owner,foreign,target,resolving);
     }

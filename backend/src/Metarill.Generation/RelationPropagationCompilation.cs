@@ -82,6 +82,14 @@ internal static class RelationPropagationCompilation
             if(definition.CrossTablePageId is{} crossPage&&(r0Pages.Contains(crossPage)||integerColumns.Contains(definition.ValueColumnId)))pages.Add(crossPage);
             if(definition.CrossTableGlobalPages is{} mapping)pages.UnionWith(mapping.Values.Where(r0Pages.Contains));
         }
+        // 发布目录需能重新证明项目内来源使用的父角色，并在名称回填时执行实际全局父页条件。
+        foreach(var binding in GlobalCachedSourceCompilation.ForModel(model))
+        {
+            var sourcePages=GlobalCachedRelationSource.RowProjectSelfTreeParentPages(model.Catalog,binding.Source.Source,binding.Foreign.Source);
+            if(sourcePages.Count==0)continue;
+            pages.UnionWith(sourcePages.Select(page=>page.Id));
+            pages.Add(binding.Page.Source.Id);
+        }
         return pages;
     }
     /// <summary>维护和生成读取目录保留实际递归候选涉及的页面、控件和可见性声明。</summary>

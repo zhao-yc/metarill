@@ -31,10 +31,31 @@ public static class GlobalCachedRelationSource
         var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id).ToArray();
         if(pages.Length==0||pages.Any(page=>page.YzProjectId!=catalog.YzProjectId||!catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId)||page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&!string.IsNullOrWhiteSpace(exact.ToString())))throw Invalid();
     }
+    /// <summary>带行项目列时，只允许自树页实际使用的唯一物理 List 父角色进入全局名称缓存。</summary>
+    public static IReadOnlyList<PageMetadata> RowProjectSelfTreeParentPages(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign)
+    {
+        if(!GlobalCrossTableTarget.Declared(source)||source.IsRongyu!=1||foreign.ConfigTableId!=source.Id||
+            foreign.ControlKind!="List"||!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal))return [];
+        var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id).ToArray();
+        if(!columns.Any(column=>column.ColumnName=="yz_project_id")||!columns.Any(CascadeTreeStorageColumns.IsPhysicalSelfTreeKey))return [];
+        var fields=RelationStorageColumns.Expand(source,columns).Select(column=>column.ColumnName).ToArray();
+        return catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&IsParent(page)).ToArray();
+
+        // 和生成页使用同一个条件解析器，多个父变量不能借相同目标表合并成一个角色。
+        bool IsParent(PageMetadata page)
+        {
+            var terms=FixedConditionPlan.Compile(page.WhereSql,fields).Terms.Where(term=>term.Values.Any(value=>
+                value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text))).ToArray();
+            return terms.Length==1&&terms[0].Field==foreign.ColumnName&&
+                terms[0].Comparison==FixedConditionComparison.Equal&&terms[0].Values.Count==1;
+        }
+    }
+
     /// <summary>新增路径只接本表物理List单值键；R0、多值、级联及猜测目标继续使用既有门槛。</summary>
     public static void RequireSingle(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign)
     {
-        Require(catalog,source);var storage=MetadataStoragePolicy.ForTable(catalog,source);
+        Require(catalog,source,allowsRowProject:RowProjectSelfTreeParentPages(catalog,source,foreign).Count>0);
+        var storage=MetadataStoragePolicy.ForTable(catalog,source);
         if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==foreign.Id),foreign)||foreign.ConfigTableId!=source.Id||foreign.ControlKind!="List"||!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)||foreign.LogicalType is not("int64" or "string")||!storage.IsPhysical(foreign)||foreign.IsVirtualColumn!=0||Joined(foreign))throw Invalid();
     }
     /// <summary>物理名称副本须有精确单层路径和同一List目标，不能把任意join列作为全局写入。</summary>
@@ -43,7 +64,8 @@ public static class GlobalCachedRelationSource
     /// <summary>缓存被其它全局关系引用时复用调用者的证明栈，所有上游仍须通过相同目录和目标检查。</summary>
     internal static GlobalCachedRelationBinding RequireCache(MetadataCatalog catalog,TableMetadata source,ColumnMetadata cache,ISet<string> resolving)
     {
-        Require(catalog,source);var storage=MetadataStoragePolicy.ForTable(catalog,source);var path=cache.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
+        // 允许项目列进入形状检查，匹配到实际物理父角色后再取得该副本的用途证明。
+        RequireSelfTree(catalog,source);var storage=MetadataStoragePolicy.ForTable(catalog,source);var path=cache.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
         if(!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(column=>column.Id==cache.Id),cache)||cache.ConfigTableId!=source.Id||path.Length!=2||!Joined(cache)||cache.IsVirtualColumn!=0||!storage.IsPhysical(cache)||cache.LogicalType is not("string" or "int32" or "int64")||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
         var foreign=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==source.Id&&(column.ColumnName==path[0]+"_id"||column.ColumnName==path[0]));
         if(foreign is null)throw Invalid();RequireSingle(catalog,source,foreign);

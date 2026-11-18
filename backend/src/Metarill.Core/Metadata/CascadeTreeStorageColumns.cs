@@ -13,9 +13,8 @@ public static class CascadeTreeStorageColumns
         var columns=declared.ToArray();
         if(table.IsRongyu is not(0 or 1)||table.IsFunctionTable!=0||table.IsView!=0)return columns;
         var result=columns.ToList();
-        foreach(var source in columns.Where(column=>column.ControlKind=="CascadeTree"&&column.IsVirtualColumn==0&&!Enabled(column,"isJoinColumn")&&(string.Equals(column.LogicalType,"string",StringComparison.OrdinalIgnoreCase)||string.Equals(column.LogicalType,"int64",StringComparison.OrdinalIgnoreCase))))
+        foreach(var source in columns.Where(IsPhysicalSelfTreeKey))
         {
-            if(!source.ColumnName.EndsWith("_id",StringComparison.Ordinal)||source.ColumnName is "yz_project_id" or "insert_manager_id" or "update_manager_id" or "insert_user_id" or "update_user_id"||!SelfTree(source.ControlDetail))continue;
             var name=source.ColumnName[..^3]+"_name";MetadataValidation.RequireIdentifier(name);
             // 包括虚拟、错误类型和大小写冲突的显式列都不覆盖，正式生成继续暴露其缺口。
             if(result.Any(column=>column.ColumnName.Equals(name,StringComparison.OrdinalIgnoreCase)))continue;
@@ -25,6 +24,14 @@ public static class CascadeTreeStorageColumns
         }
         return CrossTableStorageColumns.Expand(table,result.ToArray());
     }
+    /// <summary>结构扩展和原父范围只识别表级声明的实际自树外键。</summary>
+    internal static bool IsPhysicalSelfTreeKey(ColumnMetadata column)=>
+        column.ControlKind=="CascadeTree"&&column.IsVirtualColumn==0&&!Enabled(column,"isJoinColumn")&&
+        (string.Equals(column.LogicalType,"string",StringComparison.OrdinalIgnoreCase)||string.Equals(column.LogicalType,"int64",StringComparison.OrdinalIgnoreCase))&&
+        column.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
+        column.ColumnName is not("yz_project_id" or "insert_manager_id" or "update_manager_id" or "insert_user_id" or "update_user_id")&&
+        SelfTree(column.ControlDetail);
+
     /// <summary>只识别无重复键的全局selfTree形状，未知/损坏定义不猜列；页级覆盖不能改变表结构。</summary>
     private static bool SelfTree(string json)
     {
