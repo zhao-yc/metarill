@@ -170,7 +170,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>真实物理标量与凭据排除共用发布类型，不把JSON或文件数组当作父键或名称。</summary>
         private bool CrossPhysical(TableMetadata table,ColumnMetadata column)=>storage[table.Id].IsPhysical(column)&&column.IsVirtualColumn==0&&!CrossEnabled(column,"isJoinColumn")&&!ExactDataManageValues.IsSensitiveField(column.ColumnName)&&column.ControlKind is not("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList")&&column.LogicalType.ToLowerInvariant() is not("json" or "binary");
         /// <summary>完整元数据中的目标固定条件必须与绑定相符；精简发布目录也必须提供冻结的常量绑定。</summary>
-        private IReadOnlySet<string> RequireCrossCondition(TableMetadata table,PageMetadata page,FixedConditionSqlPlan? binding)
+        private IReadOnlySet<string> RequireCrossCondition(TableMetadata table,PageMetadata page,FixedConditionSqlPlan? binding,ColumnMetadata? multiParent=null)
         {
             var physical=columns[table.Id].Values.Where(column=>CrossPhysical(table,column))
                 .ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.OrdinalIgnoreCase);
@@ -188,6 +188,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||variables.Length!=1)
                     throw new NotSupportedException("跨表目标的变量条件必须是物理列等值。");
                 var variable=variables[0].Text;
+                if(multiParent?.ColumnName==term.Field&&MultiTargetParentScope.IsParameter(variable))continue;
                 if(term.Field=="yz_project_id"&&variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))continue;
                 if(term.Field=="yz_project_id"||!AccountConditionVariables.IsPageField(variable,term.Field)||
                     logical.Contains(term.Field)||!physical.TryGetValue(term.Field,out var physicalType)||

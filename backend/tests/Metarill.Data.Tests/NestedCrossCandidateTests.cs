@@ -225,8 +225,12 @@ public sealed class NestedCrossCandidateTests
     [InlineData("MultiSelectPage",false,true,false,false)]
     [InlineData("MultiCheckBoxDatabase",false,true,true,false)]
     [InlineData("MultiCheckBoxDatabase",true,true,false,true)]
+    [InlineData("MultiSelectPage",false,true,false,null,true)]
+    [InlineData("MultiSelectPage",false,true,true,true,true)]
+    [InlineData("MultiCheckBoxDatabase",false,true,true,false,true)]
+    [InlineData("MultiCheckBoxDatabase",true,true,false,true,true)]
     public void Multi_label_cache_keeps_recursive_scope_and_its_reverse_dependencies(
-        string kind,bool global,bool rootCondition,bool physical,bool? globalRowProject)
+        string kind,bool global,bool rootCondition,bool physical,bool? globalRowProject,bool parent=false)
     {
         var catalog=Catalog(global);
         var visible=catalog.ConfigTables.Single(table=>table.Id=="1");
@@ -268,6 +272,19 @@ public sealed class NestedCrossCandidateTests
                 {["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("picked."+label)}}
         ]);
         catalog.ConfigPages.Add(new(){Id="980",ConfigTableId="98",WhereSql="store_id=@current_store_id"});
+        if(parent)
+        {
+            catalog.ConfigTables.Add(new(){Id="97",TableName="label_scope_parent",IsRongyu=1});
+            catalog.ConfigColumns.AddRange([
+                new(){Id="9701",ConfigTableId="97",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id="9702",ConfigTableId="97",ColumnName="yz_project_id",LogicalType="int64"},
+                new(){Id="9703",ConfigTableId="97",ColumnName="delete_no",LogicalType="datetime"},
+                new(){Id="9094",ConfigTableId="90",ColumnName="target_scope_id",LogicalType="string",LinkConfigTableId="97"},
+                new(){Id="9894",ConfigTableId="98",ColumnName="source_scope_id",LogicalType="int64",LinkConfigTableId="97"}
+            ]);
+            catalog.ConfigPages.Single(page=>page.Id=="900").WhereSql+=" AND target_scope_id=@parent_id";
+            catalog.ConfigPages.Single(page=>page.Id=="980").WhereSql+=" AND source_scope_id=@parentId";
+        }
 
         var read=MySqlNonRedundantReadCompiler.Compile(catalog,"98",[field]);
         var actor=new RuntimeActor(1,"多值账号",false,catalog.YzProjectId,"5"){StoreId=9007199254741973L};
@@ -282,6 +299,13 @@ public sealed class NestedCrossCandidateTests
             Assert.Contains("隐藏名称",bound.Constants.Values);
             Assert.Contains("mt_nested_",bound.Scope);
             Assert.Contains("IS NOT NULL",bound.Scope);
+            Assert.Equal(parent?"target_scope_id":null,bound.RequiredMultiParent);
+            if(parent)
+            {
+                Assert.Contains("label_scope_parent",bound.Scope);
+                Assert.Contains("b.`target_scope_id`",bound.Scope);
+                Assert.Contains("multi_parent.`delete_no` IS NULL",bound.Scope);
+            }
             if(globalRowProject is not null)
             {
                 Assert.DoesNotContain("b.`yz_project_id`=",bound.Scope);
@@ -297,7 +321,13 @@ public sealed class NestedCrossCandidateTests
         var compiled=maintenance.Plans["98"].Read!;
         var projection=compiled.MultiProjections[field];
         Assert.False(compiled.RequiresAccount);
-        Assert.Equal(new[]{"store_id"},projection.Owner!.Fields);
+        Assert.Equal(parent?new[]{"source_scope_id","store_id"}:new[]{"store_id"},projection.Owner!.Fields);
+        if(parent)
+        {
+            Assert.Contains("BINARY CAST(multi_value.`target_scope_id` AS CHAR)=BINARY CAST(b.`source_scope_id` AS CHAR)",projection.TargetScope);
+            Assert.Contains("label_scope_parent",maintenance.MixedTargets);
+            Assert.Contains(compiled.Reverse,path=>path.TargetTable=="label_scope_parent"&&path.ForeignExpression=="b.`source_scope_id`"&&path.Outputs[field].Contains("delete_no"));
+        }
         Assert.Contains("b.`store_id`",projection.NameExpression!);
         Assert.Contains("限制文字",compiled.Constants.Values);
         if(rootCondition)

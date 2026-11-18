@@ -91,6 +91,14 @@ internal static class MultiSelectCompilation
                 targetField = fields[0].JsonName;
                 if (!forService && !page.Readable.Any(column => column.Source.Id == fields[0].Source.Id)) return Gap("来源页未开放目标父字段，前端不能猜测隐藏父值。");
             }
+            if(scoped&&targetPage.Scopes.Any(scope=>scope.Source=="parent"))
+            {
+                var scopeSyntax=FixedConditionPlan.Compile(targetPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
+                var scope=MultiTargetParentScope.Compile(model.Catalog,target.Source,scopeSyntax)!;
+                var owner=scope.Source(model.Catalog,table.Source,source.Source);
+                var actual=same?page.Scopes.Single(item=>item.Source=="parent").Column:table.Columns.Single(column=>column.JsonName==targetField);
+                if(actual.Source.Id!=owner.Id)return Gap("目标页父字段须与来源记录的物理父键一致。");
+            }
             ColumnModel? names = null;
             if (!name.IsId)
             {

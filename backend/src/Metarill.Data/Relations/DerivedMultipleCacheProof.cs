@@ -51,7 +51,7 @@ internal static class DerivedMultipleCacheProof
             :MultiNameStorageColumns.IsDerivedScalarLabel(target,value,storage);
         if(value.LogicalType!="string"&&!typed)throw Invalid();
         var read=global&&scoped is null?NonRedundantReads.Compile(catalog,target.Id,[value.ColumnName]).MySql:
-            MySqlNonRedundantReadCompiler.CompileMultiLabelForCache(catalog,source,target,value.ColumnName,scoped);
+            MySqlNonRedundantReadCompiler.CompileMultiLabelForCache(catalog,source,target,value.ColumnName,scoped,foreign);
         if(read.Types[value.ColumnName]!=value.LogicalType)throw Invalid();
     }
     /// <summary>异常不包含目录原文或任何连接配置。</summary>

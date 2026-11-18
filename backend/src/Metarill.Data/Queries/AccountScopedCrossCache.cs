@@ -25,10 +25,11 @@ public sealed class AccountScopedCrossCache
     }
 
     /// <summary>递归候选允许逻辑字段的常量条件，账号等值仍须对应来源行真实物理归属。</summary>
-    internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage)
-        =>Compile(catalog,source,target,targetPage,recursive:true);
+    internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,
+        ColumnMetadata? multiParent=null)
+        =>Compile(catalog,source,target,targetPage,recursive:true,multiParent:multiParent);
 
-    private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive)
+    private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null)
     {
         if (source.IsRongyu != 1 || targetPage.ConfigTableId != target.Id || GlobalCrossTableTarget.Declared(source) ||
             source.IsView != 0 || source.IsFunctionTable != 0 || target.IsView != 0 || target.IsFunctionTable != 0 ||
@@ -41,7 +42,7 @@ public sealed class AccountScopedCrossCache
         if(recursive)
         {
             var storage=MetadataStoragePolicy.ForTable(catalog,target);
-            if(CrossTableParentCondition.Compile(catalog,target,targetPage,storage,allowLogical:true) is not {Allowed:true,HasLogical:true})
+            if(CrossTableParentCondition.Compile(catalog,target,targetPage,storage,allowLogical:true,multiParent:multiParent) is not {Allowed:true,HasLogical:true})
                 throw Invalid();
             var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
             foreach(var column in columns.Where(column=>CrossTableStorageColumns.IsLogicalPathField(target,columns,column.ColumnName)))
@@ -58,6 +59,7 @@ public sealed class AccountScopedCrossCache
                 continue;
             }
             var variable = Variable(term);
+            if(multiParent?.ColumnName==term.Field&&MultiTargetParentScope.IsParameter(variable))continue;
             if (term.Field == "yz_project_id" && variable.Equals("current_yz_project_id", StringComparison.OrdinalIgnoreCase) &&
                 !GlobalCrossTableTarget.Declared(target)) continue;
             if (term.Field == "yz_project_id" || !AccountConditionVariables.IsPageField(variable, term.Field) ||

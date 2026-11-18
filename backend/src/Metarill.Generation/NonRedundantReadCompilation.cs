@@ -62,7 +62,11 @@ internal static class NonRedundantReadCompilation
         else if(table.IsGlobal)
         {
             if(table.Columns.Any(NonRedundantCrossTableSubset.Declared))
-                GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,table.Source,page.Source);
+            {
+                if(FixedPageConditionCompilation.HasCrossFields(page)&&page.Scopes.Any(scope=>scope.Source=="parent"))
+                    GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source);
+                else GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,table.Source,page.Source);
+            }
             else GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog,table.Source,page.Source);
         }
         // 导入沿用标准Service写事务，仅开放本页真实物理可写列，派生读取不参与覆盖匹配。

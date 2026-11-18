@@ -27,8 +27,12 @@ public static class GlobalCrossTableTarget
         else RequirePublishedName(catalog,table,page,name,true,allowAccount:true,allowInteger:true,allowLogical:true);
     }
 
+    /// <summary>多值目标和独立页面候选可使用由实际父记录限定的同一范围。</summary>
+    public static void RequireMultiCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+        =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:true);
+
     /// <summary>只按明确用途开放R0，逻辑成员须在实际跨表计划中进一步证明。</summary>
-    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false)
+    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false)
     {
         if(!Declared(table)||(table.IsRongyu!=1&&!(allowR0&&table.IsRongyu==0))||table.IsView!=0||table.IsFunctionTable!=0)throw new NotSupportedException("全局跨表目标要求显式声明的普通R0或R1实体。");
         if(table.IsRongyu==0)GlobalDerivedRelationSource.RequireTable(catalog,table);
@@ -38,8 +42,13 @@ public static class GlobalCrossTableTarget
         var allowed=columns.Where(column=>storage.IsPhysical(column)&&column.IsVirtualColumn==0||
             LogicalConditionField(table,columns,column,allowLogical)).Select(column=>column.ColumnName);
         var condition=FixedConditionPlan.Compile(page.WhereSql,allowed);
+        var multiParent=allowMultiParent&&condition.Fields.Any(field=>
+            CrossTableStorageColumns.IsLogicalPathField(table,columns,field))
+            ?MultiTargetParentScope.Compile(catalog,table,condition):null;
         foreach(var term in condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
         {
+            if(multiParent?.Target.ColumnName==term.Field&&term.Values.Count==1&&
+                MultiTargetParentScope.IsParameter(term.Values[0].Text))continue;
             if(!allowAccount||term.Field=="yz_project_id"||term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||
                 !AccountConditionVariables.IsPageField(term.Values[0].Text,term.Field))
                 throw new NotSupportedException("全局跨表目标只允许已发布的固定条件或明确账号等值。");

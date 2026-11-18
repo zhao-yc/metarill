@@ -90,8 +90,7 @@ internal static class DatabaseCheckboxCompilation
             var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
             if(explicitPage!=fixedPage&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasCrossFields(candidate))))
                 return Gap("复选不能用页覆盖替换表级固定逻辑范围。");
-            if(logicalPage is not null&&(logicalPage.Scopes.Any(scope=>scope.Source=="parent")||
-                ExactDataManageCompilation.Declared(logicalPage)))
+            if(logicalPage is not null&&ExactDataManageCompilation.Declared(logicalPage))
                 return Gap("复选逻辑目标范围需要与实际目标页及项目归属一致。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
             if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量。");
@@ -99,6 +98,14 @@ internal static class DatabaseCheckboxCompilation
             var parentScopes=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();if(parentScopes.Length>1)return Gap("多个来源父范围尚待完整协议证明。");
             var sourceParent=parentScopes.FirstOrDefault().Column;if(sourceParent is not null&&(!NonRedundantReadCompilation.Physical(model,table,sourceParent)||sourceParent.IsJsonArray||sourceParent.Type is not("long?" or "string?")))return Gap("来源父必须为物理标量ID。");var parents=parentScopes.Select(scope=>Parent(scope.Column)).ToArray();
             if(parents.Any(parent=>Protected(parent)||!HasIdentity(model,parent)))return Gap("来源父必须具有普通业务表的真实物理项目归属。");
+            if(logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true)
+            {
+                var syntax=FixedConditionPlan.Compile(logicalPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
+                var binding=MultiTargetParentScope.Compile(model.Catalog,target.Source,syntax)!;
+                if(sourceParent?.Source.Id!=binding.Source(model.Catalog,table.Source,source.Source).Id)
+                    return Gap("复选目标页父参数缺少同一来源父记录。");
+                scopes=scopes.Concat(logicalPage.Scopes.Where(scope=>scope.Source=="parent")).DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
+            }
             foreach(var scope in scopes.Where(scope=>scope.Source=="parent"))if(sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id)return Gap("原parentId必须由来源页同一真实父表证明，不能猜测其他父范围。");
             var order=GenerationModel.ValidateOrderBy(definition.OrderBy.Length>0?definition.OrderBy:definition.NameField+" asc",target.Columns).ToList();
             if(order.Any(item=>(!NonRedundantReadCompilation.Physical(model,target,item.Column)&&!(derived&&item.Column.Source.Id==name.Source.Id))||item.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,item.Column)))return Gap("候选排序必须为非凭据物理字段。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));

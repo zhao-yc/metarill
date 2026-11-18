@@ -16,7 +16,7 @@ public static class CrossTableParentCondition
 
     /// <summary>R0 文件父级可使用逻辑目标范围；执行端必须以候选读计划解析该范围。</summary>
     public static (bool Allowed,FixedConditionSqlPlan? Plan,bool HasLogical) Compile(MetadataCatalog catalog,TableMetadata table,
-        PageMetadata page,MetadataStoragePlan storage,bool allowLogical)
+        PageMetadata page,MetadataStoragePlan storage,bool allowLogical,ColumnMetadata? multiParent=null)
     {
         if(page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&exact.ValueKind!=JsonValueKind.Null&&!string.IsNullOrWhiteSpace(exact.ToString()))return(false,null,false);
         var physical=storage.PhysicalColumns.Where(column=>GlobalPhysicalRelationValue.IsScalar(storage,table,column)&&
@@ -34,8 +34,11 @@ public static class CrossTableParentCondition
         {
             var variables=term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable).ToArray();
             if(variables.Length==0){conditions.Add(term);continue;}
-            if(variables.Any(value=>value.Text.Equals("parentId",StringComparison.OrdinalIgnoreCase)||
-                value.Text.Equals("parent_id",StringComparison.OrdinalIgnoreCase)))return(false,null,false);
+            if(variables.Any(value=>MultiTargetParentScope.IsParameter(value.Text)))
+            {
+                if(multiParent?.ColumnName==term.Field&&term.Comparison==FixedConditionComparison.Equal&&term.Values.Count==1)continue;
+                return(false,null,false);
+            }
             if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||variables.Length!=1)
                 throw new NotSupportedException("文件跨表目标只支持已证明的账号等值条件。");
             var variable=variables[0].Text;

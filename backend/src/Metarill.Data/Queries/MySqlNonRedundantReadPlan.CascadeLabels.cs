@@ -28,7 +28,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var plan=selected is null?CompileMultiLabel(catalog,target.Id,field):
                     CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[]);
                 pages.UnionWith(plan.CascadeLabelPages);
-                if(plan.RequiresAccount&&source?.IsRongyu==1)
+                if(source is not null&&(plan.RequiresAccount&&source.IsRongyu==1||selected is not null&&plan.RequiredMultiParent is not null))
                     owners.UnionWith(catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id).Select(page=>page.Id));
             }
             catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
@@ -84,7 +84,16 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             SelectedMultiPage=page,
             GlobalCrossCandidate=GlobalCrossTableTarget.Declared(catalog.ConfigTables.Single(table=>table.Id==tableId))
-        }.Compile(outputs,dependencies);
+        }.Compile(outputs,dependencies.Concat(MultiParent(catalog,page) is { } parent?[parent.Target.ColumnName]:[])
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+    }
+
+    /// <summary>按实际发布页解析原父参数，父列可能未在页面显示。</summary>
+    private static MultiTargetParentScope? MultiParent(MetadataCatalog catalog,PageMetadata page)
+    {
+        var table=catalog.ConfigTables.Single(item=>item.Id==page.ConfigTableId);
+        var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
+        return MultiTargetParentScope.Compile(catalog,table,FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName)));
     }
 
     /// <summary>范围只冻结实际依赖的控件和共享同伴，页面覆盖必须保留相同路径定义。</summary>
@@ -184,9 +193,10 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>固定页条件保留实际类型与原账号等值，只有已声明逻辑路径可以引用非物理层位。</summary>
     private static FixedConditionSqlPlan? CascadeScopeCondition(TableMetadata target,MetadataStoragePlan storage,
-        IReadOnlyList<ColumnMetadata> columns,FixedConditionPlan syntax)
+        IReadOnlyList<ColumnMetadata> columns,FixedConditionPlan syntax,ColumnMetadata? multiParent=null)
     {
-        var terms=syntax.Terms.Where(term=>!IsProjectScope(term)).ToArray();
+        var terms=syntax.Terms.Where(term=>!IsProjectScope(term)&&!(multiParent?.ColumnName==term.Field&&
+            term.Values.Count==1&&term.Values[0].Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(term.Values[0].Text))).ToArray();
         if(terms.Length==0)return null;
         var physical=columns.Where(column=>GlobalPhysicalRelationValue.IsScalar(storage,target,column))
             .ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.OrdinalIgnoreCase);

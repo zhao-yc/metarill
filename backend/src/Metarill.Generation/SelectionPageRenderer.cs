@@ -53,9 +53,10 @@ internal static class SelectionPageRenderer
         if(NonRedundantReadCompilation.Requires(model,table))
         {
             var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
+            var bindAccount=globalCandidate&&(CrossTableWriteCompilation.ForService(model,table,page).Count>0||FixedPageConditionCompilation.HasAccountVariables(page));
             return result.AppendLine($"        var filters=ReadFilters{suffix}(new PageRequest{{ParentId=request.ParentId}},actor{(globalCandidate?",globalCandidate:true":"")});")
                 .AppendLine("        if(selected.Length==0)return [];")
-                .AppendLine($"        var selectedRows=await new Metarill.Data.Queries.NonRedundantReader(session).KeyRowsAsync({(globalCandidate?"CandidateReadPlan":"ReadPlan")}{suffix},filters,selected,cancellationToken,projectId:actor.ProjectId{(globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page,true))});")
+                .AppendLine($"        var selectedRows=await new Metarill.Data.Queries.NonRedundantReader(session).KeyRowsAsync({(globalCandidate?"CandidateReadPlan":"ReadPlan")}{suffix}{(bindAccount?".BindAccount(actor)":"")},filters,selected,cancellationToken,projectId:actor.ProjectId{(globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page,true))});")
                 .AppendLine("        if(selectedRows.Count!=selected.Length)throw new InvalidOperationException(\"已选记录不存在、已删除或不在当前多选页范围，请重新确认选择。\");")
                 .AppendLine("        var rows=selectedRows.ToDictionary(row=>Metarill.Data.Queries.NonRedundantReads.Value<long>(row,\"id\"));")
                 .AppendLine($"        return {BackendRenderer.NonRedundantProjectionCall(model,table,page,"selected.Select(id=>rows[id]).ToArray()","false")};").AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }").ToString();

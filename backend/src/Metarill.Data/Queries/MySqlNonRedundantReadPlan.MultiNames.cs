@@ -17,11 +17,15 @@ public static partial class MySqlNonRedundantReadCompiler
             // 全局单值路径已证明字符串键的二进制读取；这里不是仅允许int64键的精确管理匹配用途。
             var prefixForNames=publishedPage is null&&publishedArrayScopeCount==0?"multi_name_":aliasPrefix+"array"+publishedArrayScopeCount+"_";
             publishedArrayScopeCount++;
+            var parent=selectedScope is null?null:MultiParent(catalog,selectedScope);
+            var sourceParent=parent?.Source(catalog,table,relation);
+            if(sourceParent is not null){Use(table,sourceParent);Touch(owner,sourceParent.ColumnName);}
             var nested=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:selectedScope is null?publishedPage:null,multiLabel:true,cascadeLabelField:value.ColumnName,
                 cascadeCacheOwner:refreshFields is null?null:new(table,owner))
             {
                 SelectedMultiPage=selectedScope,
+                MultiParentOwner=sourceParent is null?null:(new(table,owner),sourceParent),
                 GlobalCrossCandidate=global&&selectedScope is not null
             }.Compile([value.ColumnName],[]);
             nested.CopyParametersTo(crossConstants);
@@ -46,6 +50,12 @@ public static partial class MySqlNonRedundantReadCompiler
                 var from=" FROM "+Q(table.TableName)+" "+owner;var rootFields=nested.PhysicalReferences.Where(p=>p.Table==target.TableName).Select(p=>p.Column.Name).ToHashSet(StringComparer.Ordinal);var dependency=new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,rootFields}};
                 // 删除树目标时仍按源数组找到消费者，不依赖目标当前还存在。
                 customReverse.Add(new(target.TableName,from,ArrayMember(array,"@target_text"),"predicate",dependency));
+                if(parent is not null&&sourceParent is not null)
+                {
+                    var parentFields=nested.PhysicalReferences.Where(item=>item.Table==parent.Parent.TableName).Select(item=>item.Column.Name).ToHashSet(StringComparer.Ordinal);
+                    customReverse.Add(new(parent.Parent.TableName,from,owner+"."+Q(sourceParent.ColumnName),sourceParent.LogicalType,
+                        new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,parentFields}}));
+                }
                 foreach(var reverse in nested.Reverse)
                 {
                     var match=reverse.TargetPredicate;var predicate="((SELECT 1"+reverse.From+" WHERE "+associationScope+" AND "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+" AND "+match+" LIMIT 1) IS NOT NULL)";var fields=reverse.Outputs.Values.SelectMany(v=>v).ToHashSet(StringComparer.Ordinal);customReverse.Add(new(reverse.TargetTable,from,predicate,"predicate",new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,fields}}));

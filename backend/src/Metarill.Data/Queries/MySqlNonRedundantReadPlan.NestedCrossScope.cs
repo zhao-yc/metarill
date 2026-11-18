@@ -23,19 +23,25 @@ public static partial class MySqlNonRedundantReadCompiler
         if(table.IsRongyu!=0||page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
             page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new NotSupportedException("候选必须属于已发布项目的普通非冗余目标页。");
-        if(global)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
+        if(global)
+        {
+            if(displayBindings is null)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
+            else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page);
+        }
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId));
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         var logical=syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToHashSet(StringComparer.Ordinal);
         if(logical.Count==0&&(!global||displayBindings is not{Count:>0}))
             throw new InvalidOperationException("候选页未声明逻辑跨表条件或已证明的全局跨表投影。");
-        var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax);
+        var parent=displayBindings is null?null:MultiTargetParentScope.Compile(catalog,table,syntax);
+        var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target);
         var scopes=logical.Count==0?[]:CrossMembershipBindings(catalog,table,page,logical);
         // 范围的绑定按发布页生成，其它绑定仅用于该独立选择页展示额外的路径。
         var bindings=scopes.Concat(displayBindings??[]).DistinctBy(path=>path.SourceColumnId,StringComparer.Ordinal).ToArray();
         var builder=new Builder(catalog,tableId,crossTables:bindings)
         {
             CrossCandidateCondition=condition,
+            MultiCandidateParent=parent,
             GlobalCrossCandidate=global,
             ScopedRootControls=scopes.Select(path=>path.SourceColumnId).ToHashSet(StringComparer.Ordinal)
         };
@@ -46,6 +52,26 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         internal FixedConditionSqlPlan? CrossCandidateCondition{get;init;}
         internal PageMetadata? SelectedMultiPage{get;init;}
+        internal MultiTargetParentScope? MultiCandidateParent{get;set;}
+        internal (CascadeCacheOwner Owner,ColumnMetadata Column)? MultiParentOwner{get;init;}
+
+        /// <summary>父表必须仍在本项目且可见。字符串键与主键按十进制字节比较，避免高位ID被隐式转成浮点数。</summary>
+        private string MultiParentPredicate(MultiTargetParentScope parent)
+        {
+            var target=rootAlias+"."+Q(parent.Target.ColumnName);
+            var alias=aliasPrefix+"multi_parent";
+            Use(root,parent.Target);Touch(rootAlias,parent.Target.ColumnName);
+            Use(parent.Parent,Column(parent.Parent,"id"));
+            var key=alias+".`id`";
+            var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY "+target:key+"="+target;
+            var predicate="EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+alias+" WHERE "+same+" AND "+key+">0 AND "+Scope(parent.Parent,alias)+")";
+            if(MultiParentOwner is not {} binding)return predicate;
+            var (owner,source)=binding;
+            cascadeCacheOwnerFields.Add(source.ColumnName);
+            var fromOwner=owner.Alias+"."+Q(source.ColumnName);
+            // 批量名称读取把来源值作为文本传入，保持相邻高位整数的精确比较。
+            return predicate+" AND BINARY CAST("+target+" AS CHAR)=BINARY CAST("+fromOwner+" AS CHAR)";
+        }
 
         /// <summary>目标页的条件与名称共用当前记录和联接，维护用途按来源行归属绑定。</summary>
         private string SelectedMultiScope(string scope)
@@ -53,14 +79,16 @@ public static partial class MySqlNonRedundantReadCompiler
             var page=SelectedMultiPage!;
             if(page.ConfigTableId!=root.Id||page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
                 throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
-            if(GlobalCrossTableTarget.Declared(root))GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,root,page);
-            var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true);
+            if(GlobalCrossTableTarget.Declared(root))GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
+            MultiCandidateParent=MultiParent(catalog,page);
+            var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
+                multiParent:MultiCandidateParent?.Target);
             if(condition is not {Allowed:true,HasLogical:true,Plan:{ } plan})
                 throw new NotSupportedException("多值目标页缺少固定的逻辑级联条件。");
-            var fields=RequireCrossCondition(root,page,plan);
+            var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target);
             output=cascadeLabelField!;
             var level=new CrossLevel(root,Column(root,cascadeLabelField!),null,new(page.Id,plan),page,fields);
-            var selected=NestedCrossCondition(level,rootAlias);
+            var selected=NestedCrossCondition(level,rootAlias,multiParent:MultiCandidateParent?.Target);
             return scope.Length==0?selected:scope+" AND "+selected;
         }
         internal bool GlobalCrossCandidate{get;init;}
@@ -99,7 +127,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         /// <summary>同一条查询展开所需祖先，写入沿同一事务锁定全部联接。候选内部的存储校验不进入外层 VO。</summary>
-        private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null)
+        private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null,ColumnMetadata? multiParent=null)
         {
             var table=level.Table;
             cacheOwner??=cascadeCacheOwner;
@@ -140,7 +168,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 string predicate;
                 if(cacheOwner is {} row)
                 {
-                    var proof=AccountScopedCrossCache.CompileRecursive(catalog,row.Table,table,level.Page);
+                    var proof=AccountScopedCrossCache.CompileRecursive(catalog,row.Table,table,level.Page,multiParent);
                     cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                     predicate=AccountCacheScope(proof,table,owner,row.Alias,render:true,row.Table,parameterPrefix,Projection);
                 }

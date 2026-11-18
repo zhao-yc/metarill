@@ -76,6 +76,9 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         projectId=RequirePlanProject(plan,projectId);
         // 所有字段/操作/值先验证，不能在发出COUNT后才发现排序非法。
         filters=filters.Select(filter=>Prepare(plan,filter)).ToArray();order=order.ToArray();
+        if(plan.RequiredMultiParent is {} parent&&!filters.Any(filter=>filter.Field==parent&&
+            filter.Comparison==FixedReadComparison.Equal&&filter.Value is not null))
+            throw new InvalidOperationException("多值目标页读取必须绑定实际父ID。");
         var clauses=filters.Select((filter,index)=>Filter(plan,filter,index)).ToArray();
         var parentClause = CandidateParentClause(plan,projectId,currentRead);
         var orders=order.Select(item=>plan.Expression(item.Field)+(item.Descending?" DESC":" ASC")).ToList();
@@ -213,7 +216,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     {
         if(session.Provider.Name!="mysql")throw new NotSupportedException("固定读取计划与数据库方言不一致。");
         ArgumentNullException.ThrowIfNull(plan);ArgumentNullException.ThrowIfNull(filters);ArgumentNullException.ThrowIfNull(sumFields);
-        if(plan.CandidateParents.Count>0)throw new InvalidOperationException("候选父范围计划不能用于业务统计。");
+        if(plan.CandidateParents.Count>0||plan.RequiredMultiParent is not null)throw new InvalidOperationException("候选父范围计划不能用于业务统计。");
         projectId=RequirePlanProject(plan,projectId);var fields=sumFields.ToArray();
         if(fields.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=fields.Length)throw new InvalidOperationException("统计字段重复。");
         foreach(var field in fields){plan.Expression(field);if(plan.Types[field] is not("int32" or "int64" or "decimal" or "double"))throw new InvalidOperationException("求和字段必须是已编译数值。");}
@@ -352,6 +355,8 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if (filter.Comparison == FixedReadComparison.IntegerLabelContains)
             return "CAST(" + expression + " AS CHAR) LIKE " + parameter + " ESCAPE '!'";
         if(value is null)return filter.Comparison switch{FixedReadComparison.Equal=>expression+" IS NULL",FixedReadComparison.NotEqual=>expression+" IS NOT NULL",_=>throw new InvalidOperationException("范围比较不能使用null。")};
+        if(filter.Field==plan.RequiredMultiParent&&filter.Comparison==FixedReadComparison.Equal&&value is string)
+            return "BINARY "+expression+"=BINARY "+parameter;
         return expression+(filter.Comparison switch{FixedReadComparison.Equal=>"=",FixedReadComparison.NotEqual=>"<>",FixedReadComparison.Greater=>">",FixedReadComparison.GreaterOrEqual=>">=",FixedReadComparison.Less=>"<",FixedReadComparison.LessOrEqual=>"<=",_=>throw new InvalidOperationException("未知固定筛选操作。")})+parameter;
     }
     /// <summary>同一已绑定父范围参与候选计数与明细；缺少真实账号时停止于创建命令之前。</summary>
