@@ -20,7 +20,9 @@ internal static class DerivedRelationNamesCompilation
         if(ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))
             throw new NotSupportedException("单值关系的逻辑条件要求普通目标页及已证明的物理父范围。");
         if(target.IsGlobal)
-            return NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,dependencies);
+            return additional is {HasLogicalFields:true}
+                ?NonRedundantReads.CompileGlobalListCandidate(model.Catalog,target.Source.Id,page.Source.Id,additional.Syntax.Fields,outputs,dependencies)
+                :NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,dependencies);
         var (fields,cross,tree)=LogicalMembership(page,additional);
         return NonRedundantReads.CompilePageMembership(model.Catalog,target.Source,page.Source,fields,cross,tree,outputs,dependencies);
     }
@@ -29,9 +31,11 @@ internal static class DerivedRelationNamesCompilation
     internal static string LogicalPagePlanStart(TableModel target,PageModel page,RelationConditionModel? additional=null)
     {
         var targetIds=JsonSerializer.Serialize(target.Source.Id)+","+JsonSerializer.Serialize(page.Source.Id);
-        if(target.IsGlobal)return "CompileCrossPageCandidate("+targetIds;
-        var (fields,cross,tree)=LogicalMembership(page,additional);
         string Fields(IEnumerable<string> names)=>"new string[]{"+string.Join(",",names.Select(name=>JsonSerializer.Serialize(name)))+"}";
+        if(target.IsGlobal)return additional is {HasLogicalFields:true}
+            ?"CompileGlobalListCandidate("+targetIds+","+Fields(additional.Syntax.Fields)
+            :"CompileCrossPageCandidate("+targetIds;
+        var (fields,cross,tree)=LogicalMembership(page,additional);
         return "CompileRelationMembership("+string.Join(",",targetIds,
             Fields(fields),Fields(cross.Order(StringComparer.Ordinal)),Fields(tree.Order(StringComparer.Ordinal)));
     }

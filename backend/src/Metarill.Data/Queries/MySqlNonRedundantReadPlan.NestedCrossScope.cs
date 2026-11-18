@@ -9,7 +9,7 @@ public static partial class MySqlNonRedundantReadCompiler
     internal static MySqlNonRedundantReadPlan CompileCrossPageCandidate(MetadataCatalog catalog,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
         IReadOnlyList<NonRedundantCrossTableScope>? displayBindings=null,string rootAlias="b",string aliasPrefix="r",
-        HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null)
+        HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null,IReadOnlyList<string>? listFields=null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -28,24 +28,31 @@ public static partial class MySqlNonRedundantReadCompiler
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         var logical=syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToHashSet(StringComparer.Ordinal);
         var treeNames=SelfTreeConditionFields(catalog,table,page,columns,syntax.Fields);
-        var hasParentScope=displayBindings is not null||treeNames.Count>0&&IsScopedMultiTarget(catalog,table,pageId);
+        var listTrees=SelfTreeConditionFields(catalog,table,page,columns,listFields??[]);
+        var listCrosses=(listFields??[]).Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToArray();
+        if(listFields is not null&&(!global||listTrees.Count==0&&listCrosses.Length==0))
+            throw new NotSupportedException("全局下拉附加条件必须引用已发布的逻辑级联字段。");
+        var hasParentScope=displayBindings is not null||listFields is null&&treeNames.Count>0&&IsScopedMultiTarget(catalog,table,pageId);
         if(global)
         {
             if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,table,page,allowMultiParent:hasParentScope);
             else if(displayBindings is null)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
             else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page);
         }
-        if(logical.Count==0&&treeNames.Count==0&&(!global||displayBindings is not{Count:>0}))
+        if(logical.Count==0&&treeNames.Count==0&&listFields is null&&(!global||displayBindings is not{Count:>0}))
             throw new InvalidOperationException("候选页未声明逻辑级联条件或已证明的全局跨表投影。");
         var parent=hasParentScope?MultiTargetParentScope.Compile(catalog,table,syntax):null;
         var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target,treeNames);
+        // 附加条件只扩充真实路径与投影，页面条件仍由实际发布页决定。
+        logical.UnionWith(listCrosses);
+        var projectionTrees=treeNames.Concat(listTrees).ToHashSet(StringComparer.Ordinal);
         var scopes=logical.Count==0?[]:CrossMembershipBindings(catalog,table,page,logical);
         // 范围的绑定按发布页生成，其它绑定仅用于该独立选择页展示额外的路径。
         var bindings=scopes.Concat(displayBindings??[]).DistinctBy(path=>path.SourceColumnId,StringComparer.Ordinal).ToArray();
-        var builder=new Builder(catalog,tableId,deferCascadeNames:treeNames.Count>0,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
+        var builder=new Builder(catalog,tableId,deferCascadeNames:projectionTrees.Count>0,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
         {
             CrossCandidateCondition=condition,
-            SelfTreeCandidateFields=treeNames,
+            SelfTreeCandidateFields=projectionTrees,
             ActiveSelfTreeScopes=activeSelfTreeScopes??new(),
             MultiCandidateParent=parent,
             MultiCandidatePage=page,
@@ -53,7 +60,8 @@ public static partial class MySqlNonRedundantReadCompiler
             ScopedRootControls=scopes.Select(path=>path.SourceColumnId).ToHashSet(StringComparer.Ordinal),
             CrossAliasPrefix=rootAlias=="b"?"cross":aliasPrefix+"c"
         };
-        return builder.Compile(outputs,dependencies.Concat(syntax.Fields).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+        return builder.Compile(outputs,dependencies.Concat(syntax.Fields).Concat(listFields??[])
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
 
     /// <summary>独立父ID校验取实际全局层的发布页。多个共享分支必须指向同一页，不回退到任意全局候选。</summary>

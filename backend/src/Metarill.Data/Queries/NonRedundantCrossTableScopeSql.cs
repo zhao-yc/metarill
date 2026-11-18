@@ -36,6 +36,8 @@ public static class NonRedundantCrossTableScopeSql
         if(session.Provider.Name!="mysql")throw new NotSupportedException("逻辑页面条件尚未完成该数据库适配。");
         if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("逻辑页面条件锁定必须加入真实事务。");
         var compiled=plan.MySql;
+        if(compiled.RequiresPublishedProjectIdentity&&compiled.ProjectId!=projectId)
+            throw new UnauthorizedAccessException("固定候选不属于当前发布项目。");
         var logicalFields=compiled.Crosses.SelectMany(cross=>cross.Selection.Slots)
             .SelectMany(slot=>new[]{slot.ColumnName,slot.ColumnName[..^3]+"_name"}).Concat(compiled.CascadeLabelOutputs).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var usesLogicalField=false;

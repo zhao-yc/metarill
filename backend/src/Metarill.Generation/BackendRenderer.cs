@@ -899,10 +899,14 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent").DistinctBy(scope => scope.Column.Source.Id))
                 result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
-            result.Append(logicalPlan is not null&&relation.Target.IsGlobal
-                ?$"        query=NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,{logicalPlan},\"options_page_{suffix}\",actor.ProjectId,locking);\n"
-                :FixedPageConditionCompilation.Apply(relation.TargetPage,"OptionsPageCondition"+suffix,"options_page_"+suffix,logicalPlan,"locking"))
-                .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix,"r1_options","locking"))
+            // 全局逻辑下拉的附加搜索已通过同一计划包含发布页范围，只需生成一次相关查询。
+            if(relation.Target.IsGlobal&&logicalPlan is not null)
+            {
+                if(relation.Conditions?.HasLogicalFields!=true)
+                    result.AppendLine($"        query=NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,{logicalPlan},\"options_page_{suffix}\",actor.ProjectId,locking);");
+            }
+            else result.Append(FixedPageConditionCompilation.Apply(relation.TargetPage,"OptionsPageCondition"+suffix,"options_page_"+suffix,logicalPlan,"locking"));
+            result.Append(SharedRedundantParentCompilation.ApplyAccountScope(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix,"r1_options","locking"))
                 .Append(RelationConditionsCompilation.Apply(relation,suffix,logicalPlan));
             if (relation.ParentBinding?.Binding?.SourceParent.Source.Id == "2076977530983813120")
             {

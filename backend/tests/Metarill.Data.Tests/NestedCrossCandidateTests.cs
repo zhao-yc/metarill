@@ -100,6 +100,59 @@ public sealed class NestedCrossCandidateTests
         Assert.ThrowsAny<Exception>(()=>NonRedundantReads.CompileCrossPageCandidate(catalog,table.Id,page.Id,["id"],[]));
     }
 
+    /// <summary>全局根使用固定发布页和附加逻辑范围，项目内层位与真实账号过滤仍进入同一 SQL。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Global_list_condition_preserves_published_scope_and_project_identity(bool tree)
+    {
+        var catalog=Catalog(false);
+        var table=catalog.ConfigTables.Single(item=>item.Id=="1");
+        var page=catalog.ConfigPages.Single(item=>item.Id=="11");
+        foreach(var item in catalog.ConfigTables)item.YzProjectId=catalog.YzProjectId;
+        catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+        page.YzAdminTypeId="5";
+        page.WhereSql="name <> '发布页排除' AND store_id=@current_store_id";
+        table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(tree)AddVisibilityLeafScope(catalog,catalog.ConfigTables.Single(item=>item.Id=="90"),table,page,true);
+        var field=tree?"visibility_name":"country_name";
+        if(tree)
+            page.WhereSql="name <> '发布页排除' AND store_id=@current_store_id";
+        var actor=new RuntimeActor(1,"发布项目账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
+        var plan=NonRedundantReads.CompileGlobalListCandidate(catalog,table.Id,page.Id,[field],["id","name"],[]);
+        Assert.True(plan.MySql.RequiresPublishedProjectIdentity);
+        Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+        var bound=plan.BindAccount(actor);
+        Assert.DoesNotContain("b.`yz_project_id`=",bound.MySql.Scope);
+        Assert.Contains("发布页排除",bound.MySql.Constants.Values);
+        Assert.Contains(actor.StoreId!.Value,bound.MySql.Constants.Values);
+        Assert.DoesNotContain("发布页排除",bound.MySql.Scope);
+        Assert.Contains(tree?"nested_visibility":"nested_country",bound.MySql.From+" "+bound.MySql.Expression(field));
+        if(!tree)Assert.Contains(".`yz_project_id`=@project_scope_",bound.MySql.From);
+        Assert.Equal(new[]{"id","name"},bound.OutputTypes.Keys);
+
+        var condition=FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(field+" <> '控件排除'",[field]),
+            new Dictionary<string,string>{{field,"string"}});
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline",
+            ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
+        Assert.Throws<UnauthorizedAccessException>(()=>NonRedundantCrossTableScopeSql.ApplyCondition(
+            session.Select<ScopeRow>(),session,bound,condition,"options","999"));
+        var sql=NonRedundantCrossTableScopeSql.ApplyCondition(session.Select<ScopeRow>(),session,bound,condition,
+            "options",actor.ProjectId).ToSql();
+        Assert.Contains("@options_condition_",sql);
+        Assert.Contains("@options_constant_",sql);
+        Assert.DoesNotContain("控件排除",sql);
+        Assert.Throws<NotSupportedException>(()=>NonRedundantReads.CompileGlobalListCandidate(
+            catalog,table.Id,page.Id,["store_id"],["id"],[]));
+    }
+
+    /// <summary>生成实体查询只需固定主键关联，测试直接检查 MySQL SQL。</summary>
+    private sealed class ScopeRow
+    {
+        [FreeSql.DataAnnotations.Column(Name="id",IsPrimary=true)]
+        public long Id { get; set; }
+    }
+
     /// <summary>原单值名称联接执行同一全局目标页，来源行继续绑定本项目和真实账号。</summary>
     [Theory]
     [InlineData("List",false,"string",false)]

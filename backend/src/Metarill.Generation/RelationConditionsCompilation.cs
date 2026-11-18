@@ -87,7 +87,7 @@ internal static class RelationConditionsCompilation
     /// <summary>隐藏下拉的最终值校验也须登记实际逻辑条件。</summary>
     internal static bool HasLogicalListFields(TableModel target,string definition)
     {
-        if(target.IsGlobal||target.Source.IsRongyu!=0||string.IsNullOrWhiteSpace(definition))return false;
+        if(target.Source.IsRongyu!=0||string.IsNullOrWhiteSpace(definition))return false;
         var syntax=FixedConditionPlan.Compile(definition,target.Columns.Select(column=>column.Source.ColumnName));
         var (cross,tree)=LogicalFields(target,syntax,true);
         return cross.Count>0||tree.Count>0;
@@ -97,7 +97,7 @@ internal static class RelationConditionsCompilation
     private static (IReadOnlySet<string> Cross,IReadOnlySet<string> Tree) LogicalFields(
         TableModel target,FixedConditionPlan syntax,bool allowed)
     {
-        if(!allowed||target.IsGlobal||target.Source.IsRongyu!=0)
+        if(!allowed||target.Source.IsRongyu!=0)
             return(new HashSet<string>(StringComparer.Ordinal),new HashSet<string>(StringComparer.Ordinal));
         var columns=target.Columns.Select(column=>column.Source).ToArray();
         return(syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(target.Source,columns,field)).ToHashSet(StringComparer.Ordinal),
