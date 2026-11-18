@@ -68,7 +68,10 @@ internal static class RelationCompilation
             if (conditions is not null && ForeignValidationRenderer.Target(model,source)?.Source.Id != target.Source.Id)
                 throw new InvalidOperationException("常量候选必须与外键及显示来源的固定目标一致。");
             var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column, owner, page)).DistinctBy(parent => parent.Source.Id).ToArray();
-            var targetParents = targetPage.Scopes.Concat(scopes).Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
+            var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,target,targetPage);
+            var targetParents = targetPage.Scopes.Concat(scopes).Where(scope => scope.Source == "parent")
+                .Select(scope => accountParent?Parent(model,scope.Column,target,targetPage):Parent(model,scope.Column))
+                .DistinctBy(parent => parent.Source.Id).ToArray();
             var binding = FixedParentRelationCompilation.Resolve(model, page, source, sourceParents, targetParents, targetPage.Scopes.Concat(scopes).ToArray());
             IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
             var orderBy = Mapped("orderBy");

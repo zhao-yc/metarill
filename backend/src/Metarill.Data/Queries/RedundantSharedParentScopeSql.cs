@@ -15,12 +15,62 @@ public static class RedundantSharedParentScopeSql
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(session);
+        if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("冗余跨表父范围锁定必须加入业务事务。");
+        var clause=Render(session.Provider,paths,actor,prefix,
+            column=>session.Provider.QuoteIdentifier("a")+"."+session.Provider.QuoteIdentifier(column),locking);
+        if(clause.Sql.Length==0)return query;
+        if(locking)query=query.WithTransaction(session.CurrentTransaction);
+        return query.As("a").Where(clause.Sql,clause.Parameters);
+    }
+
+    /// <summary>父参数真实可见时才进入候选读取；写入时全部祖先由当前业务事务锁定。</summary>
+    public static async Task RequireParentAsync(DatabaseSession session,IReadOnlyList<RedundantSharedParentPlan> paths,
+        long parentId,RuntimeActor actor,bool locking,CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var transaction=session.CurrentTransaction;
+        if(locking&&transaction is null)throw new InvalidOperationException("冗余跨表父范围锁定必须加入业务事务。");
+        if(parentId<=0||paths.Count==0)throw new ArgumentException("当前关联要求已发布的正整数父标识。");
+        var placeholder=session.Provider.ParameterPlaceholder("r1_candidate_parent");
+        var clause=Render(session.Provider,paths,actor,"r1_ancestor",_=>placeholder,locking);
+
+        async Task CheckAsync(System.Data.Common.DbConnection connection)
+        {
+            await using var command=MySqlFloatingCommand.Wrap(connection.CreateCommand());
+            command.Transaction=transaction;
+            command.CommandText="SELECT 1 WHERE "+clause.Sql;
+            Add("r1_candidate_parent",parentId);
+            foreach(var pair in clause.Parameters)Add(pair.Key,pair.Value);
+            if(await command.ExecuteScalarAsync(token) is null or DBNull)
+                throw new InvalidOperationException("关联父记录不存在、已删除或不在当前可选范围。");
+
+            void Add(string name,object? value)
+            {
+                var parameter=command.CreateParameter();
+                parameter.ParameterName=name;
+                parameter.Value=value??DBNull.Value;
+                command.Parameters.Add(parameter);
+            }
+        }
+
+        if(transaction is not null)
+        {
+            await CheckAsync(transaction.Connection??throw new InvalidOperationException("事务连接已关闭。"));
+            return;
+        }
+        await using var connection=session.Provider.CreateConnection(session.Options);
+        await connection.OpenAsync(token);
+        await CheckAsync(connection);
+    }
+
+    /// <summary>普通 ORM、固定整数候选和父参数核验共用相关谓词；来源表达式由适配器提供。</summary>
+    internal static FixedConditionSqlPlan.Clause Render(IDatabaseProvider provider,IReadOnlyList<RedundantSharedParentPlan> paths,
+        RuntimeActor actor,string prefix,Func<string,string> sourceColumn,bool locking)
+    {
         ArgumentNullException.ThrowIfNull(paths);
         ArgumentNullException.ThrowIfNull(actor);
         MetadataValidation.RequireIdentifier(prefix);
-        var provider=session.Provider;
         if(provider.Name!="mysql")throw new NotSupportedException("冗余跨表账号父范围尚未完成该数据库适配。");
-        if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("冗余跨表父范围锁定必须加入业务事务。");
         if(!long.TryParse(actor.ProjectId,NumberStyles.None,CultureInfo.InvariantCulture,out var project)||
             project<=0||actor.ProjectId!=project.ToString(CultureInfo.InvariantCulture))
             throw new UnauthorizedAccessException("当前项目身份无效。");
@@ -45,7 +95,7 @@ public static class RedundantSharedParentScopeSql
             }
             var correlated=new List<string>
             {
-                "BINARY CAST("+Field(last,"id")+" AS CHAR)=BINARY CAST("+provider.QuoteIdentifier("a")+"."+provider.QuoteIdentifier(path.ColumnName)+" AS CHAR)"
+                "BINARY CAST("+Field(last,"id")+" AS CHAR)=BINARY CAST("+sourceColumn(path.ColumnName)+" AS CHAR)"
             };
             for(var index=0;index<path.Levels.Count;index++)
             {
@@ -66,8 +116,6 @@ public static class RedundantSharedParentScopeSql
             var sql=from.Append(" WHERE ").AppendJoin(" AND ",correlated).ToString();
             predicates.Add("EXISTS ("+(locking?provider.BuildSelectForUpdate(sql):sql)+")");
         }
-        if(predicates.Count==0)return query;
-        if(locking)query=query.WithTransaction(session.CurrentTransaction);
-        return query.As("a").Where(string.Join(" AND ",predicates),parameters);
+        return new(string.Join(" AND ",predicates),parameters);
     }
 }

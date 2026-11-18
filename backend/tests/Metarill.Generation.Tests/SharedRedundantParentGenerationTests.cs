@@ -54,17 +54,7 @@ public sealed class SharedRedundantParentGenerationTests
     public async Task Account_parent_scope_is_fixed_in_business_and_file_plans(bool shared,bool global)
     {
         const string ns="Example.AccountR1Parent";
-        var catalog=Catalog("shared_parent","string","int64",false,global?1:0,true,true);
-        catalog.ConfigPages.RemoveAll(page=>page.Id=="206"||!shared&&page.Id=="205");
-        catalog.ConfigMenus.RemoveAll(menu=>menu.ConfigPageId=="206"||!shared&&menu.ConfigPageId=="205");
-        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="206"||field.ConfigColumnId=="91"||
-            !shared&&(field.ConfigPageId=="205"||field.ConfigColumnId=="80"));
-        catalog.ConfigColumns.RemoveAll(column=>column.Id=="91"||!shared&&column.Id=="80");
-        foreach(var configuredPage in catalog.ConfigPages.Where(page=>page.ConfigTableId=="2"||page.Id is "301" or "401"))
-            configuredPage.WhereSql+=" AND store_id=@current_store_id";
-        foreach(var table in new[]{"2","3","4"})
-            catalog.ConfigColumns.Add(new(){Id=table+"991",ConfigTableId=table,YzProjectId=catalog.YzProjectId,
-                ColumnName="store_id",LogicalType=table=="4"?"string":"int64"});
+        var catalog=AccountCatalog(shared,global);
         var model=GenerationModel.Create(catalog,ns);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var source=model.Tables.Single(table=>table.Source.Id=="2");
@@ -109,6 +99,88 @@ public sealed class SharedRedundantParentGenerationTests
             Assert.IsType<InvalidOperationException>(Assert.Throws<TargetInvocationException>(()=>Query(actor,true)).InnerException);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+
+    /// <summary>整数候选、原 Excel 查找和回读从同一固定目标页取得冗余父范围。</summary>
+    [Theory]
+    [InlineData(false,false,"int32","List",false)]
+    [InlineData(true,true,"int64","List",false)]
+    [InlineData(true,true,"int64","SelectPage",false)]
+    [InlineData(false,false,"int64","List",true)]
+    public async Task Fixed_integer_candidate_compiles_scoped_reads_and_excel(bool shared,bool global,string logicalType,
+        string control,bool cachedConsumer)
+    {
+        const string ns="Example.R1ParentCandidate";
+        var catalog=AccountCatalog(shared,global);
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="204");
+        if(control=="SelectPage")targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        catalog.ConfigColumns.Add(new(){Id="9010",ConfigTableId="2",ColumnName="code",
+            Name="业务编号",LogicalType=logicalType,YzProjectId=catalog.YzProjectId});
+        catalog.ConfigPageColumns.Add(new(){Id="9011",ConfigPageId=targetPage.Id,ConfigColumnId="9010",
+            IsShow=1,YzProjectId=catalog.YzProjectId,Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
+        catalog.ConfigTables.Add(new(){Id="90",TableName="candidate_consumer",IsRongyu=cachedConsumer?1:0,
+            YzProjectId=catalog.YzProjectId});
+        catalog.ConfigPages.Add(new(){Id="900",ConfigTableId="90",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
+            WhereSql="yz_project_id=@current_yz_project_id",IsNew=1,IsSave=1,IsImport=1,IsExport=1});
+        catalog.ConfigMenus.Add(new(){Id="90900",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
+            Name="候选使用方",Kind="GENERATED_PAGE",ConfigPageId="900"});
+        var controlDefinition=JsonSerializer.Serialize(new{tableId="2",pageId="204",nameField="code"});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="9021",ConfigTableId="90",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="9022",ConfigTableId="90",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="9023",ConfigTableId="90",ColumnName="lookup_place_id",Name="归属地",LogicalType="int64",LinkConfigTableId="5"},
+            new(){Id="9024",ConfigTableId="90",ColumnName="lookup_target_id",Name="候选记录",LogicalType="int64",
+                ControlKind=control,ControlDetail=controlDefinition,LinkConfigTableId="2",
+                Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement("204")}},
+            new(){Id="9025",ConfigTableId="90",ColumnName="lookup_target_code",Name="候选编号",LogicalType=logicalType,
+                Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("lookup_target.code")}}
+        ]);
+        foreach(var id in new[]{"9023","9024","9025"})
+        {
+            catalog.ConfigColumns.Single(column=>column.Id==id).YzProjectId=catalog.YzProjectId;
+            catalog.ConfigPageColumns.Add(new(){Id="900"+id,ConfigPageId="900",ConfigColumnId=id,IsShow=1,
+                IsEdit=id=="9025"?0:1,YzProjectId=catalog.YzProjectId});
+        }
+
+        var directory=Path.Combine(Path.GetTempPath(),"metarill-r1-account-candidate",Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,output,ns);
+            var service=await File.ReadAllTextAsync(Path.Combine(output,"Services/CandidateConsumerService.g.cs"));
+            Assert.Contains("DerivedOptionsPlan900_9024.BindAccount(actor)",service);
+            Assert.Contains("RequireParentAsync(session,OptionsAccountParentScope900_9024",service);
+            Assert.Contains("FixedReadComparison.IntegerLabelContains",service);
+            Assert.Contains("ImportRelation900_9024Async",service);
+            Assert.Contains("DerivedOptionsRows900_9024Async(request.ParentId,groupLookupTargetId.Key",service);
+            Assert.Contains("targetParent.ToString(),actor,cancellationToken,locking:true",service);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var serviceType=assembly.GetType(ns+".Generated.Services.CandidateConsumerService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
+            var plan=(Metarill.Data.Queries.NonRedundantReadPlan)serviceType.GetField("DerivedOptionsPlan900_9024",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
+            var paths=(Metarill.Data.Queries.RedundantSharedParentPlan[])serviceType.GetField("OptionsAccountParentScope900_9024",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
+            await AccountParentCandidateProbe.VerifyAsync(plan,paths,catalog.YzProjectId,global,logicalType);
+            Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,ns)));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,Path.GetDirectoryName(directory)!);}
+    }
+
+    /// <summary>保留原父链和附件配置，为全部来源页提供相同的账号归属。</summary>
+    private static Metarill.Core.Metadata.MetadataCatalog AccountCatalog(bool shared,bool global)
+    {
+        var catalog=Catalog("shared_parent","string","int64",false,global?1:0,true,true);
+        catalog.ConfigPages.RemoveAll(page=>page.Id=="206"||!shared&&page.Id=="205");
+        catalog.ConfigMenus.RemoveAll(menu=>menu.ConfigPageId=="206"||!shared&&menu.ConfigPageId=="205");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="206"||field.ConfigColumnId=="91"||
+            !shared&&(field.ConfigPageId=="205"||field.ConfigColumnId=="80"));
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="91"||!shared&&column.Id=="80");
+        foreach(var configuredPage in catalog.ConfigPages.Where(page=>page.ConfigTableId=="2"||page.Id is "301" or "401"))
+            configuredPage.WhereSql+=" AND store_id=@current_store_id";
+        foreach(var table in new[]{"2","3","4"})
+            catalog.ConfigColumns.Add(new(){Id=table+"991",ConfigTableId=table,YzProjectId=catalog.YzProjectId,
+                ColumnName="store_id",LogicalType=table=="4"?"string":"int64"});
+        return catalog;
     }
 
     private static string Sql<T>(object query) where T:class=>((FreeSql.ISelect<T>)query).ToSql();

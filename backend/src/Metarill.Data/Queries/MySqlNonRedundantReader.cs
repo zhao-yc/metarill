@@ -77,6 +77,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         // 所有字段/操作/值先验证，不能在发出COUNT后才发现排序非法。
         filters=filters.Select(filter=>Prepare(plan,filter)).ToArray();order=order.ToArray();
         var clauses=filters.Select((filter,index)=>Filter(plan,filter,index)).ToArray();
+        var parentClause = CandidateParentClause(plan,projectId,currentRead);
         var orders=order.Select(item=>plan.Expression(item.Field)+(item.Descending?" DESC":" ASC")).ToList();
         if(!order.Any(item=>item.Field.Equals("id",StringComparison.OrdinalIgnoreCase)))orders.Add(plan.Expression("id")+" DESC");
         // 联接依赖同时包含响应、筛选、排序和固定条件；条件不能因未显示而丢失目标范围。
@@ -95,7 +96,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             aggregateFields?.Add(field);
             return plan.Expression(field);
         });
-        var where=string.Join(" AND ",new[]{plan.Scope,conditionClause?.Sql??""}.Concat(clauses).Where(part=>part.Length>0));
+        var where=string.Join(" AND ",new[]{plan.Scope,conditionClause?.Sql??"",parentClause?.Sql??""}.Concat(clauses).Where(part=>part.Length>0));
         var whereSql = where.Length == 0 ? "" : " WHERE " + where;
         var from = (required is null ? plan.From : readJoins?.Render(required) ?? plan.FromForFields(required)) + whereSql;
         // 计数只使用筛选与固定条件，明细还保留实际输出和排序联接。
@@ -104,8 +105,8 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         return await OnConnection(async connection=>
         {
             var total=0L;
-            if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);BindCross(count,plan);BindCondition(count,conditionClause);count.CommandText="SELECT COUNT(*)"+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+countFrom+(currentRead?" FOR SHARE":"");if(plan.Crosses.Count==0)total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);else{await using var counted=await count.ExecuteReaderAsync(cancellationToken);if(!await counted.ReadAsync(cancellationToken))throw new InvalidOperationException("跨表计数未返回结果。");RequireValidCross(counted,1);total=counted.GetInt64(0);}}
-            await using var read=Command(connection);Bind(read,projectId,filters);BindCross(read,plan);BindCondition(read,conditionClause);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
+            if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);BindCross(count,plan);BindCondition(count,conditionClause);BindCondition(count,parentClause);count.CommandText="SELECT COUNT(*)"+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+countFrom+(currentRead?" FOR SHARE":"");if(plan.Crosses.Count==0)total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);else{await using var counted=await count.ExecuteReaderAsync(cancellationToken);if(!await counted.ReadAsync(cancellationToken))throw new InvalidOperationException("跨表计数未返回结果。");RequireValidCross(counted,1);total=counted.GetInt64(0);}}
+            await using var read=Command(connection);Bind(read,projectId,filters);BindCross(read,plan);BindCondition(read,conditionClause);BindCondition(read,parentClause);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
             // 普通投影分页后批量补名；只有筛选/排序名称数组时使用预编译表达式，不按每行展开根查询。
             var multis=plan.Outputs.Where(name=>!plan.StorageOutputs.ContainsKey(name)&&plan.MultiProjections.ContainsKey(name)).ToArray();
             var hidden=new Dictionary<string,(string Source,string[] Owners)>(StringComparer.Ordinal);
@@ -212,6 +213,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     {
         if(session.Provider.Name!="mysql")throw new NotSupportedException("固定读取计划与数据库方言不一致。");
         ArgumentNullException.ThrowIfNull(plan);ArgumentNullException.ThrowIfNull(filters);ArgumentNullException.ThrowIfNull(sumFields);
+        if(plan.CandidateParents.Count>0)throw new InvalidOperationException("候选父范围计划不能用于业务统计。");
         projectId=RequirePlanProject(plan,projectId);var fields=sumFields.ToArray();
         if(fields.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=fields.Length)throw new InvalidOperationException("统计字段重复。");
         foreach(var field in fields){plan.Expression(field);if(plan.Types[field] is not("int32" or "int64" or "decimal" or "double"))throw new InvalidOperationException("求和字段必须是已编译数值。");}
@@ -352,6 +354,16 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(value is null)return filter.Comparison switch{FixedReadComparison.Equal=>expression+" IS NULL",FixedReadComparison.NotEqual=>expression+" IS NOT NULL",_=>throw new InvalidOperationException("范围比较不能使用null。")};
         return expression+(filter.Comparison switch{FixedReadComparison.Equal=>"=",FixedReadComparison.NotEqual=>"<>",FixedReadComparison.Greater=>">",FixedReadComparison.GreaterOrEqual=>">=",FixedReadComparison.Less=>"<",FixedReadComparison.LessOrEqual=>"<=",_=>throw new InvalidOperationException("未知固定筛选操作。")})+parameter;
     }
+    /// <summary>同一已绑定父范围参与候选计数与明细；缺少真实账号时停止于创建命令之前。</summary>
+    private FixedConditionSqlPlan.Clause? CandidateParentClause(MySqlNonRedundantReadPlan plan,string projectId,bool currentRead)
+    {
+        if(plan.CandidateParents.Count==0)return null;
+        var actor=plan.CandidateActor??throw new UnauthorizedAccessException("固定候选父范围缺少认证账号。");
+        if(actor.ProjectId!=projectId)throw new UnauthorizedAccessException("候选父范围与当前项目身份不一致。");
+        return RedundantSharedParentScopeSql.Render(session.Provider,plan.CandidateParents,actor,
+            "r1_filter",plan.Expression,currentRead);
+    }
+
     /// <summary>COUNT与统计在同一原范围内检测坏稀疏存储，不隐藏错误行或增加逐行查询。</summary>
     private static string CrossValidity(MySqlNonRedundantReadPlan plan)=>"COALESCE(MAX(CASE WHEN "+string.Join(" AND ",plan.Crosses.Select(cross=>"("+cross.Validity+")"))+" THEN 0 ELSE 1 END),0)";
     /// <summary>多位、非规范或越界ID明确拒绝，不在读取时修补历史值。</summary>

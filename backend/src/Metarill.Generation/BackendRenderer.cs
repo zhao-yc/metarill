@@ -794,6 +794,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         foreach (var relation in relations)
         {
             var suffix = page.Source.Id + "_" + relation.SourceColumn.Source.Id;
+            var accountParents=SharedRedundantParentCompilation.AccountPlans(model,relation.Target,relation.TargetPage);
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
             result.Append(FixedPageConditionCompilation.Declaration(relation.TargetPage,"OptionsPageCondition"+suffix))
                 .Append(SharedRedundantParentCompilation.AccountDeclaration(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix));
@@ -825,7 +826,19 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 if (sameParent) result.AppendLine("        targetParentId ??= parentId; // 元数据证明同父时兼容原 parentId。");
                 result.AppendLine($"        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException({Literal("关联目标范围要求有效 targetParentId，请使用 " + relation.Endpoint + "/page 分页合同。")});");
                 if (relation.ParentBinding?.Binding is null)
-                    for (var index = 0; index < relation.TargetParents.Count; index++) Parent(relation.TargetParents[index], "targetParentKey", "targetParent" + index, relation.Conditions is not null);
+                {
+                    if(accountParents.Count>0)
+                    {
+                        result.AppendLine("        if (targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture)) throw new ArgumentException(\"关联目标范围要求规范正整数 targetParentId。\");")
+                            .AppendLine($"        await global::Metarill.Data.Queries.RedundantSharedParentScopeSql.RequireParentAsync(session,OptionsAccountParentScope{suffix},targetParentKey,actor,locking,cancellationToken);");
+                    }
+                    for(var index=0;index<relation.TargetParents.Count;index++)
+                    {
+                        var parent=relation.TargetParents[index];
+                        if(!accountParents.Any(path=>path.Levels[^1].TableId==parent.Source.Id))
+                            Parent(parent,"targetParentKey","targetParent"+index,relation.Conditions is not null);
+                    }
+                }
             }
             else result.AppendLine("        if (targetParentId is not null) throw new ArgumentException(\"当前关联不使用 targetParentId。\");");
             if (relation.SourceParents.Count == 0 && relation.TargetParents.Count == 0) result.AppendLine("        await Task.CompletedTask;");

@@ -71,7 +71,7 @@ internal static class SharedRedundantParentCompilation
     /// <summary>公共元数据计划与生成器完整读取角色逐层一致，不能单独借用某个有效同伴。</summary>
     private static bool Matches(RedundantSharedParentPlan plan,SharedRedundantParentPath path)=>plan.Levels.Count==path.Index+1&&plan.Levels.Select((level,index)=>level.TableId==path.Read.Levels[index].Target.Source.Id&&level.PageId==path.Read.Levels[index].Page.Source.Id&&level.NameId==path.Read.Levels[index].Name.Source.Id&&level.Parent==path.Read.Levels[index].Parent?.Source.ColumnName).All(value=>value);
     /// <summary>只有声明账号过滤的已证明祖先才需要额外相关范围，普通 R1 页沿用原查询。</summary>
-    private static IReadOnlyList<RedundantSharedParentPlan> AccountPlans(GenerationModel model,TableModel table,PageModel page)
+    internal static IReadOnlyList<RedundantSharedParentPlan> AccountPlans(GenerationModel model,TableModel table,PageModel page)
     {
         if(table.Source.IsRongyu!=1||!page.Scopes.Any(scope=>scope.Source=="parent")||
             !model.Tables.SelectMany(candidate=>candidate.Pages).Any(FixedPageConditionCompilation.HasAccountVariables)||

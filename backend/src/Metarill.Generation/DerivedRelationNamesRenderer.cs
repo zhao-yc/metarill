@@ -10,6 +10,9 @@ internal static class DerivedRelationNamesRenderer
     {
         var dependencies=DerivedRelationNamesCompilation.Require(model,owner,page,relation);var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var name=relation.NameColumn.Source.ColumnName;
         var physicalInteger = DerivedRelationNamesCompilation.IsPhysicalInteger(model, relation.Target, relation.NameColumn);
+        var accountParent = SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
+        var bindParent = accountParent ? ".BindAccount(actor)" : "";
+        var parentPlan = accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var planStart = physicalInteger && relation.Target.IsGlobal
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : physicalInteger && relation.Target.Source.IsRongyu == 1
@@ -26,11 +29,11 @@ internal static class DerivedRelationNamesRenderer
         var bind=relation.Conditions is null?"":"        var bound=OptionsCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"});condition=condition is null?bound:condition.And(bound);";
         var result=new StringBuilder($$"""
     /// <summary>生成和静态装载时编译，普通请求不解析元数据；名称联接与物理身份一同固定。</summary>
-    private static readonly NonRedundantReadPlan DerivedOptionsPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{planStart}},new string[]{"id",{{Literal(name)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} });
+    private static readonly NonRedundantReadPlan DerivedOptionsPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{planStart}},new string[]{"id",{{Literal(name)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} }{{parentPlan}});
     /// <summary>先复用原真实父检查，再把同一页面及控件条件AND绑定到固定SQL读取。</summary>
-    private async Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)> DerivedOptionsScope{{suffix}}Async(string? parentId,string? targetParentId,RuntimeActor actor,CancellationToken cancellationToken,IReadOnlyDictionary<string,object?>? formValues=null)
+    private async Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)> DerivedOptionsScope{{suffix}}Async(string? parentId,string? targetParentId,RuntimeActor actor,CancellationToken cancellationToken,IReadOnlyDictionary<string,object?>? formValues=null{{(accountParent?",bool locking=false":"")}})
     {
-        _=await OptionsScope{{suffix}}Async(parentId,targetParentId,actor,cancellationToken,false,false{{(RelationConditionsCompilation.HasForms(relation)?",formValues:formValues":"")}});
+        _=await OptionsScope{{suffix}}Async(parentId,targetParentId,actor,cancellationToken,{{(accountParent?"locking":"false")}},false{{(RelationConditionsCompilation.HasForms(relation)?",formValues:formValues":"")}});
 {{(same?"        targetParentId??=parentId;":"")}}
         var filters=new List<FixedReadFilter>();
 {{filters}}
@@ -52,7 +55,7 @@ internal static class DerivedRelationNamesRenderer
         foreach(var batch in ids.Distinct().Chunk(200))
         {
             var filters=scope.Filters.Append(new FixedReadFilter("id",FixedReadComparison.In,batch.Select(id=>(object?)id).ToArray())).ToArray();
-            var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{{suffix}},filters,[{{order}}],200,cancellationToken,actor.ProjectId,scope.Condition);
+            var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},filters,[{{order}}],200,cancellationToken,actor.ProjectId,scope.Condition);
             result.AddRange(rows.Select(ReadDerivedOption{{suffix}}));
         }
         return result;
@@ -66,7 +69,7 @@ internal static class DerivedRelationNamesRenderer
     public Task<IReadOnlyList<GeneratedOption>> Options{{suffix}}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken,string? targetParentId=null)=>{{GlobalCachedSourceCompilation.ReadSession(model)}}.InReadSnapshotAsync<IReadOnlyList<GeneratedOption>>(async()=>
     {
         ArgumentNullException.ThrowIfNull(request);var scope=await DerivedOptionsScope{{suffix}}Async(request.ParentId,targetParentId,actor,cancellationToken,{{form}});
-        var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{{suffix}},scope.Filters,[{{order}}],5001,cancellationToken,actor.ProjectId,scope.Condition);
+        var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},scope.Filters,[{{order}}],5001,cancellationToken,actor.ProjectId,scope.Condition);
         if(rows.Count>5000)throw new InvalidOperationException("关联候选超过5000条，请使用分页查询。");
         return rows.Select(ReadDerivedOption{{suffix}}).ToArray();
     },cancellationToken);
@@ -75,7 +78,7 @@ internal static class DerivedRelationNamesRenderer
     {
         ArgumentNullException.ThrowIfNull(request);request.Validate();var scope=await DerivedOptionsScope{{suffix}}Async(request.ParentId,request.TargetParentId,actor,cancellationToken,{{form}});
         if(!string.IsNullOrEmpty(request.Keyword))scope.Filters.Add(new({{Literal(name)}},FixedReadComparison.{{search}},request.Keyword));
-        var rows=await new NonRedundantReader(session).PageAsync(DerivedOptionsPlan{{suffix}},scope.Filters,[{{order}}],request.PageNo,request.PageSize,cancellationToken,projectId:actor.ProjectId,condition:scope.Condition);
+        var rows=await new NonRedundantReader(session).PageAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},scope.Filters,[{{order}}],request.PageNo,request.PageSize,cancellationToken,projectId:actor.ProjectId,condition:scope.Condition);
         var options=rows.Records.Select(ReadDerivedOption{{suffix}}).ToArray();
         return new(options,rows.Total,(rows.Total+request.PageSize-1)/request.PageSize,request.PageNo,request.PageSize);
     },cancellationToken);
@@ -89,8 +92,11 @@ internal static class DerivedRelationNamesRenderer
 """);return result.ToString();
     }
     /// <summary>Excel按名称类型绑定同一范围的当前读，零个或重名均拒绝整批。</summary>
-    internal static string Import(RelationModel relation,PageModel page,ImportDependencyPlan dependency)
+    internal static string Import(GenerationModel model,RelationModel relation,PageModel page,ImportDependencyPlan dependency)
     {
+        var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
+        var lockParents=accountParent?",locking:true":"";
+        var bindParent=accountParent?".BindAccount(actor)":"";
         var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var mapped=dependency.Parents.GetValueOrDefault(relation.SourceColumn.Source.Id);
         var name = relation.NameColumn;
         var addMatchFilter = name.Type == "string?" ? $$"""
@@ -113,9 +119,9 @@ internal static class DerivedRelationNamesRenderer
     {
         if(cell.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(cell.ToString()))return JsonSerializer.SerializeToElement<object?>(null);
 {{(mapped is null?"":"        if(!relationContext.TryGetValue("+Literal(mapped.JsonName)+",out var targetParent)||targetParent.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(targetParent.ToString()))throw PageImportException.Input(PageImportError.Relation);")}}
-        var scope=await DerivedOptionsScope{{suffix}}Async(parentId,{{(mapped is null?"null":"targetParent.ToString()")}},actor,cancellationToken{{RelationConditionsCompilation.ImportArgument(relation)}});
+        var scope=await DerivedOptionsScope{{suffix}}Async(parentId,{{(mapped is null?"null":"targetParent.ToString()")}},actor,cancellationToken{{RelationConditionsCompilation.ImportArgument(relation)}}{{lockParents}});
 {{addMatchFilter}}
-        var rows=await new NonRedundantReader(session).PageAsync(DerivedOptionsPlan{{suffix}},scope.Filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId,condition:scope.Condition,currentRead:true);
+        var rows=await new NonRedundantReader(session).PageAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},scope.Filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId,condition:scope.Condition,currentRead:true);
         if(rows.Records.Count!=1)throw PageImportException.Input(PageImportError.Relation);
         return JsonSerializer.SerializeToElement(NonRedundantReads.Value<long>(rows.Records[0],"id").ToString(CultureInfo.InvariantCulture));
     }

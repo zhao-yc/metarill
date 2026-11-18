@@ -62,8 +62,6 @@ internal static class DerivedRelationNamesCompilation
     internal static IReadOnlyList<string> Require(GenerationModel model,TableModel owner,PageModel page,RelationModel relation)
     {
         var target=relation.Target;var name=relation.NameColumn;
-        if(SharedRedundantParentCompilation.HasAccountPath(model,target,relation.TargetPage))
-            throw new InvalidOperationException("固定整数候选的独立读计划尚需接入目标页的冗余跨表账号父范围。");
         if (relation.SourceColumn.Source.ControlKind == "SelectPage" && Declared(model, relation))
             RequireSelection(model, owner, target, relation.TargetPage, name);
         var integerName = IsIntegerName(model, owner, target, name);
@@ -106,7 +104,8 @@ internal static class DerivedRelationNamesCompilation
         var plan = target.IsGlobal && physicalInteger || NonRedundantReadCompilation.HasGlobalRowProject(target)
             ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, relation.TargetPage.Source.Id, outputs, dependencies)
             : physicalInteger && target.Source.IsRongyu == 1
-                ? NonRedundantReads.CompilePhysicalRelation(model.Catalog, target.Source.Id, outputs, dependencies)
+                ? NonRedundantReads.CompilePhysicalRelation(model.Catalog,target.Source.Id,outputs,dependencies,
+                    SharedRedundantParentCompilation.AccountPlans(model,target,relation.TargetPage))
                 : NonRedundantReads.Compile(model.Catalog, target.Source.Id, outputs, dependencies);
         if (plan.OutputTypes["id"] != "int64" || plan.OutputTypes[name.Source.ColumnName] != NameType(name))
             throw new InvalidOperationException("关系名称必须编译为与声明一致的固定标量。");
