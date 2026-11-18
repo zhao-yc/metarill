@@ -33,18 +33,18 @@ public static class NonRedundantCrossTableScopeSql
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(condition);
         MetadataValidation.RequireIdentifier(parameterPrefix);
-        if(session.Provider.Name!="mysql")throw new NotSupportedException("跨表页面条件尚未完成该数据库适配。");
-        if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("跨表页面条件锁定必须加入真实事务。");
+        if(session.Provider.Name!="mysql")throw new NotSupportedException("逻辑页面条件尚未完成该数据库适配。");
+        if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException("逻辑页面条件锁定必须加入真实事务。");
         var compiled=plan.MySql;
         var logicalFields=compiled.Crosses.SelectMany(cross=>cross.Selection.Slots)
-            .SelectMany(slot=>new[]{slot.ColumnName,slot.ColumnName[..^3]+"_name"}).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            .SelectMany(slot=>new[]{slot.ColumnName,slot.ColumnName[..^3]+"_name"}).Concat(compiled.CascadeLabelOutputs).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var usesLogicalField=false;
         var clause=condition.RenderConstants(session.Provider,parameterPrefix+"_condition",field=>
         {
             usesLogicalField|=logicalFields.Contains(field);
             return compiled.Expression(field);
         });
-        if(!usesLogicalField||clause.Sql.Length==0)throw new InvalidOperationException("页面条件缺少已证明的跨表层位。");
+        if(!usesLogicalField||clause.Sql.Length==0)throw new InvalidOperationException("页面条件缺少已证明的逻辑字段。");
         return ApplyScope(query,session,compiled,parameterPrefix,projectId,locking,[clause.Sql],
             new Dictionary<string,object?>(clause.Parameters,StringComparer.Ordinal));
     }

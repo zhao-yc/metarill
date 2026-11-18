@@ -39,16 +39,22 @@ internal static class NonRedundantReadCompilation
         if (table.Source.IsRongyu != 0) return [];
         var fields = page.Searchable.Concat(page.Sortable)
             .Concat(FixedPageQueryCompilation.For(table, page).DefaultOrder.Select(order => order.Column))
-            .Select(column => column.Source.Id).ToHashSet(StringComparer.Ordinal);
+            .Select(column => column.Source.ColumnName).Concat(page.Condition is { } condition ? condition.SelfTreeFields : Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal);
         var result = new List<CascadeTreeReadModel>();
         foreach (var tree in CascadeTreeReadCompilation.ForService(model, table, page))
         {
-            if (CascadeTreeViewRenderer.Name(table, tree.Source) is not { } name || !fields.Contains(name.Source.Id))
+            if (CascadeTreeViewRenderer.Name(table, tree.Source) is not { } name || !fields.Contains(name.Source.ColumnName))
                 continue;
             var baseline = CascadeTreeReadCompilation.Resolve(model, table, page, tree.Source, usePageDetail: false).Definition;
             if (baseline is null || baseline.TargetPage.Source.Id != tree.TargetPage.Source.Id ||
                 baseline.Parent.Source.Id != tree.Parent.Source.Id || baseline.Name.Source.Id != tree.Name.Source.Id)
-                throw new InvalidOperationException("自树名称筛选和排序必须与页面实际目标页、父字段及名称字段一致。");
+                throw new InvalidOperationException("自树名称查询必须与页面实际目标页、父字段及名称字段一致。");
+            if(page.Condition?.SelfTreeFields.Contains(name.Source.ColumnName)==true)
+            {
+                var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==tree.Source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
+                if(!CrossTableStorageColumns.KeepsDefinition(tree.Source.Source.ControlDetail,overlay))
+                    throw new InvalidOperationException("自树固定页面条件必须沿用表级级联定义。");
+            }
             result.Add(tree);
         }
         return result;
@@ -85,10 +91,7 @@ internal static class NonRedundantReadCompilation
         foreach(var tree in table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree"))
         {
             if(CrossTableWriteCompilation.Resolve(model,table,page,tree).Definition is{} cross){NonRedundantCrossTableCompilation.Require(model,table,page,cross.Read);continue;}
-            if(CascadeTreeWriteCompilation.Resolve(model,table,page,tree).Definition is not{} plan)throw new InvalidOperationException("非冗余级联要求已证明的selfTree读写计划。");
-            var managed=CascadeTreeViewRenderer.Name(table,tree);
-            if(managed is not null&&page.Condition?.Syntax.Fields.Contains(managed.Source.ColumnName)==true)
-                throw new InvalidOperationException("非冗余自树名称暂不能用作固定页面数据条件。");
+            if(CascadeTreeWriteCompilation.Resolve(model,table,page,tree).Definition is null)throw new InvalidOperationException("非冗余级联要求已证明的selfTree读写计划。");
         }
         var crossPlans=CrossTableWriteCompilation.ForService(model,table,page);
         var crossIds=crossPlans.SelectMany(plan=>plan.Levels).Select(level=>level.Id.Source.Id).ToHashSet(StringComparer.Ordinal);

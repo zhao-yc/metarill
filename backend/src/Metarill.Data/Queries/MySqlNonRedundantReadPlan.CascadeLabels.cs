@@ -49,14 +49,28 @@ public static partial class MySqlNonRedundantReadCompiler
         return pages;
     }
 
-    /// <summary>固定记录范围只编译条件实际依赖的跨表组，保留整组祖先证明和真实目标页条件。</summary>
-    internal static MySqlNonRedundantReadPlan CompileCrossPageMembership(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
-        IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields)
+    /// <summary>只编译固定页面条件依赖的路径，保留祖先范围及实际目标页条件。</summary>
+    internal static MySqlNonRedundantReadPlan CompilePageMembership(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields,IReadOnlySet<string> selfTreeFields)
     {
         if(!catalog.ConfigPages.Contains(page)||page.ConfigTableId!=table.Id||
-            table.IsRongyu!=0||crossFields.Count==0||
-            !crossFields.IsSubsetOf(conditionFields))throw new NotSupportedException("固定跨表页面范围必须属于普通非冗余来源。");
-        return CompileWithCrossTables(catalog,table.Id,["id"],CrossMembershipBindings(catalog,table,page,crossFields),conditionFields);
+            table.IsRongyu!=0||(crossFields.Count==0&&selfTreeFields.Count==0)||
+            !crossFields.IsSubsetOf(conditionFields)||!selfTreeFields.IsSubsetOf(conditionFields))
+            throw new NotSupportedException("固定逻辑页面范围必须属于普通非冗余来源。");
+
+        var declared=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
+        foreach(var field in selfTreeFields)
+        {
+            if(!CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field))
+                throw new NotSupportedException("固定自树范围缺少已声明的叶名。");
+            var control=declared.Single(column=>column.ColumnName==field[..^5]+"_id");
+            var overlay=catalog.ConfigPageColumns.SingleOrDefault(column=>column.ConfigPageId==page.Id&&column.ConfigColumnId==control.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
+            if(!CrossTableStorageColumns.KeepsDefinition(control.ControlDetail,overlay))
+                throw new NotSupportedException("自树固定页面条件必须沿用表级级联定义。");
+        }
+
+        var bindings=crossFields.Count==0?[]:CrossMembershipBindings(catalog,table,page,crossFields);
+        return CompileWithCrossTables(catalog,table.Id,["id"],bindings,conditionFields,deferCascadeNames:selfTreeFields.Count>0);
     }
 
     /// <summary>查找由原多值关系显式绑定的逻辑条件页。</summary>

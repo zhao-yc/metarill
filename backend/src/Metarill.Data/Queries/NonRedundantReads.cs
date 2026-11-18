@@ -114,9 +114,14 @@ public static class NonRedundantReads
     /// <summary>附件等固定入口只证明记录是否满足条件，不将路径或其他业务字段对外投影。</summary>
     public static NonRedundantReadPlan CompileCrossPageMembership(MetadataCatalog metadata,TableMetadata table,PageMetadata page,
         IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields)=>
+        CompilePageMembership(metadata,table,page,conditionFields,crossFields,new HashSet<string>(StringComparer.Ordinal));
+
+    /// <summary>发布附件记录范围时复用已证明的跨表路径和自树叶名。</summary>
+    public static NonRedundantReadPlan CompilePageMembership(MetadataCatalog metadata,TableMetadata table,PageMetadata page,
+        IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields,IReadOnlySet<string> selfTreeFields)=>
         metadata.DatabaseProvider switch
         {
-            "mysql"=>new(MySqlNonRedundantReadCompiler.CompileCrossPageMembership(metadata,table,page,conditionFields,crossFields)),
+            "mysql"=>new(MySqlNonRedundantReadCompiler.CompilePageMembership(metadata,table,page,conditionFields,crossFields,selfTreeFields)),
             _=>throw new NotSupportedException("该数据库尚未完成逻辑页面范围适配。")
         };
 

@@ -24,6 +24,17 @@ public static class CascadeTreeStorageColumns
         }
         return CrossTableStorageColumns.Expand(table,result.ToArray());
     }
+    /// <summary>非冗余实体的自树叶名来自表级外键定义，不能把普通字符串或虚拟列当成逻辑范围。</summary>
+    public static bool IsLogicalNameField(TableMetadata table, IEnumerable<ColumnMetadata> declared, string field)
+    {
+        if (table.IsRongyu != 0 || table.IsFunctionTable != 0 || table.IsView != 0 ||
+            !field.EndsWith("_name", StringComparison.Ordinal))
+            return false;
+        var columns = declared.Where(column => column.ConfigTableId == table.Id).ToArray();
+        return columns.Any(column => column.ColumnName == field && column.LogicalType == "string" && column.IsVirtualColumn == 0) &&
+            columns.Any(column => column.ColumnName == field[..^5] + "_id" && IsPhysicalSelfTreeKey(column));
+    }
+
     /// <summary>结构扩展和原父范围只识别表级声明的实际自树外键。</summary>
     internal static bool IsPhysicalSelfTreeKey(ColumnMetadata column)=>
         column.ControlKind=="CascadeTree"&&column.IsVirtualColumn==0&&!Enabled(column,"isJoinColumn")&&

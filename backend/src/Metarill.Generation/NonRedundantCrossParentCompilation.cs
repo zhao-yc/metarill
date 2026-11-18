@@ -29,7 +29,7 @@ internal static class NonRedundantCrossParentCompilation
         CrossTableWriteCompilation.ForService(model,table,page).Count>0;
 
     /// <summary>原写事务明确选当前锁读，不能沿用默认快照。</summary>
-    internal static string LockArgument(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)||FixedPageConditionCompilation.HasCrossFields(page)||
+    internal static string LockArgument(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)||FixedPageConditionCompilation.HasLogicalFields(page)||
         SharedRedundantParentCompilation.HasAccountPath(model,table,page)?",locking:true":"";
     /// <summary>多值写校验使用来源页已解析的父上下文，后续写入仍复核实际逻辑路径。</summary>
     internal static bool UsesMultiParent(GenerationModel model,TableModel table,PageModel page)=>

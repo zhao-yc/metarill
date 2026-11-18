@@ -49,6 +49,41 @@ public sealed class FileReferenceScopeTests
         }
     }
 
+    /// <summary>逻辑叶名用于附件记录范围，页面覆盖改变真实目标定义时拒绝。</summary>
+    [Fact]
+    public void File_scope_preserves_the_fixed_self_tree_condition()
+    {
+        var catalog = Catalog("yz_project_id=@current_yz_project_id AND tree_name LIKE '可见%'");
+        var source = catalog.ConfigTables[0];
+        var page = catalog.ConfigPages[0];
+        source.IsRongyu = 0;
+        catalog.ConfigTables[1].IsRongyu = 1;
+        foreach (var identity in catalog.ConfigColumns.Where(column => column.ColumnName == "id"))
+            identity.IsDbNotNull = 1;
+        catalog.ConfigColumns.AddRange([
+            new() { Id = "14", ConfigTableId = "1", ColumnName = "tree_id", LogicalType = "int64", ControlKind = "CascadeTree", LinkConfigTableId = "2",
+                ControlDetail = """{"sourceMode":"selfTree","selfTree":{"table":"parent","parentField":"parent_id","nameField":"name"}}""" },
+            new() { Id = "24", ConfigTableId = "2", ColumnName = "parent_id", LogicalType = "int64", LinkConfigTableId = "2" },
+            new() { Id = "25", ConfigTableId = "2", ColumnName = "name", LogicalType = "string" }
+        ]);
+        catalog.ConfigPages.Add(new() { Id = "4", ConfigTableId = "2" });
+        catalog.ConfigPageColumns.AddRange([
+            new() { Id = "41", ConfigPageId = "4", ConfigColumnId = "24" },
+            new() { Id = "42", ConfigPageId = "4", ConfigColumnId = "25" }
+        ]);
+        var scope = FileReferenceScope.CompilePage(catalog, source, page);
+        Assert.Equal("tree_name", Assert.Single(scope.ConditionFields));
+        Assert.NotNull(scope.Condition);
+        Assert.NotNull(scope.LogicalConditionPlan);
+        Assert.Equal("id", Assert.Single(scope.LogicalConditionPlan!.OutputTypes.Keys));
+
+        var overlay = new PageColumnMetadata { Id = "43", ConfigPageId = page.Id, ConfigColumnId = "14" };
+        overlay.Extra["controlDetail"] = System.Text.Json.JsonSerializer.SerializeToElement(
+            """{"sourceMode":"selfTree","selfTree":{"table":"parent","parentField":"parent_id","nameField":"delete_no"}}""");
+        catalog.ConfigPageColumns.Add(overlay);
+        Assert.Throws<NotSupportedException>(() => FileReferenceScope.CompilePage(catalog, source, page));
+    }
+
     /// <summary>构造只含实体身份和明确外键的发布定义，测试不连接数据库。</summary>
     private static MetadataCatalog Catalog(string sql) => new()
     {

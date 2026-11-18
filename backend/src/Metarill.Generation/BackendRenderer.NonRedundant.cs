@@ -118,7 +118,7 @@ internal static class GeneratedNonRedundantReadCatalog
         var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(crossCandidate||FixedPageConditionCompilation.HasAccountVariables(page)||
             NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page).Any(tree=>FixedPageConditionCompilation.HasAccountVariables(tree.TargetPage))?".BindAccount(actor)":""):readPlan;
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
-        var logicalCondition=FixedPageConditionCompilation.HasCrossFields(page);
+        var logicalCondition=FixedPageConditionCompilation.HasLogicalFields(page);
         var lockScope=NonRedundantCrossParentCompilation.Enabled(model,table,page)||logicalCondition;
         // 普通写范围默认维持真实事务锁；Agent原记录预检显式选择无锁派生匹配。
         var derivedExact=ExactDataManageCompilation.Resolve(model,table,page) is {Derived:true};
@@ -132,7 +132,7 @@ internal static class GeneratedNonRedundantReadCatalog
                         $"CompileCross({Literal(table.Source.Id)},new string[]{{{Literal(exact.Column.Source.ColumnName)}}},Array.Empty<string>(){NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans)});"));
         if(logicalCondition)
             result.AppendLine("    /// <summary>当前对象只锁定页面条件依赖的路径，不读取其它显示列。</summary>")
-                .AppendLine($"    private static readonly NonRedundantReadPlan CrossConditionPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileCross({Literal(table.Source.Id)},new string[]{{\"id\"}},new string[]{{{string.Join(",",page.Condition!.Syntax.Fields.Select(Literal))}}}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)});");
+                .AppendLine($"    private static readonly NonRedundantReadPlan CrossConditionPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{(CrossTableWriteCompilation.ForService(model,table,page).Count>0?"CompileCross":"Compile")}({Literal(table.Source.Id)},new string[]{{\"id\"}},new string[]{{{string.Join(",",page.Condition!.Syntax.Fields.Select(Literal))}}}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)});");
         if(globalCandidate)
         {
             var compiler=crossCandidate?"CompileCrossPageCandidate":

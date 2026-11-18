@@ -725,6 +725,83 @@ public sealed class NonRedundantSelfTreeTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>没有加入搜索目录的自动叶名也能约束页面，业务、覆盖导入和附件复用同一祖先条件。</summary>
+    [Fact]
+    public async Task Fixed_leaf_condition_compiles_for_original_page_and_membership()
+    {
+        const string application = "Example.FixedSelfTree";
+        var catalog = RedundantMultiNameCacheTests.Published(Catalog("nr_tree", automatic: true));
+        var sourceTable = catalog.ConfigTables.Single(table => table.Id == "2");
+        var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
+        var targetPage = catalog.ConfigPages.Single(page => page.Id == "301");
+        sourcePage.WhereSql += " AND tree_name LIKE '可见%' AND store_id=@current_store_id";
+        targetPage.WhereSql += " AND store_id=@current_store_id";
+        catalog.ConfigColumns.Add(new() { Id = "39", ConfigTableId = "3", ColumnName = "store_id", LogicalType = "int64" });
+        catalog.ConfigColumns.Add(new() { Id = "29", ConfigTableId = "2", ColumnName = "store_id", LogicalType = "int64" });
+        catalog.ConfigColumns.Single(column => column.Id == "22").SortNo = -10;
+        sourcePage.IsDelete = 1;
+        sourcePage.Extra["importMethod"] = JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+        sourcePage.Extra["exportMethod"] = JsonSerializer.SerializeToElement("list");
+        catalog.ConfigButtons.Add(JsonSerializer.SerializeToElement(new { id = "412", configPageId = "201", actionType = 1, name = "核验" }));
+
+        var model = GenerationModel.Create(catalog, application);
+        var page = Assert.Single(model.Tables.Single(table => table.Source.Id == "2").Pages);
+        Assert.Equal("tree_name", Assert.Single(page.Condition!.SelfTreeFields));
+        Assert.Empty(page.Condition.CrossFields);
+        Assert.DoesNotContain(page.Searchable, column => column.Source.ColumnName == "tree_name");
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-self-tree-page-condition");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, generated, application);
+            var code = File.ReadAllText(Path.Combine(generated, "Services/NrTreeSourceService.g.cs"));
+            Assert.Contains("ApplyCondition(query,session,CrossConditionPlan201.BindAccount(actor),PageCondition201.BindAccount(actor)", code);
+            Assert.Contains("var existing = await Scope201(actor, request.ParentId,locking:true).Where", code);
+            Assert.Contains("RowsAsync(ExportReadPlan201.BindAccount(actor)", code);
+            Assert.Contains("ButtonRecordQuery201", code);
+            Assert.Contains("locking:true).Where", code);
+
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(application + ".Generated.Services.NrTreeSourceService", true)!;
+            var plan = Assert.IsType<NonRedundantReadPlan>(service.GetField("CrossConditionPlan201", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+            var membership = NonRedundantReads.CompilePageMembership(catalog, sourceTable, sourcePage,
+                page.Condition.Syntax.Fields.ToArray(), page.Condition.CrossFields, page.Condition.SelfTreeFields);
+            var actor = new RuntimeActor(29, "测试用户", false, catalog.YzProjectId, "5");
+            Assert.Throws<UnauthorizedAccessException>(() => plan.BindAccount(actor));
+            Assert.Throws<UnauthorizedAccessException>(() => membership.BindAccount(actor));
+
+            using var session = new Metarill.Data.DatabaseSession(new() { ExpectedDatabase = "offline", ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused" });
+            var condition = FixedConditionSqlPlan.Compile(page.Condition.Syntax, page.Condition.Types).BindAccount(actor with { StoreId = 38 });
+            var entity = assembly.GetTypes().Single(type => type.Name == "NrTreeSource");
+            var method = typeof(NonRedundantSelfTreeTests).GetMethod(nameof(VerifyLeafScopeSql), BindingFlags.Static | BindingFlags.NonPublic)!.MakeGenericMethod(entity);
+            foreach (var scope in new[] { plan, membership })
+            {
+                Assert.Equal("id", Assert.Single(scope.OutputTypes.Keys));
+                method.Invoke(null, [session, scope.BindAccount(actor with { StoreId = 38 }), condition, catalog.YzProjectId]);
+            }
+        }
+        finally
+        {
+            await TestDirectoryCleanup.DeleteAsync(directory, boundary);
+        }
+    }
+
+    /// <summary>检查实体范围使用参数及真实祖先链，并在没有事务时拒绝当前锁。</summary>
+    private static void VerifyLeafScopeSql<TEntity>(Metarill.Data.DatabaseSession session, NonRedundantReadPlan plan,
+        FixedConditionSqlPlan condition, string projectId) where TEntity : class
+    {
+        var query = session.Select<TEntity>();
+        Assert.Throws<InvalidOperationException>(() => NonRedundantCrossTableScopeSql.ApplyCondition(query, session, plan, condition, "scope_tree", projectId, locking: true));
+        var sql = NonRedundantCrossTableScopeSql.ApplyCondition(query, session, plan, condition, "scope_tree", projectId).ToSql();
+        Assert.Contains("WITH RECURSIVE", sql);
+        Assert.Contains("`store_id`=@", sql);
+        Assert.Contains("@scope_tree_condition_", sql);
+        Assert.DoesNotContain("b.`tree_name`", sql);
+        Assert.DoesNotContain("可见%", sql);
+    }
+
     /// <summary>元数据仍是唯一来源，自动叶子名只在逻辑模型展开，不新建配置行。</summary>
     internal static MetadataCatalog Catalog(string prefix,string sourceType="string",string parentType="int64",bool automatic=false)
     {

@@ -476,6 +476,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     {
                         if(column is null||column.LogicalType!="string"||storage[table.Id].IsPhysical(column))
                             throw new NotSupportedException("自树名称查询依赖须为已声明的逻辑文本名称。");
+                        cascadeLabelOutputs.Add(output);
                         return (SelfTreeLabelExpression(table,alias,tree,column),"string");
                     }
                     if(!storage[table.Id].IsPhysical(tree)||!definition.TryGetProperty("selfTree",out var settings)||settings.ValueKind!=JsonValueKind.Object)throw new InvalidOperationException("自树派生名称缺少物理来源和固定定义。");

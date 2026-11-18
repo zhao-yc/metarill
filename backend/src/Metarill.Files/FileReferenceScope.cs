@@ -41,12 +41,15 @@ internal static class FileReferenceScope
             var columns=storage.PhysicalColumns;
             var declared=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
             var crossFields=new HashSet<string>(StringComparer.Ordinal);
+            var selfTreeFields=new HashSet<string>(StringComparer.Ordinal);
             var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
             var redundant=RedundantSharedParents.Compile(catalog,table.Id,page.Id);
             foreach(var term in syntax.Terms)
             {
                 var column=declared.Single(candidate=>candidate.ColumnName==term.Field);
-                var logical=CrossTableStorageColumns.IsLogicalPathField(table,declared,column.ColumnName);
+                var crossField=CrossTableStorageColumns.IsLogicalPathField(table,declared,column.ColumnName);
+                var selfTree=CascadeTreeStorageColumns.IsLogicalNameField(table,declared,column.ColumnName);
+                var logical=crossField||selfTree;
                 var variables=term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable).ToArray();
                 if(variables.Length==0)
                 {
@@ -54,7 +57,8 @@ internal static class FileReferenceScope
                     var credential=table.Id=="6031906809708544"&&table.TableName=="yz_manager"&&column.ColumnName is "password" or "salt" or "old_password";
                     if(column.IsVirtualColumn!=0||(!logical&&!storage.IsPhysical(column))||
                         column.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)||column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||multiNames||credential)throw Unsupported();
-                    if(logical)crossFields.Add(column.ColumnName);
+                    if(crossField)crossFields.Add(column.ColumnName);
+                    if(selfTree)selfTreeFields.Add(column.ColumnName);
                     constants.Add(term);continue;
                 }
                 if(!storage.IsPhysical(column))throw Unsupported();
@@ -96,7 +100,8 @@ internal static class FileReferenceScope
             }
             var fields=constants.Select(term=>term.Field).Distinct(StringComparer.Ordinal).ToArray();
             var condition=constants.Count==0?null:FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",constants.Select(term=>term.ToDefinition())),fields),fields.ToDictionary(field=>field,field=>declared.Single(column=>column.ColumnName==field).LogicalType,StringComparer.Ordinal));
-            var membership=crossFields.Count==0?null:NonRedundantReads.CompileCrossPageMembership(catalog,table,page,fields,crossFields);
+            var membership=crossFields.Count==0&&selfTreeFields.Count==0?null:
+                NonRedundantReads.CompilePageMembership(catalog,table,page,fields,crossFields,selfTreeFields);
             return new(result.AsReadOnly(),condition,Array.AsReadOnly(fields))
             {
                 Crosses=crosses.AsReadOnly(),GlobalParents=globalParents.AsReadOnly(),LogicalConditionPlan=membership

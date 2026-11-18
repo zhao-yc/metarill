@@ -9,6 +9,7 @@ namespace Metarill.Generation;
 internal sealed record FixedPageCondition(string Definition,FixedConditionPlan Syntax,IReadOnlyDictionary<string,string> Types)
 {
     internal IReadOnlySet<string> CrossFields { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+    internal IReadOnlySet<string> SelfTreeFields { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 }
 
 /// <summary>将原页面AND条件拆成项目／父范围与类型化条件；账号变量始终从已认证身份绑定。</summary>
@@ -43,16 +44,17 @@ internal static class FixedPageConditionCompilation
             var physical=MetadataStoragePolicy.ForTable(catalog,table);var identity=new TableModel(table,GenerationModel.Pascal(table.TableName),columns,[]);
             var fields=conditions.Select(term=>term.Field).Distinct(StringComparer.Ordinal).ToArray();
             var crossFields=fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field)).ToHashSet(StringComparer.Ordinal);
+            var selfTreeFields=fields.Where(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,columns.Select(column=>column.Source),field)).ToHashSet(StringComparer.Ordinal);
             foreach(var field in fields)
             {
                 var column=columns.Single(column=>column.Source.ColumnName==field);
-                if((!physical.IsPhysical(column.Source)&&!crossFields.Contains(field))||column.IsJsonArray||column.Source.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)||ManagerCredentialCompilation.IsCredential(identity,column))throw Rejected();
+                if((!physical.IsPhysical(column.Source)&&!crossFields.Contains(field)&&!selfTreeFields.Contains(field))||column.IsJsonArray||column.Source.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)||ManagerCredentialCompilation.IsCredential(identity,column))throw Rejected();
             }
             var conditionDefinition=string.Join(" AND ",conditions.Select(Term));
             var plan=FixedConditionPlan.Compile(conditionDefinition,fields);
             var types=fields.ToDictionary(field=>field,field=>columns.Single(column=>column.Source.ColumnName==field).Source.LogicalType,StringComparer.Ordinal);
             _=FixedConditionSqlPlan.Compile(plan,types);
-            return(scopes.AsReadOnly(),new(conditionDefinition,plan,new ReadOnlyDictionary<string,string>(types)){CrossFields=crossFields});
+            return(scopes.AsReadOnly(),new(conditionDefinition,plan,new ReadOnlyDictionary<string,string>(types)){CrossFields=crossFields,SelfTreeFields=selfTreeFields});
         }
         catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException)
         {throw new InvalidOperationException("页面WhereSql缺少已证明的固定标量条件。",error);}
@@ -78,10 +80,16 @@ internal static class FixedPageConditionCompilation
                         .ToHashSet(StringComparer.Ordinal);
                     if(!condition.CrossFields.IsSubsetOf(published))throw Rejected();
                 }
+                if(condition.SelfTreeFields.Count>0)
+                {
+                    var published=NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page)
+                        .Select(tree=>CascadeTreeViewRenderer.Name(table,tree.Source)!.Source.ColumnName);
+                    if(!condition.SelfTreeFields.IsSubsetOf(published))throw Rejected();
+                }
                 foreach(var term in condition.Syntax.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
                 {
                     var column=table.Columns.Single(item=>item.Source.ColumnName==term.Field);
-                    if(!IsAccountColumn(column)||condition.CrossFields.Contains(term.Field)||column.IsManagedCascadeName||NonRedundantCrossParentCompilation.IsSlot(model,table,column))throw Rejected();
+                    if(!IsAccountColumn(column)||condition.CrossFields.Contains(term.Field)||condition.SelfTreeFields.Contains(term.Field)||column.IsManagedCascadeName||NonRedundantCrossParentCompilation.IsSlot(model,table,column))throw Rejected();
                 }
             }
         return model;
@@ -98,15 +106,17 @@ internal static class FixedPageConditionCompilation
     /// <summary>固定目标父条件与普通页面条件共用同一生成字面量。</summary>
     internal static string ConditionExpression(FixedPageCondition? condition)=>condition is null?"null":
         $"Metarill.Data.Queries.FixedConditionSqlPlan.Compile(Metarill.Core.Metadata.FixedConditionPlan.Compile({JsonSerializer.Serialize(condition.Definition)},new string[]{{{string.Join(",",condition.Syntax.Fields.Select(field=>JsonSerializer.Serialize(field)))}}}),new Dictionary<string,string>{{{string.Join(",",condition.Types.Select(pair=>"["+JsonSerializer.Serialize(pair.Key)+"]="+JsonSerializer.Serialize(pair.Value)))}}})";
-    /// <summary>实体读取和当前锁使用同一固定AND计划，跨表字段只通过已证明的逻辑路径比较。</summary>
+    /// <summary>实体读取和当前锁使用同一固定AND计划，逻辑字段只通过已证明的路径比较。</summary>
     internal static string Apply(PageModel page,string name,string prefix,string? logicalPlan=null,string locking="false")
     {
         if(page.Condition is null)return "";
-        if(!HasCrossFields(page))return $"        query={Bound(page,name)}.ApplyConstants(query,session,{JsonSerializer.Serialize(prefix)});\n";
-        if(logicalPlan is null)throw new InvalidOperationException("该候选入口缺少固定跨表页面条件的逻辑读取计划。");
+        if(!HasLogicalFields(page))return $"        query={Bound(page,name)}.ApplyConstants(query,session,{JsonSerializer.Serialize(prefix)});\n";
+        if(logicalPlan is null)throw new InvalidOperationException("该入口缺少固定页面条件的逻辑读取计划。");
         return $"        query=NonRedundantCrossTableScopeSql.ApplyCondition(query,session,{logicalPlan},{Bound(page,name)},{JsonSerializer.Serialize(prefix)},actor.ProjectId,{locking});\n";
     }
     internal static bool HasCrossFields(PageModel page)=>page.Condition?.CrossFields.Count>0;
+    internal static bool HasSelfTreeFields(PageModel page)=>page.Condition?.SelfTreeFields.Count>0;
+    internal static bool HasLogicalFields(PageModel page)=>HasCrossFields(page)||HasSelfTreeFields(page);
     /// <summary>多值限定页既可能包含逻辑常量，也可能只在父参数中引用稀疏层位。</summary>
     internal static bool HasMultiTargetScope(TableModel table,PageModel page)=>HasCrossFields(page)||page.Scopes.Any(scope=>
         scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName));
