@@ -16,7 +16,7 @@ internal static class DerivedRelationNamesRenderer
         var validateCurrent=accountParent||logical;
         var parentPlan = accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var planStart = logical
-            ? "CompileRelationMembership("+DerivedRelationNamesCompilation.LogicalPageArguments(relation.Target,relation.TargetPage)
+            ? DerivedRelationNamesCompilation.LogicalPagePlanStart(relation.Target,relation.TargetPage)
             : physicalTypedName && relation.Target.IsGlobal
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : physicalTypedName && relation.Target.Source.IsRongyu == 1
@@ -46,7 +46,7 @@ internal static class DerivedRelationNamesRenderer
 {{(same?"        targetParentId??=parentId;":"")}}
         var filters=new List<FixedReadFilter>();
 {{filters}}
-        FixedConditionSqlPlan? condition={{FixedPageConditionCompilation.Bound(relation.TargetPage,"OptionsPageCondition"+suffix)}};
+        FixedConditionSqlPlan? condition={{(logical&&relation.Target.IsGlobal?"null":FixedPageConditionCompilation.Bound(relation.TargetPage,"OptionsPageCondition"+suffix))}};
 {{bind}}
         return(filters,condition);
     }

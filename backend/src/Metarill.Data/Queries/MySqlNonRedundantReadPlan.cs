@@ -649,6 +649,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("精确管理关联键必须与目标主键同为int64，不能借数据库隐式转换匹配。");
             var global=GlobalCrossTableTarget.Declared(target);
             PageMetadata? publishedPage=cachePage;
+            var scopedSingle=false;
             var projectParent=!global&&refreshFields is not null&&ownerAlias==rootAlias&&
                 GlobalCachedRelationSource.RowProjectSelfTreeParentPages(catalog,root,relation).Count>0;
             if(projectParent)publishedPage=GlobalSingleRelationTarget.RequireProjectParent(catalog,root,relation,target).Page;
@@ -656,8 +657,9 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 var owner=tables[relation.ConfigTableId];
                 var proof=owner.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,owner,relation,target):GlobalSingleRelationTarget.Require(catalog,owner,relation,target);
-                // 带项目列的全局 R1 来源已证明是自树物理父角色，回填遵守实际父页条件。
-                if(HasGlobalRowProject(target)||owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&
+                scopedSingle=proof.ScopedSelfTree;
+                // 自树条件是全局目标的页面资格，有无物理项目列均按实际页联接。
+                if(scopedSingle||HasGlobalRowProject(target)||owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&
                     columns[owner.Id].ContainsKey("yz_project_id"))publishedPage=proof.Page;
             }
             // 混合文本或浮点键可能发生近似比较，同一源值可能匹配多个大整数主键。
@@ -668,12 +670,12 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 if(directSave)directSaveAliases.Add(existing);
                 Scope(target,existing,projectScoped:!global);
-                if(publishedPage is not null)_=PublishedCondition(target,existing,publishedPage,projectParent:projectParent);
+                if(publishedPage is not null&&!scopedSingle)_=PublishedCondition(target,existing,publishedPage,projectParent:projectParent);
                 if(account is not null)_=AccountCacheScope(account,target,existing,ownerAlias,render:false);
                 aggregateFields[existing].Add(output);
                 Touch(existing,"id");return existing;
             }
-            var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global){globalSingleAliases.Add(alias);if(target.IsRongyu==0)globalDerivedAliases.Add(alias);}var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=publishedPage is null?Scope(target,alias,projectScoped:!global):PublishedScope(target,alias,publishedPage,alias,projectParent:projectParent);
+            var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global){globalSingleAliases.Add(alias);if(target.IsRongyu==0)globalDerivedAliases.Add(alias);}var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=publishedPage is null?Scope(target,alias,projectScoped:!global):PublishedScope(target,alias,publishedPage,alias,projectParent:projectParent,scopedSingle:scopedSingle);
             if(trackReverse)
             {
                 Touch(alias,"id");reverse.Add(alias,(target.TableName,prefix,source,sourceType));
@@ -705,9 +707,14 @@ public static partial class MySqlNonRedundantReadCompiler
         private bool HasGlobalRowProject(TableMetadata table)=>table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table)&&columns[table.Id].ContainsKey("yz_project_id");
 
         /// <summary>全局候选和联接用同一固定页面条件，逻辑删除仍由物理字段约束。</summary>
-        private string PublishedScope(TableMetadata table,string alias,PageMetadata page,string parameterKey,bool allowAccount=false,bool projectParent=false)
+        private string PublishedScope(TableMetadata table,string alias,PageMetadata page,string parameterKey,bool allowAccount=false,bool projectParent=false,bool scopedSingle=false)
         {
             var scope=Scope(table,alias,projectScoped:projectParent);
+            if(scopedSingle)
+            {
+                var logical=PublishedSingleTreeCondition(table,alias,page);
+                return scope.Length==0?logical:scope+" AND "+logical;
+            }
             var condition=PublishedCondition(table,alias,page,allowAccount,projectParent);
             if(condition is null)return scope;
             if(accountPhysicalCandidate&&table.Id==root.Id&&alias==rootAlias&&cascadeCacheOwner is {} owner&&condition.Variables.Count>0)

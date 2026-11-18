@@ -30,11 +30,16 @@ public sealed class DerivedRelationNamesTests
 
     /// <summary>固定自树条件通过原单值候选、保存与 Excel 共用同一已发布计划。</summary>
     [Theory]
-    [InlineData(false, false, false)]
-    [InlineData(true, false, true)]
-    [InlineData(false, true, true)]
-    [InlineData(true, true, false)]
-    public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent)
+    [InlineData(false, false, false, null)]
+    [InlineData(true, false, true, null)]
+    [InlineData(false, true, true, null)]
+    [InlineData(true, true, false, null)]
+    [InlineData(false, false, false, false)]
+    [InlineData(true, false, false, true)]
+    [InlineData(false, true, false, true)]
+    [InlineData(true, true, false, false)]
+    public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
+        bool? globalWithProject)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -71,6 +76,19 @@ public sealed class DerivedRelationNamesTests
         foreach(var (page,field) in new[]{("601","63"),("601","65"),("201","216")})
             catalog.ConfigPageColumns.Add(new(){Id=page+field,ConfigPageId=page,ConfigColumnId=field});
         target.WhereSql+=" AND tree_name <> '排除叶名' AND store_id=@current_store_id";
+        if(globalWithProject is {} keepProject)
+        {
+            foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "2" or "4" or "6"))
+                table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            target.WhereSql=target.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
+            catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="";
+            catalog.ConfigPages.Single(page=>page.Id=="601").WhereSql="name <> '停用树节点'";
+            if(!keepProject)
+            {
+                catalog.ConfigColumns.RemoveAll(column=>column.Id=="22");
+                catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="22");
+            }
+        }
         catalog.YzAdminTypes.Clear();
         RedundantMultiNameCacheTests.Published(catalog);
 
@@ -81,8 +99,21 @@ public sealed class DerivedRelationNamesTests
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.ScopedSingleRelation");
             var service=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesOrderService.g.cs"));
             var scope=derived?"DerivedOptionsPlan101_15":"OptionsMembership101_15";
-            Assert.Contains("CompileRelationMembership(",service);
-            Assert.Contains($"ApplyCondition(query,session,{scope}.BindAccount(actor),OptionsPageCondition101_15.BindAccount(actor)",service);
+            if(globalWithProject is not null)
+            {
+                Assert.Contains("CompileCrossPageCandidate(\"2\",\"201\"",service);
+                Assert.Contains($"ApplyCandidate(query,session,{scope}.BindAccount(actor),\"options_page_101_15\",actor.ProjectId,locking)",service);
+                var start=service.IndexOf(">> OptionsScope101_15Async(",StringComparison.Ordinal);
+                Assert.True(start>=0);
+                var end=service.IndexOf("\n    }",start,StringComparison.Ordinal);
+                Assert.Contains("sourceParentKey && entity.YzProjectId == ",service[start..end]);
+                Assert.DoesNotContain("query = query.Where(entity => entity.YzProjectId",service[start..end]);
+            }
+            else
+            {
+                Assert.Contains("CompileRelationMembership(",service);
+                Assert.Contains($"ApplyCondition(query,session,{scope}.BindAccount(actor),OptionsPageCondition101_15.BindAccount(actor)",service);
+            }
             Assert.Contains("OptionsSelected101_15Async",service);
             Assert.Contains("OptionsPage101_15Async",service);
             Assert.Contains("OptionsScope104_15Async",service);
@@ -94,6 +125,13 @@ public sealed class DerivedRelationNamesTests
             foreach(var name in new[]{"DrNamesOrderService","DrNamesPartyService"})
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
                     assembly.GetType("Example.ScopedSingleRelation.Generated.Services."+name,true)!.TypeHandle);
+
+            if(globalWithProject is not null)
+            {
+                catalog.ConfigTables.Single(table=>table.Id=="6").Extra.Remove("scopeKind");
+                Assert.Throws<NotSupportedException>(()=>Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(
+                    catalog,"2","201",["id","name"],[]));
+            }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }

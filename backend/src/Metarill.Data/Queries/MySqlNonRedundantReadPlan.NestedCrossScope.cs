@@ -238,6 +238,19 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly HashSet<string> activeCrossScopePages=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlCrossTableProjection> scopedCrossProjections=new(StringComparer.Ordinal);
 
+        /// <summary>全局单值显示与候选使用同一逻辑范围，绑定当前账号并检查实际叶子路径。</summary>
+        private string PublishedSingleTreeCondition(TableMetadata table,string alias,PageMetadata page)
+        {
+            var members=columns[table.Id].Values.ToArray();
+            var fields=PublishedSelfTreeConditionFields(catalog,table,page,members);
+            var syntax=FixedConditionPlan.Compile(page.WhereSql,members.Select(member=>member.ColumnName));
+            var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,selfTreeFields:fields);
+            var logical=RequireCrossCondition(table,page,condition,selfTreeFields:fields);
+            scopedGlobalCrossTarget=true;
+            return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
+                alias,selfTreeFields:fields);
+        }
+
         /// <summary>缓存通过已发布候选页求值，目标与内层依赖都进入原传播队列。</summary>
         private (string Sql,string Type) RecursiveCacheValue(TableMetadata table,string owner,ColumnMetadata foreign,
             TableMetadata target,ColumnMetadata value,RelationCacheDefinition definition)

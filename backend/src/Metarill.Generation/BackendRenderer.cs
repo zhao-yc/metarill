@@ -841,8 +841,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 else
                 {
                     _=DerivedRelationNamesCompilation.CompileLogicalPage(model,relation.Target,relation.TargetPage,["id"],[]);
-                    var arguments=DerivedRelationNamesCompilation.LogicalPageArguments(relation.Target,relation.TargetPage);
-                    result.AppendLine($"    private static readonly Metarill.Data.Queries.NonRedundantReadPlan OptionsMembership{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileRelationMembership({arguments},new string[]{{\"id\"}}, Array.Empty<string>());");
+                    var planStart=DerivedRelationNamesCompilation.LogicalPagePlanStart(relation.Target,relation.TargetPage);
+                    result.AppendLine($"    private static readonly Metarill.Data.Queries.NonRedundantReadPlan OptionsMembership{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{planStart},new string[]{{\"id\"}}, Array.Empty<string>());");
                     logicalPlan=$"OptionsMembership{suffix}.BindAccount(actor)";
                 }
             }
@@ -899,7 +899,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent").DistinctBy(scope => scope.Column.Source.Id))
                 result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
-            result.Append(FixedPageConditionCompilation.Apply(relation.TargetPage,"OptionsPageCondition"+suffix,"options_page_"+suffix,logicalPlan,"locking"))
+            result.Append(logicalPlan is not null&&relation.Target.IsGlobal
+                ?$"        query=NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,{logicalPlan},\"options_page_{suffix}\",actor.ProjectId,locking);\n"
+                :FixedPageConditionCompilation.Apply(relation.TargetPage,"OptionsPageCondition"+suffix,"options_page_"+suffix,logicalPlan,"locking"))
                 .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix,"r1_options","locking"))
                 .Append(RelationConditionsCompilation.Apply(relation, suffix));
             if (relation.ParentBinding?.Binding?.SourceParent.Source.Id == "2076977530983813120")

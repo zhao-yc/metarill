@@ -100,6 +100,64 @@ public sealed class NestedCrossCandidateTests
         Assert.ThrowsAny<Exception>(()=>NonRedundantReads.CompileCrossPageCandidate(catalog,table.Id,page.Id,["id"],[]));
     }
 
+    /// <summary>原单值名称联接执行同一全局目标页，来源行继续绑定本项目和真实账号。</summary>
+    [Theory]
+    [InlineData("List",false,"string")]
+    [InlineData("SelectPage",true,"int64")]
+    public async Task Global_single_relation_joins_only_targets_visible_in_the_fixed_tree_page(string kind,bool rowProject,string key)
+    {
+        var catalog=Catalog(false);
+        var source=catalog.ConfigTables.Single(table=>table.Id=="90");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="1");
+        var page=catalog.ConfigPages.Single(item=>item.Id=="11");
+        foreach(var table in catalog.ConfigTables)table.YzProjectId=catalog.YzProjectId;
+        catalog.YzAdminTypes.Add(new(){Id="5",YzProjectId=catalog.YzProjectId});
+        page.YzAdminTypeId="5";
+        page.WhereSql="store_id=@current_store_id";
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(!rowProject)
+        {
+            var field=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="yz_project_id");
+            catalog.ConfigColumns.Remove(field);
+            catalog.ConfigPageColumns.RemoveAll(item=>item.ConfigColumnId==field.Id);
+        }
+        AddVisibilityLeafScope(catalog,source,target,page,true);
+        catalog.ConfigColumns.Add(new(){Id="9014",ConfigTableId=source.Id,ColumnName="shared_id",LogicalType=key,ControlKind=kind,LinkConfigTableId=target.Id,
+            ControlDetail=JsonSerializer.Serialize(new{tableId=target.Id,pageId=page.Id,nameField="name"})});
+        catalog.ConfigColumns.Add(new(){Id="9015",ConfigTableId=source.Id,ColumnName="shared_name",LogicalType="string",Extra=new()
+        {
+            ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+            ["columnFullName"]=JsonSerializer.SerializeToElement("shared.name")
+        }});
+        var actor=new RuntimeActor(1,"发布项目账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
+        var plan=NonRedundantReads.Compile(catalog,source.Id,["id","shared_name"]);
+        var candidate=NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,page.Id,["id","name"],[]);
+        Assert.True(plan.MySql.RequiresPublishedProjectIdentity);
+        Assert.True(plan.MySql.RequiresAccount);
+        Assert.Contains("b.`yz_project_id`=@project_scope_number",plan.MySql.Scope);
+        Assert.DoesNotContain("r0.`yz_project_id`=",plan.MySql.From);
+        Assert.DoesNotContain("b.`yz_project_id`=",candidate.MySql.Scope);
+        Assert.Contains("nested_visibility",plan.MySql.From);
+        Assert.Contains("nested_visibility",candidate.MySql.Scope);
+        Assert.DoesNotContain("限制叶子",plan.MySql.From);
+        Assert.Contains("限制叶子",plan.BindAccount(actor).MySql.Constants.Values);
+        Assert.Contains(actor.StoreId!.Value,plan.BindAccount(actor).MySql.Constants.Values);
+        Assert.Contains(actor.StoreId.Value,candidate.BindAccount(actor).MySql.Constants.Values);
+        Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline",
+            ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new NonRedundantReader(session)
+            .RowsAsync(plan.BindAccount(actor),[],[],1,projectId:"999"));
+        var definition=page.WhereSql;
+        catalog.ConfigColumns.Add(new(){Id="9511",ConfigTableId=target.Id,ColumnName="password",LogicalType="string"});
+        page.WhereSql+=" AND password <> '测试占位'";
+        Assert.Throws<NotSupportedException>(()=>GlobalSingleRelationTarget.Require(catalog,source,
+            catalog.ConfigColumns.Single(column=>column.Id=="9014"),target));
+        page.WhereSql=definition;
+        catalog.ConfigTables.Single(table=>table.Id=="95").Extra.Remove("scopeKind");
+        Assert.Throws<NotSupportedException>(()=>NonRedundantReads.Compile(catalog,source.Id,["shared_name"]));
+    }
+
     /// <summary>回填使用来源行归属；内层路径变化与直接改名都能找到需要更新的缓存。</summary>
     [Theory]
     [InlineData(false,false,true)]

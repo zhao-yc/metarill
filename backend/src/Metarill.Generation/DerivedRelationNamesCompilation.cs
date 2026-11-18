@@ -16,19 +16,23 @@ internal static class DerivedRelationNamesCompilation
     internal static NonRedundantReadPlan CompileLogicalPage(GenerationModel model,TableModel target,PageModel page,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
     {
-        if(target.IsGlobal||ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))
+        if(ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page))
             throw new NotSupportedException("单值关系的逻辑条件要求普通目标页及已证明的物理父范围。");
         var condition=page.Condition!;
+        if(target.IsGlobal)
+            return NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,dependencies);
         return NonRedundantReads.CompilePageMembership(model.Catalog,target.Source,page.Source,condition.Syntax.Fields,
             condition.CrossFields,condition.SelfTreeFields,outputs,dependencies);
     }
 
     /// <summary>生成查询复用发布时核验的字段集合，调用方仅绑定身份和业务参数。</summary>
-    internal static string LogicalPageArguments(TableModel target,PageModel page)
+    internal static string LogicalPagePlanStart(TableModel target,PageModel page)
     {
+        var targetIds=JsonSerializer.Serialize(target.Source.Id)+","+JsonSerializer.Serialize(page.Source.Id);
+        if(target.IsGlobal)return "CompileCrossPageCandidate("+targetIds;
         var condition=page.Condition!;
         string Fields(IEnumerable<string> fields)=>"new string[]{"+string.Join(",",fields.Select(field=>JsonSerializer.Serialize(field)))+"}";
-        return string.Join(",",JsonSerializer.Serialize(target.Source.Id),JsonSerializer.Serialize(page.Source.Id),
+        return "CompileRelationMembership("+string.Join(",",targetIds,
             Fields(condition.Syntax.Fields),Fields(condition.CrossFields.Order(StringComparer.Ordinal)),Fields(condition.SelfTreeFields.Order(StringComparer.Ordinal)));
     }
 
@@ -75,7 +79,9 @@ internal static class DerivedRelationNamesCompilation
             throw new InvalidOperationException("派生单选名称的目标身份与父字段必须为物理标量。");
         if (target.IsGlobal)
         {
-            if (name.Type == "string?") GlobalCrossTableTarget.RequireSingleName(model.Catalog, target.Source, page.Source, name.Source);
+            if(FixedPageConditionCompilation.HasSelfTreeFields(page))
+                GlobalCrossTableTarget.RequireScopedSelfTreeName(model.Catalog,target.Source,page.Source,name.Source);
+            else if (name.Type == "string?") GlobalCrossTableTarget.RequireSingleName(model.Catalog, target.Source, page.Source, name.Source);
             else GlobalCrossTableTarget.RequireSingle(model.Catalog, target.Source, page.Source);
         }
         // 全局候选按当前名称读取，不借用仅允许int64路径的精确管理匹配用途。

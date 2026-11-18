@@ -3,7 +3,11 @@ using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 namespace Metarill.Core.Metadata;
 
-public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata Name);
+public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata Name)
+{
+    /// <summary>此目标页必须通过完整自树路径执行条件，不能回退到物理列查询。</summary>
+    public bool ScopedSelfTree { get; init; }
+}
 
 /// <summary>普通单值全局关系的静态证明，目标和页面必须来自同一明确发布目录。</summary>
 public static class GlobalSingleRelationTarget
@@ -51,8 +55,15 @@ public static class GlobalSingleRelationTarget
         var tableId=Value("tableId");var tableName=Value("table");var declaredPage=Value("pageId");var linkedPage=Extra("linkConfigPageId");
         if(tableId.Length>0&&tableId!=target.Id||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id||tableName.Length>0&&tableName!=target.TableName||Extra("joinTable") is {Length:>0} joined&&joined!=target.TableName||declaredPage.Length>0&&linkedPage.Length>0&&declaredPage!=linkedPage)throw new InvalidOperationException("全局关系的表、页面或显示来源声明相互冲突。");
         var pageId=declaredPage.Length>0?declaredPage:linkedPage;var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id&&(pageId.Length==0||page.Id==pageId)).ToArray();if(pages.Length!=1)throw new InvalidOperationException("全局单值关系必须指定真实目标页，省略时目标页必须唯一。");var page=pages[0];
-        if(projectParent)RequireProjectParentPage(catalog,target,page);else GlobalCrossTableTarget.RequireSingle(catalog,target,page);
-        var targetColumns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var nameField=Value("nameField");if(nameField.Length==0)nameField="name";var name=targetColumns.SingleOrDefault(column=>column.ColumnName==nameField);
+        var targetColumns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
+        var expanded=RelationStorageColumns.Expand(target,targetColumns);
+        var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
+        var scopedSelfTree=!projectParent&&owner.IsRongyu==0&&condition.Fields
+            .Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
+        if(projectParent)RequireProjectParentPage(catalog,target,page);
+        else if(scopedSelfTree)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page);
+        else GlobalCrossTableTarget.RequireSingle(catalog,target,page);
+        var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var nameField=Value("nameField");if(nameField.Length==0)nameField="name";var name=targetColumns.SingleOrDefault(column=>column.ColumnName==nameField);
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(targetStorage,target,column);
         // 普通与显式全局来源使用同一终点证明；来源的存储模式和发布身份已由各入口核验。
         var typedName = name is not null && name.ColumnName != "id" && MultiValueLabel.IsTyped(name.LogicalType) &&
@@ -61,8 +72,17 @@ public static class GlobalSingleRelationTarget
             !(projectParent?Scalar(name):GlobalPhysicalRelationValue.IsPublishedScalar(catalog, targetStorage, target, name, resolving ?? new HashSet<string>(StringComparer.Ordinal))))
             throw new NotSupportedException("全局单值名称要求已证明的非凭据单值标量。");
         var key=targetColumns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局单值目标必须使用非空int64物理主键。");
-        if(FixedConditionPlan.Compile(page.WhereSql,targetColumns.Select(column=>column.ColumnName)).Fields.Any(field=>!Scalar(targetColumns.Single(column=>column.ColumnName==field))))throw new NotSupportedException("目标条件必须使用非凭据物理标量。");
-        return new(page,name);
+        // 逻辑范围只允许已声明的级联字段，其他成员仍按非凭据物理标量验证。
+        foreach(var field in condition.Fields)
+        {
+            var column=expanded.Single(item=>item.ColumnName==field);
+            if(Scalar(column))continue;
+            if(scopedSelfTree&&!ExactDataManageValues.IsSensitiveField(field)&&
+                (CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field)||
+                    CrossTableStorageColumns.IsLogicalPathField(target,expanded,field)))continue;
+            throw new NotSupportedException("目标条件必须使用已证明的非凭据标量或逻辑级联字段。");
+        }
+        return new(page,name){ScopedSelfTree=scopedSelfTree};
     }
 
     /// <summary>父表及固定页必须属于当前目录，项目列必须真实存在，维护与业务均按当前已验证项目读取。</summary>
