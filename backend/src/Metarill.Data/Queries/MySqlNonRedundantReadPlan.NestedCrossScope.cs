@@ -488,14 +488,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         return SelfTreeLabelExpression(table,owner,control,column,conditionOwner:cacheOwner);
                     }
 
-                    var path=bindings.Values.First(binding=>CrossTableStorageColumns.ContainsPathField(
-                        columns[table.Id].Values.Single(source=>source.Id==binding.SourceColumnId),field));
-                    var group=SharedCrossGroup(table,path.SourceColumnId);
-                    if(group is not null)
-                        return SharedCrossValue(table,owner,group,field,scopedBindings:bindings,cacheOwner:cacheOwner).Sql;
-                    var source=columns[table.Id].Values.Single(item=>item.Id==path.SourceColumnId);
-                    var selection=CrossTableSparseSelection.Compile(table,source.Id,columns[table.Id].Values);
-                    return CrossValue(table,owner,source,selection,path,field,scopeOnly:true,cacheOwner:cacheOwner).Sql;
+                    return ScopedCrossField(table,owner,bindings,field,cacheOwner);
                 }
                 // 同一可见路径既负责页面条件，也负责恢复可能没有实际落库的逻辑父键。
                 if(sourceParent is null&&multiParent is not null&&level.LogicalFields.Contains(multiParent.ColumnName))
@@ -522,11 +515,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 }
 
                 // 空选择允许原 IS NULL；已存但不可见或无法恢复的节点不能冒充空值放宽候选。
-                var paths=bindings.Keys.Select(source=>
-                {
-                    var key=owner+":"+source;
-                    return scopedCrossProjections.GetValueOrDefault(key)??crossProjections[key];
-                });
+                var paths=ScopedCrossPaths(owner,bindings.Keys);
                 return "("+string.Join(" AND ",new[]{predicate}.Concat(ValidScopedPaths(paths))
                     .Where(part=>part.Length>0))+")";
             }
@@ -535,6 +524,27 @@ public static partial class MySqlNonRedundantReadCompiler
                 activeCrossScopePages.Remove(level.Page.Id);
             }
         }
+
+        /// <summary>内层路径只进入本次范围表达式。路径无效时由调用方隐藏名称或拒绝候选。</summary>
+        private string ScopedCrossField(TableMetadata table,string owner,
+            IReadOnlyDictionary<string,NonRedundantCrossTableScope> bindings,string field,CascadeCacheOwner? cacheOwner=null)
+        {
+            var controls=columns[table.Id].Values;
+            var control=controls.First(item=>bindings.ContainsKey(item.Id)&&CrossTableStorageColumns.ContainsPathField(item,field));
+            var group=SharedCrossGroup(table,control.Id);
+            if(group is not null)
+                return SharedCrossValue(table,owner,group,field,scopedBindings:bindings,cacheOwner:cacheOwner).Sql;
+            var selection=CrossTableSparseSelection.Compile(table,control.Id,controls);
+            return CrossValue(table,owner,control,selection,bindings[control.Id],field,scopeOnly:true,cacheOwner:cacheOwner).Sql;
+        }
+
+        /// <summary>同一别名已投影过路径时沿用该投影，内层存储校验不进入根记录。</summary>
+        private IEnumerable<MySqlCrossTableProjection> ScopedCrossPaths(string owner,IEnumerable<string> sources)=>
+            sources.Select(source=>
+            {
+                var key=owner+":"+source;
+                return scopedCrossProjections.GetValueOrDefault(key)??crossProjections[key];
+            });
 
         /// <summary>已存的路径必须实际可见；只有全部原始槽为空才是未选择。</summary>
         private static IEnumerable<string> ValidScopedPaths(IEnumerable<MySqlCrossTableProjection> paths)=>

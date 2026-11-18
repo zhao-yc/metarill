@@ -72,8 +72,10 @@ public sealed class DerivedRelationNamesTests
     [InlineData(false,true,true,true,false,true,true,true,true,true,true)]
     [InlineData(true,true,true,false,false,true,false,false,true,true,true)]
     [InlineData(true,false,true,true,false,true,false,false,false,false,true)]
+    [InlineData(false,true,true,true,false,true,true,true,true,true,true,true)]
+    [InlineData(true,false,true,true,false,true,false,false,false,false,true,true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false)
+        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
@@ -236,6 +238,32 @@ public sealed class DerivedRelationNamesTests
                         field.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
             }
         }
+        if(nested)
+        {
+            // 上游原控件选择全局中间表的派生名称，其依赖仍由中间表实际父级确定。
+            catalog.ConfigTables.Single(table=>table.Id=="1").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            if(selection)catalog.ConfigPages.Single(page=>page.Id=="101").Extra["type"]=JsonSerializer.SerializeToElement(1);
+            var display=catalog.ConfigColumns.Single(column=>column.Id=="113").ColumnName;
+            catalog.ConfigTables.Add(new(){Id="8",TableName=prefix+"_observer",IsRongyu=0});
+            catalog.ConfigPages.Add(new(){Id="801",ConfigTableId="8",WhereSql="scope_country_id=@parent_id",IsImport=1,IsExport=1});
+            catalog.ConfigColumns.AddRange([
+                new(){Id="81",ConfigTableId="8",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id="82",ConfigTableId="8",ColumnName="yz_project_id",LogicalType="int64"},
+                new(){Id="83",ConfigTableId="8",ColumnName="scope_country_id",LogicalType="int64",LinkConfigTableId="6"},
+                new(){Id="84",ConfigTableId="8",ColumnName="middle_id",Name="中间记录",LogicalType="int64",
+                    ControlKind=selection?"SelectPage":"List",LinkConfigTableId="1",
+                    ControlDetail=JsonSerializer.Serialize(new{tableId="1",pageId="101",nameField=display})},
+                new(){Id="85",ConfigTableId="8",ColumnName="middle_"+display,LogicalType="string",Extra=new()
+                {
+                    ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=JsonSerializer.SerializeToElement("middle."+display)
+                }}
+            ]);
+            catalog.ConfigPageColumns.AddRange([
+                new(){Id="80184",ConfigPageId="801",ConfigColumnId="84",IsShow=1,IsEdit=1},
+                new(){Id="80185",ConfigPageId="801",ConfigColumnId="85",IsShow=1,IsEdit=0}
+            ]);
+        }
         catalog.YzAdminTypes.Clear();
         RedundantMultiNameCacheTests.Published(catalog);
 
@@ -320,6 +348,17 @@ public sealed class DerivedRelationNamesTests
             foreach(var name in new[]{"DrNamesOrderService","DrNamesPartyService"})
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
                     assembly.GetType("Example.ScopedSingleRelation.Generated.Services."+name,true)!.TypeHandle);
+
+            if(nested)
+            {
+                var observer=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesObserverService.g.cs"));
+                Assert.Contains("CompileCrossPageCandidate(\"1\",\"101\"",observer);
+                Assert.Contains("OptionsSelected801_84Async",observer);
+                Assert.Contains("Import801Async",observer);
+                Assert.Contains("Export801Async",observer);
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
+                    assembly.GetType("Example.ScopedSingleRelation.Generated.Services.DrNamesObserverService",true)!.TypeHandle);
+            }
 
             if(redundant)
             {

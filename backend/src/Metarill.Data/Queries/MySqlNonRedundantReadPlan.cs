@@ -445,7 +445,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var importLock=" FOR UPDATE OF "+rootAlias+(aliases.Count==0?"":" FOR SHARE OF "+string.Join(",",aliases.Values));
             // 计数只能省去以整数键查找单列主键的 LEFT JOIN。跨表有效性校验和当前锁读沿用完整联接。
             var aggregateFrom = aggregateJoinsPreserveCardinality && refreshFields is null &&
-                !matching && crossProjections.Count == 0 && aggregateJoins.Count > 0
+                !matching && crossProjections.Count == 0 && scopedCrossProjections.Count == 0 && aggregateJoins.Count > 0
                 ? new MySqlMaintenanceReadFrom(" FROM " + Q(root.TableName) + " " + rootAlias,
                     aggregateJoins.Select(join => (join.Sql, (IEnumerable<string>)aggregateFields[join.Alias])))
                 : null;

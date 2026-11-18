@@ -169,8 +169,10 @@ public sealed class NestedCrossCandidateTests
     [InlineData("SelectPage",true,"int64",true,false,false,true,true)]
     [InlineData("List",false,"string",true,false,false,true,true,true)]
     [InlineData("SelectPage",true,"int64",true,false,true,false,false,true)]
+    [InlineData("List",false,"string",true,false,false,true,true,true,true)]
+    [InlineData("SelectPage",true,"int64",true,false,true,false,false,true,true)]
     public async Task Global_single_relation_joins_only_targets_visible_in_the_fixed_tree_page(string kind,bool rowProject,string key,bool cross,
-        bool physicalAccount=false,bool physicalParent=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false)
+        bool physicalAccount=false,bool physicalParent=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false)
     {
         var catalog=Catalog(false);
         var source=catalog.ConfigTables.Single(table=>table.Id=="90");
@@ -341,6 +343,44 @@ public sealed class NestedCrossCandidateTests
                     "only_parent",actor.ProjectId,false,"9007199254740993").ToSql();
                 Assert.Contains("CASE WHEN",scoped);
                 Assert.Contains("@only_parent_parent",scoped);
+            }
+            if(nested)
+            {
+                // 上游读取关联名称时，父级属于已联接的中间行，而不是上游记录自己的稀疏槽。
+                source.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                sourcePage.WhereSql="origin_country_id=@parent_id";
+                catalog.ConfigTables.Add(new(){Id="98",TableName="nested_observer",IsRongyu=0,YzProjectId=catalog.YzProjectId});
+                catalog.ConfigPages.Add(new(){Id="980",ConfigTableId="98",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
+                    WhereSql="scope_country_id=@parent_id"});
+                catalog.ConfigColumns.AddRange([
+                    new(){Id="9801",ConfigTableId="98",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                    new(){Id="9802",ConfigTableId="98",ColumnName="yz_project_id",LogicalType="int64"},
+                    new(){Id="9803",ConfigTableId="98",ColumnName="scope_country_id",LogicalType="int64",LinkConfigTableId="2"},
+                    new(){Id="9804",ConfigTableId="98",ColumnName="middle_id",LogicalType="int64",ControlKind=kind,LinkConfigTableId="90",
+                        ControlDetail=JsonSerializer.Serialize(new{tableId="90",pageId="900",nameField="shared_name"})},
+                    new(){Id="9805",ConfigTableId="98",ColumnName="middle_shared_name",LogicalType="string",Extra=new()
+                    {
+                        ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                        ["columnFullName"]=JsonSerializer.SerializeToElement("middle.shared_name")
+                    }}
+                ]);
+                var chained=NonRedundantReads.Compile(catalog,"98",["id","middle_shared_name"]);
+                var sql=chained.MySql.From;
+                var middle=sql.IndexOf(" LEFT JOIN `nested_outer` r0 ON",StringComparison.Ordinal);
+                var path=sql.IndexOf(" LEFT JOIN `nested_place` cross",StringComparison.Ordinal);
+                var targetJoin=System.Text.RegularExpressions.Regex.Match(sql,@" LEFT JOIN `nested_source` (r[0-9]+) ON");
+                Assert.True(targetJoin.Success);
+                var terminal=targetJoin.Index;
+                Assert.True(middle>=0&&middle<path&&path<terminal);
+                Assert.Contains("r0.`origin_place_id`",sql[path..terminal]);
+                Assert.Contains("CASE WHEN",sql[terminal..]);
+                Assert.Contains("r0.`origin_place_id`",sql[terminal..]);
+                Assert.Contains(targetJoin.Groups[1].Value+".`name`",chained.MySql.Expression("middle_shared_name"));
+                Assert.Empty(chained.MySql.Crosses);
+                // 查询及聚合必须保留目标联接条件引用的中间路径别名。
+                Assert.Null(chained.MySql.AggregateFrom);
+                Assert.Contains("b.`yz_project_id`=@project_scope_number",chained.MySql.Scope);
+                return;
             }
             // 发布中新增另一无父来源页会让同一字段无法确定范围，应在编译时拒绝。
             catalog.ConfigPages.Add(new(){Id="901",ConfigTableId=source.Id});

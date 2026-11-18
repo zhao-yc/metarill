@@ -86,22 +86,32 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>从来源行的固定可见级联还原父键，所有同伴的冲突及不可见路径都必须拒绝。</summary>
         private string LogicalRelationSourceParent(TableMetadata table,string owner,MultiSourceParent source)
         {
-            if(table.Id!=root.Id||owner!=rootAlias||refreshFields is not null)
-                throw new NotSupportedException("逻辑父键须从当前普通R0来源读取。");
+            var nested=table.Id!=root.Id||owner!=rootAlias;
+            if(table.IsRongyu!=0||refreshFields is not null||nested&&trackReverse)
+                throw new NotSupportedException("逻辑来源父要求非冗余实时读取，维护用途须另证来源行归属。");
             var field=source.Column.ColumnName;
             var fields=new HashSet<string>(StringComparer.Ordinal){field};
             var bindings=source.LogicalPages.SelectMany(page=>CrossMembershipBindings(catalog,table,page,fields))
                 .DistinctBy(binding=>binding.SourceColumnId,StringComparer.Ordinal).ToArray();
-            foreach(var binding in bindings)
+            string value;
+            if(nested)
             {
-                if(crossTables.TryGetValue(binding.SourceColumnId,out var existing)&&
-                    (existing.Levels.Count!=binding.Levels.Count||existing.Levels.Zip(binding.Levels)
-                        .Any(pair=>pair.First.PageId!=pair.Second.PageId||!SameSharedCondition(pair.First.Condition,pair.Second.Condition))))
-                    throw new InvalidOperationException("关系来源父键的级联范围与当前读取页不一致。");
-                crossTables[binding.SourceColumnId]=binding;
+                // 先联接中间来源的实际祖先，再用其父键限制后续目标。外层记录不承担中间路径的存储有效性。
+                value=ScopedCrossField(table,owner,bindings.ToDictionary(binding=>binding.SourceColumnId,StringComparer.Ordinal),field);
             }
-            var value=Resolve(table,owner,field).Sql;
-            var visible=ValidScopedPaths(bindings.Select(binding=>crossProjections[owner+":"+binding.SourceColumnId]));
+            else
+            {
+                foreach(var binding in bindings)
+                {
+                    if(crossTables.TryGetValue(binding.SourceColumnId,out var existing)&&
+                        (existing.Levels.Count!=binding.Levels.Count||existing.Levels.Zip(binding.Levels)
+                            .Any(pair=>pair.First.PageId!=pair.Second.PageId||!SameSharedCondition(pair.First.Condition,pair.Second.Condition))))
+                        throw new InvalidOperationException("关系来源父键的级联范围与当前读取页不一致。");
+                    crossTables[binding.SourceColumnId]=binding;
+                }
+                value=Resolve(table,owner,field).Sql;
+            }
+            var visible=ValidScopedPaths(ScopedCrossPaths(owner,bindings.Select(binding=>binding.SourceColumnId)));
             return "CASE WHEN "+string.Join(" AND ",visible)+" THEN "+value+" END";
         }
     }
