@@ -23,7 +23,7 @@ internal static partial class BackendRenderer
             .Where(page=>NonRedundantReadCompilation.GlobalAccountMultiPage(table,page)||
                 NonRedundantReadCompilation.GlobalSingleParentPage(table,page)||
                 MultiGlobalParentCompilation.SingleTarget(model,table,page) is not null||
-                MultiGlobalParentCompilation.PhysicalSelectionParent(model,table,page) is not null).Select(page=>(table,page))));
+                MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null).Select(page=>(table,page))));
         var relations=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>RelationCompilation.ForPage(model,page)
             .Concat(RelationCompilation.ForPage(model,page,true)))).ToArray();
         var scopedRelations=relations.Where(relation=>DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
@@ -61,9 +61,18 @@ internal static partial class BackendRenderer
                 .Where(tree=>CascadeTreeViewRenderer.Name(item.Target,tree.Source) is {} leaf&&item.Condition.SelfTreeFields.Contains(leaf.Source.ColumnName))
                 .Select(tree=>(tree.Target,tree.TargetPage))));
         // 功能表的独立父字段只在表单中存在，目标页的固定范围仍需完整下发。
-        var checkboxScopes=model.Tables.Where(table=>table.Source.IsFunctionTable==1)
-            .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))
-            .Where(checkbox=>checkbox.DerivedName&&checkbox.LogicalTargetPage is not null).ToArray();
+        var functionCheckboxes=model.Tables.Where(table=>table.Source.IsFunctionTable==1)
+            .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page))).ToArray();
+        var checkboxScopes=functionCheckboxes.Where(checkbox=>checkbox.DerivedName&&checkbox.LogicalTargetPage is not null).ToArray();
+        // 复选的物理目标页也可能绑定全局父，冻结实际目标及父页条件。
+        foreach(var checkbox in functionCheckboxes.Where(checkbox=>checkbox.GlobalParentPage is not null))
+        {
+            var targetPage=checkbox.GlobalParentPage!;
+            var parent=checkbox.SourceParents.Single();
+            var parentPageId=Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(model.Catalog,
+                checkbox.Target.Source.Id,targetPage.Source.Id);
+            scopedPages=scopedPages.Concat([(checkbox.Target,targetPage),(parent,parent.Pages.Single(page=>page.Source.Id==parentPageId))]);
+        }
         accountPages.UnionWith(checkboxScopes.Select(checkbox=>checkbox.LogicalTargetPage!.Source.Id));
         scopedPages=scopedPages.Concat(checkboxScopes.Select(checkbox=>(checkbox.Target,checkbox.LogicalTargetPage!)));
         var hasExactCheckboxParent=checkboxScopes.Any(checkbox=>DerivedCheckboxNamesCompilation.HasExactLogicalParent(model,checkbox));
@@ -118,7 +127,7 @@ internal static partial class BackendRenderer
         if(model.Tables.Any(table=>table.Pages.Any(page=>FixedPageConditionCompilation.HasMultiTargetScope(model,table,page))))
             helpers+="    /// <summary>多值控件的目标页与逻辑范围在发布时冻结。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileScopedMultiLabel(string tableId,string pageId,string field,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(Snapshot,tableId,pageId,field,outputs,dependencies,singleTargets);\n";
         if(model.Tables.Any(table=>table.Pages.Any(page=>MultiGlobalParentCompilation.SingleTarget(model,table,page) is not null||
-            MultiGlobalParentCompilation.PhysicalSelectionParent(model,table,page) is not null||
+            MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null||
             MultiSelectCompilation.ForService(model,table,page).Any(multi=>multi.GlobalParent)||
             DatabaseCheckboxCompilation.ForService(model,table,page).Any(checkbox=>checkbox.GlobalParent))))
             helpers+="    /// <summary>校验实际多值目标页绑定的全局父。源码冻结后只接受规范ID。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMultiGlobalParent(string tableId,string pageId)=>Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(Snapshot,tableId,pageId);\n";

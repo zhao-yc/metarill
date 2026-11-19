@@ -14,7 +14,8 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal ColumnModel? FunctionParentField { get; init; }
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal bool LogicalSourceParent { get; init; }
-    internal bool GlobalParent { get; init; }
+    internal PageModel? GlobalParentPage { get; init; }
+    internal bool GlobalParent => GlobalParentPage is not null;
     internal bool IntegerLabel => Name.Type is ("int?" or "long?");
     internal bool TypedLabel => Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
     internal string Endpoint=>"findNameId"+GenerationModel.Pascal(Source.Source.ColumnName[..^4])+Source.Source.Id;
@@ -109,7 +110,8 @@ internal static class DatabaseCheckboxCompilation
             var logicalPage=namePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage)&&
                 (!functionForm||FixedPageConditionCompilation.HasLogicalFields(namePage)||namePage.Scopes.Any(scope=>scope.Source=="parent"&&
                     (!NonRedundantReadCompilation.Physical(model,target,scope.Column)||
-                     model.Tables.Any(parent=>parent.IsGlobal&&parent.Source.Id==scope.Column.Source.LinkConfigTableId))))?namePage:null;
+                     CrossTableStorageColumns.IsLogicalPathField(target.Source,model.Catalog.ConfigColumns,scope.Column.Source.ColumnName)||
+                     target.IsGlobal&&model.Tables.Any(parent=>parent.IsGlobal&&parent.Source.Id==scope.Column.Source.LinkConfigTableId))))?namePage:null;
             var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
             // 同一候选即使由表级继承，也必须用当前普通非冗余来源页的父键重新证明。
             var pageRead=namePage is not null&&table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!target.IsGlobal&&
@@ -154,12 +156,14 @@ internal static class DatabaseCheckboxCompilation
             if(logicalSource is not null&&physicalParents.Length==0&&!pageHasParent)
                 return Gap("来源逻辑父键须对应明确的控件或目标页父范围。");
             var parents=logicalSource is {} path?new[]{path.Read.Levels[path.Index].Target}:parentScopes.Select(scope=>Parent(scope.Column)).ToArray();
-            var globalParent=false;
+            PageModel? globalParentPage=null;
             if(functionForm&&physicalParents.Length>0)
             {
                 if(physicalParents.Length!=1)return Gap("功能表复选必须绑定唯一目标父字段。");
                 var targetParent=physicalParents[0].Column;
-                var targetBinding=pageHasParent&&namePage is not null?MultiTargetParentScope.Compile(model.Catalog,target.Source,
+                var publishedParent=namePage?.Scopes.SingleOrDefault(scope=>scope.Source=="parent").Column;
+                var targetBinding=publishedParent?.Source.Id==targetParent.Source.Id&&namePage is not null
+                    ?MultiTargetParentScope.Compile(model.Catalog,target.Source,
                     FixedConditionPlan.Compile(namePage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName))):null;
                 var parent=targetBinding is null?Parent(targetParent):model.Tables.Single(item=>item.Source.Id==targetBinding.Parent.Id);
                 if(parent.Source.IsFunctionTable!=0||parent.Source.IsView!=0||Protected(parent))
@@ -171,11 +175,11 @@ internal static class DatabaseCheckboxCompilation
                 if(fields.Length!=1)return Gap("功能表页面须开启唯一的目标父表单字段。");
                 sourceParent=fields[0];
                 parents=[parent];
-                globalParent=parent.IsGlobal;
-                if(globalParent)
+                if(parent.IsGlobal)
                 {
-                    if(targetBinding is not {Global:true}||logicalPage is null)return Gap("全局目标父需要显式发布的复选目标页。");
-                    _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,logicalPage.Source.Id);
+                    if(targetBinding is not {Global:true}||namePage is null)return Gap("全局目标父需要显式发布的复选目标页。");
+                    _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,namePage.Source.Id);
+                    globalParentPage=namePage;
                 }
             }
             // 控件和普通目标页的物理父键都须匹配来源已证明的同一张父表。
@@ -187,8 +191,11 @@ internal static class DatabaseCheckboxCompilation
                 var binding=MultiTargetParentScope.Compile(model.Catalog,target.Source,syntax)!;
                 var owner=pageRead?binding.Source(model.Catalog,table.Source,source.Source,page.Source)
                     :binding.Source(model.Catalog,table.Source,source.Source);
-                globalParent=binding.Global;
-                if(globalParent)_=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,scopedPage.Source.Id);
+                if(binding.Global)
+                {
+                    _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,scopedPage.Source.Id);
+                    globalParentPage=scopedPage;
+                }
                 if(sourceParent?.Source.Id!=owner.Column.Id||(owner.LogicalPages.Count>0)!=(logicalSource is not null))
                     return Gap("复选目标页父参数缺少同一来源父记录。");
                 scopes=scopes.Concat(scopedPage.Scopes.Where(scope=>scope.Source=="parent")).DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
@@ -196,7 +203,7 @@ internal static class DatabaseCheckboxCompilation
             // 只有显式关联了实际级联祖先时，原复选可直接沿来源的全局层位校验。
             var explicitGlobalPath=logicalSource is not null&&physicalParents.Length>0&&parents[0].IsGlobal&&
                 physicalParents.All(scope=>scope.Column.Source.LinkConfigTableId==parents[0].Source.Id);
-            if(parents.Any(parent=>Protected(parent)||!(parent.IsGlobal&&(globalParent||explicitGlobalPath))&&!HasIdentity(model,parent)))
+            if(parents.Any(parent=>Protected(parent)||!(parent.IsGlobal&&(globalParentPage is not null||explicitGlobalPath))&&!HasIdentity(model,parent)))
                 return Gap("来源父须具有普通业务项目归属或实际全局层位证明。");
             // 原非冗余候选优先采用控件排序，省略时继承实际目标页排序。
             var orderBy=definition.OrderBy;
@@ -216,7 +223,7 @@ internal static class DatabaseCheckboxCompilation
                 FunctionParentField=functionForm?sourceParent:null,
                 ExactTarget=exactTarget,
                 LogicalSourceParent=logicalSource is not null,
-                GlobalParent=globalParent,
+                GlobalParentPage=globalParentPage,
                 DerivedName=derived||logicalPage is not null
             };
             if(result.DerivedName)DerivedCheckboxNamesCompilation.Require(model,table,result);

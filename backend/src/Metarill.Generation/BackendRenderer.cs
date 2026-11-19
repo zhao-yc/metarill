@@ -1079,7 +1079,8 @@ public partial class {{table.Name}}Service
             result.AppendLine("        services.AddScoped<global::Metarill.Runtime.Security.IAdminAccountInitializer, global::Metarill.Runtime.Security.AdminAccountInitializationBusiness>();");
         }
         return result.AppendLine("        return services;").AppendLine("    }").Append(TrustedSecurityPhysicalCompilation.Method(model)).AppendLine("}").Append(model.Tables.Any(table => NonRedundantReadCompilation.Requires(model, table) ||
-            table.Pages.Any(page => MultiGlobalParentCompilation.PhysicalSelectionParent(model,table,page) is not null||
+            table.Pages.Any(page => MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null||
+                table.Source.IsFunctionTable==1&&DatabaseCheckboxCompilation.ForPage(model,table,page).Any(checkbox=>checkbox.GlobalParent)||
                 RelationCompilation.ForPage(model, page, true).Any(relation => DerivedRelationNamesCompilation.UsesFixedRead(model, relation))))
             ? NonRedundantCatalog(model) : "").Append(RelationPropagationRenderer.Catalog(model)).Append(RelationMaintenanceRenderer.Catalog(model)).ToString();
     }

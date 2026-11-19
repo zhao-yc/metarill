@@ -32,10 +32,10 @@ internal static class MultiGlobalParentCompilation
     internal static MultiTargetParentScope? PhysicalSingleTarget(GenerationModel model,TableModel table,PageModel page)=>
         SingleTarget(model,table,page) is {Logical:false} parent?parent:null;
 
-    /// <summary>原多选页的物理父键须显式关联全局表，父条件按目标页的实际声明证明。</summary>
-    internal static MultiTargetParentScope? PhysicalSelectionParent(GenerationModel model,TableModel table,PageModel page)
+    /// <summary>项目内目标页与原全局多选页可声明物理全局父，绑定仍由实际页面和外键证明。</summary>
+    internal static MultiTargetParentScope? PhysicalPageParent(GenerationModel model,TableModel table,PageModel page)
     {
-        if(!SelectionPageRenderer.Enabled(page))return null;
+        if(table.Source.IsView!=0||table.Source.IsFunctionTable!=0||table.IsGlobal&&!SelectionPageRenderer.Enabled(page))return null;
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
         if(parents.Length!=1)return null;
         var key=parents[0].Column;
@@ -49,7 +49,7 @@ internal static class MultiGlobalParentCompilation
     /// <summary>按目标页证明的实际全局父键，原多值引用保持已有同页校验。</summary>
     internal static PageModel? PhysicalTarget(GenerationModel model,TableModel table,PageModel page)
     {
-        if(PhysicalSingleTarget(model,table,page) is not null||PhysicalSelectionParent(model,table,page) is not null)return page;
+        if(PhysicalSingleTarget(model,table,page) is not null||PhysicalPageParent(model,table,page) is not null)return page;
         if(!FixedPageConditionCompilation.HasMultiTargetScope(model,table,page))return null;
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
         if(parents.Length!=1)return null;
@@ -73,7 +73,7 @@ internal static class MultiGlobalParentCompilation
         var source=scopes[0].Column;
         var targets=MultiSelectCompilation.ForService(model,table,page).Where(multi=>multi.GlobalParent&&multi.SameParent)
             .Select(multi=>multi.TargetPage).Concat(DatabaseCheckboxCompilation.ForService(model,table,page)
-                .Where(checkbox=>checkbox.GlobalParent).Select(checkbox=>checkbox.LogicalTargetPage!))
+                .Select(checkbox=>checkbox.GlobalParentPage).OfType<PageModel>())
             .Concat(SingleParentTargets(model,table,page,source).Select(binding=>binding.Target))
             .DistinctBy(target=>NonRedundantReads.MultiGlobalParentPageId(model.Catalog,
                 target.Source.ConfigTableId,target.Source.Id),StringComparer.Ordinal).ToArray();

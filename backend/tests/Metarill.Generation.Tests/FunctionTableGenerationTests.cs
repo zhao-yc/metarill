@@ -254,6 +254,71 @@ public sealed class FunctionTableGenerationTests : IDisposable
         finally {context.Unload();}
     }
 
+    /// <summary>复选独立父级使用实际指定父页，同步读取固定条件和当前账号范围。</summary>
+    [Theory]
+    [InlineData("global")]
+    [InlineData("globalRowProject")]
+    [InlineData("project")]
+    [InlineData("redundant")]
+    [InlineData("ordinary")]
+    public async Task Function_checkbox_uses_the_published_global_parent(string scenario)
+    {
+        var catalog=WithGlobalParent(Catalog(),scenario=="ordinary"?"redundant":scenario);
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="103");
+        if(scenario=="ordinary")targetPage.Extra.Remove("type");
+        var field=catalog.ConfigColumns.Single(column=>column.Id=="39");
+        field.ControlKind="MultiCheckBoxDatabase";
+        Assert.Equal("802",Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
+        new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot());
+
+        var generated=Path.Combine(output,"backend/generated");
+        var controller=await File.ReadAllTextAsync(Path.Combine(generated,"Controllers/SummaryFormPage102Controller.g.cs"));
+        Assert.Contains("CheckboxOptions102_39Async(request,actor,cancellationToken)",controller);
+        var code=await File.ReadAllTextAsync(Path.Combine(generated,"Services/SummaryFormService.g.cs"));
+        Assert.Contains("CheckboxGlobalParent102_39=global::Example.FunctionForm.Generated.GeneratedNonRedundantReadCatalog.CompileMultiGlobalParent(\"7\",\"103\")",code);
+        Assert.Contains("CheckboxGlobalParent102_39.BindAccount(actor)",code);
+        Assert.Contains("row.ScopeId==long.Parse(parentId!",code);
+        var global=scenario.StartsWith("global",StringComparison.Ordinal);
+        if(global)
+        {
+            Assert.Contains("PageAsync(DerivedCheckboxPlan102_39.BindAccount(actor)",code);
+            if(scenario=="globalRowProject")
+                Assert.Contains("new(\"yz_project_id\",FixedReadComparison.Equal,long.Parse(actor.ProjectId",code);
+        }
+        else
+        {
+            Assert.Contains("CheckboxTargetCondition102_39.BindAccount(actor)",code);
+            Assert.Contains("ResolveExactDataManage(\"103\", \"list\", \"real_name\")",code);
+            Assert.Contains("ExactDataManageSql.Apply(query, session, \"name\"",code);
+        }
+        var reader=code[code.IndexOf(" CheckboxOptions102_39Async(",StringComparison.Ordinal)..];
+        var snapshot=reader.IndexOf("InReadSnapshotAsync",StringComparison.Ordinal);
+        var read=reader.IndexOf(global?"DerivedCheckboxRows102_39Async(request.ParentId":"CheckboxScope102_39Async(request.ParentId",StringComparison.Ordinal);
+        Assert.True(snapshot>=0&&read>snapshot);
+
+        await VerifyVueAsync(output,"GeneratedFunctionGlobalCheckboxProbe.mjs");
+        await BuildFullAsync(output);
+        var context=new AssemblyLoadContext("GlobalParentFunctionCheckbox."+Guid.NewGuid().ToString("N"),isCollectible:true);
+        try
+        {
+            using var binary=File.OpenRead(Path.Combine(output,"backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"));
+            var service=context.LoadFromStream(binary).GetType("Example.FunctionForm.Generated.Services.SummaryFormService",true)!;
+            RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            var binding=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+            var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                service.GetField("CheckboxGlobalParent102_39",binding)!.GetValue(null));
+            // 另一个父页没有账号条件。冻结计划必须读取显式指定的父页。
+            Assert.True(plan.RequiresAccount);
+            if(global)
+            {
+                var options=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    service.GetField("DerivedCheckboxPlan102_39",binding)!.GetValue(null));
+                Assert.True(options.RequiresAccount);
+            }
+        }
+        finally {context.Unload();}
+    }
+
     /// <summary>使用两个全局父页面，显式绑定第二页的物理键和账号范围。</summary>
     private static MetadataCatalog WithGlobalParent(MetadataCatalog catalog,string scenario)
     {

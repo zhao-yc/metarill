@@ -33,7 +33,8 @@ internal static class DatabaseCheckboxRenderer
             if(def.GlobalPage is not null&&!def.DerivedName)
                 result.Append(FixedPageConditionCompilation.Declaration(def.GlobalPage,"CheckboxGlobalCondition"+suffix));
             if(def.DerivedName)result.Append(DerivedCheckboxNamesRenderer.Service(model,table,page,def));
-            if(def.GlobalParent)result.Append(MultiGlobalParentCompilation.Declaration(model,def.LogicalTargetPage!,"CheckboxGlobalParent"+suffix));
+            if(def.GlobalParentPage is {} parentPage)
+                result.Append(MultiGlobalParentCompilation.Declaration(model,parentPage,"CheckboxGlobalParent"+suffix));
             result.AppendLine("    /// <summary>来源身份、真实父和发布条件始终进入数据库；写校验使用当前事务锁读。</summary>")
                 .AppendLine($"    private async Task<ISelect<{def.Target.EntityType}>> CheckboxScope{suffix}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,bool locking,CancellationToken cancellationToken)")
                 .AppendLine("    {")
