@@ -2,7 +2,7 @@ using System.Data.Common;
 
 namespace Metarill.Data.Queries;
 
-public enum FixedReadComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less, LessOrEqual, Contains, IsNull, IsNotNull, In, JsonArrayAnyContains, JsonArrayHasId, LikePattern, IntegerLabelContains, TypedLabelContains }
+public enum FixedReadComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less, LessOrEqual, Contains, IsNull, IsNotNull, In, JsonArrayAnyContains, JsonArrayHasId, LikePattern, IntegerLabelContains, TypedLabelContains, JsonArrayHasAnyId }
 public sealed record FixedReadFilter(string Field,FixedReadComparison Comparison,object? Value=null)
 {
     internal bool SharedExact {get;private init;}
@@ -296,8 +296,16 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(filter.Comparison==FixedReadComparison.JsonArrayHasId)
         {
             var text=value is string or long or int?Convert.ToString(value,System.Globalization.CultureInfo.InvariantCulture):null;
-            if(!plan.ArrayIdPredicates.ContainsKey(filter.Field)||text is null||!long.TryParse(text,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var id)||id<=0||text!=id.ToString(System.Globalization.CultureInfo.InvariantCulture))throw new InvalidOperationException("数组成员筛选只接受已编译的复选字段和规范正整数ID。");
+            if(!plan.ArrayIdSources.ContainsKey(filter.Field)||text is null||!long.TryParse(text,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var id)||id<=0||text!=id.ToString(System.Globalization.CultureInfo.InvariantCulture))throw new InvalidOperationException("数组成员筛选只接受已编译的复选字段和规范正整数ID。");
             return filter with{Value=text};
+        }
+        if (filter.Comparison == FixedReadComparison.JsonArrayHasAnyId)
+        {
+            if (!plan.ArrayIdSources.ContainsKey(filter.Field) || value is not long[] ids ||
+                ids.Length is 0 or > Metarill.Core.Contracts.DatabaseCheckboxValue.MaximumItems || ids.Any(id => id <= 0))
+                throw new InvalidOperationException("多值筛选必须使用已发布的数组列及有界正整数 ID 集合。");
+            var selected = System.Text.Json.JsonSerializer.Serialize(ids.Select(id => id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            return filter with { Value = selected };
         }
         if(filter.Comparison==FixedReadComparison.In)
         {if(value is not IReadOnlyList<object?> items||filter.SharedExact&&items.Any(item=>item is null))throw new InvalidOperationException("集合筛选必须使用明确标量列表。");return filter with{Value=Array.AsReadOnly(items.Select(item=>Prepare(plan,new(filter.Field,FixedReadComparison.Equal,item)).Value).ToArray())};}
@@ -349,9 +357,11 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(value is not(null or string or byte[] or long or int or decimal or double or float or bool or DateTime or DateTimeOffset or TimeSpan))throw new InvalidOperationException("固定筛选值必须是受支持的标量。");
         if(filter.Comparison is FixedReadComparison.IsNull or FixedReadComparison.IsNotNull)
         {if(value is not null)throw new InvalidOperationException("空值筛选不能同时带值。");return expression+(filter.Comparison==FixedReadComparison.IsNull?" IS NULL":" IS NOT NULL");}
-        if(filter.Comparison==FixedReadComparison.JsonArrayHasId)
+        if (filter.Comparison is FixedReadComparison.JsonArrayHasId or FixedReadComparison.JsonArrayHasAnyId)
         {
-            if(value is not string||!plan.ArrayIdPredicates.TryGetValue(filter.Field,out var idPredicate))throw new InvalidOperationException("数组成员筛选缺少固定字段与ID。");return idPredicate.Replace("{parameter}",parameter,StringComparison.Ordinal);
+            if (value is not string || !plan.ArrayIdSources.TryGetValue(filter.Field, out var array))
+                throw new InvalidOperationException("数组成员筛选缺少固定字段与 ID。");
+            return JsonArrayNameQuery.ArrayMemberSql(array, parameter, filter.Comparison == FixedReadComparison.JsonArrayHasAnyId);
         }
         if(filter.Comparison==FixedReadComparison.JsonArrayAnyContains)
         {

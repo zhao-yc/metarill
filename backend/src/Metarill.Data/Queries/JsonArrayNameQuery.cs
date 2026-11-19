@@ -28,6 +28,16 @@ public static class JsonArrayNameQuery
         return query.Where(Expression.Lambda<Func<T,bool>>(call,storageColumn.Parameters));
     }
 
+    /// <summary>对已校验的物理数组做二进制 ID 比较。多选参数仅绑定一个 JSON 数组。</summary>
+    internal static string ArrayMemberSql(string array, string parameter, bool matchAny = false)
+    {
+        const string members = "'$[*]' COLUMNS(member_id VARCHAR(32) PATH '$' NULL ON ERROR)";
+        var comparison = matchAny
+            ? $" IN (SELECT CAST(selected_ids.member_id AS BINARY) FROM JSON_TABLE({parameter}, {members}) selected_ids)"
+            : $"=CAST({parameter} AS BINARY)";
+        return $"((SELECT 1 FROM JSON_TABLE({array}, {members}) checkbox_ids WHERE CAST(checkbox_ids.member_id AS BINARY){comparison} LIMIT 1) IS NOT NULL)";
+    }
+
     /// <summary>名称字面搜索与原文本模式共用固定映射边界，模式只能由服务端方法决定。</summary>
     internal static ISelect<T> ApplyNameLike<T, TValue>(DatabaseSession session, ISelect<T> query, Expression<Func<T, TValue>> storageColumn, string keyword, bool jsonArray, bool preservePattern = false, string? labelType = null) where T : class
     {

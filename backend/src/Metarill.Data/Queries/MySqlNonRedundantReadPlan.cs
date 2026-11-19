@@ -37,13 +37,13 @@ internal sealed record MySqlMultiOwner(string Alias,IReadOnlyList<string> Fields
 public sealed class MySqlNonRedundantReadPlan
 {
     internal MySqlNonRedundantReadPlan(string from, string projectId, string scope, Dictionary<string,string> expressions,
-        Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections,Dictionary<string,string> arrayIdPredicates,IReadOnlyList<MySqlPhysicalReference> physicalReferences,IReadOnlyDictionary<string,MySqlValueOrigin> origins,IReadOnlyList<MySqlReverseProjection>? reverse=null,IReadOnlyList<MySqlCrossTableProjection>? crosses=null,IReadOnlyDictionary<string,object?>? constants=null,IReadOnlyList<string>? sourceDependencies=null,MySqlMaintenanceReadFrom? maintenanceFrom=null)
-    { MaintenanceFrom=maintenanceFrom; From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); ArrayIdPredicates=new ReadOnlyDictionary<string,string>(arrayIdPredicates); PhysicalReferences=physicalReferences; SourceDependencies=sourceDependencies??[]; Origins=origins; Reverse=reverse??[]; Crosses=crosses??[];this.constants=constants??new ReadOnlyDictionary<string,object?>(new Dictionary<string,object?>()); hasAccountParameters=this.constants.Values.Any(value=>value is FixedConditionSqlPlan.AccountParameter); }
+        Dictionary<string,string> types, string[] outputs, Dictionary<string,string> arrayNamePredicates, Dictionary<string,MySqlMultiProjection> multiProjections,Dictionary<string,string> arrayIdSources,IReadOnlyList<MySqlPhysicalReference> physicalReferences,IReadOnlyDictionary<string,MySqlValueOrigin> origins,IReadOnlyList<MySqlReverseProjection>? reverse=null,IReadOnlyList<MySqlCrossTableProjection>? crosses=null,IReadOnlyDictionary<string,object?>? constants=null,IReadOnlyList<string>? sourceDependencies=null,MySqlMaintenanceReadFrom? maintenanceFrom=null)
+    { MaintenanceFrom=maintenanceFrom; From=from; ProjectId=projectId; Scope=scope; Expressions=new ReadOnlyDictionary<string,string>(expressions); Types=new ReadOnlyDictionary<string,string>(types); Outputs=Array.AsReadOnly(outputs); ArrayNamePredicates=new ReadOnlyDictionary<string,string>(arrayNamePredicates); MultiProjections=new ReadOnlyDictionary<string,MySqlMultiProjection>(multiProjections); ArrayIdSources=new ReadOnlyDictionary<string,string>(arrayIdSources); PhysicalReferences=physicalReferences; SourceDependencies=sourceDependencies??[]; Origins=origins; Reverse=reverse??[]; Crosses=crosses??[];this.constants=constants??new ReadOnlyDictionary<string,object?>(new Dictionary<string,object?>()); hasAccountParameters=this.constants.Values.Any(value=>value is FixedConditionSqlPlan.AccountParameter); }
     /// <summary>投影视图复用不可变范围及依赖；执行时只选择预编译联接片段，不重新解析元数据。</summary>
     private MySqlNonRedundantReadPlan(MySqlNonRedundantReadPlan plan,string[] outputs,IReadOnlyList<MySqlPhysicalReference>? physicalReferences=null,IReadOnlyDictionary<string,object?>? boundConstants=null)
     {
         HasPublishedCandidateCondition=plan.HasPublishedCandidateCondition;
-        RequiredMultiParent=plan.RequiredMultiParent;CandidateParents=plan.CandidateParents;CandidateActor=plan.CandidateActor;AggregateFrom=plan.AggregateFrom;CascadeLabelOutputs=plan.CascadeLabelOutputs;CascadeLabelPages=plan.CascadeLabelPages;CascadeCacheOwnerFields=plan.CascadeCacheOwnerFields;ImportMatchLock=plan.ImportMatchLock;RuleOutputAliases=plan.RuleOutputAliases;StorageOutputs=plan.StorageOutputs;RequiresPublishedProjectIdentity=plan.RequiresPublishedProjectIdentity;MaintenanceFrom=plan.MaintenanceFrom;From=plan.From;ProjectId=plan.ProjectId;Scope=plan.Scope;Expressions=plan.Expressions;Types=plan.Types;Outputs=Array.AsReadOnly(outputs);ArrayNamePredicates=plan.ArrayNamePredicates;MultiProjections=plan.MultiProjections;ArrayIdPredicates=plan.ArrayIdPredicates;PhysicalReferences=physicalReferences??plan.PhysicalReferences;SourceDependencies=plan.SourceDependencies;Origins=plan.Origins;Reverse=plan.Reverse;Crosses=plan.Crosses; constants=boundConstants??plan.constants; hasAccountParameters=boundConstants is null&&plan.hasAccountParameters; ScalarCacheTarget=plan.ScalarCacheTarget;
+        RequiredMultiParent=plan.RequiredMultiParent;CandidateParents=plan.CandidateParents;CandidateActor=plan.CandidateActor;AggregateFrom=plan.AggregateFrom;CascadeLabelOutputs=plan.CascadeLabelOutputs;CascadeLabelPages=plan.CascadeLabelPages;CascadeCacheOwnerFields=plan.CascadeCacheOwnerFields;ImportMatchLock=plan.ImportMatchLock;RuleOutputAliases=plan.RuleOutputAliases;StorageOutputs=plan.StorageOutputs;RequiresPublishedProjectIdentity=plan.RequiresPublishedProjectIdentity;MaintenanceFrom=plan.MaintenanceFrom;From=plan.From;ProjectId=plan.ProjectId;Scope=plan.Scope;Expressions=plan.Expressions;Types=plan.Types;Outputs=Array.AsReadOnly(outputs);ArrayNamePredicates=plan.ArrayNamePredicates;MultiProjections=plan.MultiProjections;ArrayIdSources=plan.ArrayIdSources;PhysicalReferences=physicalReferences??plan.PhysicalReferences;SourceDependencies=plan.SourceDependencies;Origins=plan.Origins;Reverse=plan.Reverse;Crosses=plan.Crosses; constants=boundConstants??plan.constants; hasAccountParameters=boundConstants is null&&plan.hasAccountParameters; ScalarCacheTarget=plan.ScalarCacheTarget;
     }
     /// <summary>缓存传播只读取稳定主键和本次允许的输出，未知字段不能变成新的读取权限。</summary>
     internal MySqlNonRedundantReadPlan ForCacheFields(IReadOnlySet<string> fields)
@@ -116,7 +116,7 @@ public sealed class MySqlNonRedundantReadPlan
     /// <summary>全局来源只属于编译目录；覆盖项目参数不能切换其身份权威。</summary>
     internal bool RequiresPublishedProjectIdentity {get;init;}
     internal IReadOnlyDictionary<string,string> ArrayNamePredicates {get;}
-    internal IReadOnlyDictionary<string,string> ArrayIdPredicates {get;}
+    internal IReadOnlyDictionary<string,string> ArrayIdSources {get;}
     internal IReadOnlyDictionary<string,MySqlMultiProjection> MultiProjections {get;}
     /// <summary>仅规则实体用途覆盖输出；逻辑筛选表达式保持原计划，不把原始存储值当逻辑祖先。</summary>
     internal IReadOnlyDictionary<string,string> StorageOutputs { get; private init; } = FrozenDictionary<string,string>.Empty;
@@ -313,7 +313,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly HashSet<string> globalDerivedAliases=new(StringComparer.Ordinal);
         private bool publishedArrayIdentity;
         private readonly Dictionary<string,string> multiPredicates=new(StringComparer.Ordinal);
-        private readonly Dictionary<string,string> idPredicates=new(StringComparer.Ordinal);
+        private readonly Dictionary<string,string> idSources=new(StringComparer.Ordinal);
         private readonly Dictionary<string,MySqlMultiProjection> multiProjections=new(StringComparer.Ordinal);
         private readonly HashSet<string> resolving=new(StringComparer.Ordinal);
         private readonly bool scopedPhysicalCandidate;
@@ -475,7 +475,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 ? new MySqlMaintenanceReadFrom(" FROM " + Q(root.TableName) + " " + rootAlias,
                     aggregateJoins.Select(join => (join.Sql, (IEnumerable<string>)aggregateFields[join.Alias])))
                 : null;
-            return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idPredicates[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reversePlans),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants),System.Array.AsReadOnly(sourceDependencies.Order(StringComparer.Ordinal).ToArray()),refreshFields is null?null:new MySqlMaintenanceReadFrom(" FROM "+Q(root.TableName)+" "+rootAlias,maintenanceJoins.Select(join=>(join.Sql,(IEnumerable<string>)aliasFields[join.Alias].Keys)))){HasPublishedCandidateCondition=CrossCandidateCondition is not null||
+            return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idSources.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idSources[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reversePlans),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants),System.Array.AsReadOnly(sourceDependencies.Order(StringComparer.Ordinal).ToArray()),refreshFields is null?null:new MySqlMaintenanceReadFrom(" FROM "+Q(root.TableName)+" "+rootAlias,maintenanceJoins.Select(join=>(join.Sql,(IEnumerable<string>)aliasFields[join.Alias].Keys)))){HasPublishedCandidateCondition=CrossCandidateCondition is not null||
                 MultiCandidateParent is {Logical:true}&&ScopedRootControls.Count>0,RequiredMultiParent=MultiParentOwner is null?MultiCandidateParent?.Target.ColumnName:null,CandidateParents=candidateParents,AggregateFrom=aggregateFrom,CascadeLabelOutputs=cascadeLabelOutputs.ToFrozenSet(StringComparer.OrdinalIgnoreCase),CascadeLabelPages=cascadeLabelPages.ToFrozenSet(StringComparer.Ordinal),CascadeCacheOwnerFields=cascadeCacheOwnerFields.ToFrozenSet(StringComparer.Ordinal),ImportMatchLock=importLock,ScalarCacheTarget=maintenanceJoins.Count==1?scalarCacheTarget:null,RequiresPublishedProjectIdentity=globalSource||globalDerivedSource||physicalCandidate||trackReverse&&globalDerivedAliases.Count>0||publishedArrayIdentity||scopedGlobalCrossTarget};
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
@@ -576,10 +576,10 @@ public static partial class MySqlNonRedundantReadCompiler
                         if(refreshFields is not null&&alias!=rootAlias&&(column.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList"||column.LogicalType is "json" or "binary"))throw new NotSupportedException("维护派生文件或数组路径需要独立事务合同，未执行部分回填。");
                         Use(table,column);Touch(alias,column.ColumnName);origin=new(table.TableName,column.ColumnName);physicalOriginAlias=alias;
                         var expression=alias+"."+Q(column.ColumnName);
-                        if(alias==rootAlias&&column.ControlKind=="MultiCheckBoxDatabase"&&column.ColumnName.EndsWith("_ids",StringComparison.Ordinal))
+                        if (alias == rootAlias && MetadataStoragePolicy.IsMultiIdRelation(column))
                         {
-                            if(column.LogicalType!="string")throw new NotSupportedException("数据库复选必须以字符串保存JSON ID数组。");
-                            idPredicates[expression]=ArrayMember(Array(expression),"{parameter}");
+                            if (column.LogicalType != "string") throw new NotSupportedException("多值关系必须以字符串保存 JSON ID 数组。");
+                            idSources[expression] = Array(expression);
                         }
                         return(expression,column.LogicalType);
                     }
@@ -674,7 +674,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private static string Array(string source)=>"CASE WHEN JSON_VALID("+source+") THEN CASE WHEN JSON_TYPE("+source+")='ARRAY' THEN "+source+" ELSE '[]' END ELSE '[]' END";
         /// <summary>同时匹配旧数值／字符串ID，二进制比较避免尾空格或子串误命中；表达式只来自固定计划。</summary>
         // 验收库8.4.11中WHERE EXISTS的JSON_TABLE漏判多来源行；有界标量查询保持逐行相关执行。
-        private static string ArrayMember(string array,string parameter)=>"((SELECT 1 FROM JSON_TABLE("+array+", '$[*]' COLUMNS(member_id VARCHAR(32) PATH '$' NULL ON ERROR)) checkbox_ids WHERE CAST(checkbox_ids.member_id AS BINARY)=CAST("+parameter+" AS BINARY) LIMIT 1) IS NOT NULL)";
+        private static string ArrayMember(string array, string parameter) => JsonArrayNameQuery.ArrayMemberSql(array, parameter);
         /// <summary>按原优先级解析明确单值关系，所有目标必须在同项目内。</summary>
         private TableMetadata Target(ColumnMetadata relation)
         {

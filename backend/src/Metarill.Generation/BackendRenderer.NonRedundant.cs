@@ -282,7 +282,12 @@ internal static class GeneratedNonRedundantReadCatalog
             var like=TextPatternColumn(model,page,column);
             var blankCheck=like&&!column.IsManagedMultiNames&&!column.IsJsonArray?"Metarill.Data.Queries.StringNameQuery.IsPatternBlank":"string.IsNullOrWhiteSpace";
             result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {").AppendLine($"                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&{blankCheck}(filter.Value.GetString())||filter.Value.ValueKind==JsonValueKind.Array&&filter.Value.GetArrayLength()==0)break;");
-            if(DatabaseCheckboxCompilation.Generic(table,column))result.AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayHasId,Metarill.Core.Contracts.DatabaseCheckboxValue.ReadId(filter.Value)));break;");
+            var multiIdCheckbox = ControlRenderer.UsesMultiIdCheckboxFilter(column);
+            if (table.Source.IsRongyu == 0 && multiIdCheckbox)
+                result.AppendLine("                    var selectedIds = Metarill.Core.Contracts.DatabaseCheckboxValue.ReadSelected(filter.Value);")
+                    .AppendLine($"                    if (selectedIds.Length > 0) result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayHasAnyId,selectedIds));")
+                    .AppendLine("                    break;");
+            else if(DatabaseCheckboxCompilation.Generic(table,column)&&!multiIdCheckbox)result.AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayHasId,Metarill.Core.Contracts.DatabaseCheckboxValue.ReadId(filter.Value)));break;");
             else if(column.IsManagedMultiNames&&DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.Names.Source.Id==column.Source.Id))result.AppendLine("                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException(\"复选名称筛选只接受文本。\");").AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayAnyContains,filter.Value.GetString()!));break;");
             else if(column.Source.ControlKind=="CascadeTree")result.AppendLine("                    break;");
             else if (column.Type == "DateTime?")

@@ -73,6 +73,11 @@ public static class MetadataStoragePolicy
     public static MetadataStoragePlan ForTable(MetadataCatalog catalog,TableMetadata table)=>Compile(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
     /// <summary>原始业务_id本身不是关系，必须有明确控件、关联表或关联页声明。</summary>
     public static bool IsRelationColumn(ColumnMetadata column)=>RelationKinds.Contains(column.ControlKind)||column.LinkConfigTableId.Length>0||Text(column,"joinTable").Length>0||Text(column,"linkConfigPageId").Length>0;
+    /// <summary>原显式多值关系列可使用专用多选控件或有真实关联声明的常量控件。</summary>
+    public static bool IsMultiIdRelation(ColumnMetadata column) => column.ColumnName.EndsWith("_ids", StringComparison.Ordinal) &&
+        (column.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase" ||
+         column.LogicalType == "string" && column.ControlKind is ("ConstList" or "ConstDownList") && IsRelationColumn(column));
+
     /// <summary>原多值名称仅追加s，已有s后缀保持；id展示不创建辅助列。</summary>
     private static string Auxiliary(ColumnMetadata column)
     {

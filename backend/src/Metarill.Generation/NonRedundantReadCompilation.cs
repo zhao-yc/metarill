@@ -323,6 +323,9 @@ internal static partial class NonRedundantReadCompilation
     /// <summary>读写共用同一关联目标；相互冲突的有效声明不能按不同优先级串表。</summary>
     private static void ValidateTargetDeclarations(GenerationModel model,ColumnModel relation,TableModel target)
     {
+        // 明确关联的常量控件从表或页声明确定目标，控件明细保存选项文本。
+        if (relation.Source.ControlKind is ("ConstList" or "ConstDownList") && MetadataStoragePolicy.IsMultiIdRelation(relation.Source))
+            return;
         if(string.IsNullOrWhiteSpace(relation.Source.ControlDetail))return;
         using var document=JsonDocument.Parse(relation.Source.ControlDetail);var definition=document.RootElement;
         if(definition.TryGetProperty("tableId",out var id)&&model.Tables.SingleOrDefault(table=>table.Source.Id==id.ToString()) is {} byId&&byId.Source.Id!=target.Source.Id)throw new InvalidOperationException("关联读取和写入目标声明不一致。");
