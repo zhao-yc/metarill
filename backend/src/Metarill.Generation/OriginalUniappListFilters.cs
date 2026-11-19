@@ -38,9 +38,16 @@ internal static partial class OriginalUniappListRenderer
                     _ => ConstantRange(column, detail)
                 };
                 data.Append(key).Append("Range:").Append(range).Append(',');
-                if (kind == "MultiCheckBoxDatabase" && table.Source.IsRongyu == 0 &&
-                    DatabaseCheckboxCompilation.Resolve(model, table, page, column).Definition is { } checkbox &&
-                    AppendDatabaseCheckboxFilterOptions(model, table, page, checkbox, requests) is { } scope)
+                var scope = kind switch
+                {
+                    "MultiCheckBoxDatabase" when table.Source.IsRongyu == 0 &&
+                        DatabaseCheckboxCompilation.Resolve(model, table, page, column).Definition is { } checkbox =>
+                        AppendDatabaseCheckboxFilterOptions(model, table, page, checkbox, requests),
+                    "MultiSelectPage" when MultiSelectCompilation.CheckboxFilterOptions(model, table, page, column) is { } selection =>
+                        AppendSelectionCheckboxFilterOptions(selection, requests),
+                    _ => null
+                };
+                if (scope is not null)
                 {
                     optionFields.Add(key + "Range");
                     checkboxOptions.Add(scope);
@@ -94,6 +101,26 @@ internal static partial class OriginalUniappListRenderer
         return new(markup.ToString(), data.ToString(), defaults.ToString(), methods.ToString(), requests.ToString(), reset.ToString(), page.Searchable.Count, optionFields.Distinct(StringComparer.Ordinal).ToArray(), remoteOptions, checkboxOptions);
     }
 
+    /// <summary>候选走目标多选页的授权分页；精确名称沿用原已选回读的文本合同。</summary>
+    private static CheckboxOptionScope AppendSelectionCheckboxFilterOptions(MultiSelectModel selection, StringBuilder requests)
+    {
+        var field = selection.Source.JsonName;
+        var targetParent = selection.TargetParentField;
+        var parent = selection.SameParent ? "that.parent_id" : targetParent is null ? "null" : $"that.filters?.[{J(targetParent)}]";
+        var options = J(new
+        {
+            field,
+            url = $"/admin/auto/{selection.Target.Source.TableName}/{selection.TargetPage.Source.Id}",
+            nameField = selection.Name.JsonName,
+            int32Name = selection.IntegerLabel && selection.Name.Type == "int?",
+            textNames = selection.TypedLabel && !selection.IntegerLabel,
+            requiresParent = selection.TargetParents.Count > 0,
+            limit = DatabaseCheckboxValue.MaximumItems
+        });
+        requests.AppendLine($"that.loadOriginalSelectionCheckboxOptions({options},{parent});");
+        return new(field, selection.SameParent, targetParent is null ? [] : [targetParent]);
+    }
+
     /// <summary>非冗余成员筛选复用原受权候选入口。列表只提交现有父级及页面开放的标量条件。</summary>
     private static CheckboxOptionScope? AppendDatabaseCheckboxFilterOptions(GenerationModel model, TableModel table, PageModel page,
         DatabaseCheckboxModel checkbox, StringBuilder requests)
@@ -101,9 +128,7 @@ internal static partial class OriginalUniappListRenderer
         var parent = checkbox.SourceParent;
         var forms = checkbox.Conditions?.Forms.Select(binding => binding.Column).DistinctBy(column => column.Source.Id).ToArray() ?? [];
         var filterFields = forms.Where(column => column.Source.Id != parent?.Source.Id).ToArray();
-        if (filterFields.Any(column => !page.Searchable.Any(field => field.Source.Id == column.Source.Id) ||
-            ControlRenderer.HasCheckboxArrayFilter(column) || column.Source.ControlKind == "CascadeTree" ||
-            SelectionNameFilterCompilation.UsesNameInput(model, page, column)))
+        if (filterFields.Any(column => !ControlRenderer.HasScalarSourceFilter(model, page, column)))
             return null;
 
         var key = checkbox.Source.JsonName;

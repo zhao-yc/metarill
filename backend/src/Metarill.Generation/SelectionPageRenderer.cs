@@ -120,7 +120,10 @@ internal static class SelectionPageRenderer
     {
         if(!page.Readable.Any(column=>column.Type is not ("int?" or "long?" or "long")&&
             MultiValueLabel.IsTyped(column.Source.LogicalType)))return [];
-        return model.Tables.SelectMany(source=>source.Pages.SelectMany(sourcePage=>MultiSelectCompilation.ForPage(model,source,sourcePage)))
+        return model.Tables.SelectMany(source => source.Pages.SelectMany(sourcePage =>
+                MultiSelectCompilation.ForPage(model, source, sourcePage).Concat(sourcePage.Searchable
+                    .Select(column => MultiSelectCompilation.CheckboxFilterOptions(model, source, sourcePage, column))
+                    .OfType<MultiSelectModel>())))
             .Where(definition=>definition.Target.Source.Id==table.Source.Id&&definition.TargetPage.Source.Id==page.Source.Id&&
                 definition.TypedLabel&&!definition.IntegerLabel)
             .Select(definition=>definition.Name).DistinctBy(column=>column.Source.Id).ToArray();

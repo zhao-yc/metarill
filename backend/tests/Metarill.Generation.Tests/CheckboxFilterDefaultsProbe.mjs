@@ -18,7 +18,8 @@ try {
   await page.flush()
   assert.deepEqual(plain(page.state.targetIdsRange), [], '关系配置明细不能变成候选标签')
   assert.deepEqual(plain(page.state.isActiveRange).map(option => option.value), [0, 1])
-  const initial = page.pages().at(-1)
+  const sourcePages = () => page.requests.filter(request => request.options.url.endsWith("/relation_source/201/page"))
+  const initial = sourcePages().at(-1)
   const selected = {
     targetIds: process.argv[3] === 'nonredundant' ? ['1', '9007199254740993'] : ['["1","9007199254740993"]'],
     billingMonth: ['2026-10'],
@@ -37,7 +38,7 @@ try {
   assert.deepEqual(plain(page.state.filters), {})
   page.state.filterList()
   await page.flush()
-  const cleared = page.pages().at(-1)
+  const cleared = sourcePages().at(-1)
   assert.notEqual(cleared, initial)
   assert.deepEqual(plain(cleared.options.data.filters), {})
   assert.deepEqual(plain(initial.options.data.filters), selected)

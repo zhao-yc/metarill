@@ -119,6 +119,12 @@ internal static class ControlRenderer
     internal static bool UsesMultiIdCheckboxFilter(ColumnModel column) =>
         HasCheckboxArrayFilter(column) && column.Type == "string?" && MetadataStoragePolicy.IsMultiIdRelation(column.Source);
 
+    /// <summary>关联候选只从本页真实的源值筛选取独立父级或表单参数。</summary>
+    internal static bool HasScalarSourceFilter(GenerationModel model, PageModel page, ColumnModel column) =>
+        page.Searchable.Any(field => field.Source.Id == column.Source.Id) && !column.IsJsonArray &&
+        !HasCheckboxArrayFilter(column) && column.Source.ControlKind != "CascadeTree" &&
+        !SelectionNameFilterCompilation.UsesNameInput(model, page, column);
+
     /// <summary>只为后端确实开放且前端已支持的筛选生成输入；复杂 JSON 控件不伪装成文本筛选。</summary>
     public static ControlResult RenderFilter(GenerationModel model, PageModel page, ColumnModel column)
     {

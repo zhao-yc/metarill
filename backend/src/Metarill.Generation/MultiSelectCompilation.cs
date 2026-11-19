@@ -42,6 +42,20 @@ internal static class MultiSelectCompilation
     internal static IReadOnlyList<MultiSelectModel> ForService(GenerationModel model, TableModel table, PageModel page) => table.Columns.Where(column => column.Source.ControlKind == "MultiSelectPage")
         .Select(column => Resolve(model, table, page, column, forService: true).Definition).OfType<MultiSelectModel>().ToArray();
 
+    /// <summary>非冗余显式复选使用已发布多选页；独立父级必须在本列表能取得实际标量。</summary>
+    internal static MultiSelectModel? CheckboxFilterOptions(GenerationModel model, TableModel table, PageModel page, ColumnModel source)
+    {
+        if (table.Source.IsRongyu != 0 || source.Source.ControlKind != "MultiSelectPage" ||
+            !ControlRenderer.UsesMultiIdCheckboxFilter(source) ||
+            SelectionNameFilterCompilation.EffectiveFilterKind(model, page, source) != "MultiSelectPage")
+            return null;
+        var definition = Resolve(model, table, page, source, forService: true).Definition;
+        if (definition?.TargetParentField is {} field &&
+            !page.Searchable.Any(column => column.JsonName == field && ControlRenderer.HasScalarSourceFilter(model, page, column)))
+            return null;
+        return definition;
+    }
+
     /// <summary>额外SQL或未知父映射返回明确缺口，保留原配置而不扩大候选范围。</summary>
     internal static MultiSelectResult Resolve(GenerationModel model, TableModel table, PageModel page, ColumnModel source, bool forService = false, bool rootDefinition = false)
     {

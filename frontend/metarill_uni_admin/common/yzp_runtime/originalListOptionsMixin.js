@@ -1,6 +1,12 @@
 import yzp from '@/common/yzp_runtime/yzp-runtime';
 
-/** 原下拉框仍消费原数组端点；内部隔离父/身份切换，退出只清理而不触发重新登录。 */
+/** ID 保留服务端十进制字符串，候选和父级都不能经过浮点近似。 */
+function isSelectionCheckboxId(value) {
+ return typeof value === 'string' && /^[1-9][0-9]{0,18}$/.test(value) &&
+  (value.length < 19 || value <= '9223372036854775807')
+}
+
+/** 原选项复用发布路由；父级和身份变化立即废弃请求。 */
 export function createOriginalListOptionsMixin({ targetParentFields = [], optionFields = [], checkboxOptionScopes = [] } = {}) {
  return {
   created() {
@@ -53,10 +59,66 @@ export function createOriginalListOptionsMixin({ targetParentFields = [], option
     if (typeof this.showSelectedOnly === 'boolean') this.showSelectedOnly = false
     this.closeChildDetailPopup?.()
    },
-   /** 同一固定选项端点只接受最新回执，卸载和换父会先失效再取消。 */
-   originalOptionRequest(options) {
+   /** 逐页取齐已发布的多选候选；高精度名称分批走原回读，只发布完整的一组结果。 */
+   loadOriginalSelectionCheckboxOptions(definition, parent) {
+    const { field, url, nameField, int32Name, textNames, requiresParent, limit } = definition
+    const key = 'selection-checkbox:' + field, range = field + 'Range'
+    const parentId = Number.isSafeInteger(parent) ? String(parent) : parent
+    if (requiresParent && !isSelectionCheckboxId(parentId)) return
+    const scope = requiresParent ? { parentId } : {}
+    const pageSize = 1000, labelsBatchSize = 200
+    const ids = new Set(), options = []
+    let total
+
+    const fail = (message = '多选候选响应不完整，请重试。') => {
+     this[range] = []
+     uni.showModal({showCancel: false, content: message})
+    }
+    const send = (path, data, accept) => this.originalOptionRequest({
+     url: url + path, method: 'POST', sendSessionId: true, data,
+     success(res) { if (res.code === 200) accept(res.data); else fail(res.msg) },
+     fail() { fail() }
+    }, key)
+
+    const appendLabel = row => {
+     const text = row[nameField]
+     if (text !== null && typeof text !== 'string' &&
+         !(int32Name && Number.isInteger(text) && text >= -2147483648 && text <= 2147483647)) return false
+     options.push({text: text === null ? '' : String(text), value: row.id})
+     return true
+    }
+    const loadLabels = (orderedIds, offset = 0) => {
+     const selectedIds = orderedIds.slice(offset, offset + labelsBatchSize)
+     if (selectedIds.length === 0) { this[range] = options; return }
+     send('/selection/selected', {...scope, selectedIds}, rows => {
+      if (!Array.isArray(rows) || rows.length !== selectedIds.length ||
+          !rows.every((row, index) => row?.id === selectedIds[index] && appendLabel(row))) { fail(); return }
+      loadLabels(orderedIds, offset + selectedIds.length)
+     })
+    }
+    const loadPage = pageNo => send('/page', {...scope, pageNo, pageSize, filters: {}, selectedIds: []}, page => {
+     if (!page || !Number.isSafeInteger(page.total) || page.total < 0) { fail(); return }
+     if (page.total > limit) { fail('多选候选超过' + limit + '项，请缩小目标页范围。'); return }
+     if (total === undefined) total = page.total
+     const pages = Math.ceil(total / pageSize)
+     if (page.total !== total || page.current !== pageNo || page.size !== pageSize || page.pages !== pages ||
+         !Array.isArray(page.records) || page.records.length !== Math.min(pageSize, total - (pageNo - 1) * pageSize)) {
+      fail(); return
+     }
+     for (const row of page.records) {
+      if (!isSelectionCheckboxId(row?.id) || ids.has(row.id) || (!textNames && !appendLabel(row))) { fail(); return }
+      ids.add(row.id)
+     }
+     if (pageNo < pages) loadPage(pageNo + 1)
+     else if (textNames) loadLabels([...ids])
+     else this[range] = options
+    })
+    return loadPage(1)
+   },
+   /** 同一候选请求只接受最新回执；独立字段共用目标路由时仍按字段隔离。 */
+   originalOptionRequest(options, key = options.url) {
     if (!this._originalListAlive || !this.hasOriginalListSession()) return
-    const key = options.url, old = this._originalOptionTasks.get(key), sequence = ++this._originalOptionSequence, identity = this.originalListIdentity()
+    const old = this._originalOptionTasks.get(key), sequence = ++this._originalOptionSequence, identity = this.originalListIdentity()
     this._originalOptionTasks.set(key, { sequence, task: null }); old?.task?.abort?.()
     const current = () => this._originalListAlive && this._originalOptionTasks.get(key)?.sequence === sequence && identity === this.originalListIdentity() && (typeof options.isCurrent !== 'function' || options.isCurrent())
     const task = yzp.request({ ...options, isCurrent: current, success: response => { if (current()) options.success?.(response) }, fail: error => { if (current()) options.fail?.(error) }, complete: value => { if (current()) options.complete?.(value) } })
