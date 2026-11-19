@@ -15,9 +15,9 @@ public sealed class FileMetadataContext
     internal bool NeedsFileReadSnapshot{get;}
     private readonly Dictionary<(string Project,string Table),IReadOnlyList<ColumnMetadata>> physicalColumns=[];
     private readonly Dictionary<(string Project,string Page,string Field),NonRedundantReadPlan> derivedExactPlans=[];
-    private readonly Dictionary<(string Project,string Page),(ColumnMetadata Column,bool Derived,bool Shared)> exactKinds=[];
+    private readonly Dictionary<(string Project,string Page),(ColumnMetadata Column,bool Derived,bool Shared,bool SelfTree)> exactKinds=[];
     /// <summary>物理外键槽可能是共享逻辑值；坏目录不能回退成物理比较。</summary>
-    internal (ColumnMetadata Column,bool Derived,bool Shared) ExactField(MetadataCatalog catalog,PageMetadata page)=>
+    internal (ColumnMetadata Column,bool Derived,bool Shared,bool SelfTree) ExactField(MetadataCatalog catalog,PageMetadata page)=>
         exactKinds.TryGetValue((catalog.YzProjectId,page.Id),out var kind)?kind:
             throw new NotSupportedException("文件来源没有固定精确范围证明。");
     private readonly Dictionary<(string Project,string Page),FilePageScope?> pageScopes=[];
@@ -86,8 +86,9 @@ public sealed class FileMetadataContext
             .Where(page=>physicalColumns[(catalog.YzProjectId,page.ConfigTableId)].Any(column=>column.ControlKind=="FileLibrary"))
             .Select(page=>pageScopes[(catalog.YzProjectId,page.Id)])).ToArray();
         HasLogicalFileParents=fileScopes.Any(scope=>scope is {Crosses.Count:>0});
-        NeedsFileReadSnapshot=HasLogicalFileParents||fileScopes.Any(scope=>scope?.LogicalConditionPlan is not null);
         foreach(var catalog in snapshots)foreach(var page in catalog.ConfigPages)CompileDerivedExact(catalog,page);
+        NeedsFileReadSnapshot=HasLogicalFileParents||fileScopes.Any(scope=>scope?.LogicalConditionPlan is not null)||
+            derivedExactPlans.Keys.Any(key=>exactKinds[(key.Project,key.Page)].SelfTree);
     }
     /// <summary>文件父范围和精确读取使用同一张已发布表的规范字段身份。</summary>
     internal static ColumnMetadata ResolveExactColumn(MetadataCatalog catalog,TableMetadata table,string field)=>
@@ -107,7 +108,9 @@ public sealed class FileMetadataContext
             var independent=group is null?NonRedundantReads.IndependentCrossExact(catalog,table,column.ColumnName):null;
             var cross=group is not null||independent is not null;
             var derived=cross||!physical.Any(item=>item.Id==column.Id);
-            exactKinds.Add((catalog.YzProjectId,page.Id),(column,derived,cross));
+            var selfTree=derived&&!cross&&CascadeTreeStorageColumns.IsLogicalNameField(table,
+                RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(item=>item.ConfigTableId==table.Id)),column.ColumnName);
+            exactKinds.Add((catalog.YzProjectId,page.Id),(column,derived,cross,selfTree));
             if(!derived)return;
             var scope=PageScope(catalog,page);
             var raw=scope.Crosses.SelectMany(cross=>cross.StorageNames).Distinct(StringComparer.Ordinal).ToArray();
@@ -119,7 +122,8 @@ public sealed class FileMetadataContext
                 bindings=[FileCrossParentScope.CompileBranch(catalog,table,page,control,independent,0,allowExactSource:true).Binding];
             }
             var match=cross?NonRedundantReads.CompileCrossExactMatch(catalog,table.Id,column.ColumnName,bindings):
-                NonRedundantReads.CompileMatch(catalog,table.Id,column.ColumnName);
+                selfTree?NonRedundantReads.CompileSelfTreeExactMatch(catalog,table.Id,page.Id):
+                    NonRedundantReads.CompileMatch(catalog,table.Id,column.ColumnName);
             if(match.OutputTypes[column.ColumnName]!=column.LogicalType)throw new NotSupportedException("文件来源派生匹配类型不一致。");
             // 固定逻辑范围已由独立成员查询核验；精确范围计划不将其再次作为物理筛选字段。
             var dependencies=new[]{column.ColumnName}.Concat(scope.LogicalConditionPlan is null?scope.ConditionFields:[]).Distinct(StringComparer.Ordinal).ToArray();
@@ -129,8 +133,8 @@ public sealed class FileMetadataContext
                     .Concat(scope.Parents.Select(parent=>parent.Source.ColumnName)).Concat(scope.GlobalParents.Select(parent=>parent.ColumnName))
                     .Concat(raw).Distinct(StringComparer.Ordinal).ToArray();
                 // 逻辑权限走同一条件；后续父链检查仍消费实际稀疏存储位。
-                var plan=raw.Length==0?NonRedundantReads.CompileWithCrossTables(catalog,table.Id,names,bindings,dependencies):
-                    NonRedundantReads.CompileRuleRecord(catalog,table.Id,names,raw,bindings,dependencies);
+                var plan=raw.Length==0?NonRedundantReads.CompileWithCrossTables(catalog,table.Id,names,bindings,dependencies,deferCascadeNames:selfTree):
+                    NonRedundantReads.CompileRuleRecord(catalog,table.Id,names,raw,bindings,dependencies,deferCascadeNames:selfTree);
                 derivedExactPlans.Add((catalog.YzProjectId,page.Id,file.Id),plan);
             }
         }

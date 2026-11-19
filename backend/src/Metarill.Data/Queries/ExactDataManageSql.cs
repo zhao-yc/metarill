@@ -54,7 +54,11 @@ public static class ExactDataManageSql
         // 完整替换参数名，目标页固定条件与不同权限用途的参数互不覆盖。
         sql=Regex.Replace(sql,"@([A-Za-z_][A-Za-z0-9_]*)",match=>replacements.TryGetValue(match.Groups[1].Value,out var name)
             ?provider.ParameterPlaceholder(name):match.Value,RegexOptions.CultureInvariant);
-        if(cross&&locking)query=query.WithTransaction(session.CurrentTransaction);
+        if(locking)
+        {
+            sql=MySqlNonRedundantReadCompiler.LockSelfTreeReads(sql);
+            query=query.WithTransaction(session.CurrentTransaction);
+        }
         return query.As(outer).Where(sql,parameters);
     }
     /// <summary>只接收生成期固定物理列/前缀；值永不进入SQL语法，空集合固定不匹配。</summary>

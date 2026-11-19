@@ -87,6 +87,14 @@ internal static partial class NonRedundantReadCompilation
             MultiGlobalParentCompilation.PhysicalSingleTarget(model,table,page) is not null)||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
     /// <summary>所有实体写入复用同一存储计划，不把读取派生属性持久化。</summary>
     internal static bool Physical(GenerationModel model,TableModel table,ColumnModel column)=>MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column.Source);
+    /// <summary>仅识别本页声明的非冗余叶名，不从请求或显示列推断精确范围。</summary>
+    internal static ColumnModel? SelfTreeExactColumn(TableModel table,PageModel page)
+    {
+        var column=ExactDataManageCompilation.MatchColumn(table,page);
+        return column is not null&&CascadeTreeStorageColumns.IsLogicalNameField(table.Source,
+            table.Columns.Select(item=>item.Source),column.Source.ColumnName)?column:null;
+    }
+
     /// <summary>固定叶名与目标页一起发布；仅显示、顺序等范围不变的页面覆盖可以继续使用表级读取定义。</summary>
     internal static IReadOnlyList<CascadeTreeReadModel> SelfTreeNameQueries(GenerationModel model, TableModel table, PageModel page)
     {
@@ -94,6 +102,8 @@ internal static partial class NonRedundantReadCompilation
         var fields = page.Searchable.Concat(page.Sortable)
             .Concat(FixedPageQueryCompilation.For(table, page).DefaultOrder.Select(order => order.Column))
             .Select(column => column.Source.ColumnName).Concat(page.Condition is { } condition ? condition.SelfTreeFields : Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal);
+        var exactName=SelfTreeExactColumn(table,page)?.Source.ColumnName;
+        if(exactName is not null)fields.Add(exactName);
         var result = new List<CascadeTreeReadModel>();
         foreach (var tree in CascadeTreeReadCompilation.ForService(model, table, page))
         {
@@ -103,7 +113,7 @@ internal static partial class NonRedundantReadCompilation
             if (baseline is null || baseline.TargetPage.Source.Id != tree.TargetPage.Source.Id ||
                 baseline.Parent.Source.Id != tree.Parent.Source.Id || baseline.Name.Source.Id != tree.Name.Source.Id)
                 throw new InvalidOperationException("自树名称查询必须与页面实际目标页、父字段及名称字段一致。");
-            if(page.Condition?.SelfTreeFields.Contains(name.Source.ColumnName)==true)
+            if(name.Source.ColumnName==exactName||page.Condition?.SelfTreeFields.Contains(name.Source.ColumnName)==true)
             {
                 var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==tree.Source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
                 if(!CrossTableStorageColumns.KeepsDefinition(tree.Source.Source.ControlDetail,overlay))

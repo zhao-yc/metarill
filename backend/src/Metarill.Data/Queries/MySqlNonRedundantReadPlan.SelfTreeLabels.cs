@@ -75,6 +75,12 @@ public static partial class MySqlNonRedundantReadCompiler
         column.LogicalType is "string" or "int64"&&column.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
         !ExactDataManageValues.IsSensitiveField(column.ColumnName);
 
+    // 固定SQL模板标识内层节点读取；外层锁不会传递到递归路径和子查询。
+    private const string SelfTreeLockMarker=" /*metarill:self-tree-current*/";
+
+    /// <summary>写事务的当前读同时锁定实际参与判定的叶和祖先，普通快照保留原读取语义。</summary>
+    internal static string LockSelfTreeReads(string sql)=>sql.Replace(SelfTreeLockMarker," FOR SHARE",StringComparison.Ordinal);
+
     private sealed partial class Builder
     {
         private int selfTreeLabelCount;
@@ -238,25 +244,25 @@ public static partial class MySqlNonRedundantReadCompiler
             var label=MySqlMultiValueLabel.Text(nodeName,proof.Name.LogicalType);
             var empty=publishedPageId is not null&&control.LogicalType=="string"?" WHEN BINARY "+source+"=BINARY '' THEN ''":"";
             return "CASE"+empty+" WHEN "+reachesRoot+" THEN (SELECT "+label+nodeFrom+
-                " WHERE BINARY CAST("+display+".`id` AS CHAR)=BINARY "+leafKey+" LIMIT 1) END";
+                " WHERE BINARY CAST("+display+".`id` AS CHAR)=BINARY "+leafKey+" LIMIT 1"+SelfTreeLockMarker+") END";
 
             // 同一拓扑用于实际可见读取和失效后的反向定位。
             string WalkCte(string seedScope,string ancestorScope)=>
-                "WITH RECURSIVE "+walk+"(node_id,parent_key,depth,seen) AS (SELECT "+seed+".`id`,"+
+                "WITH RECURSIVE "+walk+"(node_id,parent_key,depth,seen) AS ((SELECT "+seed+".`id`,"+
                 seed+"."+Q(proof.Parent.ColumnName)+",1,JSON_ARRAY(CAST("+seed+".`id` AS CHAR)) FROM "+targetTable+" "+seed+
-                " WHERE BINARY CAST("+seed+".`id` AS CHAR)=BINARY "+leafKey+WithScope(seedScope)+
-                " UNION ALL SELECT "+ancestor+".`id`,"+ancestor+"."+Q(proof.Parent.ColumnName)+","+walk+".depth+1,"+
+                " WHERE BINARY CAST("+seed+".`id` AS CHAR)=BINARY "+leafKey+WithScope(seedScope)+SelfTreeLockMarker+
+                ") UNION ALL (SELECT "+ancestor+".`id`,"+ancestor+"."+Q(proof.Parent.ColumnName)+","+walk+".depth+1,"+
                 "JSON_ARRAY_APPEND("+walk+".seen,'$',CAST("+ancestor+".`id` AS CHAR)) FROM "+walk+" JOIN "+targetTable+" "+ancestor+
                 " ON BINARY CAST("+ancestor+".`id` AS CHAR)=BINARY "+PositiveText("CAST("+walk+".parent_key AS CHAR)")+
                 " WHERE "+walk+".depth<"+max+" AND NOT JSON_CONTAINS("+walk+".seen,JSON_QUOTE(CAST("+ancestor+".`id` AS CHAR)))"+
-                WithScope(ancestorScope)+") ";
+                WithScope(ancestorScope)+SelfTreeLockMarker+")) ";
 
             string NodeScope(string alias)
             {
                 // 候选仅在本节点命中时通过，根、叶和每个祖先都执行同页逻辑条件。
                 if(fixedTarget is not null)
                     return "EXISTS (SELECT 1"+fixedTarget.From+" WHERE "+fixedTarget.Expression("id")+"="+alias+".`id`"+
-                        WithScope(fixedTarget.Scope)+")";
+                        WithScope(fixedTarget.Scope)+SelfTreeLockMarker+")";
                 var scope=Scope(proof.Target,alias,projectScoped:!global);
                 if(proof.Condition is null)return scope;
                 var condition=CascadeLabelCondition(proof.Target,proof.Page,proof.Condition,alias,"mt_"+alias,cacheOwner);

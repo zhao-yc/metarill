@@ -271,16 +271,18 @@ public sealed class CascadeMultiLabelGenerationTests
 
     /// <summary>精确匹配与级联条件同时进入真实生成宿主，跨表和自树沿原路径读取。</summary>
     [Theory]
-    [InlineData(0,true,false)]
-    [InlineData(1,false,false)]
-    [InlineData(0,false,true)]
-    public Task Multi_exact_scope_combines_cascade_conditions(int mode,bool selfTree,bool logicalParent)=>
+    [InlineData(0,true,false,false)]
+    [InlineData(1,false,false,false)]
+    [InlineData(0,false,true,false)]
+    [InlineData(0,true,false,true)]
+    [InlineData(1,true,false,true)]
+    public Task Multi_exact_scope_combines_cascade_conditions(int mode,bool selfTree,bool logicalParent,bool exactLeaf)=>
         CompileCascadeLabel("MultiSelectPage",mode,selfTree,indirect:false,account:true,selectedPage:true,
-            physical:logicalParent, parent:logicalParent, logicalParent:logicalParent, importLogical:logicalParent, exact:true);
+            physical:logicalParent, parent:logicalParent, logicalParent:logicalParent, importLogical:logicalParent, exact:true, exactLeaf:exactLeaf);
 
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
         bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
-        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false)
+        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -427,7 +429,7 @@ public sealed class CascadeMultiLabelGenerationTests
         RedundantMultiNameCacheTests.Published(catalog);
         if(exact)
         {
-            var match=logicalParent||selfTree?"name":"country_name";
+            var match=exactLeaf?"tree_name":logicalParent||selfTree?"name":"country_name";
             catalog.ConfigPages.Single(page=>page.Id==targetPage).Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(match);
             foreach(var admin in catalog.YzAdminTypes)
                 admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
@@ -521,7 +523,25 @@ public sealed class CascadeMultiLabelGenerationTests
                 Assert.Contains("PageAsync(MultiImportReadPlan901_95.BindAccount(actor)",code);
                 Assert.Contains("condition:importCondition,currentRead:true",code);
             }
-            RuntimeHelpers.RunClassConstructor(assembly.GetType(ns+".Generated.Services.LabelCrossSourceService",true)!.TypeHandle);
+            var targetService=assembly.GetType(ns+".Generated.Services.LabelCrossSourceService",true)!;
+            RuntimeHelpers.RunClassConstructor(targetService.TypeHandle);
+            if(exactLeaf)
+            {
+                const System.Reflection.BindingFlags planFlags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+                const System.Reflection.BindingFlags instanceFlags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                var plan=Assert.IsType<NonRedundantReadPlan>(targetService.GetField("ExactReadPlan201",planFlags)!.GetValue(null));
+                Assert.Equal("string",plan.OutputTypes["tree_name"]);
+                var targetSql=typeof(NonRedundantReadPlan).GetProperty("MySql",instanceFlags)!.GetValue(plan)!;
+                var expression=Assert.IsType<string>(targetSql.GetType().GetMethod("Expression",instanceFlags)!.Invoke(targetSql,["tree_name"]));
+                Assert.Contains("WITH RECURSIVE",expression);
+                Assert.Contains("`delete_no` IS NULL",expression);
+                var locking=typeof(MySqlNonRedundantReadPlan).Assembly.GetType("Metarill.Data.Queries.MySqlNonRedundantReadCompiler",true)!
+                    .GetMethod("LockSelfTreeReads",planFlags)!;
+                var current=Assert.IsType<string>(locking.Invoke(null,[expression]));
+                Assert.Contains("FOR SHARE) UNION ALL (SELECT ",current);
+                Assert.Contains("FOR SHARE)) SELECT",current);
+                Assert.Contains("LIMIT 1 FOR SHARE) END",current);
+            }
             if(indirect)RuntimeHelpers.RunClassConstructor(assembly.GetType(ns+".Generated.Services.LabelJoinService",true)!.TypeHandle);
             Assert.NotNull(consumer.GetMethod("Import901Async"));
             Assert.NotNull(consumer.GetMethod("Export901Async"));

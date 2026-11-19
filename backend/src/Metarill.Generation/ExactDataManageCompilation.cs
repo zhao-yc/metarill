@@ -6,7 +6,7 @@ using Metarill.Data.Queries;
 namespace Metarill.Generation;
 
 internal sealed record ExactDataManageModel(ColumnModel Column,string ManagerField,bool Derived,
-    IReadOnlyList<NonRedundantSingleTargetScope> SingleTargets,IReadOnlyList<CrossTableWriteModel>? CrossPlans,bool Shared);
+    IReadOnlyList<NonRedundantSingleTargetScope> SingleTargets,IReadOnlyList<CrossTableWriteModel>? CrossPlans,bool Shared,bool SelfTree);
 
 /// <summary>生成期固定精确范围字段；请求只能提供筛选值，不能替换账号字段或SQL表达式。</summary>
 internal static class ExactDataManageCompilation
@@ -40,30 +40,35 @@ internal static class ExactDataManageCompilation
                 ??throw new NotSupportedException("独立级联精确范围没有完整发布计划。")];
         }
         var derived=paths is not null||!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column.Source);
-        // 精确权限只编译匹配字段，但其单值关系必须沿用本页读取相同的发布目标和物理父键。
-        var singleTargets=derived&&paths is null?NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,[field]):[];
+        var selfTree=derived&&paths is null&&CascadeTreeStorageColumns.IsLogicalNameField(table.Source,table.Columns.Select(item=>item.Source),field);
+        // 自树从实际页面证明祖先链；普通单值关系沿用本页发布目标和物理父键。
+        var singleTargets=derived&&paths is null&&!selfTree?NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,[field]):[];
         if(derived)
         {
             var plan=paths is not null
                 ?NonRedundantReads.CompileCrossExactMatch(model.Catalog,table.Source.Id,field,NonRedundantCrossTableCompilation.Bindings(paths))
-                :singleTargets.Count>0
-                    ?NonRedundantReads.CompileProjectPage(model.Catalog,table.Source.Id,[field],[],[],singleTargets)
-                    :NonRedundantReads.CompileMatch(model.Catalog,table.Source.Id,field);
+                :selfTree
+                    ?NonRedundantReads.CompileSelfTreeExactMatch(model.Catalog,table.Source.Id,page.Source.Id)
+                    :singleTargets.Count>0
+                        ?NonRedundantReads.CompileProjectPage(model.Catalog,table.Source.Id,[field],[],[],singleTargets)
+                        :NonRedundantReads.CompileMatch(model.Catalog,table.Source.Id,field);
             if(plan.OutputTypes[field]!=column.Source.LogicalType)throw new InvalidOperationException("精确管理派生列与真实来源逻辑类型不一致。");
         }
         var manager=ExactDataManageValues.Field(Text(admin,"exactDataManageMatchField"));
         if(GenerationMetadataPublisher.IsSensitiveKey(column.Source.ColumnName)||manager.Length>0&&GenerationMetadataPublisher.IsSensitiveKey(manager))throw new InvalidOperationException("精确管理不能以凭据字段参与匹配。");
         _=ExactDataManageValues.Unrestricted.ReadLogical(column.Source.LogicalType);
-        return new(column,manager,derived,singleTargets,paths,shared is not null);
+        return new(column,manager,derived,singleTargets,paths,shared is not null,selfTree);
     }
     /// <summary>当前锁定只包含匹配字段的联接，保留共享、独立级联和原表级匹配路径。</summary>
-    internal static string MatchPlanCall(TableModel table,ExactDataManageModel exact)
+    internal static string MatchPlanCall(TableModel table,PageModel page,ExactDataManageModel exact)
     {
         var tableId=Literal(table.Source.Id);
         var field=Literal(exact.Column.Source.ColumnName);
         var outputs="new string[]{"+field+"}";
         if(exact.CrossPlans is not null)
             return $"CompileCross({tableId},{outputs},Array.Empty<string>(){NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans)})";
+        if(exact.SelfTree)
+            return $"CompileSelfTreeExactMatch({tableId},{Literal(page.Source.Id)})";
         if(exact.SingleTargets.Count>0)
             return $"CompileProjectPage({tableId},{outputs},Array.Empty<string>(),Array.Empty<NonRedundantCrossTableScope>(){NonRedundantReadCompilation.SingleTargetArgument(exact.SingleTargets)})";
         return $"CompileMatch({tableId},{field})";
@@ -78,7 +83,7 @@ internal static class ExactDataManageCompilation
         var definition=Resolve(model,table,page);if(definition is null)return "";
         var prefixHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(page.Source.Id+"|"+definition.Column.Source.ColumnName+"|"+prefix))).ToLowerInvariant()[..12];
         var plan=planReference??"ExactReadPlan"+page.Source.Id;
-        var boundPlan=definition.SingleTargets.Count>0?plan+".BindAccount("+actor+")":
+        var boundPlan=definition.SelfTree||definition.SingleTargets.Count>0?plan+".BindAccount("+actor+")":
             NonRedundantCrossTableCompilation.BoundPlan(definition.CrossPlans,plan,actor);
         var call=definition.Derived
             ? $"Metarill.Data.Queries.ExactDataManageSql.ApplyDerived({query}, session, {boundPlan}, {Literal(definition.Column.Source.ColumnName)}, {Literal("mt_e_"+prefixHash)}, {prefix}Scope.ReadLogical({Literal(definition.Column.Source.LogicalType)}), {actor}.ProjectId{(locking is null?"":",locking:"+locking)})"

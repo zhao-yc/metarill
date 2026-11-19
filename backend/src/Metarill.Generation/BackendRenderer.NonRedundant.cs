@@ -83,7 +83,11 @@ internal static partial class BackendRenderer
             .Where(multi=>multi.ExactTarget is not null&&(DerivedMultiNamesCompilation.UsesFixedRead(model,multi)||
                 multi.ImportCondition?.HasLogicalFields==true))
             .Select(multi=>(multi.Target,multi.TargetPage)).DistinctBy(item=>item.TargetPage.Source.Id).ToArray();
-        scopedPages=scopedPages.Concat(exactMultiTargets);
+        // 静态目录保留自树精确匹配页面，运行时从该页面重建已核对的叶名证明。
+        var exactTreePages=model.Tables.SelectMany(table=>table.Pages
+            .Where(page=>NonRedundantReadCompilation.SelfTreeExactColumn(table,page) is not null)
+            .Select(page=>(table,page)));
+        scopedPages=scopedPages.Concat(exactMultiTargets).Concat(exactTreePages);
         var hasExactCheckboxParent=checkboxScopes.Any(checkbox=>DerivedCheckboxNamesCompilation.HasExactLogicalParent(model,checkbox));
         var hasExactCheckboxMembership=checkboxScopes.Any(checkbox=>DerivedCheckboxNamesCompilation.ExactMembershipPage(model,checkbox) is not null);
         var nestedTables=RelationPropagationCompilation.PublishedRecursiveTables(model,scopedPages);
@@ -159,6 +163,8 @@ internal static class GeneratedNonRedundantReadCatalog
     internal static Metarill.Data.Queries.NonRedundantReadPlan Compile(string tableId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.Compile(Snapshot,tableId,outputs,dependencies,deferCascadeNames:true);
     /// <summary>匹配字段只编译一次；主记录和实际关联来源由专用写入计划锁定。</summary>
     internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMatch(string tableId,string field)=>Metarill.Data.Queries.NonRedundantReads.CompileMatch(Snapshot,tableId,field);
+    /// <summary>叶名精确匹配沿实际发布页及其完整自树路径。</summary>
+    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileSelfTreeExactMatch(string tableId,string pageId)=>Metarill.Data.Queries.NonRedundantReads.CompileSelfTreeExactMatch(Snapshot,tableId,pageId);
     /// <summary>固定派生多值名称与原候选范围共用静态计划。</summary>
     internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMultiLabel(string tableId,string field,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileMultiLabel(Snapshot,tableId,field,outputs,dependencies,singleTargets);
 {{derivedHelper}}{{helpers}}}
@@ -239,7 +245,7 @@ internal static class GeneratedNonRedundantReadCatalog
         var result=new StringBuilder().Append(FixedPageConditionCompilation.Declaration(page,"PageCondition"+suffix)).Append(NonRedundantCrossParentCompilation.Service(model,table,page));
         if(ExactDataManageCompilation.Resolve(model,table,page) is {Derived:true} exact)
             result.AppendLine("    /// <summary>匹配计划只含当前范围所需路径，避免锁住无关输出关系。</summary>")
-                .AppendLine($"    internal static readonly NonRedundantReadPlan ExactReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{ExactDataManageCompilation.MatchPlanCall(table,exact)};");
+                .AppendLine($"    internal static readonly NonRedundantReadPlan ExactReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{ExactDataManageCompilation.MatchPlanCall(table,page,exact)};");
         if(logicalCondition)
             result.AppendLine("    /// <summary>当前对象只锁定页面条件依赖的路径，不读取其它显示列。</summary>")
                 .AppendLine($"    private static readonly NonRedundantReadPlan CrossConditionPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{(CrossTableWriteCompilation.ForService(model,table,page).Count>0?"CompileCross":"Compile")}({Literal(table.Source.Id)},new string[]{{\"id\"}},new string[]{{{string.Join(",",page.Condition!.Syntax.Fields.Select(Literal))}}}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)});");

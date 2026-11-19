@@ -106,7 +106,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         return await OnConnection(async connection=>
         {
             var total=0L;
-            if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);BindCross(count,plan);BindCondition(count,conditionClause);BindCondition(count,parentClause);count.CommandText="SELECT COUNT(*)"+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+countFrom+(currentRead?" FOR SHARE":"");if(plan.Crosses.Count==0)total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);else{await using var counted=await count.ExecuteReaderAsync(cancellationToken);if(!await counted.ReadAsync(cancellationToken))throw new InvalidOperationException("跨表计数未返回结果。");RequireValidCross(counted,1);total=counted.GetInt64(0);}}
+            if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);BindCross(count,plan);BindCondition(count,conditionClause);BindCondition(count,parentClause);count.CommandText=LockTreeReads("SELECT COUNT(*)"+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+countFrom+(currentRead?" FOR SHARE":""),currentRead);if(plan.Crosses.Count==0)total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);else{await using var counted=await count.ExecuteReaderAsync(cancellationToken);if(!await counted.ReadAsync(cancellationToken))throw new InvalidOperationException("跨表计数未返回结果。");RequireValidCross(counted,1);total=counted.GetInt64(0);}}
             await using var read=Command(connection);Bind(read,projectId,filters);BindCross(read,plan);BindCondition(read,conditionClause);BindCondition(read,parentClause);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
             // 普通投影分页后批量补名；只有筛选/排序名称数组时使用预编译表达式，不按每行展开根查询。
             var multis=plan.Outputs.Where(name=>!plan.StorageOutputs.ContainsKey(name)&&plan.MultiProjections.ContainsKey(name)).ToArray();
@@ -143,7 +143,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
                 }
                 var fields=new Dictionary<string,string>(StringComparer.Ordinal);foreach(var pair in cross.RawSlots){string alias;do{alias="metarill_cross_input_"+ordinal++;}while(!used.Add(alias));fields.Add(pair.Key,alias);projection.Add(pair.Value+" AS "+Q(alias));}crossInputs.Add((cross,fields));
             }
-            read.CommandText="SELECT "+string.Join(",",projection)+from+" ORDER BY "+string.Join(",",orders)+(unpaged?"":" LIMIT @page_limit OFFSET @page_offset")+(rowLock??(currentRead?" FOR SHARE":""));
+            read.CommandText=LockTreeReads("SELECT "+string.Join(",",projection)+from+" ORDER BY "+string.Join(",",orders)+(unpaged?"":" LIMIT @page_limit OFFSET @page_offset")+(rowLock??(currentRead?" FOR SHARE":"")),currentRead);
             var records=new List<Dictionary<string,object?>>();
             await using(var reader=await read.ExecuteReaderAsync(cancellationToken))
                 while(await reader.ReadAsync(cancellationToken))
@@ -200,7 +200,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         {
             await using var command=Command(connection);Bind(command,projectId,[]);BindCross(command,plan);for(var index=0;index<batch.Length;index++)Add(command,"multi_id_"+index,batch[index]);
             for(var index=0;index<owners.Length;index++)Add(command,"multi_owner_"+index,owners[index] is {} value?value:DBNull.Value);
-            command.CommandText="SELECT multi_value.`id`,"+(projection.NameExpression??"multi_value."+projection.TargetName)+" FROM "+projection.TargetTable+" multi_value"+ownerSql+projection.Joins+" WHERE "+(projection.TargetScope.Length==0?"":projection.TargetScope+" AND ")+"multi_value.`id` IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@multi_id_"+index))+") ORDER BY multi_value.`id`"+(currentRead?" FOR SHARE":"");
+            command.CommandText=LockTreeReads("SELECT multi_value.`id`,"+(projection.NameExpression??"multi_value."+projection.TargetName)+" FROM "+projection.TargetTable+" multi_value"+ownerSql+projection.Joins+" WHERE "+(projection.TargetScope.Length==0?"":projection.TargetScope+" AND ")+"multi_value.`id` IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@multi_id_"+index))+") ORDER BY multi_value.`id`"+(currentRead?" FOR SHARE":""),currentRead);
             await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))names.Add(reader.GetInt64(0).ToString(System.Globalization.CultureInfo.InvariantCulture),await reader.IsDBNullAsync(1,token)?null:reader.GetString(1));
         }
         for(var index=0;index<rows.Count;index++){rows[index][output]=System.Text.Json.JsonSerializer.Serialize(members[index].Select(id=>id is null?null:names.GetValueOrDefault(id)).ToArray(),MultiNamesJson);rows[index].Remove(hidden);}
@@ -387,6 +387,10 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         return expression+(filter.Comparison switch{FixedReadComparison.Equal=>"=",FixedReadComparison.NotEqual=>"<>",FixedReadComparison.Greater=>">",FixedReadComparison.GreaterOrEqual=>">=",FixedReadComparison.Less=>"<",FixedReadComparison.LessOrEqual=>"<=",_=>throw new InvalidOperationException("未知固定筛选操作。")})+parameter;
     }
     /// <summary>同一已绑定父范围参与候选计数与明细；缺少真实账号时停止于创建命令之前。</summary>
+    /// <summary>根记录锁不覆盖自树子查询；仅在已验证的事务当前读入口展开节点锁。</summary>
+    private static string LockTreeReads(string sql,bool currentRead)=>
+        currentRead?MySqlNonRedundantReadCompiler.LockSelfTreeReads(sql):sql;
+
     private FixedConditionSqlPlan.Clause? CandidateParentClause(MySqlNonRedundantReadPlan plan,string projectId,bool currentRead)
     {
         if(plan.CandidateParents.Count==0)return null;

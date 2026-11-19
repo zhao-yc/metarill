@@ -20,7 +20,7 @@ public sealed class FilePageConditionTests
     }
     /// <summary>未接线的语法或值整页拒绝，不能只执行其中合法的父条件。</summary>
     [Theory]
-    [InlineData("status=@current_yz_manager_id")][InlineData("status=@formParameters.status")]
+    [InlineData("status=@current_merchant_id")][InlineData("status=@formParameters.status")]
     [InlineData("status IN(@parentId,1)")][InlineData("status=1 OR id=2")][InlineData("status=1;DELETE FROM child")]
     [InlineData("missing=1")][InlineData("status=2147483648")][InlineData("status=1.5")][InlineData("name=1")]
     [InlineData("attachments IS NOT NULL")][InlineData("extra_json IS NULL")]

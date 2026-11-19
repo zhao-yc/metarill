@@ -1,5 +1,6 @@
 using System.Globalization;
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
 
 namespace Metarill.Data.Queries;
 
@@ -273,6 +274,22 @@ public static class NonRedundantReads
     /// <summary>匹配计划只编译必要单值路径，并验证最终物理值，不能借别名匹配凭据或文件数组。</summary>
     public static NonRedundantReadPlan CompileMatch(MetadataCatalog metadata,string tableId,string field)=>metadata.DatabaseProvider switch
     {"mysql"=>new(MySqlNonRedundantReadCompiler.CompileMatch(metadata,tableId,field)),_=>throw new NotSupportedException("该数据库尚未完成固定匹配读取适配。")};
+
+    /// <summary>仅为真实发布页编译自树精确叶名，完整祖先可见性与固定页面条件沿用同一读计划。</summary>
+    public static NonRedundantReadPlan CompileSelfTreeExactMatch(MetadataCatalog metadata,string tableId,string pageId)
+    {
+        var table=metadata.ConfigTables.Single(item=>item.Id==tableId);
+        var page=metadata.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
+        var field=ExactDataManageValues.Field(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
+        var columns=RelationStorageColumns.Expand(table,metadata.ConfigColumns.Where(item=>item.ConfigTableId==tableId));
+        if(GlobalCrossTableTarget.Declared(table)||table.IsFunctionTable!=0||table.IsView!=0||
+            table.YzProjectId!=metadata.YzProjectId||page.YzProjectId!=metadata.YzProjectId||
+            !metadata.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==metadata.YzProjectId)||
+            !CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field))
+            throw new NotSupportedException("自树精确范围必须绑定本项目普通实体实际发布的叶名。");
+        return CompilePageMembership(metadata,table,page,[field],new HashSet<string>(StringComparer.Ordinal),
+            new HashSet<string>(StringComparer.Ordinal){field},[field],[field]);
+    }
 
     /// <summary>多值显示名称复用单值路径证明，另支持原生 TIME，不扩大精确数据管理的键类型。</summary>
     public static NonRedundantReadPlan CompileMultiLabel(MetadataCatalog metadata,string tableId,string field)=>metadata.DatabaseProvider switch
