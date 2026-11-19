@@ -165,6 +165,21 @@ internal static partial class BackendRenderer
     private static string Mapper(GenerationModel model, TableModel table)
     {
         var deleted = FixedPageQueryCompilation.SoftDeleteColumn(table);
+        var filter = deleted is null ? "" : $".Where(entity => entity.{deleted.Property} == null)";
+        var query = $"public ISelect<{table.EntityType}> Query() => session.Select<{table.EntityType}>(){filter};";
+        if (table.Source.IsView == 1)
+            return CSharpGenerator.Header + $$"""
+using FreeSql;
+using Metarill.Data;
+namespace {{model.Namespace}}.Generated.Mappers;
+
+/// <summary>复用已存在的数据库视图，生成入口只提供查询。</summary>
+public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
+{
+    {{query}}
+}
+
+""";
         return CSharpGenerator.Header + $$"""
 using FreeSql;
 using Metarill.Data;
@@ -175,7 +190,7 @@ namespace {{model.Namespace}}.Generated.Mappers;
 public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
 {
     /// <summary>创建仅包含未删除记录的查询起点。</summary>
-    public ISelect<{{table.EntityType}}> Query() => session.Select<{{table.EntityType}}>(){{(deleted is not null ? $".Where(entity => entity.{deleted.Property} == null)" : "")}};
+    {{query}}
     /// <summary>插入当前服务已验证的记录。</summary>
     public Task<int> InsertAsync({{table.EntityType}} entity, CancellationToken cancellationToken) => session.Insert<{{table.EntityType}}>().AppendData(entity).ExecuteAffrowsAsync(cancellationToken);
     /// <summary>仅更新服务列出的提交字段，禁止实体全量覆盖。</summary>
@@ -217,7 +232,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(FixedRoleCheckboxRenderer.Service(model,table,page));
             result.Append(FixedRoleAdminNameRenderer.Service(model,table,page));
             if(BusinessRecordButtons(model,page).Count>0)result.Append(FixedRoleAdminNameRenderer.ButtonService(model,table,page));
-            result.Append(BoundRelationValidationRenderer.Service(model, table, page)); result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(CrossTableExcelRenderer.Helpers(model,table,page)); result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page));
+            result.Append(BoundRelationValidationRenderer.Service(model, table, page)); result.Append(ExportRenderer.Service(model, table, page)); result.Append(ImportRenderer.Service(model, table, page)); result.Append(CrossTableExcelRenderer.Helpers(model,table,page));
+            // 只读视图可以保留记录页与手写动作授权，生成 Service 不提供写入入口。
+            if (table.Source.IsView == 0) { result.Append(Mutations(model, table, page)); result.Append(Copy(model, table, page)); }
         }
         result.Append(TimeFieldCompilation.PersistedValues(model,table));
         result.Append(TrustedSecurityProjectOptionsRenderer.Service(model,table));

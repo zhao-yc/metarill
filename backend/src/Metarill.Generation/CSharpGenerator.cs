@@ -194,7 +194,9 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
         foreach (var table in catalog.ConfigTables.OrderBy(x => x.TableName, StringComparer.Ordinal))
         {
             if (table.IsRongyu is not (0 or 1) && catalog.ConfigColumns.Any(column => column.ConfigTableId == table.Id && column.ControlKind == "MultiSelectPage")) throw new InvalidOperationException("未识别的多选存储模式。");
-            if (table.IsFunctionTable != 0 || table.IsView != 0) throw new InvalidOperationException($"首期生成器尚不支持函数表或视图：{table.TableName}");
+            if (table.IsFunctionTable != 0) throw new InvalidOperationException($"生成器尚未接入功能表：{table.TableName}");
+            if (table.IsView is not (0 or 1) || (table.IsView == 1 && table.IsRongyu != 1))
+                throw new InvalidOperationException($"数据库视图须使用已存在的物理投影：{table.TableName}");
             var columns = RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(x => x.ConfigTableId == table.Id)).Where(x=>x.IsVirtualColumn==0).OrderBy(x => x.SortNo).ThenBy(x => x.ColumnName, StringComparer.Ordinal)
                 .Select(x => new ColumnModel(x, Pascal(x.ColumnName), Camel(x.ColumnName), TypeFor(x))).ToArray();
             if (table.IsRongyu == 0 && columns.Any(column => column.Source.ControlKind is "Title" or "Tab"))
@@ -216,12 +218,17 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
                 bool Has(ColumnModel c, Func<PageColumnMetadata, bool> predicate) => fields.Any(f => f.ConfigColumnId == c.Source.Id && predicate(f));
                 var pageColumns = columns.OrderBy(c => fields.FirstOrDefault(f => f.ConfigColumnId == c.Source.Id)?.SortNo ?? int.MaxValue).ThenBy(c => c.Source.ColumnName, StringComparer.Ordinal).ToArray();
                 var readable = pageColumns.Where(c => !c.IsLayoutOnly && (c.IsId || Has(c, f => InGrid(f) || InEdit(f)))).ToArray();
-                var writable = pageColumns.Where(c => !c.IsLayoutOnly && !c.IsSystem && !Enabled(c.Source.Extra, "isJoinColumn") && Has(c, f => InEdit(f) && !Enabled(f.Extra, "isReadOnly"))).ToArray();
+                var writable = pageColumns.Where(c => table.IsView == 0 && !c.IsLayoutOnly && !c.IsSystem && !Enabled(c.Source.Extra, "isJoinColumn") && Has(c, f => InEdit(f) && !Enabled(f.Extra, "isReadOnly"))).ToArray();
                 var search = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSearch") || Enabled(f.Extra, "isInFilter"))).ToArray();
                 var sortable = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSort") || Enabled(c.Source.Extra, "isSort"))).ToArray();
                 var (scopes,condition) = FixedPageConditionCompilation.Compile(catalog,table,columns,page.WhereSql);
                 ValidateOrderBy(page.OrderBy, columns);
-                pageModels.Add(new PageModel(page, Pascal(table.TableName) + "Page" + page.Id, readable, writable, search, sortable, scopes, pageColumns.Where(c => Has(c, InGrid)).ToArray(), pageColumns.Where(c => Has(c, InEdit)).ToArray()){Condition=condition});
+                var compiledPage = new PageModel(page, Pascal(table.TableName) + "Page" + page.Id, readable, writable, search, sortable, scopes, pageColumns.Where(c => Has(c, InGrid)).ToArray(), pageColumns.Where(c => Has(c, InEdit)).ToArray()){Condition=condition};
+                // 视图的原只读页面可生成。显式写入配置须保留并告知配置者，不能悄悄裁掉已开的操作。
+                if (table.IsView == 1 && (page.IsNew != 0 || PageUpdatePolicy.CanUpdate(page) ||
+                    page.IsDelete != 0 || page.IsCopy != 0 || ImportRenderer.Enabled(compiledPage)))
+                    throw new InvalidOperationException($"只读数据库视图的页面须关闭新增、修改、删除、复制和导入：{table.TableName}/{page.Id}");
+                pageModels.Add(compiledPage);
             }
             result.Add(new TableModel(table, Pascal(table.TableName), columns, pageModels){RootNamespace=rootNamespace});
         }

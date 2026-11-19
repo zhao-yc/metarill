@@ -24,6 +24,12 @@ dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/meta
 
 平台生成下载 API 根据服务端已发布平台项目身份显式选择 BackendOnly，业务项目选择 FullApplication。ZIP 的 `.metarill-package.json`、README 与响应头 `X-Metarill-Package-Mode`、`X-Metarill-Frontend-Included`、`X-Metarill-Package-Warnings` 均记录模式；warnings 头为 URI 编码的 JSON 字符串数组。平台行为不由客户端另传模式或路径决定。
 
+## B298 数据库视图的只读页面
+
+在原表配置勾选「数据库视图」，按实际投影登记字段，并确保视图具有稳定、非空且唯一的整数 `id`。页面可继续配置查询条件、排序、可读字段和导出。视图投影包含项目归属时，普通业务页继续按真实项目过滤。视图定义由数据库负责维护，平台结构同步沿用现有的视图排除规则。
+
+只读视图要求关闭新增、修改、删除、复制与导入。旧 `isUpdate` 和现有保存开关沿用同一判定，配置开启写入时在生成前报告对应视图和页面。生成 Mapper 只提供查询，原列表、计数、详情、导出和页面权限继续复用。独立 Full 已通过严格构建，真实视图上的浏览器和 MySQL 联验留在后续阶段。
+
 ## 独立前端边界
 
 前端宿主保留登录表单、菜单展开/导航、请求 loading、错误提示及标准 list/detail 的交互，复用公共请求运行时、菜单状态机、FileLibrary、日期选择、搜索多选、Tiny Cloud 与 DCloud uni-ui。生成页面与页面写入 schema 只使用当前业务项目元数据。`pages.generated.json` 组装到独立宿主 `pages.json`，不复制平台配置页面；完整包仅额外复用原Agent授权/授权管理两页，普通前端片段包默认关闭该入口。

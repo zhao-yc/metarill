@@ -9,7 +9,7 @@ internal static class WriteSchemaRenderer
     /// <summary>生成静态客户端清单及宿主可直接公开的类型化字典。</summary>
     public static IEnumerable<PlannedFile> Render(GenerationModel model)
     {
-        var pages = model.Tables.SelectMany(table => table.Pages.Select(page => new
+        var pages = model.Tables.Where(table => table.Source.IsView == 0).SelectMany(table => table.Pages.Select(page => new
         {
             page.Source.Id,
             Route = "/admin/auto/" + table.Source.TableName + "/" + page.Source.Id,
