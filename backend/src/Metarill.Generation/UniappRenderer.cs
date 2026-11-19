@@ -15,9 +15,11 @@ internal static class UniappRenderer
         foreach(var page in table.Pages)
         {
             var stem=table.Source.TableName;var list=$"pages/yzp/{stem}-list-{page.Source.Id}";var detail=$"pages/yzp/{stem}-detail-{page.Source.Id}";
-            yield return new("frontend/"+list+".vue",OriginalUniappListRenderer.Render(presentation,table,page));
+            if (table.Source.IsFunctionTable == 0)
+                yield return new("frontend/"+list+".vue",OriginalUniappListRenderer.Render(presentation,table,page));
             yield return new("frontend/"+detail+".vue",OriginalUniappDetailRenderer.Render(presentation,table,page,children.Where(child=>child.Parent==page).ToArray()));
-            routes.Add(new{path=list,style=new{navigationBarTitleText=page.Source.Name,navigationStyle="custom",enablePullDownRefresh=true}});
+            if (table.Source.IsFunctionTable == 0)
+                routes.Add(new{path=list,style=new{navigationBarTitleText=page.Source.Name,navigationStyle="custom",enablePullDownRefresh=true}});
             routes.Add(new{path=detail,style=new{navigationBarTitleText=page.Source.Name,navigationStyle="custom"}});
         }
         // 固定可信模块才附带原自定义工作台路由；普通业务目录不能自报标记获得入口。

@@ -94,7 +94,7 @@ public sealed class MenuWorkbenchBusiness(SqlRowStore store,MetadataRepository m
         if(menu.ConfigPageId is{} id&&catalog.ConfigPages.FirstOrDefault(p=>p.Id==id)is{} page)
         {
             var table=catalog.ConfigTables.Single(t=>t.Id==page.ConfigTableId);
-            return new{route=Route(catalog,page),tableName=table.TableName,pageId=page.Id,tableId=page.ConfigTableId,countEndpoint="/admin/auto/"+table.TableName+"/"+page.Id+"/count"};
+            return new{route=Route(catalog,page),tableName=table.TableName,pageId=page.Id,tableId=page.ConfigTableId,countEndpoint=table.IsFunctionTable==1?null:"/admin/auto/"+table.TableName+"/"+page.Id+"/count"};
         }
         if(menu.ConfigCustomPageId is{} custom&&catalog.ConfigCustomPages.FirstOrDefault(p=>p.Id==custom)is{} target)return new{route=CustomRoute(target),pageId=target.Id};
         return null;
@@ -106,7 +106,12 @@ public sealed class MenuWorkbenchBusiness(SqlRowStore store,MetadataRepository m
         return "/"+path;
     }
     private bool CanRead(string pageId){try{authorization.RequirePagePermission(pageId,"list");return true;}catch(UnauthorizedAccessException){return false;}}
-    public static string Route(MetadataCatalog catalog,PageMetadata page)=>"/pages/yzp/"+catalog.ConfigTables.Single(t=>t.Id==page.ConfigTableId).TableName+"-list-"+page.Id;
+    /// <summary>功能表的原菜单直达详情，无业务记录列表。</summary>
+    public static string Route(MetadataCatalog catalog,PageMetadata page)
+    {
+        var table=catalog.ConfigTables.Single(t=>t.Id==page.ConfigTableId);
+        return "/pages/yzp/"+table.TableName+(table.IsFunctionTable==1?"-detail-":"-list-")+page.Id;
+    }
     public static string Revision(MetadataCatalog catalog)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{menus=catalog.ConfigMenus.OrderBy(m=>m.Id,StringComparer.Ordinal),pages=catalog.ConfigPages.OrderBy(p=>p.Id,StringComparer.Ordinal)},JsonDefaults.Options)))).ToLowerInvariant();
     public static void Validate(MetadataCatalog catalog)
     {

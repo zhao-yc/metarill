@@ -45,6 +45,7 @@ public sealed class OriginalBusinessButtonExecutor(IAgentHostResources resources
         if(button.Page.RequiresParent)throw new NotSupportedException("该原按钮尚缺父范围传递协议，未执行业务。");
         long id=0;
         if(!button.Page.IsFunctionTable)id=CanonicalId(request.EntityId);
+        else if(!string.IsNullOrEmpty(request.EntityId))throw new ArgumentException("功能表按钮不接受实体ID。");
         if(request.Entity is{} entity&&entity.ValueKind!=JsonValueKind.Null)
         {
             if(entity.ValueKind!=JsonValueKind.Object)throw new ArgumentException("按钮实体必须是对象。");

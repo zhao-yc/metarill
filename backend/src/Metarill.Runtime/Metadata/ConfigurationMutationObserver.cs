@@ -38,8 +38,9 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
         if(context.TableName=="config_table")
         {
             var table=(await store.ReadAsync("config_table",new Dictionary<string,object?>{{"id",context.RecordId}},cancellationToken)).Single();
-            // 默认系统列只属于本次新表创建，普通更新不能补齐有意省略或软删的历史定义。
-            if(context.IsCreate)
+            var function = table.GetValueOrDefault("is_function_table") is true || SqlRowStore.Text(table,"is_function_table") == "1";
+            // 新建实体才带系统列。功能表的可编辑字段由业务配置添加。
+            if(context.IsCreate && !function)
             {
                 var existing=await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},cancellationToken);
                 var nextSort=existing.Count==0?0:existing.Max(row=>Convert.ToInt32(row.GetValueOrDefault("sort_no")??0));
@@ -60,7 +61,7 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
             if(context.IsCreate&&pages.Count==0)
             {
                 var pageId=ids.NextId();var admin=table.GetValueOrDefault("yz_admin_type_id")??(await store.ReadAsync("yz_admin_type",new Dictionary<string,object?>{{"yz_project_id",project}},cancellationToken)).FirstOrDefault()?.GetValueOrDefault("id")??throw new InvalidOperationException("请先为当前项目配置后台类型。");
-                await store.InsertAsync("config_page",new Dictionary<string,object?>{{"id",pageId},{"config_table_id",context.RecordId},{"config_table_table_name",SqlRowStore.Text(table,"table_name")},{"name",SqlRowStore.Text(table,"name")},{"yz_project_id",project},{"yz_admin_type_id",admin},{"page_size",20},{"is_new",1},{"is_save",1},{"is_update",1},{"is_delete",1},{"is_search",1},{"is_edit",1},{"where_sql","yz_project_id=@current_yz_project_id"}},cancellationToken);
+                await store.InsertAsync("config_page",new Dictionary<string,object?>{{"id",pageId},{"config_table_id",context.RecordId},{"config_table_table_name",SqlRowStore.Text(table,"table_name")},{"name",SqlRowStore.Text(table,"name")},{"yz_project_id",project},{"yz_admin_type_id",admin},{"page_size",20},{"is_new",function?0:1},{"is_save",1},{"is_update",1},{"is_delete",function?0:1},{"is_search",1},{"is_edit",1},{"where_sql",function?"":"yz_project_id=@current_yz_project_id"}},cancellationToken);
                 initializedPage=pageId;
             }
             await ValidateAndCreatePageFields(context.RecordId,project,false,cancellationToken);

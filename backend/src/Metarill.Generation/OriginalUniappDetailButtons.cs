@@ -14,7 +14,7 @@ internal static class OriginalUniappDetailButtons
         var buttons=c.Model.Catalog.ConfigButtons.Where(value=>value.ValueKind==JsonValueKind.Object && Property(value,"configPageId")==c.Page.Source.Id && Property(value,"place") is "Edit" or "EditAndGrid" && Property(value,"visibleScheme","Normal") is "Normal" or "AlwaysVisible" or "VisibleWhenWritable" or "OnlyDeve")
             .OrderBy(value=>value.TryGetProperty("sortNo",out var order)?Integer(order,0):0).ThenBy(value=>Property(value,"id"),StringComparer.Ordinal).ToArray();
         var output=new StringBuilder(); var descriptors=new List<object>();
-        if(c.Page.Source.IsCopy==1)output.AppendLine("<button type='primary' size='mini' v-if=\"page_is_copy && !readOnlyCondition && $yzp.hasPagePermission(page_sn,'is_all')\" @click='copyEntity()'>复制</button>");
+        if(c.Table.Source.IsFunctionTable==0&&c.Page.Source.IsCopy==1)output.AppendLine("<button type='primary' size='mini' v-if=\"page_is_copy && !readOnlyCondition && $yzp.hasPagePermission(page_sn,'is_all')\" @click='copyEntity()'>复制</button>");
         foreach(var button in buttons)
         {
             var id=Property(button,"id"); if(!Regex.IsMatch(id,"^[A-Za-z0-9_]+$"))throw new InvalidOperationException("原详情按钮标识无效。");

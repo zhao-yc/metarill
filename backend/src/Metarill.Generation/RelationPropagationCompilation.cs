@@ -19,7 +19,7 @@ internal static class RelationPropagationCompilation
     {
         var result=new List<RelationPropagationBinding>();
         // 视图的投影由数据库维护，不能登记为需要回填写入的物理名称副本。
-        foreach(var table in model.Tables.Where(table=>table.Source.IsRongyu==1&&table.Source.IsView==0))
+        foreach(var table in model.Tables.Where(table=>table.Source.IsRongyu==1&&table.Source.IsView==0&&table.Source.IsFunctionTable==0))
         {
             result.AddRange(SelfTreePropagationCompilation.ForTable(model,table));
             if(table.IsGlobal)

@@ -194,18 +194,22 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
         foreach (var table in catalog.ConfigTables.OrderBy(x => x.TableName, StringComparer.Ordinal))
         {
             if (table.IsRongyu is not (0 or 1) && catalog.ConfigColumns.Any(column => column.ConfigTableId == table.Id && column.ControlKind == "MultiSelectPage")) throw new InvalidOperationException("未识别的多选存储模式。");
-            if (table.IsFunctionTable != 0) throw new InvalidOperationException($"生成器尚未接入功能表：{table.TableName}");
+            if (table.IsFunctionTable is not (0 or 1) || table.IsFunctionTable == 1 && (table.IsView != 0 || table.IsRongyu != 1))
+                throw new InvalidOperationException($"功能表不能声明为物理视图或非冗余实体：{table.TableName}");
+            var isFunction = table.IsFunctionTable == 1;
             if (table.IsView is not (0 or 1) || (table.IsView == 1 && table.IsRongyu != 1))
                 throw new InvalidOperationException($"数据库视图须使用已存在的物理投影：{table.TableName}");
-            var columns = RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(x => x.ConfigTableId == table.Id)).Where(x=>x.IsVirtualColumn==0).OrderBy(x => x.SortNo).ThenBy(x => x.ColumnName, StringComparer.Ordinal)
+            var columns = RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(x => x.ConfigTableId == table.Id)).Where(x=>isFunction || x.IsVirtualColumn==0).OrderBy(x => x.SortNo).ThenBy(x => x.ColumnName, StringComparer.Ordinal)
                 .Select(x => new ColumnModel(x, Pascal(x.ColumnName), Camel(x.ColumnName), TypeFor(x))).ToArray();
+            // 兼容旧表配置自动补入的系统列，功能表的数据仅来自可编辑表单。
+            if (isFunction) columns = columns.Where(column => !column.IsSystem).ToArray();
             if (table.IsRongyu == 0 && columns.Any(column => column.Source.ControlKind is "Title" or "Tab"))
             {
                 var storage = MetadataStoragePolicy.ForTable(catalog, table);
                 columns = columns.Select(column => storage.Kind(column.Source) == MetadataFieldStorage.Layout
                     ? column with { IsLayoutOnly = true } : column).ToArray();
             }
-            if (columns.Count(x => x.IsId && x.Type == "long") != 1) throw new InvalidOperationException($"表 {table.TableName} 必须声明 long 类型 id 主键。");
+            if (!isFunction && columns.Count(x => x.IsId && x.Type == "long") != 1) throw new InvalidOperationException($"表 {table.TableName} 必须声明 long 类型 id 主键。");
             if (columns.Select(x => x.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count() != columns.Length) throw new InvalidOperationException("字段在 C# 命名转换后冲突。");
             var pageModels = new List<PageModel>();
             foreach (var page in catalog.ConfigPages.Where(x => x.ConfigTableId == table.Id).OrderBy(x => x.Id, StringComparer.Ordinal))
@@ -221,7 +225,13 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
                 var writable = pageColumns.Where(c => table.IsView == 0 && !c.IsLayoutOnly && !c.IsSystem && !Enabled(c.Source.Extra, "isJoinColumn") && Has(c, f => InEdit(f) && !Enabled(f.Extra, "isReadOnly"))).ToArray();
                 var search = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSearch") || Enabled(f.Extra, "isInFilter"))).ToArray();
                 var sortable = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSort") || Enabled(c.Source.Extra, "isSort"))).ToArray();
-                var (scopes,condition) = FixedPageConditionCompilation.Compile(catalog,table,columns,page.WhereSql);
+                // 功能表的原入口是无实体详情。条件和排序由下拉的真实目标页承担。
+                if (isFunction && (OriginalDetailContext.Integer(page.Extra,"type",0) != 0 ||
+                    OriginalDetailContext.Integer(page.Extra,"isNotGenerateDetailPage",0) == 1 ||
+                    (!string.IsNullOrWhiteSpace(page.WhereSql) && page.WhereSql.Trim() != "yz_project_id=@current_yz_project_id") ||
+                    !string.IsNullOrWhiteSpace(page.OrderBy)))
+                    throw new InvalidOperationException($"功能表页面必须使用原独立详情入口：{table.TableName}/{page.Id}");
+                var (scopes,condition) = FixedPageConditionCompilation.Compile(catalog,table,columns,isFunction ? "" : page.WhereSql);
                 ValidateOrderBy(page.OrderBy, columns);
                 var compiledPage = new PageModel(page, Pascal(table.TableName) + "Page" + page.Id, readable, writable, search, sortable, scopes, pageColumns.Where(c => Has(c, InGrid)).ToArray(), pageColumns.Where(c => Has(c, InEdit)).ToArray()){Condition=condition};
                 // 视图的原只读页面可生成。显式写入配置须保留并告知配置者，不能悄悄裁掉已开的操作。

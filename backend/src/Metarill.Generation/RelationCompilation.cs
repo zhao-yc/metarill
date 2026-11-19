@@ -64,6 +64,8 @@ internal static class RelationCompilation
             var selection=source.Source.ControlKind=="SelectPage"?NonRedundantSelectionCompilation.Resolve(model,owner,page,source):null;
             var target = selection?.Target ?? model.Tables.SingleOrDefault(t => !string.IsNullOrEmpty(tableId) ? t.Source.Id == tableId : t.Source.TableName == tableName);
             if (target is null) continue; // 保留尚未移植的外部关系配置，能力清单明确列出未接入字段。
+            if (target.Source.IsFunctionTable == 1)
+                throw new InvalidOperationException("功能表没有可读取的候选记录：" + target.Source.TableName);
             if (!target.IsGlobal && !target.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))
                 throw new InvalidOperationException("关联目标未声明项目归属或明确的全局范围：" + target.Source.TableName);
             var name = selection?.Name ?? target.Columns.SingleOrDefault(c => c.Source.ColumnName == Mapped("nameField", "name"));

@@ -14,6 +14,7 @@ internal static class OriginalUniappDetailSelection
         var definition=SelectionControlDefinition.Resolve(f.Column,f.Settings);var pageId=definition.PageId;
         var target=c.Model.Tables.SelectMany(table=>table.Pages.Select(page=>(Table:table,Page:page))).SingleOrDefault(item=>item.Page.Source.Id==pageId);
         if(target.Page is null)throw new InvalidOperationException("原选择页目标不存在："+pageId);
+        if(target.Table.Source.IsFunctionTable==1)throw new InvalidOperationException("功能表没有可选择的记录："+pageId);
         var nameField=definition.NameField; var targetName=target.Table.Columns.SingleOrDefault(column=>column.Source.ColumnName==nameField||column.JsonName==nameField);
         if(targetName is null||!target.Page.Readable.Any(column=>column.Source.Id==targetName.Source.Id))throw new InvalidOperationException("原选择页名称列未开放读取。");
         var button=definition.ButtonText; var id=f.Column.Source.Id; var field=f.Column.JsonName; var display=c.DisplayField(f.Column,targetName.Source.ColumnName); var component="OriginalSelection"+id;

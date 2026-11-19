@@ -136,7 +136,13 @@ public sealed class FrontendPackager
             Copy(path);
         }
         var generatedRoutes = JsonNode.Parse(File.ReadAllText(CSharpGenerator.SafePath(generated, "pages.generated.json")))!["pages"]!.AsArray();
-        var expected = catalog.ConfigPages.SelectMany(page => new[] { "list", "detail" }.Select(kind => "pages/yzp/" + catalog.ConfigTables.Single(table => table.Id == page.ConfigTableId).TableName + "-" + kind + "-" + page.Id)).ToHashSet(StringComparer.Ordinal);
+        var expected = catalog.ConfigPages.SelectMany(page =>
+        {
+            var table = catalog.ConfigTables.Single(candidate => candidate.Id == page.ConfigTableId);
+            var prefix = "pages/yzp/" + table.TableName;
+            var detail = prefix + "-detail-" + page.Id;
+            return table.IsFunctionTable == 1 ? new[] { detail } : new[] { prefix + "-list-" + page.Id, detail };
+        }).ToHashSet(StringComparer.Ordinal);
         var trustedRoutes=trustedModel is null?new Dictionary<string,JsonNode>(StringComparer.Ordinal):TrustedSecurityWorkbenchRenderer.Routes(trustedModel).Select(route=>JsonSerializer.SerializeToNode(route)!).ToDictionary(route=>route["path"]!.GetValue<string>(),StringComparer.Ordinal);
         foreach(var path in trustedRoutes.Keys)if(!expected.Add(path))throw new InvalidOperationException("管理工作台路由与业务页面冲突。");
         var seen = new HashSet<string>(StringComparer.Ordinal);

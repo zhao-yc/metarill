@@ -33,8 +33,8 @@ internal sealed class DevelopmentNavigation(MetadataCatalog metadata,IHttpContex
                 var page = metadata.ConfigPages.SingleOrDefault(candidate => candidate.Id == menu.ConfigPageId);
                 if (menu.Kind == "GENERATED_PAGE" && (page is null || !Allowed(authorization, page.Id, "list"))) return null;
                 var table = page is null ? null : metadata.ConfigTables.Single(candidate => candidate.Id == page.ConfigTableId);
-                var route = table is null ? null : "/pages/yzp/" + table.TableName + "-list-" + page!.Id;
-                object? target=table is null?null:new {pageId=page!.Id,tableId=table.Id,tableName=table.TableName,route,countEndpoint="/admin/auto/"+table.TableName+"/"+page.Id+"/count"};
+                var route = table is null ? null : "/pages/yzp/" + table.TableName + (table.IsFunctionTable == 1 ? "-detail-" : "-list-") + page!.Id;
+                object? target=table is null?null:new {pageId=page!.Id,tableId=table.Id,tableName=table.TableName,route,countEndpoint=table.IsFunctionTable==1?null:"/admin/auto/"+table.TableName+"/"+page.Id+"/count"};
                 if(menu.Kind=="CUSTOM_PAGE")
                 {
                     // 自定义入口沿用真实菜单授权；目标必须仍属于相同的发布项目与后台，不能借配置跳到外部地址。

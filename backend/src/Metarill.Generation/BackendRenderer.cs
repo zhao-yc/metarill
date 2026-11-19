@@ -26,6 +26,11 @@ internal static partial class BackendRenderer
     {
         foreach (var table in model.Tables)
         {
+            if (table.Source.IsFunctionTable == 1)
+            {
+                foreach (var file in FunctionTableFiles(model, table)) yield return file;
+                continue;
+            }
             yield return new($"Entities/{table.Name}.g.cs", Entity(model, table));
             yield return new($"Mappers/{table.Name}Mapper.g.cs", Mapper(model, table));
             yield return new($"Services/{table.Name}Service.g.cs", Service(model, table));
@@ -779,6 +784,14 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         result.Append(SelectionPageRenderer.Controller(model,table,page));
         result.Append(CascadeTreeReadRenderer.Controller(model,table,page));
         result.Append(FixedRoleCheckboxRenderer.Controller(model,table,page)); result.Append(DatabaseCheckboxRenderer.Controller(model,table,page));
+        AppendCandidateActions(result, model, table, page);
+        result.Append(TrustedSecurityProjectOptionsRenderer.Controller(model,table,page));
+        result.Append(ImportRenderer.Controller(page)); result.Append(ExportRenderer.Controller(model, page));
+        return result.AppendLine("}").ToString();
+    }
+    /// <summary>普通页和功能表均从同一份已发布候选描述生成 HTTP 入口。</summary>
+    private static void AppendCandidateActions(StringBuilder result, GenerationModel model, TableModel table, PageModel page)
+    {
         foreach (var catalog in FixedOptionCatalogCompilation.ForPage(model, page))
             result.AppendLine("    /// <summary>原下拉只读取固定C#模板目录，表单上下文不参与授权或查询。</summary>")
                 .AppendLine($"    [HttpPost({Literal(catalog.Endpoint)})] [RequestSizeLimit(16384)]")
@@ -797,10 +810,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine($"    [HttpPost({Literal(relation.Endpoint + "/selected")})]" + (relation.LegacyEndpoint == relation.Endpoint ? "" : $" [HttpPost({Literal(relation.LegacyEndpoint + "/selected")})]"))
                 .AppendLine($"    public async Task<R<IReadOnlyList<GeneratedOption>>> {relation.Endpoint}Selected([FromBody] RelationOptionsSelectedRequest request, CancellationToken cancellationToken) {{ var actor = Actor(\"list\"); {targetGate}return R<IReadOnlyList<GeneratedOption>>.Success(await service.OptionsSelected{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(request, actor, cancellationToken)); }}");
         }
-        result.Append(TrustedSecurityProjectOptionsRenderer.Controller(model,table,page));
-        result.Append(ImportRenderer.Controller(page)); result.Append(ExportRenderer.Controller(model, page));
-        return result.AppendLine("}").ToString();
     }
+
     /// <summary>可信管理包的账号后台下拉属于账号页，只投影本项目的后台标识与名称。其它关系仍检查双方页面。</summary>
     private static bool IsTrustedManagerAdminOption(GenerationModel model, TableModel table, PageModel page, RelationModel relation) =>
         page.Source.Id == "6031906822946816" && table.Source.Id == "6031906809708544"
@@ -814,7 +825,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     private static string Relations(GenerationModel model, PageModel page)
     {
         var visibleRelations = RelationCompilation.ForPage(model, page);
-        var result = new StringBuilder(); var relations = RelationCompilation.ForPage(model, page, forExcel: true)
+        var result = new StringBuilder();
+        var owner = model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId);
+        var relations = owner.Source.IsFunctionTable == 1 ? visibleRelations.ToArray() : RelationCompilation.ForPage(model, page, forExcel: true)
             .Concat(RelationCompilation.ForPage(model, page, true, forExcel: true)).DistinctBy(relation => relation.SourceColumn.Source.Id).ToArray();
         if (relations.Length == 0) return "";
         // 来源父验证单独复用，使空导出也不会跳过真实父记录校验。
@@ -1055,9 +1068,11 @@ public partial class {{table.Name}}Service
             .AppendLine("    /// <summary>不同生成项目选择独立业务库；工厂返回由宿主管理生命周期的连接会话。</summary>")
             .AppendLine("    public static IServiceCollection AddGeneratedServices(this IServiceCollection services, Func<IServiceProvider, DatabaseSession>? databaseFactory = null)").AppendLine("    {")
             .AppendLine("        services.AddScoped<GeneratedDatabaseSession>(provider => new((databaseFactory ?? (sp => sp.GetRequiredService<DatabaseSession>()))(provider)));");
-        foreach (var table in model.Tables)
+        foreach (var table in model.Tables.Where(table => table.Source.IsFunctionTable == 0))
             result.AppendLine($"        services.AddScoped<Mappers.{table.Name}Mapper>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value));")
                 .AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<Mappers.{table.Name}Mapper>(), provider.GetRequiredService<IIdGenerator>(), provider.GetServices<IRecordMutationObserver>(), provider.GetServices<IRecordMutationGuard>(){(RequiresRelationAuthorization(model, table) ? ", provider.GetRequiredService<IRuntimeAuthorization>()" : "")}));");
+        foreach (var table in model.Tables.Where(table => table.Source.IsFunctionTable == 1 && HasFunctionOptions(model, table)))
+            result.AppendLine($"        services.AddScoped<Services.{table.Name}Service>(provider => new(provider.GetRequiredService<GeneratedDatabaseSession>().Value, provider.GetRequiredService<IRuntimeAuthorization>()));");
         if(model.TrustedSecurityServices is not null)
         {
             // 只有工厂签发管理图注册初始化；普通业务JSON或相同按钮ID不能取得此能力。

@@ -296,7 +296,7 @@ namespace Metarill.Agent.Tests
             private readonly IActionDescriptorCollectionProvider actions;
             internal Fixture(string variant = "", AgentTaskStore? tasks = null,string? rule=null,string? readOnly=null)
             {
-                Metadata = new() { YzProjectId = "100", ConfigTables = [new() { Id = "11", TableName = "action_fixture", YzProjectId = variant == "table-foreign" ? "200" : "100" }],
+                Metadata = new() { YzProjectId = "100", ConfigTables = [new() { Id = "11", TableName = "action_fixture", IsFunctionTable = variant == "function" ? 1 : 0, YzProjectId = variant == "table-foreign" ? "200" : "100" }],
                     ConfigPages = [new() { Id = "21", Name = "合同", ConfigTableId = "11", YzProjectId = variant == "page-foreign" ? "200" : "100", WhereSql = variant == "parent" ? "parent_id=@parentId" : "" }] };
                 Metadata.ConfigColumns.Add(new(){Id="12",ConfigTableId="11",ColumnName="real_name",Name="名称",YzProjectId="100"});
                 Metadata.ConfigColumns.Add(new(){Id="15",ConfigTableId="11",ColumnName="HTTP_status",Name="大小写字段",YzProjectId="100"});

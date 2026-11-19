@@ -9,6 +9,27 @@ namespace Metarill.Agent.Tests;
 
 public sealed partial class AgentBusinessActionTests
 {
+    /// <summary>原功能按钮必须从已授权的真实 Web 进入，不取得记录读取器，并拒绝伪造业务 ID。</summary>
+    [Fact]
+    public async Task Function_form_web_button_uses_the_registered_handler_without_loading_a_record()
+    {
+        using var fixture = new Fixture("function");
+        var context = fixture.Context("Preview");
+        var handler = new WebHandler();
+        var executor = new OriginalBusinessButtonExecutor(fixture.Resources,fixture.Authorization,fixture.Services,
+            fixture.Services.GetRequiredService<IActionDescriptorCollectionProvider>(),[handler],fixture.Guard);
+        var request = new OriginalBusinessButtonRequest("31","",JsonSerializer.SerializeToElement(new { amount = 10 }));
+        await Assert.ThrowsAsync<ArgumentException>(()=>executor.ExecuteAsync(request with { EntityId = "7" },context));
+        await Assert.ThrowsAsync<ArgumentException>(()=>executor.ExecuteAsync(request with
+            { Entity = JsonSerializer.SerializeToElement(new { id = "7" }) },context));
+        Assert.Equal(0,handler.Calls);
+        Assert.Equal(0,fixture.Guard.Calls);
+        await executor.ExecuteAsync(request,context);
+        Assert.Equal(1,handler.Calls);
+        Assert.Equal(1,fixture.Guard.Calls);
+        Assert.Equal(0,fixture.Reader.Calls);
+    }
+
     /// <summary>Web和Agent消费同一已发布条件与真正读取结果；客户端旧entity及发布后元数据不能放宽。</summary>
     [Theory]
     [InlineData("amount < 0")][InlineData("entity.amount < 0")][InlineData("this.entity.amount < 0")]

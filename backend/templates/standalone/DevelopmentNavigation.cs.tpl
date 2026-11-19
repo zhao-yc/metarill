@@ -29,9 +29,9 @@ internal sealed class DevelopmentNavigation(MetadataCatalog metadata)
                 var page = metadata.ConfigPages.SingleOrDefault(candidate => candidate.Id == menu.ConfigPageId);
                 if (menu.Kind == "GENERATED_PAGE" && (page is null || !Allowed(authorization, page.Id, "list"))) return null;
                 var table = page is null ? null : metadata.ConfigTables.Single(candidate => candidate.Id == page.ConfigTableId);
-                var route = table is null ? null : "/pages/yzp/" + table.TableName + "-list-" + page!.Id;
+                var route = table is null ? null : "/pages/yzp/" + table.TableName + (table.IsFunctionTable == 1 ? "-detail-" : "-list-") + page!.Id;
                 return new { menu_id = menu.Id, text = menu.Name, icon = menu.IconName ?? "", projectId = metadata.YzProjectId, adminTypeId = menu.YzAdminTypeId, nodeType = menu.Kind, isShowCount = menu.IsShowCount == 1,
-                    target = table is null ? null : new { pageId = page!.Id, tableId = table.Id, tableName = table.TableName, route, countEndpoint = "/admin/auto/" + table.TableName + "/" + page.Id + "/count" },
+                    target = table is null ? null : new { pageId = page!.Id, tableId = table.Id, tableName = table.TableName, route, countEndpoint = table.IsFunctionTable == 1 ? null : "/admin/auto/" + table.TableName + "/" + page.Id + "/count" },
                     children = menus.Where(candidate => candidate.ParentMenuId == menu.Id).OrderBy(candidate => candidate.SortNo).ThenBy(candidate => candidate.Id, StringComparer.Ordinal).Select(candidate => Page(candidate, ancestors)).Where(node => node is not null).ToArray() };
             }
             finally { ancestors.Remove(menu.Id); }

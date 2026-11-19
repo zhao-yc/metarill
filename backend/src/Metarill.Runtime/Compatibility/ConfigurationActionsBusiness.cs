@@ -84,10 +84,12 @@ public sealed class ConfigurationActionsBusiness(SqlRowStore store, MetadataRegi
         var admin=await RequireAdminType(table,actor,cancellationToken);MetadataValidation.RequireIdentifier(SqlRowStore.Text(table,"table_name"));
         var id=ids.NextId(); var values=NewValues(id,actor);
         foreach(var column in PhysicalColumns("config_page").Where(column=>column.ColumnName.StartsWith("is_",StringComparison.Ordinal))) values[column.ColumnName]=0;
-        foreach(var flag in new[]{"is_edit","is_new","is_save","is_delete","is_search","is_update","is_update_edit_columns_only"})values[flag]=1;
+        var function = table.GetValueOrDefault("is_function_table") is true || SqlRowStore.Text(table,"is_function_table") == "1";
+        foreach(var flag in new[]{"is_edit","is_save","is_search","is_update","is_update_edit_columns_only"})values[flag]=1;
+        if (!function) { values["is_new"]=1; values["is_delete"]=1; }
         values["name"]=RequireName(SqlRowStore.Text(table,"name"));values["config_table_id"]=SqlRowStore.Id(table);
         values["config_table_name"]=SqlRowStore.Text(table,"name");values["config_table_table_name"]=SqlRowStore.Text(table,"table_name");
-        values["yz_admin_type_id"]=SqlRowStore.Id(admin);values["where_sql"]="yz_project_id=@current_yz_project_id";
+        values["yz_admin_type_id"]=SqlRowStore.Id(admin);values["where_sql"]=function?"":"yz_project_id=@current_yz_project_id";
         values["type"]=0;values["export_method"]="";values["child_place"]="OneWithMany";values["mobile_list_page_style_type"]=2;values["cols"]=2;values["page_size"]=20;
         values["detail_layout"]="{\"version\":1,\"mode\":\"none\",\"groups\":[]}";
         await store.InsertAsync("config_page",values,cancellationToken);
