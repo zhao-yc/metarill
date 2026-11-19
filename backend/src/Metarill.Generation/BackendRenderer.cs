@@ -861,13 +861,14 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                     logicalPlan=$"OptionsMembership{suffix}.BindAccount(actor)";
                 }
             }
+            var ormExcelExact = relation.ExcelTargetExact && !DerivedRelationNamesCompilation.UsesFixedRead(model,relation);
             var lockScope=relation.Conditions is not null||logicalPlan is not null||
                 relation.Target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
             result.Append(FixedPageConditionCompilation.Declaration(relation.TargetPage,"OptionsPageCondition"+suffix))
                 .Append(SharedRedundantParentCompilation.AccountDeclaration(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix));
             result.AppendLine("    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>")
-                .AppendLine($"    private async Task<ISelect<{relation.Target.EntityType}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true{RelationConditionsCompilation.Signature(relation)}{(relation.ExcelTargetExact ? ", bool excelScope = false" : "")})")
+                .AppendLine($"    private async Task<ISelect<{relation.Target.EntityType}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true{RelationConditionsCompilation.Signature(relation)}{(ormExcelExact ? ", bool excelScope = false" : "")})")
                 .AppendLine("    {");
             if (IsTrustedManagerAdminOption(model, model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId), page, relation))
                 result.AppendLine("        // 候选服务直接调用也必须使用真实账号页权限；写入校验仍走既有协调器。")
@@ -936,7 +937,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             else result.Append(FixedPageConditionCompilation.Apply(relation.TargetPage,"OptionsPageCondition"+suffix,"options_page_"+suffix,logicalPlan,"locking"));
             result.Append(SharedRedundantParentCompilation.ApplyAccountScope(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix,"r1_options","locking"))
                 .Append(RelationConditionsCompilation.Apply(relation,suffix,logicalPlan));
-            if (relation.ExcelTargetExact)
+            if (ormExcelExact)
             {
                 // 目标页列表和 Excel 使用同一个只读匹配计划。导入沿当前事务，导出沿普通读。
                 var targetPlan = $"global::{model.Namespace}.Generated.Services.{relation.Target.Name}Service.ExactReadPlan{relation.TargetPage.Source.Id}";

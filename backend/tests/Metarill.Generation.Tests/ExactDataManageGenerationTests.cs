@@ -153,9 +153,12 @@ public sealed class ExactDataManageGenerationTests
     }
     /// <summary>实际生成的单选 Excel 读取目标页的派生匹配计划，普通候选保持原入口。</summary>
     [Theory]
-    [InlineData(false, "OnlyNew", "list")]
-    [InlineData(true, "OverWriteByFirstColumn", "edit")]
-    public async Task Redundant_selection_excel_uses_target_derived_exact_plan(bool fixedTarget, string importMode, string exportMode)
+    [InlineData(false, "OnlyNew", "list", false)]
+    [InlineData(true, "OverWriteByFirstColumn", "edit", false)]
+    [InlineData(false, "OnlyNew", "list", true)]
+    [InlineData(true, "OverWriteByFirstColumn", "edit", true)]
+    public async Task Redundant_selection_excel_uses_target_derived_exact_plan(bool fixedTarget, string importMode,
+        string exportMode, bool derivedDisplay)
     {
         const string generatedNamespace = "Example.ExcelDerivedExact";
         var catalog = RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
@@ -169,7 +172,8 @@ public sealed class ExactDataManageGenerationTests
         sourcePage.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
         var foreign = catalog.ConfigColumns.Single(column => column.Id == "25");
         foreign.ControlKind = "SelectPage";
-        foreign.ControlDetail = """{"pageId":"301","tableId":"3","nameField":"name"}""";
+        foreign.ControlDetail = JsonSerializer.Serialize(new { pageId = "301", tableId = "3",
+            nameField = derivedDisplay ? "parent_alias" : "name" });
         foreign.Name = "目标名称";
         foreign.SortNo = -10;
 
@@ -192,6 +196,16 @@ public sealed class ExactDataManageGenerationTests
                 Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1), ["columnFullName"] = JsonSerializer.SerializeToElement("parent.name") } },
             new() { Id = "38", ConfigTableId = "3", YzProjectId = catalog.YzProjectId, ColumnName = "status", LogicalType = "int32" }
         ]);
+        if (derivedDisplay)
+        {
+            catalog.ConfigColumns.AddRange([
+                new() { Id = "16", ConfigTableId = "1", YzProjectId = catalog.YzProjectId, ColumnName = "alias", LogicalType = "string" },
+                new() { Id = "39", ConfigTableId = "3", YzProjectId = catalog.YzProjectId, ColumnName = "parent_alias", LogicalType = "string",
+                    Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1), ["columnFullName"] = JsonSerializer.SerializeToElement("parent.alias") } }
+            ]);
+            catalog.ConfigPageColumns.Add(new() { Id = "30139", ConfigPageId = "301", ConfigColumnId = "39",
+                YzProjectId = catalog.YzProjectId, IsEdit = 0 });
+        }
 
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-single-excel-exact");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
@@ -201,10 +215,19 @@ public sealed class ExactDataManageGenerationTests
             new CSharpGenerator().Generate(catalog, generated, generatedNamespace);
             new FrontendPackager().Validate(catalog);
             var source = await File.ReadAllTextAsync(Path.Combine(generated, "Services/RelationSourceService.g.cs"));
-            Assert.Contains("RelationTargetService.ExactReadPlan301", source);
-            Assert.Contains("groupTargetId.Key, actor, cancellationToken, excelScope: true", source);
-            Assert.Contains("actor,cancellationToken,true,false, excelScope: true", source);
-            Assert.Contains("query.ForUpdate().Limit(2)", source);
+            if (derivedDisplay)
+            {
+                Assert.Contains("DerivedOptionsRows201_25Async(request.ParentId,groupTargetId.Key", source);
+                Assert.Contains("cancellationToken,locking:true", source);
+                Assert.Contains("condition:scope.Condition,currentRead:true", source);
+            }
+            else
+            {
+                Assert.Contains("RelationTargetService.ExactReadPlan301", source);
+                Assert.Contains("groupTargetId.Key, actor, cancellationToken, excelScope: true", source);
+                Assert.Contains("actor,cancellationToken,true,false, excelScope: true", source);
+                Assert.Contains("query.ForUpdate().Limit(2)", source);
+            }
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             using var session = new DatabaseSession(new()
             {
@@ -224,6 +247,40 @@ public sealed class ExactDataManageGenerationTests
             var targetType = assembly.GetType(generatedNamespace + ".Generated.Services.RelationTargetService", true)!;
             var match = Assert.IsType<NonRedundantReadPlan>(targetType.GetField("ExactReadPlan301", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null));
             Assert.Equal("parent_name", Assert.Single(match.OutputTypes).Key);
+            if (derivedDisplay)
+            {
+                var names = Assert.IsType<NonRedundantReadPlan>(type.GetField("DerivedOptionsPlan201_25",
+                    BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null));
+                Assert.Equal(new[] { "id", "parent_alias" }, names.OutputTypes.Keys.Order());
+                var bound = names.BindAccount(actor);
+                var mysql = typeof(NonRedundantReadPlan).GetProperty("MySql", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(bound)!;
+                var expression = mysql.GetType().GetMethod("Expression", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                Assert.Contains(".\u0060alias\u0060", (string)expression.Invoke(mysql, ["parent_alias"])!);
+                Assert.Contains(".\u0060name\u0060", (string)expression.Invoke(mysql, ["parent_name"])!);
+                if (fixedTarget)
+                {
+                    var parameters = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(mysql.GetType()
+                        .GetProperty("Constants", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(mysql));
+                    Assert.Contains(actor.StoreId, parameters.Values);
+                }
+                var derivedScope = type.GetMethod("DerivedOptionsScope201_25Async", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var scoped = (Task<(List<FixedReadFilter> Filters, FixedConditionSqlPlan? Condition)>)derivedScope.Invoke(service,
+                    [null, null, actor, CancellationToken.None, null, false])!;
+                var result = await scoped;
+                var exact = Assert.Single(result.Filters, filter => filter.Field == "parent_name");
+                Assert.Equal(FixedReadComparison.In, exact.Comparison);
+                Assert.Equal(new object?[] { "只允许甲", "只允许乙" }, Assert.IsAssignableFrom<IReadOnlyList<object?>>(exact.Value));
+                Assert.Equal("list", authorization.LastOperation);
+
+                var importer = type.GetMethod("ImportRelation201_25Async", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var rejected = (Task)importer.Invoke(service, [JsonSerializer.SerializeToElement("候选"), null, actor, CancellationToken.None])!;
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(() => rejected);
+                authorization.Value = "[]";
+                var emptyScope = (Task<(List<FixedReadFilter> Filters, FixedConditionSqlPlan? Condition)>)derivedScope.Invoke(service,
+                    [null, null, actor, CancellationToken.None, null, false])!;
+                Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<object?>>((await emptyScope).Filters.Single(filter => filter.Field == "parent_name").Value));
+                return;
+            }
             var entity = assembly.GetType(generatedNamespace + ".Generated.Entities.RelationTarget", true)!;
             var toSql = typeof(ExactDataManageGenerationTests).GetMethod(nameof(TypedSql), BindingFlags.NonPublic | BindingFlags.Static)!.MakeGenericMethod(entity);
             var scope = type.GetMethod("OptionsScope201_25Async", BindingFlags.NonPublic | BindingFlags.Instance)!;

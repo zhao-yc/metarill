@@ -9,12 +9,14 @@ internal static class DerivedRelationNamesRenderer
     internal static string Service(GenerationModel model,TableModel owner,PageModel page,RelationModel relation,bool visible)
     {
         var dependencies=DerivedRelationNamesCompilation.Require(model,owner,page,relation);var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var name=relation.NameColumn.Source.ColumnName;
+        var exact = DerivedRelationNamesCompilation.CandidateExact(model, owner, relation);
+        var exactFilters = exact is null ? "" : ExactDataManageCompilation.ReadFilter(relation.TargetPage, exact, Literal("list"), "targetExact", "filters");
         var physicalTypedName = DerivedRelationNamesCompilation.IsPhysicalTypedName(model, relation.Target, relation.NameColumn);
         var accountParent = SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
         var logical=DerivedRelationNamesCompilation.UsesLogicalPage(relation);
         var globalAccount=DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
-        var validateCurrent=accountParent||logical||FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
-        var projectTargets=DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation);
+        var validateCurrent=exact is not null||accountParent||logical||FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
+        var projectTargets=DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation,exact);
         var bindParent=validateCurrent||projectTargets.Count>0?".BindAccount(actor)":"";
         var embedsPageScope=relation.FixedParent is {Logical:true}||relation.Target.IsGlobal&&(logical||globalAccount);
         var parentPlan = accountParent ? ",OptionsAccountParentScope"+suffix : "";
@@ -52,7 +54,7 @@ internal static class DerivedRelationNamesRenderer
 {{(same?"        targetParentId??=parentId;":"")}}
         var filters=new List<FixedReadFilter>();
 {{filters}}
-        FixedConditionSqlPlan? condition={{(embedsPageScope?"null":FixedPageConditionCompilation.Bound(relation.TargetPage,"OptionsPageCondition"+suffix))}};
+{{exactFilters}}        FixedConditionSqlPlan? condition={{(embedsPageScope?"null":FixedPageConditionCompilation.Bound(relation.TargetPage,"OptionsPageCondition"+suffix))}};
 {{bind}}
         return(filters,condition);
     }
@@ -109,11 +111,13 @@ internal static class DerivedRelationNamesRenderer
     /// <summary>Excel按名称类型绑定同一范围的当前读，零个或重名均拒绝整批。</summary>
     internal static string Import(GenerationModel model,RelationModel relation,PageModel page,ImportDependencyPlan dependency)
     {
+        var owner = model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId);
+        var exact = DerivedRelationNamesCompilation.CandidateExact(model, owner, relation);
         var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
-        var validateCurrent=accountParent||DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
+        var validateCurrent=exact is not null||accountParent||DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
             FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
         var lockParents=validateCurrent?",locking:true":"";
-        var bindParent=validateCurrent||DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation).Count>0?".BindAccount(actor)":"";
+        var bindParent=validateCurrent||DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation,exact).Count>0?".BindAccount(actor)":"";
         var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var mapped=dependency.Parents.GetValueOrDefault(relation.SourceColumn.Source.Id);
         var name = relation.NameColumn;
         var addMatchFilter = name.Type == "string?" ? $$"""
@@ -130,11 +134,17 @@ internal static class DerivedRelationNamesRenderer
         {{MultiSelectExcelRenderer.ParseLabel(name, "cell.ToString().Trim()", "key")}}
         scope.Filters.Add(new({{Literal(name.Source.ColumnName)}}, FixedReadComparison.Equal, key));
 """;
+        var importAuthorization = exact is null ? "" : $$"""
+        if(relationAuthorization is null || relationAuthorization.RequireActor() != actor || session.CurrentTransaction is null)
+            throw new UnauthorizedAccessException("精确范围单选导入要求来源真实身份和实际事务。");
+        relationAuthorization.RequirePagePermission({{Literal(page.Source.Id)}}, "import");
+
+""";
         return $$"""
     /// <summary>名称只由已发布计划解析，调用方的原导入事务负责整批回滚。</summary>
     private async Task<JsonElement> ImportRelation{{suffix}}Async(JsonElement cell,string? parentId,RuntimeActor actor{{(dependency.Contextual?",IReadOnlyDictionary<string,JsonElement> relationContext":"")}},CancellationToken cancellationToken)
     {
-        if(cell.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(cell.ToString()))return JsonSerializer.SerializeToElement<object?>(null);
+{{importAuthorization}}        if(cell.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(cell.ToString()))return JsonSerializer.SerializeToElement<object?>(null);
 {{(mapped is null?"":"        if(!relationContext.TryGetValue("+Literal(mapped.JsonName)+",out var targetParent)||targetParent.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(targetParent.ToString()))throw PageImportException.Input(PageImportError.Relation);")}}
         var scope=await DerivedOptionsScope{{suffix}}Async(parentId,{{(mapped is null?"null":"targetParent.ToString()")}},actor,cancellationToken{{RelationConditionsCompilation.ImportArgument(relation)}}{{lockParents}});
 {{addMatchFilter}}

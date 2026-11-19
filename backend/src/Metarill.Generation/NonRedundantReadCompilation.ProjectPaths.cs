@@ -73,7 +73,7 @@ internal static partial class NonRedundantReadCompilation
     }
 
     /// <summary>同一路径的不同列复用页绑定，同表不同关系角色依然各自编译。</summary>
-    private static IReadOnlyList<NonRedundantSingleTargetScope> MergeProjectTargets(IEnumerable<NonRedundantSingleTargetScope> scopes)
+    internal static IReadOnlyList<NonRedundantSingleTargetScope> MergeProjectTargets(IEnumerable<NonRedundantSingleTargetScope> scopes)
     {
         var result=new List<NonRedundantSingleTargetScope>();
         foreach(var group in scopes.GroupBy(scope=>scope.ColumnId,StringComparer.Ordinal))

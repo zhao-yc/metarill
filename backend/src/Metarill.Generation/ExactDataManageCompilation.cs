@@ -89,9 +89,12 @@ internal static class ExactDataManageCompilation
     internal static string ReadFilter(GenerationModel model,TableModel table,PageModel page)
     {
         var definition=Resolve(model,table,page);if(definition is null)return "";
-        return Authorization(page,definition,"actor","authorizationOperation","exact")
-            +$"        if (exactScope.IsRequired) result.Add({Filter(definition,"exactScope")});\n";
+        return ReadFilter(page, definition, "authorizationOperation", "exact", "result");
     }
+    /// <summary>实际查询统一使用目标页授权及固定类型，将筛选绑定到包含该字段的读取计划。</summary>
+    internal static string ReadFilter(PageModel page, ExactDataManageModel definition, string operation, string prefix, string filters) =>
+        Authorization(page, definition, "actor", operation, prefix)
+        + $"        if ({prefix}Scope.IsRequired) {filters}.Add({Filter(definition, prefix + "Scope")});\n";
     /// <summary>保持原标量集合筛选；共享权限额外校验两个分支的当前有效路径。</summary>
     internal static string Filter(ExactDataManageModel definition,string scope,bool spaces=true)
     {
