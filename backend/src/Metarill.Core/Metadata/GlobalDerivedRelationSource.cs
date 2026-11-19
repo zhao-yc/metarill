@@ -14,14 +14,17 @@ public static class GlobalDerivedRelationSource
         RequireForeign(catalog,source,foreign);
     }
 
-    /// <summary>沿固定单值联接证明非凭据同类型终点；活动字段栈与 R1 缓存共用。</summary>
-    internal static void RequireName(MetadataCatalog catalog,TableMetadata source,ColumnMetadata name,ISet<string> resolving)
+    /// <summary>沿固定联接证明同类型终点。提供实际页时，同时检查名称路径是否需要按范围重算副本。</summary>
+    internal static bool RequireName(MetadataCatalog catalog,TableMetadata source,ColumnMetadata name,ISet<string> resolving,
+        PageMetadata? page)
     {
         RequireTable(catalog,source);var storage=MetadataStoragePolicy.ForTable(catalog,source);
         if(source.IsRongyu!=0||name.ConfigTableId!=source.Id||name.IsVirtualColumn!=0||name.LogicalType!="string"&&!Contracts.MultiValueLabel.IsTyped(name.LogicalType)||name.ControlKind is not("" or "TextArea")||storage.Kind(name)!=MetadataFieldStorage.Join||!Enabled(name)||ExactDataManageValues.IsSensitiveField(name.ColumnName)||!ReferenceEquals(catalog.ConfigColumns.SingleOrDefault(c=>c.Id==name.Id),name))throw Invalid();
         var path=name.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
         if(path.Length<2||path.Length>17||path.Any(string.IsNullOrWhiteSpace))throw Invalid();
-        var current=source;GlobalSingleRelationPlan? last=null;
+        var current=source;
+        var scoped=false;
+        GlobalSingleRelationPlan? last=null;
         foreach(var segment in path[..^1])
         {
             MetadataValidation.RequireIdentifier(segment);RequireTable(catalog,current);
@@ -31,14 +34,23 @@ public static class GlobalDerivedRelationSource
             // R1中间节点继续遵循原全局物理List生产者边界，不借R0新路径放宽旧缓存资格。
             if(current.IsRongyu==1)GlobalCachedRelationSource.RequireSingle(catalog,current,foreign);
             var target=GlobalSingleRelationTarget.ResolveTarget(catalog,foreign);
-            last=GlobalSingleRelationTarget.RequirePublishedTarget(catalog,current,foreign,target,resolving);RequireTable(catalog,target);current=target;
+            last=GlobalSingleRelationTarget.RequirePublishedTarget(catalog,current,foreign,target,resolving,sourcePage:page);
+            RequireTable(catalog,target);
+            current=target;
+            if(page is not null)
+            {
+                scoped|=last.RequiresScopedPage||last.CacheControl is {Terms.Count:>0};
+                page=last.Page;
+            }
         }
         MetadataValidation.RequireIdentifier(path[^1]);
         var terminal=catalog.ConfigColumns.SingleOrDefault(c=>c.ConfigTableId==current.Id&&c.ColumnName==path[^1])??throw Invalid();
         if(terminal.LogicalType!=name.LogicalType||ExactDataManageValues.IsSensitiveField(terminal.ColumnName))throw Invalid();
         // 各类已声明标量复用上一步终点证明，避免将同一递归链重复展开。
-        if(last?.Name.Id==terminal.Id)return;
-        if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,MetadataStoragePolicy.ForTable(catalog,current),current,terminal,resolving))throw Invalid();
+        if(last?.Name.Id==terminal.Id)return scoped||last.NestedCacheScope;
+        if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,MetadataStoragePolicy.ForTable(catalog,current),current,
+            terminal,resolving,page,out var nestedScope))throw Invalid();
+        return scoped||nestedScope;
     }
 
     /// <summary>真实实体、列、主键、软删及后台页归属同一目录；条件由实际选中目标页的共享证明约束。</summary>

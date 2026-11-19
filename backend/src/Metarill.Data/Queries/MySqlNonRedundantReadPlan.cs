@@ -399,6 +399,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 var controls=columns[root.Id].Values.Where(column=>crossTables.ContainsKey(column.Id)).ToArray();
                 foreach(var field in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
                 {
+                    if(!columns[root.Id].ContainsKey(field))
+                    {
+                        RequireGlobalSingleDisplay(root,field);
+                        continue;
+                    }
                     var column=Column(root,field);
                     var logical=column.IsVirtualColumn==0&&!Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(field)&&
                         (controls.Any(control=>CrossTableStorageColumns.ContainsPathField(control,field))||
@@ -590,14 +595,11 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(name is "insert_manager_real_name" or "update_manager_real_name")
                     {var relation=Column(table,name.Replace("_real_name","_id",StringComparison.Ordinal));var target=tables.Values.SingleOrDefault(item=>item.TableName=="yz_manager")??throw new InvalidOperationException("缺少固定管理员基础设施元数据。");ValidateTarget(target);var id=Resolve(table,alias,relation.ColumnName);return Resolve(target,Join(alias,relation,target,id.Sql,id.Type),"real_name");}
                 }
-                foreach(var relation in columns[table.Id].Values.Where(MetadataStoragePolicy.IsRelationColumn))
+                if(InferredSingleDisplay(table,name) is {} inferred)
                 {
-                    var definition=Definition(relation);var display=Value(definition,"nameField");if(display.Length==0)display="name";
-                    var auxiliary=relation.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&display!="id"?relation.ColumnName[..^3]+"_"+display:"";
-                    if(!name.Equals(auxiliary,StringComparison.OrdinalIgnoreCase))continue;
-                    var target=Target(relation);
-                    var joined=JoinSinglePath(table,alias,relation,target,singleCacheOwner);
-                    var value=Resolve(target,joined.Alias,display,joined.CacheOwner);
+                    var target=Target(inferred.Foreign);
+                    var joined=JoinSinglePath(table,alias,inferred.Foreign,target,singleCacheOwner);
+                    var value=Resolve(target,joined.Alias,inferred.Display,joined.CacheOwner);
                     return joined.Visibility is null?value:("CASE WHEN "+joined.Visibility+" THEN "+value.Sql+" END",value.Type);
                 }
                 throw new NotSupportedException("字段不是已支持的物理列或单值派生关系："+name);

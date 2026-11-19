@@ -24,8 +24,11 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
     /// <summary>同一物理副本的各来源页必须使用等价的下拉附加条件。</summary>
     public FixedConditionPlan? CacheControl { get; internal init; }
 
-    /// <summary>控件条件也决定副本可见性，由统一维护计划重算。</summary>
-    public bool RequiresScopedCache=>RequiresScopedPage||CacheControl is {Terms.Count:>0};
+    /// <summary>名称联接的中间页面及其控件范围也参与副本重算。</summary>
+    internal bool NestedCacheScope { get; init; }
+
+    /// <summary>页面或控件条件决定副本可见性，由统一维护计划重算。</summary>
+    public bool RequiresScopedCache=>RequiresScopedPage||NestedCacheScope||CacheControl is {Terms.Count:>0};
 }
 
 /// <summary>普通单值全局关系的静态证明，目标和页面必须来自同一明确发布目录。</summary>
@@ -93,7 +96,7 @@ public static class GlobalSingleRelationTarget
     }
 
     /// <summary>单值路径共用完整目标证明；来源资格由各自R0实时或R1缓存入口先行核对。</summary>
-    internal static GlobalSingleRelationPlan RequirePublishedTarget(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,ISet<string>? resolving,bool projectParent=false,bool allowScopedRowProject=false,bool cacheControl=false)
+    internal static GlobalSingleRelationPlan RequirePublishedTarget(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,ISet<string>? resolving,bool projectParent=false,bool allowScopedRowProject=false,bool cacheControl=false,PageMetadata? sourcePage=null)
     {
         var storage=MetadataStoragePolicy.ForTable(catalog,owner);
         if(foreign.ConfigTableId!=owner.Id||foreign.ControlKind is not("List" or "SelectPage")||!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)||foreign.LogicalType is not("int64" or "string")||!storage.IsPhysical(foreign)||foreign.IsVirtualColumn!=0)throw new NotSupportedException("全局单值关系必须使用本表物理List或SelectPage外键。");
@@ -131,8 +134,12 @@ public static class GlobalSingleRelationTarget
         // 普通与显式全局来源使用同一终点证明；来源的存储模式和发布身份已由各入口核验。
         var typedName = name is not null && name.ColumnName != "id" && MultiValueLabel.IsTyped(name.LogicalType) &&
             owner.IsRongyu is 0 or 1;
+        var hasNameCache=cacheControl&&target.IsRongyu==0&&name is not null&&
+            catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName==foreign.ColumnName[..^3]+"_"+name.ColumnName);
+        var nestedScope=false;
         if (name is null || name.LogicalType != "string" && (!typedName||projectParent) ||
-            !(projectParent?Scalar(name):GlobalPhysicalRelationValue.IsPublishedScalar(catalog, targetStorage, target, name, resolving ?? new HashSet<string>(StringComparer.Ordinal))))
+            !(projectParent?Scalar(name):GlobalPhysicalRelationValue.IsPublishedScalar(catalog,targetStorage,target,name,
+                resolving??new HashSet<string>(StringComparer.Ordinal),hasNameCache||sourcePage is not null?page:null,out nestedScope)))
             throw new NotSupportedException("全局单值名称要求已证明的非凭据单值标量。");
         var key=targetColumns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局单值目标必须使用非空int64物理主键。");
         // 逻辑范围只允许已声明的级联字段，其他成员仍按非凭据物理标量验证。
@@ -146,13 +153,15 @@ public static class GlobalSingleRelationTarget
             throw new NotSupportedException("目标条件必须使用已证明的非凭据标量或逻辑级联字段。");
         }
         // 只有明确声明了物理名称副本时，才要求所有业务入口的附加条件等价。
-        var control=cacheControl&&target.IsRongyu==0&&foreign.ControlKind=="List"&&
-            catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName==foreign.ColumnName[..^3]+"_"+name.ColumnName)
-            ?ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target):null;
+        var control=foreign.ControlKind!="List"||target.IsRongyu!=0?null:
+            sourcePage is not null?ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target,sourcePage):
+            hasNameCache?ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target):null;
         // 实时名称和回填使用同一张发布页，禁止任何来源页覆盖表、名称或父键所属的目标页。
-        if(fixedParent is not null||control is {Terms.Count:>0})
+        var allSourcePages=fixedParent is not null||sourcePage is null&&(nestedScope||control is {Terms.Count:>0});
+        if(allSourcePages||sourcePage is not null)
         {
-            foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==foreign.Id))
+            foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==foreign.Id&&
+                (allSourcePages||field.ConfigPageId==sourcePage!.Id)))
             {
                 var detail=field.Extra.GetValueOrDefault("controlDetail").ToString();
                 if(string.IsNullOrWhiteSpace(detail))continue;
@@ -163,13 +172,13 @@ public static class GlobalSingleRelationTarget
                     ReadValue(scope,"tableId") is {Length:>0} selectedTable&&selectedTable!=target.Id||
                     ReadValue(scope,"table") is {Length:>0} selectedName&&selectedName!=target.TableName||
                     ReadValue(scope,"nameField") is {Length:>0} selectedField&&selectedField!=name.ColumnName)
-                    throw new InvalidOperationException("全局单值物理父范围要求各来源页使用同一发布目标和名称。");
+                    throw new InvalidOperationException("全局单值关系范围要求来源页使用已发布的目标和名称。");
             }
         }
         var plan=new GlobalSingleRelationPlan(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,
-            ScopedAccount=scopedAccount,Parent=fixedParent,SourceParent=sourceParent,CacheControl=control};
+            ScopedAccount=scopedAccount,Parent=fixedParent,SourceParent=sourceParent,CacheControl=control,NestedCacheScope=nestedScope};
         if(owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&foreign.ControlKind=="SelectPage"&&
-            (!plan.RequiresScopedPage||page.Extra.GetValueOrDefault("type").ToString()!="1"))
+            (!plan.RequiresScopedCache||page.Extra.GetValueOrDefault("type").ToString()!="1"))
             throw new NotSupportedException("全局冗余单选要求有固定数据范围的已发布type=1目标页。");
         return plan;
     }

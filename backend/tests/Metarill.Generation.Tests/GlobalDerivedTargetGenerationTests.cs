@@ -103,6 +103,134 @@ public sealed class GlobalDerivedTargetGenerationTests
             {Id=id,ConfigTableId=table,ColumnName=name,LogicalType=type,YzProjectId="100"});
     }
 
+    /// <summary>外层控件没有附加条件时，仍须在维护目录中保存实际中间页的名称范围。</summary>
+    [Theory][InlineData("constant",false)][InlineData("form",false)][InlineData("account",false)]
+    [InlineData("constant",true)][InlineData("account",true)][InlineData("deep",false)]
+    public async Task Global_R1_name_cache_keeps_downstream_only_control_scope(string mode,bool globalConsumer)
+    {
+        var catalog=Catalog(1,"int64","int64");
+        var owner=catalog.ConfigTables.Single(table=>table.Id=="3");
+        if(globalConsumer)owner.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
+        Add("25","2","segment","int32");
+        var definition=mode switch
+        {
+            "form"=>"segment IN (@formParameters.globalSource.lookupSegment,3)",
+            "account"=>"store_id=@current_store_id AND segment=3",
+            _=>"segment=3"
+        };
+        if(mode=="form")
+        {
+            Add("26","1","lookup_segment","int64");
+            catalog.ConfigPageColumns.Add(new(){Id="1026",ConfigPageId="10",ConfigColumnId="26",YzProjectId="100",IsShow=1,IsEdit=1});
+        }
+        if(mode=="account")
+        {
+            Add("27","2","store_id","int64");
+            Add("28","3","store_id","int64");
+            catalog.ConfigPages.Single(page=>page.Id=="30").WhereSql+=" AND store_id=@current_store_id";
+        }
+
+        var relation=catalog.ConfigColumns.Single(column=>column.Id=="13");
+        relation.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="20",nameField="name",whereSql="segment=17"});
+        if(mode!="deep")
+            catalog.ConfigPageColumns.Single(field=>field.Id=="1013").Extra["controlDetail"]=Overlay(definition);
+        else
+        {
+            // 只有第三段有附加条件，前两层的实际页仍须随副本发布。
+            relation.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="20",nameField="name"});
+            var name=catalog.ConfigColumns.Single(column=>column.Id=="22");
+            name.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("leaf.name");
+            catalog.ConfigPageColumns.Single(field=>field.Id=="2022").IsEdit=0;
+            catalog.ConfigTables.Add(new(){Id="4",TableName="global_leaf",Name="末端字典",YzProjectId="100",IsRongyu=0,
+                Extra=new(){["scopeKind"]=JsonSerializer.SerializeToElement("global")}});
+            Add("41","4","id","int64");
+            catalog.ConfigColumns.Single(column=>column.Id=="41").IsDbNotNull=1;
+            Add("42","4","name","string");
+            Add("43","4","delete_no","datetime");
+            Add("44","4","segment","int32");
+            catalog.ConfigPages.Add(new(){Id="40",ConfigTableId="4",Name="末端字典",YzProjectId="100",YzAdminTypeId="9"});
+            catalog.ConfigPageColumns.Add(new(){Id="4042",ConfigPageId="40",ConfigColumnId="42",YzProjectId="100",IsShow=1,IsEdit=1});
+            Add("29","2","leaf_id","int64");
+            var leaf=catalog.ConfigColumns.Single(column=>column.Id=="29");
+            leaf.ControlKind="List";
+            leaf.LinkConfigTableId="4";
+            leaf.ControlDetail=JsonSerializer.Serialize(new{tableId="4",pageId="40",nameField="name",whereSql="segment=3"});
+            catalog.ConfigPageColumns.Add(new(){Id="2029",ConfigPageId="20",ConfigColumnId="29",YzProjectId="100",IsShow=1,IsEdit=1});
+        }
+        // 同一中间表的另一页可单独限定候选，外层List及单选均明确引用实际页10。
+        catalog.ConfigPages.Add(new(){Id="11",ConfigTableId="1",YzProjectId="100",YzAdminTypeId="9",WhereSql="status=7"});
+        catalog.ConfigPageColumns.Add(new(){Id="1113",ConfigPageId="11",ConfigColumnId="13",YzProjectId="100",IsShow=1,IsEdit=1,Extra=new(){["controlDetail"]=Overlay("segment=19")}});
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-downstream-cache");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.GlobalDownstreamCache");
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                assembly.GetType("Example.GlobalDownstreamCache.Generated.GeneratedRelationMaintenance",true)!
+                    .GetProperty("Catalog")!.GetValue(null));
+            const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+            var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",flags)!.GetValue(maintenance));
+            var table=plans["3"]!;
+            var read=table.GetType().GetProperty("Read")!.GetValue(table)!;
+            var values=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                read.GetType().GetProperty("Constants",flags)!.GetValue(read)).Values;
+            Assert.Contains(3,values);
+            Assert.DoesNotContain(17,values);
+            Assert.DoesNotContain(19,values);
+            Assert.DoesNotContain(7,values);
+            var from=Assert.IsType<string>(read.GetType().GetProperty("From",flags)!.GetValue(read));
+            Assert.DoesNotContain(".`segment`",from);
+            var fields=new[]{"global_source_global_target_name","selected_global_source_global_target_name"};
+            foreach(var field in fields)
+            {
+                var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",flags)!.Invoke(read,[field]));
+                Assert.Contains(".`segment`",expression);
+                Assert.Contains(".`status`",expression);
+                if(mode=="form")
+                {
+                    Assert.Contains(".`lookup_segment`",expression);
+                    Assert.DoesNotContain("b.`lookup_segment`",expression);
+                }
+                if(mode=="account")Assert.Contains("b.`store_id`",expression);
+                var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("Reverse",flags)!.GetValue(read));
+                Assert.Contains(reverse.Cast<object>(),item=>
+                    Equals(mode=="deep"?"global_leaf":"global_target",item.GetType().GetProperty("TargetTable")!.GetValue(item))&&
+                    Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(item.GetType().GetProperty("Outputs")!.GetValue(item))
+                        .TryGetValue(field,out var dependencies)&&dependencies.Contains("segment"));
+                if(mode=="form")
+                    Assert.Contains(reverse.Cast<object>(),item=>
+                        Equals("global_source",item.GetType().GetProperty("TargetTable")!.GetValue(item))&&
+                        Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(item.GetType().GetProperty("Outputs")!.GetValue(item))
+                            .TryGetValue(field,out var dependencies)&&dependencies.Contains("lookup_segment"));
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+
+        void Add(string id,string table,string name,string type)=>catalog.ConfigColumns.Add(new()
+            {Id=id,ConfigTableId=table,ColumnName=name,LogicalType=type,YzProjectId="100"});
+        JsonElement Overlay(string where)=>JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql=where}));
+    }
+
+    /// <summary>多段副本的中间页覆盖不能将既有外键改绑到另一名称或发布页面。</summary>
+    [Theory][InlineData("nameField","status")][InlineData("pageId","21")]
+    public void Global_R1_name_cache_rejects_a_changed_intermediate_binding(string key,string value)
+    {
+        var catalog=Catalog(1,"int64","int64");
+        catalog.ConfigPages.Add(new(){Id="21",ConfigTableId="2",YzProjectId="100",YzAdminTypeId="9"});
+        var overlay=new Dictionary<string,string>{{key,value}};
+        catalog.ConfigPageColumns.Single(field=>field.Id=="1013").Extra["controlDetail"]=
+            JsonSerializer.SerializeToElement(JsonSerializer.Serialize(overlay));
+        var owner=catalog.ConfigTables.Single(table=>table.Id=="3");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="1");
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="34");
+        var failure=Assert.Throws<InvalidOperationException>(()=>GlobalSingleRelationTarget.RequireCached(catalog,owner,foreign,target));
+        Assert.Contains("已发布的目标和名称",failure.Message);
+    }
+
     /// <summary>四个交叉模型实际生成完整包、严格构建并挂载原Vue，两次更新保持手写业务和全部受管产物。</summary>
     [Theory][InlineData(0,"int64","int64")][InlineData(0,"string","string")][InlineData(1,"int64","string")][InlineData(1,"string","int64")]
     public async Task Global_r0_full_application_builds_updates_and_runs_original_controls(int mode,string outer,string inner)

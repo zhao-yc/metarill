@@ -431,6 +431,30 @@ public static partial class MySqlNonRedundantReadCompiler
             return ("CASE WHEN "+joined.Visibility+" THEN "+label.Sql+" END",label.Type);
         }
 
+        /// <summary>未声明物理名称列时，沿原控件推导只读显示字段。验证和投影始终使用同一外键角色。</summary>
+        private (ColumnMetadata Foreign,string Display)? InferredSingleDisplay(TableMetadata table,string name)
+        {
+            foreach(var foreign in columns[table.Id].Values.Where(MetadataStoragePolicy.IsRelationColumn))
+            {
+                if(!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal))continue;
+                var display=Value(Definition(foreign),"nameField");
+                if(display.Length==0)display="name";
+                if(display!="id"&&name.Equals(foreign.ColumnName[..^3]+"_"+display,StringComparison.OrdinalIgnoreCase))
+                    return(foreign,display);
+            }
+            return null;
+        }
+
+        /// <summary>全局自动名称使用原发布证明，缺失的任意字段、跨目录关系或凭据不能借显示名读取。</summary>
+        private void RequireGlobalSingleDisplay(TableMetadata table,string field)
+        {
+            if(InferredSingleDisplay(table,field) is not {} inferred)
+                throw new InvalidOperationException("缺少字段："+field);
+            var proof=GlobalSingleRelationTarget.Require(catalog,table,inferred.Foreign,Target(inferred.Foreign));
+            if(proof.Name.ColumnName!=inferred.Display)
+                throw new NotSupportedException("全局R0的自动名称必须使用已发布的单值显示字段。");
+        }
+
         private readonly Dictionary<string,PageMetadata> singleCachePages=new(StringComparer.Ordinal);
         private readonly Dictionary<string,string?> globalSingleVisibility=new(StringComparer.Ordinal);
 
@@ -504,13 +528,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 ?ProjectScopedSingleRelationTarget.ControlScope(catalog,table,foreign,target,sourcePage):proof.CacheControl;
             if(control is {Terms.Count:>0})
                 return JoinSingleCacheWithControl(table,owner,foreign,target,source,proof.Page,cacheOwner,control,sourcePage);
-            if(proof.RequiresScopedPage)
+            if(proof.RequiresScopedPage||sourcePage is not null)
                 return JoinScopedSingleCache(table,owner,foreign,target,source,proof.Page,cacheOwner,proof.Parent,proof.SourceParent);
-            if(sourcePage is null)return null;
-            // 已知中间页时继续传递实际全局目标页，供更深一段恢复原控件条件。
-            var alias=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true);
-            singleCachePages[alias]=proof.Page;
-            return(alias,null);
+            return null;
         }
 
         /// <summary>先登记物理关联用于反查，命名和其他投影的可见性随后按已发布范围计算。</summary>
@@ -525,7 +545,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true,scopedCacheLink:true);
             singleCachePages[alias]=page;
             var visible=PublishedSingleCondition(target,alias,page,cacheOwner,parent?.Target,parent?.Logical==true?sourceParent:null,
-                allowFixedOnly:control is {Terms.Count:>0});
+                allowFixedOnly:true);
             if(parent is {Logical:false})
                 visible+=(visible.Length==0?"":" AND ")+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,
                     cacheOwner,sourceParent,sourceFrom);
