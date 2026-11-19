@@ -112,6 +112,7 @@ internal static partial class BackendRenderer
             if (UsesOriginalConfigurationPageSizeText(model, table, page, column))
                 result.AppendLine("    [JsonNumberHandling(JsonNumberHandling.WriteAsString)]");
             if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
+            if (column.IsMonthDate) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.OriginalMonthDateJsonConverter))]");
             if(column.Type=="TimeSpan?")result.AppendLine($"    [JsonConverter(typeof({TimeFieldCompilation.Converter(column)}))]");
             result.AppendLine($"    public {column.BoundaryType} {column.Property} {{ get; init; }}");
         }

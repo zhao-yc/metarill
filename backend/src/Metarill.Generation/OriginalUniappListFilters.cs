@@ -32,7 +32,7 @@ internal static partial class OriginalUniappListRenderer
                 case "DateTime": case "date_time": markup.Append($"<uni-datetime-picker type='datetimerange' v-model='filters.{key}' />"); break;
                 case "Date": case "date": markup.Append($"<uni-datetime-picker type='daterange' v-model='filters.{key}' />"); break;
                 case "Month": case "month":
-                    var date = IsDateColumn(column);
+                    var date = column.Type == "DateTime?";
                     var display = date ? $"filters.{key} && filters.{key}.length > 0 ? filters.{key}[0].toString().substring(0, 7) : \"\"" : $"filters.{key} || \"\"";
                     markup.Append($"<picker mode='date' fields='month' :value='{display}' @change='{key}MonthFilterChange'><uni-easyinput primaryColor=\"{color}\" disabled class='can-read' :value='{display}' suffixIcon='bottom' /></picker>");
                     methods.Append(key).Append("MonthFilterChange(e){var value=e&&e.detail?e.detail.value:'';value=value?String(value).substring(0,7):'';");
@@ -103,6 +103,5 @@ internal static partial class OriginalUniappListRenderer
         };
         return new { text = parts[0], value = typed };
     }));
-    private static bool IsDateColumn(ColumnModel column) => column.Source.LogicalType is "datetime" or "date" || column.Source.ColumnType is "datetime" or "date";
     private static string JsonValue(string value) { try { using var document = JsonDocument.Parse(value); return document.RootElement.GetRawText(); } catch (JsonException) { return "{}"; } }
 }

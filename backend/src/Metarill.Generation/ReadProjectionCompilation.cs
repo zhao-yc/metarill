@@ -181,7 +181,7 @@ internal static class ReadProjectionCompilation
                 }
             }
             if (Kind(column) is "Title" or "Tab" ||
-                purpose == ReadProjectionPurpose.Detail && Kind(column) is not ("" or "Text" or "date_time" or "date" or "month" or "time" or
+                purpose == ReadProjectionPurpose.Detail && Kind(column) is not ("" or "Text" or "date_time" or "date" or "month" or "Month" or "time" or
                     "ConstList" or "ConstDownList" or "CheckBox" or "List" or "TextArea" or "FileLibrary" or "IntenetImage" or
                     "Base64Image" or "Image" or "MultiImage" or "Upload" or "Video" or "SelectPage" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "RTF" or "CustomControl"))
             { Gap(column.Source.Id, "控件读取依赖尚未证明：" + Kind(column)); return; }

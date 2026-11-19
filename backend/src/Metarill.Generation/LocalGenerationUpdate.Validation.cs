@@ -123,6 +123,8 @@ public sealed partial class LocalGenerationUpdater
         if(candidate)bootstrap=bootstrap.Append("src/Metarill.Exports/FloatingWorkbookWriter.cs");
         // 当前完整Core包含字段级时钟合同，旧目标仍可预览升级；双删源码/归属不能伪装完整候选。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/ClockTimeValue.cs","src/Metarill.Core/Contracts/ClockTimeJsonConverter.cs","src/Metarill.Core/Contracts/SqlTimeValue.cs","src/Metarill.Core/Contracts/SqlTimeJsonConverter.cs","src/Metarill.Data/MySqlPersistedTimeValues.cs"});
+        // 当前生成的年月日期VO依赖专用输出格式；旧包可通过运行时同步补齐。
+        if(candidate)bootstrap=bootstrap.Append("src/Metarill.Core/Contracts/OriginalMonthDateJsonConverter.cs");
         // 当前时间精度解释与结构反查共用Core/Data源码，不能删文件及归属后冒充完整候选。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/FileUploadLifetime.cs","src/Metarill.Core/Contracts/BusinessCalendar.cs","src/Metarill.Core/Metadata/MetadataColumnTypePolicy.cs","src/Metarill.Core/Metadata/MetadataCatalogComposition.cs","src/Metarill.Data/Schema/MySqlSchemaPlanner.cs","src/Metarill.Data/Schema/SchemaImportDraft.cs","src/Metarill.Data/Schema/SchemaService.cs"});
         if(management is not null)bootstrap=bootstrap.Concat(new[]{PreparedSecurityManagementSource.SourceMarker,PreparedSecurityManagementSource.ApplicationPath,

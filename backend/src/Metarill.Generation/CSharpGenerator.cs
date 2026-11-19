@@ -167,6 +167,8 @@ internal sealed record ColumnModel(ColumnMetadata Source, string Property, strin
     /// <summary>非冗余布局字段只用于渲染，不进入页面数据契约。</summary>
     internal bool IsLayoutOnly { get; init; }
     public bool IsId => Source.ColumnName == "id"; public bool IsJsonArray => Type == "string?" && (IsManagedMultiNames || Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage"); public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;
+    /// <summary>原年月控件可绑定文本或日期。只有日期字段按原日期格式回显。</summary>
+    internal bool IsMonthDate => Type == "DateTime?" && Source.ControlKind is "month" or "Month";
     public bool IsSystem => Source.ColumnName is "id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id" or "insert_manager_name" or "update_manager_name" or "insert_manager_real_name" or "update_manager_real_name" or "insert_user_name" or "update_user_name" or "yz_project_id" or "yz_project_name";
 }
 internal sealed record PageModel(PageMetadata Source, string Name, IReadOnlyList<ColumnModel> Readable, IReadOnlyList<ColumnModel> Writable, IReadOnlyList<ColumnModel> Searchable, IReadOnlyList<ColumnModel> Sortable, IReadOnlyList<(ColumnModel Column, string Source)> Scopes, IReadOnlyList<ColumnModel> ListColumns, IReadOnlyList<ColumnModel> DetailColumns)

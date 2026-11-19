@@ -55,6 +55,8 @@ internal static class OriginalUniappDetailFields
             if (!decimal.TryParse(f.Default, NumberStyles.Float, CultureInfo.InvariantCulture, out _)) throw new InvalidOperationException("原详情数值默认值无效：" + f.Column.Source.ColumnName);
             return f.Column.Type is "long" or "long?" ? Js(f.Default) : f.Default;
         }
+        if (f.Column.IsMonthDate && DateTime.TryParseExact(f.Default, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var month))
+            return Js(month.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         return Js(f.Default);
     }
     /// <summary>恢复原必填、长度、整数和小数校验，字段只读不产生必填规则。</summary>
@@ -81,9 +83,12 @@ internal static class OriginalUniappDetailFields
         {
             case "date_time": return $"<uni-datetime-picker type='datetime' v-if='!{ro}' v-model='entity.{name}' /><text v-if='{ro}'>{{{{entity.{name}}}}}</text>";
             case "date": return $"<uni-datetime-picker type='date' :disabled='{ro}' v-model='entity.{name}' />";
-            case "month":
-                c.Methods.AppendLine($"{name}MonthChange(e) {{ const value=e?.detail?.value; this.entity.{name}=value ? String(value).slice(0,7)+'-01' : ''; }},");
-                return $"<picker mode='date' fields='month' :disabled='{ro}' :value='entity.{name} ? String(entity.{name}).substring(0,7) : \"\"' @change='{name}MonthChange'><uni-easyinput :disabled='{ro}' :model-value='entity.{name} ? String(entity.{name}).substring(0,7) : \"\"' primaryColor=\"{primary}\" /></picker>";
+            case "month": case "Month":
+                // 日期保存月首；字符串保持原年月文本。内层输入只显示，不接受键盘输入。
+                var month = $"entity.{name} ? String(entity.{name}).substring(0,7) : \"\"";
+                var day = column.IsMonthDate ? "+'-01'" : "";
+                c.Methods.AppendLine($"{name}MonthChange(e) {{ if(this.{ro})return; const value=e?.detail?.value; this.entity.{name}=value ? String(value).slice(0,7){day} : ''; }},");
+                return $"<picker mode='date' fields='month' :value='{month}' :disabled='{ro}' @change='{name}MonthChange'><uni-easyinput primaryColor=\"{primary}\" disabled :class=\"{ro} ? '' : 'can-read'\" :value='{month}' suffixIcon='bottom' /></picker>";
             case "time":
                 // 原输入组件的清空/键盘事件必须回写实体；保留picker和全部显示属性，只读迟到事件不改值。
                 c.Methods.AppendLine("// 原时间控件输入与选择共用绑定，保留文本精度和明确清空。");

@@ -167,6 +167,7 @@ internal static class GeneratedNonRedundantReadCatalog
             var column=page.Readable.SingleOrDefault(column=>column.Source.ColumnName==output.Storage);
             result.AppendLine($"    [JsonPropertyName({Literal(output.JsonName)})]");
             if(column is not null&&Checkbox(column))result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
+            if (column?.IsMonthDate == true) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.OriginalMonthDateJsonConverter))]");
             if(output.Type=="TimeSpan?")result.AppendLine($"    [JsonConverter(typeof({TimeFieldCompilation.Converter(column)}))]");
             // 物理存储仍是字符串；原接口文件值保持JSON数组或null，不能向前端返回二次编码字符串。
             result.AppendLine($"    public {(output.IsJsonArray?"JsonElement?":output.Type)} {output.Property} {{get;{(table.Columns.Any(item=>item.Source.ColumnName==output.Storage&&item.IsManagedCascadeName)?"set":"init")};}}");
