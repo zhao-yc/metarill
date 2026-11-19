@@ -23,7 +23,7 @@ internal static class GenerationCapabilityAudit
             {
                 foreach (var column in page.DetailColumns)
                 {
-                    if (column.Source.ControlKind is "FileLibrary" or "CascadeTree" or "MultiCheckBoxDatabase")
+                    if (column.Source.ControlKind is "FileLibrary" or "CascadeTree")
                         gaps.Add(new(page.Source.Id,column.Source.ColumnName,"detail","功能表尚未接入该控件的无记录范围。"));
                     else if (ControlRenderer.Render(model,table,page,column).UnsupportedReason is {} reason)
                         gaps.Add(new(page.Source.Id,column.Source.ColumnName,"detail",reason));

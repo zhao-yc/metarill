@@ -32,6 +32,9 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.Contains(":selectedIds=\"entity.customerIds\"", detail);
         Assert.Contains(":selectedNames=\"entity.customerNames\"", detail);
         Assert.Contains("receiveMultiSelection", detail);
+        Assert.Contains("findNameIdApproved26", detail);
+        Assert.Contains("v-model='entity.approvedIds'", detail);
+        Assert.Contains("readonlyDisplayText(entity.approvedNames)", detail);
         Assert.Contains("/admin/sys/config_button/execute", detail);
         Assert.Contains("saveEntity", detail);
         Assert.False(File.Exists(Path.Combine(frontend, "pages/yzp/summary_form-list-102.vue")));
@@ -50,6 +53,8 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.DoesNotContain("[HttpPost(\"page\")]", controller);
         Assert.DoesNotContain("[HttpGet(\"detail/{id}\")]", controller);
         Assert.DoesNotContain("[HttpDelete]", controller);
+        Assert.Contains("RelationOptionAuthorization.Require(authorization,\"102\",false,true)",controller);
+        Assert.Contains("CheckboxOptions102_26Async(request,actor,cancellationToken)",controller);
         var targetController = File.ReadAllText(Path.Combine(backend,"Controllers/CustomerPage101Controller.g.cs"));
         Assert.Contains("[HttpPost(\"selection/selected\")]",targetController);
         Assert.Contains("SelectionSelected101Async(request, Actor(\"list\"), cancellationToken)",targetController);
@@ -58,12 +63,15 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.Contains("entity.YzProjectId == long.Parse(actor.ProjectId", service);
         Assert.DoesNotContain("InsertAsync", service);
         Assert.DoesNotContain("MultiName",service);
+        Assert.Contains("ReadCheckboxForm102_26",service);
+        Assert.Contains("CheckboxTargetCondition102_26",service);
+        Assert.DoesNotContain("ValidateCheckbox",service);
         var nav = File.ReadAllText(Path.Combine(output, "backend/Application.Host/DevelopmentNavigation.cs"));
         Assert.Contains("table.IsFunctionTable == 1 ? \"-detail-\" : \"-list-\"", nav);
         Assert.Contains("countEndpoint=table.IsFunctionTable==1?null", nav);
         Assert.Equal("customer", Assert.Single(MySqlSchemaPlanner.Compile(catalog,"form_test").Tables).Name);
 
-        await VerifyMultiSelectionAsync(output);
+        await VerifyOriginalSelectionsAsync(output);
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
         {
             WorkingDirectory = output, RedirectStandardOutput = true, RedirectStandardError = true,
@@ -82,7 +90,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
     }
 
     /// <summary>装载完整包内的原表单，验证原确认事件到业务按钮的实际请求参数。</summary>
-    private static async Task VerifyMultiSelectionAsync(string directory, [CallerFilePath] string file = "")
+    private static async Task VerifyOriginalSelectionsAsync(string directory, [CallerFilePath] string file = "")
     {
         var start = new ProcessStartInfo("node")
         {
@@ -112,6 +120,31 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.False(Directory.Exists(output));
     }
 
+    /// <summary>旧复选可直接声明真实候选表，沿用来源页授权。</summary>
+    [Fact]
+    public void Function_form_checkbox_accepts_legacy_table_only_options()
+    {
+        var catalog = Catalog();
+        catalog.ConfigColumns.Single(column => column.Id == "26").ControlDetail = "customer";
+        new CSharpGenerator().Generate(catalog, output, "Example.FunctionForm");
+        var service = File.ReadAllText(Path.Combine(output, "Services/SummaryFormService.g.cs"));
+        Assert.Contains("CheckboxOptions102_26Async", service);
+        Assert.Contains("RelationOptionAuthorization.Require(relationAuthorization,\"102\",false,true)", service);
+        Assert.DoesNotContain("CheckboxTargetCondition102_26", service);
+    }
+
+    /// <summary>虚拟表单值只能绑定当前来源页开放的确切字段。</summary>
+    [Fact]
+    public void Function_form_checkbox_rejects_an_unpublished_form_slot()
+    {
+        var catalog = Catalog();
+        catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == "23");
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            new ApplicationPackager().Create(catalog, output, "Example.FunctionForm", SourceRoot()));
+        Assert.Contains("当前页开放的非凭据标量", error.Message);
+        Assert.False(Directory.Exists(output));
+    }
+
     /// <summary>功能表不能作为实体候选或选择列表，拒绝生成悬空导航。</summary>
     [Fact]
     public void Function_form_cannot_be_used_as_its_own_database_options_target()
@@ -136,13 +169,20 @@ public sealed class FunctionTableGenerationTests : IDisposable
         catalog.ConfigPages[0].YzProjectId="100";
         catalog.ConfigPages[0].YzAdminTypeId="70";
         catalog.ConfigPages[0].Extra["type"]=JsonSerializer.SerializeToElement(2);
+        catalog.ConfigPages[0].WhereSql+=" AND name <> '停用'";
         catalog.ConfigPages.Add(new() { Id="102", Name="汇总表单", ConfigTableId="2", YzProjectId="100", YzAdminTypeId="70", IsCopy=1, WhereSql="yz_project_id=@current_yz_project_id" });
-        catalog.ConfigColumns.Add(new() { Id="23", ConfigTableId="2", ColumnName="title", Name="标题", DefaultValue="业务汇总", IsVirtualColumn=1 });
+        catalog.ConfigColumns.Add(new() { Id="23", ConfigTableId="2", ColumnName="title", Name="标题", DefaultValue="业务汇总", IsVirtualColumn=1,
+            Extra=new() { ["isAutoPostBack"]=JsonSerializer.SerializeToElement(1) } });
         catalog.ConfigColumns.Add(new() { Id="24", ConfigTableId="2", ColumnName="customer_id", Name="客户", LogicalType="int64",
             ControlKind="List", ControlDetail="""{"tableId":"1","table":"customer","nameField":"name"}""" });
         catalog.ConfigColumns.Add(new() { Id="25", ConfigTableId="2", ColumnName="customer_ids", Name="多选客户",
             LogicalType="string", ColumnLength="max", ControlKind="MultiSelectPage", LinkConfigTableId="1", IsVirtualColumn=1,
             ControlDetail="""{"pageId":"101","nameField":"name","buttonText":"选择"}""" });
+        catalog.ConfigColumns.Add(new() { Id="26", ConfigTableId="2", ColumnName="approved_ids", Name="复选客户",
+            LogicalType="string", ColumnLength="max", ControlKind="MultiCheckBoxDatabase", LinkConfigTableId="1", IsVirtualColumn=1,
+            ControlDetail="""{"pageId":"101","nameField":"name","whereSql":"remark = @formParameters.summaryForm.title"}""",
+            Extra=new() { ["isAutoPostBackQuery"]=JsonSerializer.SerializeToElement(1) } });
+        catalog.ConfigPageColumns.Add(new() { Id="116", ConfigPageId="102", ConfigColumnId="26", IsEdit=1 });
         catalog.ConfigPageColumns.Add(new() { Id="115", ConfigPageId="102", ConfigColumnId="25", IsEdit=1 });
         catalog.ConfigPageColumns.Add(new() { Id="113", ConfigPageId="102", ConfigColumnId="23", IsEdit=1, IsRequired=1 });
         catalog.ConfigPageColumns.Add(new() { Id="114", ConfigPageId="102", ConfigColumnId="24", IsEdit=1 });

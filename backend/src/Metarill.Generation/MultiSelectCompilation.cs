@@ -128,7 +128,7 @@ internal static class MultiSelectCompilation
                     return Gap("目标页父字段须与来源记录的固定父键一致。");
             }
             if (functionForm)
-                return new(new(source, target, targetPage, name, FunctionFormNames(table, source, name), same,
+                return new(new(source, target, targetPage, name, name.IsId ? null : SelectionDisplayFieldCompilation.FunctionFormNames(table, source, name), same,
                     targetField, targetParents, Value("buttonText", "选择")), null);
 
             ColumnModel? names = null;
@@ -169,26 +169,6 @@ internal static class MultiSelectCompilation
                 }, null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }
-    }
-
-    /// <summary>只为功能表回执提供原表单名称属性，保持显式同名字段且不增加数据库列。</summary>
-    private static ColumnModel? FunctionFormNames(TableModel table, ColumnModel source, ColumnModel name)
-    {
-        if (name.IsId) return null;
-        var field = name.Source.ColumnName;
-        var alias = source.Source.ColumnName[..^4] + "_" + (field.EndsWith('s') ? field : field + "s");
-        MetadataValidation.RequireIdentifier(alias);
-        var declared = table.Columns.SingleOrDefault(column => column.JsonName == GenerationModel.Camel(alias));
-        if (declared is not null)
-        {
-            if (declared.Source.ColumnName != alias || declared.Type != "string?" || declared.IsSystem ||
-                declared.Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage")
-                throw new InvalidOperationException("功能表多选名称辅助字段须为同名字符串字段。");
-            return declared;
-        }
-        var metadata = new ColumnMetadata { Id=source.Source.Id+"_display", ConfigTableId=table.Source.Id,
-            ColumnName=alias, LogicalType="string", ColumnLength="max", IsVirtualColumn=1 };
-        return new(metadata, GenerationModel.Pascal(alias), GenerationModel.Camel(alias), "string?", IsManagedMultiNames:true);
     }
 
     /// <summary>生成与数据层使用同一标量终点证明，范围仍由固定目标页证明。</summary>

@@ -51,7 +51,7 @@ internal static class RelationConditionsCompilation
                 var path=variable["formParameters.".Length..].Split('.');
                 if(path.Length!=1&&(path.Length!=2||path[0]!=GenerationModel.Camel(owner.Source.TableName)))throw new InvalidOperationException("表单变量必须绑定本对象的明确物理属性或原表名槽。");
                 var column=owner.Columns.SingleOrDefault(column=>column.JsonName==path[^1]);
-                if(column is null||!page.Readable.Concat(page.Writable).Any(field=>field.Source.Id==column.Source.Id)||!storage.IsPhysical(column.Source)||column.IsJsonArray||(column.IsSystem&&column.Source.ColumnName!="yz_project_id")||ManagerCredentialCompilation.IsCredential(owner,column))throw new InvalidOperationException("表单依赖不是当前页开放的非凭据物理标量。");
+                if(column is null||!page.Readable.Concat(page.Writable).Any(field=>field.Source.Id==column.Source.Id)||(!storage.IsPhysical(column.Source)&&owner.Source.IsFunctionTable==0)||column.IsJsonArray||(column.IsSystem&&column.Source.ColumnName!="yz_project_id")||ManagerCredentialCompilation.IsCredential(owner,column))throw new InvalidOperationException("表单依赖必须为当前页开放的非凭据标量。");
                 var targetColumn=target.Columns.Single(column=>column.Source.ColumnName==term.Field);
                 if(Kind(column.Source.LogicalType)!=Kind(targetColumn.Source.LogicalType))throw new InvalidOperationException("表单依赖与候选字段逻辑类型不一致。");
                 forms.TryAdd(variable,new(variable,column,Array.AsReadOnly(path),Array.AsReadOnly(path.Length==1?new[]{GenerationModel.Camel(owner.Source.TableName),path[0]}:new[]{path[^1]})));continue;

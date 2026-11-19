@@ -108,12 +108,17 @@ internal static class OriginalUniappDetailFields
                 c.Methods.AppendLine($"{handler}(item) {{ if(this.{ro}) return; this.entity.{name}=item ? item.id : ''; {(display == name ? "" : $"this.entity.{display}=item ? item.name : '';")} }},");
                 return Choice(ro, $"readonlyDisplayText(entity.{display})", $"<zxz-uni-data-select v-model='entity.{name}' :localdata='{list}' filterable :disabled='{ro}' dataKey='name' dataValue='id'{(remote is null ? "" : OriginalRemoteOptionsCompilation.Attributes(column))} @change='{handler}' />");
             case "MultiCheckBoxDatabase":
+                var formCheckbox=c.Table.Source.IsFunctionTable==1?DatabaseCheckboxCompilation.Resolve(c.Model,c.Table,c.Page,column).Definition:null;
+                var checkboxDisplay=formCheckbox?.Names.JsonName??c.DisplayField(column);
+                // 功能表无保存回执。候选回读和原change事件使用同一身份下的显示名称。
+                var updateNames=formCheckbox is null?"":$" const labels=new Map(this.{name}List.map(item=>[String(item.id),item.name]));this.entity.{checkboxDisplay}=yzp.relationArray(this.entity.{name}).map(id=>labels.get(String(id))??null);";
+                var changeAfterAll=formCheckbox is null?"":$" this.{name}Change();";
                 c.Data.Append(name).Append("List:[],").Append(name).Append("SelectAll:[],"); InitList(c, f, name + "List", true);
                 c.Methods.AppendLine($$$"""
-{{{name}}}SelectAllChange() { if(this.{{{ro}}}) return; this.entity.{{{name}}}=this.{{{name}}}SelectAll==1 ? this.{{{name}}}List.map(item=>item.id) : []; },
-{{{name}}}Change() { this.{{{name}}}SelectAll=JSON.stringify(this.{{{name}}}List.map(item=>String(item.id)).sort())===JSON.stringify(yzp.relationArray(this.entity.{{{name}}}).map(String).sort()) ? [1] : []; },
+{{{name}}}SelectAllChange() { if(this.{{{ro}}}) return; this.entity.{{{name}}}=this.{{{name}}}SelectAll==1 ? this.{{{name}}}List.map(item=>item.id) : [];{{{changeAfterAll}}} },
+{{{name}}}Change() { this.{{{name}}}SelectAll=JSON.stringify(this.{{{name}}}List.map(item=>String(item.id)).sort())===JSON.stringify(yzp.relationArray(this.entity.{{{name}}}).map(String).sort()) ? [1] : [];{{{updateNames}}} },
 """);
-                return Choice(ro, $"readonlyDisplayText(entity.{c.DisplayField(column)})", $"<view><uni-data-checkbox multiple v-model='{name}SelectAll' :disabled='{ro}' :localdata='$multiCheckboxRange' @change='{name}SelectAllChange' /></view><uni-data-checkbox multiple v-model='entity.{name}' :disabled='{ro}' :localdata='{name}List' @change='{name}Change' />") + Hidden(f);
+                return Choice(ro, $"readonlyDisplayText(entity.{checkboxDisplay})", $"<view><uni-data-checkbox multiple v-model='{name}SelectAll' :disabled='{ro}' :localdata='$multiCheckboxRange' @change='{name}SelectAllChange' /></view><uni-data-checkbox multiple v-model='entity.{name}' :disabled='{ro}' :localdata='{name}List' @change='{name}Change' />") + Hidden(f);
             case "TextArea": return $"<uni-easyinput primaryColor=\"{primary}\" :disabled='{ro}' type='textarea' maxlength='{(InputLength(c,f) == "max" ? "-1" : Html(InputLength(c,f)))}' v-model='entity.{name}' />";
             case "CustomControl":
                 if (!Regex.IsMatch(f.Detail, "^yzp-[a-z0-9]+(?:-[a-z0-9]+)*$")) throw new InvalidOperationException("原详情自定义组件名称无效。");
@@ -179,7 +184,7 @@ this.$watch(()=>this.entity.{{{targetField}}},()=>{this.{{{list}}}=[];this._orig
         var nonText=Js(fields.Where(field=>field.Type!="string?").Select(field=>field.JsonName));
         c.Methods.AppendLine($$$"""
 {{{method}}}() {
-  if(!this.permissionsReady || !this._alive || this.readOnlyCondition) return null;
+  if(!this.permissionsReady || !this._alive{{{(c.Table.Source.IsFunctionTable==1?"":" || this.readOnlyCondition")}}}) return null;
   const fields={{{{entries}}}};
   if(Object.values(fields).includes(undefined) ||
      {{{nonText}}}.some(key=>typeof fields[key]==='string' && !fields[key].trim())) return null;

@@ -43,7 +43,7 @@ internal static class DatabaseCheckboxCompilation
     }
     /// <summary>隐藏字段也在复制或默认值触发时校验；不因此开放公开候选或VO。
     /// </summary>
-    internal static IReadOnlyList<DatabaseCheckboxModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Columns.Where(column=>Generic(table,column)).Select(column=>Resolve(model,table,page,column).Definition).OfType<DatabaseCheckboxModel>().ToArray();
+    internal static IReadOnlyList<DatabaseCheckboxModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsFunctionTable==1?ForPage(model,table,page):table.Columns.Where(column=>Generic(table,column)).Select(column=>Resolve(model,table,page,column).Definition).OfType<DatabaseCheckboxModel>().ToArray();
     /// <summary>候选用于原详情及筛选，名称输出仍单独按实际Readable字段决定。
     /// </summary>
     internal static IReadOnlyList<DatabaseCheckboxModel> ForPage(GenerationModel model,TableModel table,PageModel page)=>page.Readable.Concat(page.Writable).Concat(page.Searchable).DistinctBy(column=>column.Source.Id).Where(column=>Generic(table,column)).Select(column=>Resolve(model,table,page,column).Definition).OfType<DatabaseCheckboxModel>().ToArray();
@@ -67,18 +67,20 @@ internal static class DatabaseCheckboxCompilation
         try
         {
             if(model.Catalog.DatabaseProvider!="mysql")return Gap("当前方言尚未完成复选成员及名称用途验收。");
-            if(table.Source.IsRongyu is not(0 or 1)||table.IsGlobal||source.Type!="string?"||!source.Source.ColumnName.EndsWith("_ids",StringComparison.Ordinal)||!NonRedundantReadCompilation.Physical(model,table,source))return Gap("来源必须是普通实体表的物理字符串_ids。");
-            if(!HasIdentity(model,table))return Gap("来源缺少真实物理主键或项目归属。 ");
+            var functionForm=table.Source.IsFunctionTable==1;
+            if(table.Source.IsRongyu is not(0 or 1)||table.IsGlobal||source.Type!="string?"||!source.Source.ColumnName.EndsWith("_ids",StringComparison.Ordinal)||
+                !functionForm&&!NonRedundantReadCompilation.Physical(model,table,source))return Gap("来源须为已声明的字符串_ids。");
+            if(!functionForm&&!HasIdentity(model,table))return Gap("来源缺少真实物理主键或项目归属。");
             var baseline=DatabaseCheckboxDefinition.Parse(source.Source.ControlDetail);
             var field=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);
             if(field?.Extra.GetValueOrDefault("controlKind").ToString() is{Length:>0} kind&&kind!="MultiCheckBoxDatabase")
                 return Gap("页级控件覆盖改变了原复选存储协议。");
             var definition=baseline.WithPageOverride(field?.Extra.GetValueOrDefault("controlDetail").ToString());
             var target=Target(model,source,definition);if(target.Source.Id!=Target(model,source,baseline).Source.Id)return Gap("页级目标覆盖未绑定同一物理关系，不能错读名称。");
-            if(Protected(target))return Gap("目标必须是普通业务表。");
+            if(Protected(target)||target.Source.IsFunctionTable==1)return Gap("目标必须是有记录的业务表。");
             PageModel? globalPage=null;
             PageModel? publishedGlobalPage=null;
-            if(target.IsGlobal)
+            if(target.IsGlobal&&!functionForm)
             {
                 var proof=table.Source.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);
                 if(definition.PageId.Length>0&&definition.PageId!=proof.Page.Id)return Gap("全局复选页级目标覆盖与固定关系不一致。");
@@ -99,6 +101,8 @@ internal static class DatabaseCheckboxCompilation
             if(linkedPage.Length==0&&publishedGlobalPage is not null)linkedPage=publishedGlobalPage.Source.Id;
             var explicitPage=definition.PageId.Length>0?definition.PageId:linkedPage;
             var namePage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage);
+            if (functionForm && namePage is not null && ExactDataManageCompilation.Declared(namePage))
+                return Gap("功能表的精确数据管理目标待接入。");
             var logicalPage=namePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage)?namePage:null;
             var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
             // 同一候选即使由表级继承，也必须用当前普通非冗余来源页的父键重新证明。
@@ -109,11 +113,18 @@ internal static class DatabaseCheckboxCompilation
             if(logicalPage is not null&&ExactDataManageCompilation.Declared(logicalPage))
                 return Gap("复选目标范围需要与实际目标页及项目归属一致。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
+            // 旧复选允许只绑定表。具有物理行项目归属的全局目录仍按真实身份限定。
+            if (functionForm && NonRedundantReadCompilation.HasGlobalRowProject(target))
+            {
+                if(!HasIdentity(model,target))return Gap("全局目标缺少物理行项目归属。");
+                var rowProject=target.Columns.Single(column=>column.Source.ColumnName=="yz_project_id");
+                scopes=scopes.Append((Column:rowProject,Source:"project")).DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
+            }
             PageModel? physicalPage=null;
             var scopeAlreadyBound=logicalPage is not null||globalPage is not null&&
                 (!derived||NonRedundantReadCompilation.HasGlobalRowProject(target));
-            if(table.Source.IsRongyu==0&&!scopeAlreadyBound&&namePage is not null&&
-                (namePage.Condition is not null||namePage.Scopes.Any(scope=>scope.Source=="parent")))
+            if((table.Source.IsRongyu==0||functionForm)&&!scopeAlreadyBound&&namePage is not null&&
+                (functionForm||namePage.Condition is not null||namePage.Scopes.Any(scope=>scope.Source=="parent")))
             {
                 if(ExactDataManageCompilation.Declared(namePage))
                     return Gap("原复选不能借用精确数据管理页的目标范围。");
@@ -138,6 +149,7 @@ internal static class DatabaseCheckboxCompilation
                 return Gap("原parentId必须由来源页同一真实父表证明，不能猜测其他父范围。");
             if(pageHasParent&&logicalPage is {} scopedPage)
             {
+                if(functionForm)return Gap("功能表目标页的独立父范围待接入。");
                 var syntax=FixedConditionPlan.Compile(scopedPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
                 var binding=MultiTargetParentScope.Compile(model.Catalog,target.Source,syntax)!;
                 var owner=pageRead?binding.Source(model.Catalog,table.Source,source.Source,page.Source)
@@ -159,8 +171,8 @@ internal static class DatabaseCheckboxCompilation
                 orderBy=namePage?.Source.OrderBy??"";
             var order=GenerationModel.ValidateOrderBy(string.IsNullOrWhiteSpace(orderBy)?definition.NameField+" asc":orderBy,target.Columns).ToList();
             if(order.Any(item=>(!NonRedundantReadCompilation.Physical(model,target,item.Column)&&!(derived&&item.Column.Source.Id==name.Source.Id))||item.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,item.Column)))return Gap("候选排序必须为非凭据物理字段。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));
-            var names=SelectionDisplayFieldCompilation.Resolve(table,source);
-            if(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names))return Gap("冗余模式需要已证明的同一关系名称数组缓存，非冗余使用只读联接或自动名称。");
+            var names=functionForm?SelectionDisplayFieldCompilation.FunctionFormNames(table,source,name):SelectionDisplayFieldCompilation.Resolve(table,source);
+            if(!functionForm&&(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names)))return Gap("冗余模式需要已证明的同一关系名称数组缓存，非冗余使用只读联接或自动名称。");
             if(table.Source.IsRongyu==0&&(!GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")||names.Source.IsVirtualColumn!=0))return Gap("非冗余名称必须是明确只读联接或自动投影。");
             var result=new DatabaseCheckboxModel(source,target,name,names,scopes,conditions,order,parents,sourceParent,derived,globalPage)
             {

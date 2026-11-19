@@ -12,7 +12,7 @@ internal static class DatabaseCheckboxRenderer
     [HttpPost("{{def.Endpoint}}")] [RequestSizeLimit(262144)]
     public async Task<R<IReadOnlyList<DatabaseCheckboxOption>>> {{def.Endpoint}}([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] System.Text.Json.JsonElement? body, CancellationToken cancellationToken)
     {
-        var actor=RelationOptionAuthorization.Require(authorization,"{{page.Source.Id}}",{{Bool(page.Source.IsNew==1)}},{{Bool(Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source))}});
+        var actor=RelationOptionAuthorization.Require(authorization,"{{page.Source.Id}}",{{Bool(table.Source.IsFunctionTable==0&&page.Source.IsNew==1)}},{{Bool(Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source))}});
         if(Request.Query.Count!=0)throw new ArgumentException("数据库复选候选不接受query参数。");
         var request=DatabaseCheckboxOptionsRequest.Read(body);
         return R<IReadOnlyList<DatabaseCheckboxOption>>.Success(await service.CheckboxOptions{{Suffix(page,def)}}Async(request,actor,cancellationToken));
@@ -79,7 +79,7 @@ internal static class DatabaseCheckboxRenderer
                 result.AppendLine("    /// <summary>全选不得截断；父验证和候选在同一读快照，权限在服务入口再次核对。</summary>")
                     .AppendLine($"    public Task<IReadOnlyList<DatabaseCheckboxOption>> CheckboxOptions{suffix}Async(DatabaseCheckboxOptionsRequest request,RuntimeActor actor,CancellationToken cancellationToken)")
                     .AppendLine("    {")
-                    .AppendLine($"        if(relationAuthorization is null||RelationOptionAuthorization.Require(relationAuthorization,{Literal(page.Source.Id)},{Bool(page.Source.IsNew==1)},{Bool(Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source))})!=actor)throw new UnauthorizedAccessException(\"复选读取身份已变化。\");")
+                    .AppendLine($"        if(relationAuthorization is null||RelationOptionAuthorization.Require(relationAuthorization,{Literal(page.Source.Id)},{Bool(table.Source.IsFunctionTable==0&&page.Source.IsNew==1)},{Bool(Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source))})!=actor)throw new UnauthorizedAccessException(\"复选读取身份已变化。\");")
                     .AppendLine("        if(request.Selected is {} ids&&(ids.Length>DatabaseCheckboxValue.MaximumItems||ids.Any(id=>id<=0)||ids.Distinct().Count()!=ids.Length))throw new ArgumentException(\"复选指定ID无效。\");")
                     .AppendLine($"        var form=ReadCheckboxForm{suffix}(request.FormParameters);")
                     .AppendLine($"        return {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<IReadOnlyList<DatabaseCheckboxOption>>(async()=>")
@@ -91,6 +91,7 @@ internal static class DatabaseCheckboxRenderer
                     .AppendLine($"            return rows.Select(row=>{{var id=row.Id.ToString(CultureInfo.InvariantCulture);var label={LabelText(def,"row.Name")};return new DatabaseCheckboxOption(id,label,id,label);}}).ToArray();")
                     .AppendLine("        },cancellationToken);").AppendLine("    }");
             }
+            if(table.Source.IsFunctionTable==1)continue;
             var writeParent=def.LogicalSourceParent?"logicalRelationParentId":ParentValue(def,"entity");
             result.AppendLine("    /// <summary>来源依赖变化重新校验完整所选集合，冗余名称仅在本事务派生；未提交无关字段不刷新。</summary>")
                 .AppendLine($"    private async Task ValidateCheckbox{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,RecordMutationOperation? operation=null{(def.LogicalSourceParent?",string? logicalRelationParentId=null":"")})")

@@ -39,6 +39,25 @@ internal static class SelectionDisplayFieldCompilation
         return new(metadata,GenerationModel.Pascal(expected),GenerationModel.Camel(expected),"string?",IsManagedMultiNames:true);
     }
 
+    /// <summary>只为功能表提供原名称数组属性，显式同名字段优先。</summary>
+    internal static ColumnModel FunctionFormNames(TableModel table, ColumnModel source, ColumnModel name)
+    {
+        var field = name.Source.ColumnName;
+        var alias = source.Source.ColumnName[..^4] + "_" + (field.EndsWith('s') ? field : field + "s");
+        MetadataValidation.RequireIdentifier(alias);
+        var declared = table.Columns.SingleOrDefault(column => column.JsonName == GenerationModel.Camel(alias));
+        if (declared is not null)
+        {
+            if (declared.Source.ColumnName != alias || declared.Type != "string?" || declared.IsSystem ||
+                declared.Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage")
+                throw new InvalidOperationException("功能表的多值名称辅助字段须为同名字符串字段。");
+            return declared;
+        }
+        var metadata = new ColumnMetadata { Id=source.Source.Id+"_display", ConfigTableId=table.Source.Id,
+            ColumnName=alias, LogicalType="string", ColumnLength="max", IsVirtualColumn=1 };
+        return new(metadata, GenerationModel.Pascal(alias), GenerationModel.Camel(alias), "string?", IsManagedMultiNames:true);
+    }
+
     /// <summary>原单值关系的自动名称只出现在读取投影，显式列优先。</summary>
     internal static ColumnModel? AutomaticSingle(TableModel table,ColumnModel source,ColumnModel name)
     {

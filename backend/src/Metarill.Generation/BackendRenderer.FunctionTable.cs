@@ -5,14 +5,17 @@ namespace Metarill.Generation;
 internal static partial class BackendRenderer
 {
     private static bool HasFunctionOptions(GenerationModel model, TableModel table) =>
-        table.Pages.Any(page => RelationCompilation.ForPage(model, page).Count != 0);
+        table.Pages.Any(page => HasFunctionOptions(model, table, page));
+
+    private static bool HasFunctionOptions(GenerationModel model, TableModel table, PageModel page) =>
+        RelationCompilation.ForPage(model, page).Count != 0 || DatabaseCheckboxCompilation.ForPage(model, table, page).Count != 0;
 
     /// <summary>原功能表只承载前端表单及已发布外表候选。按钮继续由宿主的手写业务处理器执行。</summary>
     private static IEnumerable<PlannedFile> FunctionTableFiles(GenerationModel model, TableModel table)
     {
         if (HasFunctionOptions(model, table))
         {
-            var options = string.Concat(table.Pages.Select(page => Relations(model, page)));
+            var options = string.Concat(table.Pages.Select(page => Relations(model, page) + DatabaseCheckboxRenderer.Service(model, table, page)));
             var service = CSharpGenerator.Header + $$"""
 using System.Globalization;
 using System.Text.Json;
@@ -43,9 +46,10 @@ public sealed partial class {{table.Name}}Service(DatabaseSession session, IRunt
         foreach (var page in table.Pages)
         {
             var body = new StringBuilder();
+            body.Append(DatabaseCheckboxRenderer.Controller(model, table, page));
             AppendCandidateActions(body, model, table, page);
             if (body.Length == 0) continue;
-            var serviceParameter = RelationCompilation.ForPage(model, page).Count == 0 ? "" :
+            var serviceParameter = !HasFunctionOptions(model, table, page) ? "" :
                 table.Name + "Service service, ";
             var serviceImport = serviceParameter.Length == 0 ? "" : $"using {model.Namespace}.Generated.Services;\n";
             yield return new($"Controllers/{page.Name}Controller.g.cs", CSharpGenerator.Header + $$"""
