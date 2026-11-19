@@ -9,6 +9,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     FixedParentRelationResult? ParentBinding = null, IReadOnlyList<(ColumnModel Column, bool Descending)>? OptionsOrder = null,
     RelationConditionModel? Conditions = null, ColumnModel? FixedSourceParent = null, MultiTargetParentScope? FixedParent = null, bool LogicalSourceParent = false)
 {
+    internal RelationConditionModel? ImportCondition { get; init; }
     /// <summary>原 V8 路由按来源字段去掉 Id/Ids 后缀，不能用目标表名替代业务别名。</summary>
     public string LegacyEndpoint
     {
@@ -73,8 +74,8 @@ internal static class RelationCompilation
             // 原单选的附加条件已经逐项证明属于目标页，逻辑父和固定条件由同一页面计划执行。
             var fixedParent=DerivedRelationNamesCompilation.SingleParent(model,target,targetPage)??
                 PhysicalTargetForLogicalSource(model,owner,page,target,targetPage);
-            var where=selection is not null&&(fixedParent is {Logical:true}||FixedPageConditionCompilation.HasLogicalFields(targetPage))
-                ?"":Mapped("whereSql");
+            var where=selection is not null&&(selection.ImportCondition is not null||fixedParent is {Logical:true}||
+                FixedPageConditionCompilation.HasLogicalFields(targetPage))?"":Mapped("whereSql");
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,allowLogicalList:selection is null);
             if ((conditions is not null||FixedPageConditionCompilation.HasLogicalFields(targetPage))&&
                 ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
@@ -121,7 +122,7 @@ internal static class RelationCompilation
                     :fixedParent.SingleSource(model.Catalog,owner.Source,source.Source);
             var fixedSourceParent=sourceBinding is null?null:owner.Columns.Single(column=>column.Source.Id==sourceBinding.Column.Id);
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,
-                fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0);
+                fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0){ImportCondition=selection?.ImportCondition};
             // 中间页的目标绑定只复用关系定义；外层计划随后编译完整的名称，避免孙级名称校验反复进入同一页。
             if(scopeSourceId is null&&DerivedRelationNamesCompilation.UsesFixedRead(model,relation))
                 _=DerivedRelationNamesCompilation.Require(model,owner,page,relation);

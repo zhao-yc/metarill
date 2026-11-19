@@ -305,6 +305,12 @@ public static class NonRedundantReads
         new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,
             field=="id"?["id"]:["id",field],[],singleTargets,conditionFields));
 
+    /// <summary>非冗余单选 Excel 使用实际单选页与同一固定条件编译器。</summary>
+    public static NonRedundantReadPlan CompileSingleImportLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
+        IReadOnlyList<string> conditionFields,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>
+        new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,["id",field],[],
+            singleTargets,conditionFields,importPageType:"1"));
+
     /// <summary>生成期取得固定单值名称实际读取的来源物理列；同表其它角色可能形成安全超集，不返回SQL。</summary>
     public static IReadOnlyList<string> CompileSourceDependencies(MetadataCatalog metadata,string tableId,string field)
     {

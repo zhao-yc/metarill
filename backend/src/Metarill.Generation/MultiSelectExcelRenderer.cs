@@ -58,13 +58,9 @@ internal static class MultiSelectExcelRenderer
     internal static string ImportConditionBinding(MultiSelectModel multi,string suffix)
     {
         if(multi.ImportCondition is not {} condition)return "";
-        var forms=condition.Forms.Count==0?"":"        var formValues=new Dictionary<string,object?>{"+
-            string.Join(",",condition.Forms.Select(binding=>"["+Literal(binding.Variable)+
-                "]=Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(relationContext["+Literal(binding.Column.JsonName)+"],"+
-                Literal(binding.Column.Source.LogicalType)+")"))+"};\n";
-        var variables=RelationConditionsCompilation.Variables(condition,multi.TargetParents.Count>0?"targetParentId":"parentId");
         return "        if(cell.GetArrayLength()==0)return JsonSerializer.SerializeToElement(Array.Empty<string>());\n"+
-            forms+$"        var importCondition=MultiImportCondition{suffix}.BindVariables(new Dictionary<string,object?>{{{variables}}});\n";
+            RelationConditionsCompilation.BindImport(condition,"MultiImportCondition"+suffix,
+                multi.TargetParents.Count>0?"targetParentId":"parentId");
     }
 
     /// <summary>按业务字段类型生成原名称反查的强类型参数。</summary>

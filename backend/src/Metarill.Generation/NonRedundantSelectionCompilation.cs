@@ -2,7 +2,8 @@ using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
 
-internal sealed record NonRedundantSelectionModel(TableModel Target,PageModel TargetPage,ColumnModel Name,SelectionControlDefinition Definition);
+internal sealed record NonRedundantSelectionModel(TableModel Target,PageModel TargetPage,ColumnModel Name,
+    SelectionControlDefinition Definition,RelationConditionModel? ImportCondition);
 
 /// <summary>单值选择页的固定目标、名称和候选范围证明；不解释客户端SQL或改变原弹层。</summary>
 internal static class NonRedundantSelectionCompilation
@@ -31,8 +32,17 @@ internal static class NonRedundantSelectionCompilation
         if(!NonRedundantReadCompilation.Physical(model,target,name))DerivedRelationNamesCompilation.RequireSelection(model,table,target,targetPage,name);
         if(target.IsGlobal){var proof=cached?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalSingleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)throw new InvalidOperationException("全局单选页面和名称来源不一致。");}
         if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))throw new InvalidOperationException("非冗余单选目标缺少项目归属。");
-        if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))throw new InvalidOperationException(reason);
-        var selection=new NonRedundantSelectionModel(target,targetPage,name,definition);
+        var query=FixedPageQueryCompilation.For(target,targetPage);
+        RelationConditionModel? importCondition=null;
+        if(!FixedPageQueryCompilation.TryProveSelection(query,definition,out var reason))
+        {
+            if(table.Source.IsRongyu!=0||string.IsNullOrWhiteSpace(definition.WhereSql))throw new InvalidOperationException(reason);
+            if(!FixedPageQueryCompilation.TryProveSelection(query,definition with{WhereSql=""},out var orderReason))
+                throw new InvalidOperationException(orderReason);
+            // 原弹窗直接使用目标页，只有名称导入叠加来源控件的额外筛选。
+            importCondition=RelationConditionsCompilation.SelectionImport(model,table,page,query,definition.WhereSql);
+        }
+        var selection=new NonRedundantSelectionModel(target,targetPage,name,definition,importCondition);
         var display=SelectionDisplayFieldCompilation.AutomaticSingle(table,source,name)??SelectionDisplayFieldCompilation.Resolve(table,source);
         if ((typedName || display.Source.Id != source.Source.Id) && !IsDisplay(source,display,name))
             throw new InvalidOperationException("非冗余单选辅助名称与真实外键、名称路径或类型不一致。");

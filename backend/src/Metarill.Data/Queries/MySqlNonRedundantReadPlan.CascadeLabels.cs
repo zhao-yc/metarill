@@ -148,7 +148,7 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>发布已绑定目标页及名称，原候选、导入、回读共用固定条件。</summary>
     internal static MySqlNonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog catalog,string tableId,string pageId,
         string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
-        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,IReadOnlyList<string>? importFields=null)
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,IReadOnlyList<string>? importFields=null,string importPageType="2")
     {
         MetadataValidation.Validate(catalog);
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("多值目标页逻辑条件要求已发布的MySQL读取计划。");
@@ -163,9 +163,9 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<NonRedundantCrossTableScope> crossBindings=[];
         if(extraFields.Count>0)
         {
-            if(table.IsRongyu!=0||table.IsView!=0||table.IsFunctionTable!=0||page.Extra.GetValueOrDefault("type").ToString()!="2"||
+            if(table.IsRongyu!=0||table.IsView!=0||table.IsFunctionTable!=0||page.Extra.GetValueOrDefault("type").ToString()!=importPageType||
                 page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
-                throw new NotSupportedException("Excel 多值逻辑条件要求已发布的普通非冗余多选页。");
+                throw new NotSupportedException("Excel 逻辑条件要求实际发布的普通非冗余选择页。");
             var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId).ToArray();
             var declared=RelationStorageColumns.Expand(table,members);
             // 从当前发布页再次验证稀疏层级和自树覆盖，禁止宿主用备用页代替。

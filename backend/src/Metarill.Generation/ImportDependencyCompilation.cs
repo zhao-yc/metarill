@@ -37,6 +37,7 @@ internal static class ImportDependencyCompilation
                 parents.Add(relation.SourceColumn.Source.Id,parent);fields.Add(parent);
             }
             fields.AddRange(relation.Conditions?.Forms.Select(binding=>binding.Column)??[]);
+            fields.AddRange(relation.ImportCondition?.Forms.Select(binding=>binding.Column)??[]);
             if(fields.Count>0)dependencies.Add(relation.SourceColumn.Source.Id,fields.DistinctBy(column=>column.Source.Id).ToArray());
         }
         foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>columns.Any(column=>column.Source.Id==multi.Source.Source.Id)))

@@ -82,10 +82,7 @@ internal static class MultiSelectCompilation
             {
                 if(table.Source.IsRongyu!=0)return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
                 // 原非冗余 Excel 反查叠加控件条件；弹窗继续使用已有的目标页查询合同。
-                var (importScopes,condition)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql,allowLogicalMultiImport:true);
-                if(condition is null||importScopes.Any(scope=>!query.IdentityScopes.Any(fixedScope=>
-                    fixedScope.Column.Source.Id==scope.Column.Source.Id&&fixedScope.Source==scope.Source)))
-                    return Gap("多选 Excel 附加条件的项目或父键必须沿用目标页已证明的范围。");
+                var condition=RelationConditionsCompilation.SelectionImport(model,table,page,query,definition.WhereSql);
                 if(condition.HasLogicalFields)DerivedMultiNamesCompilation.ValidateLogicalImport(model,target,targetPage,name,condition);
                 importCondition=condition;
             }

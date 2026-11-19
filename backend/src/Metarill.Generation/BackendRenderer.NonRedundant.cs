@@ -52,10 +52,12 @@ internal static partial class BackendRenderer
             .SelectMany(page=>MultiSelectCompilation.ForPage(model,table,page))
             .Where(multi=>multi.ImportCondition?.HasLogicalFields==true)).DistinctBy(multi=>
                 (multi.TargetPage.Source.Id,multi.Source.Source.Id,multi.ImportCondition!.Definition)).ToArray();
-        scopedPages=scopedPages.Concat(logicalMultiImports.Select(multi=>(multi.Target,multi.TargetPage)))
-            .Concat(logicalMultiImports.SelectMany(multi=>CascadeTreeReadCompilation.ForService(model,multi.Target,multi.TargetPage)
-                .Where(tree=>CascadeTreeViewRenderer.Name(multi.Target,tree.Source) is {} leaf&&
-                    multi.ImportCondition!.SelfTreeFields.Contains(leaf.Source.ColumnName))
+        var fixedSingleImports=relations.Where(relation=>relation.ImportCondition is not null&&relation.Target.Source.IsRongyu==0).ToArray();
+        var importTargets=logicalMultiImports.Select(multi=>(multi.Target,multi.TargetPage,Condition:multi.ImportCondition!))
+            .Concat(fixedSingleImports.Select(relation=>(relation.Target,relation.TargetPage,Condition:relation.ImportCondition!))).ToArray();
+        scopedPages=scopedPages.Concat(importTargets.Select(item=>(item.Target,item.TargetPage)))
+            .Concat(importTargets.SelectMany(item=>CascadeTreeReadCompilation.ForService(model,item.Target,item.TargetPage)
+                .Where(tree=>CascadeTreeViewRenderer.Name(item.Target,tree.Source) is {} leaf&&item.Condition.SelfTreeFields.Contains(leaf.Source.ColumnName))
                 .Select(tree=>(tree.Target,tree.TargetPage))));
         var nestedTables=RelationPropagationCompilation.PublishedRecursiveTables(model,scopedPages);
         var recursiveCandidates=nestedTables.Count>0;
@@ -106,6 +108,8 @@ internal static partial class BackendRenderer
             helpers+="    /// <summary>校验实际多值目标页绑定的全局父。源码冻结后只接受规范ID。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMultiGlobalParent(string tableId,string pageId)=>Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(Snapshot,tableId,pageId);\n";
         if(logicalMultiImports.Length>0)
             helpers+="    /// <summary>Excel 名称匹配的附加逻辑字段沿实际候选页编译。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMultiImportLabel(string tableId,string pageId,string field,string[] fields,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileMultiImportLabel(Snapshot,tableId,pageId,field,fields,singleTargets);\n";
+        if(fixedSingleImports.Length>0)
+            helpers+="    /// <summary>单选 Excel 匹配复用实际发布页和固定字段计划。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileSingleImportLabel(string tableId,string pageId,string field,string[] fields,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileSingleImportLabel(Snapshot,tableId,pageId,field,fields,singleTargets);\n";
         var derivedHelper=model.Tables.Any(table=>table.Pages.Any(page=>RelationCompilation.ForPage(model,page).Concat(RelationCompilation.ForPage(model,page,true)).Any(relation=>DerivedRelationNamesCompilation.UsesFixedRead(model,relation))||MultiSelectCompilation.ForService(model,table,page).Any(multi=>DerivedMultiNamesCompilation.Declared(model,multi.Target,multi.Name))||DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.DerivedName)||CascadeTreeReadCompilation.ForService(model,table,page).Any(def=>def.DerivedName)||CrossTableReadCompilation.ForService(model,table,page).Any(def=>def.Levels.Any(level=>level.Target.Source.IsRongyu==0))))?"    /// <summary>派生候选不延迟级联名称，完整标量路径在发布时固定。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileRelation(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>singleTargets is null?Metarill.Data.Queries.NonRedundantReads.Compile(Snapshot,tableId,outputs,dependencies):Metarill.Data.Queries.NonRedundantReads.CompileProjectRelation(Snapshot,tableId,outputs,dependencies,singleTargets);\n":"";
         return $$"""
 

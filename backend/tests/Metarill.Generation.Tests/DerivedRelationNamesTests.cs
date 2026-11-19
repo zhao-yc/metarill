@@ -9,6 +9,103 @@ namespace Metarill.Generation.Tests;
 [Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class DerivedRelationNamesTests
 {
+    /// <summary>单选的附加条件只进入原 Excel 名称反查，与已发布父范围一同绑定。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    public async Task R0_single_excel_applies_control_conditions(bool physical,bool logical)
+    {
+        const string ns="Example.SingleImportCondition";
+        var catalog=Catalog("dr_selection",parentAndForm:true);
+        var targetTable=catalog.ConfigTables.Single(table=>table.Id=="2");
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="15");
+        foreign.ControlKind="SelectPage";
+        if(physical)
+        {
+            targetTable.IsRongyu=1;
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="28");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="28");
+            var display=catalog.ConfigColumns.Single(column=>column.Id=="113");
+            display.ColumnName="customer_name";
+            display.Extra["columnFullName"]=JsonSerializer.SerializeToElement("customer.name");
+        }
+        catalog.ConfigColumns.Add(new(){Id="217",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"});
+        if(logical)
+        {
+            catalog.ConfigColumns.AddRange([
+                new(){Id="45",ConfigTableId="4",ColumnName="parent_company_id",LogicalType="int64",LinkConfigTableId="4"},
+                new(){Id="216",ConfigTableId="2",ColumnName="tree_id",ControlKind="CascadeTree",LogicalType="int64",LinkConfigTableId="4",
+                    ControlDetail=JsonSerializer.Serialize(new{sourceMode="selfTree",selfTree=new{table="dr_selection_company",parentField="parent_company_id"}})}]);
+            catalog.ConfigPageColumns.Add(new(){Id="40145",ConfigPageId="401",ConfigColumnId="45"});
+            catalog.ConfigPageColumns.Add(new(){Id="201216",ConfigPageId="201",ConfigColumnId="216"});
+            targetPage.WhereSql+=" AND store_id=@current_store_id";
+        }
+        var whereSql="status>=1 AND group_id=@parent_id AND store_id=@current_store_id AND segment=@formParameters.segment";
+        foreign.ControlDetail=JsonSerializer.Serialize(new{pageId="201",nameField=physical?"name":"company_name",whereSql});
+        var field=catalog.ConfigPageColumns.Single(column=>column.ConfigPageId=="101"&&column.ConfigColumnId=="15");
+        field.Extra["isDetailShow"]=JsonSerializer.SerializeToElement(1);
+        if(logical)field.Extra["controlDetail"]=JsonSerializer.SerializeToElement(
+            JsonSerializer.Serialize(new{whereSql=whereSql+" AND tree_name <> '不导入'"}));
+        RedundantMultiNameCacheTests.Published(catalog);
+        var model=GenerationModel.Create(catalog,ns);
+        var source=model.Tables.Single(table=>table.Source.Id=="1");
+        var page=source.Pages.Single(item=>item.Source.Id=="101");
+        var relation=Assert.Single(RelationCompilation.ForPage(model,page),item=>item.SourceColumn.Source.Id==foreign.Id);
+        Assert.Null(relation.Conditions);
+        Assert.Equal("segment",Assert.Single(ImportDependencyCompilation.ForPage(model,source,page).Dependencies[foreign.Id]).Source.ColumnName);
+        new FrontendPackager().Validate(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-single-import-scope");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/DrSelectionOrderService.g.cs"));
+            var at=code.IndexOf("private async Task<JsonElement> ImportRelation101_15Async",StringComparison.Ordinal);
+            Assert.True(at>=0);
+            Assert.DoesNotContain("SingleImportCondition101_15.BindVariables",code[..at]);
+            var import=code[at..];
+            Assert.Contains("OptionsScope101_15Async(parentId,targetParentId,actor,cancellationToken,true,false)",import);
+            Assert.Contains("SingleImportCondition101_15.BindVariables",import);
+            Assert.Contains("AccountConditionVariables.Require(actor, \"current_store_id\")",import);
+            Assert.Contains("relationContext[\"segment\"]",import);
+            Assert.Contains(physical?"importCondition.ApplyConstants(query,session,\"single_control_import_101_15\")":
+                "PageAsync(SingleImportReadPlan101_15.BindAccount(actor)",import);
+
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.DrSelectionOrderService",true)!;
+            const BindingFlags staticPrivate=BindingFlags.NonPublic|BindingFlags.Static;
+            const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+            var condition=Assert.IsType<Metarill.Data.Queries.FixedConditionSqlPlan>(service
+                .GetField("SingleImportCondition101_15",staticPrivate)!.GetValue(null));
+            var bound=condition.BindVariables(new Dictionary<string,object?>
+            {
+                ["parent_id"]="9007199254741197",["current_store_id"]=23L,["formParameters.segment"]=3
+            });
+            var clause=bound.GetType().GetMethod("RenderConstants",hidden)!
+                .Invoke(bound,[new Metarill.Data.MySqlDatabaseProvider(),"excel",new Func<string,string>(name=>name)])!;
+            var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(clause.GetType().GetProperty("Parameters")!.GetValue(clause));
+            Assert.Equal(logical?new object?[]{1,9007199254741197L,23L,3,"不导入"}:
+                new object?[]{1,9007199254741197L,23L,3},parameters.Values);
+            if(logical)
+            {
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("SingleImportReadPlan101_15",staticPrivate)!.GetValue(null));
+                Assert.True(plan.RequiresAccount);
+                var sql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+                Assert.Contains("CASE WHEN",Assert.IsType<string>(sql.GetType().GetMethod("Expression",hidden)!.Invoke(sql,["tree_name"])));
+            }
+
+            field.Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new
+                {whereSql=whereSql+" AND segment=@parentId"}));
+            var invalid=Assert.Throws<InvalidOperationException>(()=>NonRedundantSelectionCompilation.Resolve(model,source,page,relation.SourceColumn));
+            Assert.Contains("父键必须沿用目标页",invalid.Message);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>真实生成编译，派生名称不允许回退为Entity忽略属性上的物理SQL。</summary>
     [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)][InlineData(true,true)]
     public async Task Derived_list_name_compiles_candidates_import_and_export(bool parentAndForm,bool cached)

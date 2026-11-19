@@ -22,18 +22,18 @@ internal static class RelationConditionsCompilation
     /// <summary>生成前验证整个条件及字面量类型，不把未支持的变量或派生字段降级为宽查询。</summary>
     internal static (IReadOnlyList<(ColumnModel Column, string Source)> Scopes, RelationConditionModel? Conditions) Compile(
         GenerationModel model, TableModel owner, PageModel page, TableModel target, string definition,bool allowLogicalList=false,
-        bool allowLogicalMultiImport=false)
+        bool allowLogicalSelectionImport=false)
     {
-        try { return CompileCore(model,owner,page,target,definition,allowLogicalList,allowLogicalMultiImport); }
+        try { return CompileCore(model,owner,page,target,definition,allowLogicalList,allowLogicalSelectionImport); }
         catch(ArgumentException error) { throw new InvalidOperationException("关系固定条件不能按已发布物理类型安全编译。",error); }
     }
 
     /// <summary>完整分析后才签发关系条件，语法和类型错误统一保留生成失败合同。</summary>
-    private static (IReadOnlyList<(ColumnModel Column, string Source)> Scopes, RelationConditionModel? Conditions) CompileCore(GenerationModel model,TableModel owner,PageModel page,TableModel target,string definition,bool allowLogicalList,bool allowLogicalMultiImport)
+    private static (IReadOnlyList<(ColumnModel Column, string Source)> Scopes, RelationConditionModel? Conditions) CompileCore(GenerationModel model,TableModel owner,PageModel page,TableModel target,string definition,bool allowLogicalList,bool allowLogicalSelectionImport)
     {
         var syntax=FixedConditionPlan.Compile(definition,target.Columns.Select(column=>column.Source.ColumnName));
-        var (crossFields,selfTreeFields)=LogicalFields(target,syntax,allowLogicalList||allowLogicalMultiImport);
-        var joinedFields=allowLogicalMultiImport&&target.Source.IsRongyu==0?target.Columns.Where(column=>
+        var (crossFields,selfTreeFields)=LogicalFields(target,syntax,allowLogicalList||allowLogicalSelectionImport);
+        var joinedFields=allowLogicalSelectionImport&&target.Source.IsRongyu==0?target.Columns.Where(column=>
             syntax.Fields.Contains(column.Source.ColumnName)&&column.Source.IsVirtualColumn==0&&
             GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&
             !NonRedundantReadCompilation.Physical(model,target,column))
@@ -56,7 +56,7 @@ internal static class RelationConditionsCompilation
                 if(Kind(column.Source.LogicalType)!=Kind(targetColumn.Source.LogicalType))throw new InvalidOperationException("表单依赖与候选字段逻辑类型不一致。");
                 forms.TryAdd(variable,new(variable,column,Array.AsReadOnly(path),Array.AsReadOnly(path.Length==1?new[]{GenerationModel.Camel(owner.Source.TableName),path[0]}:new[]{path[^1]})));continue;
             }
-            if(Logical(term.Field)&&!(allowLogicalMultiImport&&crossFields.Contains(term.Field)&&MultiTargetParentScope.IsParameter(variable)))
+            if(Logical(term.Field)&&!(allowLogicalSelectionImport&&crossFields.Contains(term.Field)&&MultiTargetParentScope.IsParameter(variable)))
                 throw new InvalidOperationException("账号、项目或未证明的父级条件必须使用真实物理字段。");
             if(Metarill.Core.Security.AccountConditionVariables.IsSupported(variable))
             {
@@ -89,6 +89,27 @@ internal static class RelationConditionsCompilation
         {
             CrossFields=crossFields,SelfTreeFields=selfTreeFields,JoinedFields=joinedFields
         });
+    }
+
+    /// <summary>原选择控件的 Excel 条件沿目标页已证明的项目和父字段执行。</summary>
+    internal static RelationConditionModel SelectionImport(GenerationModel model,TableModel owner,PageModel page,
+        FixedPageQueryPlan query,string definition)
+    {
+        var (scopes,condition)=Compile(model,owner,page,query.Table,definition,allowLogicalSelectionImport:true);
+        if(condition is null||scopes.Any(scope=>!query.IdentityScopes.Any(fixedScope=>
+            fixedScope.Column.Source.Id==scope.Column.Source.Id&&fixedScope.Source==scope.Source)))
+            throw new InvalidOperationException("Excel 附加条件的项目或父键必须沿用目标页已证明的范围。");
+        return condition;
+    }
+
+    /// <summary>将导入解析出的整行依赖绑定到窄参数，当前身份仍由宿主提供。</summary>
+    internal static string BindImport(RelationConditionModel condition,string plan,string parent)
+    {
+        var forms=condition.Forms.Count==0?"":"        var formValues=new Dictionary<string,object?>{"+
+            string.Join(",",condition.Forms.Select(binding=>"["+JsonSerializer.Serialize(binding.Variable)+
+                "]=Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(relationContext["+JsonSerializer.Serialize(binding.Column.JsonName)+"],"+
+                JsonSerializer.Serialize(binding.Column.Source.LogicalType)+")"))+"};\n";
+        return forms+$"        var importCondition={plan}.BindVariables(new Dictionary<string,object?>{{{Variables(condition,parent)}}});\n";
     }
 
     /// <summary>隐藏下拉的最终值校验也须登记实际逻辑条件。</summary>
