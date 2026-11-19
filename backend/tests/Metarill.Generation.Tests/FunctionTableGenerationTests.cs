@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Runtime.Loader;
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Data.Schema;
@@ -13,10 +14,12 @@ public sealed class FunctionTableGenerationTests : IDisposable
     private readonly string output = Path.Combine(Path.GetTempPath(), "metarill-function-form", Guid.NewGuid().ToString("N"));
 
     /// <summary>从真实 Full 包验证原表单、候选权限、功能菜单与无持久化边界。</summary>
-    [Fact]
-    public async Task Function_form_packages_its_original_detail_and_authorized_options_without_a_mapper()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(0)]
+    public async Task Function_form_packages_its_original_detail_and_authorized_options_without_a_mapper(int scopedTargetStorage)
     {
-        var catalog = WithCascades(Catalog());
+        var catalog = WithScopedCheckbox(WithCascades(Catalog()), scopedTargetStorage);
         new ApplicationPackager().Create(catalog, output, "Example.FunctionForm", SourceRoot());
 
         var frontend = Path.Combine(output, "frontend");
@@ -75,6 +78,25 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.DoesNotContain("MultiName",service);
         Assert.Contains("ReadCheckboxForm102_26",service);
         Assert.Contains("CheckboxTargetCondition102_26",service);
+        Assert.Contains("findNameIdScoped38",detail);
+        Assert.Contains(scopedTargetStorage==0?"readonlyDisplayText(entity.scopedCountryLabels)":"readonlyDisplayText(entity.scopedNames)",detail);
+        Assert.Contains("Select<global::Example.FunctionForm.Generated.Entities.FunctionCountry>",service);
+        Assert.Contains("parentQuery.Where(row=>row.DeleteNo==null)",service);
+        Assert.Contains("row.CountryId==long.Parse(parentId!",service);
+        Assert.Contains("ResolveExactDataManage(\"103\", \"list\", \"real_name\")",service);
+        Assert.Contains("CheckboxOptions102_38Async(request,actor,cancellationToken)",controller);
+        if(scopedTargetStorage==0)
+        {
+            Assert.Contains("CompileMultiLabel(\"1\",\"country_label\"",service);
+            Assert.Contains("CheckboxTargetCondition102_38.BindAccount(actor)",service);
+            Assert.Contains("filters.Add(new(\"owner_code\", FixedReadComparison.In,",service);
+            Assert.Contains("DerivedCheckboxPlan102_38.BindAccount(actor)",service);
+        }
+        else
+        {
+            Assert.Contains("ExactDataManageSql.Apply(query, session, \"owner_code\"",service);
+            Assert.Contains("CheckboxTargetCondition102_38",service);
+        }
         Assert.DoesNotContain("ValidateCheckbox",service);
         Assert.Contains("CrossTargetPlan102_29_1",service);
         Assert.Contains("CascadeScope102_27(RuntimeActor",service);
@@ -105,6 +127,20 @@ public sealed class FunctionTableGenerationTests : IDisposable
         try { await process.WaitForExitAsync(timeout.Token); }
         catch (OperationCanceledException) { if (!process.HasExited) process.Kill(true); throw; }
         Assert.True(process.ExitCode == 0, (await stdout) + (await stderr));
+
+        // 严格构建后再装载类型，确认下发的精简目录可以初始化固定读取计划。
+        if(scopedTargetStorage==0)
+        {
+            var context = new AssemblyLoadContext("FunctionForm."+Guid.NewGuid().ToString("N"), isCollectible:true);
+            try
+            {
+                using var binary=File.OpenRead(Path.Combine(output,"backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"));
+                var assembly=context.LoadFromStream(binary);
+                var generatedService=assembly.GetType("Example.FunctionForm.Generated.Services.SummaryFormService",throwOnError:true)!;
+                RuntimeHelpers.RunClassConstructor(generatedService.TypeHandle);
+            }
+            finally { context.Unload(); }
+        }
     }
 
     /// <summary>装载完整包内的原表单，验证原确认事件到业务按钮的实际请求参数。</summary>
@@ -174,6 +210,60 @@ public sealed class FunctionTableGenerationTests : IDisposable
             new CSharpGenerator().Generate(catalog,output,"Example.FunctionForm"));
         Assert.Contains("功能表没有可读取的候选记录",error.Message);
         Assert.False(Directory.Exists(output));
+    }
+
+    /// <summary>复选仍使用原 parentId，无法唯一确定独立表单父字段时拒绝发布。</summary>
+    [Fact]
+    public void Function_form_checkbox_requires_a_published_independent_parent()
+    {
+        var catalog=WithScopedCheckbox(WithCascades(Catalog()), 1);
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="102"&&field.ConfigColumnId=="94");
+        var error=Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot()));
+        Assert.Contains("功能表页面须开启唯一的目标父表单字段",error.Message);
+        Assert.False(Directory.Exists(output));
+    }
+
+    /// <summary>同一功能表叠加独立父键、联动条件及目标页面的精确管理范围。</summary>
+    private static MetadataCatalog WithScopedCheckbox(MetadataCatalog catalog,int storage)
+    {
+        catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=storage;
+        var scopedPage=new PageMetadata
+        {
+            Id="103", ConfigTableId="1", Name="按国家复选客户", YzProjectId="100", YzAdminTypeId="70",
+            WhereSql="yz_project_id=@current_yz_project_id AND country_id=@parent_id AND name <> '停用'"
+        };
+        if(storage==0)scopedPage.WhereSql+=" AND store_id=@current_store_id";
+        scopedPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("owner_code");
+        catalog.ConfigPages.Add(scopedPage);
+        catalog.YzAdminTypes.Single(admin=>admin.Id=="70").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        catalog.ConfigColumns.AddRange([
+            new(){Id="16",ConfigTableId="1",ColumnName="country_id",LogicalType="int64",LinkConfigTableId="4"},
+            new(){Id="17",ConfigTableId="1",ColumnName="owner_code"},
+            new(){Id="18",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"},
+            new(){Id="38",ConfigTableId="2",ColumnName="scoped_ids",Name="按国家复选客户",
+                LogicalType="string",ColumnLength="max",ControlKind="MultiCheckBoxDatabase",LinkConfigTableId="1",IsVirtualColumn=1,
+                ControlDetail="""{"pageId":"103","nameField":"name","whereSql":"remark = @formParameters.summaryForm.title"}""",
+                Extra=new(){["isAutoPostBackQuery"]=JsonSerializer.SerializeToElement(1)}},
+            new(){Id="94",ConfigTableId="2",ColumnName="review_country_id",Name="候选所属国家",
+                LogicalType="int64",LinkConfigTableId="4",IsVirtualColumn=1}
+        ]);
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="10312",ConfigPageId="103",ConfigColumnId="12",IsShow=1},
+            new(){Id="10238",ConfigPageId="102",ConfigColumnId="38",IsEdit=1},
+            new(){Id="10294",ConfigPageId="102",ConfigColumnId="94",IsEdit=1}
+        ]);
+        if(storage==0)
+        {
+            catalog.ConfigColumns.Add(new(){Id="19",ConfigTableId="1",ColumnName="country_label",
+                Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=JsonSerializer.SerializeToElement("country.name")}});
+            var key=catalog.ConfigColumns.Single(column=>column.Id=="16");
+            key.ControlKind="List";
+            key.ControlDetail="""{"tableId":"4","pageId":"301","nameField":"name"}""";
+            catalog.ConfigColumns.Single(column=>column.Id=="38").ControlDetail=
+                """{"pageId":"103","nameField":"country_label","whereSql":"remark = @formParameters.summaryForm.title"}""";
+        }
+        return catalog;
     }
 
     /// <summary>原无主键功能表可把虚拟表单字段交给业务按钮，外表负责提供真实候选。</summary>

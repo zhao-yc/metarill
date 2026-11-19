@@ -28,7 +28,7 @@ internal static class DatabaseCheckboxRenderer
         {
             var suffix=Suffix(page,def);var project=def.Target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id");
             result.Append(Declaration(def,suffix)).Append(Reader(def,suffix));
-            if(def.PhysicalTargetPage is {} physicalPage)
+            if((def.PhysicalTargetPage??DerivedCheckboxNamesCompilation.ExactMembershipPage(model,def)) is {} physicalPage)
                 result.Append(FixedPageConditionCompilation.Declaration(physicalPage,"CheckboxTargetCondition"+suffix));
             if(def.GlobalPage is not null&&!def.DerivedName)
                 result.Append(FixedPageConditionCompilation.Declaration(def.GlobalPage,"CheckboxGlobalCondition"+suffix));
@@ -73,6 +73,13 @@ internal static class DatabaseCheckboxRenderer
             }
             if(def.PhysicalTargetPage is {} targetPage)
                 result.Append(FixedPageConditionCompilation.Apply(targetPage,"CheckboxTargetCondition"+suffix,"checkbox_target_"+suffix));
+            if(def.ExactTarget is not null&&!def.DerivedName)
+            {
+                var exactPage=def.NameTargetPage!;
+                var plan=$"global::{model.Namespace}.Generated.Services.{def.Target.Name}Service.ExactReadPlan{exactPage.Source.Id}";
+                result.Append(ExactDataManageCompilation.Query(model,def.Target,exactPage,operation:Literal("list"),
+                    prefix:"checkboxExact",locking:"locking",planReference:plan));
+            }
             result.AppendLine("        return locking?query.ForUpdate():query;").AppendLine("    }");
             if(exposed.Contains(def.Source.Source.Id))
             {
@@ -80,6 +87,7 @@ internal static class DatabaseCheckboxRenderer
                     .AppendLine($"    public Task<IReadOnlyList<DatabaseCheckboxOption>> CheckboxOptions{suffix}Async(DatabaseCheckboxOptionsRequest request,RuntimeActor actor,CancellationToken cancellationToken)")
                     .AppendLine("    {")
                     .AppendLine($"        if(relationAuthorization is null||RelationOptionAuthorization.Require(relationAuthorization,{Literal(page.Source.Id)},{Bool(table.Source.IsFunctionTable==0&&page.Source.IsNew==1)},{Bool(Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source))})!=actor)throw new UnauthorizedAccessException(\"复选读取身份已变化。\");")
+                    .Append(def.ExactTarget is null?"":$"        relationAuthorization.RequirePagePermission({Literal(def.NameTargetPage!.Source.Id)},\"list\");\n")
                     .AppendLine("        if(request.Selected is {} ids&&(ids.Length>DatabaseCheckboxValue.MaximumItems||ids.Any(id=>id<=0)||ids.Distinct().Count()!=ids.Length))throw new ArgumentException(\"复选指定ID无效。\");")
                     .AppendLine($"        var form=ReadCheckboxForm{suffix}(request.FormParameters);")
                     .AppendLine($"        return {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<IReadOnlyList<DatabaseCheckboxOption>>(async()=>")

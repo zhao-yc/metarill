@@ -54,6 +54,37 @@ try {
  assert.deepEqual(plain(app.state.approvedIdsSelectAll), [])
  assert.deepEqual(plain(app.state.entity.approvedNames), [names[1]])
 
+ // 独立父字段只使用旧 parentId。旧请求迟到时不能把新范围的候选覆盖回去。
+ const scopedRequests = () => app.requests.filter(entry => entry.options.url.endsWith('/findNameIdScoped38'))
+ assert.equal(scopedRequests().length, 0)
+ app.state.entity.reviewCountryId = ids[0]
+ await app.flush()
+ const oldScope = scopedRequests().at(-1)
+ assert.equal(oldScope.options.data.parentId, ids[0])
+ assert.equal(Object.hasOwn(oldScope.options.data, 'targetParentId'), false)
+ app.state.entity.reviewCountryId = ids[1]
+ await app.flush()
+ const newScope = scopedRequests().at(-1)
+ assert.equal(scopedRequests().length, 2)
+ assert.equal(newScope.options.data.parentId, ids[1])
+ assert.deepEqual(plain(newScope.options.data.formParameters), { summaryForm: { title: '新条件' } })
+ app.respond(newScope, [candidates[1]])
+ app.respond(oldScope, [candidates[0]])
+ await app.flush()
+ assert.deepEqual(plain(app.state.scopedIdsList), [candidates[1]])
+ const scopedItems = boxes.find(box => box.localdata[0]?.value === ids[1] && box !== items)
+ assert.ok(scopedItems)
+ scopedItems.change({ detail: { value: [ids[1]] } })
+ await app.flush()
+ app.state.entity.reviewCountryId = ''
+ await app.flush()
+ assert.equal(scopedRequests().length, 2)
+ assert.deepEqual(plain(app.state.scopedIdsList), [])
+ assert.deepEqual(plain(app.state.entity.scopedIds), [ids[1]])
+ const scopedNames = source.includes('readonlyDisplayText(entity.scopedCountryLabels)')
+  ? app.state.entity.scopedCountryLabels : app.state.entity.scopedNames
+ assert.deepEqual(plain(scopedNames), [names[1]])
+
  app.state.openSelect25()
  await app.flush()
  app.targets.at(-1).confirm(ids.map((id, index) => ({ id, name: names[index] })))

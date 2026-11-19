@@ -10,11 +10,12 @@ internal static class DerivedCheckboxNamesRenderer
         var suffix=DatabaseCheckboxRenderer.Suffix(page,def);var dependencies=DerivedCheckboxNamesCompilation.Require(model,table,def);
         var scopes=def.Scopes.Select(scope=>"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Value(scope.Column,scope.Source=="project"?"actor.ProjectId":"parentId!")+"));");
         var variables=def.Conditions is{} condition?RelationConditionsCompilation.Variables(condition,"parentId"):"";
-        var pageCondition=def.PhysicalTargetPage?.Condition is null?"":
-            "        var publishedCondition="+FixedPageConditionCompilation.Bound(def.PhysicalTargetPage,"CheckboxTargetCondition"+suffix)+
-            "; condition=condition is null?publishedCondition:condition.And(publishedCondition);";
-        var call=NonRedundantReadCompilation.MultiLabelPlanCall(model,def.Target,def.LogicalTargetPage??def.GlobalPage,
-            def.NameTargetPage,def.Name,["id",def.Name.Source.ColumnName],dependencies);
+        var pageCondition=(def.PhysicalTargetPage??DerivedCheckboxNamesCompilation.ExactMembershipPage(model,def)) is {Condition:not null} filterPage?
+            "        var publishedCondition="+FixedPageConditionCompilation.Bound(filterPage,"CheckboxTargetCondition"+suffix)+
+            "; condition=condition is null?publishedCondition:condition.And(publishedCondition);":"";
+        var call=DerivedCheckboxNamesCompilation.PlanCall(model,def,dependencies);
+        var exact=def.ExactTarget is {} scope?ExactDataManageCompilation.ReadFilter(def.NameTargetPage!,scope,
+            Literal("list"),"checkboxExact","filters"):"";
         return $$"""
     /// <summary>只在类型初始化时编译，候选、保存和 Excel 共用固定目标与实际页条件。</summary>
     private static readonly NonRedundantReadPlan DerivedCheckboxPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{call}};
@@ -26,7 +27,7 @@ internal static class DerivedCheckboxNamesRenderer
 
         var filters=new List<FixedReadFilter>();
 {{string.Join("\n",scopes)}}
-        if(ids is not null){if(ids.Length==0)return [];filters.Add(new("id",FixedReadComparison.In,ids.Select(id=>(object?)id).ToArray()));}
+{{exact}}        if(ids is not null){if(ids.Length==0)return [];filters.Add(new("id",FixedReadComparison.In,ids.Select(id=>(object?)id).ToArray()));}
         if(matchName)filters.Add(new({{Literal(def.Name.Source.ColumnName)}},FixedReadComparison.Equal,name));
         var condition={{(def.Conditions is null?"(FixedConditionSqlPlan?)null":"CheckboxCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"})")}};
 {{pageCondition}}

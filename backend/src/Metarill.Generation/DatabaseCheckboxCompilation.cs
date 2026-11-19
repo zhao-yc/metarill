@@ -11,6 +11,8 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     // 普通目标页的物理条件参与原候选、保存和 Excel。
     internal PageModel? PhysicalTargetPage { get; init; }
     internal bool UsesPageRead { get; init; }
+    internal ColumnModel? FunctionParentField { get; init; }
+    internal ExactDataManageModel? ExactTarget { get; init; }
     internal bool LogicalSourceParent { get; init; }
     internal bool GlobalParent { get; init; }
     internal bool IntegerLabel => Name.Type is ("int?" or "long?");
@@ -101,16 +103,20 @@ internal static class DatabaseCheckboxCompilation
             if(linkedPage.Length==0&&publishedGlobalPage is not null)linkedPage=publishedGlobalPage.Source.Id;
             var explicitPage=definition.PageId.Length>0?definition.PageId:linkedPage;
             var namePage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage);
-            if (functionForm && namePage is not null && ExactDataManageCompilation.Declared(namePage))
-                return Gap("功能表的精确数据管理目标待接入。");
-            var logicalPage=namePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage)?namePage:null;
+            if(functionForm&&explicitPage.Length>0&&namePage is null)return Gap("功能表复选的显式目标页未在实际目标表发布。");
+            var exactTarget=functionForm&&namePage is not null?ExactDataManageCompilation.Resolve(model,target,namePage):null;
+            // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。
+            var logicalPage=namePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage)&&
+                (!functionForm||FixedPageConditionCompilation.HasLogicalFields(namePage)||namePage.Scopes.Any(scope=>scope.Source=="parent"&&
+                    (!NonRedundantReadCompilation.Physical(model,target,scope.Column)||
+                     model.Tables.Any(parent=>parent.IsGlobal&&parent.Source.Id==scope.Column.Source.LinkConfigTableId))))?namePage:null;
             var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
             // 同一候选即使由表级继承，也必须用当前普通非冗余来源页的父键重新证明。
             var pageRead=namePage is not null&&table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!target.IsGlobal&&
                 (explicitPage!=fixedPage||logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true);
             if(explicitPage!=fixedPage&&!pageRead&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
-            if(logicalPage is not null&&ExactDataManageCompilation.Declared(logicalPage))
+            if(!functionForm&&logicalPage is not null&&ExactDataManageCompilation.Declared(logicalPage))
                 return Gap("复选目标范围需要与实际目标页及项目归属一致。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
             // 旧复选允许只绑定表。具有物理行项目归属的全局目录仍按真实身份限定。
@@ -126,13 +132,18 @@ internal static class DatabaseCheckboxCompilation
             if((table.Source.IsRongyu==0||functionForm)&&!scopeAlreadyBound&&namePage is not null&&
                 (functionForm||namePage.Condition is not null||namePage.Scopes.Any(scope=>scope.Source=="parent")))
             {
-                if(ExactDataManageCompilation.Declared(namePage))
+                if(!functionForm&&ExactDataManageCompilation.Declared(namePage))
                     return Gap("原复选不能借用精确数据管理页的目标范围。");
                 physicalPage=namePage;
                 scopes=scopes.Concat(physicalPage.Scopes.Where(scope=>scope.Source=="parent"||target.IsGlobal))
                     .DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
             }
-            if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量。");
+            if(functionForm&&logicalPage is not null)
+                scopes=scopes.Concat(logicalPage.Scopes.Where(scope=>scope.Source=="parent"))
+                    .DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
+            bool FunctionLogicalParent(ColumnModel column)=>functionForm&&logicalPage is not null&&
+                NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,column);
+            if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)&&!FunctionLogicalParent(scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量。");
             TableModel Parent(ColumnModel column)=>model.Tables.SingleOrDefault(parent=>column.Source.LinkConfigTableId.Length>0?parent.Source.Id==column.Source.LinkConfigTableId:parent.Source.TableName+"_id"==column.Source.ColumnName)??throw new InvalidOperationException("复选父范围缺少明确真实父表。");
             var parentScopes=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();if(parentScopes.Length>1)return Gap("多个来源父范围尚待完整协议证明。");
             var sourceParent=parentScopes.FirstOrDefault().Column;
@@ -144,12 +155,34 @@ internal static class DatabaseCheckboxCompilation
                 return Gap("来源逻辑父键须对应明确的控件或目标页父范围。");
             var parents=logicalSource is {} path?new[]{path.Read.Levels[path.Index].Target}:parentScopes.Select(scope=>Parent(scope.Column)).ToArray();
             var globalParent=false;
-            // 控件和普通目标页的物理父键都须匹配来源已证明的同一张父表。
-            if(physicalParents.Any(scope=>sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id))
-                return Gap("原parentId必须由来源页同一真实父表证明，不能猜测其他父范围。");
-            if(pageHasParent&&logicalPage is {} scopedPage)
+            if(functionForm&&physicalParents.Length>0)
             {
-                if(functionForm)return Gap("功能表目标页的独立父范围待接入。");
+                if(physicalParents.Length!=1)return Gap("功能表复选必须绑定唯一目标父字段。");
+                var targetParent=physicalParents[0].Column;
+                var targetBinding=pageHasParent&&namePage is not null?MultiTargetParentScope.Compile(model.Catalog,target.Source,
+                    FixedConditionPlan.Compile(namePage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName))):null;
+                var parent=targetBinding is null?Parent(targetParent):model.Tables.Single(item=>item.Source.Id==targetBinding.Parent.Id);
+                if(parent.Source.IsFunctionTable!=0||parent.Source.IsView!=0||Protected(parent))
+                    return Gap("复选目标父必须是真实业务实体。");
+                var fields=page.Readable.Where(column=>column.Source.Id!=source.Source.Id&&!column.IsJsonArray&&
+                    column.Type is "long?" or "string?"&&
+                    (column.Source.LinkConfigTableId==parent.Source.Id||
+                     column.Source.LinkConfigTableId.Length==0&&column.Source.ColumnName==parent.Source.TableName+"_id")).Take(2).ToArray();
+                if(fields.Length!=1)return Gap("功能表页面须开启唯一的目标父表单字段。");
+                sourceParent=fields[0];
+                parents=[parent];
+                globalParent=parent.IsGlobal;
+                if(globalParent)
+                {
+                    if(targetBinding is not {Global:true}||logicalPage is null)return Gap("全局目标父需要显式发布的复选目标页。");
+                    _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,logicalPage.Source.Id);
+                }
+            }
+            // 控件和普通目标页的物理父键都须匹配来源已证明的同一张父表。
+            if(!functionForm&&physicalParents.Any(scope=>sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id))
+                return Gap("原parentId必须由来源页同一真实父表证明，不能猜测其他父范围。");
+            if(!functionForm&&pageHasParent&&logicalPage is {} scopedPage)
+            {
                 var syntax=FixedConditionPlan.Compile(scopedPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
                 var binding=MultiTargetParentScope.Compile(model.Catalog,target.Source,syntax)!;
                 var owner=pageRead?binding.Source(model.Catalog,table.Source,source.Source,page.Source)
@@ -173,13 +206,15 @@ internal static class DatabaseCheckboxCompilation
             if(order.Any(item=>(!NonRedundantReadCompilation.Physical(model,target,item.Column)&&!(derived&&item.Column.Source.Id==name.Source.Id))||item.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,item.Column)))return Gap("候选排序必须为非凭据物理字段。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));
             var names=functionForm?SelectionDisplayFieldCompilation.FunctionFormNames(table,source,name):SelectionDisplayFieldCompilation.Resolve(table,source);
             if(!functionForm&&(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names)))return Gap("冗余模式需要已证明的同一关系名称数组缓存，非冗余使用只读联接或自动名称。");
-            if(table.Source.IsRongyu==0&&(!GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")||names.Source.IsVirtualColumn!=0))return Gap("非冗余名称必须是明确只读联接或自动投影。");
+            if(!functionForm&&table.Source.IsRongyu==0&&(!GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")||names.Source.IsVirtualColumn!=0))return Gap("非冗余名称必须是明确只读联接或自动投影。");
             var result=new DatabaseCheckboxModel(source,target,name,names,scopes,conditions,order,parents,sourceParent,derived,globalPage)
             {
                 LogicalTargetPage=logicalPage,
                 NameTargetPage=namePage,
                 PhysicalTargetPage=physicalPage,
                 UsesPageRead=pageRead,
+                FunctionParentField=functionForm?sourceParent:null,
+                ExactTarget=exactTarget,
                 LogicalSourceParent=logicalSource is not null,
                 GlobalParent=globalParent,
                 DerivedName=derived||logicalPage is not null
