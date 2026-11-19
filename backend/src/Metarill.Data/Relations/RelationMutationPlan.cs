@@ -122,7 +122,9 @@ public sealed class RelationMutationPlan
                             throw new InvalidOperationException("受页面或控件范围限定的副本必须使用统一名称维护计划。");
                         page=proof.Page;
                     }
-                    if(typedCache||target.IsRongyu==0&&columns[target.Id].Values.Any(column=>column.ColumnName=="yz_project_id"))
+                    // 全局数据库复选的发布条件也适用于普通字符串名称和无项目列的字典。
+                    if(typedCache||definition.Multiple&&foreign.ControlKind=="MultiCheckBoxDatabase"||
+                        target.IsRongyu==0&&columns[target.Id].Values.Any(column=>column.ColumnName=="yz_project_id"))
                         publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,page);
                 }
                 // 跨表先证明完整控制列/层/目标页；三种关系统一使用同一受管全局名称资格。

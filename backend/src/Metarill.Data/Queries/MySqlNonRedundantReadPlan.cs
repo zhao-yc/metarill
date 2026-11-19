@@ -359,7 +359,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 .Distinct(StringComparer.OrdinalIgnoreCase).Any(field => !CandidateField(field)))
                 throw new NotSupportedException("物理候选只读取已声明的非凭据标量和明确发布的标量名称副本。");
 
-            // 缓存仅作为显式返回的全局名称；本地候选和独立依赖仍只读普通物理标量。
+            // 缓存仅作为显式返回的全局名称。复选投影已验证实际名称，不能将缓存列用作独立条件。
             bool CandidateField(string field)
             {
                 var column = Column(root,field);
@@ -369,7 +369,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     rootStorage.IsPhysical(column) && candidateParents.Any(parent=>parent.ColumnName==field&&
                         parent.ColumnId==column.Id&&parent.LogicalType==column.LogicalType) ||
                     physicalCandidate && outputs.Contains(field,StringComparer.OrdinalIgnoreCase) &&
-                    MultiValueLabel.IsTyped(column.LogicalType) &&
+                    (MultiValueLabel.IsTyped(column.LogicalType) || multiLabel && field == cascadeLabelField) &&
                     GlobalPhysicalRelationValue.IsPublishedScalar(catalog,rootStorage,root,column);
             }
             if(globalSource)
@@ -644,7 +644,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(proof.Name.ColumnName!=display)throw new NotSupportedException("全局多值显示必须与固定名称声明一致。");
                 if(trackReverse&&target.IsRongyu==0||typedCache)publishedArrayIdentity=true;
                 // 名称副本的读取、筛选及回填使用同一发布候选范围。
-                if(HasGlobalRowProject(target)||typedCache)publishedPage=proof.Page;
+                if(HasGlobalRowProject(target)||typedCache||
+                    relation.ControlKind=="MultiCheckBoxDatabase"&&!string.IsNullOrWhiteSpace(proof.Page.WhereSql))
+                    publishedPage=proof.Page;
             }
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
             var (sourcePage,overridden,applyPageScope,control)=ProjectMultiTarget(table,owner,relation,target);

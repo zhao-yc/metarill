@@ -379,6 +379,67 @@ public sealed class DerivedCheckboxNamesTests
     }
 
 
+    /// <summary>实际生成服务与维护目录均保留无行项目列的全局字典条件，原 ID 导入仍走写入校验。</summary>
+    [Theory]
+    [InlineData(1,false)]
+    [InlineData(0,false)]
+    [InlineData(0,true)]
+    public async Task Redundant_checkbox_global_dictionary_preserves_published_conditions(int targetStorage,bool derivedName)
+    {
+        const string ns="Example.ReleasedCheckboxCache";
+        var catalog=Catalog("released_checkbox_cache",false);
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
+        var target=catalog.ConfigTables.Single(table=>table.Id=="3");
+        target.IsRongyu=targetStorage;
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId==target.Id&&column.ColumnName=="yz_project_id");
+        var company=catalog.ConfigTables.Single(table=>table.Id=="4");
+        company.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId==company.Id&&column.ColumnName=="yz_project_id");
+        catalog.ConfigPages.Single(page=>page.ConfigTableId==company.Id).WhereSql="";
+        if(!derivedName)
+        {
+            // 物理标签场景无需附带另一套全局 List 缓存。
+            catalog.ConfigColumns.Single(column=>column.Id=="32").Extra.Clear();
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="37");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="37");
+        }
+        catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=38";
+        catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail=
+            """{"tableId":"3","nameField":"name","whereSql":"segment=@formParameters.segment"}""";
+
+        var model=GenerationModel.Create(catalog,ns);
+        var source=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=source.Pages.Single(page=>page.Source.Id=="201");
+        var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForService(model,source,page));
+        Assert.Equal(derivedName,checkbox.DerivedName);
+        Assert.Equal("301",checkbox.GlobalPage?.Source.Id);
+        var renderer=DatabaseCheckboxRenderer.Service(model,source,page);
+        Assert.Contains(derivedName?"var publishedCondition=CheckboxTargetCondition201_25":
+            "query=CheckboxGlobalCondition201_25.ApplyConstants",renderer);
+        Assert.Contains("CheckboxCondition201_25",renderer);
+        Assert.Contains("ValidateCheckbox201_25Async",renderer);
+
+        var bindings=RelationPropagationCompilation.Definitions(derivedName?
+            RelationPropagationCompilation.DerivedBindings(model):RelationPropagationCompilation.Bindings(model));
+        var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,bindings);
+        Assert.Equal("status=38",published.ConfigPages.Single(item=>item.Id=="301").WhereSql);
+        _=MixedRelationPropagationCompilation.ForModel(model);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-released-checkbox-cache");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.ReleasedCheckboxCacheSourceService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>控件直接限定物理外键时，候选、保存和 Excel 可以绑定来源级联还原的同一父级。</summary>
     [Theory]
     [InlineData(false,false,false)]

@@ -108,6 +108,14 @@ internal static class RelationPropagationCompilation
         var pages=new HashSet<string>(StringComparer.Ordinal);
         foreach(var definition in definitions)
         {
+            if(definition.Multiple&&model.Catalog.ConfigColumns.Single(column=>column.Id==definition.ForeignColumnId) is
+                {ControlKind:"MultiCheckBoxDatabase"} checkbox&&
+                model.Catalog.ConfigTables.Single(table=>table.Id==definition.TargetTableId) is {} target&&GlobalCrossTableTarget.Declared(target))
+            {
+                // 物理传播和派生回填在宿主重新装载后也需保留同一全局复选发布页。
+                var source=model.Catalog.ConfigTables.Single(table=>table.Id==definition.SourceTableId);
+                pages.Add(GlobalMultipleRelationTarget.RequireCached(model.Catalog,source,checkbox,target).Page.Id);
+            }
             if(definition.SelfTreePageId is{} treePage)
             {
                 pages.Add(treePage);

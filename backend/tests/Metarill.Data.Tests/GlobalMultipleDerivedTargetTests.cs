@@ -113,6 +113,56 @@ public sealed class GlobalMultipleDerivedTargetTests
             using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"});await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new ProjectRelationMutationPropagator(session).AfterMutationAsync(plan,"global_source",1,"999",new HashSet<string>{"caption"},false,false));Assert.Null(session.CurrentTransaction);
         }
     }
+    /// <summary>复选发布条件参与物理事件、派生事件和按原 ID 回填，离开范围保留空名称位置。</summary>
+    [Theory]
+    [InlineData(1,false)]
+    [InlineData(0,false)]
+    [InlineData(0,true)]
+    public void Global_checkbox_refresh_keeps_published_conditions(int targetStorage,bool derivedName)
+    {
+        var catalog=Catalog(1,"MultiCheckBoxDatabase","string");
+        catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=targetStorage;
+        var field="global_source_global_target_names";
+        if(!derivedName)
+        {
+            catalog.ConfigColumns.Add(new(){Id="16",ConfigTableId="1",YzProjectId="100",ColumnName="caption",LogicalType="string"});
+            var foreign=catalog.ConfigColumns.Single(column=>column.Id=="34");
+            foreign.ControlDetail=foreign.ControlDetail.Replace("global_target_name","caption",StringComparison.Ordinal);
+            var cache=catalog.ConfigColumns.Single(column=>column.Id=="35");
+            field=cache.ColumnName="global_source_captions";
+            cache.Extra["columnFullName"]=JsonSerializer.SerializeToElement("global_source.caption");
+        }
+        catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",ColumnName="status",LogicalType="int32",YzProjectId="100"});
+        catalog.ConfigPages.Single(page=>page.Id=="10").WhereSql="status=38";
+        var binding=new RelationCacheDefinition("3","34","1",derivedName?"14":"16","35",true);
+        var plan=derivedName?RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]):
+            RelationMaintenanceCatalog.Compile(catalog,[binding]);
+        var table=plan.Plans["3"];
+        Assert.Null(table.Error);
+        var refresh=Assert.IsType<MySqlNonRedundantReadPlan>(table.Read);
+        var projection=refresh.MultiProjections[field];
+        var conditionParameter=Assert.Single(refresh.Constants,pair=>Convert.ToInt64(pair.Value)==38);
+        Assert.Contains("multi_value.`status`",projection.TargetScope);
+        Assert.Contains(conditionParameter.Key,projection.TargetScope);
+        Assert.Contains("LEFT JOIN `global_source` multi_value",refresh.Expression(field));
+        Assert.Contains("ORDER BY multi_ids.ordinal",refresh.Expression(field));
+        Assert.DoesNotContain("multi_value.`yz_project_id`",projection.TargetScope);
+        Assert.Contains(refresh.PhysicalReferences,reference=>reference.Table=="global_source"&&reference.Column.Name=="status");
+        if(derivedName)
+        {
+            Assert.Contains(refresh.Reverse,reverse=>reverse.TargetTable=="global_source"&&
+                reverse.Outputs[field].Contains("status"));
+            Assert.Contains(plan.MixedTargets,tableName=>tableName=="global_target");
+        }
+        else
+        {
+            var published=Assert.Single(plan.Propagation.Bindings).PublishedCondition;
+            Assert.NotNull(published);
+            Assert.Equal("status=38",published.Definition);
+            Assert.Contains("status",published.Fields);
+        }
+    }
+
     /// <summary>复用已验数组元数据，仅让中间名称采用R0并公开原type=2目标字段。</summary>
     internal static MetadataCatalog Catalog(int mode,string kind,string inner)
     {
