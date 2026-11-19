@@ -37,6 +37,14 @@ target必须是三层归属验证通过的FullApplication；namespace从目标�
 
 Agent专用POST控制面是 `helper/bind`、`helper/claim`、`helper/report`、`helper/approvals`、`helper/authorize`、`helper/verify-ticket`、`helper/application-report`。Middleware仅为这个准确Controller和方法集合开放控制通道，Controller再次校验真实Agent管理员及account/project/grant；不加入普通生成CRUD能力目录，也不允许Agent借Web原按钮入队。
 
+## C107 项目详情同步运行时
+
+项目详情沿用原「同步运行时」按钮、一次确认和刷新回调。原中央按钮编号为 2069009428958547968，仍由 `POST /api/admin/sys/config_button/execute` 处理。`POST /api/admin/custom/index/sync_runtime_project` 保留原项目 `id` 的查询参数或表单入口。两个入口都要求真实管理员 Web 会话、确认头及同一次请求的 UUID。按钮所属项目取已保存的行 ID。本机路径、助手绑定和任务快照由服务端从该账号、当前设备和目标项目的有效配置取得。
+
+协调器重新认证目标项目，只读取该项目的设备配置并检查已批准的助手绑定。持久记录绑定单一项目，原 UUID 无法切换行或复用于批量同步。浏览器只在收到该项目的实际应用回执时触发原详情成功回调。等待中、撤权后状态未知或网络结果不明时，保留原编号供只读查询。已有批量同步的状态和回执协议保留兼容。
+
+后端严格定向回归 92 项、前端定向回归 28 项通过，覆盖真实路由匿名门禁、单项目持久范围、目标身份、原详情方法、选错行回执拒绝和状态恢复。真实浏览器、MySQL 及本机助手实际应用联验列入后续验收。
+
 ## 快照、分组与短ticket
 
 平台用与打包相同的发布脱敏规则生成完整元数据快照，固定schema/version/action/project、metadata/request SHA。结构中原有SQL定义仍是元数据，不代表平台或助手执行SQL。普通请求正文32KiB、发布请求4MiB、状态文件8MiB有界；未知/重复JSON键、未知参数、跨账号/项目/grant、失效绑定均拒绝。

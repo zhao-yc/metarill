@@ -31,7 +31,8 @@ public static class CompatibilityButtonPolicy
         ["/admin/custom/config_page/detail_layout"] = new("", "config_page", "layout"),
         ["/admin/custom/config_page/generate_all"] = new("", "config_page", "generate"),
         ["/admin/custom/config_column/add_column_to_db"] = new("", "config_column", "schema"),
-        ["/admin/custom/index/init_database"] = new("", "yz_project", "schema")
+        ["/admin/custom/index/init_database"] = new("", "yz_project", "schema"),
+        ["/admin/custom/index/sync_runtime_project"] = new("", "yz_project", "syncProjectRuntime")
     };
 
     /// <summary>管理员、真实按钮、真实配置页面三者同时匹配后才解释路由；未知动作一律拒绝。</summary>
@@ -98,6 +99,18 @@ public sealed class CompatibilityButtonBusiness(SqlRowStore store, HttpRuntimeAu
         var actor = authorization.RequireAdministrator();
         var button = await RequireRowAsync("config_button", CompatibilityButtonPolicy.RequireId(buttonId), cancellationToken);
         return await ExecuteRegisteredAsync(actor, button, entityId, cancellationToken);
+    }
+
+    public const string ProjectRuntimeButtonId = "2069009428958547968";
+
+    /// <summary>原详情同步必须来自当前已登记的平台项目按钮，实际行权限由助手按目标项目重新认证。</summary>
+    public async Task RequireProjectRuntimeButtonAsync(CancellationToken cancellationToken)
+    {
+        var actor = authorization.RequireAdministrator();
+        var button = await RequireRowAsync("config_button", ProjectRuntimeButtonId, cancellationToken);
+        var action = CompatibilityButtonPolicy.RequireAction(actor, registry, button);
+        if (action.Operation != "syncProjectRuntime")
+            throw new InvalidOperationException("原项目同步按钮配置已变化。");
     }
 
     /// <summary>首页旧接口别名同样必须对应数据库已登记按钮，不能借接口别名执行任意路由。</summary>

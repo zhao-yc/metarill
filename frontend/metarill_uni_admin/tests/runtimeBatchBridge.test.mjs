@@ -124,6 +124,65 @@ test('真实原页面方法保留一次确认、旧POST、parentId和原customBu
  assert.equal(hash(source.replace(saveMerge, 'Object.assign({}, this.list[index], entity)')), '91dbcb71fa191ac1c3888412ef5210403e89a4e9927af9f45b35f0b8081f90fd');
 });
 
+test('原项目详情按钮仍确认一次并走中央路由，仅提交高位项目行ID，实际应用后沿旧字符串回调', async () => {
+ const f = fixture();
+ const platform = await readFile(new URL('../common/yzp.js', import.meta.url), 'utf8');
+ const yzp = { request: f.raw, customButtonHandler: (result, that) => {
+  f.callbacks.push(result);
+  if (result.code === 200 && result.data && typeof result.data === 'object') that.entity = result.data;
+ } };
+ const context = { uni: f.uni, yzp, CryptoJS: { SHA256: hash }, getApp: () => ({ globalData: { environment: { base_url: 'http://test/api' } } }),
+  clearLoginStorageWithWorkspaceSelection() {}, createRuntimeBatchBridge: options => createRuntimeBatchBridge({ ...options,
+   schedule: f.settings.schedule, cancelSchedule: f.settings.cancelSchedule, newBatchId: () => id, now: f.settings.now }) };
+ vm.runInNewContext(platform.replace(/^import[^\n]*\n/gm, '').replace('export default yzp;', ''), context);
+ const source = await readFile(new URL('../pages/yzp/yz_project-detail-6186303424888832.vue', import.meta.url), 'utf8');
+ const method = source.match(/customerButtonHandler2069009428958547968: function\(\)[\s\S]*?(?=,showCustomerButtons:)/)[0];
+ vm.runInNewContext('globalThis.button={' + method + '}', context);
+ const project = '9007199254740993', entity = { id: '876', name: '未保存的项目字段' };
+ Object.assign(context.button, { id: project, entity });
+ context.button.customerButtonHandler2069009428958547968();
+ assert.equal(f.requests.length, 0);
+ assert.equal(f.dialogs[0].content, '您确定要同步运行时吗？');
+ f.dialogs[0].success({ confirm: false });
+ assert.equal(f.requests.length, 0);
+ f.dialogs[0].success({ confirm: true });
+ const transport = f.requests[0].options;
+ assert.equal(transport.url, '/admin/sys/config_button/execute');
+ assert.deepEqual(JSON.parse(JSON.stringify(transport.data)), { buttonId: '2069009428958547968', entityId: project });
+ assert.equal(transport.header['X-Yzp-Agent-Confirm'], 'true');
+ assert.equal(f.storage[CACHE][0].contextSha256, hash(JSON.stringify(['http://test/api', '1', '7', '11', f.storage.loginStateId, project])));
+ f.reply(response([item('queued', { projectId: project })])); await turn();
+ assert.equal(f.callbacks.length, 0);
+ await f.tick();
+ assert.deepEqual(f.requests.at(-1).options.data, { batchId: id });
+ f.reply(response([item('applied', { projectId: project })])); await turn();
+ assert.equal(f.callbacks[0].code, 200);
+ assert.equal(f.callbacks[0].data, '同步成功');
+ assert.equal(context.button.entity, entity);
+ assert.equal(f.dialogs.length, 1);
+ assert.deepEqual(f.storage[CACHE], []);
+});
+
+test('项目详情拒绝其它项目和多项目回执；保留单行编号且刷新只重新查询该行', async () => {
+ const target = '9007199254740993';
+ const optionsFor = f => ({ ...f.options, url: '/admin/sys/config_button/execute',
+  data: { buttonId: '2069009428958547968', entityId: target } });
+ for (const items of [[item('applied')], [item('applied', { projectId: target }), item('skipped')]]) {
+  const f = fixture(), options = optionsFor(f);
+  f.bridge.start(options, target);
+  f.reply(response(items)); await turn();
+  assert.equal(f.callbacks[0].code, 500);
+  assert.match(f.callbacks[0].msg, /回执与原项目不符/);
+  assert.equal(f.storage[CACHE].length, 1);
+  const restored = createRuntimeBatchBridge(f.settings);
+  restored.start(options, target);
+  assert.equal(f.requests.filter(entry => entry.options.url === options.url).length, 1);
+  assert.deepEqual(f.requests.at(-1).options.data, { batchId: id });
+  f.reply(response([item('applied', { projectId: target })])); await turn();
+  assert.equal(f.callbacks.at(-1).data, '同步成功');
+ }
+});
+
 test('HBuilderX按需uni API替换后桥接仍工作，其它请求原样透传', async () => {
  const f = fixture(); let platform = await readFile(new URL('../common/yzp.js', import.meta.url), 'utf8');
  const yzp = { request: f.raw, customButtonHandler() {} };

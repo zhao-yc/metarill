@@ -16,10 +16,63 @@ public sealed partial class GenerationAssistantRuntimeOriginTests
     public void Runtime_batch_restart_freezes_original_discovery_without_creating_tasks()
     {
         var queue=Queue();var batchId=Guid.NewGuid().ToString("D");var first=queue.BeginRuntimeBatch(BatchOwner,batchId,Discovery());var rootFile=Path.Combine(root,"batch-"+batchId+".json");var bytes=File.ReadAllBytes(rootFile);
+        Assert.DoesNotContain("targetProjectId",System.Text.Encoding.UTF8.GetString(bytes),StringComparison.Ordinal);
         var changed=Discovery() with{Projects=[Discovery().Projects[0],new("2","新项目",null,"skipped","generation_disabled",null)]};
         var retry=Queue().BeginRuntimeBatch(BatchOwner,batchId,changed);Assert.Single(retry.Projects);Assert.Equal(first.ExpiresAt,retry.ExpiresAt);Assert.Equal(bytes,File.ReadAllBytes(rootFile));Assert.Empty(Directory.GetFiles(root,"task-*.json"));
         var before=BatchDisk();Assert.Equal("pending",Queue().RuntimeBatchItemStatus(BatchOwner,batchId,0,Web).Status);Assert.Null(Queue().RuntimeBatchIntent(BatchOwner,batchId,0));Assert.Equal(before,BatchDisk());
     }
+    /// <summary>详情请求只固定单一目标，原UUID不能切换另一个项目或用于全部项目同步。</summary>
+    [Fact]
+    public void Project_runtime_batch_persists_only_the_selected_project_and_rejects_scope_changes()
+    {
+        var queue = Queue();
+        var id = Guid.NewGuid().ToString("D");
+        var target = Web.ProjectId;
+        var origin = Setup(queue);
+        var found = Discovery();
+        var additional = found with { Projects = [found.Projects[0], new("2","其它项目",null,"skipped","generation_disabled",null)] };
+
+        Assert.Throws<InvalidOperationException>(() => queue.BeginRuntimeBatch(BatchOwner,id,additional,target));
+        Assert.Null(queue.FindRuntimeBatch(BatchOwner,id));
+        var batch = queue.BeginRuntimeBatch(BatchOwner,id,found,target);
+        Assert.Equal(target,batch.TargetProjectId);
+        Assert.Equal(target,Assert.Single(batch.Projects).ProjectId);
+        Assert.Throws<InvalidOperationException>(() => Queue().BeginRuntimeBatch(BatchOwner,id,found));
+        Assert.Throws<InvalidOperationException>(() => Queue().BeginRuntimeBatch(BatchOwner,id,found,"2"));
+        Assert.Equal(target,Queue().FindRuntimeBatch(BatchOwner,id)!.TargetProjectId);
+
+        var snapshot = Snapshot();
+        var intent = queue.PrepareRuntimeBatchItem(BatchOwner,id,0,Web,binding,snapshot,origin,Scope());
+        var task = Queue().EnqueueRuntimeBatchItem(BatchOwner,id,0,Web,Scope());
+        Assert.Equal(intent.AssignedRequestId,task.RequestId);
+        Assert.Equal(target,task.ProjectId);
+        Assert.Equal("queued",Queue().RuntimeBatchItemStatus(BatchOwner,id,0,Web).Status);
+        Assert.Single(Directory.GetFiles(root,"task-*.json"));
+    }
+
+    /// <summary>新详情请求在读取设备前认证目标。已存在的详情请求撤权后继续保留原编号供只读恢复。</summary>
+    [Fact]
+    public async Task Project_runtime_target_requires_reauthentication_before_discovery_and_preserves_unknown_status()
+    {
+        var queue = Queue();
+        var service = new GenerationAssistantBatchEnqueuer(queue,null!,null!,null!,null!);
+        var current = new AuthenticatedIdentity(new RuntimeActor(1,"测试管理员",true,Web.ProjectId,"1"),new HashSet<string>(),31,null);
+        const string other = "9007199254740993";
+        var id = Guid.NewGuid().ToString("D");
+        var refused = await service.EnqueueAsync(current,"11",id,null,null,targetProjectId:other);
+        Assert.Equal("target-project-reauthentication-required",Assert.Single(refused.Items).ErrorCode);
+        Assert.Null(queue.FindRuntimeBatch(BatchOwner,id));
+        Assert.Empty(Directory.GetFiles(root,"task-*.json"));
+
+        var scope = Scope() with { ProjectId = other };
+        queue.BeginRuntimeBatch(BatchOwner,id,new("11",[new(other,"另一个项目",scope.ConfigurationId,"configured",null,scope)]),other);
+        var before = BatchDisk();
+        var status = Assert.Single((await service.StatusAsync(current,id,null,null)).Items);
+        Assert.Equal("manual_recovery",status.Status);
+        Assert.Equal("target-project-reauthentication-required",status.ErrorCode);
+        Assert.Equal(before,BatchDisk());
+    }
+
     /// <summary>单项目快照和精确指向先刷盘；模拟重启后沿原意图创建任务，重复创建不重新排队。</summary>
     [Fact]
     public void Runtime_batch_prepared_intent_survives_restart_and_publishes_same_exact_task()

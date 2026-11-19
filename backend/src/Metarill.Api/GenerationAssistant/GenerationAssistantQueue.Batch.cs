@@ -1,8 +1,11 @@
+using System.Text.Json.Serialization;
+
 namespace Metarill.Api.GenerationAssistant;
 
 public sealed partial class GenerationAssistantQueue
 {
-    private sealed record RuntimeBatch(int SchemaVersion,AssistantRuntimeBatchOwner Owner,string BatchId,string DeviceId,DateTimeOffset CreatedAt,DateTimeOffset ExpiresAt,AssistantDeviceProjectSelection[] Projects,string IntegritySha256);
+    private sealed record RuntimeBatch(int SchemaVersion,AssistantRuntimeBatchOwner Owner,string BatchId,string DeviceId,DateTimeOffset CreatedAt,DateTimeOffset ExpiresAt,AssistantDeviceProjectSelection[] Projects,string IntegritySha256,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TargetProjectId = null);
     private sealed record RuntimeBatchItem(int SchemaVersion,string BatchId,int Index,string DefinitionSha256,AssistantRuntimeBatchIntent? Intent,string? ErrorCode,string IntegritySha256);
 
     /// <summary>只读寻找原批次；同UUID跨会话/设备或损坏状态不能悄悄生成新清单。</summary>
@@ -11,15 +14,15 @@ public sealed partial class GenerationAssistantQueue
         RequireBatchOwner(owner);Uuid(batchId);return File.Exists(Safe("batch-"+batchId+".json"))?BatchDefinition(RequireBatch(owner,batchId)):null;
     });
     /// <summary>在任何项目入队前先刷盘保存整批发现；重复同UUID固定第一次清单，不吸纳新项目。</summary>
-    public AssistantRuntimeBatchDefinition BeginRuntimeBatch(AssistantRuntimeBatchOwner owner,string batchId,AssistantDeviceProjectDiscovery discovery)=>Locked(()=>
+    public AssistantRuntimeBatchDefinition BeginRuntimeBatch(AssistantRuntimeBatchOwner owner,string batchId,AssistantDeviceProjectDiscovery discovery,string? targetProjectId = null)=>Locked(()=>
     {
         RequireBatchOwner(owner);Uuid(batchId);DeviceId(discovery.DeviceId);
         if(File.Exists(Safe("batch-"+batchId+".json")))
         {
-            var old=RequireBatch(owner,batchId);if(old.DeviceId!=discovery.DeviceId)throw new InvalidOperationException("原批次不能切换设备。");return BatchDefinition(old);
+            var old=RequireBatch(owner,batchId);if(old.DeviceId!=discovery.DeviceId||old.TargetProjectId!=targetProjectId)throw new InvalidOperationException("原批次不能切换设备或项目范围。");return BatchDefinition(old);
         }
         if(Directory.GetFiles(options.RootDirectory,"batch-*.json").Length>=options.MaxTasks)throw new InvalidOperationException("批次记录达到保留上限。");
-        var now=clock.GetUtcNow();var batch=new RuntimeBatch(1,owner,batchId,discovery.DeviceId,now,now.AddSeconds(options.RequestTtlSeconds),discovery.Projects,"");ValidateBatch(batch);SaveBatch(batch);return BatchDefinition(batch);
+        var now=clock.GetUtcNow();var batch=new RuntimeBatch(1,owner,batchId,discovery.DeviceId,now,now.AddSeconds(options.RequestTtlSeconds),discovery.Projects,"",targetProjectId);ValidateBatch(batch);SaveBatch(batch);return BatchDefinition(batch);
     });
     /// <summary>协调器只读原意图，恢复不重新生成snapshot或改用新绑定；每项目快照独立有界文件避免整批8MiB上限。</summary>
     public AssistantRuntimeBatchIntent? RuntimeBatchIntent(AssistantRuntimeBatchOwner owner,string batchId,int index)=>Locked(()=>
@@ -85,6 +88,9 @@ public sealed partial class GenerationAssistantQueue
     {
         RequireBatchOwner(batch.Owner);Uuid(batch.BatchId);DeviceId(batch.DeviceId);
         if(batch.SchemaVersion!=1||batch.ExpiresAt<=batch.CreatedAt||batch.Projects is null||batch.Projects.Length>1000)throw new InvalidOperationException("批次结构无效。");
+        // 仅单项目记录新增可选范围，既有批次的持久字节和完整性摘要保持兼容。
+        if(batch.TargetProjectId is{} target && (batch.Projects.Length!=1 || batch.Projects[0]?.ProjectId!=target))
+            throw new InvalidOperationException("单项目同步范围与原项目不符。");
         var projects=new HashSet<string>(StringComparer.Ordinal);
         foreach(var item in batch.Projects)
         {
@@ -123,7 +129,7 @@ public sealed partial class GenerationAssistantQueue
         return item;
     }
     private static string BatchItemName(string id,int index)=>"batchitem-"+id+"-"+index.ToString("D4",System.Globalization.CultureInfo.InvariantCulture)+".json";
-    private static AssistantRuntimeBatchDefinition BatchDefinition(RuntimeBatch batch)=>new(batch.BatchId,batch.DeviceId,batch.ExpiresAt,batch.Projects);
+    private static AssistantRuntimeBatchDefinition BatchDefinition(RuntimeBatch batch)=>new(batch.BatchId,batch.DeviceId,batch.ExpiresAt,batch.Projects,batch.TargetProjectId);
     private void SaveBatch(RuntimeBatch batch)=>Save("batch-"+batch.BatchId+".json",batch with{IntegritySha256=Hash(batch with{IntegritySha256=""})});
     private void SaveBatchItem(RuntimeBatch batch,RuntimeBatchItem item)=>Save(BatchItemName(batch.BatchId,item.Index),item with{IntegritySha256=Hash(item with{IntegritySha256=""})});
 }

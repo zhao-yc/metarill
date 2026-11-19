@@ -9,11 +9,27 @@ namespace Metarill.Api.GenerationAssistant;
 public sealed class GenerationAssistantBatchEnqueuer(GenerationAssistantQueue queue,GenerationAssistantDeviceScopeReader scopes,MetadataRepository metadata,AgentOAuthService oauth,AgentAuthenticationService authentication)
 {
     /// <summary>批量入口只接受当前网页登录的同账号目标项目，返回逐项稳定状态；不返回凭据或路径。</summary>
-    public async Task<AssistantRuntimeBatchEnqueueResult> EnqueueAsync(AuthenticatedIdentity current,string deviceId,string batchId,string? loginStateId,string? authorizationHeader,CancellationToken token=default)
+    public async Task<AssistantRuntimeBatchEnqueueResult> EnqueueAsync(AuthenticatedIdentity current,string deviceId,string batchId,string? loginStateId,string? authorizationHeader,CancellationToken token=default,string? targetProjectId=null)
     {
         token.ThrowIfCancellationRequested();var owner=BatchOwner(current);var batch=queue.FindRuntimeBatch(owner,batchId);
-        if(batch is null)batch=queue.BeginRuntimeBatch(owner,batchId,await scopes.DiscoverAsync(current.Actor,deviceId,token));
-        if(batch.DeviceId!=deviceId)throw new InvalidOperationException("原批次不能切换设备。");
+        if(batch is null)
+        {
+            // 详情页行ID只用来选择目标，必须先按同一个真实Web会话重新认证。
+            var discoveryActor = current.Actor;
+            if (targetProjectId is not null)
+            {
+                try { discoveryActor = (await AuthenticateTargetAsync(current,targetProjectId,loginStateId,authorizationHeader,token)).Actor; }
+                catch (UnauthorizedAccessException)
+                {
+                    // 尚未创建批次，只回传提交的行 ID，授权后可明确重新发起。
+                    return new(deviceId,[new(targetProjectId,targetProjectId,"failed","target-project-reauthentication-required",null)],false,batchId);
+                }
+            }
+            var discovery = await scopes.DiscoverAsync(discoveryActor,deviceId,token,targetProjectId);
+            batch = queue.BeginRuntimeBatch(owner,batchId,discovery,targetProjectId);
+        }
+        if(batch.DeviceId!=deviceId||batch.TargetProjectId!=targetProjectId)
+            throw new InvalidOperationException("原批次不能切换设备或项目范围。");
         var items=new List<AssistantRuntimeBatchEnqueueItem>();
         for(var index=0;index<batch.Projects.Length;index++)
         {
@@ -43,7 +59,13 @@ public sealed class GenerationAssistantBatchEnqueuer(GenerationAssistantQueue qu
                 }
                 var task=queue.EnqueueRuntimeBatchItem(owner,batchId,index,targetOwner,scope);items.Add(GenerationAssistantBatchPlanning.FromTask(project.ProjectId,project.ProjectName,task));
             }
-            catch(UnauthorizedAccessException){queue.RejectRuntimeBatchItem(owner,batchId,index,"target-project-reauthentication-required");items.Add(new(project.ProjectId,project.ProjectName,"failed","target-project-reauthentication-required",null));}
+            catch(UnauthorizedAccessException)
+            {
+                // 目标撤权后可能已有写入意图，不能把无法查询误报为确定失败。
+                var uncertain = batch.TargetProjectId is not null && queue.RuntimeBatchIntent(owner,batchId,index) is not null;
+                if (!uncertain) queue.RejectRuntimeBatchItem(owner,batchId,index,"target-project-reauthentication-required");
+                items.Add(new(project.ProjectId,project.ProjectName,uncertain ? "manual_recovery" : "failed","target-project-reauthentication-required",null));
+            }
             catch(InvalidOperationException)
             {
                 // 原意图已落盘后的异常可能发生在任务发布之后，保持未知并让调用者只查原批次，不伪装明确失败。
@@ -62,7 +84,12 @@ public sealed class GenerationAssistantBatchEnqueuer(GenerationAssistantQueue qu
             var project=batch.Projects[index];token.ThrowIfCancellationRequested();
             if(project.ProjectId is null||project.Status!="configured"){items.Add(new(project.ProjectId,project.ProjectName,project.Status,project.ErrorCode,null));continue;}
             try{var target=await AuthenticateTargetAsync(current,project.ProjectId,loginStateId,authorizationHeader,token);items.Add(queue.RuntimeBatchItemStatus(owner,batchId,index,new(target.Actor.AccountId,target.Actor.ProjectId)));}
-            catch(UnauthorizedAccessException){items.Add(new(project.ProjectId,project.ProjectName,"failed","target-project-reauthentication-required",null));}
+            catch(UnauthorizedAccessException)
+            {
+                // 详情页只读恢复保持原请求编号，直到重新获得目标项目状态。
+                var status = batch.TargetProjectId is null ? "failed" : "manual_recovery";
+                items.Add(new(project.ProjectId,project.ProjectName,status,"target-project-reauthentication-required",null));
+            }
         }
         return new(batch.DeviceId,items.ToArray(),items.Any(item=>item.Status=="queued"),batchId);
     }

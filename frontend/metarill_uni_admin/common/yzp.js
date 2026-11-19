@@ -11,7 +11,10 @@ const defaultRequest = yzp.request;
 let runtimeBatchBridge;
 /** 原按钮已完成一次确认后进入；其它请求原样转发，不改变公共请求协议。 */
 yzp.request = function (options) {
- if (options && options.method === 'POST' && /^\/admin\/custom\/index\/sync_runtime_all_projects(?:\?parentId=[^&#]*)?$/.test(options.url)) {
+ const isPost = options && options.method === 'POST';
+ const isProjectRuntime = isPost && options.url === '/admin/sys/config_button/execute' &&
+  options.data?.buttonId === '2069009428958547968';
+ if (isPost && (isProjectRuntime || /^\/admin\/custom\/index\/sync_runtime_all_projects(?:\?parentId=[^&#]*)?$/.test(options.url))) {
   if (!runtimeBatchBridge) runtimeBatchBridge = createRuntimeBatchBridge({
    request: value => defaultRequest.call(yzp, value),
    // 显式API适配兼容HBuilderX按需编译，不依赖全局uni对象整体传递。
@@ -19,7 +22,7 @@ yzp.request = function (options) {
     showModal: value => uni.showModal(value), showLoading: value => uni.showLoading(value), hideLoading: () => uni.hideLoading() },
    fingerprint: value => CryptoJS.SHA256(value).toString(), environment: () => getApp().globalData.environment.base_url
   });
-  return runtimeBatchBridge.start(options);
+  return runtimeBatchBridge.start(options, isProjectRuntime ? options.data.entityId ?? '' : null);
  }
  return defaultRequest.call(this, options);
 };

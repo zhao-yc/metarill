@@ -112,6 +112,26 @@ public sealed class OriginalListAliasHttpTests
             using var body=JsonDocument.Parse(await response.Content.ReadAsStringAsync());Assert.Equal(500,body.RootElement.GetProperty("code").GetInt32());Assert.Equal("登录超时",body.RootElement.GetProperty("msg").GetString());
         });
 
+    /// <summary>原项目详情的直调和中央协议均进入真实登录门禁，匿名请求无法创建助手任务。</summary>
+    [Fact]
+    public async Task Legacy_project_runtime_button_and_alias_require_web_identity()
+        =>await WithOfflineSettings(async()=>
+        {
+            await using var factory=new WebApplicationFactory<Program>();
+            using var client=factory.CreateClient();
+            using var direct=await client.PostAsync("/api/admin/custom/index/sync_runtime_project?id=9007199254740993",null);
+            using var central=await client.PostAsJsonAsync("/api/admin/sys/config_button/execute",new
+                {buttonId="2069009428958547968",entityId="9007199254740993"});
+            foreach(var response in new[]{direct,central})
+            {
+                Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+                using var body=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                Assert.Equal(500,body.RootElement.GetProperty("code").GetInt32());
+                Assert.Equal("登录超时",body.RootElement.GetProperty("msg").GetString());
+            }
+            Assert.True(direct.Headers.CacheControl?.NoStore);
+        });
+
     /// <summary>批次状态入口为真实Web只读边界；匿名返回原登录拒绝和no-store，不连接真实数据库。</summary>
     [Fact]
     public async Task Runtime_batch_status_route_requires_web_identity_and_no_store()

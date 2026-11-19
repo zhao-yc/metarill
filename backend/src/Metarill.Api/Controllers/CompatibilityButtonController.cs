@@ -22,6 +22,12 @@ public sealed class CompatibilityButtonController(CompatibilityButtonBusiness bu
     {
         var initialized=await AdminAccountInitializationHttp.TryExecuteAsync(new(request.ButtonId,request.EntityId,request.Entity,request.VisibleScheme,request.VisibleRuleJson),HttpContext,cancellationToken);
         if(initialized is not null)return initialized;
+        if(request.ButtonId==CompatibilityButtonBusiness.ProjectRuntimeButtonId)
+        {
+            Response.Headers.CacheControl = "private, no-store";
+            if(Request.Query.Count!=0)throw new InvalidOperationException("项目详情按钮只接受原记录标识。");
+            return Ok(await LegacyRuntimeBatchController.ExecuteProjectAsync(HttpContext, request.EntityId, cancellationToken));
+        }
         if(buttons.IsRegistered(request.ButtonId))return await buttons.ExecuteAsync(new(request.ButtonId,request.EntityId,request.Entity,request.VisibleScheme,request.VisibleRuleJson),HttpContext,cancellationToken);
         return Ok(R<CompatibilityButtonResult>.Success(await business.ExecuteAsync(request.ButtonId,request.EntityId,cancellationToken)));
     }

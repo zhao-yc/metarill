@@ -51,6 +51,6 @@ public sealed record AssistantRuntimeBatchEnqueueResult(string DeviceId,Assistan
 /// <summary>批次归属固定真实Web账号、工作项目及会话；项目清单只由服务端发现，不能由客户端增删。</summary>
 public sealed record AssistantRuntimeBatchOwner(long AccountId,string ProjectId,long SessionId);
 public sealed record AssistantRuntimeBatchStatusRequest(string BatchId);
-public sealed record AssistantRuntimeBatchDefinition(string BatchId,string DeviceId,DateTimeOffset ExpiresAt,AssistantDeviceProjectSelection[] Projects);
+public sealed record AssistantRuntimeBatchDefinition(string BatchId,string DeviceId,DateTimeOffset ExpiresAt,AssistantDeviceProjectSelection[] Projects,string? TargetProjectId);
 /// <summary>仅供服务器协调器读取的持久意图，不作为HTTP请求模型或响应。</summary>
 public sealed record AssistantRuntimeBatchIntent(string BindingId,string AssignedRequestId,bool ExistingTask,GenerationUpdateRequest Snapshot,AssistantRuntimeOrigin RuntimeOrigin);

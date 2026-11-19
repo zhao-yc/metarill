@@ -10,13 +10,20 @@ public sealed record AssistantDeviceProjectDiscovery(string DeviceId,AssistantDe
 public sealed partial class GenerationAssistantDeviceScopeReader
 {
     /// <summary>真实平台管理员枚举自己活动设备的全部项目；不按当前工作项目过滤，也不以发现结果替代逐项目真实认证。</summary>
-    public async Task<AssistantDeviceProjectDiscovery> DiscoverAsync(RuntimeActor actor,string deviceId,CancellationToken token=default)
+    public async Task<AssistantDeviceProjectDiscovery> DiscoverAsync(RuntimeActor actor,string deviceId,CancellationToken token=default,string? targetProjectId=null)
     {
         token.ThrowIfCancellationRequested();var device=Id(deviceId);
         if(actor.AccountId<=0||!actor.IsAdministrator)throw new UnauthorizedAccessException("批量运行时发现仅限当前平台管理员。");
         var devices=await store.ReadProjectedAsync("yz_manager_devices",["id","yz_manager_id","token"],new Dictionary<string,object?>{{"id",device},{"yz_manager_id",actor.AccountId}},token);
         var owned=devices.SingleOrDefault()??throw new UnauthorizedAccessException("当前设备不存在或不属于当前账号。");
-        var rows=await store.ReadProjectedAsync("yz_manager_devices_project",["id","yz_manager_id","yz_project_id","yz_manager_devices_id","is_java","java_path","is_uniapp","uniapp_path","update_time"],new Dictionary<string,object?>{{"yz_manager_devices_id",device}},token);
+        var equals = new Dictionary<string,object?> { ["yz_manager_devices_id"] = device };
+        if (targetProjectId is not null)
+        {
+            // 单项目入口只读已经重新认证的目标，不能扫描本设备的无关项目配置。
+            if (actor.ProjectId != targetProjectId) throw new UnauthorizedAccessException("目标项目与当前身份不一致。");
+            equals["yz_project_id"] = Id(targetProjectId);
+        }
+        var rows=await store.ReadProjectedAsync("yz_manager_devices_project",["id","yz_manager_id","yz_project_id","yz_manager_devices_id","is_java","java_path","is_uniapp","uniapp_path","update_time"],equals,token);
         // 不截断或返回部分成功；超出有界队列的项目配置必须整批明确拒绝，避免漏掉后半部分项目。
         if(rows.Count>8192)throw new InvalidOperationException("设备配置过多，请先整理重复配置；未创建批量任务。");
         var groups=rows.GroupBy(row=>SqlRowStore.Text(row,"yz_project_id"),StringComparer.Ordinal).ToArray();
@@ -56,6 +63,8 @@ public sealed partial class GenerationAssistantDeviceScopeReader
                 result.Add(new(projectId,projectId??"",configurationId,"failed","configuration_invalid",null));
             }
         }
+        if (targetProjectId is not null && result.Count == 0)
+            result.Add(new(targetProjectId,targetProjectId,null,"failed","project_not_configured",null));
         var ids=result.Where(item=>item.ProjectId is not null).Select(item=>Id(item.ProjectId!)).Distinct().ToArray();
         var projects=new Dictionary<string,string>(StringComparer.Ordinal);
         foreach(var chunk in ids.Chunk(1000))
