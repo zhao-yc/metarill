@@ -25,9 +25,10 @@ internal static class OriginalRemoteOptionsCompilation
         {
             var forms = relation.Conditions!.Forms;
             definition["formFields"] = forms.Select(binding => new {field=binding.Column.JsonName,table=GenerationModel.Camel(source.Source.TableName)}).Distinct().ToArray();
-            // 功能表无记录；原自动回传绑定当前表单实例，隔离同页多开和旧缓存。
-            if (relation.FunctionForm && GenerationModel.Enabled(column.Source.Extra, "isAutoPostBackQuery") &&
-                forms.All(binding => GenerationModel.Enabled(binding.Column.Source.Extra, "isAutoPostBack")))
+            // 已声明自动回传且确实显示于详情的固定槽取当前表单，避免同页多开串用缓存。
+            if (!filter && GenerationModel.Enabled(column.Source.Extra, "isAutoPostBackQuery") &&
+                forms.All(binding => GenerationModel.Enabled(binding.Column.Source.Extra, "isAutoPostBack") &&
+                    (relation.FunctionForm || page.DetailColumns.Any(field => field.Source.Id == binding.Column.Source.Id))))
                 definition["formFromEntity"] = true;
         }
         return JsonSerializer.Serialize(definition);

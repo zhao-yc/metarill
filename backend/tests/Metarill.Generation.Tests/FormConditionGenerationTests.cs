@@ -87,11 +87,14 @@ public sealed class FormConditionGenerationTests
         var catalog=Catalog();catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="27");var model=GenerationModel.Create(catalog,"Example.FormHidden");Assert.Throws<InvalidOperationException>(()=>RelationCompilation.ForPage(model,model.Tables.Single(table=>table.Source.Id=="2").Pages.Single()));
     }
 
-    /// <summary>实际生成原详情和筛选并挂载Vue，证明发布槽经过分页与已选且旧联动watch仍生效。</summary>
-    [Fact]
-    public async Task Original_list_form_conditions_reach_paging_and_selected_from_declared_cache_slots()
+    /// <summary>原详情的候选和已选回读使用各自当前表单，列表仍提交草稿中的固定槽。</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task Original_list_form_conditions_follow_each_detail_and_filter_instance(int storageMode)
     {
         var catalog=Catalog();
+        catalog.ConfigTables.Single(table => table.Id == "2").IsRongyu=storageMode;
         foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "27" or "28"))column.Extra["isAutoPostBack"]=JsonSerializer.SerializeToElement(1);
         catalog.ConfigColumns.Single(column=>column.Id=="25").Extra["isAutoPostBackQuery"]=JsonSerializer.SerializeToElement(1);
         foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigColumnId is "25" or "27" or "28"))
@@ -105,11 +108,40 @@ public sealed class FormConditionGenerationTests
                 var source=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/relation_source-"+kind+"-201.vue"));
                 Assert.Contains(JsonSerializer.Serialize("formFields")+":"+JsonSerializer.Serialize(new[]{new{field="allowed",table="relationSource"},new{field="minimum",table="relationSource"}}),source);
                 Assert.Contains("<zxz-uni-data-select",source);
+                if (kind == "detail") Assert.Contains("\"formFromEntity\":true", source);
+                else Assert.DoesNotContain("\"formFromEntity\"", source);
             }
             await Probe(output);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
+
+    /// <summary>未配置自动回传或只开放列表的依赖继续使用原槽。</summary>
+    [Theory]
+    [InlineData("query")]
+    [InlineData("postback")]
+    [InlineData("grid")]
+    public void Non_live_relation_slots_keep_the_original_input_source(string reason)
+    {
+        var catalog = Catalog();
+        foreach (var dependency in catalog.ConfigColumns.Where(column => column.Id is "27" or "28"))
+            dependency.Extra["isAutoPostBack"] = JsonSerializer.SerializeToElement(reason == "postback" && dependency.Id == "27" ? 0 : 1);
+        catalog.ConfigColumns.Single(column => column.Id == "25").Extra["isAutoPostBackQuery"] = JsonSerializer.SerializeToElement(reason == "query" ? 0 : 1);
+        if (reason == "grid")
+        {
+            var gridOnly = catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "27");
+            gridOnly.IsShow = 1;
+            gridOnly.IsEdit = 0;
+        }
+        var model = GenerationModel.Create(catalog, "Example.Scope");
+        var page = model.Tables.Single(table => table.Source.Id == "2").Pages.Single();
+        var column = page.DetailColumns.Single(field => field.Source.Id == "25");
+        var descriptor = OriginalRemoteOptionsCompilation.Definition(model, page, column, "target_list", false);
+        Assert.NotNull(descriptor);
+        Assert.Contains("\"formFields\"", descriptor);
+        Assert.DoesNotContain("\"formFromEntity\"", descriptor);
+    }
+
 
     /// <summary>仅替换网络/uni宿主，Node从本仓库锁定依赖加载实际生成Vue和真实运行时。</summary>
     private static async Task Probe(string output,[System.Runtime.CompilerServices.CallerFilePath]string file="")

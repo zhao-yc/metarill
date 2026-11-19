@@ -37,4 +37,62 @@ for(const kind of ['detail','list']){
   assert.equal(values(initial).allowed,"甲%_'")
  }finally{f.app.unmount()}
 }
-console.log('实际原详情/筛选：声明表单槽、原联动、分页与已选和迟到隔离通过')
+const detail = await readFile(join(root, 'frontend/pages/yzp/relation_source-detail-201.vue'), 'utf8')
+const firstRecord = '9007199254746001', secondRecord = '9007199254746002'
+const firstValue = { allowed: '甲类', minimum: '9007199254746003' }
+const secondValue = { allowed: '乙类', minimum: '9007199254746004' }
+const firstForm = mountGenerated(detail, {}, { id: firstRecord, parent_id: parent })
+let secondForm
+const lastRequest = (form, action) => form.requests.findLast(entry => entry.options.url.endsWith(endpoint + '/' + action))
+const assertFormScope = (request, data) => {
+ assert(request)
+ assert.equal(request.options.data.parentId, parent)
+ assert.deepEqual(plain(request.options.data.formParameters), { relationSource: data })
+}
+const respondRecord = (form, id, fields) => form.respond(form.requests.find(entry => entry.options.url.includes('/detail/')),
+ { id, ...fields, targetId: '9007199254746005' })
+
+try {
+ respondRecord(firstForm, firstRecord, firstValue)
+ await firstForm.flush()
+ assertFormScope(lastRequest(firstForm, 'selected'), firstValue)
+ firstForm.state.openOriginalRemoteOptions('25')
+ const pending = lastRequest(firstForm, 'page')
+ assertFormScope(pending, firstValue)
+
+ // 同一原页面的两个编辑实例共用 uni 本地键。第二条实际回读会更新旧缓存。
+ secondForm = mountGenerated(detail, {}, { id: secondRecord, parent_id: parent }, { storage: firstForm.storage })
+ respondRecord(secondForm, secondRecord, secondValue)
+ await secondForm.flush()
+ assert.deepEqual(plain(firstForm.storage[firstForm.state.formParametersName]), { relationSource: secondValue })
+ assertFormScope(lastRequest(secondForm, 'selected'), secondValue)
+
+ // 另一实例更新缓存不能让本实例的正常回执失效，也不能把第二条记录的条件传给第一条的搜索。
+ firstForm.respond(pending, { records: [row(firstValue.minimum, '甲类候选')], pages: 2 })
+ assert.equal(firstForm.state.target_list[0]?.name, '甲类候选')
+ firstForm.state.moreOriginalRemoteOptions('25')
+ const oldPage = lastRequest(firstForm, 'page')
+ assert.equal(oldPage.options.data.pageNo, 2)
+ assertFormScope(oldPage, firstValue)
+ secondForm.state.openOriginalRemoteOptions('25')
+ const secondPage = lastRequest(secondForm, 'page')
+ assertFormScope(secondPage, secondValue)
+
+ firstForm.state.entity.allowed = '甲类已改'
+ await firstForm.flush()
+ assert.equal(oldPage.aborted, true)
+ const newFirst = { ...firstValue, allowed: '甲类已改' }
+ assertFormScope(lastRequest(firstForm, 'selected'), newFirst)
+ firstForm.respond(oldPage, { records: [row(firstValue.minimum, '旧条件第二页')], pages: 2 })
+ assert.deepEqual(plain(firstForm.state.target_list), [])
+ secondForm.respond(secondPage, { records: [row(secondValue.minimum, '乙类候选')], pages: 1 })
+ assert.equal(secondForm.state.target_list[0]?.name, '乙类候选')
+ assert.equal(firstForm.state.entity.targetId, '9007199254746005')
+ assert.equal(secondForm.state.entity.targetId, '9007199254746005')
+ assert.deepEqual(firstForm.writes(), [])
+ assert.deepEqual(secondForm.writes(), [])
+} finally {
+ secondForm?.app.unmount()
+ firstForm.app.unmount()
+}
+console.log('原详情与筛选：当前表单候选、两实例隔离和旧回执验证通过')
