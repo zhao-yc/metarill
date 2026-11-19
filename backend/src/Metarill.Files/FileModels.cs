@@ -23,6 +23,11 @@ public sealed class AuthenticatedFileReadDeniedException(string message) : Unaut
 public sealed record FileUploadRequest(string OriginalName, string? MimeType, long SizeBytes, string? ConfigColumnId = null, long? FolderId = null, string? Sha256 = null);
 public sealed record LocalUploadPlan(string ProviderCode, string UploadMode, string UploadUrl, IReadOnlyDictionary<string, string> Headers, IReadOnlyDictionary<string, string> FormData, DateTimeOffset ExpireAt);
 public sealed record FileUploadPlan(long FileId, LocalUploadPlan Plan);
+/// <summary>原引用同步协议，项目和操作人始终由已认证上下文决定。</summary>
+public sealed record FileReferenceSyncRequest(string SourceConfigPageId, string SourceConfigTableId,
+    string SourceConfigColumnId, string SourceTableName, string SourceRecordId, string? SourceParentId,
+    string SourceColumnName, IReadOnlyList<string>? FileIds);
+
 public sealed record FileDescriptor(long FileId, string OriginalName, string MimeType, long SizeBytes, string AccessMode, string Status, string? Url, string Mode, long? FolderId, string? Sha256)
 {
     /// <summary>原列表/完成对象使用id，解析对象使用fileId；保留既有构造函数并兼容两种原读取位置。</summary>

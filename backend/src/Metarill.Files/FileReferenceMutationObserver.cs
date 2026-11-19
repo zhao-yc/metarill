@@ -60,8 +60,13 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
     /// <summary>字段省略保持引用不变，显式 null 清空，任何非法引用令整个业务事务回滚。</summary>
     public Task BeforeCommitAsync(RecordMutationContext context, CancellationToken cancellationToken = default)=>BeforeCommitCoreAsync(context,cancellationToken,false);
 
+    /// <summary>旧同步入口没有经过生成 Service，须验证来源页和记录的当前修改范围。</summary>
+    internal Task SynchronizeExistingAsync(RecordMutationContext context, long? parentId, CancellationToken token) =>
+        BeforeCommitCoreAsync(context, token, false, synchronizeExisting: true, expectedParentId: parentId);
+
     /// <summary>按钮文件引用由宿主封闭回调取得当前来源权限，内部标记不对HTTP开放，普通CRUD保持原路径。</summary>
-    private async Task BeforeCommitCoreAsync(RecordMutationContext context,CancellationToken cancellationToken,bool currentFileScope)
+    private async Task BeforeCommitCoreAsync(RecordMutationContext context,CancellationToken cancellationToken,bool currentFileScope,
+        bool synchronizeExisting = false, long? expectedParentId = null)
     {
         var catalog = registry.Catalogs.SingleOrDefault(c => c.ConfigPages.Any(p => p.Id == context.PageId))
             ?? throw new UnauthorizedAccessException("来源页面未登记。");
@@ -88,6 +93,13 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
         var proof = context.IsDelete&&!tableColumns.Any(column=>column.ColumnName=="delete_no")?await ConsumePhysicalDeletionAsync(context,actor,cancellationToken):null;
         var record = proof is null?await LockRecordAsync(context, tableColumns, cancellationToken):proof.Record.ToDictionary(pair=>pair.Key,pair=>pair.Value,StringComparer.Ordinal);
         var parents=await LockParentsAsync(context, scope, record, actor, cancellationToken);
+        if (synchronizeExisting)
+        {
+            if (expectedParentId is { } expected && (parents.Length == 0 || parents[0] != expected))
+                throw new UnauthorizedAccessException("业务记录与请求的父级不一致。");
+            await FileReferenceReadAuthorization.RequireCurrentUpdateScopeAsync(store, registry, authorization,
+                catalog, table, page, affected.Single(), tableColumns, scope, context.RecordId, actor, cancellationToken);
+        }
         if(proof is not null&&!proof.Parents.SequenceEqual(parents))throw new UnauthorizedAccessException("物理删除后实际父范围已变化，文件解绑未提交。");
         var requested = new Dictionary<string, IReadOnlyList<long>>(StringComparer.Ordinal);
         var hiddenEmpty = new HashSet<string>(StringComparer.Ordinal);

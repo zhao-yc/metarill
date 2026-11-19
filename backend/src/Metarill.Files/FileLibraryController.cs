@@ -46,6 +46,13 @@ public sealed class FileLibraryController(IFileLibraryResolver resolver):Control
         foreach(var id in request.FileIds.Distinct())result.Add(await Files.ResolveAsync(Id(id)??throw new ArgumentException("文件标识为空。"),request.PageId,Id(request.RecordId),token));
         return R<object>.Success(result);
     }
+    /// <summary>恢复原引用同步地址。只同步已保存记录的文件字段和当前项目引用。</summary>
+    [HttpPost("sync-refs")]
+    public async Task<R<string>> SyncReferences(FileReferenceSyncRequest request, CancellationToken token)
+    {
+        await Files.SynchronizeReferencesAsync(request, token);
+        return R<string>.Success("引用同步成功");
+    }
     /// <summary>公开和私有流分开核验，Range/HEAD 由框架处理，响应禁止 MIME 嗅探与共享缓存。</summary>
     [HttpGet("protected-content/{id:long}"),HttpHead("protected-content/{id:long}")]
     public Task<IActionResult> ProtectedContent(long id,CancellationToken token)=>Content(id,false,token);

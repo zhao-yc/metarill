@@ -43,6 +43,154 @@ public sealed class FileCommandFactoryTests
         Assert.Equal(42L,command.Parameters["browse_folder"].Value);Assert.Equal(1L,command.Parameters["browse_project"].Value);Assert.Equal("deleted",command.Parameters["deleted_status"].Value);
         Assert.Contains("`yz_file_library`",command.CommandText);Assert.Contains("`folder_id`=@browse_folder",command.CommandText);Assert.DoesNotContain("42",command.CommandText);Assert.Equal(cancellation.Token,command.Token);
     }
+    /// <summary>从已发布元数据解析原请求，在同一实际事务核对记录及修改权限后同步已保存的文件 ID。</summary>
+    [Theory]
+    [InlineData("allowed")]
+    [InlineData("wrong-field")]
+    [InlineData("legacy-disabled")]
+    [InlineData("missing-scope")]
+    [InlineData("wrong-values")]
+    [InlineData("exact-allowed")]
+    [InlineData("exact-denied")]
+    public async Task Original_reference_sync_only_reconciles_the_persisted_authorized_file_field(string mode)
+    {
+        const long recordId = 9007199254740993;
+        const long fileId = 9007199254740994;
+        var catalog = new MetadataCatalog
+        {
+            YzProjectId = "1",
+            ConfigTables =
+            [
+                new() { Id = "10", TableName = "sync_record" },
+                new() { Id = "40", TableName = "yz_file_ref" },
+                new() { Id = "50", TableName = "yz_file_library" }
+            ],
+            ConfigPages = [new() { Id = "20", ConfigTableId = "10", YzAdminTypeId = "3", WhereSql = "yz_project_id=@current_yz_project_id AND status=1" }],
+            YzAdminTypes = [new() { Id = "3" }],
+            ConfigColumns =
+            [
+                new() { Id = "11", ConfigTableId = "10", ColumnName = "id", LogicalType = "int64" },
+                new() { Id = "12", ConfigTableId = "10", ColumnName = "yz_project_id", LogicalType = "int64" },
+                new() { Id = "13", ConfigTableId = "10", ColumnName = "status", LogicalType = "int32" },
+                new() { Id = "14", ConfigTableId = "10", ColumnName = "attachments", LogicalType = "string",
+                    ControlKind = "FileLibrary", ControlDetail = """{"accessMode":"PUBLIC","maxCount":2,"allowedExtensions":[".txt"]}""" }
+            ],
+            ConfigPageColumns = [new() { Id = "21", ConfigPageId = "20", ConfigColumnId = "14" }]
+        };
+        static void AddColumns(MetadataCatalog catalog, string tableId, params string[] names)
+        {
+            for (var i = 0; i < names.Length; i++)
+                catalog.ConfigColumns.Add(new() { Id = tableId + (i + 1).ToString(), ConfigTableId = tableId, ColumnName = names[i],
+                    LogicalType = names[i] switch
+                    {
+                        "insert_time" or "delete_no" => "datetime",
+                        "field_name" or "status" or "name" or "access_mode" => "string",
+                        _ => "int64"
+                    } });
+        }
+        AddColumns(catalog, "40", "id", "file_id", "page_id", "record_id", "field_name", "yz_project_id", "insert_time", "insert_manager_id", "delete_no");
+        AddColumns(catalog, "50", "id", "yz_project_id", "status", "name", "size", "access_mode", "owner_id", "delete_no");
+        if (mode == "legacy-disabled") catalog.ConfigPages[0].Extra["isUpdate"] = System.Text.Json.JsonSerializer.SerializeToElement(0);
+        if (mode is "exact-allowed" or "exact-denied")
+        {
+            catalog.ConfigPages[0].Extra["exactDataManageMatchField"] = System.Text.Json.JsonSerializer.SerializeToElement("status");
+            catalog.YzAdminTypes[0].Extra["exactDataManageMatchField"] = System.Text.Json.JsonSerializer.SerializeToElement("department_id");
+        }
+
+        var provider = new Provider();
+        var options = new DatabaseOptions { ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused", ExpectedDatabase = "offline" };
+        using var session = new DatabaseSession(options, null, provider);
+        var authorization = new ReferenceSyncAuthorization(mode == "exact-allowed");
+        var files = new FileLibraryService(new SqlRowStore(session, catalog), new FileMetadataContext([catalog]),
+            new SnowflakeIdGenerator(29), authorization, new FileLibraryOptions());
+        var mutations = new List<string>();
+        var filters = new List<DbCommand>();
+        var requests = new FileReferenceSyncRequest("20", "10", "14", "sync_record", recordId.ToString(), null,
+            mode == "wrong-field" ? "other_field" : "attachments", [mode == "wrong-values" ? "1" : fileId.ToString()]);
+
+        provider.Read = command =>
+        {
+            Assert.Same(session.CurrentTransaction, command.Transaction);
+            var sql = command.CommandText;
+            if (sql.Contains("FROM `sync_record`", StringComparison.Ordinal))
+            {
+                var table = new DataTable();
+                table.Columns.Add("id", typeof(long)); table.Columns.Add("yz_project_id", typeof(long));
+                table.Columns.Add("attachments", typeof(string)); table.Columns.Add("status", typeof(int));
+                if (sql.Contains("file_page", StringComparison.Ordinal)) filters.Add(command);
+                if (mode != "missing-scope" || !sql.Contains("file_page", StringComparison.Ordinal))
+                    table.Rows.Add(recordId, 1L, "[\"" + fileId + "\"]", 1);
+                return table.CreateDataReader();
+            }
+            if (sql.Contains("FROM `yz_file_library`", StringComparison.Ordinal))
+            {
+                var table = new DataTable();
+                table.Columns.Add("id", typeof(long)); table.Columns.Add("yz_project_id", typeof(long));
+                table.Columns.Add("status", typeof(string)); table.Columns.Add("name", typeof(string));
+                table.Columns.Add("size", typeof(long)); table.Columns.Add("access_mode", typeof(string));
+                table.Rows.Add(fileId, 1L, "ready", "document.txt", 3L, "PUBLIC");
+                return table.CreateDataReader();
+            }
+            Assert.Contains("FROM `yz_file_ref`", sql);
+            return new DataTable().CreateDataReader();
+        };
+        provider.Write = command =>
+        {
+            Assert.Same(session.CurrentTransaction, command.Transaction);
+            mutations.Add(command.CommandText);
+            Assert.Contains(command.Parameters.Cast<DbParameter>(), parameter => Equals(parameter.Value, fileId));
+            Assert.Contains(command.Parameters.Cast<DbParameter>(), parameter => Equals(parameter.Value, recordId));
+            return 1;
+        };
+
+        if (mode is "allowed" or "exact-allowed")
+        {
+            await files.SynchronizeReferencesAsync(requests);
+            Assert.Contains("INSERT INTO `yz_file_ref`", Assert.Single(mutations));
+            Assert.Equal(1, provider.Last!.Commits);
+        }
+        else
+        {
+            var failure = await Record.ExceptionAsync(() => files.SynchronizeReferencesAsync(requests));
+            Assert.NotNull(failure);
+            Assert.Empty(mutations);
+        }
+        if (mode is "wrong-field" or "legacy-disabled") Assert.Equal(0, provider.Connections);
+        else if (mode == "exact-denied")
+        {
+            Assert.Empty(filters);
+            Assert.Equal(1, provider.Last!.Rollbacks);
+        }
+        else
+        {
+            var scopeCommand = Assert.Single(filters);
+            Assert.Contains("FOR UPDATE", scopeCommand.CommandText);
+            Assert.Contains("update", authorization.Operations);
+            if (mode == "exact-allowed") Assert.Contains("`status` IN (@exact_0)", scopeCommand.CommandText);
+        }
+        Assert.Equal(mode is "exact-allowed" or "exact-denied" ? 1 : 0, authorization.ExactCalls);
+    }
+
+    /// <summary>只放行测试项目的原修改动作。</summary>
+    private sealed class ReferenceSyncAuthorization(bool match) : IRuntimeAuthorization
+    {
+        internal List<string> Operations { get; } = [];
+        internal int ExactCalls;
+        public ExactDataManageValues ResolveExactDataManage(string pageId, string operation, string managerField)
+        {
+            Assert.Equal(("20", "update", "department_id"), (pageId, operation, managerField));
+            ExactCalls++;
+            return new(true, match ? System.Text.Json.JsonSerializer.SerializeToElement(1) : null);
+        }
+        public RuntimeActor RequireActor() => new(2, "测试", false, "1", "3");
+        public void RequirePagePermission(string pageId, string operation)
+        {
+            Assert.Equal("20", pageId);
+            Assert.Equal("update", operation);
+            Operations.Add(operation);
+        }
+    }
+
     /// <summary>实际独立及共享父路径逐层发送参数。账号不满足任一级条件时不能取得文件父范围。</summary>
     [Theory]
     [InlineData(false,false,false,false)]
@@ -271,6 +419,7 @@ public sealed class FileCommandFactoryTests
     {
         internal int Commands,Connections;internal Exception? Failure;internal Connection? Last;
         internal Func<DbCommand,DbDataReader>? Read;
+        internal Func<DbCommand,int>? Write;
         public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}
         public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);
         public DbConnection CreateConnection(DatabaseOptions options){Connections++;return Last=new(this);}
@@ -287,7 +436,7 @@ public sealed class FileCommandFactoryTests
         [System.Diagnostics.CodeAnalysis.AllowNull]public override string ConnectionString{get;set;}="";
         public override string Database=>"offline";public override string DataSource=>"offline";public override string ServerVersion=>"fake";public override ConnectionState State=>ConnectionState.Open;
         public override void Open()=>Opens++;public override void Close(){}public override void ChangeDatabase(string name)=>throw new NotSupportedException();
-        protected override DbCommand CreateDbCommand()=>Command=new(this,owner.Failure,owner.Read);
+        protected override DbCommand CreateDbCommand()=>Command=new(this,owner.Failure,owner.Read,owner.Write);
         protected override DbTransaction BeginDbTransaction(IsolationLevel level)=>new Transaction(this,level);
         protected override void Dispose(bool disposing){IsDisposed=true;base.Dispose(disposing);}
     }
@@ -297,12 +446,12 @@ public sealed class FileCommandFactoryTests
         public override void Commit()=>connection.Commits++;public override void Rollback()=>connection.Rollbacks++;
     }
     /// <summary>仅复用MySQL参数集合，实际执行返回空reader或原异常；不解释SQL、不读写文件。</summary>
-    private sealed class Command(Connection connection,Exception? failure,Func<DbCommand,DbDataReader>? read):DbCommand
+    private sealed class Command(Connection connection,Exception? failure,Func<DbCommand,DbDataReader>? read,Func<DbCommand,int>? write):DbCommand
     {
         private readonly MySqlCommand parameters=new();internal int Executions;internal bool IsDisposed;internal CancellationToken Token;
         [System.Diagnostics.CodeAnalysis.AllowNull]public override string CommandText{get;set;}="";public override int CommandTimeout{get;set;}public override CommandType CommandType{get;set;}public override bool DesignTimeVisible{get;set;}public override UpdateRowSource UpdatedRowSource{get;set;}
         protected override DbConnection? DbConnection{get;set;}=connection;protected override DbTransaction? DbTransaction{get;set;}protected override DbParameterCollection DbParameterCollection=>parameters.Parameters;
-        public override void Cancel(){}public override void Prepare(){}protected override DbParameter CreateDbParameter()=>new MySqlParameter();public override int ExecuteNonQuery()=>throw new NotSupportedException();public override object? ExecuteScalar()=>throw new NotSupportedException();
+        public override void Cancel(){}public override void Prepare(){}protected override DbParameter CreateDbParameter()=>new MySqlParameter();public override int ExecuteNonQuery()=>write?.Invoke(this)??throw new NotSupportedException();public override object? ExecuteScalar()=>throw new NotSupportedException();
         protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)=>throw new NotSupportedException();
         /// <summary>异步执行保留传入取消标记及异常对象，供真实调用链断言。</summary>
         protected override Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior,CancellationToken token){Executions++;Token=token;return failure is null?Task.FromResult(read?.Invoke(this)??new DataTable().CreateDataReader()):Task.FromException<DbDataReader>(failure);}
