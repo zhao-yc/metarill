@@ -101,6 +101,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 cascadeCacheOwner:refreshFields is null?null:new(table,owner),scopedPhysicalCandidate:physicalScope&&!global)
             {
                 SelectedMultiPage=selectedPage,
+                AllowsExactMultiSelection=relation.ControlKind=="MultiSelectPage",
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent),
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
                 MultiNamePathPage=namePage,

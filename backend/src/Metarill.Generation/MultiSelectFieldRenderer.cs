@@ -27,8 +27,10 @@ internal static class MultiSelectFieldRenderer
             {
                 var dependencies=def.TargetPage.Scopes.Select(s=>s.Column.Source.ColumnName)
                     .Concat(scoped?[]:def.TargetPage.Condition?.Syntax.Fields??[]).Distinct(StringComparer.OrdinalIgnoreCase);
-                var call=NonRedundantReadCompilation.MultiLabelPlanCall(model,def.Target,def.TargetPage,def.TargetPage,
-                    cache.Value,["id",cache.Value.Source.ColumnName],dependencies);
+                var call=scoped&&def.ExactTarget is not null
+                    ?DerivedMultiNamesCompilation.ExactPlanCall(model,def,cache.Value,dependencies)
+                    :NonRedundantReadCompilation.MultiLabelPlanCall(model,def.Target,def.TargetPage,def.TargetPage,
+                        cache.Value,["id",cache.Value.Source.ColumnName],dependencies);
                 result.AppendLine($"    private static readonly NonRedundantReadPlan MultiCachePlan{suffix}_{index}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{call};");
             }
             result.AppendLine("    /// <summary>保留旧JSON文本字节，数组请求持久化为JSON文本；不接受对象或其它标量。</summary>")
@@ -70,14 +72,21 @@ internal static class MultiSelectFieldRenderer
             foreach(var scope in def.TargetPage.Scopes)
                 filters.Add("new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+
                     Scope(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+")");
+            var filterArgument="new FixedReadFilter[]{"+string.Join(",",filters)+"}";
             if(scoped)
             {
                 result.AppendLine("        if(selected.Length==0)").AppendLine("        {");
                 foreach(var cache in caches)
                     result.AppendLine($"            if(refreshNames){{entity.{cache.Cache.Property}=\"[]\";submitted.Add({Literal(cache.Cache.Source.ColumnName)});}}");
                 result.AppendLine("            return;").AppendLine("        }");
+                if(def.ExactTarget is {} exact)
+                {
+                    filterArgument="selectedFilters";
+                    result.AppendLine($"        var selectedFilters=new List<FixedReadFilter>{{{string.Join(",",filters)}}};")
+                        .Append(ExactDataManageCompilation.ReadFilter(def.TargetPage,exact,Literal("list"),"multiExact","selectedFilters"));
+                }
                 if(caches.Count==0)
-                    result.AppendLine($"        var rows=await new NonRedundantReader(session).CurrentRowsAsync(MultiDerivedPlan{suffix}.BindAccount(actor),new FixedReadFilter[]{{{string.Join(",",filters)}}},new FixedReadOrder[]{{new(\"id\")}},200,cancellationToken,actor.ProjectId);")
+                    result.AppendLine($"        var rows=await new NonRedundantReader(session).CurrentRowsAsync(MultiDerivedPlan{suffix}.BindAccount(actor),{filterArgument},new FixedReadOrder[]{{new(\"id\")}},200,cancellationToken,actor.ProjectId);")
                         .AppendLine("        if(rows.Count!=selected.Length)throw new InvalidOperationException(\"多选项不存在、已删除或不在目标页范围，源记录未保存。\");");
             }
             else
@@ -106,7 +115,7 @@ internal static class MultiSelectFieldRenderer
                     var condition=scoped?"null":FixedPageConditionCompilation.Bound(def.TargetPage,"MultiPageCondition"+suffix);
                     var nameExpression=$"NonRedundantReads.Value<{cache.Value.Type}>(row,{Literal(cache.Value.Source.ColumnName)})";
                     nameExpression=MultiSelectExcelRenderer.LabelText(cache.Value,nameExpression);
-                    result.AppendLine($"        var cacheRows{index}=await new NonRedundantReader(session).CurrentRowsAsync(MultiCachePlan{suffix}_{index}.BindAccount(actor),new FixedReadFilter[]{{{string.Join(",",filters)}}},new FixedReadOrder[]{{new(\"id\")}},200,cancellationToken,actor.ProjectId,{condition});")
+                    result.AppendLine($"        var cacheRows{index}=await new NonRedundantReader(session).CurrentRowsAsync(MultiCachePlan{suffix}_{index}.BindAccount(actor),{filterArgument},new FixedReadOrder[]{{new(\"id\")}},200,cancellationToken,actor.ProjectId,{condition});")
                         .AppendLine($"        if(cacheRows{index}.Count!=selected.Length)throw new InvalidOperationException(\"派生多选目标当前范围已改变，源记录未保存。\");")
                         .AppendLine($"        var {variable}=cacheRows{index}.ToDictionary(row=>NonRedundantReads.Value<long>(row,\"id\"),row=>{nameExpression});");
                 }

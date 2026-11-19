@@ -78,6 +78,12 @@ internal static partial class BackendRenderer
         }
         accountPages.UnionWith(checkboxScopes.Select(checkbox=>checkbox.LogicalTargetPage!.Source.Id));
         scopedPages=scopedPages.Concat(checkboxScopes.Select(checkbox=>(checkbox.Target,checkbox.LogicalTargetPage!)));
+        var exactMultiTargets=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
+            .SelectMany(table=>table.Pages.SelectMany(page=>MultiSelectCompilation.ForService(model,table,page)))
+            .Where(multi=>multi.ExactTarget is not null&&(DerivedMultiNamesCompilation.UsesFixedRead(model,multi)||
+                multi.ImportCondition?.HasLogicalFields==true))
+            .Select(multi=>(multi.Target,multi.TargetPage)).DistinctBy(item=>item.TargetPage.Source.Id).ToArray();
+        scopedPages=scopedPages.Concat(exactMultiTargets);
         var hasExactCheckboxParent=checkboxScopes.Any(checkbox=>DerivedCheckboxNamesCompilation.HasExactLogicalParent(model,checkbox));
         var hasExactCheckboxMembership=checkboxScopes.Any(checkbox=>DerivedCheckboxNamesCompilation.ExactMembershipPage(model,checkbox) is not null);
         var nestedTables=RelationPropagationCompilation.PublishedRecursiveTables(model,scopedPages);
@@ -136,6 +142,8 @@ internal static partial class BackendRenderer
             MultiSelectCompilation.ForService(model,table,page).Any(multi=>multi.GlobalParent)||
             DatabaseCheckboxCompilation.ForService(model,table,page).Any(checkbox=>checkbox.GlobalParent))))
             helpers+="    /// <summary>校验实际多值目标页绑定的全局父。源码冻结后只接受规范ID。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMultiGlobalParent(string tableId,string pageId)=>Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(Snapshot,tableId,pageId);\n";
+        if(exactMultiTargets.Length>0)
+            helpers+="    /// <summary>实际多选页的逻辑范围和精确匹配投影共同冻结。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileExactMultiLabel(string tableId,string pageId,string field,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null,string[]? conditionFields=null)=>Metarill.Data.Queries.NonRedundantReads.CompileExactMultiLabel(Snapshot,tableId,pageId,field,outputs,dependencies,singleTargets,conditionFields);\n";
         if(logicalMultiImports.Length>0)
             helpers+="    /// <summary>Excel 名称匹配的附加逻辑字段沿实际候选页编译。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMultiImportLabel(string tableId,string pageId,string field,string[] fields,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileMultiImportLabel(Snapshot,tableId,pageId,field,fields,singleTargets);\n";
         if(fixedSingleImports.Length>0)

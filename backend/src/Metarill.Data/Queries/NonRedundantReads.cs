@@ -292,6 +292,10 @@ public static class NonRedundantReads
     public static bool IsScopedMultiTarget(MetadataCatalog metadata,TableMetadata target,string pageId)=>
         MySqlNonRedundantReadCompiler.IsScopedMultiTarget(metadata,target,pageId);
 
+    /// <summary>只识别实际有多选引用的固定目标页，用于该页精确权限与自树的组合证明。</summary>
+    public static bool IsScopedMultiSelectTarget(MetadataCatalog metadata,TableMetadata target,string pageId)=>
+        MySqlNonRedundantReadCompiler.IsScopedMultiTarget(metadata,target,pageId,selectOnly:true);
+
     public static bool HasScopedMultiPage(MetadataCatalog metadata,TableMetadata target,ColumnMetadata relation)=>
         MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(metadata,target,relation) is not null;
 
@@ -318,6 +322,13 @@ public static class NonRedundantReads
         IReadOnlyList<string> conditionFields,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>
         new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,
             field=="id"?["id"]:["id",field],[],singleTargets,conditionFields));
+
+    /// <summary>多选当前读取保留实际发布页的逻辑范围和精确匹配依赖，由服务绑定当前账号权限。</summary>
+    public static NonRedundantReadPlan CompileExactMultiLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,
+        IReadOnlyList<string>? conditionFields=null)=>
+        new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies,
+            singleTargets,conditionFields,exactMultiSelection:true));
 
     /// <summary>非冗余单选 Excel 使用实际单选页与同一固定条件编译器。</summary>
     public static NonRedundantReadPlan CompileSingleImportLabel(MetadataCatalog metadata,string tableId,string pageId,string field,

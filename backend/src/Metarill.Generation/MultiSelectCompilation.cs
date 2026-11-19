@@ -88,8 +88,7 @@ internal static class MultiSelectCompilation
             var derived=DerivedMultiNamesCompilation.Declared(model,target,name);
             // 功能表确认直接使用目标页的查询范围；业务表的写入和导入也需要同一精确范围。
             var exactTarget=functionForm?null:ExactDataManageCompilation.Resolve(model,target,targetPage);
-            if(exactTarget is not null&&scoped||exactTarget is {Derived:true}&&derived)
-                return Gap("精确匹配与目标页逻辑范围或派生名称缺少共同的当前读取计划。");
+
             if(!functionForm&&(scoped||derived))DerivedMultiNamesCompilation.Require(model,table,target,targetPage,name,exactTarget);
             var fixedPage=Scalar(root,"pageId");
             if(fixedPage.Length==0)fixedPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
@@ -105,7 +104,7 @@ internal static class MultiSelectCompilation
                 if(table.Source.IsRongyu!=0)return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
                 // 原非冗余 Excel 反查叠加控件条件；弹窗继续使用已有的目标页查询合同。
                 var condition=RelationConditionsCompilation.SelectionImport(model,table,page,query,definition.WhereSql);
-                if(condition.HasLogicalFields)DerivedMultiNamesCompilation.ValidateLogicalImport(model,target,targetPage,name,condition);
+                if(condition.HasLogicalFields)DerivedMultiNamesCompilation.ValidateLogicalImport(model,target,targetPage,name,condition,exactTarget);
                 importCondition=condition;
             }
             var ordering = Value("orderBy");

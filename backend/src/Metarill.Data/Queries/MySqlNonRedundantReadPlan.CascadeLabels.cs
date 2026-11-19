@@ -28,7 +28,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(selected is null&&(sourcePage is not null||storage.IsPhysical(column)||column.LogicalType!="string"&&
                     !MultiNameStorageColumns.IsDerivedScalarLabel(target,column,storage)))continue;
                 var plan=selected is null?CompileMultiLabel(catalog,target.Id,field,[field],[],cacheOwner:null,relation:relation):
-                    CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[]);
+                    CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[],
+                        exactMultiSelection:relation.ControlKind=="MultiSelectPage"&&
+                            selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0);
                 pages.UnionWith(plan.CascadeLabelPages);
                 if(sourcePage is not null&&selected is not null)
                 {
@@ -101,9 +103,9 @@ public static partial class MySqlNonRedundantReadCompiler
     }
 
     /// <summary>查找由原多值关系显式绑定的固定范围页。</summary>
-    internal static bool IsScopedMultiTarget(MetadataCatalog catalog,TableMetadata target,string pageId)=>
+    internal static bool IsScopedMultiTarget(MetadataCatalog catalog,TableMetadata target,string pageId,bool selectOnly=false)=>
         DeclaredMultiNameTargets(catalog).Any(item=>item.Table.Id==target.Id&&item.NamePage?.Id==pageId&&
-            ScopedMultiTargetPage(catalog,target,item.NamePage) is not null);
+            (!selectOnly||item.Relation.ControlKind=="MultiSelectPage")&&ScopedMultiTargetPage(catalog,target,item.NamePage) is not null);
 
     /// <summary>由实际多值控件绑定找到名称所处的页面，纯物理根条件也保留中间页上下文。</summary>
     private static PageMetadata? MultiTargetNamePage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
@@ -148,7 +150,8 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>发布已绑定目标页及名称，原候选、导入、回读共用固定条件。</summary>
     internal static MySqlNonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog catalog,string tableId,string pageId,
         string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
-        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,IReadOnlyList<string>? importFields=null,string importPageType="2")
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,IReadOnlyList<string>? importFields=null,
+        string importPageType="2",bool exactMultiSelection=false)
     {
         MetadataValidation.Validate(catalog);
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("多值目标页逻辑条件要求已发布的MySQL读取计划。");
@@ -158,13 +161,14 @@ public static partial class MySqlNonRedundantReadCompiler
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         var parent=MultiParent(catalog,page);
         var extraFields=(importFields??[]).ToHashSet(StringComparer.Ordinal);
+        if(exactMultiSelection)extraFields.Add(RequireExactMultiSelection(catalog,table,page));
         var crossFields=new HashSet<string>(StringComparer.Ordinal);
         IReadOnlyList<ColumnMetadata> importColumns=[];
         IReadOnlyList<NonRedundantCrossTableScope> crossBindings=[];
         if(extraFields.Count>0)
         {
             if(table.IsRongyu!=0||table.IsView!=0||table.IsFunctionTable!=0||page.Extra.GetValueOrDefault("type").ToString()!=importPageType||
-                page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
+                !exactMultiSelection&&page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
                 throw new NotSupportedException("Excel 逻辑条件要求实际发布的普通非冗余选择页。");
             var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId).ToArray();
             var declared=RelationStorageColumns.Expand(table,members);
@@ -179,6 +183,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var plan=new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field,crossTables:crossBindings)
         {
             SelectedMultiPage=page,
+            AllowsExactMultiSelection=exactMultiSelection,
             MultiNamePathPage=page,
             AllowLiteralMultiScope=extraFields.Count>0,
             MultiImportFields=extraFields,
@@ -192,6 +197,23 @@ public static partial class MySqlNonRedundantReadCompiler
             !plan.Types.TryGetValue(column.ColumnName,out var type)||type!=column.LogicalType))
             throw new NotSupportedException("Excel 逻辑条件必须落到与声明类型一致的固定字段。");
         return plan;
+    }
+
+    /// <summary>精确范围只开放普通项目实际多选页和已声明的标量字段。</summary>
+    private static string RequireExactMultiSelection(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
+        var field=ExactDataManageValues.Field(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
+        if(field.Length==0||table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||table.IsFunctionTable!=0||table.IsView!=0||
+            page.ConfigTableId!=table.Id||page.Extra.GetValueOrDefault("type").ToString()!="2"||
+            page.YzProjectId!=catalog.YzProjectId||table.YzProjectId!=catalog.YzProjectId||
+            !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
+            throw new NotSupportedException("精确多选必须绑定本项目实际发布的非冗余多选页。");
+        var match=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
+            .SingleOrDefault(column=>column.ColumnName==field);
+        if(match is null||match.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(field))
+            throw new NotSupportedException("精确多选缺少已声明的单值匹配字段。");
+        _=ExactDataManageValues.Unrestricted.ReadLogical(match.LogicalType);
+        return field;
     }
 
     /// <summary>按实际发布页解析原父参数，父列可能未在页面显示。</summary>

@@ -247,6 +247,13 @@ public static partial class MySqlNonRedundantReadCompiler
             }
         }
 
+        internal bool AllowsExactMultiSelection { get; init; }
+
+        /// <summary>固定目标条件用于记录投影与维护。精确权限由发起选择的请求单独叠加。</summary>
+        private bool UsesExactMultiSelection(PageMetadata page,string alias) =>
+            AllowsExactMultiSelection&&alias==rootAlias&&page.Id==SelectedMultiPage?.Id&&
+            page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0;
+
         /// <summary>目标页的条件与名称共用当前记录和联接，维护用途按来源行归属绑定。</summary>
         private string SelectedMultiScope(string scope)
         {
@@ -260,8 +267,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,allowMultiParent:MultiCandidateParent is not null);
                 else GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
             }
+            var exact=UsesExactMultiSelection(page,rootAlias);
+            if(exact)_=RequireExactMultiSelection(catalog,root,page);
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
-                multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames);
+                multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,exactMultiSelection:exact);
             if(!condition.Allowed)
                 throw new NotSupportedException("多值目标页包含未接通的范围。");
             if(!condition.HasLogical)
@@ -273,7 +282,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 cascadeLabelPages.Add(page.Id);
                 if(cascadeCacheOwner is {} owner)
                 {
-                    var predicate=PhysicalAccountCacheCondition(root,rootAlias,page,owner,MultiCandidateParent?.Target);
+                    var predicate=PhysicalAccountCacheCondition(root,rootAlias,page,owner,MultiCandidateParent?.Target,
+                        exactMultiSelection:exact);
                     return scope.Length==0?predicate:scope+" AND "+predicate;
                 }
                 // 项目和父参数已由实际范围负责，账号条件只追加已证明的物理字段。
@@ -477,10 +487,10 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>物理账号条件按来源行归属计算，并记录源字段和目标筛选列的反向依赖。</summary>
         private string PhysicalAccountCacheCondition(TableMetadata table,string alias,PageMetadata page,
-            CascadeCacheOwner owner,ColumnMetadata? parentField=null,bool allowFixedOnly=false)
+            CascadeCacheOwner owner,ColumnMetadata? parentField=null,bool allowFixedOnly=false,bool exactMultiSelection=false)
         {
             var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,
-                parentField,owner.GlobalSingleSource,allowFixedOnly);
+                parentField,owner.GlobalSingleSource,allowFixedOnly,exactMultiSelection);
             cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
             return AccountCacheScope(ownership,table,alias,owner.Alias,render:true,owner.Table);
         }
@@ -749,7 +759,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 string predicate;
                 if(cacheOwner is {} row)
                 {
-                    var proof=AccountScopedCrossCache.CompileRecursive(catalog,row.Table,table,level.Page,multiParent,row.GlobalTreeSource,selfTreeFields,row.GlobalSingleSource);
+                    var proof=AccountScopedCrossCache.CompileRecursive(catalog,row.Table,table,level.Page,multiParent,
+                        row.GlobalTreeSource,selfTreeFields,row.GlobalSingleSource,UsesExactMultiSelection(level.Page,owner));
                     cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                     predicate=AccountCacheScope(proof,table,owner,row.Alias,render:true,row.Table,parameterPrefix,Projection);
                 }

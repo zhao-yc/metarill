@@ -26,22 +26,27 @@ public sealed class AccountScopedCrossCache
 
     /// <summary>已证明的独立父键单独校验，账号范围仍从实际来源行绑定。项目内固定单值副本允许纯常量或物理父级。</summary>
     internal static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,
-        PageMetadata targetPage,bool globalTreeSource,ColumnMetadata? multiParent=null,bool globalSingleSource=false,bool allowFixedOnly=false)=>
+        PageMetadata targetPage,bool globalTreeSource,ColumnMetadata? multiParent=null,bool globalSingleSource=false,
+        bool allowFixedOnly=false,bool exactMultiSelection=false)=>
         Compile(catalog,source,target,targetPage,recursive:false,multiParent:multiParent,globalTreeSource:globalTreeSource,
-            globalSingleSource:globalSingleSource,allowFixedOnly:allowFixedOnly);
+            globalSingleSource:globalSingleSource,allowFixedOnly:allowFixedOnly,exactMultiSelection:exactMultiSelection);
 
     /// <summary>递归候选允许逻辑字段的常量条件，账号等值仍须对应来源行真实物理归属。</summary>
     internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,
-        ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false)
-        =>Compile(catalog,source,target,targetPage,recursive:true,multiParent:multiParent,globalTreeSource:globalTreeSource,selfTreeFields:selfTreeFields,globalSingleSource:globalSingleSource);
+        ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null,
+        bool globalSingleSource=false,bool exactMultiSelection=false)=>
+        Compile(catalog,source,target,targetPage,recursive:true,multiParent:multiParent,globalTreeSource:globalTreeSource,
+            selfTreeFields:selfTreeFields,globalSingleSource:globalSingleSource,exactMultiSelection:exactMultiSelection);
 
-    private static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false,bool allowFixedOnly=false)
+    private static AccountScopedCrossCache Compile(MetadataCatalog catalog, TableMetadata source, TableMetadata target,
+        PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,
+        IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false,bool allowFixedOnly=false,bool exactMultiSelection=false)
     {
         if(globalTreeSource)GlobalCachedRelationSource.RequireSelfTree(catalog,source);
         // GlobalSingleSource 只由已核对 ScopedSingleTarget 的缓存计划设置，编译器另外保留根行项目范围。
         if (source.IsRongyu != 1 || targetPage.ConfigTableId != target.Id || GlobalCrossTableTarget.Declared(source)&&!globalTreeSource&&!globalSingleSource ||
             source.IsView != 0 || source.IsFunctionTable != 0 || target.IsView != 0 || target.IsFunctionTable != 0 ||
-            targetPage.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length > 0)
+            !exactMultiSelection&&targetPage.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
             throw Invalid();
 
         var targets = Physical(catalog, target);
@@ -50,7 +55,7 @@ public sealed class AccountScopedCrossCache
         if(recursive)
         {
             var storage=MetadataStoragePolicy.ForTable(catalog,target);
-            if(CrossTableParentCondition.Compile(catalog,target,targetPage,storage,allowLogical:true,multiParent:multiParent,selfTreeFields:selfTreeFields) is not {Allowed:true,HasLogical:true})
+            if(CrossTableParentCondition.Compile(catalog,target,targetPage,storage,allowLogical:true,multiParent:multiParent,selfTreeFields:selfTreeFields,exactMultiSelection:exactMultiSelection) is not {Allowed:true,HasLogical:true})
                 throw Invalid();
             var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
             foreach(var column in columns.Where(column=>CrossTableStorageColumns.IsLogicalPathField(target,columns,column.ColumnName)||

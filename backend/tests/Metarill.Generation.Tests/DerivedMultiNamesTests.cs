@@ -17,6 +17,10 @@ public sealed class DerivedMultiNamesTests
     [InlineData(1,0,"derived-name")]
     [InlineData(0,0,"derived-name")]
     [InlineData(1,0,"derived-match")]
+    [InlineData(0,0,"account")]
+    [InlineData(1,0,"account-derived-name")]
+    [InlineData(0,0,"derived-name-derived-match")]
+    [InlineData(1,0,"account-derived-name-derived-match")]
     public async Task Multi_selection_save_and_import_use_target_exact_scope(int sourceMode,int targetMode,string kind)
     {
         const string ns="Example.MultiExactRange";
@@ -24,8 +28,9 @@ public sealed class DerivedMultiNamesTests
         catalog.ConfigTables.Single(item=>item.Id=="2").IsRongyu=sourceMode;
         catalog.ConfigTables.Single(item=>item.Id=="3").IsRongyu=targetMode;
         var derivedName=kind.Contains("derived-name",StringComparison.Ordinal);
-        var derivedMatch=kind=="derived-match";
+        var derivedMatch=kind.Contains("derived-match",StringComparison.Ordinal);
         var account=kind.StartsWith("account",StringComparison.Ordinal);
+        var scoped=account&&targetMode==0;
         var name=catalog.ConfigColumns.Single(item=>item.Id=="32");
         if(!derivedName)name.Extra.Clear();
         var scopeColumn=new ColumnMetadata{Id="381",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
@@ -39,7 +44,19 @@ public sealed class DerivedMultiNamesTests
         catalog.ConfigColumns.Add(new(){Id="382",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
             ColumnName="store_id",LogicalType="int64"});
         var target=catalog.ConfigPages.Single(item=>item.Id=="301");
-        target.WhereSql=account?"store_id=@current_store_id":"";
+        target.WhereSql=account?"store_id=@current_store_id AND flag=87":"";
+        if(account)
+        {
+            catalog.ConfigColumns.Add(new(){Id="383",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
+                ColumnName="flag",LogicalType="int32"});
+            if(sourceMode==1&&scoped)
+            {
+                catalog.ConfigColumns.Add(new(){Id="281",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
+                    ColumnName="store_id",LogicalType="int64"});
+                foreach(var sourcePage in catalog.ConfigPages.Where(item=>item.ConfigTableId=="2"))
+                    sourcePage.WhereSql+=(sourcePage.WhereSql.Length==0?"":" AND ")+"store_id=@current_store_id";
+            }
+        }
         target.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
         // 旧测试目录使用相同的两个后台记录，所有候选页均应读取同一固定账号字段。
         foreach(var admin in catalog.YzAdminTypes)
@@ -70,22 +87,37 @@ public sealed class DerivedMultiNamesTests
             var import=serviceCode[importStart..];
             Assert.Contains("""multiExactAuthorization.ResolveExactDataManage("301", "list", "real_name")""",save);
             Assert.Contains("""multiImportExactAuthorization.ResolveExactDataManage("301", "list", "real_name")""",import);
-            Assert.Contains(derivedMatch?"ExactDataManageSql.ApplyDerived(query, session, global::Example.MultiExactRange.Generated.Services.MultiExactRangeTargetService.ExactReadPlan301":
+            Assert.Contains(scoped?"selectedFilters.Add(new(\"scope_code\", FixedReadComparison.In":
+                derivedMatch?"ExactDataManageSql.ApplyDerived(query, session, global::Example.MultiExactRange.Generated.Services.MultiExactRangeTargetService.ExactReadPlan301":
                 "ExactDataManageSql.Apply(query, session, \"scope_code\"",save);
-            Assert.Contains(derivedName?"filters.Add(new(\"scope_code\", FixedReadComparison.In":
+            Assert.Contains(scoped||derivedName?"filters.Add(new(\"scope_code\", FixedReadComparison.In":
                 derivedMatch?"ExactDataManageSql.ApplyDerived(query, session":"ExactDataManageSql.Apply(query, session, \"scope_code\"",import);
             Assert.True(import.IndexOf("multiImportExactAuthorization.ResolveExactDataManage",StringComparison.Ordinal)<
                 import.IndexOf("var matches=",StringComparison.Ordinal));
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var type=assembly.GetType(ns+".Generated.Services.MultiExactRangeSourceService",true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
-            if(derivedName)
+            if(scoped||derivedName)
             {
                 var plan=Assert.IsType<NonRedundantReadPlan>(type.GetField("MultiDerivedPlan201_25",
                     System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
                 var sql=plan.GetType().GetProperty("MySql",HiddenInstance)!.GetValue(plan)!;
                 var fields=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(sql.GetType().GetProperty("Expressions",HiddenInstance)!.GetValue(sql));
                 Assert.Contains("scope_code",fields.Keys);
+                Assert.Equal(scoped,plan.RequiresAccount);
+                if(scoped)
+                {
+                    var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",HiddenInstance)!.GetValue(sql));
+                    Assert.Contains("b.`store_id`",scope);
+                    Assert.Contains("b.`flag`",scope);
+                    if(sourceMode==1)
+                    {
+                        var cache=Assert.IsType<NonRedundantReadPlan>(type.GetField("MultiCachePlan201_25_0",
+                            System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
+                        Assert.True(cache.RequiresAccount);
+                        Assert.Contains("CurrentRowsAsync(MultiCachePlan201_25_0.BindAccount(actor),selectedFilters",save);
+                    }
+                }
             }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

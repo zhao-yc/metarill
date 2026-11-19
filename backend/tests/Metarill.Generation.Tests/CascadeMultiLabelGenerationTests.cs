@@ -269,9 +269,18 @@ public sealed class CascadeMultiLabelGenerationTests
         CompileCascadeLabel("MultiSelectPage",0,selfTree,indirect:false,selectedPage:selectedPage,physical:true,
             globalRowProject:rowProject,parent:logicalParent,logicalParent:logicalParent,importLogical:true);
 
+    /// <summary>精确匹配与级联条件同时进入真实生成宿主，跨表和自树沿原路径读取。</summary>
+    [Theory]
+    [InlineData(0,true,false)]
+    [InlineData(1,false,false)]
+    [InlineData(0,false,true)]
+    public Task Multi_exact_scope_combines_cascade_conditions(int mode,bool selfTree,bool logicalParent)=>
+        CompileCascadeLabel("MultiSelectPage",mode,selfTree,indirect:false,account:true,selectedPage:true,
+            physical:logicalParent, parent:logicalParent, logicalParent:logicalParent, importLogical:logicalParent, exact:true);
+
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
         bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
-        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false)
+        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -416,6 +425,13 @@ public sealed class CascadeMultiLabelGenerationTests
                 control.ControlDetail=JsonSerializer.Serialize(new{pageId=targetPage,nameField=display,whereSql});
         }
         RedundantMultiNameCacheTests.Published(catalog);
+        if(exact)
+        {
+            var match=logicalParent||selfTree?"name":"country_name";
+            catalog.ConfigPages.Single(page=>page.Id==targetPage).Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(match);
+            foreach(var admin in catalog.YzAdminTypes)
+                admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        }
 
         var model=GenerationModel.Create(catalog,ns);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
@@ -452,7 +468,12 @@ public sealed class CascadeMultiLabelGenerationTests
             if(selectedPage)
             {
                 var code=File.ReadAllText(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
-                Assert.Contains("CompileScopedMultiLabel(\"2\",\"201\",\""+display+"\"",code);
+                Assert.Contains((exact?"CompileExactMultiLabel":"CompileScopedMultiLabel")+"(\"2\",\"201\",\""+display+"\"",code);
+                if(exact)
+                {
+                    Assert.Contains("""multiExactAuthorization.ResolveExactDataManage("201", "list", "real_name")""",code);
+                    Assert.Contains("""multiImportExactAuthorization.ResolveExactDataManage("201", "list", "real_name")""",code);
+                }
                 Assert.Contains(".BindAccount(actor)",code);
                 Assert.DoesNotContain("MultiPageCondition901_95.ApplyConstants",code);
                 if(globalParent)

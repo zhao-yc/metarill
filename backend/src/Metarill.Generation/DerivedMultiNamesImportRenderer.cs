@@ -12,7 +12,7 @@ internal static class DerivedMultiNamesImportRenderer
         var suffix=page.Source.Id+"_"+multi.Source.Source.Id;var parent=multi.TargetParentField is not null?dependency.Parents[multi.Source.Source.Id]:null;
         var typed=multi.TypedLabel||multi.Name.IsId;
         var readPlan=(logicalImport?"MultiImportReadPlan":"MultiDerivedPlan")+suffix;
-        var targetCondition=logicalImport||multi.TargetPage.Condition is null||FixedPageConditionCompilation.HasMultiTargetScope(model,multi.Target,multi.TargetPage)
+        var targetCondition=logicalImport||multi.ExactTarget is not null||multi.TargetPage.Condition is null||FixedPageConditionCompilation.HasMultiTargetScope(model,multi.Target,multi.TargetPage)
             ?null:FixedPageConditionCompilation.Bound(multi.TargetPage,"MultiPageCondition"+suffix);
         var condition=multi.ImportCondition is null?targetCondition:
             targetCondition is null?"importCondition":"importCondition.And("+targetCondition+")";

@@ -33,9 +33,12 @@ public static class CrossTableParentCondition
 
     /// <summary>自树副本维护传入已经过控件和页面核对的逻辑叶名，其余用途维持原跨表范围。</summary>
     internal static (bool Allowed,FixedConditionSqlPlan? Plan,bool HasLogical) Compile(MetadataCatalog catalog,TableMetadata table,
-        PageMetadata page,MetadataStoragePlan storage,bool allowLogical,ColumnMetadata? multiParent,IReadOnlySet<string>? selfTreeFields)
+        PageMetadata page,MetadataStoragePlan storage,bool allowLogical,ColumnMetadata? multiParent,
+        IReadOnlySet<string>? selfTreeFields,bool exactMultiSelection=false)
     {
-        if(page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&exact.ValueKind!=JsonValueKind.Null&&!string.IsNullOrWhiteSpace(exact.ToString()))return(false,null,false);
+        // 只有已证明的多选目标可分开编译固定页面条件和当前请求的精确权限。
+        if(!exactMultiSelection&&page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&
+            exact.ValueKind!=JsonValueKind.Null&&!string.IsNullOrWhiteSpace(exact.ToString()))return(false,null,false);
         var physical=storage.PhysicalColumns.Where(column=>GlobalPhysicalRelationValue.IsScalar(storage,table,column)&&
             !CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,column.ColumnName)&&
             selfTreeFields?.Contains(column.ColumnName)!=true)

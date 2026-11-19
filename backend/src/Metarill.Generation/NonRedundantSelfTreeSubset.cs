@@ -21,7 +21,11 @@ internal static class NonRedundantSelfTreeSubset
             {
                 if(NonRedundantCrossTableSubset.Reason(model,table,page) is not null)return false;
             }
-            else if(ExactDataManageCompilation.Declared(page))return false;
+            else if(ExactDataManageCompilation.Declared(page)&&
+                (!SelectionPageRenderer.Enabled(page)||table.IsGlobal||
+                    !Metarill.Data.Queries.NonRedundantReads.IsScopedMultiSelectTarget(model.Catalog,table.Source,page.Source.Id)||
+                    ExactDataManageCompilation.Resolve(model,table,page) is not {Derived:false}))return false;
+            // 独立多选页的物理精确范围由实际目标页读取校验，自树仍执行固定候选及写入证明。
             _=NonRedundantReadCompilation.ForPage(model,table,page);return true;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return false;}
