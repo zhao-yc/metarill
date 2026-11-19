@@ -16,6 +16,24 @@ public sealed class DatabaseCheckboxContractTests
         var json=DatabaseCheckboxDefinition.Parse("{\"tableId\":42,\"table\":\"choices\",\"whereSql\":\"status=1\",\"orderBy\":\"id desc\"}");Assert.Equal("42",json.TableId);Assert.Equal("choices",json.Table);Assert.Equal("status=1",json.WhereSql);
         Assert.Equal("",DatabaseCheckboxDefinition.Parse("choices").ReadDefinition(new(){LinkConfigTableId="42"}).GetProperty("table").GetString());Assert.Equal("choices",DatabaseCheckboxDefinition.Parse("choices").ReadDefinition(new()).GetProperty("table").GetString());
     }
+    /// <summary>只覆盖实际存在的键，复用四段第三、四段，保留长 ID 的精度和显式清空。</summary>
+    [Fact]
+    public void Partial_checkbox_pages_inherit_definition_keys()
+    {
+        var baseline=DatabaseCheckboxDefinition.Parse("{\"tableId\":42,\"table\":\"choices\",\"pageId\":301,\"nameField\":\"caption\",\"whereSql\":\"status=1\",\"orderBy\":\"caption desc\"}");
+        var selected=baseline.WithPageOverride("{\"pageId\":9007199254740993,\"orderBy\":\"id asc\"}");
+        Assert.Equal("9007199254740993",selected.PageId);
+        Assert.Equal("42",selected.TableId);
+        Assert.Equal("choices",selected.Table);
+        Assert.Equal("caption",selected.NameField);
+        Assert.Equal("status=1",selected.WhereSql);
+        Assert.Equal("id asc",selected.OrderBy);
+        var legacy=selected.WithPageOverride("旧第一项;旧第二项;status=2;id desc");
+        Assert.Equal(selected with{WhereSql="status=2",OrderBy="id desc"},legacy);
+        Assert.Equal(legacy with{WhereSql="",OrderBy=""},legacy.WithPageOverride("{\"whereSql\":null,\"orderBy\":\"\"}"));
+        Assert.Equal("301",baseline.PageId);
+        Assert.Throws<InvalidOperationException>(()=>baseline.WithPageOverride("{\"sql\":\"select 1\"}"));
+    }
     /// <summary>原目标页优先于旧提示，生成侧和运行时不能解释为两张表。</summary>
     [Fact]public void Explicit_page_binding_does_not_reintroduce_legacy_table_hint()
     {

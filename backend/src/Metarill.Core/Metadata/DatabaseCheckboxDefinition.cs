@@ -7,17 +7,22 @@ public sealed record DatabaseCheckboxDefinition(string TableId,string Table,stri
 {
     /// <summary>旧空值/四段仍用name；新JSON名称仅声明标识符，目标用途由编译器证明。</summary>
     public string NameField { get; init; }="name";
-    /// <summary>空定义、旧目标字面值、四段及JSON格式共用解释；四段前两项不参与原候选查询。</summary>
-    public static DatabaseCheckboxDefinition Parse(string? text)
+    private static readonly DatabaseCheckboxDefinition Empty = new("","","","","","");
+
+    /// <summary>空定义、旧目标字面值、四段及 JSON 格式共用解释；四段前两项不参与原候选查询。</summary>
+    public static DatabaseCheckboxDefinition Parse(string? text)=>Empty.WithPageOverride(text);
+
+    /// <summary>页面只覆盖已声明的键，缺省值继承表级配置，显式空值按原规则清空。</summary>
+    public DatabaseCheckboxDefinition WithPageOverride(string? text)
     {
         text=text?.Trim()??"";
-        if(text.Length==0)return new("","","","","","");
+        if(text.Length==0)return this;
         if(!text.StartsWith('{'))
         {
             var parts=text.Split(';');
-            if(parts.Length==4)return new("","","",parts[2].Trim(),parts[3].Trim(),"");
+            if(parts.Length==4)return this with{WhereSql=parts[2].Trim(),OrderBy=parts[3].Trim()};
             if(parts.Length!=1)throw new InvalidOperationException("数据库复选旧配置必须为空、目标字面值或四段格式，不能忽略候选条件。");
-            MetadataValidation.RequireIdentifier(text);return new("","","","","",text);
+            MetadataValidation.RequireIdentifier(text);return this with{LegacyTargetHint=text};
         }
         try
         {
@@ -26,15 +31,17 @@ public sealed record DatabaseCheckboxDefinition(string TableId,string Table,stri
             var known=new[]{"tableId","table","pageId","nameField","whereSql","orderBy"};
             foreach(var field in root.EnumerateObject())
                 if(!known.Contains(field.Name,StringComparer.Ordinal)&&field.Name is not("buttonText" or "placeholder" or "description" or "futureOption")||known.Any(name=>name.Equals(field.Name,StringComparison.OrdinalIgnoreCase)&&name!=field.Name))throw new InvalidOperationException("数据库复选配置包含未证明的查询或大小写映射，不能退化为宽候选。");
-            string Read(string name)
+            string Read(string name,string inherited)
             {
-                if(!root.TryGetProperty(name,out var value)||value.ValueKind==JsonValueKind.Null)return "";
+                if(!root.TryGetProperty(name,out var value))return inherited;
+                if(value.ValueKind==JsonValueKind.Null)return "";
                 return value.ValueKind==JsonValueKind.String?value.GetString()!:value.ValueKind==JsonValueKind.Number&&name is "tableId" or "pageId"&&value.TryGetInt64(out var id)?id.ToString(System.Globalization.CultureInfo.InvariantCulture):throw new InvalidOperationException("数据库复选已知配置字段必须为文本。");
             }
-            var label=Read("nameField");if(label.Length==0)label="name";MetadataValidation.RequireIdentifier(label);
+            var label=Read("nameField",NameField);if(label.Length==0)label="name";MetadataValidation.RequireIdentifier(label);
             if(Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(label))throw new NotSupportedException("数据库复选名称不能读取凭据。");
-            var table=Read("table");if(table.Length>0)MetadataValidation.RequireIdentifier(table);
-            return new(Read("tableId"),table,Read("pageId"),Read("whereSql"),Read("orderBy"),""){NameField=label};
+            var table=Read("table",Table);if(table.Length>0)MetadataValidation.RequireIdentifier(table);
+            return new(Read("tableId",TableId),table,Read("pageId",PageId),Read("whereSql",WhereSql),
+                Read("orderBy",OrderBy),LegacyTargetHint){NameField=label};
         }
         catch(JsonException error){throw new InvalidOperationException("数据库复选配置不是有效JSON。",error);}
     }

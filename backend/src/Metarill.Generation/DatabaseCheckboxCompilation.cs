@@ -72,7 +72,11 @@ internal static class DatabaseCheckboxCompilation
             if(model.Catalog.DatabaseProvider!="mysql")return Gap("当前方言尚未完成复选成员及名称用途验收。");
             if(table.Source.IsRongyu is not(0 or 1)||table.IsGlobal||source.Type!="string?"||!source.Source.ColumnName.EndsWith("_ids",StringComparison.Ordinal)||!NonRedundantReadCompilation.Physical(model,table,source))return Gap("来源必须是普通实体表的物理字符串_ids。");
             if(!HasIdentity(model,table))return Gap("来源缺少真实物理主键或项目归属。 ");
-            var baseline=DatabaseCheckboxDefinition.Parse(source.Source.ControlDetail);var field=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);var overlay=field?.Extra.GetValueOrDefault("controlDetail").ToString();if(field?.Extra.GetValueOrDefault("controlKind").ToString() is{Length:>0} kind&&kind!="MultiCheckBoxDatabase")return Gap("页级控件覆盖改变了原复选存储协议。");var definition=DatabaseCheckboxDefinition.Parse(string.IsNullOrWhiteSpace(overlay)?source.Source.ControlDetail:overlay);
+            var baseline=DatabaseCheckboxDefinition.Parse(source.Source.ControlDetail);
+            var field=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);
+            if(field?.Extra.GetValueOrDefault("controlKind").ToString() is{Length:>0} kind&&kind!="MultiCheckBoxDatabase")
+                return Gap("页级控件覆盖改变了原复选存储协议。");
+            var definition=baseline.WithPageOverride(field?.Extra.GetValueOrDefault("controlDetail").ToString());
             var target=Target(model,source,definition);if(target.Source.Id!=Target(model,source,baseline).Source.Id)return Gap("页级目标覆盖未绑定同一物理关系，不能错读名称。");
             if(Protected(target))return Gap("目标必须是普通业务表。");
             PageModel? globalPage=null;

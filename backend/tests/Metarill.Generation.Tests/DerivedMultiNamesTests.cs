@@ -245,9 +245,17 @@ public sealed class DerivedMultiNamesTests
         var field202=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field201))!;
         field202.Id="20225";
         field202.ConfigPageId="202";
-        field202.Extra["controlDetail"]=JsonSerializer.SerializeToElement(checkbox?Checkbox("302"):"{\"pageId\":\"302\"}");
+        field202.Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"pageId\":\"302\"}");
         catalog.ConfigPageColumns.Add(field202);
         RedundantMultiNameCacheTests.Published(catalog);
+        if(checkbox)
+        {
+            var model=GenerationModel.Create(catalog,ns);
+            var source=model.Tables.Single(table=>table.Source.Id=="2");
+            var adjusted=Assert.Single(DatabaseCheckboxCompilation.ForService(model,source,source.Pages.Single(page=>page.Source.Id=="202")));
+            Assert.Equal("302",adjusted.NameTargetPage!.Source.Id);
+            Assert.Contains(adjusted.Scopes,scope=>scope.Source=="parent"&&scope.Column.Source.ColumnName=="parent_id");
+        }
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-r0-array-page-override");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));

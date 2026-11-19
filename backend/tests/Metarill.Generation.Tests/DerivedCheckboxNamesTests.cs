@@ -99,6 +99,11 @@ public sealed class DerivedCheckboxNamesTests
             explicitNames.Extra["columnFullName"] = JsonSerializer.SerializeToElement("target.caption");
         }
         catalog.ConfigColumns.Add(new() { Id = "ordinary_names", ConfigTableId = owner.Id, ColumnName = "target_names", LogicalType = "string" });
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id="20225",ConfigPageId="202",ConfigColumnId=field.Id,YzProjectId=catalog.YzProjectId,
+            Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement("{\"orderBy\":\"id desc\"}")}
+        });
         var model = GenerationModel.Create(catalog, "Example.CustomCheckbox");
         var table = model.Tables.Single(candidate => candidate.Source.Id == owner.Id);
         var page = table.Pages.Single(candidate => candidate.Source.Id == "201");
@@ -106,6 +111,14 @@ public sealed class DerivedCheckboxNamesTests
         Assert.Equal("caption", checkbox.Name.Source.ColumnName);
         Assert.Equal("target_captions", checkbox.Names.Source.ColumnName);
         Assert.True(checkbox.DerivedName);
+        var alternate=table.Pages.Single(candidate=>candidate.Source.Id=="202");
+        var overrideCheckbox=Assert.Single(DatabaseCheckboxCompilation.ForService(model,table,alternate));
+        Assert.Equal("caption",overrideCheckbox.Name.Source.ColumnName);
+        Assert.Equal(checkbox.Conditions!.Definition,overrideCheckbox.Conditions!.Definition);
+        Assert.Equal("segment",Assert.Single(overrideCheckbox.Conditions.Forms).Column.Source.ColumnName);
+        var order=Assert.Single(overrideCheckbox.Order);
+        Assert.True(order.Column.IsId);
+        Assert.True(order.Descending);
         var physical = MetadataStoragePolicy.ForTable(catalog, owner).PhysicalColumns.Select(column => column.ColumnName);
         Assert.Contains("target_names", physical);
         Assert.Equal(mode == 1, physical.Contains("target_captions"));

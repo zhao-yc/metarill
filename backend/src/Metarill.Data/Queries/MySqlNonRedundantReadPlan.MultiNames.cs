@@ -17,17 +17,22 @@ public static partial class MySqlNonRedundantReadCompiler
             var selected=catalog.ConfigPages.Single(page=>page.Id==binding.TargetPageId&&page.ConfigTableId==target.Id);
             var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==source.Id&&field.ConfigColumnId==relation.Id)
                 ?.Extra.GetValueOrDefault("controlDetail").ToString();
-            var pageId="";
-            if(!string.IsNullOrWhiteSpace(overlay))
+            string pageId;
+            if(relation.ControlKind=="MultiCheckBoxDatabase")
             {
-                if(relation.ControlKind=="MultiCheckBoxDatabase")pageId=DatabaseCheckboxDefinition.Parse(overlay).PageId;
-                else
+                pageId=DatabaseCheckboxDefinition.Parse(relation.ControlDetail).WithPageOverride(overlay).PageId;
+                if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
+            }
+            else
+            {
+                pageId="";
+                if(!string.IsNullOrWhiteSpace(overlay))
                 {
                     using var definition=System.Text.Json.JsonDocument.Parse(overlay);
                     pageId=MultiPageId(definition.RootElement);
                 }
+                if(pageId.Length==0)pageId=MultiTargetNamePage(catalog,target,relation)?.Id??"";
             }
-            if(pageId.Length==0)pageId=MultiTargetNamePage(catalog,target,relation)?.Id??"";
             if(table.IsRongyu!=0||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||
                 GlobalCrossTableTarget.Declared(target)||pageId!=selected.Id||
                 source.YzProjectId.Length>0&&source.YzProjectId!=catalog.YzProjectId||
