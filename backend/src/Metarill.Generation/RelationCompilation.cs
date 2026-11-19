@@ -217,10 +217,12 @@ internal static class RelationCompilation
     private static bool FixedSelectionTarget(GenerationModel model,PageModel page,ColumnModel source)
     {
         if(source.Source.ControlKind!="SelectPage"||ForeignValidationRenderer.Target(model,source) is not {Source.IsRongyu:0} target||
-            !target.Pages.Any(candidate=>HasFixedTargetScope(target,candidate)))return false;
+            !target.Pages.Any(HasScope))return false;
+        bool HasScope(PageModel candidate)=>HasFixedTargetScope(target,candidate)||
+            NonRedundantReadCompilation.SelfTreeExactColumn(target,candidate) is not null;
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var definition=SelectionControlDefinition.Resolve(source,field);
-        return target.Pages.Any(candidate=>candidate.Source.Id==definition.PageId&&HasFixedTargetScope(target,candidate));
+        return target.Pages.Any(candidate=>candidate.Source.Id==definition.PageId&&HasScope(candidate));
     }
 
     /// <summary>目标页固定条件或父范围用于候选和内部最终值校验，包括原本隐藏的外键。</summary>

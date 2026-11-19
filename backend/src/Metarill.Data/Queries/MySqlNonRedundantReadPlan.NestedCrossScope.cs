@@ -16,7 +16,8 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<NonRedundantCrossTableScope>? displayBindings=null,string rootAlias="b",string aliasPrefix="r",
         HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null,IReadOnlyList<string>? listFields=null,
         bool projectSingle=false,string? accountParentPageType=null,
-        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,bool exactSingleParent=false,bool exactCheckboxParent=false)
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,bool exactSingleParent=false,
+        bool exactCheckboxParent=false,bool projectSelfTreeSelection=false)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -30,7 +31,15 @@ public static partial class MySqlNonRedundantReadCompiler
         var global=GlobalCrossTableTarget.Declared(table);
         var exactField=page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString();
         var exactParent=exactSingleParent||exactCheckboxParent;
-        if(table.IsRongyu!=0||exactField.Length>0&&!exactParent||
+        var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId));
+        // 已保存的关联名称属于来源记录投影。选项操作仍由生成入口绑定目标页精确授权集合。
+        var storedSelection=projectSingle&&projectSelfTreeSelection&&!global&&exactField.Length>0&&
+            page.YzProjectId==catalog.YzProjectId&&table.YzProjectId==catalog.YzProjectId&&
+            page.Extra.GetValueOrDefault("type").ToString()=="1"&&
+            catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId)&&
+            SelfTreeConditionFields(catalog,table,page,columns,
+                [Metarill.Core.Security.ExactDataManageValues.Field(exactField)]).Count==1;
+        if(table.IsRongyu!=0||exactField.Length>0&&!exactParent&&!storedSelection||
             page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new NotSupportedException("候选必须属于已发布项目的普通非冗余目标页。");
         if(exactSingleParent&&(global||exactField.Length==0||page.Extra.GetValueOrDefault("type").ToString()!="1"))
@@ -38,7 +47,6 @@ public static partial class MySqlNonRedundantReadCompiler
         if(exactCheckboxParent&&(global||exactField.Length==0||
             page.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1" or "2")))
             throw new NotSupportedException("精确复选候选必须使用已发布的项目内业务或选择页面。");
-        var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId));
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         var logical=syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToHashSet(StringComparer.Ordinal);
         var treeNames=SelfTreeConditionFields(catalog,table,page,columns,syntax.Fields);
@@ -74,6 +82,12 @@ public static partial class MySqlNonRedundantReadCompiler
         // 附加条件只扩充真实路径与投影，页面条件仍由实际发布页决定。
         logical.UnionWith(listCrosses);
         var projectionTrees=treeNames.Concat(listTrees).ToHashSet(StringComparer.Ordinal);
+        if(exactSingleParent)
+        {
+            var match=Metarill.Core.Security.ExactDataManageValues.Field(exactField);
+            // 隐藏的精确叶名也要按实际发布的树求值，并验证页面覆盖。
+            projectionTrees.UnionWith(SelfTreeConditionFields(catalog,table,page,columns,[match]));
+        }
         var scopes=logical.Count==0?[]:CrossMembershipBindings(catalog,table,page,logical);
         // 范围的绑定按发布页生成，其它绑定仅用于该独立选择页展示额外的路径。
         var bindings=scopes.Concat(displayBindings??[]).DistinctBy(path=>path.SourceColumnId,StringComparer.Ordinal).ToArray();
@@ -413,7 +427,8 @@ public static partial class MySqlNonRedundantReadCompiler
 
             var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_page");
             var plan=CompileCrossPageCandidate(catalog,target.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
-                activeSelfTreeScopes:ActiveSelfTreeScopes,listFields:control?.Fields.ToArray(),projectSingle:true);
+                activeSelfTreeScopes:ActiveSelfTreeScopes,listFields:control?.Fields.ToArray(),projectSingle:true,
+                projectSelfTreeSelection:relation.ControlKind=="SelectPage");
             plan.CopyParametersTo(crossConstants);
             var predicate=plan.Expression("id")+"="+alias+".`id`";
             if(plan.Scope.Length>0)predicate+=" AND "+plan.Scope;

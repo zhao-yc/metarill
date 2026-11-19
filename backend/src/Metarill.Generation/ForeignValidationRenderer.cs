@@ -63,7 +63,8 @@ internal static class ForeignValidationRenderer
                 RelationCompilation.HasFixedTargetScope(relation.Target,relation.TargetPage)||relation.Target.IsGlobal))
             .DistinctBy(relation=>relation.SourceColumn.Source.Id)
             .Where(relation=>relation.Conditions is not null||relation.TargetPage.Condition is not null||relation.Target.IsGlobal||
-                RelationCompilation.HasFixedTargetScope(relation.Target,relation.TargetPage))
+                RelationCompilation.HasFixedTargetScope(relation.Target,relation.TargetPage)||
+                DerivedRelationNamesCompilation.UsesSelfTreeExact(relation))
             .ToDictionary(relation=>relation.SourceColumn.Source.Id);
         var number = 0;
         foreach (var column in table.Columns.Where(column => FixedOptionCatalogCompilation.Resolve(model, page, column).Declared || !column.IsSystem && (column.Source.ControlKind=="CascadeTree" || column.Type is "long?" or "string?")))

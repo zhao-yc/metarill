@@ -21,8 +21,9 @@ internal static class DerivedRelationNamesRenderer
         var parentPlan = exact is not null && relation.FixedParent is { Logical: true }
             ? NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans ?? [])
             : accountParent ? ",OptionsAccountParentScope"+suffix : "";
+        var projection=DerivedRelationNamesCompilation.ProjectionCondition(relation);
         var planStart = logical
-            ? DerivedRelationNamesCompilation.LogicalPagePlanStart(model,relation.Target,relation.TargetPage,relation.Conditions,exact)
+            ? DerivedRelationNamesCompilation.LogicalPagePlanStart(model,relation.Target,relation.TargetPage,projection,exact)
             : DerivedRelationNamesCompilation.UsesGlobalPlan(model, relation)
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : DerivedRelationNamesCompilation.UsesPhysicalPlan(model, relation)
@@ -34,7 +35,9 @@ internal static class DerivedRelationNamesRenderer
         var outputs = "new string[]{\"id\"," + Literal(name) + "}";
         var fields = "new string[]{ " + string.Join(",", dependencies.Select(Literal)) + " }";
         // 精确过滤只引入目标页匹配字段所在路径，共享分支仍由同一个整组计划验证。
-        var plan = $"{planStart},{outputs},{fields}{parentPlan}{projectTargetArgument})";
+        var additionalFields=exact is not null&&relation.FixedParent is {Logical:true}&&projection is {HasLogicalFields:true}
+            ?",listFields:new string[]{"+string.Join(",",projection.Syntax.Fields.Select(Literal))+"}":"";
+        var plan = $"{planStart},{outputs},{fields}{parentPlan}{projectTargetArgument}{additionalFields})";
         if (!logical && exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0))
         {
             var crossArgument = exact.CrossPlans is { } crossPlans
@@ -133,6 +136,13 @@ internal static class DerivedRelationNamesRenderer
         var bindParent=validateCurrent||DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation,exact).Count>0?".BindAccount(actor)":"";
         var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var mapped=dependency.Parents.GetValueOrDefault(relation.SourceColumn.Source.Id);
         var name = relation.NameColumn;
+        var importCondition=relation.ImportCondition;
+        var conditionName="SingleImportCondition"+suffix;
+        var importDeclaration=importCondition is null?"":RelationConditionsCompilation.Declaration(importCondition,conditionName);
+        var sameParent=ControlRenderer.RelationContext(page,relation,false).SameParent;
+        var targetParent=mapped is not null?"targetParent.ToString()":sameParent?"parentId":"null";
+        var importBinding=importCondition is null?"":RelationConditionsCompilation.BindImport(importCondition,conditionName,targetParent);
+        var scopedCondition=importCondition is null?"scope.Condition":"scope.Condition is null?importCondition:scope.Condition.And(importCondition)";
         var addMatchFilter = name.Type == "string?" ? $$"""
         if(cell.ValueKind==JsonValueKind.Number)
         {
@@ -153,15 +163,15 @@ internal static class DerivedRelationNamesRenderer
         relationAuthorization.RequirePagePermission({{Literal(page.Source.Id)}}, "import");
 
 """;
-        return $$"""
+        return importDeclaration+$$"""
     /// <summary>名称只由已发布计划解析，调用方的原导入事务负责整批回滚。</summary>
     private async Task<JsonElement> ImportRelation{{suffix}}Async(JsonElement cell,string? parentId,RuntimeActor actor{{(dependency.Contextual?",IReadOnlyDictionary<string,JsonElement> relationContext":"")}},CancellationToken cancellationToken)
     {
 {{importAuthorization}}        if(cell.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(cell.ToString()))return JsonSerializer.SerializeToElement<object?>(null);
 {{(mapped is null?"":"        if(!relationContext.TryGetValue("+Literal(mapped.JsonName)+",out var targetParent)||targetParent.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(targetParent.ToString()))throw PageImportException.Input(PageImportError.Relation);")}}
-        var scope=await DerivedOptionsScope{{suffix}}Async(parentId,{{(mapped is null?"null":"targetParent.ToString()")}},actor,cancellationToken{{RelationConditionsCompilation.ImportArgument(relation)}}{{lockParents}});
-{{addMatchFilter}}
-        var rows=await new NonRedundantReader(session).PageAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},scope.Filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId,condition:scope.Condition,currentRead:true);
+        var scope=await DerivedOptionsScope{{suffix}}Async(parentId,{{targetParent}},actor,cancellationToken{{RelationConditionsCompilation.ImportArgument(relation)}}{{lockParents}});
+{{importBinding}}{{addMatchFilter}}
+        var rows=await new NonRedundantReader(session).PageAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},scope.Filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId,condition:{{scopedCondition}},currentRead:true);
         if(rows.Records.Count!=1)throw PageImportException.Input(PageImportError.Relation);
         return JsonSerializer.SerializeToElement(NonRedundantReads.Value<long>(rows.Records[0],"id").ToString(CultureInfo.InvariantCulture));
     }

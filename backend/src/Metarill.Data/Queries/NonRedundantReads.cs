@@ -220,8 +220,14 @@ public static class NonRedundantReads
     public static NonRedundantReadPlan CompileExactSingleParentCandidate(MetadataCatalog metadata,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope>? bindings,
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
+        CompileExactSingleParentCandidate(metadata,tableId,pageId,outputs,dependencies,bindings,singleTargets,null);
+
+    /// <summary>选档附加条件只扩充目标计划的字段，授权和值仍由已核验的调用方绑定。</summary>
+    public static NonRedundantReadPlan CompileExactSingleParentCandidate(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope>? bindings,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets,IReadOnlyList<string>? listFields)=>
         new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
-            bindings,singleTargets:singleTargets,exactSingleParent:true));
+            bindings,listFields:listFields,singleTargets:singleTargets,exactSingleParent:true));
 
     /// <summary>功能表复选从实际发布的逻辑父级读取，精确授权集合由生成的入口指定。</summary>
     public static NonRedundantReadPlan CompileExactCheckboxParentCandidate(MetadataCatalog metadata,string tableId,string pageId,

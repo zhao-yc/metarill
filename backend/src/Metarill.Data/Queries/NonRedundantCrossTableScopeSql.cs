@@ -112,7 +112,11 @@ public static class NonRedundantCrossTableScopeSql
         // 一次替换完整参数名，避免_1误改_10或重复作用于已加前缀的名字；元数据常量始终参数绑定。
         sql=Regex.Replace(sql,"@([A-Za-z_][A-Za-z0-9_]*)",match=>replacements.TryGetValue(match.Groups[1].Value,out var name)?provider.ParameterPlaceholder(name):match.Value,RegexOptions.CultureInvariant);
         // 查询可能在事务开始前创建，锁定时显式接入当前事务，不能只检查AsyncLocal后依赖旧绑定。
-        if(locking)query=query.WithTransaction(session.CurrentTransaction);
+        if(locking)
+        {
+            sql=MySqlNonRedundantReadCompiler.LockSelfTreeReads(sql);
+            query=query.WithTransaction(session.CurrentTransaction);
+        }
         return query.As("a").Where(sql,parameters);
     }
     /// <summary>参数不经浮点或宽松数值转换，字符串前导零不伪装为另一个规范父ID。</summary>

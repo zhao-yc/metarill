@@ -377,7 +377,8 @@ public sealed partial class {{page.Name}}ImportRequest
     /// <summary>候选反查复用目标项目及安全关系范围，重名和不存在均报错。</summary>
     private static string RelationResolver(GenerationModel model,RelationModel relation, PageModel page, ImportDependencyPlan dependency)
     {
-        if(relation.ImportCondition is not null)return SingleSelectionExcelRenderer.Import(model,relation,page,dependency);
+        if(relation.ImportCondition is not null&&!DerivedRelationNamesCompilation.UsesSelfTreeExact(relation))
+            return SingleSelectionExcelRenderer.Import(model,relation,page,dependency);
         if(DerivedRelationNamesCompilation.UsesFixedRead(model,relation))return DerivedRelationNamesRenderer.Import(model,relation,page,dependency);
         if(relation.ExcelOnly||relation.ExcelTargetExact)return SingleSelectionExcelRenderer.Import(model,relation,page,dependency);
         var result = new StringBuilder().AppendLine("    /// <summary>Excel 关系名称必须唯一落在已授权候选范围，数字 ID 也核对归属。</summary>")

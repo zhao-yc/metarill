@@ -505,6 +505,124 @@ public sealed class ExactDataManageGenerationTests
         NonRedundantCrossTableScopeSql.ApplyCandidate(session.Select<T>(), session, plan.BindAccount(actor),
             "combined_parent", actor.ProjectId, false, parent).ToSql();
 
+    /// <summary>原单选使用隐藏的自树叶名核对权限，选档附加条件只影响导入。</summary>
+    [Theory]
+    [InlineData(0,false,false)]
+    [InlineData(1,false,false)]
+    [InlineData(0,false,true)]
+    [InlineData(0,true,true)]
+    [InlineData(1,true,false)]
+    public async Task Tree_exact_single_selection_uses_published_page(int storage,bool logicalParent,bool importCondition)
+    {
+        const string ns="Example.SingleTreeExact";
+        var catalog=RedundantMultiNameCacheTests.Published(
+            NonRedundantCrossTableGenerationTests.Catalog("single_tree_exact","string","int64"));
+        var project=catalog.YzProjectId;
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        var admin=targetPage.YzAdminTypeId;
+        targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("tree_name");
+        if(logicalParent)targetPage.WhereSql+=" AND country_id=@parent_id";
+        catalog.YzAdminTypes.Single(item=>item.Id==admin).Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+
+        catalog.ConfigTables.AddRange([
+            new(){Id="980",YzProjectId=project,TableName="single_tree_nodes",IsRongyu=1},
+            new(){Id="981",YzProjectId=project,TableName="single_tree_consumer",IsRongyu=storage}
+        ]);
+        var conditions=importCondition?"tree_name <> '仅导入排除'":"";
+        catalog.ConfigColumns.AddRange([
+            new(){Id="98001",ConfigTableId="980",YzProjectId=project,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="98002",ConfigTableId="980",YzProjectId=project,ColumnName="name",LogicalType="string"},
+            new(){Id="98003",ConfigTableId="980",YzProjectId=project,ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="98004",ConfigTableId="980",YzProjectId=project,ColumnName="delete_no",LogicalType="datetime"},
+            new(){Id="98005",ConfigTableId="980",YzProjectId=project,ColumnName="parent_single_tree_nodes_id",
+                LinkConfigTableId="980",LogicalType="int64"},
+            new(){Id="98006",ConfigTableId="980",YzProjectId=project,ColumnName="store_id",LogicalType="int64"},
+            new(){Id="98007",ConfigTableId="2",YzProjectId=project,ColumnName="tree_id",LogicalType="string",
+                LinkConfigTableId="980",ControlKind="CascadeTree",ControlDetail=JsonSerializer.Serialize(new
+                {
+                    sourceMode="selfTree",displayJoiner="/",selfTree=new{table="single_tree_nodes",idField="id",nameField="name",
+                        parentField="parent_single_tree_nodes_id",rootMode="blank",filterMatchMode="selfAndDescendants"}
+                })},
+            new(){Id="98101",ConfigTableId="981",YzProjectId=project,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="98102",ConfigTableId="981",YzProjectId=project,ColumnName="name",LogicalType="string",SortNo=1},
+            new(){Id="98103",ConfigTableId="981",YzProjectId=project,ColumnName="target_id",LogicalType="int64",SortNo=2,Name="目标名称",
+                LinkConfigTableId="2",ControlKind="SelectPage",ControlDetail=JsonSerializer.Serialize(new
+                {pageId="201",tableId="2",nameField="name",whereSql=conditions})},
+            new(){Id="98104",ConfigTableId="981",YzProjectId=project,ColumnName="yz_project_id",LogicalType="int64"}
+        ]);
+        if(logicalParent)catalog.ConfigColumns.Add(new(){Id="98105",ConfigTableId="981",YzProjectId=project,ColumnName="country_id",
+            LogicalType="int64",LinkConfigTableId="3"});
+        catalog.ConfigPages.AddRange([
+            new(){Id="9801",ConfigTableId="980",YzProjectId=project,YzAdminTypeId=admin,
+                WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"},
+            new(){Id="9811",ConfigTableId="981",YzProjectId=project,YzAdminTypeId=admin,IsImport=1,IsExport=1,
+                WhereSql="yz_project_id=@current_yz_project_id"+(logicalParent?" AND country_id=@parent_id":""),
+                Extra=new(){["importMethod"]=JsonSerializer.SerializeToElement(storage==0?"OnlyNew":"OverWriteByFirstColumn"),
+                    ["exportMethod"]=JsonSerializer.SerializeToElement(storage==0?"list":"edit")}}
+        ]);
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="98012",ConfigPageId="9801",ConfigColumnId="98002",YzProjectId=project},
+            new(){Id="98015",ConfigPageId="9801",ConfigColumnId="98005",YzProjectId=project},
+            new(){Id="98112",ConfigPageId="9811",ConfigColumnId="98102",YzProjectId=project},
+            new(){Id="98113",ConfigPageId="9811",ConfigColumnId="98103",YzProjectId=project}
+        ]);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-single-tree-exact");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            new FrontendPackager().Validate(catalog);
+            var servicePath=Path.Combine(directory,"generated/Services/SingleTreeConsumerService.g.cs");
+            var source=await File.ReadAllTextAsync(servicePath);
+            Assert.Contains(logicalParent?"CompileExactSingleParentCandidate":"CompileRelationMembership",source);
+            Assert.Contains("Service.ExactReadPlan201",source);
+            Assert.Contains("""ResolveExactDataManage("201", "list", "real_name")""",source);
+            Assert.Contains("actor, cancellationToken, true, false",source);
+            Assert.Contains("DerivedOptionsRows9811_98103Async",source);
+            Assert.Contains("currentRead:true",source);
+            Assert.Equal(importCondition,source.Contains("scope.Condition.And(importCondition)",StringComparison.Ordinal));
+            Assert.DoesNotContain("SingleImportReadPlan9811_98103",source);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var type=assembly.GetType(ns+".Generated.Services.SingleTreeConsumerService",true)!;
+            const BindingFlags staticFlags=BindingFlags.NonPublic|BindingFlags.Static;
+            const BindingFlags instanceFlags=BindingFlags.NonPublic|BindingFlags.Instance;
+            var plan=Assert.IsType<NonRedundantReadPlan>(type.GetField("DerivedOptionsPlan9811_98103",staticFlags)!.GetValue(null));
+            var actor=new RuntimeActor(1,"叶名权限测试",false,project,admin){StoreId=9007199254741987};
+            Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with {StoreId=null}));
+            Assert.Equal(new[]{"id","name"},plan.OutputTypes.Keys.Order());
+            var mysql=typeof(NonRedundantReadPlan).GetProperty("MySql",instanceFlags)!.GetValue(plan.BindAccount(actor))!;
+            var expression=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",instanceFlags)!.Invoke(mysql,["tree_name"]));
+            Assert.Contains("WITH RECURSIVE",expression);
+            Assert.Contains("`store_id`=@",expression);
+            Assert.Contains("`delete_no` IS NULL",expression);
+            if(logicalParent)
+            {
+                Assert.Equal("country_id",mysql.GetType().GetProperty("RequiredMultiParent",instanceFlags)!.GetValue(mysql));
+                return;
+            }
+            using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="metarill_business_test",
+                ConnectionString="Server=127.0.0.1;Database=metarill_business_test;User ID=unused;Password=unused;"});
+            var mapper=Activator.CreateInstance(assembly.GetType(ns+".Generated.Mappers.SingleTreeConsumerMapper",true)!,[session]);
+            var authorization=new Authorization(actor,"201");
+            var service=Activator.CreateInstance(type,[session,mapper,new SnowflakeIdGenerator(862),
+                Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),authorization])!;
+            var read=type.GetMethod("DerivedOptionsScope9811_98103Async",instanceFlags)!;
+            var result=await (Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)>)read.Invoke(service,
+                [null,null,actor,CancellationToken.None,null,false])!;
+            var exact=Assert.Single(result.Filters,item=>item.Field=="tree_name");
+            Assert.Equal(FixedReadComparison.In,exact.Comparison);
+            Assert.Equal(new object?[]{"只允许甲","只允许乙"},Assert.IsAssignableFrom<IReadOnlyList<object?>>(exact.Value));
+            Assert.Equal("list",authorization.LastOperation);
+            authorization.Value="[]";
+            result=await (Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)>)read.Invoke(service,
+                [null,null,actor,CancellationToken.None,null,false])!;
+            Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<object?>>(Assert.Single(result.Filters,item=>item.Field=="tree_name").Value));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>范围测试替身仅提供服务端值，和实际Web认证/范围聚合的验收分开。</summary>
     private sealed class Authorization(RuntimeActor actor, string expectedPage = "101"):IRuntimeAuthorization
     {
