@@ -12,6 +12,75 @@ namespace Metarill.Files.Tests;
 /// <summary>实际对象层与SDK请求合同；只替换云端传输，不连接桶或数据库。</summary>
 public sealed class FileObjectStorageTests
 {
+    /// <summary>使用真实 SDK 签名，验证浏览器表单只写暂存键并绑定精确大小。</summary>
+    [Fact]
+    public async Task Direct_form_is_opt_in_and_signs_only_the_staging_object()
+    {
+        using var disabled = new FileObjectStorage(Options(Profile()));
+        var deadline = DateTimeOffset.UtcNow.AddMinutes(30);
+        Assert.Null(await disabled.TryPlanDirectAsync(disabled.CreateKey(allowDirect: true), "text/plain", 12, deadline));
+
+        using var storage = new FileObjectStorage(Options(Profile() with
+        {
+            DirectUploadEndpoint = "https://uploads.invalid/"
+        }));
+        Assert.Null(await storage.TryPlanDirectAsync(storage.CreateKey(), "text/plain", 12, deadline));
+        var key = storage.CreateKey(allowDirect: true);
+        Assert.InRange(key.Length, 1, 100);
+        Assert.True(FileObjectStorage.IsDirectUpload(key));
+        var plan = Assert.IsType<LocalUploadPlan>(await storage.TryPlanDirectAsync(key, "text/plain", 12, deadline));
+        Assert.Equal("DIRECT_FORM", plan.UploadMode);
+        Assert.Equal("https://uploads.invalid/metarill-test", plan.UploadUrl);
+        Assert.Empty(plan.Headers);
+        Assert.Equal("text/plain", plan.FormData["Content-Type"]);
+        Assert.StartsWith("objects/upload-staging/", plan.FormData["key"]);
+        Assert.Equal(deadline, plan.ExpireAt);
+        using var policy = System.Text.Json.JsonDocument.Parse(Convert.FromBase64String(plan.FormData.Single(field => field.Key.Equals("policy", StringComparison.OrdinalIgnoreCase)).Value));
+        var conditions = policy.RootElement.GetProperty("conditions").EnumerateArray().ToArray();
+        Assert.Contains(conditions, condition => condition.ValueKind == System.Text.Json.JsonValueKind.Object &&
+            condition.TryGetProperty("key", out var value) && value.GetString() == plan.FormData["key"]);
+        Assert.Contains(conditions, condition => condition.ValueKind == System.Text.Json.JsonValueKind.Array &&
+            condition.GetArrayLength() == 3 && condition[0].GetString() == "content-length-range" &&
+            condition[1].GetInt64() == 12 && condition[2].GetInt64() == 12);
+    }
+
+    /// <summary>验证真实字节、条件封存和不明回执重试，原签名只能再写暂存对象。</summary>
+    [Fact]
+    public async Task Direct_completion_verifies_staged_bytes_and_retries_immutable_sealed_content()
+    {
+        await InRoot(async root =>
+        {
+            var transport = new DirectTransport();
+            using var storage = new FileObjectStorage(Options(Profile() with
+                { DirectUploadEndpoint = "https://uploads.invalid" }), _ => transport);
+            var locator = storage.CreateKey(allowDirect: true);
+            var plan = Assert.IsType<LocalUploadPlan>(await storage.TryPlanDirectAsync(locator, "text/plain", 3, DateTimeOffset.UtcNow.AddMinutes(30)));
+            var stage = plan.FormData["key"];
+            transport.Objects[stage] = ([1, 2, 3, 4], null);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => storage.CompleteDirectAsync(locator, root, 3, null, default));
+            transport.Objects[stage] = ([1, 2, 3], null);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => storage.CompleteDirectAsync(locator, root, 3, Hash([1, 2, 4]), default));
+            Assert.Null(transport.Put);
+
+            transport.LosePutResponse = true;
+            await Assert.ThrowsAsync<InvalidOperationException>(() => storage.CompleteDirectAsync(locator, root, 3, null, default));
+            Assert.NotNull(transport.Put);
+            var finalKey = transport.Put.Key;
+            Assert.NotEqual(stage, finalKey);
+            Assert.Equal("*", transport.Put.IfNoneMatch);
+            Assert.Equal(stage, transport.Objects[finalKey].Origin);
+
+            transport.Objects[stage] = ([7, 8, 9], null);
+            Assert.Equal(Hash([1, 2, 3]), await storage.CompleteDirectAsync(locator, root, 3, null, default));
+            Assert.False(transport.Objects.ContainsKey(stage));
+            await using var content = await storage.OpenAsync(locator, root, 3, Hash([1, 2, 3]));
+            Assert.Equal(new byte[] { 1, 2, 3 }, await Read(content));
+            transport.Objects[stage] = ([7, 8, 9], null);
+            Assert.True(await storage.DeleteAsync(locator, root));
+            Assert.Empty(transport.Objects);
+        });
+    }
+
     /// <summary>保持原本地裸键、目录隔离和旧行空摘要读取；切到云端后也不能误读本地对象。</summary>
     [Fact]
     public async Task Existing_local_keys_remain_local_and_keep_original_read_contract()
@@ -206,6 +275,41 @@ public sealed class FileObjectStorageTests
             if (Path.GetDirectoryName(Path.GetFullPath(root)) != boundary || !Guid.TryParseExact(Path.GetFileName(root), "N", out _))
                 throw new InvalidOperationException("测试目录越界，拒绝清理。");
             Directory.Delete(root, true);
+        }
+    }
+
+    /// <summary>暂存和正式键分开存储，模拟云端已写入而应用未收到回执。</summary>
+    private sealed class DirectTransport() : AmazonS3Client(new BasicAWSCredentials("synthetic-key", "synthetic-secret"),
+        new AmazonS3Config { ServiceURL = "https://s3.invalid", AuthenticationRegion = "us-east-1" })
+    {
+        private const string OriginKey = "metarill-direct-origin";
+        public Dictionary<string, (byte[] Bytes, string? Origin)> Objects { get; } = new(StringComparer.Ordinal);
+        public bool LosePutResponse { get; set; }
+        public PutObjectRequest? Put { get; private set; }
+
+        public override Task<GetObjectResponse> GetObjectAsync(GetObjectRequest request, CancellationToken token = default)
+        {
+            if (!Objects.TryGetValue(request.Key, out var saved))
+                throw new AmazonS3Exception("合成对象不存在") { StatusCode = HttpStatusCode.NotFound };
+            var response = new GetObjectResponse { ContentLength = saved.Bytes.Length, ResponseStream = new MemoryStream(saved.Bytes) };
+            if (saved.Origin is not null) response.Metadata[OriginKey] = saved.Origin;
+            return Task.FromResult(response);
+        }
+
+        public override async Task<PutObjectResponse> PutObjectAsync(PutObjectRequest request, CancellationToken token = default)
+        {
+            Put = request;
+            if (request.IfNoneMatch == "*" && Objects.ContainsKey(request.Key))
+                throw new AmazonS3Exception("合成同键冲突") { StatusCode = HttpStatusCode.PreconditionFailed };
+            Objects.Add(request.Key, (await Read(request.InputStream), request.Metadata[OriginKey]));
+            if (LosePutResponse) throw new AmazonS3Exception("合成回执丢失") { StatusCode = HttpStatusCode.ServiceUnavailable };
+            return new() { HttpStatusCode = HttpStatusCode.OK };
+        }
+
+        public override Task<DeleteObjectResponse> DeleteObjectAsync(DeleteObjectRequest request, CancellationToken token = default)
+        {
+            Objects.Remove(request.Key);
+            return Task.FromResult(new DeleteObjectResponse { HttpStatusCode = HttpStatusCode.NoContent });
         }
     }
 

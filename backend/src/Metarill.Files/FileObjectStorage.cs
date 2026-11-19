@@ -17,7 +17,7 @@ public sealed partial class FileObjectStorage : IDisposable
     private readonly long maximumBytes;
     private bool disposed;
 
-    [GeneratedRegex("^s3:([a-z][a-z0-9_-]{0,15}):([a-f0-9]{32}):([a-f0-9]{32}\\.blob)$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^s3:([a-z][a-z0-9_-]{0,15}):([a-f0-9]{32}):([a-f0-9]{32}\\.blob)(?::direct)?$", RegexOptions.CultureInvariant)]
     private static partial Regex LocatorPattern();
 
     /// <summary>宿主注册为单例，客户连接懒创建并复用；仅本地配置不会连接任何云端。</summary>
@@ -49,11 +49,17 @@ public sealed partial class FileObjectStorage : IDisposable
     }
 
     /// <summary>新键绑定固定供应商位置，长度不超过现有100字符列；旧裸随机键保持本地语义。</summary>
-    public string CreateKey()
+    public string CreateKey() => CreateKey(allowDirect: false);
+
+    /// <summary>直传模式随待上传记录保存，改回中转配置后仍可识别既有计划。</summary>
+    internal string CreateKey(bool allowDirect)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         var key = Guid.NewGuid().ToString("N") + ".blob";
-        return defaultProfile == "local" ? key : "s3:" + defaultProfile + ":" + profiles[defaultProfile].Location + ":" + key;
+        if (defaultProfile == "local") return key;
+        var profile = profiles[defaultProfile];
+        var locator = "s3:" + defaultProfile + ":" + profile.Location + ":" + key;
+        return allowDirect && profile.Options.DirectUploadEndpoint is not null ? locator + DirectSuffix : locator;
     }
 
     /// <summary>只读取固定供应商标记，完整键及位置在对象操作时独立验证。</summary>
@@ -85,6 +91,13 @@ public sealed partial class FileObjectStorage : IDisposable
         }
         var (profile, objectKey) = Resolve(key);
         await using var input = new FileStream(temporaryPath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.SequentialScan);
+        return await PutS3Async(profile, objectKey, root, input, length, sha256, token, registerRollback);
+    }
+
+    /// <summary>中转与直传封存都用条件创建；发生冲突时验证正式对象的真实内容。</summary>
+    private async Task<bool> PutS3Async(Profile profile, string objectKey, string root, Stream input, long length,
+        string sha256, CancellationToken token, Action<Func<Task>>? registerRollback = null, string? directOrigin = null)
+    {
         if (input.Length != length) throw new InvalidOperationException("S3暂存对象大小与计划不一致。");
         var client = profile.Client.Value;
         var request = new PutObjectRequest
@@ -93,6 +106,7 @@ public sealed partial class FileObjectStorage : IDisposable
             ContentType = "application/octet-stream", IfNoneMatch = "*",
             ChecksumSHA256 = Convert.ToBase64String(Convert.FromHexString(sha256))
         };
+        if (directOrigin is not null) request.Metadata[DirectOriginMetadata] = directOrigin;
         if (registerRollback is not null)
         {
             // 对象可能已落盘但回执丢失。发送前登记，使用私有标记区分同键旧对象。
@@ -108,8 +122,13 @@ public sealed partial class FileObjectStorage : IDisposable
         catch (AmazonS3Exception error) when (error.StatusCode == HttpStatusCode.PreconditionFailed)
         {
             // 仅以真实有界GET和数据库已核对摘要证明相同；不能信任远端元数据或单独ETag。
-            await using var existing = await OpenAsync(key, root, length, sha256, token);
-            return false;
+            try
+            {
+                var existing = await ReadS3Async(profile, objectKey, root, length, sha256, directOrigin, token);
+                await existing.Content.DisposeAsync();
+                return false;
+            }
+            catch (AmazonS3Exception readError) { throw new InvalidOperationException("S3对象读取失败。", readError); }
         }
         catch (AmazonS3Exception error) { throw new InvalidOperationException("S3对象保存失败，请稍后核验或重试。", error); }
     }
@@ -151,6 +170,18 @@ public sealed partial class FileObjectStorage : IDisposable
         }
         RequireBounds(length, sha256);
         var (profile, objectKey) = Resolve(key);
+        try
+        {
+            var read = await ReadS3Async(profile, objectKey, root, length, sha256, null, token);
+            return new ObjectReadStream(read.Content);
+        }
+        catch (AmazonS3Exception error) { throw new InvalidOperationException("S3对象读取失败。", error); }
+    }
+
+    /// <summary>读取实际对象并计算摘要，直传封存结果还必须属于本次计划的暂存键。</summary>
+    private async Task<(FileStream Content, string Sha256)> ReadS3Async(Profile profile, string objectKey,
+        string root, long length, string? expectedHash, string? directOrigin, CancellationToken token)
+    {
         FileValidation.RequireStorageRoot(root); Directory.CreateDirectory(root); FileValidation.RequireStorageRoot(root);
         var path = FileValidation.StoragePath(root, Guid.NewGuid().ToString("N") + ".blob");
         FileStream? output = null;
@@ -158,6 +189,8 @@ public sealed partial class FileObjectStorage : IDisposable
         {
             using var response = await profile.Client.Value.GetObjectAsync(new GetObjectRequest { BucketName = profile.Options.Bucket, Key = objectKey }, token);
             if (response.ContentLength != length) throw new InvalidOperationException("S3对象大小与文件记录不一致。");
+            if (directOrigin is not null && !string.Equals(response.Metadata[DirectOriginMetadata], directOrigin, StringComparison.Ordinal))
+                throw new InvalidOperationException("S3正式对象与本次直传计划不一致。");
             output = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read, 65536, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
             using var digest = IncrementalHash.CreateHash(HashAlgorithmName.SHA256); long actual = 0;
             var buffer = new byte[65536];
@@ -168,11 +201,12 @@ public sealed partial class FileObjectStorage : IDisposable
                 actual += read; if (actual > length || actual > maximumBytes) throw new InvalidOperationException("S3实际对象超过已确认大小。");
                 digest.AppendData(buffer, 0, read); await output.WriteAsync(buffer.AsMemory(0, read), token);
             }
-            if (actual != length || Convert.ToHexStringLower(digest.GetHashAndReset()) != sha256) throw new InvalidOperationException("S3对象内容与文件记录不一致。");
+            var sha256 = Convert.ToHexStringLower(digest.GetHashAndReset());
+            if (actual != length || expectedHash is not null && sha256 != expectedHash)
+                throw new InvalidOperationException("S3对象内容与文件记录不一致。");
             await output.FlushAsync(token); output.Position = 0;
-            var result = output; output = null; return new ObjectReadStream(result);
+            var result = output; output = null; return (result, sha256);
         }
-        catch (AmazonS3Exception error) { throw new InvalidOperationException("S3对象读取失败。", error); }
         finally { if (output is not null) await output.DisposeAsync(); }
     }
 
@@ -189,7 +223,8 @@ public sealed partial class FileObjectStorage : IDisposable
         try
         {
             var response = await profile.Client.Value.DeleteObjectAsync(new DeleteObjectRequest { BucketName = profile.Options.Bucket, Key = objectKey }, token);
-            return (int)response.HttpStatusCode is >= 200 and < 300;
+            if ((int)response.HttpStatusCode is < 200 or >= 300) return false;
+            return !IsDirectUpload(key) || await RemoveDirectStageAsync(profile, DirectStagingKey(profile, objectKey), token);
         }
         catch (AmazonS3Exception) { return false; }
     }

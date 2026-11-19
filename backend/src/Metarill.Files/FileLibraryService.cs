@@ -36,19 +36,21 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         if (request.SizeBytes < 0 || request.SizeBytes > policy.MaximumBytes) throw new InvalidOperationException("文件大小超过服务端或控件上限。");
         if (!policy.Extensions.Contains(Path.GetExtension(request.OriginalName))) throw new InvalidOperationException("文件扩展名不在允许范围。");
         if (request.FolderId is { } folder) RequireProject(await RequiredAsync(Folders, folder, true, cancellationToken), actor);
-        var key = Storage.CreateKey();
+        var key = Storage.CreateKey(allowDirect: !legacyPublic);
+        var contentType = FileValidation.ContentType(request.OriginalName);
         var id = ids.NextId();
         var now = BusinessCalendar.Now;
         var expires = FileUploadLifetime.NewDeadline(DateTimeOffset.UtcNow);
+        var directPlan = await Storage.TryPlanDirectAsync(key, contentType, request.SizeBytes, new DateTimeOffset(expires));
         await store.InsertAsync(Files, new Dictionary<string, object?>
         {
-            ["id"] = id, ["name"] = request.OriginalName, ["content_type"] = FileValidation.ContentType(request.OriginalName),
+            ["id"] = id, ["name"] = request.OriginalName, ["content_type"] = contentType,
             ["size"] = request.SizeBytes, ["storage_key"] = key, ["access_mode"] = policy.AccessMode,
             ["status"] = "planned", ["owner_id"] = actor.AccountId, ["folder_id"] = request.FolderId, ["yz_project_id"] = Project(actor),
             [FileUploadLifetime.DeadlineColumn] = expires,
             ["sha256"] = FileValidation.Digest(request.Sha256), ["insert_time"] = now, ["insert_manager_id"] = actor.AccountId
         }, cancellationToken);
-        return new FileUploadPlan(id, new LocalUploadPlan(FileObjectStorage.ProviderCode(key), "SERVER_MULTIPART", $"/admin/sys/file-library/local-upload/{id}",
+        return new FileUploadPlan(id, directPlan ?? new LocalUploadPlan(FileObjectStorage.ProviderCode(key), "SERVER_MULTIPART", $"/admin/sys/file-library/local-upload/{id}",
             new Dictionary<string, string>(), new Dictionary<string, string>(), new DateTimeOffset(expires)));
     }, cancellationToken);
 
@@ -70,7 +72,9 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
                 if (SqlRowStore.Text(row, "status") != "planned") throw new InvalidOperationException("文件状态不允许重新上传。");
                 FileUploadLifetime.RequireActive(row, DateTimeOffset.UtcNow);
                 EnsureRoot();
-                var key = SqlRowStore.Text(row, "storage_key"); Storage.ValidateKey(key, Root);
+                var key = SqlRowStore.Text(row, "storage_key");
+                if (FileObjectStorage.IsDirectUpload(key)) throw new InvalidOperationException("当前文件须通过已签发的直传表单上传。");
+                Storage.ValidateKey(key, Root);
                 var destination = FileValidation.StoragePath(Root, FileObjectStorage.ProviderCode(key) == "local" ? key : Guid.NewGuid().ToString("N") + ".blob");
                 temporary = destination + ".part." + Guid.NewGuid().ToString("N");
                 var expected = SqlRowStore.Id(row, "size");
@@ -112,6 +116,17 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         var actor = authorization.RequireActor();
         var row = await RequiredAsync(Files, id, true, cancellationToken); RequireOwner(row, actor);
         var status = SqlRowStore.Text(row, "status");
+        var key = SqlRowStore.Text(row, "storage_key");
+        if (status == "planned" && FileObjectStorage.IsDirectUpload(key))
+        {
+            // 数据库回执未知时保留不可覆盖的正式对象，同一计划重试先核验实际封存结果。
+            FileUploadLifetime.RequireActive(row, DateTimeOffset.UtcNow);
+            var digest = await Storage.CompleteDirectAsync(key, Root, SqlRowStore.Id(row, "size"), SqlRowStore.Text(row, "sha256"), cancellationToken);
+            await store.UpdateAsync(Files, id, new Dictionary<string, object?>
+                { ["status"] = "ready", ["sha256"] = digest, ["update_time"] = BusinessCalendar.Now }, cancellationToken);
+            row["status"] = "ready"; row["sha256"] = digest;
+            return Describe(row);
+        }
         if (status is not ("uploaded" or "ready")) throw new InvalidOperationException("文件尚未上传完成。");
         await using var content = await Storage.OpenAsync(SqlRowStore.Text(row, "storage_key"), Root, SqlRowStore.Id(row, "size"), SqlRowStore.Text(row, "sha256"), cancellationToken);
         if (content.Length != SqlRowStore.Id(row, "size")) throw new InvalidOperationException("已上传对象大小异常。");

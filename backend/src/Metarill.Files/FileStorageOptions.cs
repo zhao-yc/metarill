@@ -25,6 +25,10 @@ public sealed record S3FileStorageProfile
     public bool ForcePathStyle { get; init; } = true;
     public bool AllowHttp { get; init; }
 
+    /// <summary>已发布的浏览器直传入口。留空沿用服务器中转。</summary>
+    public string? DirectUploadEndpoint { get; init; }
+    public bool DirectUploadPathStyle { get; init; } = true;
+
     /// <summary>不让记录类型的默认格式化把密钥写入异常或诊断。</summary>
     public override string ToString() => "S3FileStorageProfile { 私有部署配置 }";
 
@@ -43,7 +47,33 @@ public sealed record S3FileStorageProfile
             AccessKey.Length > 256 || SecretKey.Length > 512 || AccessKey.Any(char.IsControl) || SecretKey.Any(char.IsControl) ||
             SessionToken is not null && (SessionToken.Length > 8192 || SessionToken.Any(char.IsControl)))
             throw new InvalidOperationException("S3私有配置无效，请核对端点、区域、桶、前缀与凭据。");
-        return this with { Endpoint = endpoint.GetLeftPart(UriPartial.Authority) };
+        return this with
+        {
+            Endpoint = endpoint.GetLeftPart(UriPartial.Authority),
+            DirectUploadEndpoint = string.IsNullOrEmpty(DirectUploadEndpoint) ? null : ValidateDirectEndpoint(DirectUploadEndpoint)
+        };
+    }
+
+    /// <summary>浏览器只接收已配置的 HTTPS 根入口；开发 HTTP 须是回环或私网字面地址。</summary>
+    private string ValidateDirectEndpoint(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var endpoint) || endpoint.Host.Length == 0 ||
+            endpoint.Port == 0 || endpoint.UserInfo.Length != 0 || endpoint.Query.Length != 0 ||
+            endpoint.Fragment.Length != 0 || endpoint.AbsolutePath != "/" ||
+            endpoint.Scheme != "https" && !(AllowHttp && endpoint.Scheme == "http" && IsPrivateAddress(endpoint.IdnHost)))
+            throw new InvalidOperationException("S3直传入口须为已发布的HTTPS根地址。");
+        return endpoint.GetLeftPart(UriPartial.Authority);
+    }
+
+    /// <summary>不解析域名，开发地址仅允许规范 IPv4 私网或回环及 IPv6 回环。</summary>
+    private static bool IsPrivateAddress(string host)
+    {
+        if (host is "::1" or "[::1]") return true;
+        if (!System.Net.IPAddress.TryParse(host, out var address) || address.ToString() != host ||
+            address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
+        var bytes = address.GetAddressBytes();
+        return bytes[0] is 10 or 127 || bytes[0] == 172 && bytes[1] is >= 16 and <= 31 ||
+            bytes[0] == 192 && bytes[1] == 168;
     }
 
     /// <summary>摘要不含可轮换凭据；修改对象位置或寻址方式必须发布新配置别名。</summary>
