@@ -87,6 +87,18 @@ public static partial class MySqlNonRedundantReadCompiler
             FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName)).Fields):
             new HashSet<string>(StringComparer.Ordinal);
 
+    /// <summary>核对项目内发布页的精确字段确实沿用表级自树叶名，不扩大其它权限范围。</summary>
+    internal static bool HasPublishedSelfTreeExact(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        IReadOnlyList<ColumnMetadata> columns)
+    {
+        if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||table.IsView!=0||table.IsFunctionTable!=0||
+            page.ConfigTableId!=table.Id||page.YzProjectId!=catalog.YzProjectId||table.YzProjectId!=catalog.YzProjectId||
+            !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
+            return false;
+        var field=ExactDataManageValues.Field(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
+        return field.Length>0&&SelfTreeConditionFields(catalog,table,page,columns,[field]).Count==1;
+    }
+
     /// <summary>只有与表级控件一致的叶名才能用于固定范围。附件和候选页共用同一份证明。</summary>
     internal static IReadOnlySet<string> SelfTreeConditionFields(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
         IReadOnlyList<ColumnMetadata> declared,IEnumerable<string> fields)

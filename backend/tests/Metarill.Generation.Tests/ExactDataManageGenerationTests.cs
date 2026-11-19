@@ -505,14 +505,20 @@ public sealed class ExactDataManageGenerationTests
         NonRedundantCrossTableScopeSql.ApplyCandidate(session.Select<T>(), session, plan.BindAccount(actor),
             "combined_parent", actor.ProjectId, false, parent).ToSql();
 
-    /// <summary>原单选使用隐藏的自树叶名核对权限，选档附加条件只影响导入。</summary>
+    /// <summary>原单值控件共用隐藏叶名权限，单选专用条件只影响导入，下拉条件随每个入口绑定。</summary>
     [Theory]
-    [InlineData(0,false,false)]
-    [InlineData(1,false,false)]
-    [InlineData(0,false,true)]
-    [InlineData(0,true,true)]
-    [InlineData(1,true,false)]
-    public async Task Tree_exact_single_selection_uses_published_page(int storage,bool logicalParent,bool importCondition)
+    [InlineData(0,false,false,"SelectPage",false)]
+    [InlineData(1,false,false,"SelectPage",false)]
+    [InlineData(0,false,true,"SelectPage",false)]
+    [InlineData(0,true,true,"SelectPage",false)]
+    [InlineData(1,true,false,"SelectPage",false)]
+    [InlineData(0,false,false,"List",false)]
+    [InlineData(1,false,false,"List",false)]
+    [InlineData(0,false,true,"List",false)]
+    [InlineData(0,true,true,"List",false)]
+    [InlineData(1,false,true,"List",true)]
+    [InlineData(1,true,true,"List",true)]
+    public async Task Tree_exact_single_selection_uses_published_page(int storage,bool logicalParent,bool controlCondition,string controlKind,bool cached)
     {
         const string ns="Example.SingleTreeExact";
         var catalog=RedundantMultiNameCacheTests.Published(
@@ -520,7 +526,8 @@ public sealed class ExactDataManageGenerationTests
         var project=catalog.YzProjectId;
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
         var admin=targetPage.YzAdminTypeId;
-        targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        var list=controlKind=="List";
+        targetPage.Extra["type"]=JsonSerializer.SerializeToElement(list?0:1);
         targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("tree_name");
         if(logicalParent)targetPage.WhereSql+=" AND country_id=@parent_id";
         catalog.YzAdminTypes.Single(item=>item.Id==admin).Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
@@ -529,7 +536,7 @@ public sealed class ExactDataManageGenerationTests
             new(){Id="980",YzProjectId=project,TableName="single_tree_nodes",IsRongyu=1},
             new(){Id="981",YzProjectId=project,TableName="single_tree_consumer",IsRongyu=storage}
         ]);
-        var conditions=importCondition?"tree_name <> '仅导入排除'":"";
+        var conditions=controlCondition?(list?"tree_name <> '候选排除' AND name = @formParameters.name":"tree_name <> '仅导入排除'"):"";
         catalog.ConfigColumns.AddRange([
             new(){Id="98001",ConfigTableId="980",YzProjectId=project,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
             new(){Id="98002",ConfigTableId="980",YzProjectId=project,ColumnName="name",LogicalType="string"},
@@ -547,8 +554,9 @@ public sealed class ExactDataManageGenerationTests
             new(){Id="98101",ConfigTableId="981",YzProjectId=project,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
             new(){Id="98102",ConfigTableId="981",YzProjectId=project,ColumnName="name",LogicalType="string",SortNo=1},
             new(){Id="98103",ConfigTableId="981",YzProjectId=project,ColumnName="target_id",LogicalType="int64",SortNo=2,Name="目标名称",
-                LinkConfigTableId="2",ControlKind="SelectPage",ControlDetail=JsonSerializer.Serialize(new
-                {pageId="201",tableId="2",nameField="name",whereSql=conditions})},
+                LinkConfigTableId="2",ControlKind=controlKind,ControlDetail=JsonSerializer.Serialize(new
+                {pageId="201",tableId="2",nameField="name",whereSql=conditions}),
+                Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement("201")}},
             new(){Id="98104",ConfigTableId="981",YzProjectId=project,ColumnName="yz_project_id",LogicalType="int64"}
         ]);
         if(logicalParent)catalog.ConfigColumns.Add(new(){Id="98105",ConfigTableId="981",YzProjectId=project,ColumnName="country_id",
@@ -568,6 +576,17 @@ public sealed class ExactDataManageGenerationTests
             new(){Id="98113",ConfigPageId="9811",ConfigColumnId="98103",YzProjectId=project}
         ]);
 
+        if(cached)
+        {
+            // 树节点按账号门店限制时，名称副本必须从持久来源行取得同一门店。
+            catalog.ConfigColumns.Add(new(){Id="98107",ConfigTableId="981",YzProjectId=project,ColumnName="store_id",LogicalType="int64"});
+            catalog.ConfigPages.Single(page=>page.Id=="9811").WhereSql+=" AND store_id=@current_store_id";
+            catalog.ConfigColumns.Add(new(){Id="98106",ConfigTableId="981",YzProjectId=project,ColumnName="target_name",
+                LogicalType="string",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=JsonSerializer.SerializeToElement("target.name")}});
+            catalog.ConfigPageColumns.Add(new(){Id="98116",ConfigPageId="9811",ConfigColumnId="98106",YzProjectId=project,IsEdit=0});
+        }
+
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-single-tree-exact");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -582,9 +601,15 @@ public sealed class ExactDataManageGenerationTests
             Assert.Contains("actor, cancellationToken, true, false",source);
             Assert.Contains("DerivedOptionsRows9811_98103Async",source);
             Assert.Contains("currentRead:true",source);
-            Assert.Equal(importCondition,source.Contains("scope.Condition.And(importCondition)",StringComparison.Ordinal));
+            Assert.Equal(controlCondition&&!list,source.Contains("scope.Condition.And(importCondition)",StringComparison.Ordinal));
+            Assert.Equal(controlCondition&&list,source.Contains("var bound=OptionsCondition9811_98103.BindVariables",StringComparison.Ordinal));
             Assert.DoesNotContain("SingleImportReadPlan9811_98103",source);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            if(cached)
+            {
+                var runtime=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(runtime.TypeHandle);
+            }
             var type=assembly.GetType(ns+".Generated.Services.SingleTreeConsumerService",true)!;
             const BindingFlags staticFlags=BindingFlags.NonPublic|BindingFlags.Static;
             const BindingFlags instanceFlags=BindingFlags.NonPublic|BindingFlags.Instance;
@@ -609,15 +634,24 @@ public sealed class ExactDataManageGenerationTests
             var service=Activator.CreateInstance(type,[session,mapper,new SnowflakeIdGenerator(862),
                 Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),authorization])!;
             var read=type.GetMethod("DerivedOptionsScope9811_98103Async",instanceFlags)!;
+            var formValues=list&&controlCondition?new Dictionary<string,object?>{{"formParameters.name","表单名称"}}:null;
             var result=await (Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)>)read.Invoke(service,
-                [null,null,actor,CancellationToken.None,null,false])!;
+                [null,null,actor,CancellationToken.None,formValues,false])!;
+            if(list&&controlCondition)
+            {
+                using var command=new MySqlConnector.MySqlCommand();
+                var predicate=Assert.IsType<FixedConditionSqlPlan>(result.Condition).BindConstants(command,session,"list_exact");
+                Assert.Contains("表单名称",command.Parameters.Cast<System.Data.Common.DbParameter>().Select(parameter=>parameter.Value));
+                Assert.Contains("候选排除",command.Parameters.Cast<System.Data.Common.DbParameter>().Select(parameter=>parameter.Value));
+                Assert.DoesNotContain("表单名称",predicate);
+            }
             var exact=Assert.Single(result.Filters,item=>item.Field=="tree_name");
             Assert.Equal(FixedReadComparison.In,exact.Comparison);
             Assert.Equal(new object?[]{"只允许甲","只允许乙"},Assert.IsAssignableFrom<IReadOnlyList<object?>>(exact.Value));
             Assert.Equal("list",authorization.LastOperation);
             authorization.Value="[]";
             result=await (Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)>)read.Invoke(service,
-                [null,null,actor,CancellationToken.None,null,false])!;
+                [null,null,actor,CancellationToken.None,formValues,false])!;
             Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<object?>>(Assert.Single(result.Filters,item=>item.Field=="tree_name").Value));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

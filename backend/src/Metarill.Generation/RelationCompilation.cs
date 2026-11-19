@@ -206,7 +206,7 @@ internal static class RelationCompilation
     {
         if(source.Source.ControlKind!="List"||ForeignValidationRenderer.Target(model,source) is not {} target||
             ListTargetPage(target,page,source,requireExplicit:false) is not {} targetPage)return false;
-        if(HasFixedTargetScope(target,targetPage))return true;
+        if(HasFixedTargetScope(target,targetPage)||NonRedundantReadCompilation.SelfTreeExactColumn(target,targetPage) is not null)return true;
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var effective=Text(Definition(field?.Extra.GetValueOrDefault("controlDetail").ToString()??""),"whereSql");
         if(string.IsNullOrWhiteSpace(effective))effective=Text(Definition(source.Source.ControlDetail),"whereSql");

@@ -288,10 +288,7 @@ public static class NonRedundantReads
         var page=metadata.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
         var field=ExactDataManageValues.Field(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
         var columns=RelationStorageColumns.Expand(table,metadata.ConfigColumns.Where(item=>item.ConfigTableId==tableId));
-        if(GlobalCrossTableTarget.Declared(table)||table.IsFunctionTable!=0||table.IsView!=0||
-            table.YzProjectId!=metadata.YzProjectId||page.YzProjectId!=metadata.YzProjectId||
-            !metadata.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==metadata.YzProjectId)||
-            !CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field))
+        if(!MySqlNonRedundantReadCompiler.HasPublishedSelfTreeExact(metadata,table,page,columns))
             throw new NotSupportedException("自树精确范围必须绑定本项目普通实体实际发布的叶名。");
         return CompilePageMembership(metadata,table,page,[field],new HashSet<string>(StringComparer.Ordinal),
             new HashSet<string>(StringComparer.Ordinal){field},[field],[field]);

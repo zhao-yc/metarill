@@ -468,9 +468,11 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("derived")]
     [InlineData("logical")]
     [InlineData("global")]
+    [InlineData("treeExact")]
     public async Task Function_original_list_uses_one_candidate_scope(string scenario)
     {
-        var catalog = WithFunctionList(Catalog(), scenario);
+        var catalog = WithFunctionList(Catalog(), scenario=="treeExact"?"logical":scenario);
+        if(scenario=="treeExact")PublishFunctionListTreeExact(catalog);
         new ApplicationPackager().Create(catalog, output, "Example.FunctionForm", SourceRoot());
 
         var generated = Path.Combine(output, "backend/generated");
@@ -490,6 +492,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
             Assert.Contains("""ResolveExactDataManage("103", "list", "real_name")""", service);
             Assert.Contains("ReadOptionsForm102_39", service);
             if (scenario == "logical") Assert.Contains("""FixedReadFilter.ForCrossExact("assigned_area_name",""", service);
+            if (scenario == "treeExact") Assert.Contains("""new("approval_tree_name", FixedReadComparison.In,""", service);
         }
         Assert.False(File.Exists(Path.Combine(generated, "Entities/SummaryForm.g.cs")));
         await VerifyVueAsync(output, "GeneratedFunctionListProbe.mjs", scenario);
@@ -502,6 +505,37 @@ public sealed class FunctionTableGenerationTests : IDisposable
             RuntimeHelpers.RunClassConstructor(runtime.TypeHandle);
         }
         finally { context.Unload(); }
+    }
+
+    /// <summary>独立验证功能表的 List 叠加逻辑父和自树精确匹配，仍复用原表单及路由。</summary>
+    private static void PublishFunctionListTreeExact(MetadataCatalog catalog)
+    {
+        var project=catalog.YzProjectId;
+        var target=catalog.ConfigPages.Single(page=>page.Id=="103");
+        target.Extra["type"]=JsonSerializer.SerializeToElement(0);
+        target.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("approval_tree_name");
+        catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId=="38");
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="38");
+        catalog.ConfigTables.Add(new(){Id="90",TableName="function_approval_nodes",YzProjectId=project,IsRongyu=1});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="9001",ConfigTableId="90",YzProjectId=project,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="9002",ConfigTableId="90",YzProjectId=project,ColumnName="name",LogicalType="string"},
+            new(){Id="9003",ConfigTableId="90",YzProjectId=project,ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="9004",ConfigTableId="90",YzProjectId=project,ColumnName="parent_function_approval_nodes_id",
+                LogicalType="int64",LinkConfigTableId="90"},
+            new(){Id="9005",ConfigTableId="1",YzProjectId=project,ColumnName="approval_tree_id",LogicalType="int64",
+                ControlKind="CascadeTree",LinkConfigTableId="90",ControlDetail=JsonSerializer.Serialize(new
+                {
+                    sourceMode="selfTree",selfTree=new{table="function_approval_nodes",idField="id",nameField="name",
+                        parentField="parent_function_approval_nodes_id",rootMode="blank",filterMatchMode="selfAndDescendants"}
+                })}
+        ]);
+        catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="90",YzProjectId=project,YzAdminTypeId=target.YzAdminTypeId,
+            WhereSql="yz_project_id=@current_yz_project_id"});
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="90102",ConfigPageId="901",ConfigColumnId="9002",YzProjectId=project,IsShow=1},
+            new(){Id="90104",ConfigPageId="901",ConfigColumnId="9004",YzProjectId=project,IsShow=1}
+        ]);
     }
 
     /// <summary>目标页有父参数时拒绝没有已开放父字段的发布配置。</summary>

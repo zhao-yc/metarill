@@ -17,7 +17,7 @@ public static partial class MySqlNonRedundantReadCompiler
         HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null,IReadOnlyList<string>? listFields=null,
         bool projectSingle=false,string? accountParentPageType=null,
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,bool exactSingleParent=false,
-        bool exactCheckboxParent=false,bool projectSelfTreeSelection=false)
+        bool exactCheckboxParent=false,bool projectSelfTreeSingle=false)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -32,18 +32,17 @@ public static partial class MySqlNonRedundantReadCompiler
         var exactField=page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString();
         var exactParent=exactSingleParent||exactCheckboxParent;
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId));
-        // 已保存的关联名称属于来源记录投影。选项操作仍由生成入口绑定目标页精确授权集合。
-        var storedSelection=projectSingle&&projectSelfTreeSelection&&!global&&exactField.Length>0&&
-            page.YzProjectId==catalog.YzProjectId&&table.YzProjectId==catalog.YzProjectId&&
-            page.Extra.GetValueOrDefault("type").ToString()=="1"&&
-            catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId)&&
-            SelfTreeConditionFields(catalog,table,page,columns,
-                [Metarill.Core.Security.ExactDataManageValues.Field(exactField)]).Count==1;
-        if(table.IsRongyu!=0||exactField.Length>0&&!exactParent&&!storedSelection||
+        var pageType=page.Extra.GetValueOrDefault("type").ToString();
+        var treeExact=(projectSingle&&projectSelfTreeSingle||exactSingleParent)&&
+            HasPublishedSelfTreeExact(catalog,table,page,columns);
+        // 已保存名称由来源记录授权。候选操作由生成入口绑定真实目标页精确授权集合。
+        var storedSingle=projectSingle&&projectSelfTreeSingle&&treeExact&&pageType is "" or "0" or "1";
+        if(table.IsRongyu!=0||exactField.Length>0&&!exactParent&&!storedSingle||
             page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new NotSupportedException("候选必须属于已发布项目的普通非冗余目标页。");
-        if(exactSingleParent&&(global||exactField.Length==0||page.Extra.GetValueOrDefault("type").ToString()!="1"))
-            throw new NotSupportedException("精确单选候选必须使用已发布的项目内单值页面。");
+        if(exactSingleParent&&(global||exactField.Length==0||
+            pageType!="1"&&!(treeExact&&pageType is "" or "0")))
+            throw new NotSupportedException("精确单值候选必须使用已发布的项目内单值页面。");
         if(exactCheckboxParent&&(global||exactField.Length==0||
             page.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1" or "2")))
             throw new NotSupportedException("精确复选候选必须使用已发布的项目内业务或选择页面。");
@@ -284,7 +283,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var exact=UsesExactMultiSelection(page,rootAlias);
             if(exact)_=RequireExactMultiSelection(catalog,root,page);
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
-                multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,exactMultiSelection:exact);
+                multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,separateExactScope:exact);
             if(!condition.Allowed)
                 throw new NotSupportedException("多值目标页包含未接通的范围。");
             if(!condition.HasLogical)
@@ -297,7 +296,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(cascadeCacheOwner is {} owner)
                 {
                     var predicate=PhysicalAccountCacheCondition(root,rootAlias,page,owner,MultiCandidateParent?.Target,
-                        exactMultiSelection:exact);
+                        separateExactScope:exact);
                     return scope.Length==0?predicate:scope+" AND "+predicate;
                 }
                 // 项目和父参数已由实际范围负责，账号条件只追加已证明的物理字段。
@@ -428,7 +427,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_page");
             var plan=CompileCrossPageCandidate(catalog,target.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
                 activeSelfTreeScopes:ActiveSelfTreeScopes,listFields:control?.Fields.ToArray(),projectSingle:true,
-                projectSelfTreeSelection:relation.ControlKind=="SelectPage");
+                projectSelfTreeSingle:relation.ControlKind is "List" or "SelectPage");
             plan.CopyParametersTo(crossConstants);
             var predicate=plan.Expression("id")+"="+alias+".`id`";
             if(plan.Scope.Length>0)predicate+=" AND "+plan.Scope;
@@ -493,19 +492,21 @@ public static partial class MySqlNonRedundantReadCompiler
             var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields);
             var logical=RequireCrossCondition(table,page,condition,parentField,fields);
             if(GlobalCrossTableTarget.Declared(table))scopedGlobalCrossTarget=true;
+            // 名称副本归属于已保存记录。只有确实发布的叶名可以把精确授权留给候选和写入入口。
+            var storedExact=cacheOwner is not null&&HasPublishedSelfTreeExact(catalog,table,page,members);
             if(cacheOwner is {} row&&logical.Count==0)
                 return PhysicalAccountCacheCondition(table,alias,page,row,parentField,
-                    allowFixedOnly:allowFixedOnly||!GlobalCrossTableTarget.Declared(table));
+                    allowFixedOnly:allowFixedOnly||!GlobalCrossTableTarget.Declared(table),separateExactScope:storedExact);
             return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
-                alias,cacheOwner,parentField,fields,sourceParent);
+                alias,cacheOwner,parentField,fields,sourceParent,storedSingleExact:storedExact);
         }
 
         /// <summary>物理账号条件按来源行归属计算，并记录源字段和目标筛选列的反向依赖。</summary>
         private string PhysicalAccountCacheCondition(TableMetadata table,string alias,PageMetadata page,
-            CascadeCacheOwner owner,ColumnMetadata? parentField=null,bool allowFixedOnly=false,bool exactMultiSelection=false)
+            CascadeCacheOwner owner,ColumnMetadata? parentField=null,bool allowFixedOnly=false,bool separateExactScope=false)
         {
             var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,
-                parentField,owner.GlobalSingleSource,allowFixedOnly,exactMultiSelection);
+                parentField,owner.GlobalSingleSource,allowFixedOnly,separateExactScope);
             cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
             return AccountCacheScope(ownership,table,alias,owner.Alias,render:true,owner.Table);
         }
@@ -726,7 +727,8 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         /// <summary>同一条查询展开所需祖先，写入沿同一事务锁定全部联接。候选内部的存储校验不进入外层 VO。</summary>
-        private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null,ColumnMetadata? multiParent=null,IReadOnlySet<string>? selfTreeFields=null,string? sourceParent=null)
+        private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null,ColumnMetadata? multiParent=null,
+            IReadOnlySet<string>? selfTreeFields=null,string? sourceParent=null,bool storedSingleExact=false)
         {
             var table=level.Table;
             cacheOwner??=cascadeCacheOwner;
@@ -775,7 +777,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(cacheOwner is {} row)
                 {
                     var proof=AccountScopedCrossCache.CompileRecursive(catalog,row.Table,table,level.Page,multiParent,
-                        row.GlobalTreeSource,selfTreeFields,row.GlobalSingleSource,UsesExactMultiSelection(level.Page,owner));
+                        row.GlobalTreeSource,selfTreeFields,row.GlobalSingleSource,storedSingleExact||UsesExactMultiSelection(level.Page,owner));
                     cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                     predicate=AccountCacheScope(proof,table,owner,row.Alias,render:true,row.Table,parameterPrefix,Projection);
                 }
