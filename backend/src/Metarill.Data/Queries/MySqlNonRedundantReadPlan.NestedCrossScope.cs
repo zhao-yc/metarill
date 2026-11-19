@@ -382,21 +382,42 @@ public static partial class MySqlNonRedundantReadCompiler
         private (string Sql,string Type) ScopedSingleCacheValue(TableMetadata table,string owner,ColumnMetadata foreign,
             TableMetadata target,ColumnMetadata value,RelationCacheDefinition definition)
         {
-            var proof=DerivedCrossTableCaches.ScopedSingleTarget(catalog,table,foreign,target);
-            if(proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=value.Id)
-                throw new InvalidOperationException("单值名称缓存的目标范围与发布证明不一致。");
-            var source=Resolve(table,owner,foreign.ColumnName);
-            var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true,scopedCacheLink:true);
-            var parent=MultiParent(catalog,proof.Page);
             var cacheOwner=new CascadeCacheOwner(table,owner,GlobalSingleSource:GlobalCrossTableTarget.Declared(table));
+            var source=Resolve(table,owner,foreign.ColumnName);
+            var joined=JoinRegisteredSingleCache(table,owner,foreign,target,source,definition,cacheOwner);
+            var label=Resolve(target,joined.Alias,value.ColumnName,cacheOwner);
+            return ("CASE WHEN "+joined.Visibility+" THEN "+label.Sql+" END",label.Type);
+        }
+
+        /// <summary>同一物理外键的联接字段沿用已登记范围和来源行身份，未登记的项目范围仍由普通联接门禁拒绝。</summary>
+        private (string Alias,string? Visibility,CascadeCacheOwner? CacheOwner) JoinSinglePath(
+            TableMetadata table,string owner,ColumnMetadata foreign,TableMetadata target,CascadeCacheOwner? cacheOwner)
+        {
+            var source=Resolve(table,owner,foreign.ColumnName);
+            if(!GlobalCrossTableTarget.Declared(target)&&refreshFields is not null&&table.Id==root.Id&&owner==rootAlias&&
+                refreshMultiples.FirstOrDefault(binding=>!binding.Multiple&&binding.ScopedSinglePageId is not null&&
+                    binding.ForeignColumnId==foreign.Id&&binding.TargetTableId==target.Id&&binding.SourceTableId==table.Id) is {} registered)
+            {
+                var row=new CascadeCacheOwner(table,owner);
+                var scoped=JoinRegisteredSingleCache(table,owner,foreign,target,source,registered,row);
+                return(scoped.Alias,scoped.Visibility,row);
+            }
+            if(cacheOwner is not null&&GlobalCrossTableTarget.Declared(target)&&
+                JoinNestedSingleCache(table,owner,foreign,target,source,cacheOwner) is {} nested)
+                return(nested.Alias,nested.Visibility,cacheOwner);
+            return(Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true),null,cacheOwner);
+        }
+
+        /// <summary>名称副本和同外键的其他联接字段共用实际发布页，逐项保留各自的反向依赖。</summary>
+        private (string Alias,string Visibility) JoinRegisteredSingleCache(TableMetadata table,string owner,ColumnMetadata foreign,
+            TableMetadata target,(string Sql,string Type) source,RelationCacheDefinition definition,CascadeCacheOwner cacheOwner)
+        {
+            var proof=DerivedCrossTableCaches.ScopedSingleTarget(catalog,table,foreign,target);
+            if(proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=definition.ValueColumnId)
+                throw new InvalidOperationException("单值名称缓存的目标范围与发布证明不一致。");
+            var parent=MultiParent(catalog,proof.Page);
             var binding=parent?.SingleSource(catalog,table,foreign);
-            var sourceParent=parent is {Logical:true}?SingleSourceParentValue(table,owner,binding!):null;
-            var visible=PublishedSingleCondition(target,alias,proof.Page,cacheOwner,parent?.Target,sourceParent);
-            if(parent is {Logical:false})
-                visible+=(visible.Length==0?"":" AND ")+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,cacheOwner);
-            var label=Resolve(target,alias,value.ColumnName,cacheOwner);
-            return ("CASE WHEN "+alias+".`id` IS NOT NULL"+(visible.Length==0?"":" AND "+visible)+
-                " THEN "+label.Sql+" END",label.Type);
+            return JoinScopedSingleCache(table,owner,foreign,target,source,proof.Page,cacheOwner,parent,binding);
         }
 
         /// <summary>先保留真实外键反查，再按最终缓存来源行核对内层账号、父键和级联范围。</summary>
@@ -405,15 +426,22 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             var proof=table.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,table,foreign,target)
                 :GlobalSingleRelationTarget.Require(catalog,table,foreign,target);
-            if(!proof.RequiresScopedPage)return null;
-            var parent=proof.Parent;
-            var binding=proof.SourceParent;
+            return proof.RequiresScopedPage
+                ?JoinScopedSingleCache(table,owner,foreign,target,source,proof.Page,cacheOwner,proof.Parent,proof.SourceParent)
+                :null;
+        }
+
+        /// <summary>先登记物理关联用于反查，命名和其他投影的可见性随后按已发布范围计算。</summary>
+        private (string Alias,string Visibility) JoinScopedSingleCache(TableMetadata table,string owner,ColumnMetadata foreign,
+            TableMetadata target,(string Sql,string Type) source,PageMetadata page,CascadeCacheOwner cacheOwner,
+            MultiTargetParentScope? parent,MultiSourceParent? binding)
+        {
             var sourceParent=binding is not null&&(parent?.Logical==true||binding.LogicalPages.Count>0)
                 ?SingleSourceParentValue(table,owner,binding,cacheOwner):null;
             // 反查需要从最终写回的根表出发，保存中间记录及逻辑父表达式引用的祖先别名。
-            var sourceFrom=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);
+            var sourceFrom=owner==rootAlias&&sourceParent is null?null:" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true,scopedCacheLink:true);
-            var visible=PublishedSingleCondition(target,alias,proof.Page,cacheOwner,parent?.Target,parent?.Logical==true?sourceParent:null);
+            var visible=PublishedSingleCondition(target,alias,page,cacheOwner,parent?.Target,parent?.Logical==true?sourceParent:null);
             if(parent is {Logical:false})
                 visible+=(visible.Length==0?"":" AND ")+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,
                     cacheOwner,sourceParent,sourceFrom);

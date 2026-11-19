@@ -22,6 +22,18 @@ public sealed class DerivedRelationNamesTests
             Assert.Contains("DerivedOptionsPlan101_15",service);Assert.DoesNotContain("entity.CompanyName.Contains(keyword)",service);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             Assert.NotNull(assembly.GetType("Example.DerivedNames.Generated.Services.DrNamesOrderService"));
+            if(cached)
+            {
+                // 同一外键的所有已声明副本应进入实际下发目录，包含直接字段与派生名称。
+                var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    assembly.GetType("Example.DerivedNames.Generated.GeneratedRelationMaintenance",true)!
+                        .GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains("dr_names_party",maintenance.MixedTargets);
+                Assert.Contains("dr_names_company",maintenance.MixedTargets);
+                Assert.Contains("customer_company_name",maintenance.MixedSourceColumns["dr_names_order"]);
+                Assert.Contains("customer_notes",maintenance.MixedSourceColumns["dr_names_order"]);
+                Assert.Contains("customer_amount",maintenance.MixedSourceColumns["dr_names_order"]);
+            }
             Assert.Equal(before,JsonSerializer.Serialize(catalog));
             Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,"Example.DerivedNames")));
         }

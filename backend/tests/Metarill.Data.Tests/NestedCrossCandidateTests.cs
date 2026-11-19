@@ -706,6 +706,34 @@ public sealed class NestedCrossCandidateTests
         }
         Assert.Throws<InvalidOperationException>(()=>RelationMutationPlan.Compile(catalog,[binding with{ScopedSinglePageId=null}]));
 
+        if(!global&&(physicalOnly||physicalAccount))
+        {
+            // 同一客户外键既保存名称又保存备注，两个字段须同样响应范围变化。
+            catalog.ConfigColumns.AddRange([
+                new(){Id="1198",ConfigTableId=target.Id,ColumnName="note",LogicalType="string"},
+                new(){Id="9098",ConfigTableId=source.Id,ColumnName="shared_note",LogicalType="string",Extra=new()
+                {
+                    ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=JsonSerializer.SerializeToElement("shared.note")
+                }}
+            ]);
+            var withNote=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+            var both=Assert.Single(withNote.Mixed.Consumers,item=>item.Table.Option.Id==source.Id);
+            var note=both.Read.Expression("shared_note");
+            Assert.StartsWith("CASE WHEN ",note);
+            Assert.Contains(".`note` END",note);
+            Assert.False(both.Read.RequiresAccount);
+            Assert.Equal(physicalAccount,note.Contains("b.`store_id`",StringComparison.Ordinal));
+            var reverse=Assert.Single(both.Read.Reverse,item=>item.TargetTable==target.TableName&&item.Outputs.ContainsKey("shared_note"));
+            Assert.Contains("note",reverse.Outputs["shared_note"]);
+            Assert.Equal(physicalAccount||fixedConstant,reverse.Outputs["shared_note"].Contains("store_id"));
+            Assert.Equal(withParent,note.Contains("b.`group_id`",StringComparison.Ordinal));
+            if(withParent)
+                Assert.Contains(both.Read.Reverse,item=>item.TargetTable=="nested_outer_leaf"&&item.Outputs.ContainsKey("shared_note"));
+            Assert.Equal(note,withNote.Plans[source.Id].Read!.Expression("shared_note"));
+            Assert.Throws<InvalidOperationException>(()=>MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,["shared_note"],[]));
+        }
+
         if(kind=="SelectPage")
         {
             catalog.ConfigPages.Add(new(){Id="12",ConfigTableId=target.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId="5"});

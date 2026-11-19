@@ -572,14 +572,11 @@ public static partial class MySqlNonRedundantReadCompiler
                             MetadataValidation.RequireIdentifier(segment);
                             var relation=columns[current.Id].GetValueOrDefault(segment+"_id")??columns[current.Id].GetValueOrDefault(segment)
                                 ??throw new InvalidOperationException("联接路径关系不存在。");
-                            var target=Target(relation);var id=Resolve(current,currentAlias,relation.ColumnName);
-                            if(singleCacheOwner is {} row&&GlobalCrossTableTarget.Declared(target)&&
-                                JoinNestedSingleCache(current,currentAlias,relation,target,id,row) is {} joined)
-                            {
-                                currentAlias=joined.Alias;
-                                (visibility??=new()).Add(joined.Visibility);
-                            }
-                            else currentAlias=Join(currentAlias,relation,target,id.Sql,id.Type,ordinaryRelation:true);
+                            var target=Target(relation);
+                            var joined=JoinSinglePath(current,currentAlias,relation,target,singleCacheOwner);
+                            currentAlias=joined.Alias;
+                            singleCacheOwner=joined.CacheOwner;
+                            if(joined.Visibility is not null)(visibility??=new()).Add(joined.Visibility);
                             current=target;
                         }
                         var value=Resolve(current,currentAlias,path[^1],singleCacheOwner);
@@ -594,7 +591,10 @@ public static partial class MySqlNonRedundantReadCompiler
                     var definition=Definition(relation);var display=Value(definition,"nameField");if(display.Length==0)display="name";
                     var auxiliary=relation.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&display!="id"?relation.ColumnName[..^3]+"_"+display:"";
                     if(!name.Equals(auxiliary,StringComparison.OrdinalIgnoreCase))continue;
-                    var target=Target(relation);var id=Resolve(table,alias,relation.ColumnName);return Resolve(target,Join(alias,relation,target,id.Sql,id.Type,ordinaryRelation:true),display);
+                    var target=Target(relation);
+                    var joined=JoinSinglePath(table,alias,relation,target,singleCacheOwner);
+                    var value=Resolve(target,joined.Alias,display,joined.CacheOwner);
+                    return joined.Visibility is null?value:("CASE WHEN "+joined.Visibility+" THEN "+value.Sql+" END",value.Type);
                 }
                 throw new NotSupportedException("字段不是已支持的物理列或单值派生关系："+name);
             }
