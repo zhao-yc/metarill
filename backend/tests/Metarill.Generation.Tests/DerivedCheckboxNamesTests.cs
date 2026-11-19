@@ -20,6 +20,62 @@ public sealed class DerivedCheckboxNamesTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>同名反查只使用同时符合控件条件与实际目标页条件的记录。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Checkbox_excel_applies_the_bound_target_page(bool derived)
+    {
+        const string ns="Example.CheckboxExcelScope";
+        var catalog=Catalog("checkbox_excel_scope",false);
+        if(!derived)
+        {
+            var name=catalog.ConfigColumns.Single(column=>column.Id=="32");
+            name.Extra.Remove("isJoinColumn");
+            name.Extra.Remove("columnFullName");
+        }
+        var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        source.ControlDetail="{\"tableId\":\"3\",\"pageId\":\"301\",\"nameField\":\"name\",\"whereSql\":\"segment=@formParameters.segment AND status=1\"}";
+        var sourceField=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==source.Id);
+        sourceField.IsShow=sourceField.IsEdit=1;
+        catalog.ConfigColumns.Add(new(){Id="3005",ConfigTableId="3",ColumnName="sheet_status",LogicalType="int32"});
+        catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql+=" AND sheet_status=41";
+        RedundantMultiNameCacheTests.Published(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-excel-page");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var generated=Assert.Single(Directory.GetFiles(Path.Combine(directory,"generated"),"CheckboxExcelScopeSourceService.g.cs",SearchOption.AllDirectories));
+            var code=await File.ReadAllTextAsync(generated);
+            var read=derived?"DerivedCheckboxRows":"CheckboxScope";
+            var candidate=Assert.Single(code.Split('\n'),line=>line.Contains(read+"201_25Async(request.ParentId",StringComparison.Ordinal));
+            Assert.DoesNotContain("excel:true",candidate);
+            Assert.Contains("        if(excel)",code);
+            Assert.Contains("        if(excel)",code[..code.IndexOf("CheckboxOptions201_25Async",StringComparison.Ordinal)]);
+            Assert.Contains(derived?"if(excel)filters.Add(new(\"parent_id\"":"query=query.Where(row=>row.ParentId==",code);
+            Assert.Contains(code.Split('\n'),line=>line.Contains(read+"201_25Async(parentId,actor,",StringComparison.Ordinal)&&
+                line.Contains("excel:true",StringComparison.Ordinal));
+            Assert.Contains(code.Split('\n'),line=>line.Contains(read+"201_25Async(entity.ParentId",StringComparison.Ordinal)&&
+                line.Contains("excel:true",StringComparison.Ordinal));
+
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.CheckboxExcelScopeSourceService",true)!;
+            const System.Reflection.BindingFlags privateStatic=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+            var plan=Assert.IsType<Metarill.Data.Queries.FixedConditionSqlPlan>(
+                service.GetField("CheckboxExcelCondition201_25",privateStatic)!.GetValue(null));
+            var clause=plan.GetType().GetMethod("RenderConstants",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!
+                .Invoke(plan,[new Metarill.Data.MySqlDatabaseProvider(),"scope",new Func<string,string>(field=>field)])!;
+            Assert.Contains("sheet_status",Assert.IsType<string>(clause.GetType().GetProperty("Sql")!.GetValue(clause)));
+            var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(clause.GetType().GetProperty("Parameters")!.GetValue(clause));
+            Assert.Equal(41,Assert.Single(parameters.Values));
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>非默认派生名称的候选、原导入导出和两种源存储使用同一固定字段。</summary>
     [Theory]
     [InlineData(0, false)]

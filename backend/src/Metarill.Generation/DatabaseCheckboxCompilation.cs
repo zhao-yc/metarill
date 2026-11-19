@@ -8,9 +8,14 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal PageModel? LogicalTargetPage { get; init; }
     // 没有逻辑候选条件的显式目标页仍决定名称路径内每个关系角色。
     internal PageModel? NameTargetPage { get; init; }
+    // 原 Excel 名称匹配额外叠加普通目标页条件，候选和写入继续使用控件自身定义。
+    internal PageModel? ExcelTargetPage { get; init; }
     internal bool UsesPageRead { get; init; }
     internal bool LogicalSourceParent { get; init; }
     internal bool GlobalParent { get; init; }
+    internal IEnumerable<ColumnModel> ExcelParents => ExcelTargetPage?.Scopes
+        .Where(scope=>scope.Source=="parent"&&!Scopes.Any(existing=>existing.Source=="parent"&&existing.Column.Source.Id==scope.Column.Source.Id))
+        .Select(scope=>scope.Column)??[];
     internal bool IntegerLabel => Name.Type is ("int?" or "long?");
     internal bool TypedLabel => Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
     internal string Endpoint=>"findNameId"+GenerationModel.Pascal(Source.Source.ColumnName[..^4])+Source.Source.Id;
@@ -125,6 +130,22 @@ internal static class DatabaseCheckboxCompilation
             }
             if(parents.Any(parent=>Protected(parent)||!(globalParent&&parent.IsGlobal)&&!HasIdentity(model,parent)))
                 return Gap("来源父须具有普通业务项目归属或实际全局层位证明。");
+            PageModel? excelTarget=null;
+            if(table.Source.IsRongyu==0&&namePage is not null&&logicalPage is null&&!target.IsGlobal&&
+                (namePage.Condition is not null||namePage.Scopes.Any(scope=>scope.Source=="parent"&&
+                    !scopes.Any(existing=>existing.Source=="parent"&&existing.Column.Source.Id==scope.Column.Source.Id)))&&
+                (ImportRenderer.Enabled(page)&&ImportRenderer.Columns(page).Any(column=>column.Source.Id==source.Source.Id)||
+                    ExportRenderer.IncludesColumn(page,source)))
+            {
+                if(ExactDataManageCompilation.Declared(namePage))
+                    return Gap("原复选 Excel 不能借用精确数据管理页的目标范围。");
+                if(namePage.Scopes.Any(scope=>!NonRedundantReadCompilation.Physical(model,target,scope.Column)||
+                    scope.Column.Type is not("long?" or "int?" or "string?"))||
+                    namePage.Scopes.Where(scope=>scope.Source=="parent").Any(scope=>
+                        sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id))
+                    return Gap("原复选 Excel 目标页缺少同一来源父记录或物理项目列。");
+                excelTarget=namePage;
+            }
             var order=GenerationModel.ValidateOrderBy(definition.OrderBy.Length>0?definition.OrderBy:definition.NameField+" asc",target.Columns).ToList();
             if(order.Any(item=>(!NonRedundantReadCompilation.Physical(model,target,item.Column)&&!(derived&&item.Column.Source.Id==name.Source.Id))||item.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,item.Column)))return Gap("候选排序必须为非凭据物理字段。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));
             var names=SelectionDisplayFieldCompilation.Resolve(table,source);
@@ -134,6 +155,7 @@ internal static class DatabaseCheckboxCompilation
             {
                 LogicalTargetPage=logicalPage,
                 NameTargetPage=namePage,
+                ExcelTargetPage=excelTarget,
                 UsesPageRead=pageRead,
                 LogicalSourceParent=logicalSource is not null,
                 GlobalParent=globalParent,
