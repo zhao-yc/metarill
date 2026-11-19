@@ -7,7 +7,9 @@ const frontend=join(process.argv[2],'frontend')
 const runtimeDirectory=join(frontend,'common/yzp_runtime')
 const load=async filename=>readFile(join(frontend,'pages/yzp',filename),'utf8')
 const detail=await load('summary_form-detail-102.vue')
-const listing=await load('customer-list-103.vue')
+const targetImport=detail.match(/import OriginalSelection39 from ['"]@\/pages\/yzp\/([^'"]+)['"]/)
+assert.ok(targetImport)
+const listing=await load(targetImport[1])
 const form=mountGenerated(detail,{},{},{runtimeDirectory})
 const ids=['9007199254740993','9007199254740994']
 const parents=['9007199254742000','9007199254742001']

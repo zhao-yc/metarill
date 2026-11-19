@@ -102,6 +102,7 @@ internal static class MultiSelectCompilation
             var scopedParent=scoped&&targetPage.Scopes.Any(scope=>scope.Source=="parent")
                 ?MultiTargetParentScope.Compile(model.Catalog,target.Source,FixedConditionPlan.Compile(targetPage.Source.WhereSql,
                     target.Columns.Select(column=>column.Source.ColumnName))):null;
+            if(functionForm)scopedParent??=MultiGlobalParentCompilation.PhysicalSelectionParent(model,target,targetPage);
             var targetParents = scopedParent is not null?[model.Tables.Single(parent=>parent.Source.Id==scopedParent.Parent.Id)]:
                 targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
             if (scopedParent?.Global!=true&&targetParents.Any(parent => !parent.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))) return Gap("目标父表未声明项目归属。");
@@ -130,7 +131,7 @@ internal static class MultiSelectCompilation
             }
             if (functionForm)
                 return new(new(source, target, targetPage, name, name.IsId ? null : SelectionDisplayFieldCompilation.FunctionFormNames(table, source, name), same,
-                    targetField, targetParents, Value("buttonText", "选择")), null);
+                    targetField, targetParents, Value("buttonText", "选择")){GlobalParent=scopedParent?.Global==true}, null);
 
             ColumnModel? names = null;
             if (!name.IsId)

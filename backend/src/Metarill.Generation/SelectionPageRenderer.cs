@@ -16,6 +16,8 @@ internal static class SelectionPageRenderer
         var suffix = page.Source.Id;
         var table = model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId);
         if (!table.IsGlobal && !table.Columns.Any(column => column.Source.ColumnName == "yz_project_id")) throw new InvalidOperationException("多选页目标未声明项目归属或明确全局范围。");
+        var globalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null;
+        var snapshot=globalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
         var result = new StringBuilder()
             .AppendLine("    /// <summary>多选页各读取入口共享真实父记录校验，读取不申请记录写锁。</summary>")
             .AppendLine($"    private async Task ValidateSelectionParents{suffix}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)")
@@ -35,8 +37,7 @@ internal static class SelectionPageRenderer
                 var path=NonRedundantCrossParentCompilation.Find(model,table,page,column)!.Value;
                 result.AppendLine($"        _=LogicalParentId{suffix}(parentId);await CrossReader{suffix}_{path.Read.Source.Source.Id}(actor,false,false).PathAsync({path.Index},long.Parse(parentId!,NumberStyles.None,CultureInfo.InvariantCulture),cancellationToken);");continue;
             }
-            if(MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
-                GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null)
+            if(globalParent||GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null)
             {
                 result.AppendLine($"        await ValidateParents{suffix}Async(parentId,actor,cancellationToken,locking:false);");
                 continue;
@@ -53,7 +54,7 @@ internal static class SelectionPageRenderer
             result.AppendLine($"        if (!await parent{number}.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"多选页父记录不存在、已删除或不属于当前项目。\");");
         }
         result.AppendLine("    }").AppendLine("    /// <summary>多选确认前重新读取本页完整可见行，任何失效项整体拒绝。</summary>")
-            .AppendLine($"    public {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<IReadOnlyList<{page.Name}Vo>> SelectionSelected{suffix}Async(SelectionRowsRequest request, RuntimeActor actor, CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<IReadOnlyList<{page.Name}Vo>>(async () =>":"")}")
+            .AppendLine($"    public {(snapshot?"Task":"async Task")}<IReadOnlyList<{page.Name}Vo>> SelectionSelected{suffix}Async(SelectionRowsRequest request, RuntimeActor actor, CancellationToken cancellationToken){(snapshot?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<IReadOnlyList<{page.Name}Vo>>(async () =>":"")}")
             .AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request); var selected = request.ParseIds();")
             .AppendLine($"        await ValidateSelectionParents{suffix}Async(request.ParentId, actor, cancellationToken);");
         if(NonRedundantReadCompilation.Requires(model,table))
@@ -66,7 +67,7 @@ internal static class SelectionPageRenderer
                 .AppendLine($"        var selectedRows=await new Metarill.Data.Queries.NonRedundantReader(session).KeyRowsAsync({listPlan},filters,selected,cancellationToken,projectId:actor.ProjectId{(globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page,true))});")
                 .AppendLine("        if(selectedRows.Count!=selected.Length)throw new InvalidOperationException(\"已选记录不存在、已删除或不在当前多选页范围，请重新确认选择。\");")
                 .AppendLine("        var rows=selectedRows.ToDictionary(row=>Metarill.Data.Queries.NonRedundantReads.Value<long>(row,\"id\"));")
-                .AppendLine($"        return {BackendRenderer.NonRedundantProjectionCall(model,table,page,"selected.Select(id=>rows[id]).ToArray()","false")};").AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }").ToString();
+                .AppendLine($"        return {BackendRenderer.NonRedundantProjectionCall(model,table,page,"selected.Select(id=>rows[id]).ToArray()","false")};").AppendLine(snapshot?"    }, cancellationToken);":"    }").ToString();
         }
         // 固定计算名称的实际来源动作仍是本页list；先拒绝再读源行，不借候选的任一动作权限。
         if (FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null) result.AppendLine($"        RequireRoleNameAction{suffix}(actor,\"list\");");
@@ -80,7 +81,7 @@ internal static class SelectionPageRenderer
             .AppendLine("        if (entities.Count != selected.Length) throw new InvalidOperationException(\"已选记录不存在、已删除或不在当前多选页范围，请重新确认选择。\");")
             .AppendLine("        var rows = entities.ToDictionary(row => row.Id);")
             .Append(projected is null ? "" : "        var ordered = selected.Select(id => rows[id]).ToArray();\n")
-            .AppendLine(projected is not null ? "        return " + projected + ";" : $"        return selected.Select(id => {page.Name}Vo.FromEntity(rows[id]{(ManagerCredentialCompilation.IsOriginal(table,page) ? FixedRoleCheckboxCompilation.ForPage(model,table,page) is null ? ",false" : ",null,false" : "")})).ToArray();").AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    }, cancellationToken);":"    }").ToString();
+            .AppendLine(projected is not null ? "        return " + projected + ";" : $"        return selected.Select(id => {page.Name}Vo.FromEntity(rows[id]{(ManagerCredentialCompilation.IsOriginal(table,page) ? FixedRoleCheckboxCompilation.ForPage(model,table,page) is null ? ",false" : ",null,false" : "")})).ToArray();").AppendLine(snapshot?"    }, cancellationToken);":"    }").ToString();
     }
 
     /// <summary>回读使用目标页list权限与真实Actor，不借用请求项目或来源控件配置。</summary>

@@ -205,6 +205,106 @@ public sealed class FunctionTableGenerationTests : IDisposable
         finally {context.Unload();}
     }
 
+    /// <summary>独立表单父键验证已发布全局父页。候选与确认共用同一页和同一读快照。</summary>
+    [Theory]
+    [InlineData("global")]
+    [InlineData("globalRowProject")]
+    [InlineData("project")]
+    [InlineData("redundant")]
+    public async Task Function_multiselect_uses_the_published_global_parent(string scenario)
+    {
+        var catalog=WithGlobalParent(Catalog(),scenario);
+        Assert.Equal("802",Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
+        new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot());
+
+        var generated=Path.Combine(output,"backend/generated");
+        var controller=await File.ReadAllTextAsync(Path.Combine(generated,"Controllers/FunctionOptionPage103Controller.g.cs"));
+        Assert.Contains("SelectionSelected103Async(request, Actor(\"list\")",controller);
+        var code=await File.ReadAllTextAsync(Path.Combine(generated,"Services/FunctionOptionService.g.cs"));
+        Assert.Contains("CompileMultiGlobalParent(\"7\",\"103\")",code);
+        Assert.Contains("PageMultiGlobalParent103.BindAccount(actor)",code);
+        Assert.Contains("await ValidateParents103Async(parentId,actor,cancellationToken,locking:false)",code);
+        var start=code.IndexOf(" SelectionSelected103Async(",StringComparison.Ordinal);
+        Assert.True(start>=0);
+        var selected=code[start..];
+        Assert.Contains("InReadSnapshotAsync",selected[..selected.IndexOf("ArgumentNullException",StringComparison.Ordinal)]);
+        if(scenario.StartsWith("global",StringComparison.Ordinal))
+        {
+            Assert.Contains("PageAsync(CandidateReadPlan103.BindAccount(actor)",code);
+            Assert.Contains("KeyRowsAsync(CandidateReadPlan103.BindAccount(actor)",selected);
+        }
+        else
+        {
+            Assert.Contains("ResolveExactDataManage(\"103\", authorizationOperation, \"real_name\")",code);
+        }
+
+        await VerifyVueAsync(output,"GeneratedFunctionScopedMultiProbe.mjs");
+        await BuildFullAsync(output);
+        var context=new AssemblyLoadContext("GlobalParentFunctionMulti."+Guid.NewGuid().ToString("N"),isCollectible:true);
+        try
+        {
+            using var binary=File.OpenRead(Path.Combine(output,"backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"));
+            var service=context.LoadFromStream(binary).GetType("Example.FunctionForm.Generated.Services.FunctionOptionService",true)!;
+            RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            var binding=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+            var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                service.GetField("PageMultiGlobalParent103",binding)!.GetValue(null));
+            Assert.True(plan.RequiresAccount);
+        }
+        finally {context.Unload();}
+    }
+
+    /// <summary>使用两个全局父页面，显式绑定第二页的物理键和账号范围。</summary>
+    private static MetadataCatalog WithGlobalParent(MetadataCatalog catalog,string scenario)
+    {
+        var global=scenario.StartsWith("global",StringComparison.Ordinal);
+        var parent=new TableMetadata {Id="8",TableName="function_scope",Name="全局范围",YzProjectId="100",IsRongyu=1,
+            Extra=new(){["scopeKind"]=JsonSerializer.SerializeToElement("global")}};
+        var target=new TableMetadata {Id="7",TableName="function_option",Name="范围候选",YzProjectId="100",
+            IsRongyu=scenario=="redundant"?1:0};
+        if(global)target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigTables.AddRange([parent,target]);
+        foreach(var table in new[]{parent,target})
+            catalog.ConfigColumns.AddRange([
+                new(){Id=table.Id+"01",ConfigTableId=table.Id,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id=table.Id+"02",ConfigTableId=table.Id,ColumnName="name"},
+                new(){Id=table.Id+"03",ConfigTableId=table.Id,ColumnName="status",LogicalType="int32"},
+                new(){Id=table.Id+"04",ConfigTableId=table.Id,ColumnName="delete_no",LogicalType="datetime"},
+                new(){Id=table.Id+"05",ConfigTableId=table.Id,ColumnName="store_id",LogicalType="int64"}
+            ]);
+        if(scenario!="global")
+            catalog.ConfigColumns.Add(new(){Id="706",ConfigTableId="7",ColumnName="yz_project_id",LogicalType="int64"});
+        var published=new PageMetadata {Id="103",ConfigTableId="7",YzProjectId="100",YzAdminTypeId="70",Name="范围候选",
+            WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+"scope_id=@parent_id AND status=1 AND store_id=@current_store_id",
+            Extra=new(){["type"]=JsonSerializer.SerializeToElement(2)}};
+        if(!global)
+        {
+            published.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");
+            catalog.YzAdminTypes.Single(item=>item.Id=="70").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        }
+        catalog.ConfigPages.AddRange([
+            new(){Id="801",ConfigTableId="8",YzProjectId="100",YzAdminTypeId="70",WhereSql="status=0"},
+            new(){Id="802",ConfigTableId="8",YzProjectId="100",YzAdminTypeId="70",WhereSql="status=1 AND store_id=@current_store_id"},
+            published
+        ]);
+        catalog.ConfigColumns.AddRange([
+            new(){Id="707",ConfigTableId="7",ColumnName="scope_id",LogicalType="int64",LinkConfigTableId="8",
+                Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement("802")}},
+            new(){Id="39",ConfigTableId="2",ColumnName="review_ids",LogicalType="string",IsVirtualColumn=1,
+                ControlKind="MultiSelectPage",LinkConfigTableId="7",ControlDetail="""{"pageId":"103","nameField":"name"}"""},
+            new(){Id="94",ConfigTableId="2",ColumnName="review_country_id",Name="全局父级",LogicalType="int64",
+                IsVirtualColumn=1,LinkConfigTableId="8"}
+        ]);
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="801802",ConfigPageId="801",ConfigColumnId="802",IsShow=1},
+            new(){Id="802802",ConfigPageId="802",ConfigColumnId="802",IsShow=1},
+            new(){Id="103702",ConfigPageId="103",ConfigColumnId="702",IsShow=1},
+            new(){Id="10239",ConfigPageId="102",ConfigColumnId="39",IsEdit=1},
+            new(){Id="10294",ConfigPageId="102",ConfigColumnId="94",IsEdit=1}
+        ]);
+        return catalog;
+    }
+
     /// <summary>使用包内实际项目和依赖构建 ASP.NET Core 宿主，警告按错误处理。</summary>
     private static async Task BuildFullAsync(string output)
     {

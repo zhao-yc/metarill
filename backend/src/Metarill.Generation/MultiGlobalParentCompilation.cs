@@ -32,10 +32,24 @@ internal static class MultiGlobalParentCompilation
     internal static MultiTargetParentScope? PhysicalSingleTarget(GenerationModel model,TableModel table,PageModel page)=>
         SingleTarget(model,table,page) is {Logical:false} parent?parent:null;
 
+    /// <summary>原多选页的物理父键须显式关联全局表，父条件按目标页的实际声明证明。</summary>
+    internal static MultiTargetParentScope? PhysicalSelectionParent(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(!SelectionPageRenderer.Enabled(page))return null;
+        var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
+        if(parents.Length!=1)return null;
+        var key=parents[0].Column;
+        if(!model.Tables.Any(candidate=>candidate.IsGlobal&&candidate.Source.Id==key.Source.LinkConfigTableId)||
+            CrossTableStorageColumns.IsLogicalPathField(table.Source,model.Catalog.ConfigColumns,key.Source.ColumnName))
+            return null;
+        var condition=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
+        return MultiTargetParentScope.Compile(model.Catalog,table.Source,condition) is {Global:true,Logical:false} parent?parent:null;
+    }
+
     /// <summary>按目标页证明的实际全局父键，原多值引用保持已有同页校验。</summary>
     internal static PageModel? PhysicalTarget(GenerationModel model,TableModel table,PageModel page)
     {
-        if(PhysicalSingleTarget(model,table,page) is not null)return page;
+        if(PhysicalSingleTarget(model,table,page) is not null||PhysicalSelectionParent(model,table,page) is not null)return page;
         if(!FixedPageConditionCompilation.HasMultiTargetScope(model,table,page))return null;
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
         if(parents.Length!=1)return null;
