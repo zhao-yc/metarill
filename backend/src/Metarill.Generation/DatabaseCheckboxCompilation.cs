@@ -115,24 +115,31 @@ internal static class DatabaseCheckboxCompilation
             var sourceParent=parentScopes.FirstOrDefault().Column;
             var logicalSource=sourceParent is not null?NonRedundantCrossParentCompilation.Find(model,table,page,sourceParent):null;
             if(sourceParent is not null&&(!NonRedundantReadCompilation.Physical(model,table,sourceParent)||sourceParent.IsJsonArray||sourceParent.Type is not("long?" or "string?")))return Gap("来源父必须为固定标量ID。");
-            if(logicalSource is not null&&logicalPage?.Scopes.All(scope=>scope.Source!="parent")!=false)
-                return Gap("来源逻辑父键须对应明确的目标页父范围。");
+            var controlParents=scopes.Where(scope=>scope.Source=="parent").ToArray();
+            var pageHasParent=logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true;
+            if(logicalSource is not null&&controlParents.Length==0&&!pageHasParent)
+                return Gap("来源逻辑父键须对应明确的控件或目标页父范围。");
             var parents=logicalSource is {} path?new[]{path.Read.Levels[path.Index].Target}:parentScopes.Select(scope=>Parent(scope.Column)).ToArray();
             var globalParent=false;
-            foreach(var scope in scopes.Where(scope=>scope.Source=="parent"))if(sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id)return Gap("原parentId必须由来源页同一真实父表证明，不能猜测其他父范围。");
-            if(logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true)
+            // 控件自己的 parentId 条件可以绑定来源级联已证明的祖先。目标必须持有同一父表的物理键。
+            if(controlParents.Any(scope=>sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id))
+                return Gap("原parentId必须由来源页同一真实父表证明，不能猜测其他父范围。");
+            if(pageHasParent&&logicalPage is {} scopedPage)
             {
-                var syntax=FixedConditionPlan.Compile(logicalPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
+                var syntax=FixedConditionPlan.Compile(scopedPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
                 var binding=MultiTargetParentScope.Compile(model.Catalog,target.Source,syntax)!;
                 var owner=pageRead?binding.Source(model.Catalog,table.Source,source.Source,page.Source)
                     :binding.Source(model.Catalog,table.Source,source.Source);
                 globalParent=binding.Global;
-                if(globalParent)_=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,logicalPage.Source.Id);
+                if(globalParent)_=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,scopedPage.Source.Id);
                 if(sourceParent?.Source.Id!=owner.Column.Id||(owner.LogicalPages.Count>0)!=(logicalSource is not null))
                     return Gap("复选目标页父参数缺少同一来源父记录。");
-                scopes=scopes.Concat(logicalPage.Scopes.Where(scope=>scope.Source=="parent")).DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
+                scopes=scopes.Concat(scopedPage.Scopes.Where(scope=>scope.Source=="parent")).DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
             }
-            if(parents.Any(parent=>Protected(parent)||!(globalParent&&parent.IsGlobal)&&!HasIdentity(model,parent)))
+            // 只有显式关联了实际级联祖先时，原复选可直接沿来源的全局层位校验。
+            var explicitGlobalPath=logicalSource is not null&&controlParents.Length>0&&parents[0].IsGlobal&&
+                controlParents.All(scope=>scope.Column.Source.LinkConfigTableId==parents[0].Source.Id);
+            if(parents.Any(parent=>Protected(parent)||!(parent.IsGlobal&&(globalParent||explicitGlobalPath))&&!HasIdentity(model,parent)))
                 return Gap("来源父须具有普通业务项目归属或实际全局层位证明。");
             PageModel? excelTarget=null;
             if(table.Source.IsRongyu==0&&namePage is not null&&logicalPage is null&&!target.IsGlobal&&

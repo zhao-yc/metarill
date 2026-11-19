@@ -76,6 +76,105 @@ public sealed class DerivedCheckboxNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>控件直接限定物理外键时，候选、保存和 Excel 可以绑定来源级联还原的同一父级。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    [InlineData(true,true)]
+    public async Task Checkbox_control_parent_uses_the_actual_source_cascade(bool derived,bool globalParent)
+    {
+        const string ns="Example.CheckboxControlParent";
+        var catalog=NonRedundantCrossTableGenerationTests.Catalog("checkbox_control_parent","int64","int64");
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        sourcePage.Extra.Remove("type");
+        sourcePage.IsImport=sourcePage.IsExport=1;
+        sourcePage.WhereSql+=" AND country_id=@parentId";
+        if(derived)sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+        var parent=catalog.ConfigTables.Single(table=>table.Id=="3");
+        if(globalParent)
+        {
+            parent.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId==parent.Id&&column.ColumnName=="yz_project_id");
+            catalog.ConfigPages.Single(page=>page.ConfigTableId==parent.Id).WhereSql="status=1";
+        }
+        catalog.ConfigTables.Add(new(){Id="9",TableName="checkbox_control_parent_target",IsRongyu=derived?0:1});
+        catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="9",WhereSql="yz_project_id=@current_yz_project_id AND sheet_status=2"});
+        var targetParent=new ColumnMetadata {Id="96",ConfigTableId="9",ColumnName="target_scope_id",
+            LogicalType=derived?"string":"int64",LinkConfigTableId=parent.Id};
+        if(globalParent&&derived)
+        {
+            targetParent.ControlKind="List";
+            targetParent.ControlDetail="{\"tableId\":\"3\",\"pageId\":\"301\",\"nameField\":\"name\"}";
+        }
+        var name=new ColumnMetadata {Id="92",ConfigTableId="9",ColumnName="name",LogicalType="string"};
+        catalog.ConfigColumns.AddRange([
+            new(){Id="26",ConfigTableId="2",ColumnName="country_id",Name="国家",LogicalType="int64",LinkConfigTableId=parent.Id},
+            new(){Id="28",ConfigTableId="2",ColumnName="selected_ids",Name="复选",LogicalType="string",
+                ControlKind="MultiCheckBoxDatabase",LinkConfigTableId="9",
+                ControlDetail="{\"tableId\":\"9\",\"pageId\":\"901\",\"whereSql\":\"target_scope_id=@parentId AND status=1\"}"},
+            new(){Id="91",ConfigTableId="9",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            name,
+            new(){Id="93",ConfigTableId="9",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="94",ConfigTableId="9",ColumnName="status",LogicalType="int32"},
+            new(){Id="95",ConfigTableId="9",ColumnName="sheet_status",LogicalType="int32"},
+            targetParent]);
+        if(derived)
+        {
+            name.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("label.name");
+            catalog.ConfigColumns.Add(new(){Id="97",ConfigTableId="9",ColumnName="label_id",LogicalType="int64",
+                ControlKind="List",LinkConfigTableId="4",ControlDetail="{\"tableId\":\"4\",\"pageId\":\"401\",\"nameField\":\"name\"}"});
+            catalog.ConfigPageColumns.Add(new(){Id="90197",ConfigPageId="901",ConfigColumnId="97",IsShow=1,IsEdit=1});
+        }
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="20128",ConfigPageId="201",ConfigColumnId="28",IsShow=1,IsEdit=1,
+                Extra=new(){["isDetailShow"]=JsonSerializer.SerializeToElement(1)}},
+            new(){Id="90192",ConfigPageId="901",ConfigColumnId="92",IsShow=1}]);
+        RedundantMultiNameCacheTests.Published(catalog);
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=table.Pages.Single(item=>item.Source.Id=="201");
+        var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,page));
+        Assert.True(checkbox.LogicalSourceParent);
+        Assert.Null(checkbox.LogicalTargetPage);
+        Assert.Equal(parent.Id,Assert.Single(checkbox.SourceParents).Source.Id);
+        Assert.Contains(checkbox.Scopes,scope=>scope.Source=="parent"&&scope.Column.Source.Id==targetParent.Id);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-control-logical-parent");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var generated=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/CheckboxControlParentSourceService.g.cs"));
+            Assert.Contains("LogicalParentId201(parentId)",generated);
+            Assert.Contains("logicalRelationParentId: parentId",generated);
+            Assert.Contains("CountryId=Metarill.Data.Queries.NonRedundantReads.Value<long?>(row,\"country_id\")",generated);
+            Assert.Contains(derived?"new(\"target_scope_id\",FixedReadComparison.Equal,parentId!)"
+                :"row.TargetScopeId==long.Parse(parentId!",generated);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.CheckboxControlParentSourceService",true)!;
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+            const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+            var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service
+                .GetField("ExportReadPlan201",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
+            var sqlPlan=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+            var parentExpression=Assert.IsType<string>(sqlPlan.GetType().GetMethod("Expression",hidden)!.Invoke(sqlPlan,["country_id"]));
+            Assert.StartsWith("CASE WHEN",parentExpression);
+            Assert.Contains(" THEN ",parentExpression);
+
+            targetParent.LinkConfigTableId="4";
+            model=GenerationModel.Create(catalog,ns);
+            table=model.Tables.Single(item=>item.Source.Id=="2");
+            page=table.Pages.Single(item=>item.Source.Id=="201");
+            var rejected=DatabaseCheckboxCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="28"));
+            Assert.Null(rejected.Definition);
+            Assert.Contains("同一真实父表",rejected.Reason);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>非默认派生名称的候选、原导入导出和两种源存储使用同一固定字段。</summary>
     [Theory]
     [InlineData(0, false)]
