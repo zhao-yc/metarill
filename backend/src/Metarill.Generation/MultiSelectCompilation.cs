@@ -71,7 +71,8 @@ internal static class MultiSelectCompilation
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
             var scoped=FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage);
             var derived=DerivedMultiNamesCompilation.Declared(model,target,name);
-            if(scoped||derived)DerivedMultiNamesCompilation.Require(model,table,target,targetPage,name);
+            // 功能表只使用目标页自身的候选和确认回读，没有名称缓存或写入反查合同。
+            if(!functionForm&&(scoped||derived))DerivedMultiNamesCompilation.Require(model,table,target,targetPage,name);
             var fixedPage=Scalar(root,"pageId");
             if(fixedPage.Length==0)fixedPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
             var pageOverride=pageId!=fixedPage;

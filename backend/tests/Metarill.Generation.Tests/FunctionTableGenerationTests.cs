@@ -135,6 +135,79 @@ public sealed class FunctionTableGenerationTests : IDisposable
         await VerifyVueAsync(output,"GeneratedFunctionFormProbe.mjs");
         await VerifyVueAsync(output,"GeneratedFunctionFormCascadeProbe.mjs");
         await VerifyVueAsync(output,"GeneratedFunctionFormFileProbe.mjs");
+        await BuildFullAsync(output);
+
+        // 严格构建后再装载类型，确认下发的精简目录可以初始化固定读取计划。
+        CheckCheckboxPlan(output, scopedTargetStorage, logical);
+    }
+
+    /// <summary>实际生成的 type=2 目标在列表和已选回读中使用同一精确权限和父范围。</summary>
+    [Theory]
+    [InlineData("physical")]
+    [InlineData("nested")]
+    [InlineData("logical")]
+    public async Task Function_multiselect_uses_the_published_parent_and_exact_scope(string scenario)
+    {
+        var catalog=WithScopedCheckbox(WithCascades(Catalog()),scenario=="physical"?1:0);
+        var target=catalog.ConfigPages.Single(page=>page.Id=="103");
+        var name="name";
+        if(scenario=="logical")ConfigureDerivedCheckboxScope(catalog,"multi");
+        else if(scenario=="nested")
+        {
+            ConfigureDerivedCheckboxScope(catalog,"derived");
+            name="country_label";
+            // 中间页使用已发布的 R0 读取合同，确保账号变量确实进入联接计划。
+            catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=0;
+            catalog.ConfigColumns.Add(new(){Id="407",ConfigTableId="4",ColumnName="store_id",LogicalType="int64"});
+            catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql+=" AND store_id=@current_store_id";
+            catalog.ConfigPageColumns.Add(new(){Id="10319",ConfigPageId="103",ConfigColumnId="19",IsShow=1});
+        }
+        target.Extra["type"]=JsonSerializer.SerializeToElement(2);
+        catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="2",ColumnName="review_ids",LogicalType="string",
+            ControlKind="MultiSelectPage",LinkConfigTableId="1",IsVirtualColumn=1,
+            ControlDetail=JsonSerializer.Serialize(new{pageId="103",nameField=name})});
+        catalog.ConfigPageColumns.Add(new(){Id="10239",ConfigPageId="102",ConfigColumnId="39",IsEdit=1});
+        new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot());
+
+        var generated=Path.Combine(output,"backend/generated");
+        var form=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/summary_form-detail-102.vue"));
+        Assert.Contains("customer-list-103.vue",form);
+        Assert.Contains("reviewCountryId",form);
+        var controller=await File.ReadAllTextAsync(Path.Combine(generated,"Controllers/CustomerPage103Controller.g.cs"));
+        Assert.Contains("SelectionSelected103Async(request, Actor(\"list\")",controller);
+        var code=await File.ReadAllTextAsync(Path.Combine(generated,"Services/CustomerService.g.cs"));
+        Assert.Contains("ResolveExactDataManage(\"103\", authorizationOperation, \"real_name\")",code);
+        var index=code.IndexOf(" SelectionSelected103Async(",StringComparison.Ordinal);
+        Assert.True(index>=0);
+        var selected=code[index..];
+        Assert.Contains("await ValidateSelectionParents103Async(request.ParentId",selected);
+        Assert.Contains(scenario=="physical"?"entities.Count != selected.Length":"selectedRows.Count!=selected.Length",selected);
+        if(scenario!="physical")
+        {
+            Assert.Contains("PageAsync(ReadPlan103.BindAccount(actor)",code);
+            Assert.Contains("KeyRowsAsync(ReadPlan103.BindAccount(actor)",selected);
+            Assert.Contains("ReadFilters103(new PageRequest{ParentId=request.ParentId}",selected);
+        }
+
+        await VerifyVueAsync(output,"GeneratedFunctionScopedMultiProbe.mjs");
+        await BuildFullAsync(output);
+        if(scenario!="nested")return;
+        var context=new AssemblyLoadContext("ScopedFunctionMulti."+Guid.NewGuid().ToString("N"),isCollectible:true);
+        try
+        {
+            using var binary=File.OpenRead(Path.Combine(output,"backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"));
+            var service=context.LoadFromStream(binary).GetType("Example.FunctionForm.Generated.Services.CustomerService",true)!;
+            RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            var binding=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+            var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("ReadPlan103",binding)!.GetValue(null));
+            Assert.True(plan.RequiresAccount);
+        }
+        finally {context.Unload();}
+    }
+
+    /// <summary>使用包内实际项目和依赖构建 ASP.NET Core 宿主，警告按错误处理。</summary>
+    private static async Task BuildFullAsync(string output)
+    {
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
         {
             WorkingDirectory = output, RedirectStandardOutput = true, RedirectStandardError = true,
@@ -150,8 +223,11 @@ public sealed class FunctionTableGenerationTests : IDisposable
         try { await process.WaitForExitAsync(timeout.Token); }
         catch (OperationCanceledException) { if (!process.HasExited) process.Kill(true); throw; }
         Assert.True(process.ExitCode == 0, (await stdout) + (await stderr));
+    }
 
-        // 严格构建后再装载类型，确认下发的精简目录可以初始化固定读取计划。
+    /// <summary>装载包内复选计划，避免生成核验通过而宿主静态初始化失败。</summary>
+    private static void CheckCheckboxPlan(string output,int scopedTargetStorage,bool logical)
+    {
         if(scopedTargetStorage==0)
         {
             var context = new AssemblyLoadContext("FunctionForm."+Guid.NewGuid().ToString("N"), isCollectible:true);

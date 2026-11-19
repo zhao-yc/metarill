@@ -175,6 +175,18 @@ internal static class GeneratedNonRedundantReadCatalog
             .AppendLine("        return string.IsNullOrWhiteSpace(json)?null:JsonSerializer.Deserialize<JsonElement>(json);").AppendLine("    }");
         return result.AppendLine("}").ToString();
     }
+    /// <summary>候选分页、统计和已选回读共享同一实际页读取计划及账号绑定。</summary>
+    internal static string NonRedundantListReadPlan(GenerationModel model,TableModel table,PageModel page,NonRedundantPagePlan plan)
+    {
+        if(!NonRedundantReadCompilation.GlobalSelectionPage(table,page))
+            return NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+page.Source.Id,
+                singleTargets:plan.SingleTargets.Count>0||plan.RequiresAccount);
+        var bindAccount=plan.RequiresAccount||plan.SingleTargets.Count>0||CrossTableWriteCompilation.ForService(model,table,page).Count>0||
+            FixedPageConditionCompilation.HasSelfTreeFields(page)||FixedPageConditionCompilation.HasAccountVariables(page)||
+            NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page).Any(tree=>FixedPageConditionCompilation.HasAccountVariables(tree.TargetPage));
+        return "CandidateReadPlan"+page.Source.Id+(bindAccount?".BindAccount(actor)":"");
+    }
+
     /// <summary>普通父范围沿物理键，稀疏跨表父范围沿固定逻辑链；公开读取与私有当前锁分开。</summary>
     private static string NonRedundantQuery(GenerationModel model,TableModel table,PageModel page)
     {
@@ -187,8 +199,7 @@ internal static class GeneratedNonRedundantReadCatalog
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
         var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix,singleTargets:plan.SingleTargets.Count>0||plan.RequiresAccount);
         var crossCandidate=globalCandidate&&CrossTableWriteCompilation.ForService(model,table,page).Count>0;
-        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(plan.RequiresAccount||plan.SingleTargets.Count>0||crossCandidate||FixedPageConditionCompilation.HasSelfTreeFields(page)||FixedPageConditionCompilation.HasAccountVariables(page)||
-            NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page).Any(tree=>FixedPageConditionCompilation.HasAccountVariables(tree.TargetPage))?".BindAccount(actor)":""):readPlan;
+        var listPlan=globalCandidate?NonRedundantListReadPlan(model,table,page,plan):readPlan;
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
         var detailUsesCandidate=NonRedundantReadCompilation.GlobalSingleParentPage(table,page);
         var logicalCondition=FixedPageConditionCompilation.HasLogicalFields(page);
@@ -321,10 +332,7 @@ internal static class GeneratedNonRedundantReadCatalog
         var suffix=page.Source.Id;
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);
-        var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix,singleTargets:plan.SingleTargets.Count>0||plan.RequiresAccount);
-        var crossCandidate=globalCandidate&&CrossTableWriteCompilation.ForService(model,table,page).Count>0;
-        var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(plan.RequiresAccount||plan.SingleTargets.Count>0||crossCandidate||FixedPageConditionCompilation.HasSelfTreeFields(page)||FixedPageConditionCompilation.HasAccountVariables(page)||
-            NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page).Any(tree=>FixedPageConditionCompilation.HasAccountVariables(tree.TargetPage))?".BindAccount(actor)":""):readPlan;
+        var listPlan=NonRedundantListReadPlan(model,table,page,plan);
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
         var result=new StringBuilder().AppendLine("    /// <summary>派生值在SQL完整范围内聚合，当前页统计仍折叠原VO。</summary>").AppendLine($"    internal {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$"=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async()=>":"")}").AppendLine("    {").AppendLine("        var statistics=new Dictionary<string,object?>(StringComparer.Ordinal);");
         if(definitions.Count==0)result.AppendLine("        await Task.CompletedTask;");
