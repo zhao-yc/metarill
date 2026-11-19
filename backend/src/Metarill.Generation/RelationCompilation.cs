@@ -71,7 +71,8 @@ internal static class RelationCompilation
             if (targetPage is null) continue;
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
             // 原单选的附加条件已经逐项证明属于目标页，逻辑父和固定条件由同一页面计划执行。
-            var fixedParent=DerivedRelationNamesCompilation.SingleParent(model,target,targetPage);
+            var fixedParent=DerivedRelationNamesCompilation.SingleParent(model,target,targetPage)??
+                PhysicalTargetForLogicalSource(model,owner,page,target,targetPage);
             var where=selection is not null&&(fixedParent is {Logical:true}||FixedPageConditionCompilation.HasLogicalFields(targetPage))
                 ?"":Mapped("whereSql");
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,allowLogicalList:selection is null);
@@ -114,7 +115,10 @@ internal static class RelationCompilation
                     binding = new(true, null, "固定归属候选排序不能安全编译。");
                 }
             }
-            var sourceBinding=fixedParent?.SingleSource(model.Catalog,owner.Source,source.Source);
+            var sourceBinding=fixedParent is null?null:
+                !owner.IsGlobal&&!target.IsGlobal&&owner.Source.IsRongyu==0
+                    ?fixedParent.SingleSource(model.Catalog,owner.Source,source.Source,page.Source)
+                    :fixedParent.SingleSource(model.Catalog,owner.Source,source.Source);
             var fixedSourceParent=sourceBinding is null?null:owner.Columns.Single(column=>column.Source.Id==sourceBinding.Column.Id);
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,
                 fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0);
@@ -124,6 +128,20 @@ internal static class RelationCompilation
             relations.Add(relation);
         }
         return relations;
+    }
+
+    /// <summary>同一业务父表允许中间页从级联取得父键，目标页使用该表的真实物理外键。</summary>
+    private static MultiTargetParentScope? PhysicalTargetForLogicalSource(GenerationModel model,TableModel owner,PageModel sourcePage,
+        TableModel target,PageModel targetPage)
+    {
+        if(owner.IsGlobal||target.IsGlobal||owner.Source.IsRongyu!=0||target.Source.IsRongyu!=0||
+            targetPage.Scopes.Count(scope=>scope.Source=="parent")!=1)return null;
+        var sourceParents=sourcePage.Scopes.Where(scope=>scope.Source=="parent").Take(2).ToArray();
+        if(sourceParents.Length!=1||NonRedundantCrossParentCompilation.Find(model,owner,sourcePage,sourceParents[0].Column) is not {} path)
+            return null;
+        var condition=FixedConditionPlan.Compile(targetPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
+        var parent=MultiTargetParentScope.Compile(model.Catalog,target.Source,condition);
+        return parent is {Logical:false,Global:false}&&parent.Parent.Id==path.Read.Levels[path.Index].Target.Source.Id?parent:null;
     }
 
     /// <summary>有账号或逻辑范围的下拉即使隐藏，也须复核默认值和最终持久化值。</summary>

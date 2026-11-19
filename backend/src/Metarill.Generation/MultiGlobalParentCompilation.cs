@@ -93,7 +93,9 @@ internal static class MultiGlobalParentCompilation
             var targetPage=ProjectSinglePage(model,page,foreign,target);
             if(targetPage is null||SingleTarget(model,target,targetPage) is not {Logical:true} parent||
                 parent.Parent.Id!=parentTable.Source.Id)continue;
-            var sourceBinding=parent.SingleSource(model.Catalog,table.Source,foreign.Source);
+            var sourceBinding=table.Source.IsRongyu==0
+                ?parent.SingleSource(model.Catalog,table.Source,foreign.Source,page.Source)
+                :parent.SingleSource(model.Catalog,table.Source,foreign.Source);
             if(sourceBinding.LogicalPages.Count==0&&sourceBinding.Column.Id==source.Source.Id)
                 yield return (foreign,targetPage);
         }

@@ -1008,6 +1008,118 @@ public sealed class DerivedRelationNamesTests
     }
 
     /// <summary>声明同项目四表：来源订单→非冗余客户→公司名称；原字段和菜单方式均由元数据生成。</summary>
+    /// <summary>中间页的同父来自已选级联，另一个页面可独立使用物理父键。</summary>
+    [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)][InlineData(true,true)]
+    [InlineData(false,true,true)][InlineData(true,true,true)]
+    public async Task Nested_project_cache_keeps_the_actual_middle_parent(bool logicalTarget,bool alternatePage,bool sharedSource=false)
+    {
+        const string prefix="dr_names";
+        var catalog=Catalog(prefix,true);
+        var source=catalog.ConfigTables.Single(table=>table.Id=="1");
+        source.IsRongyu=1;
+        catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=0;
+        catalog.ConfigTables.Add(new(){Id="91",TableName=prefix+"_area",IsRongyu=1});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="911",ConfigTableId="91",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="912",ConfigTableId="91",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="913",ConfigTableId="91",ColumnName="name",LogicalType="string"},
+            new(){Id="914",ConfigTableId="91",ColumnName="group_id",LogicalType="int64",LinkConfigTableId="3"},
+            new(){Id="115",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"},
+            new(){Id="45",ConfigTableId="4",ColumnName="store_id",LogicalType="int64"},
+            ScopePath("218","2","origin")
+        ]);
+        catalog.ConfigPages.Add(new(){Id="9101",ConfigTableId="91",YzAdminTypeId="5",WhereSql="yz_project_id=@current_yz_project_id"});
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="9101913",ConfigPageId="9101",ConfigColumnId="913",IsShow=1},
+            new(){Id="9101914",ConfigPageId="9101",ConfigColumnId="914",IsShow=1}
+        ]);
+        catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="yz_project_id=@current_yz_project_id AND name <> '停用国家'";
+        var middle=catalog.ConfigPages.Single(page=>page.Id=="201");
+        middle.WhereSql=middle.WhereSql.Replace("group_id=@parent_id","origin_country_id=@parent_id",StringComparison.Ordinal);
+        catalog.ConfigPageColumns.Add(new(){Id="201218",ConfigPageId=middle.Id,ConfigColumnId="218",IsShow=1,IsEdit=1});
+        if(sharedSource)
+        {
+            var other=ScopePath("219","2","origin_alt");
+            other.ControlDetail=other.ControlDetail.Replace("origin_alt_country","origin_country",StringComparison.Ordinal);
+            catalog.ConfigColumns.Add(other);
+            catalog.ConfigPageColumns.Add(new(){Id="201219",ConfigPageId=middle.Id,ConfigColumnId=other.Id,IsShow=1,IsEdit=1});
+        }
+        var company=catalog.ConfigPages.Single(page=>page.Id=="401");
+        company.WhereSql+=" AND store_id=@current_store_id AND "+(logicalTarget?"territory_country_id":"group_id")+"=@parent_id";
+        if(logicalTarget)
+        {
+            catalog.ConfigColumns.Add(ScopePath("46","4","territory"));
+            catalog.ConfigPageColumns.Add(new(){Id="40146",ConfigPageId=company.Id,ConfigColumnId="46",IsShow=1,IsEdit=1});
+        }
+        else
+            catalog.ConfigColumns.Add(new(){Id="46",ConfigTableId="4",ColumnName="group_id",LogicalType="int64",LinkConfigTableId="3"});
+        catalog.ConfigColumns.Single(column=>column.Id=="27").Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement(company.Id);
+        // 外层目标不再使用原夹具的表单附加条件；两个候选都只由各自实际同父范围决定。
+        catalog.ConfigColumns.Single(column=>column.Id=="15").ControlDetail=
+            JsonSerializer.Serialize(new{tableId="2",nameField="company_name"});
+        foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id))
+            page.WhereSql+=" AND store_id=@current_store_id";
+        if(alternatePage)
+        {
+            catalog.ConfigPages.Add(new(){Id="202",ConfigTableId="2",YzAdminTypeId="5",
+                WhereSql="yz_project_id=@current_yz_project_id AND group_id=@parent_id"});
+            foreach(var column in catalog.ConfigPageColumns.Where(column=>column.ConfigPageId==middle.Id).ToArray())
+            {
+                var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(column))!;
+                copy.Id="202_"+copy.ConfigColumnId;copy.ConfigPageId="202";catalog.ConfigPageColumns.Add(copy);
+            }
+        }
+        RedundantMultiNameCacheTests.Published(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-nested-logical-cache");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.NestedLogicalCache");
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                assembly.GetType("Example.NestedLogicalCache.Generated.GeneratedRelationMaintenance",true)!
+                    .GetProperty("Catalog")!.GetValue(null));
+            Assert.Contains("dr_names_area",maintenance.MixedTargets);
+            Assert.Contains("dr_names_group",maintenance.MixedTargets);
+            const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+            var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+            var plan=plans[source.Id]!;
+            var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+            var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["customer_company_name"]));
+            var middleAlias=System.Text.RegularExpressions.Regex.Match(expression,@"^CASE WHEN (r\d+)\.").Groups[1].Value;
+            Assert.NotEmpty(middleAlias);
+            Assert.Contains(middleAlias+".`origin_area_id`",expression);
+            if(sharedSource)Assert.Contains(middleAlias+".`origin_alt_area_id`",expression);
+            Assert.Contains("b.`store_id`",expression);
+            Assert.DoesNotContain(middleAlias+".`group_id`",expression);
+            var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
+                read.GetType().GetProperty("Reverse",hidden)!.GetValue(read));
+            var areaDependencies=reverse.Cast<object>()
+                .Where(item=>Equals("dr_names_area",item.GetType().GetProperty("TargetTable")!.GetValue(item)))
+                .Select(item=>Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(
+                    item.GetType().GetProperty("Outputs")!.GetValue(item)))
+                .Where(outputs=>outputs.ContainsKey("customer_company_name"));
+            Assert.Contains(areaDependencies,outputs=>outputs["customer_company_name"].Contains("group_id"));
+            var party=assembly.GetType("Example.NestedLogicalCache.Generated.Services.DrNamesPartyService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(party.TypeHandle);
+            var partyService=File.ReadAllText(Path.Combine(directory,"generated/Services/DrNamesPartyService.g.cs"));
+            Assert.Contains("ReadPlan201.BindAccount(actor)",partyService);
+            Assert.Contains("SourcePageId=\"201\"",partyService);
+            if(alternatePage&&logicalTarget)Assert.Contains("SourcePageId=\"202\"",partyService);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+
+        ColumnMetadata ScopePath(string id,string table,string stem)=>new()
+        {
+            Id=id,ConfigTableId=table,ColumnName=stem+"_area_id",LogicalType="int64",ControlKind="CascadeTree",
+            LinkConfigTableId="91",ControlDetail=JsonSerializer.Serialize(new{sourceMode="crossTable",levels=new object[]{
+                new{table=prefix+"_group",columnPrefix=stem+"_country"},
+                new{table=prefix+"_area",columnPrefix=stem+"_area",parentField="group_id"}}})
+        };
+    }
+
     /// <summary>生成维护目录重新装载后仍保留纯项目中间页和末端范围，保存与回填共用传播计划。</summary>
     [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)]
     public async Task Nested_project_cache_publishes_terminal_filters(bool fixedCompany,bool selection)

@@ -318,6 +318,11 @@ public static partial class MySqlNonRedundantReadCompiler
             var parent=MultiParent(catalog,page);
             if((parent is null)!=(binding.SourceParentId is null)||parent is {Global:true,Logical:false})
                 throw new InvalidOperationException("项目内单值读取缺少已证明的父绑定。");
+            var publishedSource=parent is not null&&binding.SourcePageId is {} pageId
+                ?parent.SingleSource(catalog,owner,relation,catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==owner.Id))
+                :null;
+            if(publishedSource is not null&&publishedSource.Column.Id!=binding.SourceParentId)
+                throw new InvalidOperationException("项目内单值读取父键与实际来源页不一致。");
 
             var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_page");
             var plan=CompileCrossPageCandidate(catalog,target.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
@@ -328,13 +333,18 @@ public static partial class MySqlNonRedundantReadCompiler
             if(parent is {Logical:true})
             {
                 // 目标由实际可见路径还原父级，来源则按同一父记录的持久键或已发布逻辑路径匹配。
-                var sourceParent=parent.SingleSource(catalog,owner,relation);
+                var sourceParent=publishedSource??parent.SingleSource(catalog,owner,relation);
                 if(sourceParent.Column.Id!=binding.SourceParentId)
                     throw new InvalidOperationException("项目内单值读取父键与实际级联来源不一致。");
                 var sourceValue=SingleSourceParentValue(owner,ownerAlias,sourceParent);
                 predicate+=" AND "+SameSingleParent(plan.Expression(parent.Target.ColumnName),sourceValue);
                 foreach(var reference in plan.PhysicalReferences)
                     references.TryAdd((reference.Table,reference.Column.Name),reference);
+            }
+            else if(parent is not null&&publishedSource is {LogicalPages.Count:>0})
+            {
+                var sourceValue=SingleSourceParentValue(owner,ownerAlias,publishedSource);
+                predicate+=" AND "+SinglePhysicalParentCondition(owner,ownerAlias,prefix,parent,publishedSource.Column,sourceParent:sourceValue);
             }
             else if(parent is not null)
             {

@@ -229,7 +229,10 @@ internal static partial class NonRedundantReadCompilation
                 parent.Type is not("string?" or "long?" or "long"))
                 throw new NotSupportedException("项目内实时名称缺少当前页已证明的来源父键。");
         }
-        return new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id,parent?.Source.Id);
+        return new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id,parent?.Source.Id)
+        {
+            SourcePageId=relation.FixedParent is not null?page.Source.Id:null
+        };
     }
 
     /// <summary>生成验证与导出窄投影使用完全相同的各页固定目标。</summary>

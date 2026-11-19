@@ -23,6 +23,9 @@ public sealed record NonRedundantSingleTargetScope(string ColumnId,string PageId
     /// <summary>中间页没有额外条件时仍携带后续联接的实际目标页。</summary>
     public bool ApplyPageCondition { get; init; } = true;
 
+    /// <summary>固定父键由实际来源页证明，同表其它页面可以使用不同键。</summary>
+    public string? SourcePageId { get; init; }
+
     /// <summary>子绑定只用于当前目标别名，重复联接同一张表时不能借用其他角色的范围。</summary>
     public IReadOnlyList<NonRedundantSingleTargetScope> NestedTargets { get; init; } = [];
 }
