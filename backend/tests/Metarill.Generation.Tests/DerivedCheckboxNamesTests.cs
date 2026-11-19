@@ -261,6 +261,124 @@ public sealed class DerivedCheckboxNamesTests
     }
 
 
+    /// <summary>全局字典名称和筛选复用真实发布页，不从本项目列推断全局资格或项目限定。</summary>
+    [Theory]
+    [InlineData(1, false, "none", false, false)]
+    [InlineData(1, true, "project", true, false)]
+    [InlineData(1, false, "form", true, false)]
+    [InlineData(0, true, "none", false, false)]
+    [InlineData(0, true, "project", false, false)]
+    [InlineData(0, false, "form", true, false)]
+    [InlineData(0, false, "form", true, true)]
+    [InlineData(0, false, "account-form", true, true)]
+    public async Task Checkbox_global_business_names_follow_the_released_dictionary(
+        int storageMode,bool rowProject,string condition,bool explicitPage,bool derived)
+    {
+        const string ns="Example.GlobalCheckboxRead";
+        var catalog=Catalog("checkbox_global_read",false);
+        var target=catalog.ConfigTables.Single(table=>table.Id=="3");
+        target.IsRongyu=storageMode;
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(!rowProject)catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId==target.Id&&column.ColumnName=="yz_project_id");
+        var name=catalog.ConfigColumns.Single(column=>column.Id=="32");
+        if(!derived)
+        {
+            name.Extra.Remove("isJoinColumn");
+            name.Extra.Remove("columnFullName");
+        }
+        else
+        {
+            var company=catalog.ConfigTables.Single(table=>table.Id=="4");
+            company.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId==company.Id&&column.ColumnName=="yz_project_id");
+            catalog.ConfigPages.Single(page=>page.ConfigTableId==company.Id).WhereSql="";
+        }
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+        var account=condition=="account-form";
+        const long manager=9007199254740997L;
+        targetPage.WhereSql="status=48";
+        if(account)
+        {
+            catalog.ConfigColumns.Add(new(){Id="3052",ConfigTableId="3",ColumnName="handler_id",LogicalType="int64",YzProjectId=catalog.YzProjectId});
+            targetPage.WhereSql+=" AND handler_id=@current_yz_manager_id";
+        }
+        var field=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        field.Extra.Remove("linkConfigPageId");
+        var where=condition switch
+        {
+            "form" or "account-form"=>"segment=@formParameters.checkboxGlobalReadSource.segment",
+            "project"=>"yz_project_id=@current_yz_project_id",
+            _=>""
+        };
+        field.ControlDetail=JsonSerializer.Serialize(new{tableId="3",nameField="name",pageId=explicitPage?"301":null,whereSql=where});
+        var model=GenerationModel.Create(catalog,ns);
+        var source=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=source.Pages.Single(page=>page.Source.Id=="201");
+        var definition=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,source,page));
+        Assert.Equal("301",definition.NameTargetPage?.Source.Id);
+        var view=NonRedundantReadCompilation.ForPage(model,source,page);
+        var binding=Assert.Single(view.MultiTargets);
+        Assert.True(binding.ApplyPageScope);
+        Assert.Equal(condition!="none",binding.ApplyControlScope);
+        Assert.Equal("301",binding.TargetPageId);
+
+        var names=definition.Names.Source.ColumnName;
+        var plan=NonRedundantReadCompilation.CompilePage(model,source,["id",names],[names],[],view.SingleTargets,view.MultiTargets);
+        Assert.Equal(account,plan.RequiresAccount);
+        if(account)plan=plan.BindAccount(new Metarill.Core.Security.RuntimeActor(manager,"测试账号",false,catalog.YzProjectId,"5"));
+        const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var sql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+        var projection=Read<System.Collections.IDictionary>("MultiProjections")[names]!;
+        var scope=Assert.IsType<string>(projection.GetType().GetProperty("TargetScope")!.GetValue(projection));
+        var output=Read<IReadOnlyDictionary<string,string>>("Expressions")[names];
+        var predicate=Read<IReadOnlyDictionary<string,string>>("ArrayNamePredicates")[names];
+        var constants=Read<IReadOnlyDictionary<string,object?>>("Constants");
+        var status=Assert.Single(constants,pair=>Equals(pair.Value,48));
+        Assert.Equal(account,constants.Values.Contains(manager));
+        foreach(var command in new[]{scope,output,predicate})
+        {
+            Assert.Contains("multi_value.`status`",command);
+            Assert.Contains("multi_value.`delete_no` IS NULL",command);
+            Assert.Contains(status.Key,command);
+            Assert.Equal(condition=="project",command.Contains("multi_value.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
+            Assert.Equal(condition is "form" or "account-form",command.Contains("multi_value.`segment`=b.`segment`",StringComparison.Ordinal));
+            if(account)
+            {
+                Assert.Contains("multi_value.`handler_id`",command);
+                Assert.Contains(Assert.Single(constants,pair=>Equals(pair.Value,manager)).Key,command);
+            }
+        }
+        if(derived)Assert.Contains("checkbox_global_read_company",output);
+        var generated=DatabaseCheckboxRenderer.Service(model,source,page);
+        Assert.Contains("CheckboxOptions201_25Async",generated);
+        Assert.Contains("ValidateCheckbox201_25Async",generated);
+        Assert.Contains("ExportCheckbox201_25Async",ExportRenderer.Service(model,source,page));
+        if(account)
+        {
+            var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-checkbox-compiled");
+            var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+            try
+            {
+                new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+                var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+                var service=assembly.GetType(ns+".Generated.Services.CheckboxGlobalReadSourceService",true)!;
+                var information=service.GetField("ReadPlan201",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static);
+                Assert.NotNull(information);
+                Assert.True(Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(information.GetValue(null)).RequiresAccount);
+            }
+            finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+        }
+        if(storageMode==1&&condition=="project"&&explicitPage)
+        {
+            model.Catalog.ConfigPages.Add(new(){Id="302",ConfigTableId="3",YzProjectId=catalog.YzProjectId,WhereSql="status=1"});
+            Assert.Throws<InvalidOperationException>(()=>NonRedundantReadCompilation.CompilePage(model,source,["id",names],[names],[],
+                view.SingleTargets,[binding with {TargetPageId="302"}]));
+        }
+
+        T Read<T>(string name)=>Assert.IsAssignableFrom<T>(sql.GetType().GetProperty(name,hidden)!.GetValue(sql));
+    }
+
+
     /// <summary>控件直接限定物理外键时，候选、保存和 Excel 可以绑定来源级联还原的同一父级。</summary>
     [Theory]
     [InlineData(false,false,false)]

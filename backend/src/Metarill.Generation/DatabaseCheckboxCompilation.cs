@@ -122,8 +122,9 @@ internal static class DatabaseCheckboxCompilation
             if(!functionForm&&logicalPage is not null&&ExactDataManageCompilation.Declared(logicalPage))
                 return Gap("复选目标范围需要与实际目标页及项目归属一致。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
-            var controlRead=table.Source.IsRongyu==0&&!functionForm&&!target.IsGlobal&&
-                (conditions is not null||scopes.Any(scope=>scope.Source=="parent"));
+            var realtimeRead=table.Source.IsRongyu==0&&!functionForm;
+            var controlRead=realtimeRead&&(conditions is not null||
+                scopes.Any(scope=>scope.Source=="parent"||target.IsGlobal&&scope.Source=="project"));
             // 旧复选允许只绑定表。具有物理行项目归属的全局目录仍按真实身份限定。
             if (functionForm && NonRedundantReadCompilation.HasGlobalRowProject(target))
             {
@@ -223,7 +224,8 @@ internal static class DatabaseCheckboxCompilation
                 NameTargetPage=namePage,
                 PhysicalTargetPage=physicalPage,
                 // 普通目标页的物理范围也要进入业务行的回显和名称筛选。
-                UsesPageRead=pageRead||physicalPage is not null&&table.Source.IsRongyu==0&&!functionForm&&!target.IsGlobal,
+                UsesPageRead=pageRead||realtimeRead&&(physicalPage is not null||
+                    target.IsGlobal&&publishedGlobalPage is not null&&(controlRead||globalPage is not null||logicalPage is not null)),
                 UsesControlRead=controlRead,
                 FunctionParentField=functionForm?sourceParent:null,
                 ExactTarget=exactTarget,

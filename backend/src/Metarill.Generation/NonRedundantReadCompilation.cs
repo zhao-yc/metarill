@@ -289,7 +289,7 @@ internal static partial class NonRedundantReadCompilation
             .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.TargetPage.Source.Id,true))
             .Concat(DatabaseCheckboxCompilation.ForService(model,table,page).Where(def=>def.UsesPageRead||def.UsesControlRead)
                 .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.NameTargetPage?.Source.Id,
-                    def.LogicalTargetPage is not null||def.PhysicalTargetPage is not null,def.UsesControlRead))).ToArray();
+                    def.LogicalTargetPage is not null||def.PhysicalTargetPage is not null||def.Target.IsGlobal,def.UsesControlRead))).ToArray();
     }
 
     /// <summary>生成验证与导出窄投影使用完全相同的各页固定目标。</summary>

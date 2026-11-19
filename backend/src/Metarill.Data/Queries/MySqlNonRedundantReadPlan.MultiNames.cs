@@ -32,6 +32,14 @@ public static partial class MySqlNonRedundantReadCompiler
                         throw new InvalidOperationException("复选名称读取缺少实际发布的附加条件。");
                 }
                 if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
+                if(GlobalCrossTableTarget.Declared(target))
+                {
+                    // 即使旧配置省略页面 ID，也只接受全局发布证明选中的唯一目录。
+                    var published=GlobalMultipleRelationTarget.Require(catalog,table,relation,target).Page;
+                    if(pageId.Length>0&&pageId!=published.Id||selected?.Id!=published.Id||!binding.ApplyPageScope)
+                        throw new InvalidOperationException("全局复选名称与已发布目标页不一致。");
+                    pageId=published.Id;
+                }
             }
             else
             {
@@ -43,10 +51,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 }
                 if(pageId.Length==0)pageId=MultiTargetNamePage(catalog,target,relation)?.Id??"";
             }
-            // 普通 R1 目标只开放数据库复选的已发布物理范围，其他多值绑定仍要求 R0 目标。
-            var scopedPhysicalCheckbox=relation.ControlKind=="MultiCheckBoxDatabase"&&target.IsRongyu==1&&(binding.ApplyPageScope||control is not null);
+            // R1 及显式全局目标只开放数据库复选的已发布范围。
+            var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
+            var scopedPhysicalCheckbox=checkbox&&target.IsRongyu==1&&(binding.ApplyPageScope||control is not null);
             if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox||GlobalCrossTableTarget.Declared(table)||
-                                GlobalCrossTableTarget.Declared(target)||pageId!=(selected?.Id??"")||
+                GlobalCrossTableTarget.Declared(target)&&!checkbox||pageId!=(selected?.Id??"")||
                 selected is null&&(binding.ApplyPageScope||control is null)||
                 binding.ApplyControlScope&&control is null||
                 source.YzProjectId.Length>0&&source.YzProjectId!=catalog.YzProjectId||
@@ -64,8 +73,12 @@ public static partial class MySqlNonRedundantReadCompiler
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
                 throw new NotSupportedException("多值名称要求已证明的目标及原多选或数据库复选。");
             var global=GlobalCrossTableTarget.Declared(target);
+            // 全局 R1 使用原物理候选证明，R0 继续用目标页的逻辑名称与条件计划。
+            var physicalGlobalPage=global&&physicalScope?selectedScope:null;
+            var selectedPage=physicalGlobalPage is null?selectedScope:null;
             var scalarLabel=storage[target.Id].IsPhysical(value)
-                ?MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id])
+                ?MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id])||
+                    global&&GlobalPhysicalRelationValue.IsPublishedTypedCache(catalog,storage[target.Id],target,value)
                 :MultiNameStorageColumns.IsDerivedScalarLabel(target,value,storage[target.Id]);
             if(value.LogicalType!="string"&&!scalarLabel)throw new NotSupportedException("多值派生名称类型未支持。");
             // 全局单值路径已证明字符串键的二进制读取；这里不是仅允许int64键的精确管理匹配用途。
@@ -84,15 +97,15 @@ public static partial class MySqlNonRedundantReadCompiler
             var sourceParentSql=logicalSource?LogicalRelationSourceParent(table,owner,sourceBinding!):null;
             if(sourceParent is not null&&!logicalSource){Use(table,sourceParent);Touch(owner,sourceParent.ColumnName);}
             var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
-                trackReverse:refreshFields is not null,candidatePage:selectedScope is null?publishedPage:null,multiLabel:true,cascadeLabelField:value.ColumnName,
-                cascadeCacheOwner:refreshFields is null?null:new(table,owner),scopedPhysicalCandidate:physicalScope)
+                trackReverse:refreshFields is not null,candidatePage:physicalGlobalPage??(selectedPage is null?publishedPage:null),multiLabel:true,cascadeLabelField:value.ColumnName,
+                cascadeCacheOwner:refreshFields is null?null:new(table,owner),scopedPhysicalCandidate:physicalScope&&!global)
             {
-                SelectedMultiPage=selectedScope,
+                SelectedMultiPage=selectedPage,
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent),
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
                 MultiNamePathPage=namePage,
                 AllowLiteralMultiScope=sourcePage is not null,
-                GlobalCrossCandidate=global&&selectedScope is not null
+                GlobalCrossCandidate=global&&selectedPage is not null
             };
             var parents=new List<string>();
             foreach(var range in controlParents)
@@ -191,7 +204,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(control is null)return "";
             bool Project(FixedConditionTerm term)=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
                 value.Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase));
-            if(control.Terms.Where(Project).Any(term=>term.Field!="yz_project_id"||term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1))
+            var project=control.Terms.Where(Project).ToArray();
+            if(project.Any(term=>term.Field!="yz_project_id"||term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1))
                 throw new InvalidOperationException("复选附加条件的项目变量必须使用真实项目列。");
             var terms=control.Terms.Where(term=>!Project(term)&&!IsCheckboxParentTerm(term)).Select(term=>term.ToDefinition());
             var syntax=FixedConditionPlan.Compile(string.Join(" AND ",terms),columns[target.Id].Keys);
@@ -208,7 +222,14 @@ public static partial class MySqlNonRedundantReadCompiler
             },(variable,type)=>AccountConditionVariables.IsSupported(variable)?null:
                 SingleControlFormColumn(source,owner,validity,variable,type,fields,projectionAlias),deferAccount:true);
             foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
-            return string.Join(" AND ",new[]{clause.Sql}.Concat(validity).Where(part=>part.Length>0));
+            var rowProject="";
+            if(project.Length>0&&GlobalCrossTableTarget.Declared(target))
+            {
+                if(!columns[target.Id].TryGetValue("yz_project_id",out var column)||!storage[target.Id].IsPhysical(column))
+                    throw new InvalidOperationException("全局复选按项目过滤须有明确的物理归属列。");
+                rowProject=Scope(target,"multi_value",includeDeleted:true);
+            }
+            return string.Join(" AND ",new[]{clause.Sql,rowProject}.Concat(validity).Where(part=>part.Length>0));
         }
 
 
