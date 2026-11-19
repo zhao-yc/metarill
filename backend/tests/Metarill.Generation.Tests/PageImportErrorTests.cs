@@ -26,6 +26,8 @@ public sealed class PageImportErrorTests
         Assert.Same(input, input.AtRow(3)); Assert.Equal(2, input.RowNumber);
         var ambiguous = PageImportException.Input(PageImportError.AmbiguousOverwrite, columnName: "名称", inner: inner).AtRow(3);
         Assert.Equal("第3行，列「名称」：当前父范围内有多个同名匹配，请先消除重名后再导入。", ambiguous.Message);
+        var changed = PageImportException.Input(PageImportError.OverwriteKeyChanged, columnName: "关联对象").AtRow(4);
+        Assert.Equal("第4行，列「关联对象」：首列与原记录的联动条件不一致，请核对首列和联动字段。", changed.Message);
         Assert.Throws<ArgumentOutOfRangeException>(() => input.AtRow(0)); Assert.Throws<ArgumentOutOfRangeException>(() => input.AtRow(-1));
         Assert.Throws<ArgumentOutOfRangeException>(() => PageImportException.Input(PageImportError.Number, 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => PageImportException.Input((PageImportError)999));

@@ -111,6 +111,9 @@ public sealed partial class {{page.Name}}ImportRequest
                 if(logicalMatch is null)result.AppendLine("                if (existing.Count == 1) importExisting = existing[0];");
                 else result.Append(NonRedundantImportMatchRenderer.Context(page));
                 result.AppendLine($"                var values = await ParseImport{page.Source.Id}Async(row, request.ParentId, actor, importExisting, false{fixedCrossParameter}, cancellationToken);");
+                // 旧联动值可以补足省略的其它列，但不能将覆盖匹配键换成另一条同名候选。
+                if (dependency.Dependencies.ContainsKey(first.Source.Id))
+                    result.AppendLine($"                if (importExisting is not null && (!values.TryGetValue({Literal(first.JsonName)}, out var resolvedMatchValue) || !JsonElement.DeepEquals(matchValue, resolvedMatchValue))) throw PageImportException.Input(PageImportError.OverwriteKeyChanged, columnName: {Literal(Header(first))});");
             }
             result.AppendLine("                if (existing.Count == 1)").AppendLine("                {")
                 .AppendLine("                    values[\"id\"] = JsonSerializer.SerializeToElement(existing[0].Id);")

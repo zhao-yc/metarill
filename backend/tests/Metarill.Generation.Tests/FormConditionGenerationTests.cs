@@ -27,6 +27,38 @@ public sealed class FormConditionGenerationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,Path.Combine(Path.GetTempPath(),"metarill-form-plan"));}
     }
+    /// <summary>首列关联改用锁定记录的联动值再次解析时，禁止覆盖到另一个同名目标。</summary>
+    [Theory]
+    [InlineData("List")]
+    [InlineData("SelectPage")]
+    public void Relation_overwrite_keeps_the_key_that_selected_the_locked_record(string control)
+    {
+        var catalog = Catalog();
+        var keyColumn = catalog.ConfigColumns.Single(column => column.Id == "25");
+        keyColumn.Name = "关联对象";
+        keyColumn.ControlKind = control;
+        if (control == "SelectPage")
+        {
+            catalog.ConfigTables.Single(table => table.Id == "2").IsRongyu = 0;
+            catalog.ConfigPages.Single(page => page.Id == "301").Extra["type"] = JsonSerializer.SerializeToElement(1);
+        }
+        keyColumn.ControlDetail = JsonSerializer.Serialize(new
+        {
+            tableId = "3", pageId = "301", nameField = "name", whereSql = "id>=@formParameters.minimum"
+        });
+        var model = GenerationModel.Create(catalog, "Example.FormOverwrite");
+        var table = model.Tables.Single(table => table.Source.Id == "2");
+        var service = ImportRenderer.Service(model, table, table.Pages.Single());
+
+        Assert.Contains("existing is null ? JsonSerializer.Deserialize<long?>(\"1\", JsonOptions) : existing.Minimum", service);
+        int match = service.IndexOf(".ForUpdate().Limit(2)", StringComparison.Ordinal);
+        int reparse = service.IndexOf("actor, importExisting, false", StringComparison.Ordinal);
+        int compare = service.IndexOf("!JsonElement.DeepEquals(matchValue, resolvedMatchValue)", StringComparison.Ordinal);
+        int update = service.IndexOf("var update = ReadRow", StringComparison.Ordinal);
+        Assert.True(match >= 0 && match < reparse && reparse < compare && compare < update);
+        Assert.Contains("PageImportError.OverwriteKeyChanged, columnName:", service);
+    }
+
     /// <summary>联动字段本身是另一个关系时，循环必须在原子批次写盘前拒绝。</summary>
     [Fact]
     public void Form_dependencies_cannot_cycle_through_another_relation()

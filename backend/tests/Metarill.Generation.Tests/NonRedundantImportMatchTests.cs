@@ -20,7 +20,8 @@ public sealed class NonRedundantImportMatchTests
         var catalog=Catalog(type);var before=JsonSerializer.Serialize(catalog);var model=GenerationModel.Create(catalog,"Example.LogicalImport");var table=model.Tables.Single(table=>table.Source.Id=="2");var page=table.Pages.Single();
         var declared=ImportRenderer.Columns(page);Assert.Equal("name",declared[0].Source.ColumnName);
         var match=NonRedundantImportMatchRenderer.Resolve(model,table,page,ImportDependencyCompilation.ForPage(model,table,page))!;
-        Assert.Equal(CrossTableExcelRenderer.ImportAcceptancePending,NonRedundantCrossTableSubset.Reason(model,table,page));
+        // 逻辑祖先单值首列已纳入公开生成，稀疏存储仍由下方真实加载的计划核对。
+        Assert.Null(NonRedundantCrossTableSubset.Reason(model,table,page));
         Assert.Equal("country_id",match.Key.Source.ColumnName);Assert.Equal(new[]{"country_id","id"},match.Outputs.Order());Assert.Contains("yz_project_id",match.Dependencies);
         var sparse=CrossTableSparseSelection.Compile(table.Source,"25",catalog.ConfigColumns.Where(column=>column.ConfigTableId=="2"));var stored=sparse.PackValidatedPath(new long[]{1,2,3});Assert.Null(stored["country_id"]);Assert.NotNull(stored["place_id"]);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-logical-import-match");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
