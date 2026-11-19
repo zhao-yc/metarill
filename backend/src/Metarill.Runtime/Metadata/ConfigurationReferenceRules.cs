@@ -71,6 +71,14 @@ internal static class ConfigurationReferenceRules
             if (!string.IsNullOrWhiteSpace(id)) return tables.GetValueOrDefault(id);
             var matches = tables.Values.Where(table => table.TableName == name).Take(2).ToArray(); return matches.Length == 1 ? matches[0] : null;
         }
+        // 旧List省略控件映射时仍承认已声明的关联页、joinTable及原列名前缀。
+        TableMetadata? ListReference(ColumnMetadata source, string id, string name, string pageId)
+        {
+            if (!string.IsNullOrWhiteSpace(id) || !string.IsNullOrWhiteSpace(name)) return Table(id, name);
+            if (!string.IsNullOrWhiteSpace(pageId))
+                return pages.TryGetValue(pageId, out var selected) ? tables.GetValueOrDefault(selected.ConfigTableId) : null;
+            return Table(null, MetadataNames.LegacySingleTargetName(source));
+        }
         // List 与选择页只合并非空映射字段，级联页面覆盖整体替换。
         void Scan(ColumnMetadata source, PageColumnMetadata? field)
         {
@@ -86,7 +94,8 @@ internal static class ConfigurationReferenceRules
                 }
                 if (source.ControlKind == "List")
                 {
-                    var referenced = Table(Mapped("tableId", source.LinkConfigTableId), Mapped("table"));
+                    var referenced = ListReference(source, Mapped("tableId", source.LinkConfigTableId), Mapped("table"),
+                        Mapped("pageId", Extra(source, "linkConfigPageId")));
                     Add(source, field, referenced, "nameField", Mapped("nameField", "name")); Add(source, field, referenced, "idField", "id");
                 }
                 else if (source.ControlKind is "SelectPage" or "MultiSelectPage")
@@ -128,11 +137,19 @@ internal static class ConfigurationReferenceRules
             {
                 var joined = Extra(relation, "joinTable");
                 if (!string.IsNullOrWhiteSpace(relation.LinkConfigTableId)) referenced = Table(relation.LinkConfigTableId, null);
+                else if (relation.ControlKind == "List")
+                {
+                    var detail = Definition(relation.ControlDetail);
+                    var selected = Value(detail, "pageId");
+                    referenced = ListReference(relation, Value(detail, "tableId"), Value(detail, "table"),
+                        string.IsNullOrWhiteSpace(selected) ? Extra(relation, "linkConfigPageId") : selected);
+                }
                 else if (!string.IsNullOrWhiteSpace(joined)) referenced = Table(null, joined);
-                else if (relation.ControlKind == "List") { var detail = Definition(relation.ControlDetail); referenced = Table(Value(detail, "tableId"), Value(detail, "table")); }
                 else if (relation.ControlKind is "SelectPage" or "MultiSelectPage")
                 { var selected = pages.GetValueOrDefault(Value(Definition(relation.ControlDetail), "pageId")); referenced = selected is null ? null : tables.GetValueOrDefault(selected.ConfigTableId); }
-                if (referenced is null && string.IsNullOrWhiteSpace(relation.LinkConfigTableId) && string.IsNullOrWhiteSpace(joined) && string.IsNullOrWhiteSpace(relation.ControlDetail)) referenced = Table(null, path[0]);
+                if (referenced is null && relation.ControlKind != "List" && string.IsNullOrWhiteSpace(relation.LinkConfigTableId) &&
+                    string.IsNullOrWhiteSpace(joined) && string.IsNullOrWhiteSpace(relation.ControlDetail))
+                    referenced = Table(null, path[0]);
                 Add(source, null, referenced, "columnFullName", path[1]);
             }
             catch (Exception error) when (error is JsonException or InvalidOperationException)

@@ -36,6 +36,37 @@ public sealed class ConfigurationReferenceRulesTests
         Assert.Throws<UnauthorizedAccessException>(() => ConfigurationReferenceRules.Build(catalog, "999"));
     }
 
+    /// <summary>旧声明同时参与List名称和单层联接引用。显式失效页继续保持不可推断。</summary>
+    [Theory]
+    [InlineData("joinTable")]
+    [InlineData("stem")]
+    [InlineData("linkedPage")]
+    public void Legacy_list_targets_appear_in_field_and_join_references(string mode)
+    {
+        var catalog = Catalog();
+        var foreign = catalog.ConfigColumns.Single(column => column.Id == "21");
+        foreign.ControlKind = "List";
+        foreign.ControlDetail = """{"tableId":"","table":"","nameField":"title"}""";
+        if (mode == "joinTable")
+            foreign.Extra["joinTable"] = JsonSerializer.SerializeToElement("target_table");
+        else if (mode == "stem")
+            foreign.ColumnName = "target_table_id";
+        else
+            foreign.Extra["linkConfigPageId"] = JsonSerializer.SerializeToElement("100");
+        var joined = new ColumnMetadata { Id = "22", ConfigTableId = "2", ColumnName = "copied_title", YzProjectId = "1" };
+        joined.Extra["isJoinColumn"] = JsonSerializer.SerializeToElement(1);
+        joined.Extra["columnFullName"] = JsonSerializer.SerializeToElement(foreign.ColumnName[..^3] + ".title");
+        catalog.ConfigColumns.Add(joined);
+
+        var result = ConfigurationReferenceRules.Build(catalog, "11");
+        Assert.Contains(result.Controls, item => item.SourceType == "column" && item.ReferencePath == "nameField");
+        Assert.Contains(result.Controls, item => item.SourceType == "pageColumn" && item.ReferencePath == "nameField");
+        Assert.Contains(result.Controls, item => item.ColumnId == "22" && item.ReferencePath == "columnFullName");
+
+        foreign.Extra["linkConfigPageId"] = JsonSerializer.SerializeToElement("999");
+        Assert.Empty(ConfigurationReferenceRules.Build(catalog, "11").Controls);
+    }
+
     [Fact]
     public void Cascade_page_override_replaces_the_entire_base_definition_and_masks_parse_errors()
     {

@@ -79,6 +79,12 @@ internal static class RelationCompilation
                     throw new InvalidOperationException("功能表下拉的已发布目标页与声明目标表或页面不一致。");
                 target = published;
             }
+            else if (source.Source.ControlKind == "List" && tableId.Length == 0 && tableName.Length == 0 &&
+                Mapped("pageId").Length == 0)
+            {
+                // 没有控件目标时，与实体校验、派生名称共同使用原关联页和旧表名。
+                target = ForeignValidationRenderer.Target(model, source);
+            }
             if (target is null) continue; // 保留尚未移植的外部关系配置，能力清单明确列出未接入字段。
             if (target.Source.IsFunctionTable == 1)
                 throw new InvalidOperationException("功能表没有可读取的候选记录：" + target.Source.TableName);

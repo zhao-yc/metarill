@@ -165,8 +165,7 @@ public static class ProjectScopedSingleRelationTarget
             targetId=catalog.ConfigPages.SingleOrDefault(page=>page.Id==Text(foreign,"linkConfigPageId"))?.ConfigTableId??"";
         if(targetId.Length>0)return catalog.ConfigTables.SingleOrDefault(table=>table.Id==targetId);
         var name=Value(definition,"table");
-        if(name.Length==0)name=Text(foreign,"joinTable");
-        if(name.Length==0&&foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal))name=foreign.ColumnName[..^3];
+        if (name.Length == 0) name = MetadataNames.LegacySingleTargetName(foreign);
         return catalog.ConfigTables.SingleOrDefault(table=>table.TableName==name);
     }
 

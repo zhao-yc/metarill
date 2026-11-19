@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
 
@@ -12,12 +13,28 @@ internal static class ForeignValidationRenderer
     {
         if (!string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId)) return model.Tables.SingleOrDefault(table => table.Source.Id == column.Source.LinkConfigTableId);
         if (column.Source.ControlKind == "MultiCheckBoxDatabase") return model.Tables.SingleOrDefault(table => table.Source.TableName == column.Source.ControlDetail);
+        var list = column.Source.ControlKind == "List";
         if (column.Source.ControlKind is "List" or "SelectPage" or "MultiSelectPage" && !string.IsNullOrWhiteSpace(column.Source.ControlDetail))
         {
             using var detail = JsonDocument.Parse(column.Source.ControlDetail);
-            if (detail.RootElement.TryGetProperty("tableId", out var tableId)) return model.Tables.SingleOrDefault(table => table.Source.Id == tableId.ToString());
-            if (detail.RootElement.TryGetProperty("table", out var tableName)) return model.Tables.SingleOrDefault(table => table.Source.TableName == tableName.ToString());
-            if (detail.RootElement.TryGetProperty("pageId", out var pageId)) return model.Tables.SingleOrDefault(table => table.Pages.Any(page => page.Source.Id == pageId.ToString()));
+            // 原List明细可保留空的映射键，空键不能遮住旧关系声明。
+            bool Declared(string key, out JsonElement value) =>
+                detail.RootElement.TryGetProperty(key, out value) && (!list || !string.IsNullOrWhiteSpace(value.ToString()));
+            if (Declared("tableId", out var tableId)) return model.Tables.SingleOrDefault(table => table.Source.Id == tableId.ToString());
+            if (Declared("table", out var tableName)) return model.Tables.SingleOrDefault(table => table.Source.TableName == tableName.ToString());
+            if (Declared("pageId", out var pageId)) return model.Tables.SingleOrDefault(table => table.Pages.Any(page => page.Source.Id == pageId.ToString()));
+        }
+        if (list)
+        {
+            var linkedPage = column.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+            var legacyTable = MetadataNames.LegacySingleTargetName(column.Source);
+            // 仅从当前发布目录内找后备目标。显式页面找不到时不能降级到同名表。
+            bool Owned(MetadataRecord record) =>
+                record.YzProjectId.Length == 0 || record.YzProjectId == model.Catalog.YzProjectId;
+            return !string.IsNullOrWhiteSpace(linkedPage)
+                ? model.Tables.SingleOrDefault(table => Owned(table.Source) &&
+                    table.Pages.Any(page => page.Source.Id == linkedPage && Owned(page.Source)))
+                : model.Tables.SingleOrDefault(table => Owned(table.Source) && table.Source.TableName == legacyTable);
         }
         var suffix = column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? "_ids" : "_id";
         if (!column.Source.ColumnName.EndsWith(suffix, StringComparison.Ordinal)) return null;
