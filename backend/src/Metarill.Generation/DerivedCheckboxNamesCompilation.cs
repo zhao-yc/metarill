@@ -39,11 +39,14 @@ internal static class DerivedCheckboxNamesCompilation
 
         var page=def.NameTargetPage!;
         var targets=ExactNameTargets(model,def,exact);
+        var bindings=NonRedundantCrossTableCompilation.Bindings(exact.CrossPlans??[]);
+        if(HasExactLogicalParent(model,def))
+            return NonRedundantReads.CompileExactCheckboxParentCandidate(model.Catalog,def.Target.Source.Id,page.Source.Id,
+                outputs,dependencies,bindings,targets);
         if(def.LogicalTargetPage is not null)
             return DerivedRelationNamesCompilation.CompileLogicalPage(model,def.Target,page,outputs,dependencies,
                 singleTargets:targets,exact:exact);
-        return NonRedundantReadCompilation.CompilePage(model,def.Target,outputs,dependencies,
-            NonRedundantCrossTableCompilation.Bindings(exact.CrossPlans??[]),targets,[]);
+        return NonRedundantReadCompilation.CompilePage(model,def.Target,outputs,dependencies,bindings,targets,[]);
     }
 
     /// <summary>实际生成静态计划与发布验证使用相同字段、关联和页面范围。</summary>
@@ -59,12 +62,12 @@ internal static class DerivedCheckboxNamesCompilation
         var args=Fields(["id",field])+","+Fields(dependencies);
         var crossBindings=NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans??[]);
         var cross=crossBindings.Length==0?",Array.Empty<NonRedundantCrossTableScope>()":crossBindings;
+        if(HasExactLogicalParent(model,def))
+            return "CompileExactCheckboxParentCandidate("+JsonSerializer.Serialize(def.Target.Source.Id)+","+
+                JsonSerializer.Serialize(page.Source.Id)+","+args+cross+NonRedundantReadCompilation.SingleTargetArgument(targets)+")";
         if(def.LogicalTargetPage is not null)
-        {
-            var logicalParent=DerivedRelationNamesCompilation.SingleParent(model,def.Target,page) is {Logical:true};
             return DerivedRelationNamesCompilation.LogicalPagePlanStart(model,def.Target,page,exact:exact)+","+args+
-                (logicalParent?cross:"")+NonRedundantReadCompilation.SingleTargetArgument(targets,logicalParent?null:"singleTargets")+")";
-        }
+                NonRedundantReadCompilation.SingleTargetArgument(targets,"singleTargets")+")";
         if(targets.Count==0&&crossBindings.Length==0)
             return "Compile("+JsonSerializer.Serialize(def.Target.Source.Id)+","+args+")";
         var start=targets.Count==0?"CompileCross":"CompileProjectPage";
@@ -72,10 +75,15 @@ internal static class DerivedCheckboxNamesCompilation
             NonRedundantReadCompilation.SingleTargetArgument(targets)+")";
     }
 
+    /// <summary>复选独立父字段只对应当前候选页已证明的逻辑层位，不依赖页面属于哪种选择控件。</summary>
+    internal static bool HasExactLogicalParent(GenerationModel model,DatabaseCheckboxModel def)=>
+        def.ExactTarget is not null&&def.LogicalTargetPage is {} page&&
+        def.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,def.Target,page,scope.Column));
+
     /// <summary>固定逻辑成员计划只解析字段，页面字面条件和当前账号在调用时显式附加。</summary>
     internal static PageModel? ExactMembershipPage(GenerationModel model,DatabaseCheckboxModel def)=>
         def.ExactTarget is not null&&def.LogicalTargetPage is {} page&&
-        DerivedRelationNamesCompilation.SingleParent(model,def.Target,page) is not {Logical:true}?page:null;
+        !HasExactLogicalParent(model,def)?page:null;
 
     /// <summary>授权和名称共用已发布的中间关系，冲突的绑定在生成时拒绝。</summary>
     private static IReadOnlyList<NonRedundantSingleTargetScope> ExactNameTargets(GenerationModel model,

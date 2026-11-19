@@ -15,11 +15,18 @@ public sealed class FunctionTableGenerationTests : IDisposable
 
     /// <summary>从真实 Full 包验证原表单、候选权限、功能菜单与无持久化边界。</summary>
     [Theory]
-    [InlineData(1)]
-    [InlineData(0)]
-    public async Task Function_form_packages_its_original_detail_and_authorized_options_without_a_mapper(int scopedTargetStorage)
+    [InlineData(1, "physical")]
+    [InlineData(0, "physical")]
+    [InlineData(0, "derived")]
+    [InlineData(0, "logical")]
+    [InlineData(0, "ordinary")]
+    [InlineData(0, "multi")]
+    [InlineData(0, "shared")]
+    public async Task Function_form_packages_its_original_detail_and_authorized_options_without_a_mapper(int scopedTargetStorage,string scope)
     {
         var catalog = WithScopedCheckbox(WithCascades(Catalog()), scopedTargetStorage);
+        if(scope!="physical")ConfigureDerivedCheckboxScope(catalog,scope);
+        var logical=scope is "logical" or "ordinary" or "multi" or "shared";
         new ApplicationPackager().Create(catalog, output, "Example.FunctionForm", SourceRoot());
 
         var frontend = Path.Combine(output, "frontend");
@@ -79,17 +86,33 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.Contains("ReadCheckboxForm102_26",service);
         Assert.Contains("CheckboxTargetCondition102_26",service);
         Assert.Contains("findNameIdScoped38",detail);
-        Assert.Contains(scopedTargetStorage==0?"readonlyDisplayText(entity.scopedCountryLabels)":"readonlyDisplayText(entity.scopedNames)",detail);
+        var label=logical?"scopedCountryNames":scopedTargetStorage==0?"scopedCountryLabels":"scopedNames";
+        Assert.Contains($"readonlyDisplayText(entity.{label})",detail);
         Assert.Contains("Select<global::Example.FunctionForm.Generated.Entities.FunctionCountry>",service);
         Assert.Contains("parentQuery.Where(row=>row.DeleteNo==null)",service);
-        Assert.Contains("row.CountryId==long.Parse(parentId!",service);
+        if(logical)
+        {
+            Assert.DoesNotContain("row.CountryId==long.Parse(parentId!",service);
+            Assert.Contains("filters.Add(new(\"country_id\",FixedReadComparison.Equal,",service);
+        }
+        else Assert.Contains("row.CountryId==long.Parse(parentId!",service);
         Assert.Contains("ResolveExactDataManage(\"103\", \"list\", \"real_name\")",service);
         Assert.Contains("CheckboxOptions102_38Async(request,actor,cancellationToken)",controller);
         if(scopedTargetStorage==0)
         {
-            Assert.Contains("CompileMultiLabel(\"1\",\"country_label\"",service);
-            Assert.Contains("CheckboxTargetCondition102_38.BindAccount(actor)",service);
-            Assert.Contains("filters.Add(new(\"owner_code\", FixedReadComparison.In,",service);
+            if(logical)
+            {
+                Assert.Contains("CompileExactCheckboxParentCandidate(\"1\",\"103\"",service);
+                Assert.Contains(scope=="shared"?"FixedReadFilter.ForSharedExact(\"assigned_area_name\",":
+                    "FixedReadFilter.ForCrossExact(\"assigned_area_name\",",service);
+            }
+            else
+            {
+                if(scope=="physical")Assert.Contains("CompileMultiLabel(\"1\",\"country_label\"",service);
+                Assert.Contains("CheckboxTargetCondition102_38.BindAccount(actor)",service);
+                Assert.Contains(scope=="derived"?"filters.Add(new(\"country_label\", FixedReadComparison.In,":
+                    "filters.Add(new(\"owner_code\", FixedReadComparison.In,",service);
+            }
             Assert.Contains("DerivedCheckboxPlan102_38.BindAccount(actor)",service);
         }
         else
@@ -138,6 +161,31 @@ public sealed class FunctionTableGenerationTests : IDisposable
                 var assembly=context.LoadFromStream(binary);
                 var generatedService=assembly.GetType("Example.FunctionForm.Generated.Services.SummaryFormService",throwOnError:true)!;
                 RuntimeHelpers.RunClassConstructor(generatedService.TypeHandle);
+                var binding=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    generatedService.GetField("DerivedCheckboxPlan102_38",binding)!.GetValue(null));
+                if(logical)
+                {
+                    Assert.True(plan.RequiresAccount);
+                    const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                    var sql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+                    Assert.Equal("country_id",sql.GetType().GetProperty("RequiredMultiParent",hidden)!.GetValue(sql));
+                    var scopeSql=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
+                    Assert.Contains("store_id",scopeSql);
+                    var exact=sql.GetType().GetMethod("Expression",hidden)!.Invoke(sql,["assigned_area_name"]);
+                    Assert.Contains("CASE WHEN",Assert.IsType<string>(exact));
+
+                    // 运行实际读取器的谓词生成，核对精确范围使用路径校验和参数绑定。
+                    var filter=typeof(Metarill.Data.Queries.MySqlNonRedundantReader)
+                        .GetMethod("Filter",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!;
+                    var allowed=Metarill.Data.Queries.FixedReadFilter.ForCrossExact("assigned_area_name",["允许范围"]);
+                    var predicate=Assert.IsType<string>(filter.Invoke(null,[sql,allowed,1]));
+                    Assert.Contains("CASE WHEN",predicate);
+                    Assert.Contains("IN (@filter_1_0)",predicate);
+                    Assert.DoesNotContain("允许范围",predicate);
+                    var empty=Metarill.Data.Queries.FixedReadFilter.ForCrossExact("assigned_area_name",[]);
+                    Assert.Equal("1=0",filter.Invoke(null,[sql,empty,1]));
+                }
             }
             finally { context.Unload(); }
         }
@@ -264,6 +312,42 @@ public sealed class FunctionTableGenerationTests : IDisposable
                 """{"pageId":"103","nameField":"country_label","whereSql":"remark = @formParameters.summaryForm.title"}""";
         }
         return catalog;
+    }
+
+    /// <summary>复选候选的父级和精确字段可分别取自真实稀疏路径，不要求有同名数据库列。</summary>
+    private static void ConfigureDerivedCheckboxScope(MetadataCatalog catalog,string scope)
+    {
+        var page=catalog.ConfigPages.Single(item=>item.Id=="103");
+        if(scope=="derived")
+        {
+            page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("country_label");
+            return;
+        }
+        if(scope!="shared")
+            page.Extra["type"]=JsonSerializer.SerializeToElement(scope switch{"ordinary"=>0,"logical"=>1,_=>2});
+        page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("assigned_area_name");
+        page.WhereSql+=" AND country_name <> '排除范围'";
+        catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="1"&&column.Id is "16" or "19");
+        var control=new ColumnMetadata {Id="120",ConfigTableId="1",ColumnName="assigned_area_id",
+            LogicalType="int64",ControlKind="CascadeTree",LinkConfigTableId="5",
+            ControlDetail=JsonSerializer.Serialize(new{sourceMode="crossTable",levels=new object[]{
+                new{key="country",table="function_country",columnPrefix="country"},
+                new{key="area",table="function_area",columnPrefix="assigned_area",parentField="country_id"}}})};
+        catalog.ConfigColumns.Add(control);
+        catalog.ConfigPageColumns.Add(new(){ Id="103120",ConfigPageId="103",ConfigColumnId="120",IsShow=1,IsEdit=1 });
+        if(scope=="shared")
+        {
+            var backup=new ColumnMetadata {Id="121",ConfigTableId="1",ColumnName="assigned_place_id",
+                LogicalType="int64",ControlKind="CascadeTree",LinkConfigTableId="6",
+                ControlDetail=JsonSerializer.Serialize(new{sourceMode="crossTable",levels=new object[]{
+                    new{key="country",table="function_country",columnPrefix="country"},
+                    new{key="area",table="function_area",columnPrefix="assigned_area",parentField="country_id"},
+                    new{key="place",table="function_place",columnPrefix="assigned_place",parentField="area_id"}}})};
+            catalog.ConfigColumns.Add(backup);
+            catalog.ConfigPageColumns.Add(new(){Id="103121",ConfigPageId="103",ConfigColumnId="121",IsShow=1,IsEdit=1});
+        }
+        catalog.ConfigColumns.Single(column=>column.Id=="38").ControlDetail=
+            """{"pageId":"103","nameField":"country_name","whereSql":"remark = @formParameters.summaryForm.title"}""";
     }
 
     /// <summary>原无主键功能表可把虚拟表单字段交给业务按钮，外表负责提供真实候选。</summary>

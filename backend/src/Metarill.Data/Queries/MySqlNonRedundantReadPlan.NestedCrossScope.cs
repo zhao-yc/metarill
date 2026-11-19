@@ -16,7 +16,7 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<NonRedundantCrossTableScope>? displayBindings=null,string rootAlias="b",string aliasPrefix="r",
         HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null,IReadOnlyList<string>? listFields=null,
         bool projectSingle=false,string? accountParentPageType=null,
-        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,bool exactSingleParent=false)
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,bool exactSingleParent=false,bool exactCheckboxParent=false)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -29,20 +29,26 @@ public static partial class MySqlNonRedundantReadCompiler
         var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
         var global=GlobalCrossTableTarget.Declared(table);
         var exactField=page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString();
-        if(table.IsRongyu!=0||exactField.Length>0&&!exactSingleParent||
+        var exactParent=exactSingleParent||exactCheckboxParent;
+        if(table.IsRongyu!=0||exactField.Length>0&&!exactParent||
             page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new NotSupportedException("候选必须属于已发布项目的普通非冗余目标页。");
         if(exactSingleParent&&(global||exactField.Length==0||page.Extra.GetValueOrDefault("type").ToString()!="1"))
             throw new NotSupportedException("精确单选候选必须使用已发布的项目内单值页面。");
+        if(exactCheckboxParent&&(global||exactField.Length==0||
+            page.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1" or "2")))
+            throw new NotSupportedException("精确复选候选必须使用已发布的项目内业务或选择页面。");
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId));
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         var logical=syntax.Fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToHashSet(StringComparer.Ordinal);
         var treeNames=SelfTreeConditionFields(catalog,table,page,columns,syntax.Fields);
         var listTrees=SelfTreeConditionFields(catalog,table,page,columns,listFields??[]);
         var listCrosses=(listFields??[]).Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToArray();
-        var projectParent=!global?ProjectScopedSingleRelationTarget.LogicalParent(catalog,table,page):null;
-        if(exactSingleParent&&projectParent is null)
-            throw new NotSupportedException("精确单选候选缺少已发布的逻辑父级。");
+        // 复选独立使用已发布的稀疏父字段，普通业务和多选页沿用各自页面类型。
+        var projectParent=exactCheckboxParent?MultiTargetParentScope.Compile(catalog,table,syntax):
+            !global?ProjectScopedSingleRelationTarget.LogicalParent(catalog,table,page):null;
+        if(exactParent&&projectParent is not {Logical:true})
+            throw new NotSupportedException("精确候选缺少已发布的逻辑父级。");
         if(listFields is not null&&!projectSingle&&(!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0))
             throw new NotSupportedException("固定下拉附加条件必须引用已发布的逻辑级联字段。");
         // 全局单值候选从自身发布页证明物理父键；旧多选仍满足原独立页合同。
@@ -85,7 +91,7 @@ public static partial class MySqlNonRedundantReadCompiler
         };
         // 精确范围与父级条件都留在计划中。授权集合由真实读取入口单独绑定。
         return builder.Compile(outputs,dependencies.Concat(syntax.Fields).Concat(listFields??[])
-            .Concat(exactSingleParent ? new[] { Metarill.Core.Security.ExactDataManageValues.Field(exactField) } : [])
+            .Concat(exactParent ? new[] { Metarill.Core.Security.ExactDataManageValues.Field(exactField) } : [])
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
 

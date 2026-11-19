@@ -81,8 +81,10 @@ try {
  assert.equal(scopedRequests().length, 2)
  assert.deepEqual(plain(app.state.scopedIdsList), [])
  assert.deepEqual(plain(app.state.entity.scopedIds), [ids[1]])
- const scopedNames = source.includes('readonlyDisplayText(entity.scopedCountryLabels)')
-  ? app.state.entity.scopedCountryLabels : app.state.entity.scopedNames
+ const label = ['scopedNames', 'scopedCountryLabels', 'scopedCountryNames']
+  .find(name => source.includes('readonlyDisplayText(entity.' + name + ')'))
+ assert.ok(label)
+ const scopedNames = app.state.entity[label]
  assert.deepEqual(plain(scopedNames), [names[1]])
 
  app.state.openSelect25()
