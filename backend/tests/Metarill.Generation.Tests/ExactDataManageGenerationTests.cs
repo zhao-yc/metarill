@@ -325,8 +325,11 @@ public sealed class ExactDataManageGenerationTests
     [InlineData(true, "countryName", "country_name", "area_name")]
     [InlineData(false, "countryId", "country_id", "country_name", true)]
     [InlineData(true, "countryName", "country_name", "area_name", true)]
+    [InlineData(false, "areaId", "area_id", null, true, true)]
+    [InlineData(false, "areaId", "area_id", "country_name", true, true)]
+    [InlineData(true, "areaName", "area_name", "country_name", false, true, true)]
     public async Task Redundant_selection_excel_uses_target_cascade_exact_plan(bool shared, string key, string field,
-        string? fixedField = null, bool physicalName = false)
+        string? fixedField = null, bool physicalName = false, bool logicalParent = false, bool independentParent = false)
     {
         const string generatedNamespace = "Example.ExcelCascadeExact";
         var catalog = shared ? SharedCrossExactScopeGenerationTests.Catalog(key)
@@ -335,6 +338,7 @@ public sealed class ExactDataManageGenerationTests
         targetPage.Extra["type"] = JsonSerializer.SerializeToElement(1);
         targetPage.Extra["exactDataManageMatchField"] = JsonSerializer.SerializeToElement(key);
         if (fixedField is not null) targetPage.WhereSql += $" AND {fixedField}='固定候选'";
+        if (logicalParent) targetPage.WhereSql += " AND country_id=@parent_id";
         var project = catalog.YzProjectId;
         var admin = targetPage.YzAdminTypeId;
         var label = physicalName ? "name" : "dictionary_name";
@@ -372,6 +376,16 @@ public sealed class ExactDataManageGenerationTests
             new() { Id = "99112", YzProjectId = project, ConfigPageId = "9911", ConfigColumnId = "99102" },
             new() { Id = "20199006", YzProjectId = project, ConfigPageId = "201", ConfigColumnId = "99006", IsEdit = 0 }
         ]);
+        if (logicalParent)
+        {
+            catalog.ConfigColumns.Add(new() { Id = "99104", YzProjectId = project, ConfigTableId = "991",
+                ColumnName = "country_id", Name = "父级", LogicalType = "int64", LinkConfigTableId = "3" });
+            if (independentParent)
+                catalog.ConfigPageColumns.Add(new() { Id = "99114", YzProjectId = project, ConfigPageId = "9911", ConfigColumnId = "99104" });
+            else
+                catalog.ConfigPages.Single(page => page.Id == "9911").WhereSql += " AND country_id=@parent_id";
+            Assert.Throws<NotSupportedException>(() => NonRedundantReads.CompileCrossPageCandidate(catalog, "2", "201", ["id"], []));
+        }
         var model = GenerationModel.Create(catalog, generatedNamespace);
         var table = model.Tables.Single(item => item.Source.Id == "2");
         var exact = ExactDataManageCompilation.Resolve(model, table, table.Pages.Single(item => item.Source.Id == "201"))!;
@@ -384,10 +398,18 @@ public sealed class ExactDataManageGenerationTests
             new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), generatedNamespace);
             new FrontendPackager().Validate(catalog);
             var source = await File.ReadAllTextAsync(Path.Combine(directory, "generated/Services/ExactExcelConsumerService.g.cs"));
-            Assert.Contains(fixedField is not null ? "CompileRelationMembership" : shared ? "CompileProjectPage" : "CompileCross", source);
+            Assert.Contains(logicalParent ? "CompileExactSingleParentCandidate" :
+                fixedField is not null ? "CompileRelationMembership" : shared ? "CompileProjectPage" : "CompileCross", source);
+            if (logicalParent)
+            {
+                Assert.Contains("ApplyCandidate(query,session,DerivedOptionsPlan9911_99102.BindAccount(actor)", source);
+                Assert.Contains("""ResolveExactDataManage("201", "list", "real_name")""", source);
+                Assert.Contains("Service.ExactReadPlan201", source);
+                Assert.Contains(independentParent ? "relationContext.TryGetValue(\"countryId\"" : "targetParentId??=parentId", source);
+            }
             if (fixedField is not null)
             {
-                Assert.Contains("ApplyCondition(query,session,DerivedOptionsPlan9911_99102.BindAccount(actor)", source);
+                if (!logicalParent) Assert.Contains("ApplyCondition(query,session,DerivedOptionsPlan9911_99102.BindAccount(actor)", source);
                 Assert.Contains("Service.ExactReadPlan201", source);
                 Assert.Contains("locking:locking", source);
             }
@@ -396,7 +418,8 @@ public sealed class ExactDataManageGenerationTests
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var actor = new RuntimeActor(1, "级联精确范围", false, project, admin) { StoreId = 9007199254741987 };
             const long number = 9007199254741989;
-            var authorization = new Authorization(actor, "201") { Value = field == "country_name" ? "[\"国甲\"]" : "[\"9007199254741989\"]" };
+            var nameField = field.EndsWith("_name", StringComparison.Ordinal);
+            var authorization = new Authorization(actor, "201") { Value = nameField ? "[\"范围甲\"]" : "[\"9007199254741989\"]" };
             using var session = new DatabaseSession(new()
             {
                 Provider = "mysql", ExpectedDatabase = "metarill_business_test",
@@ -414,6 +437,24 @@ public sealed class ExactDataManageGenerationTests
             var sql = (string)expression.Invoke(null, [mysql, field])!;
             Assert.Contains("CASE WHEN", sql, StringComparison.OrdinalIgnoreCase);
             Assert.NotEqual($"b.\u0060{field}\u0060", sql);
+            if (logicalParent)
+            {
+                var parentField = mysql.GetType().GetProperty("RequiredMultiParent", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                Assert.Equal("country_id", parentField.GetValue(mysql));
+                var entityType = assembly.GetType(generatedNamespace + ".Generated.Entities." + table.Name, true)!;
+                var query = typeof(ExactDataManageGenerationTests).GetMethod(nameof(TypedParentSql),
+                    BindingFlags.NonPublic | BindingFlags.Static)!.MakeGenericMethod(entityType);
+                var parentSql = (string)query.Invoke(null, [session, plan, actor, "9007199254741991"])!;
+                Assert.Contains("combined_parent_parent", parentSql);
+                Assert.DoesNotContain("9007199254741991", parentSql);
+                Assert.Contains("WHERE", parentSql, StringComparison.OrdinalIgnoreCase);
+                var parentGuard = typeof(MySqlNonRedundantReader).GetMethod("RequireMultiParentFilter",
+                    BindingFlags.Static | BindingFlags.NonPublic)!;
+                var rejected = Assert.Throws<TargetInvocationException>(() => parentGuard.Invoke(null,
+                    [mysql, new[] { FixedReadFilter.ForCrossExact(field, [number]) }]));
+                Assert.IsType<InvalidOperationException>(rejected.InnerException);
+                return;
+            }
             var scope = type.GetMethod("DerivedOptionsScope9911_99102Async", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var scoped = (Task<(List<FixedReadFilter> Filters, FixedConditionSqlPlan? Condition)>)scope.Invoke(service,
                 [null, null, actor, CancellationToken.None, null, false])!;
@@ -432,7 +473,7 @@ public sealed class ExactDataManageGenerationTests
             var filter = Assert.Single(result.Filters, candidate => candidate.Field == field);
             Assert.Equal("list", authorization.LastOperation);
             Assert.Equal(FixedReadComparison.In, filter.Comparison);
-            object value = exact.Column.Type == "long?" ? number : field == "country_name" ? "国甲" : "9007199254741989";
+            object value = exact.Column.Type == "long?" ? number : nameField ? "范围甲" : "9007199254741989";
             Assert.Equal(new object?[] { value }, Assert.IsAssignableFrom<IReadOnlyList<object?>>(filter.Value));
             Assert.True((bool)typeof(FixedReadFilter).GetProperty("SharedExact", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(filter)!);
         }
@@ -459,6 +500,11 @@ public sealed class ExactDataManageGenerationTests
     private static string Match(bool nonredundant)=>nonredundant?"private_payload":"name";
     /// <summary>由FreeSql实际解析实体表达式，测试不复制SQL渲染算法。</summary>
     private static string TypedSql<T>(object query)where T:class=>((ISelect<T>)query).ToSql();
+    /// <summary>检查真实适配器对逻辑父参数的相关查询，验证过程无需打开数据库连接。</summary>
+    private static string TypedParentSql<T>(DatabaseSession session, NonRedundantReadPlan plan, RuntimeActor actor, string parent) where T : class =>
+        NonRedundantCrossTableScopeSql.ApplyCandidate(session.Select<T>(), session, plan.BindAccount(actor),
+            "combined_parent", actor.ProjectId, false, parent).ToSql();
+
     /// <summary>范围测试替身仅提供服务端值，和实际Web认证/范围聚合的验收分开。</summary>
     private sealed class Authorization(RuntimeActor actor, string expectedPage = "101"):IRuntimeAuthorization
     {

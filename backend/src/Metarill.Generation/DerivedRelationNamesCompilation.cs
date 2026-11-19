@@ -28,9 +28,12 @@ internal static class DerivedRelationNamesCompilation
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,ExactDataManageModel? exact=null)
     {
         var logicalParent=SingleParent(model,target,page) is {Logical:true};
-        if(ExactDataManageCompilation.Declared(page)&&(exact is null||target.IsGlobal||logicalParent)||
+        if(ExactDataManageCompilation.Declared(page)&&(exact is null||target.IsGlobal)||
             NonRedundantCrossParentCompilation.Enabled(model,target,page)&&!logicalParent)
             throw new NotSupportedException("单值关系的逻辑条件要求普通目标页及已证明的父范围。");
+        if (logicalParent && exact is not null)
+            return NonRedundantReads.CompileExactSingleParentCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,dependencies,
+                NonRedundantCrossTableCompilation.Bindings(exact.CrossPlans ?? []),singleTargets);
         if(target.IsGlobal||logicalParent)
             return additional is {HasLogicalFields:true}
                 ?NonRedundantReads.CompileGlobalListCandidate(model.Catalog,target.Source.Id,page.Source.Id,additional.Syntax.Fields,outputs,dependencies,singleTargets)
@@ -45,7 +48,9 @@ internal static class DerivedRelationNamesCompilation
     {
         var targetIds=JsonSerializer.Serialize(target.Source.Id)+","+JsonSerializer.Serialize(page.Source.Id);
         string Fields(IEnumerable<string> names)=>"new string[]{"+string.Join(",",names.Select(name=>JsonSerializer.Serialize(name)))+"}";
-        if(target.IsGlobal||SingleParent(model,target,page) is {Logical:true})return additional is {HasLogicalFields:true}
+        var logicalParent = SingleParent(model,target,page) is { Logical: true };
+        if (logicalParent && exact is not null) return "CompileExactSingleParentCandidate("+targetIds;
+        if(target.IsGlobal||logicalParent)return additional is {HasLogicalFields:true}
             ?"CompileGlobalListCandidate("+targetIds+","+Fields(additional.Syntax.Fields)
             :"CompileCrossPageCandidate("+targetIds;
         var (fields,cross,tree)=LogicalMembership(page,additional,exact);
@@ -209,8 +214,7 @@ internal static class DerivedRelationNamesCompilation
     internal static ExactDataManageModel? CandidateExact(GenerationModel model, TableModel owner, RelationModel relation)
     {
         if (!ExactDataManageCompilation.Declared(relation.TargetPage)) return null;
-        if (relation.SourceColumn.Source.ControlKind != "SelectPage" || !SupportsExactSelectionTarget(owner,relation.Target) ||
-            relation.FixedParent is { Logical: true })
+        if (relation.SourceColumn.Source.ControlKind != "SelectPage" || !SupportsExactSelectionTarget(owner,relation.Target))
             throw new NotSupportedException("当前派生名称目标的精确范围缺少固定候选证明。");
         return ExactDataManageCompilation.Resolve(model, relation.Target, relation.TargetPage);
     }

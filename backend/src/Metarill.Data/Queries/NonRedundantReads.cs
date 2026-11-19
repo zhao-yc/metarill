@@ -215,6 +215,13 @@ public static class NonRedundantReads
         new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
             bindings,singleTargets:singleTargets));
 
+    /// <summary>项目内单选沿发布页合并逻辑父级与精确匹配字段，授权集合由宿主提供。</summary>
+    public static NonRedundantReadPlan CompileExactSingleParentCandidate(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope>? bindings,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
+        new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
+            bindings,singleTargets:singleTargets,exactSingleParent:true));
+
     /// <summary>全局独立多选的分页、统计和已选回读共用实际账号与物理父范围。</summary>
     public static NonRedundantReadPlan CompileGlobalAccountMultiPage(MetadataCatalog metadata,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings)=>
