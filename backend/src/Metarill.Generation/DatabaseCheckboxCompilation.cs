@@ -6,6 +6,8 @@ namespace Metarill.Generation;
 internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Target,ColumnModel Name,ColumnModel Names,IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,IReadOnlyList<TableModel> SourceParents,ColumnModel? SourceParent,bool DerivedName=false,PageModel? GlobalPage=null)
 {
     internal PageModel? LogicalTargetPage { get; init; }
+    // 没有逻辑候选条件的显式目标页仍决定名称路径内每个关系角色。
+    internal PageModel? NameTargetPage { get; init; }
     internal bool LogicalSourceParent { get; init; }
     internal bool GlobalParent { get; init; }
     internal bool IntegerLabel => Name.Type is ("int?" or "long?");
@@ -88,7 +90,8 @@ internal static class DatabaseCheckboxCompilation
             var linkedPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
             if(linkedPage.Length==0&&globalPage is not null)linkedPage=globalPage.Source.Id;
             var explicitPage=definition.PageId.Length>0?definition.PageId:linkedPage;
-            var logicalPage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage&&FixedPageConditionCompilation.HasMultiTargetScope(target,candidate));
+            var namePage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage);
+            var logicalPage=namePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(target,namePage)?namePage:null;
             var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
             if(explicitPage!=fixedPage&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(target,candidate))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
@@ -127,6 +130,7 @@ internal static class DatabaseCheckboxCompilation
             var result=new DatabaseCheckboxModel(source,target,name,names,scopes,conditions,order,parents,sourceParent,derived,globalPage)
             {
                 LogicalTargetPage=logicalPage,
+                NameTargetPage=namePage,
                 LogicalSourceParent=logicalSource is not null,
                 GlobalParent=globalParent,
                 DerivedName=derived||logicalPage is not null

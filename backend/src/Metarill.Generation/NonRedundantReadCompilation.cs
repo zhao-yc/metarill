@@ -7,7 +7,7 @@ namespace Metarill.Generation;
 
 internal sealed record NonRedundantOutput(string Storage,string Property,string JsonName,string Type,bool IsJsonArray=false);
 internal sealed record NonRedundantPagePlan(IReadOnlyList<NonRedundantOutput> Outputs,IReadOnlyList<string> Dependencies,
-    IReadOnlyList<string> ReadOutputs,IReadOnlyList<NonRedundantSingleTargetScope> SingleTargets);
+    IReadOnlyList<string> ReadOutputs,IReadOnlyList<NonRedundantSingleTargetScope> SingleTargets,bool RequiresAccount);
 
 /// <summary>生成侧提前证明单值／固定多选用途和物理写边界；数据库表达式由数据适配器编译。</summary>
 internal static partial class NonRedundantReadCompilation
@@ -48,11 +48,37 @@ internal static partial class NonRedundantReadCompilation
             ?"CompileGlobalCandidate("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(page.Source.Id)
             :"CompileRelation("+JsonSerializer.Serialize(table.Source.Id);
 
-    /// <summary>普通多值名称携带固定字段用途，全局目标仍使用原候选页证明。</summary>
-    internal static string MultiLabelPlanStart(TableModel table,PageModel? page,ColumnModel name)=>
-        page is not null&&FixedPageConditionCompilation.HasMultiTargetScope(table,page)
-            ?"CompileScopedMultiLabel("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(page.Source.Id)+","+JsonSerializer.Serialize(name.Source.ColumnName)
-            :table.IsGlobal?RelationPlanStart(table,page):"CompileMultiLabel("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(name.Source.ColumnName);
+    /// <summary>多值候选和 Excel 名称匹配从实际发布页沿单值路径收集范围。</summary>
+    internal static string MultiLabelPlanCall(GenerationModel model,TableModel table,PageModel? scopePage,PageModel? namePage,
+        ColumnModel name,IEnumerable<string> outputs,IEnumerable<string> dependencies)
+    {
+        static string Fields(IEnumerable<string> values)=>"new string[]{"+string.Join(",",values.Select(value=>JsonSerializer.Serialize(value)))+"}";
+        var field=name.Source.ColumnName;
+        var start=scopePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(table,scopePage)
+            ?"CompileScopedMultiLabel("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(scopePage.Source.Id)+","+JsonSerializer.Serialize(field)
+            :table.IsGlobal?RelationPlanStart(table,scopePage):"CompileMultiLabel("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(field);
+        return start+","+Fields(outputs)+","+Fields(dependencies)+
+            SingleTargetArgument(MultiLabelTargets(model,table,namePage,field))+")";
+    }
+
+    /// <summary>验证使用与下发代码相同的目标页、显示名称和依赖。</summary>
+    internal static NonRedundantReadPlan CompileMultiLabelPlan(GenerationModel model,TableModel table,PageModel? scopePage,
+        PageModel? namePage,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
+    {
+        var id=table.Source.Id;
+        var targets=MultiLabelTargets(model,table,namePage,field);
+        if(scopePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(table,scopePage))
+            return NonRedundantReads.CompileScopedMultiLabel(model.Catalog,id,scopePage.Source.Id,field,outputs,dependencies,targets);
+        if(!table.IsGlobal)
+            return NonRedundantReads.CompileMultiLabel(model.Catalog,id,field,outputs,dependencies,targets);
+        if(scopePage is not null&&HasGlobalRowProject(table))
+            return NonRedundantReads.CompileGlobalCandidate(model.Catalog,id,scopePage.Source.Id,outputs,dependencies,targets);
+        return targets.Count>0?NonRedundantReads.CompileProjectRelation(model.Catalog,id,outputs,dependencies,targets)
+            :NonRedundantReads.Compile(model.Catalog,id,outputs,dependencies);
+    }
+
+    private static IReadOnlyList<NonRedundantSingleTargetScope> MultiLabelTargets(GenerationModel model,TableModel table,
+        PageModel? page,string field)=>page is null?[]:ProjectPathTargets(model,table,page,[field]);
 
     /// <summary>没有派生关系的原纯物理非冗余页继续使用既有强类型路径。</summary>
     internal static bool Requires(GenerationModel model,TableModel table)=>HasGlobalRowProject(table)||
@@ -182,8 +208,10 @@ internal static partial class NonRedundantReadCompilation
         var singleTargets=ProjectSingleTargets(model,table,page,readOutputs.Concat(dependencies));
         var crossBindings=NonRedundantCrossTableCompilation.Bindings(crossPlans);
         var compiled=CompilePage(model,table,readOutputs,dependencies,crossBindings,singleTargets);
+        var account=compiled.RequiresAccount;
         if(GlobalSelectionPage(table,page))
-            _=GlobalAccountMultiPage(table,page)
+        {
+            var candidate=GlobalAccountMultiPage(table,page)
                 ?NonRedundantReads.CompileGlobalAccountMultiPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings,singleTargets)
                 :GlobalSingleParentPage(table,page)
                     ?NonRedundantReads.CompileGlobalSingleParentPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings,singleTargets)
@@ -194,9 +222,11 @@ internal static partial class NonRedundantReadCompilation
                     :CascadeTreeReadCompilation.ForService(model,table,page).Count>0
                         ?NonRedundantReads.CompileGlobalPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,singleTargets)
                         :NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,singleTargets);
+            account|=candidate.RequiresAccount;
+        }
         outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","double"=>"double?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();
         if(outputs.Select(output=>output.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count)throw new InvalidOperationException("派生显示属性冲突。");
-        return new(outputs,dependencies,readOutputs,singleTargets);
+        return new(outputs,dependencies,readOutputs,singleTargets,account);
     }
 
     /// <summary>业务页单值读取使用实际项目内非冗余目标以及已证明的父范围。</summary>

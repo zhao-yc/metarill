@@ -10,9 +10,11 @@ internal static class DerivedCheckboxNamesRenderer
         var suffix=DatabaseCheckboxRenderer.Suffix(page,def);var dependencies=DerivedCheckboxNamesCompilation.Require(model,table,def);
         var scopes=def.Scopes.Select(scope=>"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Value(scope.Column,scope.Source=="project"?"actor.ProjectId":"parentId!")+"));");
         var variables=def.Conditions is{} condition?RelationConditionsCompilation.Variables(condition,"parentId"):"";
+        var call=NonRedundantReadCompilation.MultiLabelPlanCall(model,def.Target,def.LogicalTargetPage??def.GlobalPage,
+            def.NameTargetPage,def.Name,["id",def.Name.Source.ColumnName],dependencies);
         return $$"""
     /// <summary>只在类型初始化时编译，候选、保存、Excel共用原固定目标和范围。</summary>
-    private static readonly NonRedundantReadPlan DerivedCheckboxPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{NonRedundantReadCompilation.MultiLabelPlanStart(def.Target,def.LogicalTargetPage??def.GlobalPage,def.Name)}},new string[]{"id",{{Literal(def.Name.Source.ColumnName)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} });
+    private static readonly NonRedundantReadPlan DerivedCheckboxPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{call}};
     private sealed record DerivedCheckboxRow{{suffix}}(long Id,{{def.Name.Type}} Name);
     /// <summary>父存在性和来源身份沿原入口验证；名称条件不读取IsIgnore实体属性。</summary>
     private async Task<IReadOnlyList<DerivedCheckboxRow{{suffix}}>> DerivedCheckboxRows{{suffix}}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,long[]? ids,{{def.Name.Type}} name,bool matchName,int limit,bool locking,CancellationToken cancellationToken)

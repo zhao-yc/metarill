@@ -92,6 +92,113 @@ public sealed class DerivedMultiNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>多选和复选的名称解析必须沿当前中间页读取，不借用同表的默认目标页。</summary>
+    [Theory]
+    [InlineData(false,0,false)]
+    [InlineData(true,0,false)]
+    [InlineData(false,1,false)]
+    [InlineData(true,1,false)]
+    [InlineData(false,0,true)]
+    [InlineData(true,0,true)]
+    [InlineData(false,1,true)]
+    [InlineData(true,1,true)]
+    public async Task Array_label_matching_uses_the_actual_nested_page(bool checkbox,int storage,bool globalAccount)
+    {
+        const string ns="Example.DerivedArrayScope";
+        var catalog=Catalog("derived_array_scope",false);
+        var source=catalog.ConfigTables.Single(table=>table.Id=="2");
+        source.IsRongyu=storage;
+        var companyTable=catalog.ConfigTables.Single(table=>table.Id=="4");
+        companyTable.IsRongyu=0;
+        var company=catalog.ConfigColumns.Single(column=>column.Id=="37");
+        company.ControlDetail=JsonSerializer.Serialize(new{tableId="4",pageId="401",nameField="name",whereSql="status=17"});
+        var companyPage=catalog.ConfigPages.Single(page=>page.Id=="401");
+        companyPage.WhereSql+=" AND status>=1";
+        catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",ColumnName="status",LogicalType="int32"});
+        if(globalAccount)
+        {
+            companyTable.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="43");
+            catalog.ConfigColumns.Add(new(){Id="46",ConfigTableId="4",ColumnName="store_id",LogicalType="int64"});
+            catalog.ConfigColumns.Add(new(){Id="29",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"});
+            companyPage.WhereSql="status>=1 AND store_id=@current_store_id";
+            foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id))
+                sourcePage.WhereSql+=" AND store_id=@current_store_id";
+        }
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="301"&&field.ConfigColumnId=="37")
+            .Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"whereSql\":\"status=3\"}");
+        if(checkbox)
+        {
+            var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
+            control.ControlKind="MultiCheckBoxDatabase";
+            control.ControlDetail="{\"tableId\":\"3\",\"pageId\":\"301\",\"nameField\":\"name\",\"whereSql\":\"parent_id=@parentId\"}";
+        }
+        RedundantMultiNameCacheTests.Published(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-array-scope");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.DerivedArrayScopeSourceService",true)!;
+            var fieldName=checkbox?"DerivedCheckboxPlan201_25":"MultiDerivedPlan201_25";
+            var plan=service.GetField(fieldName,System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)?.GetValue(null);
+            Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(plan);
+            AssertActualPage(plan);
+            if(storage==0)
+            {
+                var pageRead=service.GetField("ReadPlan201",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null);
+                var read=AssertActualPage(pageRead);
+                var filters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(read.GetType()
+                    .GetProperty("ArrayNamePredicates",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(read));
+                Assert.Contains(".`status`",filters["target_names"]);
+                AssertActualPage(service.GetField("ExportReadPlan201",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
+            }
+            else
+            {
+                if(!checkbox)
+                    AssertActualPage(service.GetField("MultiCachePlan201_25_0",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
+                var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+                var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType()
+                    .GetProperty("Plans",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(maintenance));
+                var maintenancePlan=plans[source.Id]!;
+                var read=maintenancePlan.GetType().GetProperty("Read")!.GetValue(maintenancePlan)!;
+                AssertConstants(read);
+                Assert.Contains("derived_array_scope_company",maintenance.MixedTargets);
+                if(globalAccount)
+                {
+                    const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                    var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["target_names"]));
+                    Assert.Contains("b.`store_id`",expression);
+                }
+            }
+
+            object AssertActualPage(object? value)
+            {
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                var fixedPlan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(value);
+                Assert.Equal(globalAccount,fixedPlan.RequiresAccount);
+                var bound=fixedPlan.BindAccount(new Metarill.Core.Security.RuntimeActor(7,"sample",false,catalog.YzProjectId,"5"){StoreId=23});
+                var read=bound.GetType().GetProperty("MySql",hidden)!.GetValue(bound)!;
+                var constants=AssertConstants(read);
+                if(globalAccount)Assert.Contains(23L,constants.Values);
+                return read;
+            }
+
+            static IReadOnlyDictionary<string,object?> AssertConstants(object read)
+            {
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(read.GetType()
+                    .GetProperty("Constants",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(read));
+                Assert.Contains(3,constants.Values);
+                Assert.DoesNotContain(17,constants.Values);
+                return constants;
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>同一公司表参与两个角色，原候选、Excel 和 R1 维护须源自同一固定路径。</summary>
     [Theory]
     [InlineData(false,0,"string","int64")]

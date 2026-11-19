@@ -31,6 +31,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 SelectedMultiPage=selectedScope,
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent),
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
+                MultiNamePathPage=MultiTargetNamePage(catalog,target,relation),
                 GlobalCrossCandidate=global&&selectedScope is not null
             }.Compile([value.ColumnName],[]);
             nested.CopyParametersTo(crossConstants);

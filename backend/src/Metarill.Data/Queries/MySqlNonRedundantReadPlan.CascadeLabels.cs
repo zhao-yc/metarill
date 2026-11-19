@@ -24,8 +24,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     .SingleOrDefault(item=>item.ColumnName==field);
                 if(column is null)continue;
                 var selected=MultiTargetLogicalPage(catalog,target,relation);
-                if(selected is null&&(column.LogicalType!="string"||storage.IsPhysical(column)))continue;
-                var plan=selected is null?CompileMultiLabel(catalog,target.Id,field):
+                if(selected is null&&(storage.IsPhysical(column)||column.LogicalType!="string"&&
+                    !MultiNameStorageColumns.IsDerivedScalarLabel(target,column,storage)))continue;
+                var plan=selected is null?CompileMultiLabel(catalog,target.Id,field,[field],[],cacheOwner:null,relation:relation):
                     CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[]);
                 pages.UnionWith(plan.CascadeLabelPages);
                 if(source is not null&&(plan.RequiresAccount&&source.IsRongyu==1||selected is not null&&plan.RequiredMultiParent is not null))
@@ -95,8 +96,8 @@ public static partial class MySqlNonRedundantReadCompiler
     internal static bool IsScopedMultiTarget(MetadataCatalog catalog,TableMetadata target,string pageId)=>
         DeclaredMultiNameTargets(catalog).Any(item=>item.Table.Id==target.Id&&MultiTargetLogicalPage(catalog,target,item.Relation)?.Id==pageId);
 
-    /// <summary>从实际绑定页读取逻辑或账号范围，未绑定页的项目内复选沿用原条件。</summary>
-    internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
+    /// <summary>由实际多值控件绑定找到名称所处的页面，纯物理根条件也保留中间页上下文。</summary>
+    private static PageMetadata? MultiTargetNamePage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
     {
         if(table.IsRongyu!=0)return null;
         var global=GlobalCrossTableTarget.Declared(table);
@@ -105,7 +106,13 @@ public static partial class MySqlNonRedundantReadCompiler
         if(!global&&pageId.Length==0)return null;
         var candidates=catalog.ConfigPages.Where(item=>item.ConfigTableId==table.Id&&
             (item.Id==pageId||global&&pageId.Length==0)).Take(2).ToArray();
-        var page=candidates.Length==1?candidates[0]:null;
+        return candidates.Length==1?candidates[0]:null;
+    }
+
+    /// <summary>只在原逻辑或账号条件确实存在时，将目标页本身的范围嵌入多值计划。</summary>
+    internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
+    {
+        var page=MultiTargetNamePage(catalog,table,relation);
         if(page is null||page.WhereSql.Length==0)return null;
         var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         var declared=RelationStorageColumns.Expand(table,members);
@@ -124,7 +131,8 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>发布已绑定目标页及名称，原候选、导入、回读共用固定条件。</summary>
     internal static MySqlNonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog catalog,string tableId,string pageId,
-        string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
+        string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
     {
         MetadataValidation.Validate(catalog);
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("多值目标页逻辑条件要求已发布的MySQL读取计划。");
@@ -134,6 +142,8 @@ public static partial class MySqlNonRedundantReadCompiler
         return new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field)
         {
             SelectedMultiPage=page,
+            MultiNamePathPage=page,
+            ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             GlobalCrossCandidate=GlobalCrossTableTarget.Declared(catalog.ConfigTables.Single(table=>table.Id==tableId))
         }.Compile(outputs,dependencies.Concat(MultiParent(catalog,page) is { } parent?[parent.Target.ColumnName]:[])
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
@@ -189,8 +199,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(tableName.Length==0)tableName=Text(relation,"joinTable");
                 if(tableName.Length==0&&relation.ColumnName.EndsWith("_ids",StringComparison.Ordinal))tableName=relation.ColumnName[..^4];
                 var target=catalog.ConfigTables.SingleOrDefault(table=>tableId.Length>0?table.Id==tableId:table.TableName==tableName);
-                if(target is null||target.IsRongyu!=0||
-                    GlobalCrossTableTarget.Declared(target)&&MultiTargetLogicalPage(catalog,target,relation) is null)continue;
+                if(target is null||target.IsRongyu!=0)continue;
                 var source=catalog.ConfigTables.SingleOrDefault(table=>table.Id==relation.ConfigTableId);
                 result=(source,target,field,relation);
             }

@@ -1,4 +1,3 @@
-using Metarill.Data.Queries;
 namespace Metarill.Generation;
 
 /// <summary>多选派生名称只在完整目标标量计划和物理范围均已证明时开放。</summary>
@@ -13,19 +12,28 @@ internal static class DerivedMultiNamesCompilation
     internal static void Require(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name)
     {
         if(owner.Source.IsRongyu is not(0 or 1)||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!Metarill.Core.Contracts.MultiValueLabel.IsTyped(name.Source.LogicalType)||name.IsJsonArray||ExactDataManageCompilation.Declared(page))throw new InvalidOperationException("派生多选名称要求已证明来源、普通R0目标和固定单值名称。");
-        var scoped=FixedPageConditionCompilation.HasMultiTargetScope(target,page);
         var condition=page.Condition;
         if(page.Scopes.Select(scope=>scope.Column).Concat(condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[])
             .Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)&&
                 condition?.CrossFields.Contains(column.Source.ColumnName)!=true&&condition?.SelfTreeFields.Contains(column.Source.ColumnName)!=true))
             throw new InvalidOperationException("派生多选名称的候选身份及条件缺少物理或逻辑路径证明。");
         // 全局名称路径已由多值固定目标证明，字符串键读取不能误套精确管理的int64专用门槛。
-        var plan=scoped?NonRedundantReads.CompileScopedMultiLabel(model.Catalog,target.Source.Id,page.Source.Id,
-            name.Source.ColumnName,[name.Source.ColumnName],[]):
-            target.IsGlobal?NonRedundantReads.Compile(model.Catalog,target.Source.Id,[name.Source.ColumnName]):
-            NonRedundantReads.CompileMultiLabel(model.Catalog,target.Source.Id,name.Source.ColumnName);
+        var field=name.Source.ColumnName;
+        var plan=NonRedundantReadCompilation.CompileMultiLabelPlan(model,target,page,page,field,[field],[]);
         if(plan.OutputTypes[name.Source.ColumnName]!=name.Source.LogicalType)throw new InvalidOperationException("派生多选名称与固定物理终点类型不一致。");
     }
     /// <summary>原Excel按固定名称精确反查，读计划仅静态初始化时编译。</summary>
-    internal static string Declaration(GenerationModel model,PageModel page,MultiSelectModel multi)=>!UsesFixedRead(model,multi)?"":"    /// <summary>多选导入名称的固定目标计划，普通请求只绑定值。</summary>\n    private static readonly Metarill.Data.Queries.NonRedundantReadPlan MultiDerivedPlan"+page.Source.Id+"_"+multi.Source.Source.Id+"=global::"+model.Namespace+".Generated.GeneratedNonRedundantReadCatalog."+NonRedundantReadCompilation.MultiLabelPlanStart(multi.Target,multi.TargetPage,multi.Name)+",new string[]{\"id\""+(multi.Name.IsId?"":","+System.Text.Json.JsonSerializer.Serialize(multi.Name.Source.ColumnName))+"},new string[]{"+string.Join(",",multi.TargetPage.Scopes.Select(scope=>scope.Column.Source.ColumnName).Concat((FixedPageConditionCompilation.HasMultiTargetScope(multi.Target,multi.TargetPage)?[]:multi.TargetPage.Condition?.Syntax.Fields??[])).Distinct().Select(field=>System.Text.Json.JsonSerializer.Serialize(field)))+"});\n";
+    internal static string Declaration(GenerationModel model,PageModel page,MultiSelectModel multi)
+    {
+        if(!UsesFixedRead(model,multi))return "";
+        var target=multi.Target;
+        var targetPage=multi.TargetPage;
+        var dependencies=targetPage.Scopes.Select(scope=>scope.Column.Source.ColumnName)
+            .Concat(FixedPageConditionCompilation.HasMultiTargetScope(target,targetPage)?[]:targetPage.Condition?.Syntax.Fields??[])
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        string[] outputs=multi.Name.IsId?["id"]:["id",multi.Name.Source.ColumnName];
+        var call=NonRedundantReadCompilation.MultiLabelPlanCall(model,target,targetPage,targetPage,multi.Name,outputs,dependencies);
+        return "    /// <summary>多选导入名称的固定目标计划，普通请求只绑定值。</summary>\n"+
+            $"    private static readonly NonRedundantReadPlan MultiDerivedPlan{page.Source.Id}_{multi.Source.Source.Id}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{call};\n";
+    }
 }

@@ -299,9 +299,50 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,IReadOnlyDictionary<string,NonRedundantSingleTargetScope>> projectAliasTargets=
             new(StringComparer.Ordinal);
 
-        /// <summary>按实际来源别名继续读取下一段范围，不用同一张表的其它页面替代。</summary>
-        private NonRedundantSingleTargetScope? ProjectSingleBinding(string ownerAlias,ColumnMetadata relation)=>
-            (ownerAlias==rootAlias?ProjectSingleTargets:projectAliasTargets.GetValueOrDefault(ownerAlias))?.GetValueOrDefault(relation.Id);
+        internal PageMetadata? MultiNamePathPage { get; init; }
+        private readonly Dictionary<string,PageMetadata> multiNamePathAliases=new(StringComparer.Ordinal);
+
+        private PageMetadata? MultiNameSourcePage(string alias)=>
+            alias==rootAlias?MultiNamePathPage:multiNamePathAliases.GetValueOrDefault(alias);
+
+        /// <summary>按实际来源别名继续读取下一段范围。多值内层沿实际名称页逐段证明。</summary>
+        private NonRedundantSingleTargetScope? ProjectSingleBinding(string ownerAlias,ColumnMetadata relation,TableMetadata target)
+        {
+            var explicitBinding=(ownerAlias==rootAlias?ProjectSingleTargets:projectAliasTargets.GetValueOrDefault(ownerAlias))
+                ?.GetValueOrDefault(relation.Id);
+            if(explicitBinding is not null||cascadeCacheOwner is not null||MultiNameSourcePage(ownerAlias) is not {} sourcePage)
+                return explicitBinding;
+            var owner=tables[relation.ConfigTableId];
+            if(target.IsRongyu!=0||owner.IsRongyu!=0||
+                GlobalCrossTableTarget.Declared(owner)&&!GlobalCrossTableTarget.Declared(target))
+                return null;
+            PageMetadata page;
+            bool scoped;
+            MultiTargetParentScope? parent;
+            if(GlobalCrossTableTarget.Declared(target))
+            {
+                var proof=GlobalSingleRelationTarget.Require(catalog,owner,relation,target,sourcePage);
+                page=proof.Page;
+                scoped=proof.RequiresScopedPage||proof.CacheControl is {Terms.Count:>0};
+                parent=proof.Parent;
+            }
+            else
+            {
+                if(ProjectScopedSingleRelationTarget.NestedPage(catalog,owner,sourcePage,relation,target) is not {} local)
+                    return null;
+                (page,scoped)=local;
+                parent=scoped?MultiParent(catalog,page):null;
+            }
+            var control=scoped?ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,sourcePage):null;
+            parent??=control is null?null:MultiTargetParentScope.Compile(catalog,target,control);
+            var source=parent?.SingleSource(catalog,owner,relation,sourcePage);
+            return new(relation.Id,page.Id,source?.Column.Id)
+            {
+                ApplyPageCondition=scoped,
+                SourcePageId=source is null?null:sourcePage.Id,
+                ControlSourcePageId=control is {Terms.Count:>0}?sourcePage.Id:null
+            };
+        }
 
         /// <summary>业务页的单值联接只显示其固定候选范围内的名称。目标条件在相关子查询内独立编译。</summary>
         private string ProjectSingleReadCondition(TableMetadata owner,string ownerAlias,ColumnMetadata relation,
@@ -312,7 +353,15 @@ public static partial class MySqlNonRedundantReadCompiler
                 relation.ControlKind is not("List" or "SelectPage")||!storage[owner.Id].IsPhysical(relation))
                 throw new NotSupportedException("单值读取须使用非冗余表的实际物理外键。");
             var page=catalog.ConfigPages.Single(item=>item.Id==binding.PageId&&item.ConfigTableId==target.Id);
-            var proof=global?GlobalSingleRelationTarget.Require(catalog,owner,relation,target):null;
+            var multiPage=MultiNameSourcePage(ownerAlias);
+            var proof=global?(multiPage is null?GlobalSingleRelationTarget.Require(catalog,owner,relation,target):
+                GlobalSingleRelationTarget.Require(catalog,owner,relation,target,multiPage)):null;
+            if(multiPage is not null)
+            {
+                multiNamePathAliases[alias]=page;
+                cascadeLabelPages.Add(multiPage.Id);
+                cascadeLabelPages.Add(page.Id);
+            }
             if(proof is not null&&proof.Page.Id!=page.Id)
                 throw new InvalidOperationException("全局单值读取与发布目标页不一致。");
             if(binding.NestedTargets.Count>0)
@@ -471,6 +520,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 var scoped=JoinRegisteredSingleCache(table,owner,foreign,target,source,registered,row);
                 return(scoped.Alias,scoped.Visibility,row);
             }
+            if(cacheOwner is not null&&owner==rootAlias&&MultiNamePathPage is {} namePage)
+                singleCachePages.TryAdd(owner,namePage);
             if(cacheOwner is not null&&GlobalCrossTableTarget.Declared(target)&&
                 JoinNestedSingleCache(table,owner,foreign,target,source,cacheOwner) is {} globalNested)
                 return(globalNested.Alias,globalNested.Visibility,cacheOwner);
@@ -489,7 +540,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 return(alias,null,cacheOwner);
             }
             var joined=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true);
-            if(refreshFields is null&&GlobalCrossTableTarget.Declared(target)&&ProjectSingleBinding(owner,foreign) is {} binding)
+            if(refreshFields is null&&GlobalCrossTableTarget.Declared(target)&&ProjectSingleBinding(owner,foreign,target) is {} binding)
             {
                 // 全局联接继续使用原发布范围。附加条件随当前别名的输出一起计算，零匹配显示为空。
                 if(!globalSingleVisibility.TryGetValue(joined,out var visibility))

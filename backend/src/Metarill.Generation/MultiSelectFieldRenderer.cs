@@ -25,8 +25,11 @@ internal static class MultiSelectFieldRenderer
             // 每个逻辑名称缓存只在类型初始化时编译一次；HTTP请求只绑定选中ID和身份范围。
             foreach(var (cache,index) in caches.Select((cache,index)=>(cache,index)).Where(item=>scoped||DerivedMultiNamesCompilation.Declared(model,def.Target,item.cache.Value)))
             {
-                var dependencies=def.TargetPage.Scopes.Select(s=>s.Column.Source.ColumnName).Concat(scoped?[]:def.TargetPage.Condition?.Syntax.Fields??[]).Distinct().Select(Literal);
-                result.AppendLine($"    private static readonly NonRedundantReadPlan MultiCachePlan{suffix}_{index}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{NonRedundantReadCompilation.MultiLabelPlanStart(def.Target,def.TargetPage,cache.Value)},new string[]{{\"id\",{Literal(cache.Value.Source.ColumnName)}}},new string[]{{{string.Join(",",dependencies)}}});");
+                var dependencies=def.TargetPage.Scopes.Select(s=>s.Column.Source.ColumnName)
+                    .Concat(scoped?[]:def.TargetPage.Condition?.Syntax.Fields??[]).Distinct(StringComparer.OrdinalIgnoreCase);
+                var call=NonRedundantReadCompilation.MultiLabelPlanCall(model,def.Target,def.TargetPage,def.TargetPage,
+                    cache.Value,["id",cache.Value.Source.ColumnName],dependencies);
+                result.AppendLine($"    private static readonly NonRedundantReadPlan MultiCachePlan{suffix}_{index}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{call};");
             }
             result.AppendLine("    /// <summary>保留旧JSON文本字节，数组请求持久化为JSON文本；不接受对象或其它标量。</summary>")
                 .AppendLine($"    private static string? ReadMultiValue{suffix}(JsonElement? value)").AppendLine("    {")

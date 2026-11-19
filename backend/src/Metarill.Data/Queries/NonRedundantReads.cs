@@ -14,6 +14,8 @@ public sealed class NonRedundantReadPlan
         var bound=MySql.BindAccount(actor);
         return ReferenceEquals(bound,MySql)?this:new(bound);
     }
+    /// <summary>指示读取时是否须绑定服务端账号字段。</summary>
+    public bool RequiresAccount=>MySql.RequiresAccount;
     public IReadOnlyDictionary<string,string> OutputTypes=>new System.Collections.ObjectModel.ReadOnlyDictionary<string,string>(MySql.Outputs.ToDictionary(name=>name,name=>MySql.Types[name],StringComparer.OrdinalIgnoreCase));
 }
 
@@ -256,6 +258,12 @@ public static class NonRedundantReads
     public static NonRedundantReadPlan CompileMultiLabel(MetadataCatalog metadata,string tableId,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>metadata.DatabaseProvider switch
     {"mysql"=>new(MySqlNonRedundantReadCompiler.CompileMultiLabel(metadata,tableId,field,outputs,dependencies)),_=>throw new NotSupportedException("该数据库尚未完成固定名称读取适配。")};
 
+    /// <summary>多值候选沿实际发布页固定中间单值范围。</summary>
+    public static NonRedundantReadPlan CompileMultiLabel(MetadataCatalog metadata,string tableId,string field,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
+        singleTargets is null||singleTargets.Count==0?CompileMultiLabel(metadata,tableId,field,outputs,dependencies):
+            new(MySqlNonRedundantReadCompiler.CompileMultiLabel(metadata,tableId,field,outputs,dependencies,singleTargets));
+
     /// <summary>生成和传播按表级多值定义识别固定逻辑目标页。</summary>
     /// <summary>确认该固定页面确实被多选或复选字段引用。</summary>
     public static bool IsScopedMultiTarget(MetadataCatalog metadata,TableMetadata target,string pageId)=>
@@ -275,7 +283,12 @@ public static class NonRedundantReads
 
     public static NonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>
-        new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies));
+        CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies,null);
+
+    /// <summary>目标自身的逻辑范围和中间单值范围同时固定。</summary>
+    public static NonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
+        new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies,singleTargets));
 
     /// <summary>生成期取得固定单值名称实际读取的来源物理列；同表其它角色可能形成安全超集，不返回SQL。</summary>
     public static IReadOnlyList<string> CompileSourceDependencies(MetadataCatalog metadata,string tableId,string field)

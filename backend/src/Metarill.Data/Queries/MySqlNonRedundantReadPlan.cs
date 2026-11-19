@@ -243,13 +243,19 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>候选、导入和缓存使用同一名称字段及已声明的范围依赖。</summary>
     internal static MySqlNonRedundantReadPlan CompileMultiLabel(MetadataCatalog catalog,string tableId,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
-        =>CompileMultiLabel(catalog,tableId,field,outputs,dependencies,null);
+        =>CompileMultiLabel(catalog,tableId,field,outputs,dependencies,singleTargets:null);
+
+    /// <summary>固定多值名称的中间级联按实际候选页联接，保留原多值键类型。</summary>
+    internal static MySqlNonRedundantReadPlan CompileMultiLabel(MetadataCatalog catalog,string tableId,string field,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)
+        =>CompileMultiLabel(catalog,tableId,field,outputs,dependencies,cacheOwner:null,singleTargets:singleTargets);
 
     /// <summary>发布时验证名称缓存能以来源表真实行归属独立重算。</summary>
     internal static MySqlNonRedundantReadPlan CompileMultiLabelForCache(MetadataCatalog catalog,TableMetadata source,TableMetadata target,string field,PageMetadata? selectedPage=null,ColumnMetadata? relation=null)
         =>CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner"),selectedPage,relation);
 
-    private static MySqlNonRedundantReadPlan CompileMultiLabel(MetadataCatalog catalog,string tableId,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,CascadeCacheOwner? cacheOwner,PageMetadata? selectedPage=null,ColumnMetadata? relation=null)
+    private static MySqlNonRedundantReadPlan CompileMultiLabel(MetadataCatalog catalog,string tableId,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,CascadeCacheOwner? cacheOwner,PageMetadata? selectedPage=null,ColumnMetadata? relation=null,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
     {
         MetadataValidation.Validate(catalog);
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("多值名称要求已发布的MySQL读取计划。");
@@ -259,6 +265,8 @@ public static partial class MySqlNonRedundantReadCompiler
         return new Builder(catalog,tableId,true,multiLabel:true,cascadeLabelField:field,cascadeCacheOwner:cacheOwner)
         {
             SelectedMultiPage=selectedPage,
+            MultiNamePathPage=relation is null?null:MultiTargetNamePage(catalog,catalog.ConfigTables.Single(table=>table.Id==tableId),relation),
+            ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             MultiParentOwner=cacheOwner is null||selectedPage is null||MultiParent(catalog,selectedPage) is not {} parent?null:
                 (cacheOwner,parent.Source(catalog,cacheOwner.Table,relation??throw new InvalidOperationException("多值缓存缺少发布关系。")).Column),
             GlobalCrossCandidate=selectedPage is not null&&GlobalCrossTableTarget.Declared(catalog.ConfigTables.Single(table=>table.Id==tableId))
@@ -427,7 +435,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 output=name;origin=null;physicalOriginAlias=null;
                 if(SelectedMultiPage is not null&&MultiCandidateParent is {Logical:true}&&name==MultiCandidateParent.Target.ColumnName)
                     continue; // 父层位由选中页的完整可见路径解析，不能回退到稀疏原始列。
-                var resolved=Resolve(root,rootAlias,name);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);if(origin is not null)origins[name]=origin;
+                var nameCacheOwner=MultiNamePathPage is not null?cascadeCacheOwner:null;
+                var resolved=Resolve(root,rootAlias,name,nameCacheOwner);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);if(origin is not null)origins[name]=origin;
                 // 派生联接或数组即使触及物理列，也只有直接返回该列时才沿用保存刷新。
                 if(physicalOriginAlias is{} alias&&directSaveAliases.Contains(alias)&&origin is{} terminal&&resolved.Sql==alias+"."+Q(terminal.Column))
                 {
@@ -694,7 +703,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!global&&ordinaryRelation&&refreshFields is not null&&ProjectScopedSingleRelationTarget.Resolve(
                 catalog,tables[relation.ConfigTableId],relation,target) is not null)
                 throw new InvalidOperationException("项目内固定单值名称必须使用已发布维护绑定。");
-            var projectSingle=!global&&ordinaryRelation?ProjectSingleBinding(ownerAlias,relation):null;
+            var projectSingle=!global&&ordinaryRelation?ProjectSingleBinding(ownerAlias,relation,target):null;
             PageMetadata? publishedPage=cachePage;
             var scopedSingle=false;
             var scopedCrossTable=false;
@@ -707,7 +716,9 @@ public static partial class MySqlNonRedundantReadCompiler
             if(global&&!validatedCrossGlobal)
             {
                 var owner=tables[relation.ConfigTableId];
-                var proof=owner.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,owner,relation,target):GlobalSingleRelationTarget.Require(catalog,owner,relation,target);
+                var proof=owner.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,owner,relation,target):
+                    MultiNameSourcePage(ownerAlias) is {} actualPage?GlobalSingleRelationTarget.Require(catalog,owner,relation,target,actualPage):
+                    GlobalSingleRelationTarget.Require(catalog,owner,relation,target);
                 scopedSingle=proof.ScopedLogicalPage;
                 scopedCrossTable=proof.ScopedCrossTable;
                 scopedAccount=proof.ScopedAccount;
