@@ -104,6 +104,15 @@ internal static class ControlRenderer
         return Wrap($"<text>{{{{ entity.{column.JsonName} }}}}</text><text>此控件待移植，当前只读</text>", "控件或目标关系尚未完成移植：" + column.Source.ControlKind);
     }
 
+    /// <summary>原筛选复选优先于详情控件和页面级覆盖，提交的是字段值数组。</summary>
+    internal static bool HasCheckboxArrayFilter(ColumnModel column) =>
+        column.Source.Extra.TryGetValue("filterControlKind", out var value) && value.ToString() == "CheckBox";
+
+    /// <summary>标量按值匹配。级联和序列化数组各有自己的读取合同。</summary>
+    internal static bool UsesScalarCheckboxFilter(ColumnModel column) =>
+        HasCheckboxArrayFilter(column) && !column.IsJsonArray && column.Source.ControlKind != "CascadeTree" &&
+        column.Type is "string?" or "long?" or "long" or "int?" or "bool?" or "decimal?" or "double?" or "DateTime?" or "TimeSpan?";
+
     /// <summary>只为后端确实开放且前端已支持的筛选生成输入；复杂 JSON 控件不伪装成文本筛选。</summary>
     public static ControlResult RenderFilter(GenerationModel model, PageModel page, ColumnModel column)
     {
@@ -113,6 +122,7 @@ internal static class ControlRenderer
         ControlResult Wrap(string content) => new($"<uni-forms-item label=\"{label}\" name=\"{column.JsonName}\">{content}</uni-forms-item>");
         var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);
         if (fixedCatalog.Declared) return fixedCatalog.Definition is not null ? Wrap("<text>受控模板版本候选</text>") : new("", fixedCatalog.Reason);
+        if (UsesScalarCheckboxFilter(column)) return Wrap(""); // 原多选组件由列表模板渲染。
         if(column.Source.ControlKind=="MultiCheckBoxDatabase")
         {
             var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);var resolved=DatabaseCheckboxCompilation.Resolve(model,owner,page,column);

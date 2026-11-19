@@ -95,16 +95,26 @@ public sealed class SelectionNameFilterCompilationTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
-    /// <summary>原filterControlKind复选分支优先发送源ID数组，未接线能力继续列缺口，不误开放名称入口。</summary>
+    /// <summary>原筛选复选分支优先使用源字段。单选标量接通，多值存储仍须证明其数组合同。</summary>
     [Theory]
     [InlineData(false,false)][InlineData(true,false)][InlineData(false,true)][InlineData(true,true)]
-    public async Task Checkbox_filter_priority_does_not_turn_unimplemented_id_array_into_name_support(bool multi,bool textOverride)
+    public async Task Checkbox_filter_priority_uses_the_source_field_without_enabling_name_search(bool multi,bool textOverride)
     {
         var catalog=multi?GeneratedMultiSelectContractTests.Catalog():ScalarCatalog();var tableId=multi?"2":"1";var pageId=multi?"201":"101";var columnId=multi?"25":"21";
         catalog.ConfigColumns.Single(column=>column.Id==columnId).Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==pageId&&field.ConfigColumnId==columnId).Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
         if(textOverride)catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==pageId&&field.ConfigColumnId==columnId).Extra["controlKind"]=JsonSerializer.SerializeToElement("Text");
         var model=GenerationModel.Create(catalog,"Example.CheckboxPriority");var table=model.Tables.Single(table=>table.Source.Id==tableId);var page=table.Pages.Single();var plan=SelectionNameFilterCompilation.ForPage(model,table,page);Assert.Empty(plan.Bindings);Assert.Empty(plan.Gaps);
-        Assert.Contains(GenerationCapabilityAudit.Collect(model),gap=>gap.PageId==pageId&&gap.Usage=="filter");Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+        var filterGaps = GenerationCapabilityAudit.Collect(model).Where(gap => gap.PageId == pageId && gap.Usage == "filter");
+        if (multi)
+        {
+            Assert.NotEmpty(filterGaps);
+            Assert.Throws<InvalidOperationException>(() => new FrontendPackager().Validate(catalog));
+        }
+        else
+        {
+            Assert.Empty(filterGaps);
+            new FrontendPackager().Validate(catalog);
+        }
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-filter-checkbox-priority");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {

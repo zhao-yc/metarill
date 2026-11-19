@@ -32,7 +32,7 @@ Server-200 MySQL8.4.11同四行Cafe/cafe/Café/CAFÉ的参数化列LIKE基线与
 
 ## 页级控件覆盖
 
-名称compiler与原ListFilters按同一有效controlKind及filterControlKind优先级判断实际请求键。页级将Text/List改为SelectPage/MultiSelectPage，或改变选择控件种类时，当前缺少完整存储证明，明确写filter Gap并拒绝非空名称键；Full应用包拒绝，BackendOnly仍可生成普通ID分支。基础Select/Multi改为Text/TextArea/RTF时，原UI提交源ID/存储键，后端不额外开放名称入口；int64只接收合法字符串ID，非法文本拒绝。filterControlKind=CheckBox优先时不误宣称名称支持，尚无完整ID数组编译证明的关系仍列缺口。
+名称compiler与原ListFilters按同一有效controlKind及filterControlKind优先级判断实际请求键。页级将Text/List改为SelectPage/MultiSelectPage，或改变选择控件种类时，当前缺少完整存储证明，明确写filter Gap并拒绝非空名称键；Full应用包拒绝，BackendOnly仍可生成普通ID分支。基础Select/Multi改为Text/TextArea/RTF时，原UI提交源ID/存储键，后端不额外开放名称入口；int64只接收合法字符串ID，非法文本拒绝。筛选控件设为复选框时优先使用源字段，单选关系的标量源 ID 已支持精确集合查询。多值关系的数组存储组合沿各自专项跟踪。[B314 原标量复选筛选](standalone-application.md#b314-原标量复选筛选)。
 
 ## 验证边界
 

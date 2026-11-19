@@ -25,7 +25,7 @@ internal static partial class OriginalUniappListRenderer
             var inputKey = kind is "SelectPage" or "MultiSelectPage" ? RelationName(model, page, table, column) : key;
             var color = Html(model.Catalog.PrimaryColor);
             markup.Append("<uni-forms-item label='").Append(Html(column.Source.Name)).AppendLine("'>");
-            if (Text(column.Source.Extra, "filterControlKind") == "CheckBox")
+            if (ControlRenderer.HasCheckboxArrayFilter(column))
                 markup.Append($"<uni-data-checkbox multiple v-model='filters.{key}' :localdata='{key}Range' />");
             else switch (kind)
             {
@@ -61,7 +61,7 @@ internal static partial class OriginalUniappListRenderer
                 default: markup.Append($"<uni-easyinput primaryColor=\"{color}\" v-model='filters.{inputKey}' confirm-type='search' @confirm='filterList' {focus} />"); break;
             }
             markup.AppendLine("</uni-forms-item>");
-            if (kind is "ConstList" or "ConstDownList" || Text(column.Source.Extra, "filterControlKind") == "CheckBox")
+            if (kind is "ConstList" or "ConstDownList" || ControlRenderer.HasCheckboxArrayFilter(column))
                 data.Append(key).Append("Range:").Append(ConstantRange(column, detail)).Append(',');
             var value = Text(field.Extra, "queryDefaultValue");
             if (value.Length == 0 || kind == "CascadeTree") continue;
@@ -96,6 +96,7 @@ internal static partial class OriginalUniappListRenderer
         var parts = option.Split('|', 2); var value = parts.Length > 1 ? parts[1] : "";
         object typed = column.Type switch
         {
+            "bool?" when bool.TryParse(value, out var boolean) => boolean,
             "int?" when int.TryParse(value, out var number) => number,
             "decimal?" when decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number) => number,
             "long?" or "long" when long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) => number.ToString(CultureInfo.InvariantCulture),

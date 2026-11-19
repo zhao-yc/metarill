@@ -125,12 +125,10 @@ internal static class SelectionNameFilterCompilation
     }
     /// <summary>原多选复选筛选优先使用源ID键，即使基础控件为选择页也不提交名称键。</summary>
     internal static bool UsesNameInput(GenerationModel model,PageModel page,ColumnModel column)
-        => !CheckboxPriority(column)&&EffectiveFilterKind(model,page,column) is "SelectPage" or "MultiSelectPage";
+        => !ControlRenderer.HasCheckboxArrayFilter(column)&&EffectiveFilterKind(model,page,column) is "SelectPage" or "MultiSelectPage";
     /// <summary>选择页覆盖为原文本筛选时沿用已存在的源ID合同，不开放新的名称入口。</summary>
     internal static bool UsesSourceTextOverride(GenerationModel model,PageModel page,ColumnModel column)
-        => !CheckboxPriority(column)&&column.Source.ControlKind is "SelectPage" or "MultiSelectPage" && EffectiveFilterKind(model,page,column) is "Text" or "TextArea" or "RTF";
-    /// <summary>原复选数组分支优先于页级文本覆盖，两种筛选判定必须共用此门禁。</summary>
-    private static bool CheckboxPriority(ColumnModel column)=>column.Source.Extra.TryGetValue("filterControlKind",out var value)&&value.ToString()=="CheckBox";
+        => !ControlRenderer.HasCheckboxArrayFilter(column)&&column.Source.ControlKind is "SelectPage" or "MultiSelectPage" && EffectiveFilterKind(model,page,column) is "Text" or "TextArea" or "RTF";
 
     /// <summary>提供Query switch接线入口；JSON未提供真实方言分支时明确拒绝，绝不降级为序列化文本LIKE。</summary>
     internal static string RenderCases(SelectionNameFilterPlan plan,Func<SelectionNameFilterBinding,string>? renderJsonPredicate=null)

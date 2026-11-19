@@ -285,9 +285,14 @@ internal static class GeneratedNonRedundantReadCatalog
             if(DatabaseCheckboxCompilation.Generic(table,column))result.AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayHasId,Metarill.Core.Contracts.DatabaseCheckboxValue.ReadId(filter.Value)));break;");
             else if(column.IsManagedMultiNames&&DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.Names.Source.Id==column.Source.Id))result.AppendLine("                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException(\"复选名称筛选只接受文本。\");").AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayAnyContains,filter.Value.GetString()!));break;");
             else if(column.Source.ControlKind=="CascadeTree")result.AppendLine("                    break;");
-            else if(column.Type=="DateTime?")
-                result.AppendLine($"                    if(filter.Value.ValueKind==JsonValueKind.Array){{var range=PageDateRange.Parse(filter.Value);result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.GreaterOrEqual,range.Start));result.Add(new({Literal(column.Source.ColumnName)},range.EndExclusive?FixedReadComparison.Less:FixedReadComparison.LessOrEqual,range.End));break;}}")
+            else if (column.Type == "DateTime?")
+            {
+                var dateArray = ControlRenderer.UsesScalarCheckboxFilter(column)
+                    ? $"result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.In,{CheckboxDateValues}.Cast<object?>().ToArray()));"
+                    : $"var range=PageDateRange.Parse(filter.Value);result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.GreaterOrEqual,range.Start));result.Add(new({Literal(column.Source.ColumnName)},range.EndExclusive?FixedReadComparison.Less:FixedReadComparison.LessOrEqual,range.End));";
+                result.AppendLine($"                    if(filter.Value.ValueKind==JsonValueKind.Array){{{dateArray}break;}}")
                     .AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,DateTime.Parse(filter.Value.GetString()!,CultureInfo.InvariantCulture)));break;");
+            }
             else
             {
                 // 原数字筛选框提交文本；整数按精确值解析，保持选择弹层与普通列表的请求形状。
@@ -295,9 +300,9 @@ internal static class GeneratedNonRedundantReadCatalog
                 {
                     "TimeSpan?" => $"{TimeFieldCompilation.Value(column)}.Parse(filter.Value)",
                     "int?" when !Checkbox(column) => "filter.Value.ValueKind==JsonValueKind.String?int.Parse(filter.Value.GetString()!,NumberStyles.Integer,CultureInfo.InvariantCulture):filter.Value.GetInt32()",
-                    _ => Checkbox(column) ? "CheckboxBooleanJsonConverter.Parse(filter.Value)" : $"JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(),JsonOptions)"
+                    _ => CheckboxFilterBoolean(column) ? "CheckboxBooleanJsonConverter.Parse(filter.Value)" : $"JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(),JsonOptions)"
                 };
-                var parseArray=column.Type=="TimeSpan?"?$"filter.Value.EnumerateArray().Select({TimeFieldCompilation.Value(column)}.Parse).Cast<object?>().ToArray()":Checkbox(column)?"filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).Cast<object?>().ToArray()":$"JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(),JsonOptions)!.Cast<object?>().ToArray()";
+                var parseArray=column.Type=="TimeSpan?"?$"filter.Value.EnumerateArray().Select({TimeFieldCompilation.Value(column)}.Parse).Cast<object?>().ToArray()":CheckboxFilterBoolean(column)?"filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).Cast<object?>().ToArray()":$"JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(),JsonOptions)!.Cast<object?>().ToArray()";
                 result.AppendLine($"                    if(filter.Value.ValueKind==JsonValueKind.Array){{result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.In,{parseArray}));break;}}")
                     .AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.{(like?"LikePattern":"Equal")},{parse}));break;");
             }

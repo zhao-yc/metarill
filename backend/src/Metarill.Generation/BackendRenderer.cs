@@ -10,11 +10,19 @@ internal static partial class BackendRenderer
     /// <summary>两种存储从同一页面声明决定普通LIKE；保持精确匹配及名称数组的既有分支。</summary>
     private static bool TextPatternColumn(GenerationModel model,PageModel page,ColumnModel column)
     {
-        if(column.Type!="string?")return false;
+        if (column.Type != "string?" || ControlRenderer.UsesScalarCheckboxFilter(column)) return false;
         var field=model.Catalog.ConfigPageColumns.Single(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==column.Source.Id);
         var match=field.Extra.TryGetValue("searchType",out var item)?item.ToString():field.Extra.TryGetValue("matchType",out item)?item.ToString():"";
         return match=="like"||match.Length==0&&column.Source.ControlKind is not("List" or "ConstList" or "ConstDownList" or "SelectPage");
     }
+
+    // 两种存储共用原日期文本解析，保留带空格的日期时间及精确时间点。
+    private const string CheckboxDateValues =
+        "filter.Value.EnumerateArray().Select(item => (DateTime?)DateTime.Parse(item.GetString()!, CultureInfo.InvariantCulture))";
+
+    /// <summary>复选筛选的布尔常量可沿用原 0/1 编码，普通布尔仍遵从原字段协议。</summary>
+    private static bool CheckboxFilterBoolean(ColumnModel column) =>
+        column.Type == "bool?" && (Checkbox(column) || ControlRenderer.HasCheckboxArrayFilter(column));
 
     /// <summary>生成安全的 C# 字面量。</summary>
     private static string Literal(string value) => JsonSerializer.Serialize(value);
@@ -365,21 +373,26 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             }
             else if (column.Type == "DateTime?")
             {
-                result.AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Array)").AppendLine("                    {")
-                    .AppendLine("                        var range = PageDateRange.Parse(filter.Value); var start = range.Start; var end = range.End;")
-                    .AppendLine("                        // 原Date/月范围的日期终点覆盖整天；带时分秒的午夜仍是精确时刻。")
-                    .AppendLine($"                        query = range.EndExclusive ? query.Where(entity => entity.{column.Property} >= start && entity.{column.Property} < end) : query.Where(entity => entity.{column.Property} >= start && entity.{column.Property} <= end);")
-                    .AppendLine("                        break;").AppendLine("                    }")
+                result.AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Array)").AppendLine("                    {");
+                if (ControlRenderer.UsesScalarCheckboxFilter(column))
+                    result.AppendLine($"                        var selected = {CheckboxDateValues}.ToArray();")
+                        .AppendLine($"                        query = query.Where(entity => selected.Contains(entity.{column.Property}));");
+                else
+                    result.AppendLine("                        var range = PageDateRange.Parse(filter.Value); var start = range.Start; var end = range.End;")
+                        .AppendLine("                        // 原Date/月范围的日期终点覆盖整天；带时分秒的午夜仍是精确时刻。")
+                        .AppendLine($"                        query = range.EndExclusive ? query.Where(entity => entity.{column.Property} >= start && entity.{column.Property} < end) : query.Where(entity => entity.{column.Property} >= start && entity.{column.Property} <= end);");
+                result.AppendLine("                        break;")
+                    .AppendLine("                    }")
                     .AppendLine("                    var value = DateTime.Parse(filter.Value.GetString()!, CultureInfo.InvariantCulture);")
                     .AppendLine($"                    query = query.Where(entity => entity.{column.Property} == value);");
             }
             else
             {
                 result.AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Array)").AppendLine("                    {")
-                    .AppendLine(Checkbox(column) ? "                        var values = filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).ToArray();" : $"                        var values = JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(), JsonOptions)!;")
+                    .AppendLine(CheckboxFilterBoolean(column) ? "                        var values = filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).ToArray();" : $"                        var values = JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(), JsonOptions)!;")
                     .AppendLine($"                        query = query.Where(entity => values.Contains(entity.{column.Property}));")
                     .AppendLine("                        break;").AppendLine("                    }")
-                    .AppendLine(Checkbox(column) ? "                    var value = CheckboxBooleanJsonConverter.Parse(filter.Value);" : $"                    var value = JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(), JsonOptions);");
+                    .AppendLine(CheckboxFilterBoolean(column) ? "                    var value = CheckboxBooleanJsonConverter.Parse(filter.Value);" : $"                    var value = JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(), JsonOptions);");
                 // 已管理的名称数组也可能直接开放为原文本筛选；按JSON成员查询，兼容中文转义并保留原范围。
                 if(like&&table.Source.IsRongyu==1&&column.IsManagedMultiNames)result.AppendLine($"                    if (!string.IsNullOrWhiteSpace(value)) {{ query = Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayAnyLike(session, query, entity => entity.{column.Property}, value); break; }}");
                 result.AppendLine(like ? $"                    query = Metarill.Data.Queries.StringNameQuery.ApplyPattern(session,query,entity => entity.{column.Property},value!);" : $"                    query = query.Where(entity => entity.{column.Property} == value);");
