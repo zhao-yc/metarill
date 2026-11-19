@@ -402,6 +402,8 @@ public static partial class MySqlNonRedundantReadCompiler
             return ("CASE WHEN "+joined.Visibility+" THEN "+label.Sql+" END",label.Type);
         }
 
+        private readonly Dictionary<string,PageMetadata> singleCachePages=new(StringComparer.Ordinal);
+
         /// <summary>同一物理外键的联接字段沿用已登记范围和来源行身份，未登记的项目范围仍由普通联接门禁拒绝。</summary>
         private (string Alias,string? Visibility,CascadeCacheOwner? CacheOwner) JoinSinglePath(
             TableMetadata table,string owner,ColumnMetadata foreign,TableMetadata target,CascadeCacheOwner? cacheOwner)
@@ -416,8 +418,23 @@ public static partial class MySqlNonRedundantReadCompiler
                 return(scoped.Alias,scoped.Visibility,row);
             }
             if(cacheOwner is not null&&GlobalCrossTableTarget.Declared(target)&&
-                JoinNestedSingleCache(table,owner,foreign,target,source,cacheOwner) is {} nested)
-                return(nested.Alias,nested.Visibility,cacheOwner);
+                JoinNestedSingleCache(table,owner,foreign,target,source,cacheOwner) is {} globalNested)
+                return(globalNested.Alias,globalNested.Visibility,cacheOwner);
+            if(cacheOwner is not null&&singleCachePages.TryGetValue(owner,out var sourcePage)&&
+                ProjectScopedSingleRelationTarget.NestedPage(catalog,table,sourcePage,foreign,target) is {} projectNested)
+            {
+                if(projectNested.Scoped)
+                {
+                    var parent=MultiParent(catalog,projectNested.Page);
+                    var binding=parent?.SingleSource(catalog,table,foreign,sourcePage);
+                    var scoped=JoinScopedSingleCache(table,owner,foreign,target,source,projectNested.Page,cacheOwner,parent,binding);
+                    return(scoped.Alias,scoped.Visibility,cacheOwner);
+                }
+                // 空条件仍须把中间页传给下一段，并保留实际外键的反查位置。
+                var alias=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true);
+                singleCachePages[alias]=projectNested.Page;
+                return(alias,null,cacheOwner);
+            }
             return(Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true),null,cacheOwner);
         }
 
@@ -454,6 +471,7 @@ public static partial class MySqlNonRedundantReadCompiler
             // 反查需要从最终写回的根表出发，保存中间记录及逻辑父表达式引用的祖先别名。
             var sourceFrom=owner==rootAlias&&sourceParent is null?null:" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true,scopedCacheLink:true);
+            singleCachePages[alias]=page;
             var visible=PublishedSingleCondition(target,alias,page,cacheOwner,parent?.Target,parent?.Logical==true?sourceParent:null);
             if(parent is {Logical:false})
                 visible+=(visible.Length==0?"":" AND ")+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,
@@ -483,7 +501,11 @@ public static partial class MySqlNonRedundantReadCompiler
             var sourceKey=sourceParent??owner+"."+Q(binding.ColumnName);
             var targetKey=targetAlias+"."+Q(parent.Target.ColumnName);
             var primary=parentAlias+".`id`";
-            if(sourceParent is null)Use(source,binding);
+            if(sourceParent is null)
+            {
+                Use(source,binding);
+                Touch(owner,binding.ColumnName);
+            }
             Use(tables[parent.Target.ConfigTableId],parent.Target);Touch(targetAlias,parent.Target.ColumnName);
             Use(parent.Parent,Column(parent.Parent,"id"));
             var canonical="BINARY CAST("+primary+" AS CHAR)";

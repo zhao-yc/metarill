@@ -71,7 +71,7 @@ public static class DerivedCrossTableCaches
             {
                 var target=catalog.ConfigTables.Single(table=>table.Id==definition.TargetTableId);
                 var value=catalog.ConfigColumns.Single(column=>column.Id==definition.ValueColumnId);
-                return GlobalCrossTableTarget.Declared(target)&&!MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(value);
+                return !MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(value);
             }).GroupBy(definition=>definition.SourceTableId);
         foreach(var group in byTable)
         {

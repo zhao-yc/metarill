@@ -11,6 +11,94 @@ namespace Metarill.Data.Tests;
 /// <summary>候选页依赖其它逻辑级联时，访问范围直接进入当前 MySQL 查询。</summary>
 public sealed class NestedCrossCandidateTests
 {
+    /// <summary>项目内缓存按根行账号、实际中间页和父键重算，末端范围变化仍保留反查。</summary>
+    [Theory][InlineData(false,false,false)][InlineData(true,false,false)]
+    [InlineData(false,true,true)][InlineData(true,true,true)]
+    public void Project_nested_scalar_cache_keeps_the_published_scope(bool fixedMiddle,bool parent,bool selection)
+    {
+        const string project="54";
+        var catalog=new MetadataCatalog{YzProjectId=project};
+        foreach(var (id,name,stored) in new[]{("1","orders",1),("2","customers",0),("3","companies",0),
+            ("4","regions",0),("5","region_group",1)})
+        {
+            catalog.ConfigTables.Add(new(){Id=id,TableName=name,YzProjectId=project,IsRongyu=stored});
+            catalog.ConfigColumns.AddRange([
+                new(){Id=id+"1",ConfigTableId=id,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id=id+"2",ConfigTableId=id,ColumnName="yz_project_id",LogicalType="int64"},
+                new(){Id=id+"3",ConfigTableId=id,ColumnName="delete_no",LogicalType="datetime"}
+            ]);
+        }
+        var root=catalog.ConfigTables[0];
+        var customer=catalog.ConfigTables[1];
+        var relation=new ColumnMetadata{Id="14",ConfigTableId=root.Id,ColumnName="customer_id",LogicalType="int64",
+            ControlKind="List",LinkConfigTableId=customer.Id,
+            ControlDetail=JsonSerializer.Serialize(new{tableId=customer.Id,nameField="label"}),
+            Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement("201")}};
+        var companyRegion=new ColumnMetadata{Id="34",ConfigTableId="3",ColumnName="region_id",LogicalType="int64",
+            ControlKind=selection?"SelectPage":"List",LinkConfigTableId="4",
+            ControlDetail=JsonSerializer.Serialize(new{tableId="4",pageId="401",nameField="name"})};
+        if(!selection)companyRegion.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("401");
+        catalog.ConfigColumns.AddRange([
+            relation,
+            new(){Id="15",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"},
+            JoinColumn("16","1","customer_label","customer.label"),
+            new(){Id="24",ConfigTableId="2",ColumnName="company_id",LogicalType="int64",ControlKind="List",LinkConfigTableId="3",
+                Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement("301")}},
+            JoinColumn("25","2","label","company.region.name"),
+            companyRegion,
+            new(){Id="35",ConfigTableId="3",ColumnName="group_id",LogicalType="int64",LinkConfigTableId="5"},
+            new(){Id="44",ConfigTableId="4",ColumnName="name",LogicalType="string"},
+            new(){Id="45",ConfigTableId="4",ColumnName="store_id",LogicalType="int64"},
+            new(){Id="46",ConfigTableId="4",ColumnName="group_id",LogicalType="int64",LinkConfigTableId="5"}
+        ]);
+        ColumnMetadata JoinColumn(string id,string table,string name,string path)=>new()
+        {
+            Id=id,ConfigTableId=table,ColumnName=name,LogicalType="string",
+            Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement(path)}
+        };
+        var sourcePage=new PageMetadata{Id="101",ConfigTableId="1",WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"};
+        var targetPage=selection?"402":"401";
+        var parentWhere=parent?" AND group_id=@parent_id":"";
+        catalog.ConfigPages.AddRange([
+            sourcePage,
+            new(){Id="201",ConfigTableId="2",WhereSql="yz_project_id=@current_yz_project_id"+(fixedMiddle?" AND id>1":"")},
+            new(){Id="301",ConfigTableId="3",WhereSql="yz_project_id=@current_yz_project_id"},
+            new(){Id="401",ConfigTableId="4",WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id AND name <> '默认范围'"+parentWhere},
+            new(){Id="402",ConfigTableId="4",WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id AND name <> '本页范围'"+parentWhere}
+        ]);
+        if(selection)
+            catalog.ConfigPageColumns.Add(new(){Id="30134",ConfigPageId="301",ConfigColumnId=companyRegion.Id,
+                Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{pageId=targetPage}))}});
+
+        var proof=ProjectScopedSingleRelationTarget.Resolve(catalog,root,relation,customer);
+        Assert.Equal("201",proof?.Page.Id);
+        var binding=new RelationCacheDefinition(root.Id,relation.Id,customer.Id,"25","16",false){ScopedSinglePageId="201"};
+        var maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]);
+        var consumer=Assert.Single(maintenance.Mixed.Consumers);
+        var read=consumer.Read;
+        var value=read.Expression("customer_label");
+        Assert.Equal(value,maintenance.Plans[root.Id].Read!.Expression("customer_label"));
+        Assert.False(read.RequiresAccount);
+        Assert.Contains("b.`store_id`",value);
+        Assert.Contains(selection?"本页范围":"默认范围",read.Constants.Values);
+        Assert.DoesNotContain(selection?"默认范围":"本页范围",read.Constants.Values);
+        Assert.Equal(fixedMiddle,read.Constants.Values.Contains(1L));
+        Assert.Contains("store_id",consumer.Inputs);
+        var leaf=Assert.Single(read.Reverse,entry=>entry.TargetTable=="regions");
+        Assert.Contains("name",leaf.Outputs["customer_label"]);
+        Assert.Contains("store_id",leaf.Outputs["customer_label"]);
+        var bridge=Assert.Single(read.Reverse,entry=>entry.TargetTable=="companies");
+        Assert.Contains("region_id",bridge.Outputs["customer_label"]);
+        Assert.Equal(parent,bridge.Outputs["customer_label"].Contains("group_id"));
+        if(parent)
+        {
+            Assert.Contains("r1.`group_id`",value);
+            Assert.Contains(read.Reverse,entry=>entry.TargetTable=="region_group"&&entry.Outputs.ContainsKey("customer_label"));
+        }
+        sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
+        Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

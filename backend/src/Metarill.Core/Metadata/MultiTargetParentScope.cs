@@ -72,13 +72,19 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public MultiSourceParent SingleSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation)=>
         ResolveSource(catalog,source,relation,single:true,allowLogical:source.IsRongyu==0);
 
-    private MultiSourceParent ResolveSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,bool single,bool allowLogical)
+    /// <summary>嵌套名称已经固定实际中间页，父键只由该页证明。</summary>
+    public MultiSourceParent SingleSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,PageMetadata sourcePage)=>
+        ResolveSource(catalog,source,relation,single:true,allowLogical:source.IsRongyu==0,sourcePageId:sourcePage.Id);
+
+    private MultiSourceParent ResolveSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,
+        bool single,bool allowLogical,string? sourcePageId=null)
     {
         var columns=catalog.ConfigColumns.Where(item=>item.ConfigTableId==source.Id).ToArray();
         var keys=columns.Where(column=>PhysicalKey(catalog,source,column)&&References(column,Parent)).ToArray();
         var explicitKeys=keys.Where(column=>column.LinkConfigTableId==Parent.Id).ToArray();
         var allFields=RelationStorageColumns.Expand(source,columns);
-        var selected=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id).Select(page=>
+        var selected=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&
+            (sourcePageId is null||page.Id==sourcePageId)).Select(page=>
         {
             var fields=allFields.Select(column=>column.ColumnName);
             var scoped=FixedConditionPlan.Compile(page.WhereSql,fields).Terms.Where(term=>

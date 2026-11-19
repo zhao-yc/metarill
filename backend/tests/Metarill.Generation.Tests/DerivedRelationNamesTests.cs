@@ -1008,6 +1008,66 @@ public sealed class DerivedRelationNamesTests
     }
 
     /// <summary>声明同项目四表：来源订单→非冗余客户→公司名称；原字段和菜单方式均由元数据生成。</summary>
+    /// <summary>生成维护目录重新装载后仍保留纯项目中间页和末端范围，保存与回填共用传播计划。</summary>
+    [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)]
+    public async Task Nested_project_cache_publishes_terminal_filters(bool fixedCompany,bool selection)
+    {
+        const string prefix="dr_names";
+        var catalog=Catalog(prefix,false);
+        AddNestedProjectCandidateScope(catalog,prefix);
+        var source=catalog.ConfigTables.Single(table=>table.Id=="1");
+        source.IsRongyu=1;
+        catalog.ConfigColumns.Add(new(){Id="1910",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"});
+        foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id))
+            page.WhereSql+=" AND store_id=@current_store_id";
+        catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql="yz_project_id=@current_yz_project_id";
+        if(!fixedCompany)
+            catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="yz_project_id=@current_yz_project_id";
+        if(selection)
+        {
+            var defaultPage=catalog.ConfigPages.Single(page=>page.Id=="19001");
+            defaultPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+            var actualPage=new PageMetadata{Id="19002",ConfigTableId="190",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
+                WhereSql=defaultPage.WhereSql.Replace("区域筛选","区域覆盖",StringComparison.Ordinal),
+                Extra=new(){["type"]=JsonSerializer.SerializeToElement(1)}};
+            catalog.ConfigPages.Add(actualPage);
+            catalog.ConfigPageColumns.Add(new(){Id="190021903",ConfigPageId=actualPage.Id,ConfigColumnId="1903",IsShow=1,IsEdit=0});
+            var foreign=catalog.ConfigColumns.Single(column=>column.Id=="47");
+            foreign.ControlKind="SelectPage";
+            foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="190",pageId=defaultPage.Id,nameField="name"});
+            foreign.Extra.Remove("linkConfigPageId");
+            catalog.ConfigPageColumns.Add(new(){Id="40147",ConfigPageId="401",ConfigColumnId=foreign.Id,IsShow=1,IsEdit=1,
+                Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{pageId=actualPage.Id}))}});
+        }
+        RedundantMultiNameCacheTests.Published(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-nested-project-cache");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.NestedProjectCache");
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                assembly.GetType("Example.NestedProjectCache.Generated.GeneratedRelationMaintenance",true)!
+                    .GetProperty("Catalog")!.GetValue(null));
+            Assert.Contains("dr_names_region",maintenance.MixedTargets);
+            Assert.Contains("dr_names_company",maintenance.MixedTargets);
+            Assert.Contains("customer_company_name",maintenance.MixedSourceColumns["dr_names_order"]);
+            const BindingFlags scope=BindingFlags.NonPublic|BindingFlags.Instance;
+            var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                maintenance.GetType().GetProperty("Plans",scope)!.GetValue(maintenance));
+            var plan=plans[source.Id]!;
+            var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+            var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                read.GetType().GetProperty("Constants",scope)!.GetValue(read));
+            Assert.Contains(selection?"区域覆盖":"区域筛选",constants.Values);
+            if(selection)Assert.DoesNotContain("区域筛选",constants.Values);
+            var backend=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/DrNamesRegionService.g.cs"));
+            Assert.Contains("ProjectRelationMutationPropagator(session).AfterMutationAsync",backend);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>逻辑来源的原候选必须保留公司、区域两层独立的固定范围。</summary>
     [Theory][InlineData(false,false,false,false)][InlineData(true,true,false,false)]
     [InlineData(false,true,true,false)][InlineData(true,true,false,true)][InlineData(false,true,true,true)]
