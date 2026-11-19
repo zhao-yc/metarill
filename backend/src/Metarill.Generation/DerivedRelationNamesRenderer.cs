@@ -11,22 +11,21 @@ internal static class DerivedRelationNamesRenderer
         var dependencies=DerivedRelationNamesCompilation.Require(model,owner,page,relation);var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var name=relation.NameColumn.Source.ColumnName;
         var exact = DerivedRelationNamesCompilation.CandidateExact(model, owner, relation);
         var exactFilters = exact is null ? "" : ExactDataManageCompilation.ReadFilter(relation.TargetPage, exact, Literal("list"), "targetExact", "filters");
-        var physicalTypedName = DerivedRelationNamesCompilation.IsPhysicalTypedName(model, relation.Target, relation.NameColumn);
         var accountParent = SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
         var logical=DerivedRelationNamesCompilation.UsesLogicalPage(relation);
         var globalAccount=DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
         var validateCurrent=exact is not null||accountParent||logical||FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
         var projectTargets=DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation,exact);
         var bindParent=validateCurrent||projectTargets.Count>0?".BindAccount(actor)":"";
-        var embedsPageScope=relation.FixedParent is {Logical:true}||relation.Target.IsGlobal&&(logical||globalAccount);
+        var embedsPageScope=relation.FixedParent is {Logical:true}||relation.Target.IsGlobal&&(logical||globalAccount||relation.FunctionForm);
         var parentPlan = exact is not null && relation.FixedParent is { Logical: true }
             ? NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans ?? [])
             : accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var planStart = logical
             ? DerivedRelationNamesCompilation.LogicalPagePlanStart(model,relation.Target,relation.TargetPage,relation.Conditions,exact)
-            : globalAccount || physicalTypedName && relation.Target.IsGlobal || NonRedundantReadCompilation.HasGlobalRowProject(relation.Target)
+            : DerivedRelationNamesCompilation.UsesGlobalPlan(model, relation)
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
-            : physicalTypedName && relation.Target.Source.IsRongyu == 1
+            : DerivedRelationNamesCompilation.UsesPhysicalPlan(model, relation)
                 ? $"CompilePhysicalRelation({Literal(relation.Target.Source.Id)}"
                 : projectTargets.Count>0
                 ? $"CompileProjectRelation({Literal(relation.Target.Source.Id)}"

@@ -892,7 +892,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 }
             }
             var ormExcelExact = relation.ExcelTargetExact && !DerivedRelationNamesCompilation.UsesFixedRead(model,relation);
-            var logicalWriteExact = logicalPlan is not null && DerivedRelationNamesCompilation.UsesFixedRead(model,relation) &&
+            var logicalWriteExact = !relation.FunctionForm && logicalPlan is not null && DerivedRelationNamesCompilation.UsesFixedRead(model,relation) &&
                 ExactDataManageCompilation.Declared(relation.TargetPage);
             var lockScope=relation.Conditions is not null||logicalPlan is not null||
                 relation.Target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);

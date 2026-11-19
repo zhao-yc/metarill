@@ -51,7 +51,7 @@ public sealed class RelationConstantConditionTests
         catalog.ConfigColumns.Single(column=>column.Id=="25").Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("101");
         catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="25").Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{tableId="1",whereSql="name='a'"}));
         var directory=Path.Combine(Path.GetTempPath(),"metarill-relation-constant-mismatch",Guid.NewGuid().ToString("N"));
-        Assert.Contains("固定目标一致",Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,directory,"Example.ConstantMismatch")).Message);Assert.False(Directory.Exists(directory));
+        Assert.Contains("必须与外键及显示来源的目标一致",Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,directory,"Example.ConstantMismatch")).Message);Assert.False(Directory.Exists(directory));
     }
 
     /// <summary>逻辑派生名称不能当物理SQL列使用。</summary>

@@ -75,10 +75,22 @@ internal static class DerivedRelationNamesCompilation
     /// <summary>名称投影和目标逻辑条件共用固定读取，物理名称也执行同样的精确权限。</summary>
     internal static bool UsesFixedRead(GenerationModel model, RelationModel relation) =>
         Declared(model, relation) || IsPhysicalTypedName(model, relation.Target, relation.NameColumn) ||
+        relation.FunctionForm && (relation.Target.IsGlobal || relation.TargetParents.Count > 0 ||
+            ExactDataManageCompilation.Declared(relation.TargetPage) ||
+            RelationCompilation.HasFixedTargetScope(relation.Target, relation.TargetPage) || UsesLogicalPage(relation)) ||
         relation.SourceColumn.Source.ControlKind == "SelectPage" &&
         ExactDataManageCompilation.Declared(relation.TargetPage) && UsesLogicalPage(relation) &&
         SupportsExactSelectionTarget(model.Tables.Single(table => table.Source.Id == relation.SourceColumn.Source.ConfigTableId),
             relation.Target);
+
+    /// <summary>读取用途与下发产物共用实际全局发布页。</summary>
+    internal static bool UsesGlobalPlan(GenerationModel model, RelationModel relation) =>
+        relation.Target.IsGlobal && (relation.FunctionForm || IsPhysicalTypedName(model, relation.Target, relation.NameColumn)) ||
+        NonRedundantReadCompilation.HasGlobalRowProject(relation.Target) || HasGlobalAccountScope(relation.Target, relation.TargetPage);
+
+    /// <summary>普通冗余目标的固定候选只能读取物理列及已发布的父范围。</summary>
+    internal static bool UsesPhysicalPlan(GenerationModel model, RelationModel relation) =>
+        relation.Target.Source.IsRongyu == 1 && (relation.FunctionForm || IsPhysicalTypedName(model, relation.Target, relation.NameColumn));
 
     /// <summary>物理名称仍使用真实声明类型作为 SQL 投影和精确反查的参数类型。</summary>
     internal static bool IsPhysicalTypedName(GenerationModel model, TableModel target, ColumnModel name) =>
@@ -90,7 +102,8 @@ internal static class DerivedRelationNamesCompilation
 
     /// <summary>全局来源要求同目录固定目标，R1 另核验物理副本。</summary>
     internal static bool IsTypedName(GenerationModel model, TableModel owner, TableModel target, ColumnModel name) =>
-        (owner.IsGlobal ? owner.Source.IsRongyu is 0 or 1 && target.IsGlobal : SupportedOwner(model, owner)) &&
+        (owner.Source.IsFunctionTable == 1 ||
+            (owner.IsGlobal ? owner.Source.IsRongyu is 0 or 1 && target.IsGlobal : SupportedOwner(model, owner))) &&
         IsTypedLabel(name) &&
         (target.Source.IsRongyu == 0 || target.Source.IsRongyu == 1 && IsPhysicalTypedName(model, target, name));
 
@@ -150,23 +163,22 @@ internal static class DerivedRelationNamesCompilation
         if (relation.SourceColumn.Source.ControlKind == "SelectPage" && Declared(model, relation))
             RequireSelection(model, owner, target, relation.TargetPage, name);
         var typedName = IsTypedName(model, owner, target, name);
-        var physicalTypedName = IsPhysicalTypedName(model, target, name);
         var scopedGlobalCache=owner.IsGlobal&&owner.Source.IsRongyu==1&&target.IsGlobal&&
             GlobalCachedSourceCompilation.ForModel(model).Any(binding=>binding.ScopedSingle&&binding.Foreign.Source.Id==relation.SourceColumn.Source.Id);
-        if(!(scopedGlobalCache||typedName&&owner.IsGlobal)&&!SupportedOwner(model,owner)||
+        if(!(relation.FunctionForm||scopedGlobalCache||typedName&&owner.IsGlobal)&&!SupportedOwner(model,owner)||
             relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||
-            target.Source.IsRongyu!=0&&!physicalTypedName||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
+            target.Source.IsRongyu!=0&&!UsesPhysicalPlan(model,relation)||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
             name.Type != "string?" && !typedName || name.IsJsonArray || relation.ParentBinding?.Declared==true||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage)&&relation.FixedParent is not {Logical:true})
             throw new InvalidOperationException("固定名称关系要求已发布来源、物理标量或已证明的派生目标及候选范围。");
-        if (typedName && ForeignValidationRenderer.Target(model, relation.SourceColumn)?.Source.Id != target.Source.Id)
+        if (typedName && !relation.FunctionForm && ForeignValidationRenderer.Target(model, relation.SourceColumn)?.Source.Id != target.Source.Id)
             throw new InvalidOperationException("名称候选必须与来源外键使用同一固定目标。");
-        if(target.IsGlobal)
+        if(target.IsGlobal&&!relation.FunctionForm)
         {
             var proof=owner.Source.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(model.Catalog,owner.Source,relation.SourceColumn.Source,target.Source):GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,relation.SourceColumn.Source,target.Source);
             if(proof.Page.Id!=relation.TargetPage.Source.Id||proof.Name.Id!=name.Source.Id)throw new InvalidOperationException("全局派生候选与固定名称或目标页不一致。");
         }
-        if(owner.Source.IsRongyu==1&&(!NonRedundantReadCompilation.Physical(model,owner,relation.SourceColumn)||GenerationModel.Enabled(relation.SourceColumn.Source.Extra,"isJoinColumn")||relation.SourceColumn.Source.IsVirtualColumn!=0||relation.SourceColumn.Source.LogicalType is not("int64" or "string")))throw new InvalidOperationException("R1派生候选必须使用本表真实单值外键。");
-        if (typedName && owner.Source.IsRongyu == 1)
+        if(!relation.FunctionForm&&owner.Source.IsRongyu==1&&(!NonRedundantReadCompilation.Physical(model,owner,relation.SourceColumn)||GenerationModel.Enabled(relation.SourceColumn.Source.Extra,"isJoinColumn")||relation.SourceColumn.Source.IsVirtualColumn!=0||relation.SourceColumn.Source.LogicalType is not("int64" or "string")))throw new InvalidOperationException("R1派生候选必须使用本表真实单值外键。");
+        if (typedName && owner.Source.IsRongyu == 1 && !relation.FunctionForm)
         {
             var cache = SelectionDisplayFieldCompilation.Resolve(owner, relation.SourceColumn);
             // 全局来源沿用发布证明中的两种原外键路径写法。
@@ -197,10 +209,9 @@ internal static class DerivedRelationNamesCompilation
             : exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0)
             ? NonRedundantReadCompilation.CompilePage(model, target, outputs, dependencies,
                 NonRedundantCrossTableCompilation.Bindings(exact.CrossPlans ?? []), projectTargets, [])
-            : target.IsGlobal && physicalTypedName || NonRedundantReadCompilation.HasGlobalRowProject(target) ||
-                HasGlobalAccountScope(target,relation.TargetPage)
+            : UsesGlobalPlan(model, relation)
             ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, relation.TargetPage.Source.Id, outputs, dependencies, projectTargets)
-            : physicalTypedName && target.Source.IsRongyu == 1
+            : UsesPhysicalPlan(model, relation)
                 ? NonRedundantReads.CompilePhysicalRelation(model.Catalog,target.Source.Id,outputs,dependencies,
                     SharedRedundantParentCompilation.AccountPlans(model,target,relation.TargetPage))
                 : projectTargets.Count>0
@@ -214,7 +225,8 @@ internal static class DerivedRelationNamesCompilation
     internal static ExactDataManageModel? CandidateExact(GenerationModel model, TableModel owner, RelationModel relation)
     {
         if (!ExactDataManageCompilation.Declared(relation.TargetPage)) return null;
-        if (relation.SourceColumn.Source.ControlKind != "SelectPage" || !SupportsExactSelectionTarget(owner,relation.Target))
+        if (!(relation.FunctionForm && !relation.Target.IsGlobal) &&
+            (relation.SourceColumn.Source.ControlKind != "SelectPage" || !SupportsExactSelectionTarget(owner,relation.Target)))
             throw new NotSupportedException("当前派生名称目标的精确范围缺少固定候选证明。");
         return ExactDataManageCompilation.Resolve(model, relation.Target, relation.TargetPage);
     }

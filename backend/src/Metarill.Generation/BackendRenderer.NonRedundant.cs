@@ -26,7 +26,10 @@ internal static partial class BackendRenderer
                 MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null).Select(page=>(table,page))));
         var relations=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>RelationCompilation.ForPage(model,page)
             .Concat(RelationCompilation.ForPage(model,page,true)))).ToArray();
-        var scopedRelations=relations.Where(relation=>DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
+        var functionRelations = relations.Where(relation => relation.FunctionForm &&
+            DerivedRelationNamesCompilation.UsesFixedRead(model, relation)).ToArray();
+        var scopedRelations=relations.Where(relation=>relation.FunctionForm&&relation.Target.IsGlobal||
+                DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
                 DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)||
                 NonRedundantReadCompilation.UsesProjectSingleRead(relation)).ToArray();
         scopedPages=scopedPages.Concat(scopedRelations.Select(relation=>(relation.Target,relation.TargetPage)));
@@ -113,20 +116,22 @@ internal static partial class BackendRenderer
             helpers+="    /// <summary>原候选页的自树投影由固定图补齐显示路径。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileGlobalPage(string tableId,string pageId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalPage(Snapshot,tableId,pageId,outputs,dependencies,singleTargets);\n";
         if (model.Tables.Any(NonRedundantReadCompilation.HasGlobalRowProject) ||
             scopedRelations.Any(relation=>DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)) ||
+            functionRelations.Any(relation => DerivedRelationNamesCompilation.UsesGlobalPlan(model, relation)) ||
             model.Tables.SelectMany(table => table.Pages).SelectMany(page => RelationCompilation.ForPage(model, page, true))
                 .Any(relation => relation.Target.IsGlobal && DerivedRelationNamesCompilation.IsPhysicalTypedName(model, relation.Target, relation.NameColumn)))
             helpers+="    /// <summary>候选仅使用发布页的固定范围，普通记录仍按所属项目读写。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileGlobalCandidate(string tableId,string pageId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalCandidate(Snapshot,tableId,pageId,outputs,dependencies,singleTargets);\n";
-        if (model.Tables.SelectMany(table => table.Pages).SelectMany(page => RelationCompilation.ForPage(model, page, true))
-            .Any(relation => !relation.Target.IsGlobal && relation.Target.Source.IsRongyu == 1 &&
-                DerivedRelationNamesCompilation.IsPhysicalTypedName(model, relation.Target, relation.NameColumn)))
+        if (relations.Any(relation => !relation.Target.IsGlobal &&
+            DerivedRelationNamesCompilation.UsesPhysicalPlan(model, relation) &&
+            DerivedRelationNamesCompilation.UsesFixedRead(model, relation)))
             helpers+="    /// <summary>普通 R1 候选使用项目范围和实际物理列。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompilePhysicalRelation(string tableId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompilePhysicalRelation(Snapshot,tableId,outputs,dependencies);\n";
-        if(model.Tables.SelectMany(table=>table.Pages).SelectMany(page=>RelationCompilation.ForPage(model,page,true))
-            .Any(relation=>DerivedRelationNamesCompilation.IsPhysicalTypedName(model,relation.Target,relation.NameColumn)&&
-                SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage)))
+        if (relations.Any(relation => DerivedRelationNamesCompilation.UsesPhysicalPlan(model, relation) &&
+            DerivedRelationNamesCompilation.UsesFixedRead(model, relation) &&
+            SharedRedundantParentCompilation.HasAccountPath(model, relation.Target, relation.TargetPage)))
             helpers+="    /// <summary>整数候选只能使用生成时已发布的物理父范围。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompilePhysicalRelation(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.RedundantSharedParentPlan[] parents)=>Metarill.Data.Queries.NonRedundantReads.CompilePhysicalRelation(Snapshot,tableId,outputs,dependencies,parents);\n";
         if(model.Tables.Any(table=>table.Pages.Any(page=>FixedPageConditionCompilation.HasMultiTargetScope(model,table,page))))
             helpers+="    /// <summary>多值控件的目标页与逻辑范围在发布时冻结。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileScopedMultiLabel(string tableId,string pageId,string field,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(Snapshot,tableId,pageId,field,outputs,dependencies,singleTargets);\n";
-        if(model.Tables.Any(table=>table.Pages.Any(page=>MultiGlobalParentCompilation.SingleTarget(model,table,page) is not null||
+        if(functionRelations.Any(relation=>relation.FixedParent is {Global:true})||
+            model.Tables.Any(table=>table.Pages.Any(page=>MultiGlobalParentCompilation.SingleTarget(model,table,page) is not null||
             MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null||
             MultiSelectCompilation.ForService(model,table,page).Any(multi=>multi.GlobalParent)||
             DatabaseCheckboxCompilation.ForService(model,table,page).Any(checkbox=>checkbox.GlobalParent))))

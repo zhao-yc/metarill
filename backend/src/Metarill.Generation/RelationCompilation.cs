@@ -11,6 +11,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
 {
     internal RelationConditionModel? ImportCondition { get; init; }
     internal bool ExcelOnly { get; init; }
+    internal bool FunctionForm { get; init; }
     internal bool ExcelTargetExact { get; init; }
     internal string ExcelScopeArgument => ExcelTargetExact ? ", excelScope: true" : "";
     /// <summary>原 V8 路由按来源字段去掉 Id/Ids 后缀，不能用目标表名替代业务别名。</summary>
@@ -35,17 +36,18 @@ internal static class RelationCompilation
     {
         var relations = new List<RelationModel>();
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
+        var functionForm = owner.Source.IsFunctionTable == 1;
         // 普通冗余单选的弹窗直达目标页，Excel 仅生成私有名称范围，不增加候选路由。
         var imported = forExcel && ImportRenderer.Enabled(page) && ImportRenderer.Mode(page) != "custom" ? ImportRenderer.Columns(page) : [];
         bool ExcelSelection(ColumnModel column) => forExcel && owner.Source.IsRongyu == 1 && !column.IsSystem &&
             column.Source.ControlKind == "SelectPage" && (imported.Contains(column) || ExportRenderer.IncludesColumn(page, column));
         // 系统项目上下文保留既有List等接线，新缓存能力不额外追加隐藏候选或授权依赖。
-        var candidates = forService ? owner.Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||FixedListTarget(model,page,column)||FixedSelectionTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)||ExcelSelection(column)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
+        var candidates = forService && !functionForm ? owner.Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||FixedListTarget(model,page,column)||FixedSelectionTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)||ExcelSelection(column)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
         if (scopeSourceId is not null) candidates = owner.Columns.Where(column => column.Source.Id == scopeSourceId);
         foreach (var source in candidates)
         {
             // 功能表单选直达实际目标页，各处无需为无实体表单生成持久外键的校验或额外候选入口。
-            if(owner.Source.IsFunctionTable==1&&source.Source.ControlKind=="SelectPage")continue;
+            if(functionForm&&source.Source.ControlKind=="SelectPage")continue;
             var standard = source.Source.ControlKind == "List" || source.Source.ControlKind == "SelectPage" &&
                 (owner.Source.IsRongyu == 0 || !source.IsSystem && (ForeignValidationRenderer.Target(model,source)?.IsGlobal == true ||
                     DerivedRelationNamesCompilation.DeclaredSource(model,source) || FixedSelectionTarget(model,page,source)));
@@ -65,6 +67,18 @@ internal static class RelationCompilation
             // 非冗余单选的弹层、导入/导出与辅助接口必须使用同一已证明目标页。
             var selection=source.Source.ControlKind=="SelectPage"?NonRedundantSelectionCompilation.Resolve(model,owner,page,source):null;
             var target = selection?.Target ?? model.Tables.SingleOrDefault(t => !string.IsNullOrEmpty(tableId) ? t.Source.Id == tableId : t.Source.TableName == tableName);
+            var functionPageId = functionForm ? Mapped("pageId", source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString()) : "";
+            if (functionPageId.Length > 0)
+            {
+                var published = model.Tables.SingleOrDefault(table => table.Pages.Any(candidate => candidate.Source.Id == functionPageId));
+                if (published is null || target is not null && target != published ||
+                    tableId.Length > 0 && tableId != published.Source.Id ||
+                    tableName.Length > 0 && tableName != published.Source.TableName ||
+                    source.Source.LinkConfigTableId.Length > 0 && source.Source.LinkConfigTableId != published.Source.Id ||
+                    source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString() is { Length: > 0 } linked && linked != functionPageId)
+                    throw new InvalidOperationException("功能表下拉的已发布目标页与声明目标表或页面不一致。");
+                target = published;
+            }
             if (target is null) continue; // 保留尚未移植的外部关系配置，能力清单明确列出未接入字段。
             if (target.Source.IsFunctionTable == 1)
                 throw new InvalidOperationException("功能表没有可读取的候选记录：" + target.Source.TableName);
@@ -75,8 +89,12 @@ internal static class RelationCompilation
             var typedName = DerivedRelationNamesCompilation.IsTypedName(model, owner, target, name);
             if (name.Type != "string?" && !typedName) continue;
             if (ManagerCredentialCompilation.IsCredential(target,name)) throw new InvalidOperationException("账号凭据不能作为关系名称、候选或导出读取列。");
-            var targetPage = selection?.TargetPage ?? ListTargetPage(target,page,source);
-            if(target.IsGlobal&&(owner.Source.IsRongyu==0||!source.IsSystem))
+            var targetPage = selection?.TargetPage ?? (functionPageId.Length > 0
+                ? target.Pages.Single(candidate => candidate.Source.Id == functionPageId)
+                : ListTargetPage(target, page, source));
+            if (functionForm && target.IsGlobal && functionPageId.Length == 0)
+                throw new InvalidOperationException("功能表下拉的全局目标需要显式发布页面。");
+            if(!functionForm&&target.IsGlobal&&(owner.Source.IsRongyu==0||!source.IsSystem))
             {
                 var global=owner.Source.IsRongyu==1?Metarill.Core.Metadata.GlobalSingleRelationTarget.RequireCached(model.Catalog,owner.Source,source.Source,target.Source):Metarill.Core.Metadata.GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source);targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);if(name.Source.Id!=global.Name.Id)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
             }
@@ -89,13 +107,15 @@ internal static class RelationCompilation
             if (targetPage is null) continue;
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
             // 原单选的附加条件已经逐项证明属于目标页，逻辑父和固定条件由同一页面计划执行。
-            var fixedParent=DerivedRelationNamesCompilation.SingleParent(model,target,targetPage)??
-                PhysicalTargetForLogicalSource(model,owner,page,target,targetPage);
+            var fixedParent = functionForm
+                ? FunctionTableSelectionCompilation.PublishedParent(model, target, targetPage)
+                : DerivedRelationNamesCompilation.SingleParent(model,target,targetPage)??
+                    PhysicalTargetForLogicalSource(model,owner,page,target,targetPage);
             var where=selection is not null&&(excelOnly||selection.ImportCondition is not null||fixedParent is {Logical:true}||
                 FixedPageConditionCompilation.HasLogicalFields(targetPage))?"":Mapped("whereSql");
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,allowLogicalList:selection is null);
             if ((conditions is not null||FixedPageConditionCompilation.HasLogicalFields(targetPage))&&
-                ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
+                !functionForm && ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
                 throw new InvalidOperationException("固定条件的候选必须与外键及显示来源的目标一致。");
             var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column, owner, page)).DistinctBy(parent => parent.Source.Id).ToArray();
             var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,target,targetPage);
@@ -133,14 +153,19 @@ internal static class RelationCompilation
                     binding = new(true, null, "固定归属候选排序不能安全编译。");
                 }
             }
-            var sourceBinding=fixedParent is null?null:
+            var sourceBinding=fixedParent is null||functionForm?null:
                 !owner.IsGlobal&&!target.IsGlobal&&owner.Source.IsRongyu==0
                     ?fixedParent.SingleSource(model.Catalog,owner.Source,source.Source,page.Source)
                     :fixedParent.SingleSource(model.Catalog,owner.Source,source.Source);
-            var fixedSourceParent=sourceBinding is null?null:owner.Columns.Single(column=>column.Source.Id==sourceBinding.Column.Id);
+            if (functionForm && targetParents.Length > 1)
+                throw new InvalidOperationException("功能表下拉必须绑定唯一目标父范围。");
+            var fixedSourceParent = functionForm && targetParents.Length == 1
+                ? FunctionTableSelectionCompilation.ResolveParentField(page, source, targetParents[0].Source)
+                : sourceBinding is null ? null : owner.Columns.Single(column => column.Source.Id == sourceBinding.Column.Id);
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,
                 fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0)
             {
+                FunctionForm = functionForm,
                 ImportCondition = selection?.ImportCondition,
                 ExcelOnly = excelOnly,
                 ExcelTargetExact = excelSelection && ExactDataManageCompilation.Declared(targetPage)

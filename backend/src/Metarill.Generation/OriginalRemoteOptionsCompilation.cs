@@ -21,8 +21,15 @@ internal static class OriginalRemoteOptionsCompilation
             ["requireParent"]=relation.SourceParents.Count>0,["requireTargetParent"]=relation.TargetParents.Count>0&&!context.ServerDerivedTargetParent,
             ["sameParent"]=context.SameParent,["targetParentField"]=context.TargetParentField,["readonlyField"]=filter?null:column.JsonName+"ReadOnly"
         };
-        if(RelationConditionsCompilation.HasForms(relation))
-            definition["formFields"]=relation.Conditions!.Forms.Select(binding=>new {field=binding.Column.JsonName,table=GenerationModel.Camel(source.Source.TableName)}).Distinct().ToArray();
+        if (RelationConditionsCompilation.HasForms(relation))
+        {
+            var forms = relation.Conditions!.Forms;
+            definition["formFields"] = forms.Select(binding => new {field=binding.Column.JsonName,table=GenerationModel.Camel(source.Source.TableName)}).Distinct().ToArray();
+            // 功能表无记录；原自动回传绑定当前表单实例，隔离同页多开和旧缓存。
+            if (relation.FunctionForm && GenerationModel.Enabled(column.Source.Extra, "isAutoPostBackQuery") &&
+                forms.All(binding => GenerationModel.Enabled(binding.Column.Source.Extra, "isAutoPostBack")))
+                definition["formFromEntity"] = true;
+        }
         return JsonSerializer.Serialize(definition);
     }
 

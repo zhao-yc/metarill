@@ -32,17 +32,27 @@ internal static class FunctionTableSelectionCompilation
             throw new InvalidOperationException("功能表单选名称须为目标页开放的非凭据标量。");
         if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))
             throw new InvalidOperationException(reason);
-        if(!targetPage.Scopes.Any(scope=>scope.Source=="parent"))
-            return new(target,targetPage,name,definition,null);
-        var syntax=FixedConditionPlan.Compile(targetPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
-        var parent=MultiTargetParentScope.Compile(model.Catalog,target.Source,syntax)
-            ??throw new InvalidOperationException("功能表单选的实际目标页缺少可证明的父级。");
-        var parentFields=page.Readable.Where(column=>column.Source.Id!=source.Source.Id&&!column.IsJsonArray&&
-            column.Type is "long?" or "string?"&&
-            (column.Source.LinkConfigTableId==parent.Parent.Id||column.Source.LinkConfigTableId.Length==0&&
-             column.Source.ColumnName==parent.Parent.TableName+"_id")).Take(2).ToArray();
-        if(parentFields.Length!=1)
-            throw new InvalidOperationException("功能表单选须开启唯一可读的目标父字段。");
-        return new(target,targetPage,name,definition,parentFields[0]);
+        var parent = PublishedParent(model, target, targetPage);
+        return new(target, targetPage, name, definition, parent is null ? null : ResolveParentField(page, source, parent.Parent));
+    }
+
+    /// <summary>功能表候选从实际目标页恢复物理或逻辑父键。</summary>
+    internal static MultiTargetParentScope? PublishedParent(GenerationModel model, TableModel target, PageModel targetPage)
+    {
+        if (!targetPage.Scopes.Any(scope => scope.Source == "parent")) return null;
+        var condition = FixedConditionPlan.Compile(targetPage.Source.WhereSql, target.Columns.Select(column => column.Source.ColumnName));
+        return MultiTargetParentScope.Compile(model.Catalog, target.Source, condition)
+            ?? throw new InvalidOperationException("功能表实际目标页缺少可证明的父级。");
+    }
+
+    /// <summary>功能表没有来源记录，父值只能来自原页面已开放且关联同一父表的字段。</summary>
+    internal static ColumnModel ResolveParentField(PageModel page, ColumnModel source, TableMetadata parent)
+    {
+        var fields = page.Readable.Where(column => column.Source.Id != source.Source.Id && !column.IsJsonArray &&
+            column.Type is "long?" or "string?" &&
+            (column.Source.LinkConfigTableId == parent.Id || column.Source.LinkConfigTableId.Length == 0 &&
+                column.Source.ColumnName == parent.TableName + "_id")).Take(2).ToArray();
+        return fields.Length == 1 ? fields[0]
+            : throw new InvalidOperationException("功能表选择控件须开启唯一可读的目标父字段。");
     }
 }

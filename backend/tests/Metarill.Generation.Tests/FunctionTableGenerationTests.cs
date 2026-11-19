@@ -462,6 +462,79 @@ public sealed class FunctionTableGenerationTests : IDisposable
         return catalog;
     }
 
+    /// <summary>无来源记录的原下拉使用真实目标页的父范围、名称和精确权限。</summary>
+    [Theory]
+    [InlineData("physical")]
+    [InlineData("derived")]
+    [InlineData("logical")]
+    [InlineData("global")]
+    public async Task Function_original_list_uses_one_candidate_scope(string scenario)
+    {
+        var catalog = WithFunctionList(Catalog(), scenario);
+        new ApplicationPackager().Create(catalog, output, "Example.FunctionForm", SourceRoot());
+
+        var generated = Path.Combine(output, "backend/generated");
+        var controller = await File.ReadAllTextAsync(Path.Combine(generated, "Controllers/SummaryFormPage102Controller.g.cs"));
+        Assert.Contains("""[HttpPost("findNameIdReview39/page")]""", controller);
+        Assert.Contains("""authorization.RequirePagePermission("103", "list");""", controller);
+        var service = await File.ReadAllTextAsync(Path.Combine(generated, "Services/SummaryFormService.g.cs"));
+        Assert.Contains("DerivedOptionsPlan102_39", service);
+        Assert.Contains("InReadSnapshotAsync", service);
+        if (scenario == "global")
+        {
+            Assert.Contains("CompileMultiGlobalParent(\"7\",\"103\")", service);
+            Assert.Contains("DerivedOptionsPlan102_39.BindAccount(actor)", service);
+        }
+        else
+        {
+            Assert.Contains("""ResolveExactDataManage("103", "list", "real_name")""", service);
+            Assert.Contains("ReadOptionsForm102_39", service);
+            if (scenario == "logical") Assert.Contains("""FixedReadFilter.ForCrossExact("assigned_area_name",""", service);
+        }
+        Assert.False(File.Exists(Path.Combine(generated, "Entities/SummaryForm.g.cs")));
+        await VerifyVueAsync(output, "GeneratedFunctionListProbe.mjs", scenario);
+        await BuildFullAsync(output);
+        var context = new AssemblyLoadContext("FunctionList." + Guid.NewGuid().ToString("N"), isCollectible: true);
+        try
+        {
+            using var binary = File.OpenRead(Path.Combine(output, "backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"));
+            var runtime = context.LoadFromStream(binary).GetType("Example.FunctionForm.Generated.Services.SummaryFormService", true)!;
+            RuntimeHelpers.RunClassConstructor(runtime.TypeHandle);
+        }
+        finally { context.Unload(); }
+    }
+
+    /// <summary>目标页有父参数时拒绝没有已开放父字段的发布配置。</summary>
+    [Fact]
+    public void Function_original_list_rejects_missing_form_parent()
+    {
+        var catalog = WithFunctionList(Catalog(), "physical");
+        catalog.ConfigPageColumns.RemoveAll(column => column.Id == "10294");
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            new ApplicationPackager().Create(catalog, output, "Example.FunctionForm", SourceRoot()));
+        Assert.Contains("唯一可读的目标父字段", error.Message);
+        Assert.False(Directory.Exists(output));
+    }
+
+    /// <summary>沿原 List 绑定实际发布页，配置两类项目父级和显式全局父页。</summary>
+    private static MetadataCatalog WithFunctionList(MetadataCatalog catalog, string scenario)
+    {
+        WithSingleSelection(catalog, scenario);
+        var field = catalog.ConfigColumns.Single(column => column.Id == "39");
+        field.ControlKind = "List";
+        var name = scenario == "derived" ? "country_label" : "name";
+        if (scenario == "global")
+            field.ControlDetail = """{"pageId":"103","nameField":"name","whereSql":"status=1"}""";
+        else
+        {
+            field.Extra["linkConfigPageId"] = JsonSerializer.SerializeToElement("103");
+            field.Extra["isAutoPostBackQuery"] = JsonSerializer.SerializeToElement(1);
+            field.ControlDetail = JsonSerializer.Serialize(new {tableId="1",nameField=name,whereSql="remark = @formParameters.summaryForm.title"});
+            catalog.ConfigPageColumns.Single(column => column.Id == "10239").Extra.Remove("controlDetail");
+        }
+        return catalog;
+    }
+
     /// <summary>使用包内实际项目和依赖构建 ASP.NET Core 宿主，警告按错误处理。</summary>
     private static async Task BuildFullAsync(string output)
     {
@@ -525,7 +598,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
     }
 
     /// <summary>装载完整包内的原表单，验证原确认事件到业务按钮的实际请求参数。</summary>
-    private static async Task VerifyVueAsync(string directory, string probe, [CallerFilePath] string file = "")
+    private static async Task VerifyVueAsync(string directory, string probe, string? scenario = null, [CallerFilePath] string file = "")
     {
         var start = new ProcessStartInfo("node")
         {
@@ -534,6 +607,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
         };
         start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(file)!, probe));
         start.ArgumentList.Add(directory);
+        if (scenario is not null) start.ArgumentList.Add(scenario);
         using var process = Process.Start(start)!;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         var stdout = process.StandardOutput.ReadToEndAsync(timeout.Token);
