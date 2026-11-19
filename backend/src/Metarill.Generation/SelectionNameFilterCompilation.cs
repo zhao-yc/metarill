@@ -63,7 +63,7 @@ internal static class SelectionNameFilterCompilation
                     {
                         var known=MultiSelectCompilation.Resolve(model,table,page,source);
                         if(known.Definition?.Names?.Source.Id!=storage.Source.Id){Gap(known.Reason??"非冗余多选名称未绑定同一关系。");continue;}
-                        Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[storage.Source.ColumnName]);
+                        // Resolve 已按实际业务页编译名称路径，不能再用表级证明覆盖各页不同的父键。
                         kind=SelectionNameFilterKind.JoinedJsonArrayAnyLike;
                     }
                     else

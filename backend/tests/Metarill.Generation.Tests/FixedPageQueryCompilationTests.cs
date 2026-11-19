@@ -69,7 +69,7 @@ public sealed class FixedPageQueryCompilationTests
         Assert.Null(FixedPageQueryCompilation.SoftDeleteColumn(table)); Assert.Null(FixedPageQueryCompilation.For(table, page).SoftDeleteColumn);
     }
 
-    /// <summary>有效单选证明不能越过IR原有联接、非冗余和未知目标父门禁。</summary>
+    /// <summary>单选仍须核对联接声明、非冗余显示列冲突和目标父范围。</summary>
     [Theory]
     [InlineData("valid")] [InlineData("join")] [InlineData("targetJoin")] [InlineData("nonredundant")] [InlineData("targetNonredundant")] [InlineData("unknownParent")]
     public void Single_projection_keeps_existing_structural_gaps(string scenario)
@@ -85,6 +85,13 @@ public sealed class FixedPageQueryCompilationTests
         if (scenario == "targetNonredundant") catalog.ConfigTables.Single(table => table.Id == "3").IsRongyu = 0;
         if (scenario == "unknownParent") catalog.ConfigPages.Single(page => page.Id == "201").WhereSql = "yz_project_id=@current_yz_project_id";
         var model = GenerationModel.Create(catalog, "Example.KeepProjectionGaps"); var table = model.Tables.Single(table => table.Source.Id == "2"); var page = table.Pages.Single(page => page.Source.Id == "201");
+        if (scenario == "nonredundant")
+        {
+            // 物理 target_name 与派生别名重名，存储校验先于用途投影拒绝。
+            var error = Assert.Throws<InvalidOperationException>(() => ReadProjectionCompilation.ForPage(model, table, page));
+            Assert.Contains("关联显示别名与真实业务字段冲突", error.Message);
+            return;
+        }
         var plan = ReadProjectionCompilation.ForPage(model, table, page).Detail;
         Assert.Equal(scenario == "valid", plan.CanCompile);
         if (scenario == "valid")

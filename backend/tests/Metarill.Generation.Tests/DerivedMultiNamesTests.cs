@@ -1,5 +1,7 @@
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
+using Metarill.Data.Queries;
 using Xunit;
 namespace Metarill.Generation.Tests;
 
@@ -363,6 +365,21 @@ public sealed class DerivedMultiNamesTests
         field202.Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"pageId\":\"302\"}");
         catalog.ConfigPageColumns.Add(field202);
         RedundantMultiNameCacheTests.Published(catalog);
+        if (!checkbox && differentSourceParents)
+        {
+            // 两页可使用不同的来源外键，名称筛选和完整发布按各自页面证明范围。
+            var model = GenerationModel.Create(catalog, ns);
+            var source = model.Tables.Single(table => table.Source.Id == "2");
+            foreach (var page in source.Pages)
+            {
+                var filter = SelectionNameFilterCompilation.ForPage(model, source, page);
+                Assert.Empty(filter.Gaps);
+                var name = Assert.Single(filter.Bindings);
+                Assert.Equal("targetNames", name.FilterKey);
+                Assert.Equal(SelectionNameFilterKind.JoinedJsonArrayAnyLike, name.Kind);
+            }
+            new FrontendPackager().Validate(catalog);
+        }
         if(overlayOnlyAccount)
         {
             var target=catalog.ConfigTables.Single(item=>item.Id=="3");
@@ -404,6 +421,18 @@ public sealed class DerivedMultiNamesTests
                     var (current,other)=page=="201"?("parent_id","secondary_parent_id"):("secondary_parent_id","parent_id");
                     Assert.Contains("b.`"+current+"`",predicates["target_names"]);
                     Assert.DoesNotContain("b.`"+other+"`",predicates["target_names"]);
+                    if (!checkbox)
+                    {
+                        var request = new PageRequest { ParentId = "9007199254740995" };
+                        request.Filters.Add("targetNames", JsonSerializer.SerializeToElement("张三"));
+                        var readFilters = service.GetMethod("ReadFilters" + page,
+                            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+                        var filters = Assert.IsAssignableFrom<IReadOnlyList<FixedReadFilter>>(
+                            readFilters.Invoke(null, [request, actor]));
+                        Assert.Contains(new FixedReadFilter(current, FixedReadComparison.Equal, 9007199254740995L), filters);
+                        Assert.DoesNotContain(filters, filter => filter.Field == other);
+                        Assert.Contains(new FixedReadFilter("target_names", FixedReadComparison.JsonArrayAnyContains, "张三"), filters);
+                    }
                 }
 
                 var match=Read((checkbox?"DerivedCheckboxPlan":"MultiDerivedPlan")+page+"_25");
