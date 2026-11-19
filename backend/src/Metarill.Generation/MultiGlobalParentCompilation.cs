@@ -20,6 +20,8 @@ internal static class MultiGlobalParentCompilation
     /// <summary>全局候选的父级按其实际发布页验证，普通项目页沿用自身的项目和父级范围。</summary>
     internal static MultiTargetParentScope? SingleTarget(GenerationModel model,TableModel table,PageModel page)
     {
+        // 普通业务页可同时绑定逻辑层位与物理父键。单值目标的识别只处理唯一父字段。
+        if(page.Scopes.Count(scope=>scope.Source=="parent")!=1)return null;
         if(NonRedundantReadCompilation.HasGlobalRowProject(table)&&
             !NonRedundantReadCompilation.GlobalSelectionPage(table,page)&&page.Scopes.Any(scope=>scope.Source=="project"))
             return null;
