@@ -316,6 +316,105 @@ public sealed class ExactDataManageGenerationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>独立和共享级联权限按目标页逻辑值匹配，联接名称沿实际中间页读取。</summary>
+    [Theory]
+    [InlineData(false, "countryId", "country_id")]
+    [InlineData(true, "countryId", "country_id")]
+    [InlineData(true, "countryName", "country_name")]
+    public async Task Redundant_selection_excel_uses_target_cascade_exact_plan(bool shared, string key, string field)
+    {
+        const string generatedNamespace = "Example.ExcelCascadeExact";
+        var catalog = shared ? SharedCrossExactScopeGenerationTests.Catalog(key)
+            : RedundantMultiNameCacheTests.Published(NonRedundantCrossTableGenerationTests.Catalog("exact_single", "string", "int64"));
+        var targetPage = catalog.ConfigPages.Single(page => page.Id == "201");
+        targetPage.Extra["type"] = JsonSerializer.SerializeToElement(1);
+        targetPage.Extra["exactDataManageMatchField"] = JsonSerializer.SerializeToElement(key);
+        var project = catalog.YzProjectId;
+        var admin = targetPage.YzAdminTypeId;
+        catalog.YzAdminTypes.Single(type => type.Id == admin).Extra["exactDataManageMatchField"] = JsonSerializer.SerializeToElement("realName");
+        catalog.ConfigTables.AddRange([
+            new() { Id = "990", YzProjectId = project, TableName = "exact_excel_dictionary", IsRongyu = 0 },
+            new() { Id = "991", YzProjectId = project, TableName = "exact_excel_consumer", IsRongyu = 1 }
+        ]);
+        catalog.ConfigColumns.AddRange([
+            new() { Id = "99001", YzProjectId = project, ConfigTableId = "990", ColumnName = "id", LogicalType = "int64", IsDbNotNull = 1 },
+            new() { Id = "99002", YzProjectId = project, ConfigTableId = "990", ColumnName = "name", LogicalType = "string" },
+            new() { Id = "99003", YzProjectId = project, ConfigTableId = "990", ColumnName = "yz_project_id", LogicalType = "int64" },
+            new() { Id = "99004", YzProjectId = project, ConfigTableId = "990", ColumnName = "store_id", LogicalType = "int64" },
+            new() { Id = "99101", YzProjectId = project, ConfigTableId = "991", ColumnName = "id", LogicalType = "int64", IsDbNotNull = 1 },
+            new() { Id = "99102", YzProjectId = project, ConfigTableId = "991", ColumnName = "target_id", LogicalType = "int64",
+                Name = "目标名称", LinkConfigTableId = "2", ControlKind = "SelectPage",
+                ControlDetail = """{"pageId":"201","tableId":"2","nameField":"dictionary_name"}""" },
+            new() { Id = "99103", YzProjectId = project, ConfigTableId = "991", ColumnName = "yz_project_id", LogicalType = "int64" },
+            new() { Id = "99005", YzProjectId = project, ConfigTableId = "2", ColumnName = "dictionary_id", LogicalType = "int64",
+                LinkConfigTableId = "990", ControlKind = "List", ControlDetail = """{"tableId":"990","nameField":"name"}""",
+                Extra = new() { ["linkConfigPageId"] = JsonSerializer.SerializeToElement("9901") } },
+            new() { Id = "99006", YzProjectId = project, ConfigTableId = "2", ColumnName = "dictionary_name", LogicalType = "string",
+                Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1), ["columnFullName"] = JsonSerializer.SerializeToElement("dictionary.name") } }
+        ]);
+        catalog.ConfigPages.AddRange([
+            new() { Id = "9901", YzProjectId = project, YzAdminTypeId = admin, ConfigTableId = "990",
+                WhereSql = "yz_project_id=@current_yz_project_id" + (shared ? " AND store_id=@current_store_id" : "") },
+            new() { Id = "9911", YzProjectId = project, YzAdminTypeId = admin, ConfigTableId = "991",
+                WhereSql = "yz_project_id=@current_yz_project_id", IsImport = 1, IsExport = 1,
+                Extra = new() { ["importMethod"] = JsonSerializer.SerializeToElement(shared ? "OverWriteByFirstColumn" : "OnlyNew"),
+                    ["exportMethod"] = JsonSerializer.SerializeToElement(shared ? "edit" : "list") } }
+        ]);
+        catalog.ConfigPageColumns.AddRange([
+            new() { Id = "99012", YzProjectId = project, ConfigPageId = "9901", ConfigColumnId = "99002" },
+            new() { Id = "99112", YzProjectId = project, ConfigPageId = "9911", ConfigColumnId = "99102" },
+            new() { Id = "20199006", YzProjectId = project, ConfigPageId = "201", ConfigColumnId = "99006", IsEdit = 0 }
+        ]);
+        var model = GenerationModel.Create(catalog, generatedNamespace);
+        var table = model.Tables.Single(item => item.Source.Id == "2");
+        var exact = ExactDataManageCompilation.Resolve(model, table, table.Pages.Single(item => item.Source.Id == "201"))!;
+        Assert.Equal(shared ? 2 : 1, exact.CrossPlans!.Count);
+        Assert.Equal(field, exact.Column.Source.ColumnName);
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-single-excel-cross-exact");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), generatedNamespace);
+            new FrontendPackager().Validate(catalog);
+            var source = await File.ReadAllTextAsync(Path.Combine(directory, "generated/Services/ExactExcelConsumerService.g.cs"));
+            Assert.Contains(shared ? "CompileProjectPage" : "CompileCross", source);
+            Assert.Contains("DerivedOptionsRows9911_99102Async(request.ParentId,groupTargetId.Key", source);
+            Assert.Contains("condition:scope.Condition,currentRead:true", source);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var actor = new RuntimeActor(1, "级联精确范围", false, project, admin) { StoreId = 9007199254741987 };
+            const long number = 9007199254741989;
+            var authorization = new Authorization(actor, "201") { Value = field == "country_name" ? "[\"国甲\"]" : "[\"9007199254741989\"]" };
+            using var session = new DatabaseSession(new()
+            {
+                Provider = "mysql", ExpectedDatabase = "metarill_business_test",
+                ConnectionString = "Server=127.0.0.1;Database=metarill_business_test;User ID=unused;Password=unused;"
+            });
+            var type = assembly.GetType(generatedNamespace + ".Generated.Services.ExactExcelConsumerService", true)!;
+            var mapper = Activator.CreateInstance(assembly.GetType(generatedNamespace + ".Generated.Mappers.ExactExcelConsumerMapper", true)!, [session]);
+            var service = Activator.CreateInstance(type, [session, mapper, new SnowflakeIdGenerator(862),
+                Array.Empty<IRecordMutationObserver>(), Array.Empty<IRecordMutationGuard>(), authorization])!;
+            var plan = Assert.IsType<NonRedundantReadPlan>(type.GetField("DerivedOptionsPlan9911_99102",
+                BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null));
+            Assert.Equal(new[] { "dictionary_name", "id" }, plan.OutputTypes.Keys.Order());
+            var mysql = typeof(NonRedundantReadPlan).GetProperty("MySql", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(plan.BindAccount(actor))!;
+            var expression = typeof(ExactDataManageSql).GetMethod("CrossExpression", BindingFlags.Static | BindingFlags.NonPublic)!;
+            var sql = (string)expression.Invoke(null, [mysql, field])!;
+            Assert.Contains("CASE WHEN", sql, StringComparison.OrdinalIgnoreCase);
+            Assert.NotEqual($"b.\u0060{field}\u0060", sql);
+            var scope = type.GetMethod("DerivedOptionsScope9911_99102Async", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var scoped = (Task<(List<FixedReadFilter> Filters, FixedConditionSqlPlan? Condition)>)scope.Invoke(service,
+                [null, null, actor, CancellationToken.None, null, false])!;
+            var result = await scoped;
+            var filter = Assert.Single(result.Filters, candidate => candidate.Field == field);
+            Assert.Equal("list", authorization.LastOperation);
+            Assert.Equal(FixedReadComparison.In, filter.Comparison);
+            object value = exact.Column.Type == "long?" ? number : field == "country_name" ? "国甲" : "9007199254741989";
+            Assert.Equal(new object?[] { value }, Assert.IsAssignableFrom<IReadOnlyList<object?>>(filter.Value));
+            Assert.True((bool)typeof(FixedReadFilter).GetProperty("SharedExact", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(filter)!);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>标准模型和非冗余正式应用模型共用同一已发布后台声明，不手写业务实体。</summary>
     internal static MetadataCatalog Catalog(bool nonredundant)
     {

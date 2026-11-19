@@ -176,7 +176,10 @@ internal static class DerivedRelationNamesCompilation
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var outputs = new[] { "id", name.Source.ColumnName };
         var projectTargets=ProjectCandidateTargets(model,relation,exact);
-        var plan = UsesLogicalPage(relation)
+        var plan = exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0)
+            ? NonRedundantReadCompilation.CompilePage(model, target, outputs, dependencies,
+                NonRedundantCrossTableCompilation.Bindings(exact.CrossPlans ?? []), projectTargets, [])
+            : UsesLogicalPage(relation)
             ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies,relation.Conditions,projectTargets)
             : target.IsGlobal && physicalTypedName || NonRedundantReadCompilation.HasGlobalRowProject(target) ||
                 HasGlobalAccountScope(target,relation.TargetPage)
@@ -191,17 +194,14 @@ internal static class DerivedRelationNamesCompilation
             throw new InvalidOperationException("关系名称必须编译为与声明一致的固定标量。");
         return dependencies;
     }
-    /// <summary>普通冗余单选沿用目标列表的授权范围，匹配字段使用已接入的标量联接。</summary>
+    /// <summary>普通冗余单选沿用目标列表的授权范围，匹配字段使用目标页已证明的固定读取计划。</summary>
     internal static ExactDataManageModel? CandidateExact(GenerationModel model, TableModel owner, RelationModel relation)
     {
         if (!ExactDataManageCompilation.Declared(relation.TargetPage)) return null;
         if (relation.SourceColumn.Source.ControlKind != "SelectPage" || !SupportsExactSelectionTarget(owner,relation.Target) ||
             UsesLogicalPage(relation))
             throw new NotSupportedException("当前派生名称目标的精确范围缺少固定候选证明。");
-        var exact = ExactDataManageCompilation.Resolve(model, relation.Target, relation.TargetPage)!;
-        if (exact.CrossPlans is not null)
-            throw new NotSupportedException("当前派生名称目标的级联精确范围缺少固定候选证明。");
-        return exact;
+        return ExactDataManageCompilation.Resolve(model, relation.Target, relation.TargetPage);
     }
 
     /// <summary>按普通项目的冗余来源及非冗余目标核对单选发布范围。</summary>

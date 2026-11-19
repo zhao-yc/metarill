@@ -30,6 +30,18 @@ internal static class DerivedRelationNamesRenderer
                 ? $"CompileProjectRelation({Literal(relation.Target.Source.Id)}"
                 : NonRedundantReadCompilation.RelationPlanStart(relation.Target, relation.TargetPage);
         var projectTargetArgument=NonRedundantReadCompilation.SingleTargetArgument(projectTargets,logical?"singleTargets":null);
+        var outputs = "new string[]{\"id\"," + Literal(name) + "}";
+        var fields = "new string[]{ " + string.Join(",", dependencies.Select(Literal)) + " }";
+        // 精确过滤只引入目标页匹配字段所在路径，共享分支仍由同一个整组计划验证。
+        var plan = $"{planStart},{outputs},{fields}{parentPlan}{projectTargetArgument})";
+        if (exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0))
+        {
+            var crossArgument = exact.CrossPlans is { } crossPlans
+                ? NonRedundantCrossTableCompilation.BindingArgument(crossPlans)
+                : ",Array.Empty<Metarill.Data.Queries.NonRedundantCrossTableScope>()";
+            var compiler = projectTargets.Count == 0 ? "CompileCross" : "CompileProjectPage";
+            plan = $"{compiler}({Literal(relation.Target.Source.Id)},{outputs},{fields}{crossArgument}{projectTargetArgument})";
+        }
         var label = MultiSelectExcelRenderer.LabelText(relation.NameColumn, $"NonRedundantReads.Value<{relation.NameColumn.Type}>(row,{Literal(name)})");
         var search = relation.NameColumn.Source.LogicalType switch
         {
@@ -46,7 +58,7 @@ internal static class DerivedRelationNamesRenderer
         var bind=relation.Conditions is null?"":"        var bound=OptionsCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"});condition=condition is null?bound:condition.And(bound);";
         var result=new StringBuilder($$"""
     /// <summary>生成和静态装载时编译，普通请求不解析元数据；名称联接与物理身份一同固定。</summary>
-    private static readonly NonRedundantReadPlan DerivedOptionsPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{planStart}},new string[]{"id",{{Literal(name)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} }{{parentPlan}}{{projectTargetArgument}});
+    private static readonly NonRedundantReadPlan DerivedOptionsPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{plan}};
     /// <summary>先复用原真实父检查，再把同一页面及控件条件AND绑定到固定SQL读取。</summary>
     private async Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)> DerivedOptionsScope{{suffix}}Async(string? parentId,string? targetParentId,RuntimeActor actor,CancellationToken cancellationToken,IReadOnlyDictionary<string,object?>? formValues=null{{(validateCurrent?",bool locking=false":"")}})
     {
