@@ -200,13 +200,15 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>固定业务页在同一读取计划中绑定单值目标和已有跨表路径。</summary>
     internal static MySqlNonRedundantReadPlan CompileProjectPage(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputs,
         IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
-        IReadOnlyList<NonRedundantSingleTargetScope> singleTargets)=>
-        CompileRelationScope(catalog,tableId,outputs,crossTables,dependencies,deferCascadeNames:true,singleTargets:singleTargets);
+        IReadOnlyList<NonRedundantSingleTargetScope> singleTargets,IReadOnlyList<NonRedundantMultiTargetScope>? multiTargets=null)=>
+        CompileRelationScope(catalog,tableId,outputs,crossTables,dependencies,deferCascadeNames:true,
+            singleTargets:singleTargets,multiTargets:multiTargets);
 
     /// <summary>共用方言、输出与发布目录校验，候选用途单独由构建器核验。</summary>
     private static MySqlNonRedundantReadPlan CompileRelationScope(MetadataCatalog catalog, string tableId, IReadOnlyList<string> outputNames,
         IReadOnlyList<NonRedundantCrossTableScope> crossTables, IReadOnlyList<string>? dependencies, bool deferCascadeNames, bool scopedPhysicalCandidate = false,
-        IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
+        IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,
+        IReadOnlyList<NonRedundantMultiTargetScope>? multiTargets=null)
     {
         ArgumentNullException.ThrowIfNull(crossTables);
         ArgumentNullException.ThrowIfNull(catalog); ArgumentNullException.ThrowIfNull(outputNames);
@@ -216,7 +218,8 @@ public static partial class MySqlNonRedundantReadCompiler
         if(outputNames.Count==0||outputNames.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputNames.Count)throw new InvalidOperationException("输出字段不能为空或重复。");
         var builder = new Builder(catalog, tableId, deferCascadeNames: deferCascadeNames, crossTables: crossTables, scopedPhysicalCandidate: scopedPhysicalCandidate,candidateParents:candidateParents)
         {
-            ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
+            ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
+            ProjectMultiTargets=(multiTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
         };
         return builder.Compile(outputNames,dependencies??[]);
     }
@@ -644,9 +647,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(HasGlobalRowProject(target)||typedCache)publishedPage=proof.Page;
             }
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
-            var selectedScope=MultiTargetLogicalPage(catalog,target,relation);
+            var (sourcePage,overridden,applyPageScope)=ProjectMultiTarget(table,owner,relation,target);
+            var namePage=overridden??MultiTargetNamePage(catalog,target,relation);
+            var selectedScope=overridden is null?MultiTargetLogicalPage(catalog,target,relation):applyPageScope?overridden:null;
             if(selectedScope is not null||!storage[target.Id].IsPhysical(value))
-                return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage,selectedScope);
+                return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage,selectedScope,namePage,sourcePage);
             var scalarLabel=typedCache||MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id]);
             if(value.LogicalType!="string"&&!scalarLabel)throw new NotSupportedException("多值物理名称类型未支持。");
             Use(table,relation);

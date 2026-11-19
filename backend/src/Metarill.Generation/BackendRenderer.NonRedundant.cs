@@ -42,6 +42,11 @@ internal static partial class BackendRenderer
                 .Where(tree=>relation.Conditions!.SelfTreeFields.Contains(
                     CascadeTreeViewRenderer.Name(relation.Target,tree.Source)!.Source.ColumnName))
                 .Select(tree=>(tree.Target,tree.TargetPage))));
+        var multiPageIds=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>
+                NonRedundantReadCompilation.ProjectMultiTargets(model,table,page)))
+            .SelectMany(scope=>new[]{scope.SourcePageId,scope.TargetPageId}).ToHashSet(StringComparer.Ordinal);
+        scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>multiPageIds.Contains(page.Source.Id))
+            .Select(page=>(table,page))));
         var nestedTables=RelationPropagationCompilation.PublishedRecursiveTables(model,scopedPages);
         var recursiveCandidates=nestedTables.Count>0;
         var selfTreeNamePages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page)))
@@ -54,8 +59,8 @@ internal static partial class BackendRenderer
         var cross=model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>CrossTableWriteCompilation.ForService(model,table,page).Count>0));
         var helpers=cross?"    /// <summary>目标条件与页面一起冻结，静态初始化不读取后声明字段。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileCross(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[] bindings)=>Metarill.Data.Queries.NonRedundantReads.CompileWithCrossTables(Snapshot,tableId,outputs,bindings,dependencies,deferCascadeNames:true);\n    /// <summary>与统一物理结构共用稀疏选择编码器。</summary>\n    internal static Metarill.Core.Metadata.CrossTableSparseSelection CompileSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.CrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n":"";
         if(model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0)))helpers+="    /// <summary>共享R0由整组编译，成员不能分别打包覆盖。</summary>\n    internal static Metarill.Core.Metadata.SharedCrossTableSparseSelection CompileSharedSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.SharedCrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n";
-        if(scopedRelations.Any(NonRedundantReadCompilation.UsesProjectSingleRead))
-            helpers+="    /// <summary>业务页实时关系名的目标及父范围由生成时固定。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileProjectPage(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[] cross,Metarill.Data.Queries.NonRedundantSingleTargetScope[] single)=>Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(Snapshot,tableId,outputs,dependencies,cross,single);\n";
+        if(scopedRelations.Any(NonRedundantReadCompilation.UsesProjectSingleRead)||multiPageIds.Count>0)
+            helpers+="    /// <summary>业务页实时关系名的目标及父范围由生成时固定。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileProjectPage(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[] cross,Metarill.Data.Queries.NonRedundantSingleTargetScope[] single,Metarill.Data.Queries.NonRedundantMultiTargetScope[]? multi=null)=>Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(Snapshot,tableId,outputs,dependencies,cross,single,multi);\n";
         if(relations.Any(relation=>!DerivedRelationNamesCompilation.UsesLogicalPage(relation)&&
             DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation).Count>0))
             helpers+="    /// <summary>派生候选沿实际中间页范围编译完整名称。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileProjectRelation(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[] single)=>Metarill.Data.Queries.NonRedundantReads.CompileProjectRelation(Snapshot,tableId,outputs,dependencies,single);\n";

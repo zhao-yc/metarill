@@ -79,7 +79,7 @@ internal static class ExportRenderer
             var crossScopes=NonRedundantCrossTableCompilation.Bindings(model,table,page);
             var compiled=accountSingle
                 ?NonRedundantReads.CompileGlobalSingleParentPage(model.Catalog,table.Source.Id,page.Source.Id,names,plan.Dependencies,crossScopes,plan.SingleTargets)
-                :NonRedundantReadCompilation.CompilePage(model,table,names,plan.Dependencies,crossScopes,plan.SingleTargets);
+                :NonRedundantReadCompilation.CompilePage(model,table,names,plan.Dependencies,crossScopes,plan.SingleTargets,plan.MultiTargets);
             var outputs="new string[]{"+string.Join(",",names.Select(Literal))+"}";var fixedDependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
             var planCall=accountSingle
                 ?$"CompileGlobalSingleParentPage({Literal(table.Source.Id)},{Literal(page.Source.Id)},{outputs},{fixedDependencies}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)}{NonRedundantReadCompilation.SingleTargetArgument(plan.SingleTargets,"singleTargets")})"

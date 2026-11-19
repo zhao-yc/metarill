@@ -8,6 +8,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
     bool SameParent, string? TargetParentField, IReadOnlyList<TableModel> TargetParents, string ButtonText)
 {
     internal bool LogicalSourceParent { get; init; }
+    internal bool UsesPageRead { get; init; }
     internal bool GlobalParent { get; init; }
     internal bool IntegerLabel => !Name.IsId&&Name.Type is ("int?" or "long?");
     internal bool TypedLabel => !Name.IsId&&Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
@@ -69,7 +70,9 @@ internal static class MultiSelectCompilation
             if(scoped||derived)DerivedMultiNamesCompilation.Require(model,table,target,targetPage,name);
             var fixedPage=Scalar(root,"pageId");
             if(fixedPage.Length==0)fixedPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
-            if(pageId!=fixedPage&&(scoped||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(target,candidate))))
+            var pageOverride=pageId!=fixedPage;
+            var pageRead=table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!table.IsGlobal&&!target.IsGlobal;
+            if(pageOverride&&!pageRead&&(scoped||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(target,candidate))))
                 return Gap("限定范围的目标页必须与表级读取和缓存绑定一致。");
             if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),new(pageId,name.Source.ColumnName,Value("buttonText"),Value("whereSql"),""),out _))return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
             var ordering = Value("orderBy");
@@ -101,7 +104,8 @@ internal static class MultiSelectCompilation
             var logicalSourceParent=false;
             if(scopedParent is not null)
             {
-                var owner=scopedParent.Source(model.Catalog,table.Source,source.Source);
+                var owner=pageRead&&pageOverride?scopedParent.Source(model.Catalog,table.Source,source.Source,page.Source)
+                    :scopedParent.Source(model.Catalog,table.Source,source.Source);
                 var actual=same?page.Scopes.Single(item=>item.Source=="parent").Column:table.Columns.Single(column=>column.JsonName==targetField);
                 logicalSourceParent=owner.LogicalPages.Count>0;
                 if(actual.Source.Id!=owner.Column.Id||logicalSourceParent&&(!same||!NonRedundantCrossParentCompilation.Managed(model,table,page,actual)))
@@ -130,7 +134,11 @@ internal static class MultiSelectCompilation
             // R1派生数组不能只证明候选：同一根定义还须取得数据层缓存证明，Full报告与实际发布保持一致。
             if(table.Source.IsRongyu==1&&names is not null&&(scoped||derived))Metarill.Data.Relations.DerivedCrossTableCaches.Validate(model.Catalog,[new(table.Source.Id,source.Source.Id,target.Source.Id,name.Source.Id,names.Source.Id,true)],[]);
             return new(new(source, target, targetPage, name, names, same, targetField, targetParents, Value("buttonText", "选择"))
-                {LogicalSourceParent=logicalSourceParent,GlobalParent=scopedParent?.Global==true}, null);
+                {
+                    LogicalSourceParent=logicalSourceParent,
+                    GlobalParent=scopedParent?.Global==true,
+                    UsesPageRead=pageRead&&(pageOverride||!scoped&&(targetPage.Condition is not null||targetParents.Length>0))
+                }, null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }
     }

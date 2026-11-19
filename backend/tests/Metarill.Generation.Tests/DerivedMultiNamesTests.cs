@@ -199,6 +199,102 @@ public sealed class DerivedMultiNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>同一 R0 名称数组在不同业务页按各自的候选页匹配、显示和导出。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(false,true)]
+    [InlineData(true,false)]
+    [InlineData(true,true)]
+    public async Task R0_array_page_override_uses_the_actual_target(bool checkbox,bool account)
+    {
+        const string ns="Example.ArrayPageOverride";
+        var catalog=Catalog("array_page_override",false);
+        catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=0;
+        catalog.ConfigColumns.Single(column=>column.Id=="37").ControlDetail=
+            "{\"tableId\":\"4\",\"pageId\":\"401\",\"nameField\":\"name\",\"whereSql\":\"status=17\"}";
+        catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",ColumnName="status",LogicalType="int32"});
+        catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="status",LogicalType="int32"});
+        if(account)catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="store_id",LogicalType="int64"});
+        var original=catalog.ConfigPages.Single(page=>page.Id=="301");
+        original.WhereSql+=" AND status>=31"+(account?" AND store_id=@current_store_id":"");
+        var alternative=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(original))!;
+        alternative.Id="302";
+        alternative.WhereSql=alternative.WhereSql.Replace("31","32",StringComparison.Ordinal);
+        catalog.ConfigPages.Add(alternative);
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="301").ToArray())
+        {
+            var clone=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+            clone.Id="302"+field.ConfigColumnId;
+            clone.ConfigPageId="302";
+            catalog.ConfigPageColumns.Add(clone);
+        }
+        foreach(var (page,minimum) in new[]{("301",3),("302",9)})
+            catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page&&field.ConfigColumnId=="37")
+                .Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql="status="+minimum}));
+        if(checkbox)
+        {
+            var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
+            control.ControlKind="MultiCheckBoxDatabase";
+            control.ControlDetail=Checkbox("301");
+        }
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="202");
+        sourcePage.IsImport=sourcePage.IsExport=1;
+        var field201=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25");
+        field201.IsShow=field201.IsEdit=1;
+        field201.Extra["isDetailShow"]=JsonSerializer.SerializeToElement(1);
+        var field202=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field201))!;
+        field202.Id="20225";
+        field202.ConfigPageId="202";
+        field202.Extra["controlDetail"]=JsonSerializer.SerializeToElement(checkbox?Checkbox("302"):"{\"pageId\":\"302\"}");
+        catalog.ConfigPageColumns.Add(field202);
+        RedundantMultiNameCacheTests.Published(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-r0-array-page-override");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.ArrayPageOverrideSourceService",true)!;
+            var actor=new Metarill.Core.Security.RuntimeActor(7,"sample",false,catalog.YzProjectId,"5"){StoreId=23};
+            foreach(var (page,condition,otherCondition,root) in new[]{("201",3,9,31),("202",9,3,32)})
+            {
+                var read=Read("ReadPlan"+page);
+                var values=Parameters(read);
+                Assert.Contains(condition,values);
+                Assert.DoesNotContain(otherCondition,values);
+                Assert.DoesNotContain(17,values);
+                if(account||!checkbox)Assert.Contains(root,values);
+                if(account)Assert.Contains(23L,values);
+                var predicates=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(read.GetType()
+                    .GetProperty("ArrayNamePredicates",HiddenInstance)!.GetValue(read));
+                Assert.Contains(".`status`",predicates["target_names"]);
+
+                var match=Read((checkbox?"DerivedCheckboxPlan":"MultiDerivedPlan")+page+"_25");
+                Assert.Contains(condition,Parameters(match));
+                Assert.DoesNotContain(otherCondition,Parameters(match));
+                if(!checkbox)Assert.Contains(condition,Parameters(Read("ExportReadPlan"+page)));
+                Assert.NotNull(service.GetMethod("Import"+page+"Async"));
+                Assert.NotNull(service.GetMethod("Export"+page+"Async"));
+            }
+
+            object Read(string field)
+            {
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service
+                    .GetField(field,System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
+                var bound=plan.BindAccount(actor);
+                return bound.GetType().GetProperty("MySql",HiddenInstance)!.GetValue(bound)!;
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+
+        static string Checkbox(string pageId)=>JsonSerializer.Serialize(new{tableId="3",pageId,nameField="name",whereSql="parent_id=@parentId"});
+        static IEnumerable<object?> Parameters(object read)=>Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(read.GetType()
+            .GetProperty("Constants",HiddenInstance)!.GetValue(read)).Values;
+    }
+
+    private const System.Reflection.BindingFlags HiddenInstance=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+
     /// <summary>同一公司表参与两个角色，原候选、Excel 和 R1 维护须源自同一固定路径。</summary>
     [Theory]
     [InlineData(false,0,"string","int64")]

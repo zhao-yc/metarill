@@ -7,7 +7,8 @@ namespace Metarill.Generation;
 
 internal sealed record NonRedundantOutput(string Storage,string Property,string JsonName,string Type,bool IsJsonArray=false);
 internal sealed record NonRedundantPagePlan(IReadOnlyList<NonRedundantOutput> Outputs,IReadOnlyList<string> Dependencies,
-    IReadOnlyList<string> ReadOutputs,IReadOnlyList<NonRedundantSingleTargetScope> SingleTargets,bool RequiresAccount);
+    IReadOnlyList<string> ReadOutputs,IReadOnlyList<NonRedundantSingleTargetScope> SingleTargets,
+    IReadOnlyList<NonRedundantMultiTargetScope> MultiTargets,bool RequiresAccount);
 
 /// <summary>生成侧提前证明单值／固定多选用途和物理写边界；数据库表达式由数据适配器编译。</summary>
 internal static partial class NonRedundantReadCompilation
@@ -207,7 +208,8 @@ internal static partial class NonRedundantReadCompilation
         var readOutputs=outputs.Select(output=>output.Storage).Concat(CascadeTreeViewRenderer.ForPage(model,table,page).Select(plan=>plan.Source.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var singleTargets=ProjectSingleTargets(model,table,page,readOutputs.Concat(dependencies));
         var crossBindings=NonRedundantCrossTableCompilation.Bindings(crossPlans);
-        var compiled=CompilePage(model,table,readOutputs,dependencies,crossBindings,singleTargets);
+        var multiTargets=ProjectMultiTargets(model,table,page);
+        var compiled=CompilePage(model,table,readOutputs,dependencies,crossBindings,singleTargets,multiTargets);
         var account=compiled.RequiresAccount;
         if(GlobalSelectionPage(table,page))
         {
@@ -226,7 +228,7 @@ internal static partial class NonRedundantReadCompilation
         }
         outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","double"=>"double?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();
         if(outputs.Select(output=>output.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count)throw new InvalidOperationException("派生显示属性冲突。");
-        return new(outputs,dependencies,readOutputs,singleTargets,account);
+        return new(outputs,dependencies,readOutputs,singleTargets,multiTargets,account);
     }
 
     /// <summary>业务页单值读取使用实际项目内非冗余目标以及已证明的父范围。</summary>
@@ -274,12 +276,23 @@ internal static partial class NonRedundantReadCompilation
         };
     }
 
+    /// <summary>多值字段按当前页冻结目标。复选的普通目标页仅用于名称路径，候选附加条件仍由原定义决定。</summary>
+    internal static IReadOnlyList<NonRedundantMultiTargetScope> ProjectMultiTargets(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(table.Source.IsRongyu!=0||table.IsGlobal)return [];
+        return MultiSelectCompilation.ForService(model,table,page).Where(def=>def.UsesPageRead&&def.Names is not null)
+            .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.TargetPage.Source.Id,true))
+            .Concat(DatabaseCheckboxCompilation.ForService(model,table,page).Where(def=>def.UsesPageRead)
+                .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.NameTargetPage!.Source.Id,
+                    def.LogicalTargetPage is not null))).ToArray();
+    }
+
     /// <summary>生成验证与导出窄投影使用完全相同的各页固定目标。</summary>
     internal static NonRedundantReadPlan CompilePage(GenerationModel model,TableModel table,IReadOnlyList<string> outputs,
         IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> crosses,
-        IReadOnlyList<NonRedundantSingleTargetScope> singles)=>
-        singles.Count==0?NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,outputs,crosses,dependencies,deferCascadeNames:true):
-            NonRedundantReads.CompileProjectPage(model.Catalog,table.Source.Id,outputs,dependencies,crosses,singles);
+        IReadOnlyList<NonRedundantSingleTargetScope> singles,IReadOnlyList<NonRedundantMultiTargetScope> multis)=>
+        singles.Count==0&&multis.Count==0?NonRedundantReads.CompileWithCrossTables(model.Catalog,table.Source.Id,outputs,crosses,dependencies,deferCascadeNames:true):
+            NonRedundantReads.CompileProjectPage(model.Catalog,table.Source.Id,outputs,dependencies,crosses,singles,multis);
 
     /// <summary>列表、详情与导出下发同一固定页绑定，旧的无条件生成保持原调用。</summary>
     internal static string PagePlanCall(GenerationModel model,TableModel table,PageModel page,
@@ -287,10 +300,12 @@ internal static partial class NonRedundantReadCompilation
     {
         var arguments=JsonSerializer.Serialize(table.Source.Id)+","+outputs+","+dependencies;
         var cross=NonRedundantCrossTableCompilation.BindingArgument(model,table,page);
-        if(plan.SingleTargets.Count==0)
+        if(plan.SingleTargets.Count==0&&plan.MultiTargets.Count==0)
             return (cross.Length==0?"Compile":"CompileCross")+"("+arguments+cross+")";
-        return "CompileProjectPage("+arguments+(cross.Length==0?",Array.Empty<NonRedundantCrossTableScope>()":cross)+
-            SingleTargetArgument(plan.SingleTargets)+")";
+        var singles=plan.SingleTargets.Count==0?",Array.Empty<NonRedundantSingleTargetScope>()":SingleTargetArgument(plan.SingleTargets);
+        var multis=plan.MultiTargets.Count==0?"":",new NonRedundantMultiTargetScope[]{"+string.Join(",",plan.MultiTargets.Select(scope=>
+            $"new({JsonSerializer.Serialize(scope.ColumnId)},{JsonSerializer.Serialize(scope.SourcePageId)},{JsonSerializer.Serialize(scope.TargetPageId)},{(scope.ApplyPageScope?"true":"false")})"))+"}";
+        return "CompileProjectPage("+arguments+(cross.Length==0?",Array.Empty<NonRedundantCrossTableScope>()":cross)+singles+multis+")";
     }
 
     /// <summary>业务页和记录规则的生成代码复用同一目标页与物理父键字面量。</summary>

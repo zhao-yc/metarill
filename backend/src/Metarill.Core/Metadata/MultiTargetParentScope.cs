@@ -64,6 +64,10 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public MultiSourceParent Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation)=>
         Source(catalog,source,relation,physicalSingle:false);
 
+    /// <summary>按实际业务页证明多值读取的来源父键。</summary>
+    public MultiSourceParent Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,PageMetadata sourcePage)=>
+        ResolveSource(catalog,source,relation,single:false,allowLogical:true,sourcePageId:sourcePage.Id);
+
     /// <summary>单值固定页和多值页共用持久父键证明；单值只允许实际物理父字段。</summary>
     public MultiSourceParent Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,bool physicalSingle)=>
         ResolveSource(catalog,source,relation,single:physicalSingle,allowLogical:!physicalSingle);

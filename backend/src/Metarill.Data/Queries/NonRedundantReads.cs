@@ -35,6 +35,9 @@ public sealed record NonRedundantSingleTargetScope(string ColumnId,string PageId
     public IReadOnlyList<NonRedundantSingleTargetScope> NestedTargets { get; init; } = [];
 }
 
+/// <summary>同一物理多值关系在当前业务页绑定的目标页。复选的普通页只提供名称路径。</summary>
+public sealed record NonRedundantMultiTargetScope(string ColumnId,string SourcePageId,string TargetPageId,bool ApplyPageScope);
+
 /// <summary>在生成校验或宿主启动阶段编译，业务方法不判断数据库品牌。</summary>
 public static class NonRedundantReads
 {
@@ -49,6 +52,12 @@ public static class NonRedundantReads
         IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
         IReadOnlyList<NonRedundantSingleTargetScope> singleTargets)=>
         new(MySqlNonRedundantReadCompiler.CompileProjectPage(metadata,tableId,outputs,dependencies,crossTables,singleTargets));
+
+    /// <summary>同一业务页的列表、详情和导出使用实际多值候选的发布配置。</summary>
+    public static NonRedundantReadPlan CompileProjectPage(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,
+        IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
+        IReadOnlyList<NonRedundantSingleTargetScope> singleTargets,IReadOnlyList<NonRedundantMultiTargetScope>? multiTargets)=>
+        new(MySqlNonRedundantReadCompiler.CompileProjectPage(metadata,tableId,outputs,dependencies,crossTables,singleTargets,multiTargets));
 
     /// <summary>派生候选通过实际中间页的单值范围读取名称。</summary>
     public static NonRedundantReadPlan CompileProjectRelation(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,

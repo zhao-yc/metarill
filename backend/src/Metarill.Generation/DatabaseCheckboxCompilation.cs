@@ -8,6 +8,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal PageModel? LogicalTargetPage { get; init; }
     // 没有逻辑候选条件的显式目标页仍决定名称路径内每个关系角色。
     internal PageModel? NameTargetPage { get; init; }
+    internal bool UsesPageRead { get; init; }
     internal bool LogicalSourceParent { get; init; }
     internal bool GlobalParent { get; init; }
     internal bool IntegerLabel => Name.Type is ("int?" or "long?");
@@ -93,7 +94,8 @@ internal static class DatabaseCheckboxCompilation
             var namePage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage);
             var logicalPage=namePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(target,namePage)?namePage:null;
             var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
-            if(explicitPage!=fixedPage&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(target,candidate))))
+            var pageRead=explicitPage!=fixedPage&&namePage is not null&&table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!target.IsGlobal;
+            if(explicitPage!=fixedPage&&!pageRead&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(target,candidate))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
             if(logicalPage is not null&&ExactDataManageCompilation.Declared(logicalPage))
                 return Gap("复选目标范围需要与实际目标页及项目归属一致。");
@@ -113,7 +115,8 @@ internal static class DatabaseCheckboxCompilation
             {
                 var syntax=FixedConditionPlan.Compile(logicalPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
                 var binding=MultiTargetParentScope.Compile(model.Catalog,target.Source,syntax)!;
-                var owner=binding.Source(model.Catalog,table.Source,source.Source);
+                var owner=pageRead?binding.Source(model.Catalog,table.Source,source.Source,page.Source)
+                    :binding.Source(model.Catalog,table.Source,source.Source);
                 globalParent=binding.Global;
                 if(globalParent)_=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,logicalPage.Source.Id);
                 if(sourceParent?.Source.Id!=owner.Column.Id||(owner.LogicalPages.Count>0)!=(logicalSource is not null))
@@ -131,6 +134,7 @@ internal static class DatabaseCheckboxCompilation
             {
                 LogicalTargetPage=logicalPage,
                 NameTargetPage=namePage,
+                UsesPageRead=pageRead,
                 LogicalSourceParent=logicalSource is not null,
                 GlobalParent=globalParent,
                 DerivedName=derived||logicalPage is not null

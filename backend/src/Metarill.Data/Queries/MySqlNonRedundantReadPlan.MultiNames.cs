@@ -5,8 +5,40 @@ public static partial class MySqlNonRedundantReadCompiler
 {
     private sealed partial class Builder
     {
+        internal IReadOnlyDictionary<string,NonRedundantMultiTargetScope> ProjectMultiTargets { get; init; }=
+            new Dictionary<string,NonRedundantMultiTargetScope>(StringComparer.Ordinal);
+
+        /// <summary>运行目录重新核对当前页的控件目标，禁止外部请求指定页、换表或读取别的发布项目。</summary>
+        private (PageMetadata? Source,PageMetadata? Target,bool Scope) ProjectMultiTarget(TableMetadata table,string alias,
+            ColumnMetadata relation,TableMetadata target)
+        {
+            if(alias!=rootAlias||!ProjectMultiTargets.TryGetValue(relation.Id,out var binding))return default;
+            var source=catalog.ConfigPages.Single(page=>page.Id==binding.SourcePageId&&page.ConfigTableId==table.Id);
+            var selected=catalog.ConfigPages.Single(page=>page.Id==binding.TargetPageId&&page.ConfigTableId==target.Id);
+            var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==source.Id&&field.ConfigColumnId==relation.Id)
+                ?.Extra.GetValueOrDefault("controlDetail").ToString();
+            var pageId="";
+            if(!string.IsNullOrWhiteSpace(overlay))
+            {
+                if(relation.ControlKind=="MultiCheckBoxDatabase")pageId=DatabaseCheckboxDefinition.Parse(overlay).PageId;
+                else
+                {
+                    using var definition=System.Text.Json.JsonDocument.Parse(overlay);
+                    pageId=MultiPageId(definition.RootElement);
+                }
+            }
+            if(pageId.Length==0)pageId=MultiTargetNamePage(catalog,target,relation)?.Id??"";
+            if(table.IsRongyu!=0||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||
+                GlobalCrossTableTarget.Declared(target)||pageId!=selected.Id||
+                source.YzProjectId.Length>0&&source.YzProjectId!=catalog.YzProjectId||
+                selected.YzProjectId.Length>0&&selected.YzProjectId!=catalog.YzProjectId)
+                throw new InvalidOperationException("多值名称目标与当前页的发布配置不一致。");
+            return(source,selected,binding.ApplyPageScope);
+        }
+
         /// <summary>派生多值名称使用独立固定别名域，联接保持在目标子查询内，不把来源扩成多行。</summary>
-        private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,ColumnMetadata value,PageMetadata? publishedPage,PageMetadata? selectedScope=null)
+        private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,
+            ColumnMetadata value,PageMetadata? publishedPage,PageMetadata? selectedScope,PageMetadata? namePage,PageMetadata? sourcePage)
         {
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))throw new NotSupportedException("派生多选名称要求已证明来源、R0目标及原多选／数据库复选；其它组合尚未接线。");
             var global=GlobalCrossTableTarget.Declared(target);
@@ -18,7 +50,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var prefixForNames=publishedPage is null&&publishedArrayScopeCount==0?"multi_name_":aliasPrefix+"array"+publishedArrayScopeCount+"_";
             publishedArrayScopeCount++;
             var parent=selectedScope is null?null:MultiParent(catalog,selectedScope);
-            var sourceBinding=parent?.Source(catalog,table,relation);
+            var sourceBinding=sourcePage is null?parent?.Source(catalog,table,relation):parent?.Source(catalog,table,relation,sourcePage);
             var sourceParent=sourceBinding?.Column;
             var logicalSource=sourceBinding?.LogicalPages.Count>0;
             var parentAlias=logicalSource?"mt_parent_input":owner;
@@ -31,7 +63,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 SelectedMultiPage=selectedScope,
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent),
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
-                MultiNamePathPage=MultiTargetNamePage(catalog,target,relation),
+                MultiNamePathPage=namePage,
+                AllowLiteralMultiScope=sourcePage is not null,
                 GlobalCrossCandidate=global&&selectedScope is not null
             }.Compile([value.ColumnName],[]);
             nested.CopyParametersTo(crossConstants);
