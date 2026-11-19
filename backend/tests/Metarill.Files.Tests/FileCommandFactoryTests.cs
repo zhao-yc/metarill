@@ -43,6 +43,102 @@ public sealed class FileCommandFactoryTests
         Assert.Equal(42L,command.Parameters["browse_folder"].Value);Assert.Equal(1L,command.Parameters["browse_project"].Value);Assert.Equal("deleted",command.Parameters["deleted_status"].Value);
         Assert.Contains("`yz_file_library`",command.CommandText);Assert.Contains("`folder_id`=@browse_folder",command.CommandText);Assert.DoesNotContain("42",command.CommandText);Assert.Equal(cancellation.Token,command.Token);
     }
+    /// <summary>原功能表的浏览和上传计划使用实际页面权限，无记录时不能创建文件引用。</summary>
+    [Theory]
+    [InlineData("upload",true,true)]
+    [InlineData("readonly",true,false)]
+    [InlineData("readOnlyField",true,false)]
+    [InlineData("legacyDetailFlag",true,true)]
+    [InlineData("createOnly",false,false)]
+    [InlineData("hidden",false,false)]
+    [InlineData("foreign",false,false)]
+    [InlineData("ordinaryVirtual",false,true)]
+    public async Task Function_form_attachment_uses_original_file_endpoints_and_no_record_binding(string kind,bool browse,bool upload)
+    {
+        var table=new TableMetadata { Id="10", TableName="attachment_form", IsFunctionTable=kind=="ordinaryVirtual"?0:1 };
+        var page=new PageMetadata { Id="20",ConfigTableId="10",YzAdminTypeId="3" };
+        var field=new ColumnMetadata { Id="14",ConfigTableId="10",ColumnName="attachments",ControlKind="FileLibrary",
+            LogicalType="string",IsVirtualColumn=1,ControlDetail="""{"accessMode":"PROTECTED","extensions":["txt"],"maxCount":2}""" };
+        var link=new PageColumnMetadata { Id="21",ConfigPageId="20",ConfigColumnId="14",IsEdit=1 };
+        if(kind is "hidden" or "legacyDetailFlag")link.IsEdit=0;
+        if(kind=="legacyDetailFlag")link.Extra["isInEdit"]=System.Text.Json.JsonSerializer.SerializeToElement(1);
+        if(kind=="readOnlyField")link.Extra["isReadOnly"]=System.Text.Json.JsonSerializer.SerializeToElement(1);
+        if(kind=="foreign")page.YzProjectId="2";
+        var catalog=new MetadataCatalog { YzProjectId="1",ConfigTables=[table],ConfigPages=[page],
+            ConfigColumns=[new(){Id="11",ConfigTableId="10",ColumnName="id",LogicalType="int64"},field],
+            ConfigPageColumns=[link],YzAdminTypes=[new(){Id="3"}] };
+        var registry=new FileMetadataContext([catalog]);
+        var snapshot=Assert.Single(registry.Catalogs);
+        if(table.IsFunctionTable==1) Assert.Empty(registry.PhysicalColumns(snapshot, Assert.Single(snapshot.ConfigTables)));
+
+        // 计划仍使用标准文件基础设施，连接替身仅捕获真实参数，不接触数据库或存储对象。
+        var source=Path.Combine(Path.GetDirectoryName(SourcePath())!,"../../metadata/files.json");
+        var infrastructure=System.Text.Json.JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(source),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        var provider=new Provider();
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"},null,provider);
+        var auth=new FunctionFileAuthorization(kind);
+        var service=new FileLibraryService(new SqlRowStore(session,MetadataCatalogComposition.MergePhysical(catalog,infrastructure)),
+            registry,new SnowflakeIdGenerator(29),auth,new FileLibraryOptions());
+        if(browse)
+        {
+            Assert.Empty(await service.ListAccessibleAsync(field.Id,null,null));
+            var command=Assert.IsType<Command>(provider.Last!.Command);
+            Assert.Equal("PROTECTED",command.Parameters["browse_mode"].Value);
+            Assert.Equal(1L,command.Parameters["browse_project"].Value);
+        }
+        else
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>service.ListAccessibleAsync(field.Id,null,null));
+            Assert.Equal(0,provider.Commands);
+        }
+        var writes=new List<string>();
+        provider.Write=command=>
+        {
+            Assert.Same(session.CurrentTransaction,command.Transaction);
+            Assert.Contains("INSERT INTO `yz_file_library`",command.CommandText);
+            Assert.Contains(command.Parameters.Cast<DbParameter>(),item=>Equals(item.Value,"PROTECTED"));
+            Assert.Contains(command.Parameters.Cast<DbParameter>(),item=>Equals(item.Value,2L));
+            writes.Add(command.CommandText);
+            return 1;
+        };
+        var request=new FileUploadRequest("合成.txt","text/plain",61,field.Id);
+        if(upload)
+        {
+            var plan=await service.PlanUploadAsync(request);
+            Assert.Equal("SERVER_MULTIPART",plan.Plan.UploadMode);
+            Assert.EndsWith("/"+plan.FileId,plan.Plan.UploadUrl);
+            Assert.Single(writes);
+        }
+        else
+        {
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>service.PlanUploadAsync(request));
+            Assert.Empty(writes);
+        }
+        if(table.IsFunctionTable==1)Assert.DoesNotContain("create",auth.Operations);
+        var before=provider.Commands;
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>service.SynchronizeReferencesAsync(
+            new(page.Id,table.Id,field.Id,table.TableName,"9",null,field.ColumnName,["8"])));
+        Assert.Equal(before,provider.Commands);
+    }
+
+    /// <summary>报错仍保留原页面操作权限，测试区分只读、可写及只获旧新增权。</summary>
+    private sealed class FunctionFileAuthorization(string kind):IRuntimeAuthorization
+    {
+        internal List<string> Operations { get; } = [];
+        public RuntimeActor RequireActor()=>new(2,"测试",false,"1","3");
+        public void RequirePagePermission(string pageId,string operation)
+        {
+            Assert.Equal("20",pageId);
+            Operations.Add(operation);
+            if(kind=="createOnly"?operation!="create":operation==(kind=="readonly"?"update":"delete"))
+                throw new UnauthorizedAccessException();
+        }
+    }
+
+    /// <summary>从固定源码目录使用现有文件库基础设施模型。</summary>
+    private static string SourcePath([System.Runtime.CompilerServices.CallerFilePath]string path="")=>path;
+
     /// <summary>从已发布元数据解析原请求，在同一实际事务核对记录及修改权限后同步已保存的文件 ID。</summary>
     [Theory]
     [InlineData("allowed")]

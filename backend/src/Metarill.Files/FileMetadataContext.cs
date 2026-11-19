@@ -35,6 +35,33 @@ public sealed class FileMetadataContext
         if(!Catalogs.Contains(catalog)||!catalog.ConfigTables.Contains(table))throw new InvalidOperationException("文件存储计划不属于当前发布快照。");
         return physicalColumns[(catalog.YzProjectId,table.Id)];
     }
+    /// <summary>功能表控件来自已发布的详情页字段。同一字段的持久化归属始终为空。</summary>
+    internal (ColumnMetadata Column,IReadOnlyList<(PageMetadata Page,bool Writable)> Pages)? FunctionFileField(
+        MetadataCatalog catalog,TableMetadata table,string columnId)
+    {
+        if(table.IsFunctionTable!=1||!InProject(table))return null;
+        var column=catalog.ConfigColumns.SingleOrDefault(field=>field.ConfigTableId==table.Id&&field.Id==columnId&&
+            field.ControlKind=="FileLibrary"&&field.LogicalType.ToLowerInvariant() is ("string" or "text" or "json" or "varchar")&&InProject(field));
+        if(column is null)return null;
+        var pages=(from field in catalog.ConfigPageColumns
+                   where field.ConfigColumnId==column.Id&&InProject(field)&&VisibleInDetail(field)
+                   join page in catalog.ConfigPages on field.ConfigPageId equals page.Id
+                   where page.ConfigTableId==table.Id&&InProject(page)
+                   select (page,Writable:PageUpdatePolicy.CanUpdate(page)&&!Enabled(field,"isReadOnly"))).ToArray();
+        return pages.Length==0?null:(column,pages);
+
+        // 旧目录可省略项目字段。显式不同的项目不能借当前目录取得附件权限。
+        bool InProject(MetadataRecord item)=>string.IsNullOrWhiteSpace(item.YzProjectId)||item.YzProjectId==catalog.YzProjectId;
+    }
+
+    /// <summary>沿原详情字段开关解释是否展示，控件类型来自表字段。</summary>
+    private static bool VisibleInDetail(PageColumnMetadata field)=>
+        field.Extra.ContainsKey("isInEdit")?Enabled(field,"isInEdit"):field.IsEdit==1;
+
+    /// <summary>保留原元数据的布尔及整数开关。</summary>
+    private static bool Enabled(PageColumnMetadata field,string key)=>field.Extra.TryGetValue(key,out var value)&&
+        (value.ValueKind==JsonValueKind.True||value.ToString()=="1");
+
     /// <summary>初始化时固定来源并拒绝重复归属，防止同一页面被不同项目解释。</summary>
     public FileMetadataContext(IReadOnlyList<MetadataCatalog> catalogs)
     {
@@ -46,7 +73,8 @@ public sealed class FileMetadataContext
             || snapshots.SelectMany(c=>c.ConfigPages).GroupBy(p=>p.Id,StringComparer.Ordinal).Any(group=>group.Count()>1))
             throw new InvalidOperationException("文件发布元数据的项目或页面重复。");
         Catalogs=Array.AsReadOnly(snapshots);
-        foreach(var catalog in snapshots)foreach(var table in catalog.ConfigTables)physicalColumns.Add((catalog.YzProjectId,table.Id),MetadataStoragePolicy.ForTable(catalog,table).PhysicalColumns);
+        foreach(var catalog in snapshots)foreach(var table in catalog.ConfigTables)
+            physicalColumns.Add((catalog.YzProjectId,table.Id),table.IsFunctionTable==1?[]:MetadataStoragePolicy.ForTable(catalog,table).PhysicalColumns);
         foreach(var catalog in snapshots)foreach(var page in catalog.ConfigPages)
         {
             FilePageScope? scope=null;

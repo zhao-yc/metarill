@@ -40,6 +40,8 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.Contains("cascadeTreeOptions29", detail);
         Assert.Contains("leaf-id-property='treeNodeId'", detail);
         Assert.Contains("leaf-id-property='placeId'", detail);
+        Assert.Contains("<yzp-file-library v-model='entity.attachments' config-column-id='37' page-id='102' table-id='2'",detail);
+        Assert.Contains(":record-id='id'",detail);
         Assert.Contains("/admin/sys/config_button/execute", detail);
         Assert.Contains("saveEntity", detail);
         Assert.False(File.Exists(Path.Combine(frontend, "pages/yzp/summary_form-list-102.vue")));
@@ -87,6 +89,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
 
         await VerifyVueAsync(output,"GeneratedFunctionFormProbe.mjs");
         await VerifyVueAsync(output,"GeneratedFunctionFormCascadeProbe.mjs");
+        await VerifyVueAsync(output,"GeneratedFunctionFormFileProbe.mjs");
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
         {
             WorkingDirectory = output, RedirectStandardOutput = true, RedirectStandardError = true,
@@ -197,6 +200,10 @@ public sealed class FunctionTableGenerationTests : IDisposable
             LogicalType="string", ColumnLength="max", ControlKind="MultiCheckBoxDatabase", LinkConfigTableId="1", IsVirtualColumn=1,
             ControlDetail="""{"pageId":"101","nameField":"name","whereSql":"remark = @formParameters.summaryForm.title"}""",
             Extra=new() { ["isAutoPostBackQuery"]=JsonSerializer.SerializeToElement(1) } });
+        catalog.ConfigColumns.Add(new() { Id="37", ConfigTableId="2", ColumnName="attachments", Name="附件",
+            LogicalType="string", ColumnLength="max", ControlKind="FileLibrary", IsVirtualColumn=1,
+            ControlDetail="""{"accessMode":"PROTECTED","maxCount":3,"maxSizeMb":5,"extensions":["txt"]}""" });
+        catalog.ConfigPageColumns.Add(new() { Id="117", ConfigPageId="102", ConfigColumnId="37", IsEdit=1 });
         catalog.ConfigPageColumns.Add(new() { Id="116", ConfigPageId="102", ConfigColumnId="26", IsEdit=1 });
         catalog.ConfigPageColumns.Add(new() { Id="115", ConfigPageId="102", ConfigColumnId="25", IsEdit=1 });
         catalog.ConfigPageColumns.Add(new() { Id="113", ConfigPageId="102", ConfigColumnId="23", IsEdit=1, IsRequired=1 });

@@ -18,7 +18,7 @@ public sealed partial class FileLibraryService
         var table = catalog.ConfigTables.Single(candidate => candidate.Id == page.ConfigTableId);
         var field = registry.PhysicalColumns(catalog, table).SingleOrDefault(column =>
             column.Id == request.SourceConfigColumnId && column.ControlKind == "FileLibrary");
-        if (table.TableName != request.SourceTableName || field is null || field.ColumnName != request.SourceColumnName ||
+        if (table.IsFunctionTable == 1 || table.TableName != request.SourceTableName || field is null || field.ColumnName != request.SourceColumnName ||
             !catalog.ConfigPageColumns.Any(link => link.ConfigPageId == page.Id && link.ConfigColumnId == field.Id && link.IsEdit == 1))
             throw new UnauthorizedAccessException("文件字段与已发布的来源表不一致。");
         authorization.RequirePagePermission(page.Id, "update");

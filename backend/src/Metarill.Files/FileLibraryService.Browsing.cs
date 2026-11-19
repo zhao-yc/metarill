@@ -71,7 +71,7 @@ public sealed partial class FileLibraryService
         }
         return visible;
     }
-    /// <summary>控件必须来自本项目已发布的真实物理文件列，不能借其它项目字段改变模式。</summary>
+    /// <summary>文件库浏览沿用实体字段，功能表需要已发布详情及来源页权限。</summary>
     private ColumnMetadata? BrowseColumn(string? id,RuntimeActor actor,bool required)
     {
         if(string.IsNullOrWhiteSpace(id))return required?throw new ArgumentException("字段不是文件库控件。"):null;
@@ -80,8 +80,11 @@ public sealed partial class FileLibraryService
         {
             var column=registry.PhysicalColumns(catalog,table).SingleOrDefault(column=>column.Id==id&&column.ControlKind=="FileLibrary");
             if(column is not null)return column;
+            if(registry.FunctionFileField(catalog,table,id) is {} form&&form.Pages.Any(binding=>
+                CanUseFilePage(binding.Page,"list")||binding.Writable&&CanUseFilePage(binding.Page,"update")))
+                return form.Column;
         }
-        throw new UnauthorizedAccessException("文件库字段不属于当前项目发布模型。");
+        throw new UnauthorizedAccessException("文件库字段不属于当前项目发布模型或当前页未开放访问。");
     }
     /// <summary>只读取固定文件描述及授权列；搜索按原分词/字符有序LIKE跨目录，值全部参数化。</summary>
     private async Task<List<Dictionary<string,object?>>> FileCandidatesAsync(string? mode,string? keyword,long? folderId,bool allFolders,CancellationToken token)

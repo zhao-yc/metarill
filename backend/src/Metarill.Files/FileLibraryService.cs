@@ -286,18 +286,31 @@ public sealed partial class FileLibraryService(SqlRowStore store, FileMetadataCo
         {
             var column = catalog.ConfigColumns.SingleOrDefault(c => c.Id == id && c.ControlKind.Equals("FileLibrary", StringComparison.OrdinalIgnoreCase));
             if (column is null) continue;
+            var table=catalog.ConfigTables.Single(candidate=>candidate.Id==column.ConfigTableId);
+            if(table.IsFunctionTable==1)
+            {
+                if(registry.FunctionFileField(catalog,table,id) is {} form&&
+                    form.Pages.Any(binding=>binding.Writable&&CanUseFilePage(binding.Page,"update")))return form.Column;
+                continue;
+            }
             foreach (var field in catalog.ConfigPageColumns.Where(f => f.ConfigColumnId == id && f.IsEdit == 1))
             {
                 var page = catalog.ConfigPages.Single(p => p.Id == field.ConfigPageId);
                 if (page.ConfigTableId != column.ConfigTableId) throw new UnauthorizedAccessException("文件字段与页面所属表不一致。");
                 foreach (var operation in new[] { "create", "update" }.Where(op => op == "create" ? page.IsNew == 1 : Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page)))
                 {
-                    try { authorization.RequirePagePermission(page.Id, operation); return column; }
-                    catch (Exception denied) when (denied is UnauthorizedAccessException or System.Security.SecurityException) { }
+                    if(CanUseFilePage(page,operation))return column;
                 }
             }
         }
         throw new UnauthorizedAccessException("没有该文件控件的编辑权限。");
+    }
+
+    /// <summary>只捕获明确拒权，认证存储故障保持原错误。</summary>
+    private bool CanUseFilePage(PageMetadata page,string operation)
+    {
+        try{authorization.RequirePagePermission(page.Id,operation);return true;}
+        catch(Exception denied)when(denied is UnauthorizedAccessException or System.Security.SecurityException){return false;}
     }
 
     /// <summary>白名单基础设施查询可显式加入当前事务锁。</summary>

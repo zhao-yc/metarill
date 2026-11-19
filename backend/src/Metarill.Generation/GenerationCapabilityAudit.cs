@@ -25,7 +25,7 @@ internal static class GenerationCapabilityAudit
                 {
                     var reason = column.Source.ControlKind switch
                     {
-                        "FileLibrary" => "功能表尚未接入附件的无记录范围。",
+                        "FileLibrary" when column.Type != "string?" => "功能表附件字段须为原字符串数组。",
                         "CascadeTree" => FunctionTableCascadeCompilation.Reason(model,table,page,column),
                         _ => ControlRenderer.Render(model,table,page,column).UnsupportedReason
                     };
