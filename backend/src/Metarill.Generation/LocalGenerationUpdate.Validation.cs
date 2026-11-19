@@ -123,6 +123,8 @@ public sealed partial class LocalGenerationUpdater
         if(candidate)bootstrap=bootstrap.Append("src/Metarill.Exports/FloatingWorkbookWriter.cs");
         // 当前完整Core包含字段级时钟合同，旧目标仍可预览升级；双删源码/归属不能伪装完整候选。
         if(candidate)bootstrap=bootstrap.Concat(new[]{"src/Metarill.Core/Contracts/ClockTimeValue.cs","src/Metarill.Core/Contracts/ClockTimeJsonConverter.cs","src/Metarill.Core/Contracts/SqlTimeValue.cs","src/Metarill.Core/Contracts/SqlTimeJsonConverter.cs","src/Metarill.Data/MySqlPersistedTimeValues.cs"});
+        // 原媒体字段的VO必须携带兼容读取逻辑，旧包可通过运行时同步补齐。
+        if(candidate)bootstrap=bootstrap.Append("src/Metarill.Core/Contracts/LegacyMediaValue.cs");
         // 当前生成的年月日期VO依赖专用输出格式；旧包可通过运行时同步补齐。
         if(candidate)bootstrap=bootstrap.Append("src/Metarill.Core/Contracts/OriginalMonthDateJsonConverter.cs");
         // 当前时间精度解释与结构反查共用Core/Data源码，不能删文件及归属后冒充完整候选。

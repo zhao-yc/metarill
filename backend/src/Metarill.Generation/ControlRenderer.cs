@@ -67,6 +67,9 @@ internal static class ControlRenderer
             if (multi.Definition is not { } definition) return Wrap($"<text>{{{{ entity.{column.JsonName} }}}}</text><text>此多选字段待移植，当前只读</text>", multi.Reason);
             return Wrap($"<uni-easyinput disabled type=\"textarea\" :modelValue=\"multiSelectionText(entity, '{column.JsonName}')\" />" + (writable ? $"<button size=\"mini\" :disabled=\"readOnlyCondition\" @click=\"openMultiSelection('{column.JsonName}')\">({{{{ multiSelectionCount('{column.JsonName}') }}}}){Escape(definition.ButtonText)}</button>" : "") + "<text v-if=\"multiSelectionError\">{{ multiSelectionError }}</text>");
         }
+        // 原媒体详情由原模板生成，字段存储仍需有已接通的字符串合同。
+        if (column.IsLegacyMedia || column.Source.ControlKind == "Base64Image")
+            return column.Type == "string?" ? Wrap("") : Wrap("", "原媒体控件须使用已声明的字符串存储。");
         if (column.Source.ControlKind == "FileLibrary") return Wrap(FileLibraryMarkup(table, page, column, "entity", writable));
         if (column.Source.ControlKind == "RTF" && column.Type == "string?")
             return Wrap((writable ? $"<button size=\"mini\" :disabled=\"readOnlyCondition\" @click=\"openRtf('{column.JsonName}', 'edit')\">编辑</button>" : "") + $"<button size=\"mini\" @click=\"openRtf('{column.JsonName}', 'review')\">预览</button><rich-text :nodes=\"entity.{column.JsonName} || ''\" />");

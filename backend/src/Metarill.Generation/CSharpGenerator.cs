@@ -166,7 +166,12 @@ internal sealed record ColumnModel(ColumnMetadata Source, string Property, strin
     public bool IsFixedCrossTableFilter {get;init;}
     /// <summary>非冗余布局字段只用于渲染，不进入页面数据契约。</summary>
     internal bool IsLayoutOnly { get; init; }
-    public bool IsId => Source.ColumnName == "id"; public bool IsJsonArray => Type == "string?" && (IsManagedMultiNames || Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage"); public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;
+    public bool IsId => Source.ColumnName == "id";
+    /// <summary>原上传字段在数据库保存数组文本，HTTP 边界实际收发数组。</summary>
+    internal bool IsLegacyMedia => Source.ControlKind is "Image" or "MultiImage" or "Upload" or "Video";
+    public bool IsJsonArray => Type == "string?" && (IsLegacyMedia || IsManagedMultiNames ||
+        Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage");
+    public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;
     /// <summary>原年月控件可绑定文本或日期。只有日期字段按原日期格式回显。</summary>
     internal bool IsMonthDate => Type == "DateTime?" && Source.ControlKind is "month" or "Month";
     public bool IsSystem => Source.ColumnName is "id" or "delete_no" or "insert_time" or "update_time" or "insert_manager_id" or "update_manager_id" or "insert_manager_name" or "update_manager_name" or "insert_manager_real_name" or "update_manager_real_name" or "insert_user_name" or "update_user_name" or "yz_project_id" or "yz_project_name";

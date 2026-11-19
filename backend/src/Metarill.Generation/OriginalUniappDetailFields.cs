@@ -233,14 +233,37 @@ this.$watch(()=>this.entity.{{{targetField}}},()=>{this.{{{list}}}=[];this._orig
     private static string Upload(OriginalDetailContext c, OriginalDetailField f, string ro, string description)
     {
         var name=f.Column.JsonName; var kind=f.Column.Source.ControlKind; var limit=9; var crop=false;
-        if (kind is "Image" or "MultiImage") { var detail=Object(f.Detail,"图片"); if(detail.TryGetProperty("limit",out var value))limit=Integer(value,9); crop=detail.TryGetProperty("cropImages",out var option)&&option.ValueKind==JsonValueKind.True; }
+        if (kind is "Image" or "MultiImage")
+        {
+            // 原数字明细或损坏的旧图片配置回落到默认数量且不裁切。
+            JsonElement detail;
+            try { detail = Object(f.Detail, "图片"); }
+            catch (Exception error) when (error is JsonException or InvalidOperationException) { detail = default; }
+            if (detail.ValueKind == JsonValueKind.Object)
+            {
+                if (detail.TryGetProperty("limit", out var value)) limit = Integer(value, 9);
+                if (limit <= 0) limit = 9;
+                crop = detail.TryGetProperty("cropImages", out var option) && option.ValueKind == JsonValueKind.True;
+            }
+        }
         else if (!string.IsNullOrWhiteSpace(f.Detail) && !int.TryParse(f.Detail,out limit)) throw new InvalidOperationException("原附件/视频数量必须为整数。");
         if(limit is < 1 or > 100)throw new InvalidOperationException("原上传数量上限无效。");
+        var single = kind == "Image";
+        var capture = single ? $"const upload=Symbol();that._{name}Upload=upload;" : "";
+        var stale = single ? $" || that._{name}Upload!==upload" : "";
+        var assign = single ? $"that.entity.{name}=[uploadedResults[0]];"
+            : $"const old=Array.isArray(that.entity.{name})?that.entity.{name}.slice():[];that.entity.{name}=old.concat(uploadedResults);";
         c.Methods.AppendLine($$$"""
-{{{name}}}FileSelect(e) { if(this.{{{ro}}})return; const that=this,current=this.originalContext(); yzp.uploadSelectedFiles(e,{cropImages:{{{crop.ToString().ToLowerInvariant()}}}},function(uploadedResults){that.permissionVersion++;if(!current() || that.{{{ro}}} || !uploadedResults?.length)return; const old=Array.isArray(that.entity.{{{name}}})?that.entity.{{{name}}}.slice():[];that.entity.{{{name}}}=old.concat(uploadedResults);}); },
+{{{name}}}FileSelect(e) { if(this.{{{ro}}})return; const that=this,current=this.originalContext();{{{capture}}} yzp.uploadSelectedFiles(e,{cropImages:{{{crop.ToString().ToLowerInvariant()}}}},function(uploadedResults){that.permissionVersion++;if(!current() || that.{{{ro}}} || !uploadedResults?.length{{{stale}}})return; {{{assign}}}}); },
 """);
+        // 单图组件收发对象，旧页 entity 始终使用由一个文件组成的数组或 null。
+        if (single)
+            c.Methods.AppendLine($"{name}PickerChange(file) {{ if(this.{ro})return; this._{name}Upload=null;this.entity.{name}=file?[file]:null; }},");
         var media = kind == "Video" ? "file-mediatype='video' file-extname='mp4'" : kind == "Upload" ? "file-mediatype='all'" : ":imageStyles='$imageStyles'";
-        return $"<uni-file-picker {media} :disabled='{ro}' {(kind == "Image" ? "return-type='object'" : $"limit='{limit}'")} :readonly='{ro}' v-model='entity.{name}' title='{Html(description)}' @select='{name}FileSelect'></uni-file-picker>" + Hidden(f);
+        var picker = single
+            ? $"return-type='object' :model-value='Array.isArray(entity.{name}) ? entity.{name}[0] || null : null' @update:modelValue='{name}PickerChange'"
+            : $"limit='{limit}' v-model='entity.{name}'";
+        return $"<uni-file-picker {media} :disabled='{ro}' {picker} :readonly='{ro}' title='{Html(description)}' @select='{name}FileSelect'></uni-file-picker>" + Hidden(f);
     }
     /// <summary>级联原定义和事件直接移植，依赖原固定级联/路径端点，未知定义不生成空壳。</summary>
     private static string Cascade(OriginalDetailContext c, OriginalDetailField f, string ro)

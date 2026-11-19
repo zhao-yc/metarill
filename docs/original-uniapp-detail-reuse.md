@@ -17,7 +17,7 @@
 
 - `List` 使用原 `findNameId{字段去Id/Ids}{稳定列ID}`、POST/formParameters 协议；子页保留来源 parentId，独立目标父只从唯一可读声明外键传 targetParentId；未知/多义映射不请求候选，不退全量。C# 原协议兼容由独立后端切片提供。
 - MultiSelectPage 仅启用既有编译器能证明的冗余子集，原 props/events 和确认关闭行为不变；未知父、隐藏 ID、名称缺列、非冗余等仍拒绝，不放宽打包能力门禁。
-- MultiCheckBoxDatabase、CascadeTree、动态 formParameters 表达式、旧 Image/Upload/Video 上传端点及任意自定义动作的后端完整性，不能由前端移植推定已验收。原前端分支已移植，主集成必须继续使用现有能力门禁并逐项接后端，不用普通文本替换。
+- MultiCheckBoxDatabase、CascadeTree、动态 formParameters 表达式、任意自定义动作的后端完整性，不能由前端移植推定已验收。原前端分支已移植，主集成必须继续使用现有能力门禁并逐项接后端，不用普通文本替换。
 - 非冗余联接/审计展示/级联祖先按原前端只读分支处理，不生成校验或自动保存；这不证明 C# 非冗余查询计划已完成。
 - 主题读取项目 `MetadataCatalog.PrimaryColor`，缺省沿用原平台 `#0ab3ad`。
 

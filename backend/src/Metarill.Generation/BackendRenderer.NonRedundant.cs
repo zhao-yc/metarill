@@ -180,7 +180,10 @@ internal static class GeneratedNonRedundantReadCatalog
         {
             var column=page.Readable.SingleOrDefault(column=>column.Source.ColumnName==output.Storage);
             var value=$"NonRedundantReads.Value<{output.Type}>(row,{Literal(output.Storage)})";
-            if(output.IsJsonArray)value=column is not null&&DatabaseCheckboxCompilation.Generic(table,column)?$"Metarill.Core.Contracts.DatabaseCheckboxValue.ProjectIds(NonRedundantReads.Value<string?>(row,{Literal(output.Storage)}))":$"ReadFileValue(row,{Literal(output.Storage)})";
+            if (output.IsJsonArray)
+                value = column?.IsLegacyMedia == true ? $"Metarill.Core.Contracts.LegacyMediaValue.Project({value})"
+                    : column is not null && DatabaseCheckboxCompilation.Generic(table,column) ? $"Metarill.Core.Contracts.DatabaseCheckboxValue.ProjectIds({value})"
+                    : $"ReadFileValue(row,{Literal(output.Storage)})";
             result.AppendLine($"        {output.Property}={value},");
         }
         result.Append(NonRedundantCrossTableCompilation.VoAssignments(model,table,page));

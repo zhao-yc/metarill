@@ -126,6 +126,14 @@ dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/meta
 
 66 项定向回归通过，其中年月用例实际挂载生成的 Vue、执行生成 Service 保存、用真实 ORM 离线生成筛选 SQL，并从独立完整包源码构建。专项 MySQL 实库另验。
 
+## B312 原图片、视频和附件控件
+
+原 Image、MultiImage、Upload、Video 继续使用同一 uni-file-picker 和公开上传接口。普通及非冗余页面的物理字符串列保存 JSON 文本，保存和回显使用文件描述数组。明确的 null、空数组及省略字段保留各自语义，旧非数组或无法解析的存储值按原接口返回 null。Base64Image 继续使用原图片预览。
+
+单图选择器使用原对象模式，页面将成功值保存为单元素数组。重新上传替换当前图片，清除回传 null，迟到的旧上传结果不能覆盖新值。多图按原顺序追加，裁切沿用原配置。旧上传沿用公开地址协议及其已记录的引用生命周期。[原上传接口](legacy-upload-compatibility.md)
+
+50 项生成及 14 项旧上传回归通过，覆盖实际生成 Vue、保存、两种读取模式、完整包构建、图片处理及公开地址。专项 MySQL 实库另验。
+
 ## 独立前端边界
 
 前端宿主保留登录表单、菜单展开/导航、请求 loading、错误提示及标准 list/detail 的交互，复用公共请求运行时、菜单状态机、FileLibrary、日期选择、搜索多选、Tiny Cloud 与 DCloud uni-ui。生成页面与页面写入 schema 只使用当前业务项目元数据。`pages.generated.json` 组装到独立宿主 `pages.json`，不复制平台配置页面；完整包仅额外复用原Agent授权/授权管理两页，普通前端片段包默认关闭该入口。
