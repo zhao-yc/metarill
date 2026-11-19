@@ -105,6 +105,7 @@ public static class ProjectScopedSingleRelationTarget
         HashSet<(string Table,string Field)> active)
     {
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
+        if(table.IsRongyu!=0)return false;
         var head=path[0];
         ColumnMetadata? Find(string name)=>columns.FirstOrDefault(column=>column.ColumnName.Equals(name,StringComparison.OrdinalIgnoreCase));
         if(path.Length>1)return Step(Find(head+"_id")??Find(head),path[1..]);
@@ -136,7 +137,15 @@ public static class ProjectScopedSingleRelationTarget
         {
             if(foreign is null||foreign.ControlKind is not("List" or "SelectPage"))return false;
             var target=PathTarget(catalog,foreign);
-            return target is not null&&NestedPage(catalog,table,page,foreign,target) is {} next&&
+            if(target is null)return false;
+            if(GlobalCrossTableTarget.Declared(target))
+            {
+                var global=GlobalSingleRelationTarget.Require(catalog,table,foreign,target,page);
+                return global.RequiresScopedPage||global.CacheControl is {Terms.Count:>0}||
+                    (tail.Length==1&&tail[0]==global.Name.ColumnName?global.NestedCacheScope:
+                        NamePathHasScope(catalog,target,global.Page,tail,active));
+            }
+            return NestedPage(catalog,table,page,foreign,target) is {} next&&
                 (next.Scoped||NamePathHasScope(catalog,target,next.Page,tail,active));
         }
     }

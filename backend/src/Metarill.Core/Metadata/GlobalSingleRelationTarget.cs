@@ -36,6 +36,16 @@ public static class GlobalSingleRelationTarget
 {
     /// <summary>只允许普通R0来源的物理单值外键；缺项目列不能自动变成全局许可。</summary>
     public static GlobalSingleRelationPlan Require(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,false);
+    /// <summary>从已发布的实际中间页核对原下拉条件，并继续证明全局名称路径。</summary>
+    public static GlobalSingleRelationPlan Require(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,
+        TableMetadata target,PageMetadata sourcePage)
+    {
+        if(sourcePage.ConfigTableId!=owner.Id||
+            !ReferenceEquals(catalog.ConfigPages.SingleOrDefault(page=>page.Id==sourcePage.Id),sourcePage))
+            throw new InvalidOperationException("全局单值关系的来源页必须属于该外键及当前发布目录。");
+        return RequireSource(catalog,owner,foreign,target,false,sourcePage:sourcePage);
+    }
+
     /// <summary>仅供物理R1消费者的冻结缓存计划使用；普通来源保留行项目范围，全局来源须另证发布目录。</summary>
     public static GlobalSingleRelationPlan RequireCached(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,true);
     /// <summary>带行项目列的自树可以绑定独立项目内父页，关联名称只读取真实父记录。</summary>
@@ -52,7 +62,8 @@ public static class GlobalSingleRelationTarget
     /// <summary>嵌套缓存沿同一证明栈验证，不能在递归入口重置循环/深度检查。</summary>
     internal static GlobalSingleRelationPlan RequireCachedValue(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,ISet<string> resolving)=>RequireSource(catalog,owner,foreign,target,true,resolving);
     /// <summary>实时派生与缓存维护分别验证来源存储模式，其余发布和终点约束完全相同。</summary>
-    private static GlobalSingleRelationPlan RequireSource(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,bool cached,ISet<string>? resolving=null)
+    private static GlobalSingleRelationPlan RequireSource(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,bool cached,ISet<string>? resolving=null,
+        PageMetadata? sourcePage=null)
     {
         var fields=catalog.ConfigColumns.Where(column=>column.ConfigTableId==owner.Id).ToArray();var storage=MetadataStoragePolicy.ForTable(catalog,owner);var project=fields.SingleOrDefault(column=>column.ColumnName=="yz_project_id");
         // 带行项目列的来源先证明物理存储，再证明目标固定范围或既有自树父角色。
@@ -67,7 +78,7 @@ public static class GlobalSingleRelationTarget
             return proof;
         }
         else if(owner.IsRongyu!=(cached?1:0)||GlobalCrossTableTarget.Declared(owner)||owner.IsView!=0||owner.IsFunctionTable!=0||owner.YzProjectId!=catalog.YzProjectId||project is null||project.LogicalType is not("int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(storage,owner,project))throw new NotSupportedException("全局单值关系要求明确发布且有真实项目列的普通R0来源或已证明的R1消费者。");
-        return RequirePublishedTarget(catalog,owner,foreign,target,resolving,cacheControl:cached);
+        return RequirePublishedTarget(catalog,owner,foreign,target,resolving,cacheControl:cached,sourcePage:sourcePage);
     }
     /// <summary>从原控件的表声明或目标页定位候选实体，实际页面范围和冲突声明继续由发布证明核对。</summary>
     internal static TableMetadata ResolveTarget(MetadataCatalog catalog,ColumnMetadata foreign)

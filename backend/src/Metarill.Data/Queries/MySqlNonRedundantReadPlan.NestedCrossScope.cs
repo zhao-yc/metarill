@@ -521,10 +521,11 @@ public static partial class MySqlNonRedundantReadCompiler
         private (string Alias,string? Visibility)? JoinNestedSingleCache(TableMetadata table,string owner,ColumnMetadata foreign,
             TableMetadata target,(string Sql,string Type) source,CascadeCacheOwner cacheOwner)
         {
-            var proof=table.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,table,foreign,target)
-                :GlobalSingleRelationTarget.Require(catalog,table,foreign,target);
             var sourcePage=singleCachePages.GetValueOrDefault(owner);
-            var control=target.IsRongyu==0&&sourcePage is not null
+            var proof=table.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,table,foreign,target)
+                :sourcePage is null?GlobalSingleRelationTarget.Require(catalog,table,foreign,target)
+                    :GlobalSingleRelationTarget.Require(catalog,table,foreign,target,sourcePage);
+            var control=table.IsRongyu==1&&target.IsRongyu==0&&sourcePage is not null
                 ?ProjectScopedSingleRelationTarget.ControlScope(catalog,table,foreign,target,sourcePage):proof.CacheControl;
             if(control is {Terms.Count:>0})
                 return JoinSingleCacheWithControl(table,owner,foreign,target,source,proof.Page,cacheOwner,control,sourcePage);

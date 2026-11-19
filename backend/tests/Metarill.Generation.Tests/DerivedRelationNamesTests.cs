@@ -1305,6 +1305,111 @@ public sealed class DerivedRelationNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>纯项目中间页向显式全局字典联接时，副本沿实际页继承全局范围。</summary>
+    [Theory][InlineData("constant")][InlineData("form")][InlineData("account")]
+    [InlineData("pageAccount")][InlineData("selection")][InlineData("deep")][InlineData("project")]
+    public async Task Project_cache_inherits_the_actual_global_terminal_scope(string mode)
+    {
+        const string prefix="dr_names";
+        var catalog=Catalog(prefix,false);
+        var source=catalog.ConfigTables.Single(table=>table.Id=="1");
+        source.IsRongyu=1;
+        catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql="yz_project_id=@current_yz_project_id";
+        var deep=mode=="deep";
+        if(deep)
+        {
+            AddNestedProjectCandidateScope(catalog,prefix);
+            catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="yz_project_id=@current_yz_project_id";
+        }
+        var target=catalog.ConfigTables.Single(table=>table.Id==(deep?"190":"4"));
+        target.IsRongyu=0;
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id==(deep?"19001":"401"));
+        targetPage.WhereSql=mode=="pageAccount"?"store_id=@current_store_id AND status=3":"status>=1";
+        Add("99",target.Id,"status","int32");
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id==(deep?"47":"27"));
+        foreign.ControlDetail=JsonSerializer.Serialize(new{tableId=target.Id,pageId=targetPage.Id,nameField="name",whereSql="status=17"});
+        if(mode=="form")
+        {
+            Add("229","2","cache_segment","int64");
+            catalog.ConfigPageColumns.Add(new(){Id="201229",ConfigPageId="201",ConfigColumnId="229",IsShow=1,IsEdit=1});
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="42");
+        }
+        if(mode is "account" or "pageAccount")
+        {
+            Add("119",source.Id,"store_id","int64");
+            Add("98",target.Id,"store_id","int64");
+            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id))
+                page.WhereSql+=" AND store_id=@current_store_id";
+        }
+        if(mode=="selection")
+        {
+            var outer=catalog.ConfigColumns.Single(column=>column.Id=="15");
+            outer.ControlKind="SelectPage";
+            outer.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField="company_name"});
+            catalog.ConfigPages.Single(page=>page.Id=="201").Extra["type"]=JsonSerializer.SerializeToElement(1);
+        }
+
+        var middlePageId=deep?"401":"201";
+        var column=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==middlePageId&&field.ConfigColumnId==foreign.Id);
+        if(column is null)
+        {
+            column=new(){Id=middlePageId+foreign.Id,ConfigPageId=middlePageId,ConfigColumnId=foreign.Id};
+            catalog.ConfigPageColumns.Add(column);
+        }
+        if(mode=="pageAccount")
+            foreign.ControlDetail=JsonSerializer.Serialize(new{tableId=target.Id,pageId=targetPage.Id,nameField="name"});
+        else column.Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql=mode switch
+        {
+            "form"=>"status IN (@formParameters.drNamesParty.cacheSegment,3)",
+            "account"=>"store_id=@current_store_id AND status=3",
+            "project"=>"yz_project_id=@current_yz_project_id AND status=3",
+            _=>"status=3"
+        }}));
+        RedundantMultiNameCacheTests.Published(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-project-to-global-cache");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.ProjectToGlobalCache");
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                assembly.GetType("Example.ProjectToGlobalCache.Generated.GeneratedRelationMaintenance",true)!
+                    .GetProperty("Catalog")!.GetValue(null));
+            Assert.Contains(target.TableName,maintenance.MixedTargets);
+            Assert.Contains("dr_names_party",maintenance.MixedTargets);
+            Assert.Contains("customer_company_name",maintenance.MixedSourceColumns["dr_names_order"]);
+            const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+            var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+            var plan=plans[source.Id]!;
+            var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+            var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["customer_company_name"]));
+            var values=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                read.GetType().GetProperty("Constants",hidden)!.GetValue(read)).Values;
+            Assert.Contains(3,values);
+            Assert.DoesNotContain(17,values);
+            if(mode=="form")
+            {
+                Assert.Contains(".`cache_segment`",expression);
+                Assert.DoesNotContain("b.`cache_segment`",expression);
+            }
+            if(mode is "account" or "pageAccount")Assert.Contains("b.`store_id`",expression);
+            if(mode=="project")Assert.Contains(".`yz_project_id`=@project_scope_number",expression);
+
+            const string cache="customer_company_name";
+            var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("Reverse",hidden)!.GetValue(read));
+            Assert.Contains(reverse.Cast<object>(),item=>
+                Equals(target.TableName,item.GetType().GetProperty("TargetTable")!.GetValue(item))&&
+                Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(item.GetType().GetProperty("Outputs")!.GetValue(item))
+                    .TryGetValue(cache,out var dependencies)&&dependencies.Contains("status"));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+
+        void Add(string id,string table,string name,string type)=>catalog.ConfigColumns.Add(new()
+            {Id=id,ConfigTableId=table,ColumnName=name,LogicalType=type,YzProjectId=catalog.YzProjectId});
+    }
+
     /// <summary>逻辑来源的原候选必须保留公司、区域两层独立的固定范围。</summary>
     [Theory][InlineData(false,false,false,false)][InlineData(true,true,false,false)]
     [InlineData(false,true,true,false)][InlineData(true,true,false,true)][InlineData(false,true,true,true)]
