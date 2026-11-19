@@ -44,6 +44,8 @@ internal static class RelationCompilation
         if (scopeSourceId is not null) candidates = owner.Columns.Where(column => column.Source.Id == scopeSourceId);
         foreach (var source in candidates)
         {
+            // 功能表单选直达实际目标页，各处无需为无实体表单生成持久外键的校验或额外候选入口。
+            if(owner.Source.IsFunctionTable==1&&source.Source.ControlKind=="SelectPage")continue;
             var standard = source.Source.ControlKind == "List" || source.Source.ControlKind == "SelectPage" &&
                 (owner.Source.IsRongyu == 0 || !source.IsSystem && (ForeignValidationRenderer.Target(model,source)?.IsGlobal == true ||
                     DerivedRelationNamesCompilation.DeclaredSource(model,source) || FixedSelectionTarget(model,page,source)));

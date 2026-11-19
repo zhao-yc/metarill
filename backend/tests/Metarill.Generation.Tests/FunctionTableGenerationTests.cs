@@ -370,6 +370,98 @@ public sealed class FunctionTableGenerationTests : IDisposable
         return catalog;
     }
 
+    /// <summary>真实单选目标页承接父范围、派生名称和精确列表权限。</summary>
+    [Theory]
+    [InlineData("physical")]
+    [InlineData("derived")]
+    [InlineData("logical")]
+    [InlineData("global")]
+    public async Task Function_single_selection_uses_the_actual_target_page(string scenario)
+    {
+        var catalog=WithSingleSelection(Catalog(),scenario);
+        new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot());
+
+        var generated=Path.Combine(output,"backend/generated");
+        var table=scenario=="global"?"FunctionOption":"Customer";
+        var controller=await File.ReadAllTextAsync(Path.Combine(generated,$"Controllers/{table}Page103Controller.g.cs"));
+        Assert.Contains("Actor(\"list\")",controller);
+        var service=await File.ReadAllTextAsync(Path.Combine(generated,$"Services/{table}Service.g.cs"));
+        if(scenario!="global")
+        {
+            Assert.Contains("ResolveExactDataManage(\"103\", authorizationOperation, \"real_name\")",service);
+            if(scenario=="logical")Assert.Contains("FixedReadFilter.ForCrossExact(\"assigned_area_name\"",service);
+        }
+        else Assert.Contains("CandidateReadPlan103.BindAccount(actor)",service);
+
+        var sourceService=await File.ReadAllTextAsync(Path.Combine(generated,"Services/SummaryFormService.g.cs"));
+        Assert.DoesNotContain("findNameIdReview39",sourceService);
+        Assert.False(File.Exists(Path.Combine(generated,"Entities/SummaryForm.g.cs")));
+        await VerifyVueAsync(output,"GeneratedFunctionSingleProbe.mjs");
+        await BuildFullAsync(output);
+        var context=new AssemblyLoadContext("FunctionSingleSelection."+Guid.NewGuid().ToString("N"),isCollectible:true);
+        try
+        {
+            using var binary=File.OpenRead(Path.Combine(output,"backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"));
+            var runtime=context.LoadFromStream(binary).GetType($"Example.FunctionForm.Generated.Services.{table}Service",true)!;
+            RuntimeHelpers.RunClassConstructor(runtime.TypeHandle);
+        }
+        finally {context.Unload();}
+    }
+
+    /// <summary>控件独有的条件不能在直达目标页时丢失，无法覆盖时拒绝打包。</summary>
+    [Fact]
+    public void Function_single_selection_rejects_an_unbound_control_condition()
+    {
+        var catalog=WithSingleSelection(Catalog(),"physical");
+        catalog.ConfigColumns.Single(field=>field.Id=="39").ControlDetail=
+            """{"pageId":"103","nameField":"name","whereSql":"name='额外限定'"}""";
+        var error=Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot()));
+        Assert.Contains("附加范围未被目标固定查询约束",error.Message);
+        Assert.False(Directory.Exists(output));
+    }
+
+    /// <summary>覆盖原单选的物理／逻辑独立父、页面覆盖、派生名称及全局候选。</summary>
+    private static MetadataCatalog WithSingleSelection(MetadataCatalog catalog,string scenario)
+    {
+        if(scenario=="global")
+        {
+            WithGlobalParent(catalog,scenario);
+            catalog.ConfigColumns.RemoveAll(field=>field.Id=="39");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.Id=="10239");
+        }
+        else
+        {
+            WithScopedCheckbox(WithCascades(catalog),scenario=="physical"?1:0);
+            if(scenario=="derived")
+            {
+                ConfigureDerivedCheckboxScope(catalog,"derived");
+                catalog.ConfigPageColumns.Add(new(){Id="10319",ConfigPageId="103",ConfigColumnId="19",IsShow=1});
+            }
+            else if(scenario=="logical")ConfigureDerivedCheckboxScope(catalog,"logical");
+        }
+
+        var target=catalog.ConfigPages.Single(page=>page.Id=="103");
+        target.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        var name=scenario=="derived"?"country_label":"name";
+        var field=new ColumnMetadata {Id="39",ConfigTableId="2",ColumnName="review_id",LogicalType="int64",
+            IsVirtualColumn=1,ControlKind="SelectPage",LinkConfigTableId=scenario=="global"?"":"1"};
+        var setting=new PageColumnMetadata {Id="10239",ConfigPageId="102",ConfigColumnId="39",IsEdit=1};
+        if(scenario=="derived")
+        {
+            field.ControlDetail=JsonSerializer.Serialize(new{nameField=name});
+            setting.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"pageId":"103"}""");
+        }
+        else
+        {
+            field.ControlDetail=JsonSerializer.Serialize(new{pageId="103",nameField=name,
+                whereSql=scenario=="global"?"status=1":"name <> '停用'"});
+        }
+        catalog.ConfigColumns.Add(field);
+        catalog.ConfigColumns.Add(new(){Id="397",ConfigTableId="2",ColumnName="review_"+name,LogicalType="string",IsVirtualColumn=1});
+        catalog.ConfigPageColumns.Add(setting);
+        return catalog;
+    }
+
     /// <summary>使用包内实际项目和依赖构建 ASP.NET Core 宿主，警告按错误处理。</summary>
     private static async Task BuildFullAsync(string output)
     {
