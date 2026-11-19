@@ -1,4 +1,5 @@
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
 namespace Metarill.Data.Queries;
 
 public static partial class MySqlNonRedundantReadCompiler
@@ -9,18 +10,27 @@ public static partial class MySqlNonRedundantReadCompiler
             new Dictionary<string,NonRedundantMultiTargetScope>(StringComparer.Ordinal);
 
         /// <summary>运行目录重新核对当前页的控件目标，禁止外部请求指定页、换表或读取别的发布项目。</summary>
-        private (PageMetadata? Source,PageMetadata? Target,bool Scope) ProjectMultiTarget(TableMetadata table,string alias,
+        private (PageMetadata? Source,PageMetadata? Target,bool Scope,FixedConditionPlan? Control) ProjectMultiTarget(TableMetadata table,string alias,
             ColumnMetadata relation,TableMetadata target)
         {
             if(alias!=rootAlias||!ProjectMultiTargets.TryGetValue(relation.Id,out var binding))return default;
             var source=catalog.ConfigPages.Single(page=>page.Id==binding.SourcePageId&&page.ConfigTableId==table.Id);
-            var selected=catalog.ConfigPages.Single(page=>page.Id==binding.TargetPageId&&page.ConfigTableId==target.Id);
+            var selected=binding.TargetPageId is null?null:
+                catalog.ConfigPages.Single(page=>page.Id==binding.TargetPageId&&page.ConfigTableId==target.Id);
+            FixedConditionPlan? control=null;
             var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==source.Id&&field.ConfigColumnId==relation.Id)
                 ?.Extra.GetValueOrDefault("controlDetail").ToString();
             string pageId;
             if(relation.ControlKind=="MultiCheckBoxDatabase")
             {
-                pageId=DatabaseCheckboxDefinition.Parse(relation.ControlDetail).WithPageOverride(overlay).PageId;
+                var definition=DatabaseCheckboxDefinition.Parse(relation.ControlDetail).WithPageOverride(overlay);
+                pageId=definition.PageId;
+                if(binding.ApplyControlScope)
+                {
+                    control=FixedConditionPlan.Compile(definition.WhereSql,columns[target.Id].Keys);
+                    if(control.Terms.Count==0)
+                        throw new InvalidOperationException("复选名称读取缺少实际发布的附加条件。");
+                }
                 if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
             }
             else
@@ -34,21 +44,23 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(pageId.Length==0)pageId=MultiTargetNamePage(catalog,target,relation)?.Id??"";
             }
             // 普通 R1 目标只开放数据库复选的已发布物理范围，其他多值绑定仍要求 R0 目标。
-            var scopedPhysicalCheckbox=relation.ControlKind=="MultiCheckBoxDatabase"&&target.IsRongyu==1&&binding.ApplyPageScope;
+            var scopedPhysicalCheckbox=relation.ControlKind=="MultiCheckBoxDatabase"&&target.IsRongyu==1&&(binding.ApplyPageScope||control is not null);
             if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox||GlobalCrossTableTarget.Declared(table)||
-                GlobalCrossTableTarget.Declared(target)||pageId!=selected.Id||
+                                GlobalCrossTableTarget.Declared(target)||pageId!=(selected?.Id??"")||
+                selected is null&&(binding.ApplyPageScope||control is null)||
+                binding.ApplyControlScope&&control is null||
                 source.YzProjectId.Length>0&&source.YzProjectId!=catalog.YzProjectId||
-                selected.YzProjectId.Length>0&&selected.YzProjectId!=catalog.YzProjectId)
+                selected is not null&&selected.YzProjectId.Length>0&&selected.YzProjectId!=catalog.YzProjectId)
                 throw new InvalidOperationException("多值名称目标与当前页的发布配置不一致。");
-            return(source,selected,binding.ApplyPageScope);
+            return(source,selected,binding.ApplyPageScope,control);
         }
 
         /// <summary>派生多值名称使用独立固定别名域，联接保持在目标子查询内，不把来源扩成多行。</summary>
         private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,
-            ColumnMetadata value,PageMetadata? publishedPage,PageMetadata? selectedScope,PageMetadata? namePage,PageMetadata? sourcePage)
+            ColumnMetadata value,PageMetadata? publishedPage,PageMetadata? selectedScope,PageMetadata? namePage,PageMetadata? sourcePage,FixedConditionPlan? control)
         {
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
-            var physicalScope=checkbox&&table.IsRongyu==0&&target.IsRongyu==1&&sourcePage is not null&&selectedScope is not null;
+            var physicalScope=checkbox&&table.IsRongyu==0&&target.IsRongyu==1&&sourcePage is not null&&(selectedScope is not null||control is not null);
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
                 throw new NotSupportedException("多值名称要求已证明的目标及原多选或数据库复选。");
             var global=GlobalCrossTableTarget.Declared(target);
@@ -59,14 +71,19 @@ public static partial class MySqlNonRedundantReadCompiler
             // 全局单值路径已证明字符串键的二进制读取；这里不是仅允许int64键的精确管理匹配用途。
             var prefixForNames=publishedPage is null&&publishedArrayScopeCount==0?"multi_name_":aliasPrefix+"array"+publishedArrayScopeCount+"_";
             publishedArrayScopeCount++;
-            var parent=selectedScope is null?null:MultiParent(catalog,selectedScope);
-            var sourceBinding=sourcePage is null?parent?.Source(catalog,table,relation):parent?.Source(catalog,table,relation,sourcePage);
+            var pageParent=selectedScope is null?null:MultiParent(catalog,selectedScope);
+            var controlParents=CheckboxControlParents(target,control);
+            var parent=pageParent??controlParents.FirstOrDefault();
+            if(parent is not null&&controlParents.Any(candidate=>candidate.Parent.Id!=parent.Parent.Id))
+                throw new InvalidOperationException("复选目标页与控件必须绑定同一实际来源父表。");
+            var sourceBinding=sourcePage is null?parent?.Source(catalog,table,relation):
+                controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage):parent?.Source(catalog,table,relation,sourcePage);
             var sourceParent=sourceBinding?.Column;
             var logicalSource=sourceBinding?.LogicalPages.Count>0;
             var parentAlias=logicalSource?"mt_parent_input":owner;
             var sourceParentSql=logicalSource?LogicalRelationSourceParent(table,owner,sourceBinding!):null;
             if(sourceParent is not null&&!logicalSource){Use(table,sourceParent);Touch(owner,sourceParent.ColumnName);}
-            var nested=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
+            var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:selectedScope is null?publishedPage:null,multiLabel:true,cascadeLabelField:value.ColumnName,
                 cascadeCacheOwner:refreshFields is null?null:new(table,owner),scopedPhysicalCandidate:physicalScope)
             {
@@ -76,7 +93,24 @@ public static partial class MySqlNonRedundantReadCompiler
                 MultiNamePathPage=namePage,
                 AllowLiteralMultiScope=sourcePage is not null,
                 GlobalCrossCandidate=global&&selectedScope is not null
-            }.Compile([value.ColumnName],[]);
+            };
+            var parents=new List<string>();
+            foreach(var range in controlParents)
+            {
+                if(range.Target.Id==pageParent?.Target.Id)continue;
+                var targetKey="multi_value."+Q(range.Target.ColumnName);
+                Use(target,range.Target);
+                if(pageParent is null&&parents.Count==0&&!range.Global)
+                    parents.Add(targetBuilder.MultiParentPredicate(range,targetKey));
+                else
+                {
+                    // 目标页已有真实父校验，或来源由完整级联还原全局父。其余同表父列只需与同一键精确比较。
+                    if(sourceParent is null||pageParent is null&&range.Global&&!logicalSource)
+                        throw new InvalidOperationException("复选控件的全局父级缺少实际来源级联。");
+                    parents.Add(SameSingleParent(targetKey,parentAlias+"."+Q(sourceParent.ColumnName)));
+                }
+            }
+            var nested=targetBuilder.Compile([value.ColumnName],[]);
             nested.CopyParametersTo(crossConstants);
             if(nested.RequiresPublishedProjectIdentity)publishedArrayIdentity=true;
             var cascadeLabel=nested.CascadeLabelOutputs.Contains(value.ColumnName);
@@ -86,12 +120,27 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("多选派生名称必须落到已证明的同类型非凭据单值终点。");
             var prefix=" FROM "+Q(target.TableName)+" multi_value";
             if(!nested.From.StartsWith(prefix,StringComparison.Ordinal))throw new InvalidOperationException("多选名称别名域与固定目标不一致。");
-            var targetJoins=nested.From[prefix.Length..];var valueSql=nested.Expression(value.ColumnName);var scope=nested.Scope;
-            // 行内查询使用已经还原的来源层位。批量回读通过专用参数别名绑定完全相同的值。
-            var inlineScope=sourceParentSql is null?scope:scope.Replace(parentAlias+"."+Q(sourceParent!.ColumnName),"("+sourceParentSql+")",StringComparison.Ordinal);
-            string ScopedName(string predicate)=>MySqlMultiValueLabel.Text(selectedScope is null?valueSql:"CASE WHEN "+predicate+" THEN "+valueSql+" END",value.LogicalType);
-            // 反向查找需要包含刚失去可见性的节点，数组的前置联接也不能引用后生成的级联别名。
-            var associationScope=selectedScope is null?scope:Scope(target,"multi_value",projectScoped:!global);
+            var targetJoins=nested.From[prefix.Length..];var valueSql=nested.Expression(value.ColumnName);
+            var formFields=new HashSet<string>(StringComparer.Ordinal);
+            var added=ProjectCheckboxControlCondition(table,owner,parentAlias,target,control,prefixForNames,formFields);
+            var scope=string.Join(" AND ",new[]{nested.Scope,added}.Concat(parents).Where(part=>part.Length>0));
+            var ownerFields=nested.CascadeCacheOwnerFields.Concat(formFields)
+                .Concat(controlParents.Length>0&&sourceParent is not null?[sourceParent.ColumnName]:[])
+                .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            // 行内使用真实来源别名和逻辑父级。批量查询从相同来源行提取每个依赖值后使用参数别名。
+            var inlineScope=scope;
+            Dictionary<string,string>? sourceExpressions=null;
+            if(sourceParentSql is not null)
+            {
+                sourceExpressions=ownerFields.ToDictionary(field=>field,
+                    field=>field==sourceParent!.ColumnName?"("+sourceParentSql+")":owner+"."+Q(field),StringComparer.Ordinal);
+                foreach(var pair in sourceExpressions)
+                    inlineScope=inlineScope.Replace(parentAlias+"."+Q(pair.Key),pair.Value,StringComparison.Ordinal);
+            }
+            var conditioned=selectedScope is not null||control is not null;
+            string ScopedName(string predicate)=>MySqlMultiValueLabel.Text(conditioned?"CASE WHEN "+predicate+" THEN "+valueSql+" END":valueSql,value.LogicalType);
+            // 反查和前置联接不引用晚生成的级联别名，名称可见性在完整路径上判断。
+            var associationScope=conditioned?Scope(target,"multi_value",projectScoped:!global):scope;
             // 聚合、筛选、分批当前读和维护按同一文本名称计算，终点联接仍保持强类型。
             var name=ScopedName(inlineScope);
             var source=owner+"."+Q(relation.ColumnName);var array=Array(source);
@@ -118,14 +167,50 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG("+name+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(global||checkbox?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(associationScope.Length==0?"":" AND "+associationScope)+targetJoins+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
             multiProjections[expression]=new(source,Q(target.TableName),Q(value.ColumnName),scope,targetJoins,ScopedName(scope),
-                nested.CascadeCacheOwnerFields.Count==0?null:new(parentAlias,nested.CascadeCacheOwnerFields.Order(StringComparer.Ordinal).ToArray(),
-                    sourceParentSql is null?null:new Dictionary<string,string>(StringComparer.Ordinal){{sourceParent!.ColumnName,sourceParentSql}}));
+                ownerFields.Length==0?null:new(parentAlias,ownerFields,sourceExpressions,PreserveScalarTypes:formFields.Count>0));
             multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(inlineScope.Length==0?"":" AND "+inlineScope)+" AND "+name+" LIKE {parameter} ESCAPE '!')";
             if(global||cascadeLabel||checkbox)multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(inlineScope.Length==0?"":" AND "+inlineScope)+" AND "+name+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
             // 维护报告展示发布的逻辑来源字段，物理列清单由嵌套路径单独记录。
             origin=valueOrigin??new(target.TableName,value.ColumnName);
             return(expression,"string");
         }
+
+        /// <summary>逐一证明控件声明的目标物理父键，支持多个列同时限定同一来源父记录。</summary>
+        private MultiTargetParentScope[] CheckboxControlParents(TableMetadata target,FixedConditionPlan? control) =>
+            control?.Terms.Where(IsCheckboxParentTerm).Select(term=>MultiTargetParentScope.CompileCheckboxParent(catalog,target,
+                FixedConditionPlan.Compile(term.ToDefinition(),columns[target.Id].Keys)) ??
+                throw new InvalidOperationException("复选控件父级未绑定实际目标。")).ToArray() ?? [];
+
+        private static bool IsCheckboxParentTerm(FixedConditionTerm term)=>term.Values.Any(value=>
+            value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text));
+
+        /// <summary>附加条件继承原表单槽。项目和父级已单独绑定，账号值延后从认证身份获取。</summary>
+        private string ProjectCheckboxControlCondition(TableMetadata source,string owner,string projectionAlias,TableMetadata target,
+            FixedConditionPlan? control,string prefix,HashSet<string> fields)
+        {
+            if(control is null)return "";
+            bool Project(FixedConditionTerm term)=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
+                value.Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase));
+            if(control.Terms.Where(Project).Any(term=>term.Field!="yz_project_id"||term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1))
+                throw new InvalidOperationException("复选附加条件的项目变量必须使用真实项目列。");
+            var terms=control.Terms.Where(term=>!Project(term)&&!IsCheckboxParentTerm(term)).Select(term=>term.ToDefinition());
+            var syntax=FixedConditionPlan.Compile(string.Join(" AND ",terms),columns[target.Id].Keys);
+            var types=syntax.Fields.ToDictionary(field=>field,field=>Column(target,field).LogicalType,StringComparer.Ordinal);
+            var plan=FixedConditionSqlPlan.Compile(syntax,types);
+            var validity=new HashSet<string>(StringComparer.Ordinal);
+            var clause=plan.RenderRowProjection(ConditionParameterPrefix(prefix+"control"),field=>
+            {
+                var column=Column(target,field);
+                if(!storage[target.Id].IsPhysical(column)||column.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(field))
+                    throw new InvalidOperationException("复选名称附加条件必须使用非凭据物理字段。");
+                Use(target,column);
+                return "multi_value."+Q(field);
+            },(variable,type)=>AccountConditionVariables.IsSupported(variable)?null:
+                SingleControlFormColumn(source,owner,validity,variable,type,fields,projectionAlias),deferAccount:true);
+            foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
+            return string.Join(" AND ",new[]{clause.Sql}.Concat(validity).Where(part=>part.Length>0));
+        }
+
 
         /// <summary>从来源行的固定可见级联还原父键，所有同伴的冲突及不可见路径都必须拒绝。</summary>
         private string LogicalRelationSourceParent(TableMetadata table,string owner,MultiSourceParent source,CascadeCacheOwner? cacheOwner=null)

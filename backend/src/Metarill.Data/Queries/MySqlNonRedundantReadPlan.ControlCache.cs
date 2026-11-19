@@ -104,7 +104,7 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>表单条件只读当前关系来源的持久标量，禁止凭据和超出目标整数范围的值。</summary>
         private string SingleControlFormColumn(TableMetadata table,string owner,HashSet<string> validity,
-            string variable,string expectedType)
+            string variable,string expectedType,ISet<string>? fields=null,string? projectionAlias=null)
         {
             const string start="formParameters.";
             if(!variable.StartsWith(start,StringComparison.Ordinal))
@@ -120,7 +120,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 !(type is "date" or "datetime"&&expectedType is "date" or "datetime"))
                 throw new InvalidOperationException("名称控件表单值与目标逻辑类型不一致。");
             Use(table,column);Touch(owner,column.ColumnName);
-            var expression=owner+"."+Q(column.ColumnName);
+            fields?.Add(column.ColumnName);
+            var expression=(projectionAlias??owner)+"."+Q(column.ColumnName);
             if(type=="int64"&&expectedType=="int32")
                 validity.Add("("+expression+" IS NULL OR "+expression+" BETWEEN -2147483648 AND 2147483647)");
             return expression;

@@ -287,9 +287,9 @@ internal static partial class NonRedundantReadCompilation
         if(table.Source.IsRongyu!=0||table.IsGlobal)return [];
         return MultiSelectCompilation.ForService(model,table,page).Where(def=>def.UsesPageRead&&def.Names is not null)
             .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.TargetPage.Source.Id,true))
-            .Concat(DatabaseCheckboxCompilation.ForService(model,table,page).Where(def=>def.UsesPageRead)
-                .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.NameTargetPage!.Source.Id,
-                    def.LogicalTargetPage is not null||def.PhysicalTargetPage is not null))).ToArray();
+            .Concat(DatabaseCheckboxCompilation.ForService(model,table,page).Where(def=>def.UsesPageRead||def.UsesControlRead)
+                .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.NameTargetPage?.Source.Id,
+                    def.LogicalTargetPage is not null||def.PhysicalTargetPage is not null,def.UsesControlRead))).ToArray();
     }
 
     /// <summary>生成验证与导出窄投影使用完全相同的各页固定目标。</summary>
@@ -309,7 +309,7 @@ internal static partial class NonRedundantReadCompilation
             return (cross.Length==0?"Compile":"CompileCross")+"("+arguments+cross+")";
         var singles=plan.SingleTargets.Count==0?",Array.Empty<NonRedundantSingleTargetScope>()":SingleTargetArgument(plan.SingleTargets);
         var multis=plan.MultiTargets.Count==0?"":",new NonRedundantMultiTargetScope[]{"+string.Join(",",plan.MultiTargets.Select(scope=>
-            $"new({JsonSerializer.Serialize(scope.ColumnId)},{JsonSerializer.Serialize(scope.SourcePageId)},{JsonSerializer.Serialize(scope.TargetPageId)},{(scope.ApplyPageScope?"true":"false")})"))+"}";
+            $"new({JsonSerializer.Serialize(scope.ColumnId)},{JsonSerializer.Serialize(scope.SourcePageId)},{JsonSerializer.Serialize(scope.TargetPageId)},{(scope.ApplyPageScope?"true":"false")}{(scope.ApplyControlScope?",true":"")})"))+"}";
         return "CompileProjectPage("+arguments+(cross.Length==0?",Array.Empty<NonRedundantCrossTableScope>()":cross)+singles+multis+")";
     }
 

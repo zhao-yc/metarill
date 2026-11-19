@@ -12,7 +12,14 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         variable.Equals("parentId",StringComparison.OrdinalIgnoreCase);
 
     /// <summary>父参数只允许一处等值条件；目标的其它条件仍交给页面读取计划。</summary>
-    public static MultiTargetParentScope? Compile(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)
+    public static MultiTargetParentScope? Compile(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)=>
+        Compile(catalog,table,condition,checkbox:false);
+
+    /// <summary>原复选控件可以显式绑定自定义物理父键，并允许目标使用 int32。</summary>
+    public static MultiTargetParentScope? CompileCheckboxParent(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)=>
+        Compile(catalog,table,condition,checkbox:true);
+
+    private static MultiTargetParentScope? Compile(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox)
     {
         var terms=condition.Terms.Where(term=>term.Values.Any(value=>
             value.Kind==FixedConditionValueKind.Variable&&IsParameter(value.Text))).ToArray();
@@ -21,10 +28,12 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
             throw Invalid();
         var columns=catalog.ConfigColumns.Where(item=>item.ConfigTableId==table.Id).ToArray();
         var column=RelationStorageColumns.Expand(table,columns).SingleOrDefault(item=>item.ColumnName==terms[0].Field);
-        if(column is null||column.IsVirtualColumn!=0||column.LogicalType is not("int64" or "string")||
-            !column.ColumnName.EndsWith("_id",StringComparison.Ordinal))throw Invalid();
+        if(column is null||column.IsVirtualColumn!=0)throw Invalid();
+        var originalKey=column.LogicalType is "int64" or "string"&&column.ColumnName.EndsWith("_id",StringComparison.Ordinal);
+        var checkboxKey=checkbox&&CheckboxKey(catalog,table,column,target:true);
+        if(!originalKey&&!checkboxKey)throw Invalid();
         var logical=CrossTableStorageColumns.IsLogicalPathField(table,columns,column.ColumnName);
-        var parent=logical?CrossParent(catalog,columns,column):PhysicalKey(catalog,table,column)
+        var parent=logical?CrossParent(catalog,columns,column):(PhysicalKey(catalog,table,column)||checkboxKey)
             ?catalog.ConfigTables.SingleOrDefault(item=>References(column,item)):null;
         if(parent is null||parent.IsView!=0||parent.IsFunctionTable!=0||
             parent.YzProjectId.Length>0&&parent.YzProjectId!=catalog.YzProjectId)throw Invalid();
@@ -68,6 +77,11 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public MultiSourceParent Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,PageMetadata sourcePage)=>
         ResolveSource(catalog,source,relation,single:false,allowLogical:true,sourcePageId:sourcePage.Id);
 
+    /// <summary>复选仍从当前页已声明的父范围取值，支持通过关联表已明确的自定义字段名。</summary>
+    public MultiSourceParent CheckboxSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,PageMetadata sourcePage)=>
+        ResolveSource(catalog,source,relation,single:false,allowLogical:true,sourcePageId:sourcePage.Id,checkbox:true);
+
+
     /// <summary>单值固定页和多值页共用持久父键证明；单值只允许实际物理父字段。</summary>
     public MultiSourceParent Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,bool physicalSingle)=>
         ResolveSource(catalog,source,relation,single:physicalSingle,allowLogical:!physicalSingle);
@@ -81,10 +95,10 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         ResolveSource(catalog,source,relation,single:true,allowLogical:source.IsRongyu==0,sourcePageId:sourcePage.Id);
 
     private MultiSourceParent ResolveSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,
-        bool single,bool allowLogical,string? sourcePageId=null)
+        bool single,bool allowLogical,string? sourcePageId=null,bool checkbox=false)
     {
         var columns=catalog.ConfigColumns.Where(item=>item.ConfigTableId==source.Id).ToArray();
-        var keys=columns.Where(column=>PhysicalKey(catalog,source,column)&&References(column,Parent)).ToArray();
+        var keys=columns.Where(column=>(PhysicalKey(catalog,source,column)||checkbox&&CheckboxKey(catalog,source,column,target:false))&&References(column,Parent)).ToArray();
         var explicitKeys=keys.Where(column=>column.LinkConfigTableId==Parent.Id).ToArray();
         var allFields=RelationStorageColumns.Expand(source,columns);
         var selected=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&
@@ -122,6 +136,14 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         column.LogicalType is "int64" or "string"&&column.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
         column.ColumnName!="yz_project_id"&&GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,table),table,column)&&
         !CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,column.ColumnName);
+
+    /// <summary>约定名仍可推导父表，自定义字段必须显式引用同一实体。</summary>
+    private static bool CheckboxKey(MetadataCatalog catalog,TableMetadata table,ColumnMetadata column,bool target)=>
+        (column.LogicalType is "int64" or "string"||target&&column.LogicalType=="int32")&&
+        (column.ColumnName.EndsWith("_id",StringComparison.Ordinal)||column.LinkConfigTableId.Length>0)&&
+        column.ColumnName!="yz_project_id"&&GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,table),table,column)&&
+        !CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,column.ColumnName);
+
 
     private static InvalidOperationException Invalid()=>new("多值目标页父参数要求同一真实父表，以及所有来源入口一致的父键。");
 }

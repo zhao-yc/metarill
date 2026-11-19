@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
+using Metarill.Core.Metadata;
 using Metarill.Data.Queries;
 using Metarill.Data.Relations;
 using Xunit;
@@ -25,17 +26,47 @@ public sealed class CascadeMultiLabelOwnerBatchTests
         var rows=await session.InTransactionAsync(()=>new MySqlNonRedundantReader(session)
             .ReadCurrentRowsAsync(plan,[],[new("id")],3));
         Assert.Equal(new[]{"[\"甲\"]","[null]","[\"甲\"]"},rows.Select(row=>Assert.IsType<string>(row["selected_country_names"])));
-        Assert.Equal(new[]{OwnerA,OwnerB},provider.Owners);
+        Assert.Equal([OwnerA,OwnerB],provider.Owners.Select(value=>Assert.IsType<string>(value)));
         Assert.All(rows,row=>Assert.DoesNotContain(row.Keys,key=>key.StartsWith("metarill_multi_",StringComparison.Ordinal)));
     }
+
+    /// <summary>复选从来源真实 bigint 字段读取两个相邻值；分组与 SQL 参数都保留其整数类型。</summary>
+    [Fact]
+    public async Task Checkbox_form_scope_binds_persisted_bigint_values_without_text_coercion()
+    {
+        var catalog=CascadeMultiLabelReadTests.CrossCatalog("MultiCheckBoxDatabase");
+        var relation=catalog.ConfigColumns.Single(column=>column.Id=="93");
+        relation.ControlDetail="""
+            {"tableId":"1","pageId":"11","nameField":"country_name","whereSql":"record_owner_id=@formParameters.b185Consumer.recordOwnerId"}
+            """;
+        catalog.ConfigColumns.AddRange([
+            new(){Id="95",ConfigTableId="9",ColumnName="record_owner_id",LogicalType="int64"},
+            new(){Id="105",ConfigTableId="1",ColumnName="record_owner_id",LogicalType="int64"}]);
+        catalog.ConfigPages.Add(new(){Id="99",ConfigTableId="9",WhereSql="yz_project_id=@current_yz_project_id"});
+        catalog.ConfigPageColumns.Add(new(){Id="995",ConfigPageId="99",ConfigColumnId="95"});
+        var plan=NonRedundantReads.CompileProjectPage(catalog,"9",["id","selected_country_names","selected_ids"],[],[],[],
+            [new("93","99","11",false,true)]).MySql;
+        var provider=new FixtureProvider(typedOwner:true);
+        using var orm=provider.CreateOrm(new());
+        using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline"},orm,provider);
+
+        var rows=await session.InTransactionAsync(()=>new MySqlNonRedundantReader(session)
+            .ReadCurrentRowsAsync(plan,[],[new("id")],3));
+        Assert.Equal(new[]{"[\"甲\"]","[null]","[\"甲\"]"},rows.Select(row=>Assert.IsType<string>(row["selected_country_names"])));
+        Assert.Equal([long.Parse(OwnerA),long.Parse(OwnerB)],provider.Owners.Select(value=>Assert.IsType<long>(value)));
+        Assert.All(rows,row=>Assert.DoesNotContain(row.Keys,key=>key.StartsWith("metarill_multi_",StringComparison.Ordinal)));
+    }
+
 
     private const string OwnerA="9007199254740993";
     private const string OwnerB="9007199254740994";
     private const long Member=9007199254740995L;
 
-    private sealed class FixtureProvider : IDatabaseProvider
+    private sealed class FixtureProvider(bool typedOwner=false) : IDatabaseProvider
     {
-        internal readonly List<string> Owners=[];
+        internal readonly List<object> Owners=[];
+        internal bool TypedOwner {get;}=typedOwner;
+        internal object OwnerValue(string owner)=>TypedOwner?(object)long.Parse(owner,System.Globalization.CultureInfo.InvariantCulture):owner;
         public string Name=>"mysql";
         public DatabaseCapabilities Capabilities=>new("mysql",true,false);
         public void Validate(DatabaseOptions options){}
@@ -96,13 +127,14 @@ public sealed class CascadeMultiLabelOwnerBatchTests
             {
                 Assert.Contains("CROSS JOIN (SELECT @multi_owner_0 AS `record_owner_id`) `b`",CommandText);
                 Assert.Contains("b.`record_owner_id`",CommandText);
-                var owner=Assert.IsType<string>(Parameters["multi_owner_0"].Value);
+                var owner=Parameters["multi_owner_0"].Value!;
+                if(provider.TypedOwner)Assert.Contains("multi_value.`record_owner_id`=b.`record_owner_id`",CommandText);
                 provider.Owners.Add(owner);
                 Assert.Equal(Member,Parameters["multi_id_0"].Value);
                 rows.Columns.Add("id",typeof(long));
                 rows.Columns.Add("name",typeof(string));
-                if(owner==OwnerA)rows.Rows.Add(Member,"甲");
-                else Assert.Equal(OwnerB,owner);
+                if(Equals(owner,provider.OwnerValue(OwnerA)))rows.Rows.Add(Member,"甲");
+                else Assert.Equal(provider.OwnerValue(OwnerB),owner);
             }
             else
             {
@@ -111,11 +143,11 @@ public sealed class CascadeMultiLabelOwnerBatchTests
                 rows.Columns.Add("selected_country_names",typeof(string));
                 rows.Columns.Add("selected_ids",typeof(string));
                 rows.Columns.Add("metarill_multi_input_0",typeof(string));
-                rows.Columns.Add("metarill_multi_owner_1",typeof(string));
+                rows.Columns.Add("metarill_multi_owner_1",provider.TypedOwner?typeof(long):typeof(string));
                 const string selected="[\"9007199254740995\"]";
-                rows.Rows.Add(1L,DBNull.Value,selected,selected,OwnerA);
-                rows.Rows.Add(2L,DBNull.Value,selected,selected,OwnerB);
-                rows.Rows.Add(3L,DBNull.Value,selected,selected,OwnerA);
+                rows.Rows.Add(1L,DBNull.Value,selected,selected,provider.OwnerValue(OwnerA));
+                rows.Rows.Add(2L,DBNull.Value,selected,selected,provider.OwnerValue(OwnerB));
+                rows.Rows.Add(3L,DBNull.Value,selected,selected,provider.OwnerValue(OwnerA));
             }
             return rows.CreateDataReader();
         }

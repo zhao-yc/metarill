@@ -36,7 +36,7 @@ public sealed record NonRedundantSingleTargetScope(string ColumnId,string PageId
 }
 
 /// <summary>同一物理多值关系按当前页绑定名称路径及已证明的目标页范围。</summary>
-public sealed record NonRedundantMultiTargetScope(string ColumnId,string SourcePageId,string TargetPageId,bool ApplyPageScope);
+public sealed record NonRedundantMultiTargetScope(string ColumnId,string SourcePageId,string? TargetPageId,bool ApplyPageScope,bool ApplyControlScope=false);
 
 /// <summary>在生成校验或宿主启动阶段编译，业务方法不判断数据库品牌。</summary>
 public static class NonRedundantReads

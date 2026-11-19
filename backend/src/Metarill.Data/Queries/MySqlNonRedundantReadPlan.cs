@@ -31,7 +31,7 @@ internal sealed record MySqlReverseProjection(string TargetTable,string From,str
 }
 
 internal sealed record MySqlMultiProjection(string SourceExpression,string TargetTable,string TargetName,string TargetScope,string Joins="",string? NameExpression=null,MySqlMultiOwner? Owner=null);
-internal sealed record MySqlMultiOwner(string Alias,IReadOnlyList<string> Fields,IReadOnlyDictionary<string,string>? SourceExpressions=null);
+internal sealed record MySqlMultiOwner(string Alias,IReadOnlyList<string> Fields,IReadOnlyDictionary<string,string>? SourceExpressions=null,bool PreserveScalarTypes=false);
 
 /// <summary>只由已发布元数据编译的单值读取计划，不提供SQL反序列化或任意表达式入口。</summary>
 public sealed class MySqlNonRedundantReadPlan
@@ -647,11 +647,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(HasGlobalRowProject(target)||typedCache)publishedPage=proof.Page;
             }
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
-            var (sourcePage,overridden,applyPageScope)=ProjectMultiTarget(table,owner,relation,target);
+            var (sourcePage,overridden,applyPageScope,control)=ProjectMultiTarget(table,owner,relation,target);
             var namePage=overridden??MultiTargetNamePage(catalog,target,relation);
             var selectedScope=overridden is null?MultiTargetLogicalPage(catalog,target,relation):applyPageScope?overridden:null;
-            if(selectedScope is not null||!storage[target.Id].IsPhysical(value))
-                return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage,selectedScope,namePage,sourcePage);
+            if(control is not null||selectedScope is not null||!storage[target.Id].IsPhysical(value))
+                return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage,selectedScope,namePage,sourcePage,control);
             var scalarLabel=typedCache||MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id]);
             if(value.LogicalType!="string"&&!scalarLabel)throw new NotSupportedException("多值物理名称类型未支持。");
             Use(table,relation);

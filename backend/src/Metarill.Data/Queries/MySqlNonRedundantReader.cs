@@ -173,8 +173,10 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         else
         {
             // 同一个被选 ID 在不同来源归属下可能有不同名称。按完整归属分别当前读。
-            string?[] OwnerValues(Dictionary<string,object?> row)=>ownerColumns
-                .Select(name=>row[name] is {} value?Convert.ToString(value,System.Globalization.CultureInfo.InvariantCulture):null).ToArray();
+            // 表单条件的比较使用持久字段类型，不能把 bigint 等值退化成 MySQL 的浮点隐式比较。
+            object?[] OwnerValues(Dictionary<string,object?> row)=>ownerColumns.Select(name=>
+                row[name] is {} value && !projection.Owner.PreserveScalarTypes
+                    ?Convert.ToString(value,System.Globalization.CultureInfo.InvariantCulture):row[name]).ToArray();
             var groups=rows.GroupBy(row=>System.Text.Json.JsonSerializer.Serialize(OwnerValues(row),MultiNamesJson),StringComparer.Ordinal);
             foreach(var group in groups)
                 await PopulateMultiGroupAsync(connection,plan,projection,output,hidden,group.ToArray(),
@@ -186,7 +188,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
 
     /// <summary>本批归属作为已锁来源值绑定，目标继续使用原批量主键和共享锁。</summary>
     private async Task PopulateMultiGroupAsync(DbConnection connection,MySqlNonRedundantReadPlan plan,MySqlMultiProjection projection,
-        string output,string hidden,IReadOnlyList<Dictionary<string,object?>> rows,string?[] owners,
+        string output,string hidden,IReadOnlyList<Dictionary<string,object?>> rows,object?[] owners,
         string projectId,bool currentRead,CancellationToken token)
     {
         var ownerSql=projection.Owner is {} scope

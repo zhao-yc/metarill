@@ -178,6 +178,89 @@ public sealed class DerivedCheckboxNamesTests
     }
 
 
+    /// <summary>回显和名称筛选使用原控件固定条件，支持独立控件和显式目标页叠加。</summary>
+    [Theory]
+    [InlineData(0, false, false)]
+    [InlineData(1, false, false)]
+    [InlineData(0, true, false)]
+    [InlineData(1, true, false)]
+    [InlineData(0, false, true)]
+    [InlineData(1, true, true)]
+    [InlineData(1, true, true, true)]
+    public void Checkbox_business_names_apply_control_form_constants_and_actor(int targetStorage,bool pageScope,bool controlParent,bool customParent=false)
+    {
+        var catalog=Catalog("checkbox_control_read",false);
+        catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=targetStorage;
+        var label=catalog.ConfigColumns.Single(column=>column.Id=="32");
+        if(targetStorage==1)
+        {
+            label.Extra.Remove("isJoinColumn");
+            label.Extra.Remove("columnFullName");
+        }
+        var field=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        field.Extra.Remove("linkConfigPageId");
+        catalog.ConfigColumns.Single(column=>column.Id=="28").LogicalType="int64";
+        catalog.ConfigColumns.Single(column=>column.Id=="38").LogicalType="int64";
+        catalog.ConfigColumns.Add(new(){Id="3051",ConfigTableId="3",ColumnName="assigned_id",LogicalType="int64",YzProjectId=catalog.YzProjectId});
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        var sourceParentField=customParent?"parent_key":"parent_id";
+        var targetParentField=customParent?"parent_key":"parent_id";
+        if(customParent)
+        {
+            catalog.ConfigColumns.Single(column=>column.Id=="26").ColumnName=sourceParentField;
+            var parent=catalog.ConfigColumns.Single(column=>column.Id=="36");
+            parent.ColumnName=targetParentField;
+            parent.LogicalType="int32";
+            catalog.ConfigPages.Single(page=>page.Id=="202").WhereSql=catalog.ConfigPages.Single(page=>page.Id=="202").WhereSql.Replace("parent_id",sourceParentField,StringComparison.Ordinal);
+        }
+        sourcePage.WhereSql="yz_project_id=@current_yz_project_id"+(controlParent?" AND "+sourceParentField+"=@parentId":"");
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+        targetPage.WhereSql="yz_project_id=@current_yz_project_id AND status<>48";
+        var whereSql="status=41 AND segment=@formParameters.checkboxControlReadSource.segment AND assigned_id=@current_yz_manager_id"+
+            (controlParent?" AND "+targetParentField+"=@parentId":"");
+        field.ControlDetail=JsonSerializer.Serialize(new {tableId="3",pageId=pageScope?"301":null,nameField="name",whereSql});
+        var model=GenerationModel.Create(catalog,"Example.ControlRead");
+        var source=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=source.Pages.Single(page=>page.Source.Id=="201");
+        var definition=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,source,page));
+        var view=NonRedundantReadCompilation.ForPage(model,source,page);
+        var binding=Assert.Single(view.MultiTargets);
+        Assert.Equal(pageScope,binding.ApplyPageScope);
+        Assert.True(binding.ApplyControlScope);
+        Assert.Equal(pageScope?"301":null,binding.TargetPageId);
+
+        var name=definition.Names.Source.ColumnName;
+        var plan=NonRedundantReadCompilation.CompilePage(model,source,["id",name],[name],[],view.SingleTargets,view.MultiTargets);
+        Assert.True(plan.RequiresAccount);
+        const long accountId=9007199254740998L;
+        var bound=plan.BindAccount(new Metarill.Core.Security.RuntimeActor(accountId,"测试账号",false,catalog.YzProjectId,"5"));
+        const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var sql=bound.GetType().GetProperty("MySql",hidden)!.GetValue(bound)!;
+        var expression=Read<IReadOnlyDictionary<string,string>>("Expressions")[name];
+        var predicate=Read<IReadOnlyDictionary<string,string>>("ArrayNamePredicates")[name];
+        var projection=Read<System.Collections.IDictionary>("MultiProjections")[name]!;
+        var batch=Assert.IsType<string>(projection.GetType().GetProperty("TargetScope")!.GetValue(projection));
+        var parameters=Read<IReadOnlyDictionary<string,object?>>("Constants");
+        Assert.Contains(accountId,parameters.Values);
+        Assert.Contains(41,parameters.Values);
+        Assert.Equal(pageScope,parameters.Values.Contains(48));
+        foreach(var command in new[]{expression,predicate,batch})
+        {
+            Assert.Contains("multi_value.`segment`=b.`segment`",command);
+            Assert.Contains("multi_value.`assigned_id`=",command);
+            Assert.Equal(controlParent,command.Contains("b.`"+sourceParentField+"`",StringComparison.Ordinal));
+            Assert.All(parameters.Keys,key=>Assert.Contains(key,command));
+        }
+        var owner=projection.GetType().GetProperty("Owner")!.GetValue(projection)!;
+        Assert.True(Assert.IsType<bool>(owner.GetType().GetProperty("PreserveScalarTypes")!.GetValue(owner)));
+        var fields=Assert.IsAssignableFrom<IReadOnlyList<string>>(owner.GetType().GetProperty("Fields")!.GetValue(owner));
+        Assert.Equal(controlParent?[sourceParentField,"segment"]:new[]{"segment"},fields);
+
+
+        T Read<T>(string property)=>Assert.IsAssignableFrom<T>(sql.GetType().GetProperty(property,hidden)!.GetValue(sql));
+    }
+
+
     /// <summary>控件直接限定物理外键时，候选、保存和 Excel 可以绑定来源级联还原的同一父级。</summary>
     [Theory]
     [InlineData(false,false,false)]
