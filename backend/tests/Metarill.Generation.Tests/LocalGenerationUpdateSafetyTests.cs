@@ -43,11 +43,13 @@ public sealed partial class LocalGenerationUpdateTests
         Assert.Throws<InvalidOperationException>(() => updater.Preview(target, target, All)); Assert.Throws<InvalidOperationException>(() => updater.Preview(target, Path.Combine(target, "frontend"), All)); Assert.Equal(before, SourceSnapshot(target));
     }
 
-    /// <summary>初始化及文件浏览partial按固定运行时路径升级，其他含点源码仍拒绝，不扩成通配写入。</summary>
+    /// <summary>文件库和初始化的拆分源码按固定路径更新，拒绝未登记的点分文件名。</summary>
     [Theory]
     [InlineData("src/Metarill.Security/SecurityRealmMutationGuard.Initialization.cs")]
     [InlineData("src/Metarill.Security/SecurityRealmMutationGuard.BusinessButtons.cs")]
     [InlineData("src/Metarill.Files/FileLibraryService.Browsing.cs")]
+    [InlineData("src/Metarill.Files/FileLibraryService.ReferenceSync.cs")]
+    [InlineData("src/Metarill.Files/FileObjectStorage.Direct.cs")]
     [InlineData("src/Metarill.Data/Schema/SchemaService.IndexDirections.cs")]
     public void Explicit_runtime_partial_is_upgraded_and_unknown_dotted_source_remains_rejected(string path)
     {
@@ -59,10 +61,32 @@ public sealed partial class LocalGenerationUpdateTests
         Assert.Equal("committed",updater.Apply(plan,plan.PlanSha256).Status);Assert.Equal(File.ReadAllBytes(Path.Combine(candidate,path)),File.ReadAllBytes(Path.Combine(target,path)));
         var before=SourceSnapshot(target);var candidateMarker=Path.Combine(candidate,".metarill-package.json");var changed=JsonNode.Parse(File.ReadAllText(candidateMarker))!;
         const string unknown="src/Metarill.Security/SecurityRealmMutationGuard.Unregistered.cs";
-        changed["files"]!.AsArray().Single(file=>file!["path"]!.GetValue<string>()==path)!["path"]=unknown;
-        File.Move(Path.Combine(candidate,path),Path.Combine(candidate,unknown));File.WriteAllText(candidateMarker,changed.ToJsonString(Json));
+        var unknownEntry=changed["files"]!.AsArray().Single(file=>file!["path"]!.GetValue<string>()==path)!.DeepClone();
+        unknownEntry["path"]=unknown;
+        changed["files"]!.AsArray().Add(unknownEntry);
+        File.Copy(Path.Combine(candidate,path),Path.Combine(candidate,unknown));File.WriteAllText(candidateMarker,changed.ToJsonString(Json));
         var error=Assert.Throws<InvalidOperationException>(()=>updater.Preview(target,candidate,["sync-runtime"]));Assert.Contains(unknown,error.Message);Assert.Equal(before,SourceSnapshot(target));
     }
+    /// <summary>候选不能同时移除文件库拆分源码和归属记录，旧包可经同步补齐。</summary>
+    [Theory]
+    [InlineData("src/Metarill.Files/FileLibraryService.ReferenceSync.cs")]
+    [InlineData("src/Metarill.Files/FileObjectStorage.Direct.cs")]
+    public void Current_candidate_must_contain_both_file_library_runtime_partials(string path)
+    {
+        var (target, candidate) = Packages(Catalog(), Catalog());
+        var before = SourceSnapshot(target);
+        var marker = Path.Combine(candidate, ".metarill-package.json");
+        var manifest = JsonNode.Parse(File.ReadAllText(marker))!;
+        var files = manifest["files"]!.AsArray();
+        files.Remove(files.Single(file => file!["path"]!.GetValue<string>() == path));
+        File.Delete(Path.Combine(candidate, path));
+        File.WriteAllText(marker, manifest.ToJsonString(Json));
+
+        var error = Assert.Throws<InvalidOperationException>(() => new LocalGenerationUpdater().Preview(target, candidate, ["sync-runtime"]));
+        Assert.Contains(path, error.Message);
+        Assert.Equal(before, SourceSnapshot(target));
+    }
+
     /// <summary>项目身份必须来自真实包三层定义，其他项目即使命名空间相同也不能更新。</summary>
     [Fact]
     public void Cross_project_candidates_are_refused_even_when_namespace_and_file_names_match()

@@ -52,7 +52,7 @@ dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/meta
 
 复选把所选字符串 ID 和对应名称数组保留在当前表单，经原按钮交给业务处理器。功能表无需物理表、名称列或标准持久化。业务处理器继续校验业务参数及范围。
 
-60 项定向回归通过，含原 Vue 复选组件的联动、过期响应丢弃、全选／单项、长 ID 及业务按钮提交，以及独立 Full 严格构建。独立目标父范围、精确数据管理目标和专项实库继续跟踪。整包运行时更新的文件归属问题另行修复。
+60 项定向回归通过，含原 Vue 复选组件的联动、过期响应丢弃、全选／单项、长 ID 及业务按钮提交，以及独立 Full 严格构建。独立目标父范围、精确数据管理目标和专项实库继续跟踪。整包运行时更新见[文件库运行时随包更新](#c109-文件库运行时随包更新)。
 
 ## 独立前端边界
 
@@ -87,6 +87,12 @@ dotnet run --project backend/src/Metarill.Cli -- package --metadata backend/meta
 `npm test` 在 Node 24 检查 H5/Vue3 条件编译后的真实 JavaScript 语法、ES/CommonJS 导入、生成路由及组件文件闭包。真实隔离 MySQL 测试从打包结果构建宿主、显式结构同步，执行生成登录/菜单/list/detail 脚本到实际 HTTP 接口，并验证新增、显式 null、读取、删除及注销失效；这仍不是浏览器 DOM、HBuilderX 发行、小程序、Android 或 iOS 验收。Excel/DOM 第三方组件只在此脚本中检查依赖闭包，不声称已在 Node 模拟完整执行。
 
 旧 ImageUpload/RTF URL 沿用公开上传协议，尚不具备 FileLibrary 字段的引用阻删生命周期。Agent、复杂自定义 SQL、平台设计器和完整账号/角色管理写入不在当前独立宿主已验收范围内；已接通的正式 Web 登录与初始化不解除这些门禁。
+
+### C109 文件库运行时随包更新
+
+完整包通过原运行时同步更新 `FileLibraryService.ReferenceSync.cs` 与 `FileObjectStorage.Direct.cs`，旧应用缺少相应文件时补齐。新候选必须带齐两份源码和归属记录。已有清单、路径及手写保护继续约束更新，未登记的点分文件名仍会在预览阶段被拒绝。
+
+14 项回归通过，含冗余及非冗余的复选与多选完整包构建、真实本地预览和应用、原 Vue 组件及手写扩展保护。候选缺失、未知路径和非法清单的拒绝检查通过。
 
 ## 独立生成包 Web 与主子浏览器验收（2026-10-19）
 
