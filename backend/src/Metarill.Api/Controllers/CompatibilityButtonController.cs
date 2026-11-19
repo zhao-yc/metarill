@@ -5,6 +5,7 @@ using Metarill.Runtime;
 using Metarill.Runtime.Compatibility;
 using Metarill.Runtime.Agent;
 using Metarill.Runtime.Security;
+using Metarill.Runtime.Metadata;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Metarill.Api.Controllers;
@@ -27,6 +28,12 @@ public sealed class CompatibilityButtonController(CompatibilityButtonBusiness bu
             Response.Headers.CacheControl = "private, no-store";
             if(Request.Query.Count!=0)throw new InvalidOperationException("项目详情按钮只接受原记录标识。");
             return Ok(await LegacyRuntimeBatchController.ExecuteProjectAsync(HttpContext, request.EntityId, cancellationToken));
+        }
+        if (request.ButtonId == CompatibilityButtonBusiness.ClearControlDetailButtonId)
+        {
+            AgentRequestAuthentication.RequireWeb(HttpContext);
+            var candidates = HttpContext.RequestServices.GetRequiredService<ConfigurationCandidatesBusiness>();
+            return Ok(R<string>.Success(await business.ClearControlDetailAsync(request.EntityId, candidates, cancellationToken)));
         }
         if(buttons.IsRegistered(request.ButtonId))return await buttons.ExecuteAsync(new(request.ButtonId,request.EntityId,request.Entity,request.VisibleScheme,request.VisibleRuleJson),HttpContext,cancellationToken);
         return Ok(R<CompatibilityButtonResult>.Success(await business.ExecuteAsync(request.ButtonId,request.EntityId,cancellationToken)));

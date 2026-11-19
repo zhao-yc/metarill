@@ -20,6 +20,8 @@ public sealed class CompatibilityAliasRoutingTests
     [InlineData("/api/admin/custom/config_table/create_page", "Legacy")]
     [InlineData("/api/admin/custom/config_table/config_indexes", "Legacy")]
     [InlineData("/api/admin/custom/config_column/add_column_to_db", "Legacy")]
+    [InlineData("/api/admin/custom/config_column/clear_view_control_detail", "Clear")]
+    [InlineData("/api/admin/custom/config_column/clear_page_control_detail", "Clear")]
     [InlineData("/api/admin/custom/index/init_database", "Legacy")]
     [InlineData("/api/admin/custom/index/init_admin", "InitializeAdmin")]
     [InlineData("/api/admin/sys/config_button/execute", "Execute")]
@@ -34,7 +36,8 @@ public sealed class CompatibilityAliasRoutingTests
         {
             // 只记录真实端点选择结果；原动作的身份、数据库按钮白名单和事务仍由完整HTTP验收覆盖。
             var action = context.GetEndpoint()?.Metadata.GetMetadata<ControllerActionDescriptor>();
-            if (action?.ControllerTypeInfo.AsType() == typeof(CompatibilityButtonController))
+            var controllerType = expectedAction == "Clear" ? typeof(ConfigurationCandidatesController) : typeof(CompatibilityButtonController);
+            if (action?.ControllerTypeInfo.AsType() == controllerType)
             {
                 context.Response.Headers["X-Test-Matched-Action"] = action.ActionName;
                 context.Response.StatusCode = StatusCodes.Status204NoContent;

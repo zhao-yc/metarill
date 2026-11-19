@@ -31,6 +31,8 @@ public static class CompatibilityButtonPolicy
         ["/admin/custom/config_page/detail_layout"] = new("", "config_page", "layout"),
         ["/admin/custom/config_page/generate_all"] = new("", "config_page", "generate"),
         ["/admin/custom/config_column/add_column_to_db"] = new("", "config_column", "schema"),
+        ["/admin/custom/config_column/clear_view_control_detail"] = new("", "config_column", "clearControlDetail"),
+        ["/admin/custom/config_column/clear_page_control_detail"] = new("", "config_column", "clearControlDetail"),
         ["/admin/custom/index/init_database"] = new("", "yz_project", "schema"),
         ["/admin/custom/index/sync_runtime_project"] = new("", "yz_project", "syncProjectRuntime")
     };
@@ -102,15 +104,28 @@ public sealed class CompatibilityButtonBusiness(SqlRowStore store, HttpRuntimeAu
     }
 
     public const string ProjectRuntimeButtonId = "2069009428958547968";
+    public const string ClearControlDetailButtonId = "2040725488384864258";
 
     /// <summary>原详情同步必须来自当前已登记的平台项目按钮，实际行权限由助手按目标项目重新认证。</summary>
-    public async Task RequireProjectRuntimeButtonAsync(CancellationToken cancellationToken)
+    public Task RequireProjectRuntimeButtonAsync(CancellationToken cancellationToken) =>
+        RequireRegisteredOperationAsync(ProjectRuntimeButtonId, "syncProjectRuntime", cancellationToken);
+
+    /// <summary>原字段按钮按真实记录 ID 进入既有事务，保留按钮执行互斥，忽略客户端实体。</summary>
+    public async Task<string> ClearControlDetailAsync(string? entityId, ConfigurationCandidatesBusiness candidates, CancellationToken cancellationToken)
+    {
+        var fieldId = long.Parse(CompatibilityButtonPolicy.RequireId(entityId ?? ""), CultureInfo.InvariantCulture);
+        await RequireRegisteredOperationAsync(ClearControlDetailButtonId, "clearControlDetail", cancellationToken);
+        return await execution.ExecuteAsync(registry.Platform.YzProjectId, ClearControlDetailButtonId,
+            () => candidates.ClearPageControlDetailAsync(fieldId, cancellationToken), cancellationToken);
+    }
+
+    /// <summary>原按钮须仍登记在对应平台页，并指向经过白名单检查的唯一动作。</summary>
+    private async Task RequireRegisteredOperationAsync(string buttonId, string operation, CancellationToken token)
     {
         var actor = authorization.RequireAdministrator();
-        var button = await RequireRowAsync("config_button", ProjectRuntimeButtonId, cancellationToken);
+        var button = await RequireRowAsync("config_button", buttonId, token);
         var action = CompatibilityButtonPolicy.RequireAction(actor, registry, button);
-        if (action.Operation != "syncProjectRuntime")
-            throw new InvalidOperationException("原项目同步按钮配置已变化。");
+        if (action.Operation != operation) throw new InvalidOperationException("原按钮配置已变化。");
     }
 
     /// <summary>首页旧接口别名同样必须对应数据库已登记按钮，不能借接口别名执行任意路由。</summary>

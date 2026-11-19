@@ -112,7 +112,14 @@ public sealed class ConfigurationCandidatesBusiness(SqlRowStore store, MetadataR
     /// <summary>清空只改变本字段的页面覆盖；所有归属先校验，任何失败均不提交部分清空。</summary>
     public Task<string> ClearPageControlDetailAsync(JsonElement request, CancellationToken token = default)
     {
-        MetadataWorkbenchRules.Object(request, "id"); var id = MetadataWorkbenchRules.Id(request, "id"); var actor = RequireAdministrator();
+        MetadataWorkbenchRules.Object(request, "id");
+        return ClearPageControlDetailAsync(MetadataWorkbenchRules.Id(request, "id"), token);
+    }
+
+    /// <summary>平台原按钮已解析真实字段 ID，直调和按钮进入同一个配置事务。</summary>
+    internal Task<string> ClearPageControlDetailAsync(long id, CancellationToken token)
+    {
+        var actor = RequireAdministrator();
         return store.Session.InTransactionAsync(async () =>
         {
             var definition = registry.Platform.ConfigTables.Single(table => table.TableName == "config_page_column");

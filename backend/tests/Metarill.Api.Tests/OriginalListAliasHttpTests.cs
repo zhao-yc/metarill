@@ -132,6 +132,26 @@ public sealed class OriginalListAliasHttpTests
             Assert.True(direct.Headers.CacheControl?.NoStore);
         });
 
+    /// <summary>原字段按钮和两代直调均进入真实登录门禁。</summary>
+    [Fact]
+    public async Task Original_clear_control_detail_button_and_aliases_keep_web_boundary()
+        =>await WithOfflineSettings(async()=>
+        {
+            await using var factory=new WebApplicationFactory<Program>();
+            using var client=factory.CreateClient();
+            using var oldRoute=await client.PostAsJsonAsync("/api/admin/custom/config_column/clear_view_control_detail",new{id="9007199254740993"});
+            using var currentRoute=await client.PostAsJsonAsync("/api/admin/custom/config_column/clear_page_control_detail",new{id="9007199254740993"});
+            using var button=await client.PostAsJsonAsync("/api/admin/sys/config_button/execute",new
+                {buttonId="2040725488384864258",entityId="9007199254740993"});
+            foreach(var response in new[]{oldRoute,currentRoute,button})
+            {
+                Assert.Equal(HttpStatusCode.OK,response.StatusCode);
+                using var body=JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                Assert.Equal(500,body.RootElement.GetProperty("code").GetInt32());
+                Assert.Equal("登录超时",body.RootElement.GetProperty("msg").GetString());
+            }
+        });
+
     /// <summary>批次状态入口为真实Web只读边界；匿名返回原登录拒绝和no-store，不连接真实数据库。</summary>
     [Fact]
     public async Task Runtime_batch_status_route_requires_web_identity_and_no_store()

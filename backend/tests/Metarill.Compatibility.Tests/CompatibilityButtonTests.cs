@@ -58,6 +58,19 @@ public sealed class CompatibilityButtonTests
         Assert.Equal("/pages/custom/schema_sync?projectId=777",CompatibilityButtonPolicy.Resolve(Actor(),schema,Entity("777","untrusted")).Path);
         Assert.Throws<UnauthorizedAccessException>(()=>CompatibilityButtonPolicy.Resolve(Actor(),schema,Entity("778")));
     }
+    /// <summary>原按钮和更新后的动作名只在正确的平台字段页生效。</summary>
+    [Theory]
+    [InlineData("/admin/custom/config_column/clear_view_control_detail")]
+    [InlineData("/admin/custom/config_column/clear_page_control_detail")]
+    public void Clear_control_detail_aliases_require_the_registered_configuration_column_page(string route)
+    {
+        var registry = Registry();
+        var button = Button(registry,route,"config_column");
+        Assert.Equal("clearControlDetail",CompatibilityButtonPolicy.RequireAction(Actor(),registry,button).Operation);
+        Assert.Throws<UnauthorizedAccessException>(()=>CompatibilityButtonPolicy.RequireAction(Actor(false),registry,button));
+        Assert.Throws<InvalidOperationException>(()=>CompatibilityButtonPolicy.RequireAction(Actor(),registry,Button(registry,route,"config_page")));
+    }
+
     [Theory]
     [InlineData("SELECT * FROM yz_manager")]
     [InlineData("/admin/custom/config_table/create_table?other=1")]

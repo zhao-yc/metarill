@@ -26,6 +26,7 @@ public sealed class ConfigurationCandidatesController(ConfigurationCandidatesBus
     public async Task<R<ConfigurationColumnReferences>> References(CancellationToken token) => R<ConfigurationColumnReferences>.Success(await business.ReferencesAsync(await RequestObject(token), token));
     /// <summary>清空明确 id 的页面覆盖，控制器不承担元数据写入或事务。</summary>
     [HttpPost("clear_page_control_detail")]
+    [HttpPost("clear_view_control_detail")]
     public async Task<R<string>> Clear(CancellationToken token) => R<string>.Success(await business.ClearPageControlDetailAsync(await RequestObject(token), token));
 
     /// <summary>合并原查询/表单与 JSON 入口，重复来源或未知键由统一业务白名单拒绝。</summary>
