@@ -102,7 +102,8 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(true,true,false)]
     [InlineData(false,false,true)]
     [InlineData(true,true,true)]
-    public async Task Checkbox_control_parent_uses_the_actual_source_cascade(bool derived,bool globalParent,bool scopeFromPage)
+    [InlineData(true,true,true,true)]
+    public async Task Checkbox_control_parent_uses_the_actual_source_cascade(bool derived,bool globalParent,bool scopeFromPage,bool overridePage=false)
     {
         const string ns="Example.CheckboxControlParent";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("checkbox_control_parent","int64","int64");
@@ -121,7 +122,10 @@ public sealed class DerivedCheckboxNamesTests
         catalog.ConfigTables.Add(new(){Id="9",TableName="checkbox_control_parent_target",IsRongyu=derived?0:1});
         var targetScope="yz_project_id=@current_yz_project_id AND sheet_status=2";
         if(scopeFromPage)targetScope+=" AND target_scope_id=@parentId";
-        catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="9",WhereSql=targetScope});
+        var candidateId=overridePage?"902":"901";
+        if(overridePage)
+            catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="9",WhereSql="yz_project_id=@current_yz_project_id"});
+        catalog.ConfigPages.Add(new(){Id=candidateId,ConfigTableId="9",WhereSql=targetScope});
         var targetParent=new ColumnMetadata {Id="96",ConfigTableId="9",ColumnName="target_scope_id",
             LogicalType=derived?"string":"int64",LinkConfigTableId=parent.Id};
         if(globalParent&&derived)
@@ -148,13 +152,22 @@ public sealed class DerivedCheckboxNamesTests
             name.Extra["columnFullName"]=JsonSerializer.SerializeToElement("label.name");
             catalog.ConfigColumns.Add(new(){Id="97",ConfigTableId="9",ColumnName="label_id",LogicalType="int64",
                 ControlKind="List",LinkConfigTableId="4",ControlDetail="{\"tableId\":\"4\",\"pageId\":\"401\",\"nameField\":\"name\"}"});
-            catalog.ConfigPageColumns.Add(new(){Id="90197",ConfigPageId="901",ConfigColumnId="97",IsShow=1,IsEdit=1});
+            catalog.ConfigPageColumns.Add(new(){Id=candidateId+"97",ConfigPageId=candidateId,ConfigColumnId="97",IsShow=1,IsEdit=1});
         }
         catalog.ConfigPageColumns.AddRange([
             new(){Id="20128",ConfigPageId="201",ConfigColumnId="28",IsShow=1,IsEdit=1,
                 Extra=new(){["isDetailShow"]=JsonSerializer.SerializeToElement(1)}},
-            new(){Id="90192",ConfigPageId="901",ConfigColumnId="92",IsShow=1}]);
+            new(){Id=candidateId+"92",ConfigPageId=candidateId,ConfigColumnId="92",IsShow=1}]);
+        if(overridePage)
+            catalog.ConfigPageColumns.Single(field=>field.Id=="20128").Extra["controlDetail"]=
+                JsonSerializer.SerializeToElement("{\"pageId\":902}");
         RedundantMultiNameCacheTests.Published(catalog);
+        if(overridePage)
+        {
+            var target=catalog.ConfigTables.Single(item=>item.Id=="9");
+            Assert.False(Metarill.Data.Queries.NonRedundantReads.IsScopedMultiTarget(catalog,target,"901"));
+            Assert.True(Metarill.Data.Queries.NonRedundantReads.IsScopedMultiTarget(catalog,target,candidateId));
+        }
         var model=GenerationModel.Create(catalog,ns);
         var table=model.Tables.Single(item=>item.Source.Id=="2");
         var page=table.Pages.Single(item=>item.Source.Id=="201");
@@ -163,7 +176,7 @@ public sealed class DerivedCheckboxNamesTests
         var checkbox=resolution.Definition!;
         Assert.True(checkbox.LogicalSourceParent);
         if(globalParent&&scopeFromPage)
-            Assert.Equal("901",checkbox.LogicalTargetPage!.Source.Id);
+            Assert.Equal(candidateId,checkbox.LogicalTargetPage!.Source.Id);
         else
             Assert.Null(checkbox.LogicalTargetPage);
         Assert.Equal(parent.Id,Assert.Single(checkbox.SourceParents).Source.Id);
@@ -177,6 +190,7 @@ public sealed class DerivedCheckboxNamesTests
             var generated=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/CheckboxControlParentSourceService.g.cs"));
             Assert.Contains("LogicalParentId201(parentId)",generated);
             Assert.Contains("logicalRelationParentId: parentId",generated);
+            if(overridePage)Assert.Contains("CompileMultiGlobalParent(\"9\",\"902\")",generated);
             Assert.Contains("CountryId=Metarill.Data.Queries.NonRedundantReads.Value<long?>(row,\"country_id\")",generated);
             Assert.Contains(derived?"new(\"target_scope_id\",FixedReadComparison.Equal,parentId!)"
                 :"row.TargetScopeId==long.Parse(parentId!",generated);

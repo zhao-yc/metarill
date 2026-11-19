@@ -205,7 +205,9 @@ public sealed class DerivedMultiNamesTests
     [InlineData(false,true)]
     [InlineData(true,false)]
     [InlineData(true,true)]
-    public async Task R0_array_page_override_uses_the_actual_target(bool checkbox,bool account)
+    [InlineData(false,true,true)]
+    [InlineData(true,true,true)]
+    public async Task R0_array_page_override_uses_the_actual_target(bool checkbox,bool account,bool overlayOnlyAccount=false)
     {
         const string ns="Example.ArrayPageOverride";
         var catalog=Catalog("array_page_override",false);
@@ -216,10 +218,11 @@ public sealed class DerivedMultiNamesTests
         catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="status",LogicalType="int32"});
         if(account)catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="store_id",LogicalType="int64"});
         var original=catalog.ConfigPages.Single(page=>page.Id=="301");
-        original.WhereSql+=" AND status>=31"+(account?" AND store_id=@current_store_id":"");
+        original.WhereSql+=" AND status>=31"+(account&&!overlayOnlyAccount?" AND store_id=@current_store_id":"");
         var alternative=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(original))!;
         alternative.Id="302";
         alternative.WhereSql=alternative.WhereSql.Replace("31","32",StringComparison.Ordinal);
+        if(overlayOnlyAccount)alternative.WhereSql+=" AND store_id=@current_store_id";
         catalog.ConfigPages.Add(alternative);
         foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="301").ToArray())
         {
@@ -248,6 +251,12 @@ public sealed class DerivedMultiNamesTests
         field202.Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"pageId\":\"302\"}");
         catalog.ConfigPageColumns.Add(field202);
         RedundantMultiNameCacheTests.Published(catalog);
+        if(overlayOnlyAccount)
+        {
+            var target=catalog.ConfigTables.Single(item=>item.Id=="3");
+            Assert.False(Metarill.Data.Queries.NonRedundantReads.IsScopedMultiTarget(catalog,target,"301"));
+            Assert.True(Metarill.Data.Queries.NonRedundantReads.IsScopedMultiTarget(catalog,target,"302"));
+        }
         if(checkbox)
         {
             var model=GenerationModel.Create(catalog,ns);
@@ -272,8 +281,9 @@ public sealed class DerivedMultiNamesTests
                 Assert.Contains(condition,values);
                 Assert.DoesNotContain(otherCondition,values);
                 Assert.DoesNotContain(17,values);
-                if(account||!checkbox)Assert.Contains(root,values);
-                if(account)Assert.Contains(23L,values);
+                var usesAccount=account&&(!overlayOnlyAccount||page=="202");
+                Assert.Equal(usesAccount,values.Contains(23L));
+                if(usesAccount||!checkbox)Assert.Contains(root,values);
                 var predicates=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(read.GetType()
                     .GetProperty("ArrayNamePredicates",HiddenInstance)!.GetValue(read));
                 Assert.Contains(".`status`",predicates["target_names"]);

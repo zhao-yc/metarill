@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
 
@@ -16,29 +17,36 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         var pages=new HashSet<string>(StringComparer.Ordinal);
         var owners=new HashSet<string>(StringComparer.Ordinal);
-        foreach(var (source,target,field,relation) in DeclaredMultiNameTargets(catalog).Distinct())
+        foreach(var (source,target,field,relation,sourcePage,namePage) in DeclaredMultiNameTargets(catalog).Distinct())
             try
             {
                 var storage=MetadataStoragePolicy.ForTable(catalog,target);
                 var column=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(item=>item.ConfigTableId==target.Id))
                     .SingleOrDefault(item=>item.ColumnName==field);
                 if(column is null)continue;
-                var selected=MultiTargetLogicalPage(catalog,target,relation);
-                if(selected is null&&(storage.IsPhysical(column)||column.LogicalType!="string"&&
+                var selected=ScopedMultiTargetPage(catalog,target,namePage);
+                if(selected is null&&(sourcePage is not null||storage.IsPhysical(column)||column.LogicalType!="string"&&
                     !MultiNameStorageColumns.IsDerivedScalarLabel(target,column,storage)))continue;
                 var plan=selected is null?CompileMultiLabel(catalog,target.Id,field,[field],[],cacheOwner:null,relation:relation):
                     CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[]);
                 pages.UnionWith(plan.CascadeLabelPages);
+                if(sourcePage is not null&&selected is not null)
+                {
+                    // 冻结覆盖和实际候选页，运行宿主可按原配置重新证明范围。
+                    pages.Add(sourcePage.Id);
+                    pages.Add(selected.Id);
+                }
                 if(source is not null&&(plan.RequiresAccount&&source.IsRongyu==1||selected is not null&&plan.RequiredMultiParent is not null))
-                    owners.UnionWith(catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id).Select(page=>page.Id));
+                    owners.UnionWith(catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&
+                        (sourcePage is null||page.Id==sourcePage.Id)).Select(page=>page.Id));
                 if(source is not null&&selected is not null&&MultiParent(catalog,selected) is {} parent)
                 {
-                    var sourceParent=parent.Source(catalog,source,relation);
-                    foreach(var sourcePage in sourceParent.LogicalPages)
+                    var sourceParent=sourcePage is null?parent.Source(catalog,source,relation):parent.Source(catalog,source,relation,sourcePage);
+                    foreach(var logicalPage in sourceParent.LogicalPages)
                     {
                         var fields=new HashSet<string>(StringComparer.Ordinal){sourceParent.Column.ColumnName};
-                        pages.Add(sourcePage.Id);
-                        pages.UnionWith(CrossMembershipBindings(catalog,source,sourcePage,fields).SelectMany(binding=>binding.Levels.Select(level=>level.PageId)));
+                        pages.Add(logicalPage.Id);
+                        pages.UnionWith(CrossMembershipBindings(catalog,source,logicalPage,fields).SelectMany(binding=>binding.Levels.Select(level=>level.PageId)));
                     }
                 }
             }
@@ -94,7 +102,8 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>查找由原多值关系显式绑定的固定范围页。</summary>
     internal static bool IsScopedMultiTarget(MetadataCatalog catalog,TableMetadata target,string pageId)=>
-        DeclaredMultiNameTargets(catalog).Any(item=>item.Table.Id==target.Id&&MultiTargetLogicalPage(catalog,target,item.Relation)?.Id==pageId);
+        DeclaredMultiNameTargets(catalog).Any(item=>item.Table.Id==target.Id&&item.NamePage?.Id==pageId&&
+            ScopedMultiTargetPage(catalog,target,item.NamePage) is not null);
 
     /// <summary>由实际多值控件绑定找到名称所处的页面，纯物理根条件也保留中间页上下文。</summary>
     private static PageMetadata? MultiTargetNamePage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
@@ -111,8 +120,11 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>只在原逻辑或账号条件确实存在时，将目标页本身的范围嵌入多值计划。</summary>
     internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
+        =>ScopedMultiTargetPage(catalog,table,MultiTargetNamePage(catalog,table,relation));
+
+    /// <summary>比较当前绑定页的逻辑、账号及实际全局父范围，表级和页面覆盖共用同一证明。</summary>
+    private static PageMetadata? ScopedMultiTargetPage(MetadataCatalog catalog,TableMetadata table,PageMetadata? page)
     {
-        var page=MultiTargetNamePage(catalog,table,relation);
         if(page is null||page.WhereSql.Length==0)return null;
         var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         var declared=RelationStorageColumns.Expand(table,members);
@@ -184,7 +196,8 @@ public static partial class MySqlNonRedundantReadCompiler
     }
 
     /// <summary>发现实际多值控件绑定的目标名称，普通非关联输出仍使用原读取计划。</summary>
-    private static IEnumerable<(TableMetadata? Source,TableMetadata Table,string Field,ColumnMetadata Relation)> DeclaredMultiNameTargets(MetadataCatalog catalog)
+    private static IEnumerable<(TableMetadata? Source,TableMetadata Table,string Field,ColumnMetadata Relation,
+        PageMetadata? SourcePage,PageMetadata? NamePage)> DeclaredMultiNameTargets(MetadataCatalog catalog)
     {
         foreach(var relation in catalog.ConfigColumns.Where(column=>column.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"))
         {
@@ -211,7 +224,65 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 // 无效控件不改变无关页面的读取权限。
             }
-            if(result is {} candidate)yield return candidate;
+            if(result is not {} candidate)continue;
+            var (owner,table,name,column)=candidate;
+            var defaultPage=MultiTargetNamePage(catalog,table,column);
+            yield return (owner,table,name,column,null,defaultPage);
+
+            if(owner is not {IsRongyu:0}||GlobalCrossTableTarget.Declared(owner)||GlobalCrossTableTarget.Declared(table))
+                continue;
+            foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id&&
+                (page.YzProjectId.Length==0||page.YzProjectId==catalog.YzProjectId)))
+            {
+                var selected=DeclaredMultiPageOverride(catalog,table,name,column,sourcePage);
+                if(selected is not null&&selected.Id!=defaultPage?.Id)
+                    yield return (owner,table,name,column,sourcePage,selected);
+            }
+        }
+    }
+
+    /// <summary>仅允许同一普通非冗余目标表和名称字段上的实际候选页覆盖。</summary>
+    private static PageMetadata? DeclaredMultiPageOverride(MetadataCatalog catalog,TableMetadata target,string name,
+        ColumnMetadata relation,PageMetadata sourcePage)
+    {
+        try
+        {
+            var field=catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==sourcePage.Id&&
+                item.ConfigColumnId==relation.Id);
+            if(field is null)return null;
+            var overlay=field.Extra.GetValueOrDefault("controlDetail").ToString();
+            var kind=field.Extra.GetValueOrDefault("controlKind").ToString();
+            if(string.IsNullOrWhiteSpace(overlay)||kind.Length>0&&kind!=relation.ControlKind)return null;
+            var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
+            JsonElement definition;
+            if(checkbox)
+                definition=DatabaseCheckboxDefinition.Parse(relation.ControlDetail).WithPageOverride(overlay).ReadDefinition(relation);
+            else
+            {
+                using var document=JsonDocument.Parse(overlay);
+                definition=document.RootElement.Clone();
+                if(definition.ValueKind!=JsonValueKind.Object||
+                    definition.EnumerateObject().Select(item=>item.Name).Distinct(StringComparer.Ordinal).Count()!=
+                    definition.EnumerateObject().Count()||
+                    definition.EnumerateObject().Any(item=>item.Name is "table" or "nameField"&&
+                        item.Value.ValueKind is not (JsonValueKind.Null or JsonValueKind.String)))return null;
+            }
+
+            var tableId=MultiDefinitionId(definition,"tableId");
+            var tableName=Value(definition,"table");
+            var nameOverride=Value(definition,"nameField");
+            if(tableId.Length>0&&tableId!=target.Id||tableName.Length>0&&tableName!=target.TableName||
+                nameOverride.Length>0&&nameOverride!=name)return null;
+            var pageId=MultiPageId(definition);
+            if(checkbox&&pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
+            return catalog.ConfigPages.SingleOrDefault(page=>page.ConfigTableId==target.Id&&page.Id==pageId&&
+                (page.YzProjectId.Length==0||page.YzProjectId==catalog.YzProjectId)&&
+                (checkbox||page.Extra.GetValueOrDefault("type").ToString()=="2"));
+        }
+        catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException or JsonException)
+        {
+            // 无效的页级定义由原控件发布门禁报告，不能使其他目标页取得额外范围。
+            return null;
         }
     }
 

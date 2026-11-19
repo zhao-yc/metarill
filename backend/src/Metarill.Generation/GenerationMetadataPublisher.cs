@@ -73,7 +73,7 @@ public static class GenerationMetadataPublisher
                 IsShow=KeepsVisibility(f.ConfigPageId)?f.IsShow:1,
                 IsEdit=KeepsVisibility(f.ConfigPageId)?f.IsEdit:1,
                 Extra=KeepsVisibility(f.ConfigPageId)?f.Extra.Where(pair=>pair.Key is "isInGrid" or "isInEdit"||
-                    pair.Key=="controlDetail"&&(nestedPages.Contains(f.ConfigPageId)||labelPages.Contains(f.ConfigPageId))).ToDictionary():new()
+                    (pair.Key is "controlDetail" or "controlKind")&&(nestedPages.Contains(f.ConfigPageId)||labelPages.Contains(f.ConfigPageId))).ToDictionary():new()
             }).OrderBy(f=>f.Id,StringComparer.Ordinal).ToList();
         published.ConfigChildren=[];published.ConfigIndexes=[];published.ConfigIndexColumns=[];
         // 全局R0页面类型参与多值关系证明，即使名称为物理缓存且来源为R0也不能按界面配置裁掉。
@@ -85,7 +85,8 @@ public static class GenerationMetadataPublisher
         Dictionary<string,JsonElement> ExecutionPageFlags(PageMetadata page)
         {
             var flags=new Dictionary<string,JsonElement>(StringComparer.Ordinal);
-            if((multiProof.ContainsKey(page.Id)||globalR0Pages.Contains(page.Id))&&page.Extra.TryGetValue("type",out var kind))
+            if((multiProof.ContainsKey(page.Id)||globalR0Pages.Contains(page.Id)||labelPages.Contains(page.Id)||
+                nestedPages.Contains(page.Id))&&page.Extra.TryGetValue("type",out var kind))
                 flags["type"]=kind.Clone();
             if(nestedPages.Contains(page.Id)&&page.Extra.TryGetValue("exactDataManageMatchField",out var exact))
                 flags["exactDataManageMatchField"]=exact.Clone();
