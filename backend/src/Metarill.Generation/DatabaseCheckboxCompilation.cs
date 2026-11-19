@@ -219,7 +219,8 @@ internal static class DatabaseCheckboxCompilation
                 LogicalTargetPage=logicalPage,
                 NameTargetPage=namePage,
                 PhysicalTargetPage=physicalPage,
-                UsesPageRead=pageRead,
+                // 普通目标页的物理范围也要进入业务行的回显和名称筛选。
+                UsesPageRead=pageRead||physicalPage is not null&&table.Source.IsRongyu==0&&!functionForm&&!target.IsGlobal,
                 FunctionParentField=functionForm?sourceParent:null,
                 ExactTarget=exactTarget,
                 LogicalSourceParent=logicalSource is not null,

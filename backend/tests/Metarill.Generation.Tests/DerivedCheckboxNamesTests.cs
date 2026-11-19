@@ -94,6 +94,90 @@ public sealed class DerivedCheckboxNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>业务名称投影和筛选执行显式物理目标页条件，并按原数组顺序保留未命中位置。</summary>
+    [Theory]
+    [InlineData(0, false, false)]
+    [InlineData(0, false, true)]
+    [InlineData(0, true, false)]
+    [InlineData(0, true, true)]
+    [InlineData(1, false, false)]
+    [InlineData(1, false, true)]
+    public void Checkbox_business_names_and_filter_follow_the_published_physical_page(int targetStorage, bool derived, bool withParent)
+    {
+        const string ns = "Example.CheckboxPageRead";
+        var catalog = Catalog("checkbox_page_read", false);
+        catalog.ConfigTables.Single(table => table.Id == "3").IsRongyu = targetStorage;
+        var targetName = catalog.ConfigColumns.Single(column => column.Id == "32");
+        if (!derived)
+        {
+            targetName.Extra.Remove("isJoinColumn");
+            targetName.Extra.Remove("columnFullName");
+        }
+        var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
+        var targetPage = catalog.ConfigPages.Single(page => page.Id == "301");
+        sourcePage.WhereSql = "yz_project_id=@current_yz_project_id" + (withParent ? " AND parent_id=@parentId" : "");
+        targetPage.WhereSql = sourcePage.WhereSql + " AND status=41";
+        catalog.ConfigColumns.Single(column => column.Id == "25").ControlDetail =
+            """{"tableId":"3","pageId":"301","nameField":"name"}""";
+
+        var model = GenerationModel.Create(catalog, ns);
+        var source = model.Tables.Single(table => table.Source.Id == "2");
+        var page = source.Pages.Single(item => item.Source.Id == "201");
+        var definition = Assert.Single(DatabaseCheckboxCompilation.ForPage(model, source, page));
+        Assert.Equal("301", definition.PhysicalTargetPage?.Source.Id);
+        var view = NonRedundantReadCompilation.ForPage(model, source, page);
+        var binding = Assert.Single(view.MultiTargets);
+        Assert.True(binding.ApplyPageScope);
+        Assert.Equal("201", binding.SourcePageId);
+        Assert.Equal("301", binding.TargetPageId);
+
+        var names = definition.Names.Source.ColumnName;
+        var plan = NonRedundantReadCompilation.CompilePage(model, source, ["id", names], [names], [], view.SingleTargets, view.MultiTargets);
+        const System.Reflection.BindingFlags internalInstance = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var sql = plan.GetType().GetProperty("MySql", internalInstance)!.GetValue(plan)!;
+        var expressions = ReadProperty<IReadOnlyDictionary<string, string>>("Expressions");
+        var predicate = Assert.Single(ReadProperty<IReadOnlyDictionary<string, string>>("ArrayNamePredicates")).Value;
+        var expression = expressions[names];
+        Assert.Contains("CASE WHEN", expression);
+        Assert.Contains("multi_value.`status`", expression);
+        Assert.Contains("multi_value.`status`", predicate);
+        Assert.Contains("multi_value.`delete_no`", expression);
+        Assert.Contains("multi_value.`yz_project_id`", predicate);
+        Assert.Contains("CAST(multi_ids.member_id AS BINARY)", expression);
+        Assert.Contains("CAST(checkbox_ids.member_id AS BINARY)", predicate);
+        Assert.Equal(withParent, expression.Contains("b.`parent_id`", StringComparison.Ordinal));
+        Assert.Equal(withParent, predicate.Contains("b.`parent_id`", StringComparison.Ordinal));
+        var constants = ReadProperty<IReadOnlyDictionary<string, object?>>("Constants");
+        var status = Assert.Single(constants);
+        Assert.Equal(41, status.Value);
+        Assert.Contains(status.Key, expression);
+        Assert.Contains(status.Key, predicate);
+
+        // 运行时按页批量回显时也带同一条件和实际来源父键，不依赖内联聚合。
+        var projection = ReadProperty<System.Collections.IDictionary>("MultiProjections")[names]!;
+        var projectionType = projection.GetType();
+        var batchScope = Assert.IsType<string>(projectionType.GetProperty("TargetScope")!.GetValue(projection));
+        var owner = projectionType.GetProperty("Owner")!.GetValue(projection);
+        Assert.Contains(status.Key, batchScope);
+        if (withParent)
+        {
+            Assert.NotNull(owner);
+            var fields = Assert.IsAssignableFrom<IReadOnlyList<string>>(owner.GetType().GetProperty("Fields")!.GetValue(owner));
+            Assert.Equal(["parent_id"], fields);
+        }
+        else Assert.Null(owner);
+
+        var generated = DatabaseCheckboxRenderer.Service(model, source, page);
+        Assert.Contains("CheckboxTargetCondition201_25.ApplyConstants", generated);
+        Assert.Contains("CheckboxOptions201_25Async", generated);
+        Assert.Contains("ValidateCheckbox201_25Async", generated);
+        var excel = ExportRenderer.Service(model, source, page);
+        Assert.Contains("ExportCheckbox201_25Async", excel);
+
+        T ReadProperty<T>(string name) => Assert.IsAssignableFrom<T>(sql.GetType().GetProperty(name, internalInstance)!.GetValue(sql));
+    }
+
+
     /// <summary>控件直接限定物理外键时，候选、保存和 Excel 可以绑定来源级联还原的同一父级。</summary>
     [Theory]
     [InlineData(false,false,false)]

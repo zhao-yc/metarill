@@ -35,7 +35,7 @@ public sealed record NonRedundantSingleTargetScope(string ColumnId,string PageId
     public IReadOnlyList<NonRedundantSingleTargetScope> NestedTargets { get; init; } = [];
 }
 
-/// <summary>同一物理多值关系在当前业务页绑定的目标页。复选的普通页只提供名称路径。</summary>
+/// <summary>同一物理多值关系按当前页绑定名称路径及已证明的目标页范围。</summary>
 public sealed record NonRedundantMultiTargetScope(string ColumnId,string SourcePageId,string TargetPageId,bool ApplyPageScope);
 
 /// <summary>在生成校验或宿主启动阶段编译，业务方法不判断数据库品牌。</summary>

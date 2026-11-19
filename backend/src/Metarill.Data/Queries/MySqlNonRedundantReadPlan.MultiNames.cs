@@ -33,7 +33,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 }
                 if(pageId.Length==0)pageId=MultiTargetNamePage(catalog,target,relation)?.Id??"";
             }
-            if(table.IsRongyu!=0||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||
+            // 普通 R1 目标只开放数据库复选的已发布物理范围，其他多值绑定仍要求 R0 目标。
+            var scopedPhysicalCheckbox=relation.ControlKind=="MultiCheckBoxDatabase"&&target.IsRongyu==1&&binding.ApplyPageScope;
+            if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox||GlobalCrossTableTarget.Declared(table)||
                 GlobalCrossTableTarget.Declared(target)||pageId!=selected.Id||
                 source.YzProjectId.Length>0&&source.YzProjectId!=catalog.YzProjectId||
                 selected.YzProjectId.Length>0&&selected.YzProjectId!=catalog.YzProjectId)
@@ -45,7 +47,10 @@ public static partial class MySqlNonRedundantReadCompiler
         private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,
             ColumnMetadata value,PageMetadata? publishedPage,PageMetadata? selectedScope,PageMetadata? namePage,PageMetadata? sourcePage)
         {
-            if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))throw new NotSupportedException("派生多选名称要求已证明来源、R0目标及原多选／数据库复选；其它组合尚未接线。");
+            var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
+            var physicalScope=checkbox&&table.IsRongyu==0&&target.IsRongyu==1&&sourcePage is not null&&selectedScope is not null;
+            if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
+                throw new NotSupportedException("多值名称要求已证明的目标及原多选或数据库复选。");
             var global=GlobalCrossTableTarget.Declared(target);
             var scalarLabel=storage[target.Id].IsPhysical(value)
                 ?MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id])
@@ -63,7 +68,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(sourceParent is not null&&!logicalSource){Use(table,sourceParent);Touch(owner,sourceParent.ColumnName);}
             var nested=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:selectedScope is null?publishedPage:null,multiLabel:true,cascadeLabelField:value.ColumnName,
-                cascadeCacheOwner:refreshFields is null?null:new(table,owner))
+                cascadeCacheOwner:refreshFields is null?null:new(table,owner),scopedPhysicalCandidate:physicalScope)
             {
                 SelectedMultiPage=selectedScope,
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent),
@@ -111,12 +116,12 @@ public static partial class MySqlNonRedundantReadCompiler
                     var match=reverse.TargetPredicate;var predicate="((SELECT 1"+reverse.From+" WHERE "+associationScope+" AND "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+" AND "+match+" LIMIT 1) IS NOT NULL)";var fields=reverse.Outputs.Values.SelectMany(v=>v).ToHashSet(StringComparer.Ordinal);customReverse.Add(new(reverse.TargetTable,from,predicate,"predicate",new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,fields}}));
                 }
             }
-            var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG("+name+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(global?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(associationScope.Length==0?"":" AND "+associationScope)+targetJoins+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
+            var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG("+name+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(global||checkbox?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(associationScope.Length==0?"":" AND "+associationScope)+targetJoins+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
             multiProjections[expression]=new(source,Q(target.TableName),Q(value.ColumnName),scope,targetJoins,ScopedName(scope),
                 nested.CascadeCacheOwnerFields.Count==0?null:new(parentAlias,nested.CascadeCacheOwnerFields.Order(StringComparer.Ordinal).ToArray(),
                     sourceParentSql is null?null:new Dictionary<string,string>(StringComparer.Ordinal){{sourceParent!.ColumnName,sourceParentSql}}));
             multiPredicates[expression]="EXISTS (SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE JSON_CONTAINS("+array+",JSON_QUOTE(CAST(multi_value.`id` AS CHAR)))"+(inlineScope.Length==0?"":" AND "+inlineScope)+" AND "+name+" LIKE {parameter} ESCAPE '!')";
-            if(global||cascadeLabel||scalarLabel&&relation.ControlKind=="MultiCheckBoxDatabase")multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(inlineScope.Length==0?"":" AND "+inlineScope)+" AND "+name+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
+            if(global||cascadeLabel||checkbox)multiPredicates[expression]="((SELECT 1 FROM "+Q(target.TableName)+" multi_value"+targetJoins+" WHERE "+ArrayMember(array,"CAST(multi_value.`id` AS CHAR)")+(inlineScope.Length==0?"":" AND "+inlineScope)+" AND "+name+" LIKE {parameter} ESCAPE '!' LIMIT 1) IS NOT NULL)";
             // 维护报告展示发布的逻辑来源字段，物理列清单由嵌套路径单独记录。
             origin=valueOrigin??new(target.TableName,value.ColumnName);
             return(expression,"string");
