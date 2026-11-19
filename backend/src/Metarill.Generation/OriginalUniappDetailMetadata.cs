@@ -94,6 +94,8 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
     /// <summary>JSON字符串统一编码；HTML属性另行转义，不能让元数据打断模板。</summary>
     internal static string Js(object? value) => JsonSerializer.Serialize(value, new JsonSerializerOptions(JsonSerializerDefaults.Web));
     internal static string Html(string? value) => SecurityElement.Escape(value ?? "") ?? "";
+    /// <summary>原详情生成开关统一决定页面文件、路由和列表入口。</summary>
+    internal static bool EmitsPage(PageMetadata page) => !Enabled(page.Extra, "isNotGenerateDetailPage");
     internal static bool Enabled(IReadOnlyDictionary<string, JsonElement> extra, string key) => Integer(extra, key, 0) == 1;
     internal static string Text(IReadOnlyDictionary<string, JsonElement> extra, string key) => extra.TryGetValue(key, out var value) && value.ValueKind != JsonValueKind.Null ? value.ValueKind == JsonValueKind.String ? value.GetString()! : value.ToString() : "";
     /// <summary>旧元数据开关允许整数/布尔，布局枚举拒绝浮点或不可解释的文本。</summary>

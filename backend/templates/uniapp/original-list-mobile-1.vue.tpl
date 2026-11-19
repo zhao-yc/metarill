@@ -1,5 +1,5 @@
       <uni-list>
-        <uni-list-item clickable v-for='(item, index) in list' :key='item.id' @click='toDetail(item.id)'>
+        <uni-list-item##row_clickable## v-for='(item, index) in list' :key='item.id'##row_detail_click##>
           <template v-slot:body>
             <view class='row'>
               ##list_columns##

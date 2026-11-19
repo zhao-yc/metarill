@@ -140,8 +140,10 @@ public sealed class FrontendPackager
         {
             var table = catalog.ConfigTables.Single(candidate => candidate.Id == page.ConfigTableId);
             var prefix = "pages/yzp/" + table.TableName;
-            var detail = prefix + "-detail-" + page.Id;
-            return table.IsFunctionTable == 1 ? new[] { detail } : new[] { prefix + "-list-" + page.Id, detail };
+            var routes = new List<string>();
+            if (table.IsFunctionTable == 0) routes.Add(prefix + "-list-" + page.Id);
+            if (OriginalDetailContext.EmitsPage(page)) routes.Add(prefix + "-detail-" + page.Id);
+            return routes;
         }).ToHashSet(StringComparer.Ordinal);
         var trustedRoutes=trustedModel is null?new Dictionary<string,JsonNode>(StringComparer.Ordinal):TrustedSecurityWorkbenchRenderer.Routes(trustedModel).Select(route=>JsonSerializer.SerializeToNode(route)!).ToDictionary(route=>route["path"]!.GetValue<string>(),StringComparer.Ordinal);
         foreach(var path in trustedRoutes.Keys)if(!expected.Add(path))throw new InvalidOperationException("管理工作台路由与业务页面冲突。");

@@ -13,7 +13,7 @@
             </view>
           </uni-forms>
           <view class="list-page-buttons">
-            <button size="mini" type='primary' @click="toDetail('')" v-if="##listNewButtonVisibleCondition##">新增</button>
+            ##list_new_button##
             ##list_buttons##
           </view>
           ##list_main##
@@ -35,9 +35,7 @@
       </view>-->
 ##mobile_list##
       <uni-load-more @clickLoadMore='loadNextPage()' :status='load_more_status' :contentText="loadMoreText"></uni-load-more>
-      <view class='bottom-buttons' v-if="##listNewButtonVisibleCondition##">
-        <button type="primary" @click="toDetail('')">新增</button>
-      </view>
+      ##mobile_new_button##
     </view>
     ##child_detail_popup##
     <yzp-popup class='filter-popup' ref="filter_popup" background-color="#fff">
@@ -133,30 +131,7 @@
     selectThis(item){
 	    this.$emit('onPopSelect', item);
     },
-    toDetail(id) {
-      var that = this;
-      this.clicked_id = id;
-      if (this.is_son_page && utils.isBlank(this.parent_id)) {
-        uni.showModal({
-          showCancel: false,
-          content: "为避免数据丢失，请先保存当前页面的数据"
-        });
-        return;
-      }
-##toDetailNewGuard##    return;}##toDetailQueryGuard##    return;}      // 子表弹窗配置只对 PC 端生效，移动端保持新页面打开。
-      if (this.is_son_page && this.$deviceInfo.is_pc && this.child_page_open_type === 2 && this.openChildDetailPopup) {
-        this.openChildDetailPopup(id);
-        return;
-      }
-      uni.navigateTo({
-        url: '/pages/yzp/##table_name##-detail-##page_id##?id=' + id + '&parent_id=' + this.parent_id + '&parent_page_sn=' + this.parent_page_sn + '&yzpMenuId=' + encodeURIComponent(this.yzpMenuId || ''),
-        events: {
-          onChange: function (change) {
-            that.handleDetailChange(change);
-          }
-        }
-      })
-    },
+##detail_navigation##
     openFilterPopup(type) {
       this.$refs['filter_popup'].open(type);
     },

@@ -28,7 +28,7 @@ internal static class ChildrenCompilation
             if (parent.Table.Source.IsFunctionTable == 1 || child.Table.Source.IsFunctionTable == 1) throw new InvalidOperationException("功能表不能作为记录主子页面：" + id);
             // 原桌面列表编辑复用详情组件，父范围和只读状态仍由嵌入列表传入。
             var listEdit = Integer(child.Page.Source.Extra, "isListEdit", 0);
-            if (Integer(child.Page.Source.Extra, "type", 0) != 0 || listEdit is not (0 or 1) || Integer(child.Page.Source.Extra, "isNotGenerateDetailPage", 0) != 0) throw new InvalidOperationException("子页面列表类型尚未接入主子编辑：" + id);
+            if (Integer(child.Page.Source.Extra, "type", 0) != 0 || listEdit is not (0 or 1)) throw new InvalidOperationException("子页面列表类型尚未接入主子编辑：" + id);
             var scopes = child.Page.Scopes.Where(scope => scope.Source == "parent").ToArray();
             if (scopes.Length == 0) throw new InvalidOperationException("子页面必须具有 parentId 范围：" + id);
             // 原子页只传一个父 ID。每个约束都必须指向同一父表，才能保留原范围的交集。

@@ -148,7 +148,7 @@ public sealed class GeneratedChildrenTests
     }
 
     /// <summary>整型排序包含旧字符串数据；三个子页面复用同一已声明父外键。</summary>
-    private static MetadataCatalog Catalog()
+    internal static MetadataCatalog Catalog()
     {
         var catalog = GeneratorTests.Catalog(); catalog.ConfigPages[0].IsCopy = 1;
         catalog.ConfigPages[0].Extra["childPlace"] = JsonSerializer.SerializeToElement("Tab"); catalog.ConfigPages[0].Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("locked");

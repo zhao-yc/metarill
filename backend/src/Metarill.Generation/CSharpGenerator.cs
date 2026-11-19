@@ -234,7 +234,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
                 var sortable = columns.Where(c => Has(c, f => Enabled(f.Extra, "isSort") || Enabled(c.Source.Extra, "isSort"))).ToArray();
                 // 功能表的原入口是无实体详情。条件和排序由下拉的真实目标页承担。
                 if (isFunction && (OriginalDetailContext.Integer(page.Extra,"type",0) != 0 ||
-                    OriginalDetailContext.Integer(page.Extra,"isNotGenerateDetailPage",0) == 1 ||
+                    !OriginalDetailContext.EmitsPage(page) ||
                     (!string.IsNullOrWhiteSpace(page.WhereSql) && page.WhereSql.Trim() != "yz_project_id=@current_yz_project_id") ||
                     !string.IsNullOrWhiteSpace(page.OrderBy)))
                     throw new InvalidOperationException($"功能表页面必须使用原独立详情入口：{table.TableName}/{page.Id}");

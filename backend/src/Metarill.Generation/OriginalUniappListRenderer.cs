@@ -16,17 +16,19 @@ internal static partial class OriginalUniappListRenderer
         var child = page.Scopes.Any(scope => scope.Source == "parent");
         var selection = kind == 2;
         var detail = table.Source.TableName + "_detail_" + page.Source.Id;
-        var canPopup = kind == 0 && !Flag(page.Source.Extra, "isNotGenerateDetailPage");
-        var listEdit = Flag(page.Source.Extra, "isListEdit");
+        var emitsDetail = OriginalDetailContext.EmitsPage(page.Source);
+        var canPopup = kind == 0 && emitsDetail;
+        // 关闭详情时原普通列表仍可用，嵌入式编辑也依赖同一个详情文件。
+        var listEdit = emitsDetail && Flag(page.Source.Extra, "isListEdit");
         var layout = Integer(page.Source.Extra, "mobileListPageStyleType", 1);
         if (layout is < 1 or > 3) throw new InvalidOperationException("原移动列表布局只支持1、2、3，不得静默换成新布局。");
         var fields = page.ListColumns;
         var filter = Filters(model, table, page);
         var buttons = Buttons(model, table, page, kind);
-        var action = buttons.HasGrid || buttons.Batch || kind == 1 ? "true" : "page_is_edit";
+        var action = buttons.HasGrid || buttons.Batch || kind == 1 ? "true" : emitsDetail ? "page_is_edit" : "false";
         var queryVisible = child ? "page_is_edit" : "permissionVersion >= 0 && page_is_edit && $yzp.hasPagePermission(page_sn, 'is_query')";
         var newVisible = child ? "!readOnlyCondition && page_is_new" : "permissionVersion >= 0 && !readOnlyCondition && page_is_new && $yzp.hasPagePermission(page_sn, 'is_new')";
-        var (desktop, mobile) = Rows(model, table, page, fields, layout, kind, action, queryVisible, buttons, detail, listEdit);
+        var (desktop, mobile) = Rows(model, table, page, fields, layout, kind, action, queryVisible, buttons, detail, listEdit, emitsDetail);
         var nav = child || kind != 0 ? "" : "<uni-nav-bar left-icon=\"left\" @clickLeft=\"$yzp.back\" fixed statusBar :border=\"false\" title=\"" + Html(page.Source.Name) + "\"></uni-nav-bar>";
         var mobileNav = child || kind != 0 ? "" : nav.Replace("></uni-nav-bar>", (Flag(page.Source.Extra, "isSearch", filter.Count > 0) ? " rightText=\"筛选\" @clickRight=\"openFilterPopup('bottom')\"" : "") + "></uni-nav-bar>");
         var section = child || kind != 0;
@@ -45,10 +47,18 @@ internal static partial class OriginalUniappListRenderer
             ["pc_end_uni_section"] = section ? "</view></uni-section>" : "",
             ["pc_nav_bar"] = nav, ["mobile_nav_bar"] = mobileNav,
             ["filter_columns"] = filter.Markup,
-            ["listNewButtonVisibleCondition"] = newVisible,
+            ["list_new_button"] = emitsDetail ? $"<button size=\"mini\" type='primary' @click=\"toDetail('')\" v-if=\"{newVisible}\">新增</button>" : "",
+            ["mobile_new_button"] = emitsDetail ? $"""
+                <view class='bottom-buttons' v-if="{newVisible}">
+                        <button type="primary" @click="toDetail('')">新增</button>
+                      </view>
+                """ : "",
             ["list_buttons"] = buttons.Markup,
             ["list_main"] = desktop,
-            ["mobile_list"] = Template("original-list-mobile-" + layout + ".vue.tpl").Replace("##list_columns##", mobile, StringComparison.Ordinal),
+            ["mobile_list"] = Template("original-list-mobile-" + layout + ".vue.tpl")
+                .Replace("##list_columns##", mobile, StringComparison.Ordinal)
+                .Replace("##row_clickable##", emitsDetail ? " clickable" : "", StringComparison.Ordinal)
+                .Replace("##row_detail_click##", emitsDetail ? " @click='toDetail(item.id)'" : "", StringComparison.Ordinal),
             ["multi_select_buttons"] = selection ? "<view class=\"multi-select-page-buttons\"><button size=\"mini\" @click=\"toggleSelectedOnly\">{{ showSelectedOnly ? '查看全部' : '仅看已选' }}</button><button type=\"primary\" size=\"mini\" @click=\"sureSelect\">选好了（{{ selectedList.length }}）</button><button size=\"mini\" @click=\"sureClose\">关闭</button></view>" : "",
             ["child_detail_popup"] = canPopup ? Popup(page, detail) : "",
             ["script_top"] = ScriptTop(model, table, page, detail, canPopup || listEdit, selection, child, filter.OptionFields, filter.RemoteOptions, filter.CheckboxOptions),
@@ -57,6 +67,7 @@ internal static partial class OriginalUniappListRenderer
             ["//##const_list_column_ranges##"] = "",
             ["//##mounted_scripts##"] = filter.Defaults,
             ["//##popup_detail_methods##"] = canPopup ? PopupMethods : "",
+            ["detail_navigation"] = emitsDetail ? Template("original-list-detail-navigation.js.tpl").TrimEnd('\r', '\n') : "",
             ["//##customer_button_handlers##"] = buttons.Methods + SortMethods(page),
             ["//##list_buttons_handler##"] = "",
             ["//##lists_select_change##"] = filter.Methods,
@@ -69,17 +80,15 @@ internal static partial class OriginalUniappListRenderer
         var result = Template("original-list-ordinary.vue.tpl");
         // 列表继承父/全局只读；新增和更新按各自能力判断，避免旧模板使“仅新增”页面丢失新增入口。
         result = result.Replace("!this.page_is_update || this.parentReadOnlyCondition", "this.parentReadOnlyCondition || getApp().globalData.readOnly", StringComparison.Ordinal);
-        result = result.Replace("this.clicked_id = id;", "this.clicked_id = id;const detailIdentity=this.originalListIdentity();const detailCurrent=()=>this._originalListAlive && detailIdentity===this.originalListIdentity();", StringComparison.Ordinal)
-            .Replace("that.handleDetailChange(change);", "if(detailCurrent())that.handleDetailChange(change);", StringComparison.Ordinal)
-            .Replace("+ id + '&parent_id=' + this.parent_id + '&parent_page_sn=' + this.parent_page_sn", "+ encodeURIComponent(id) + '&parent_id=' + encodeURIComponent(this.parent_id || '') + '&parent_page_sn=' + encodeURIComponent(this.parent_page_sn || '')", StringComparison.Ordinal);
         foreach (var (key, value) in values)
             result = result.Replace(key.StartsWith("//##", StringComparison.Ordinal) ? key : "##" + key + "##", value, StringComparison.Ordinal);
+
         if (System.Text.RegularExpressions.Regex.IsMatch(result, @"##[a-zA-Z_]+##")) throw new InvalidOperationException("原列表模板有未解析占位符。");
         return result;
     }
 
     /// <summary>原PC操作列和三种移动单元格使用同一已发布字段集合，字段跨度和重点样式保持原配置。</summary>
-    private static (string Desktop, string Mobile) Rows(GenerationModel model, TableModel table, PageModel page, IReadOnlyList<ColumnModel> fields, int layout, int kind, string action, string queryVisible, ListButtons buttons, string detail, bool listEdit)
+    private static (string Desktop, string Mobile) Rows(GenerationModel model, TableModel table, PageModel page, IReadOnlyList<ColumnModel> fields, int layout, int kind, string action, string queryVisible, ListButtons buttons, string detail, bool listEdit, bool emitsDetail)
     {
         if (listEdit) return ($"<template v-for=\"item in list\" :key=\"item.id\"><{detail} :is_props='true' :parentReadOnlyCondition='readOnlyCondition' :props_id='item.id' :props_parent_id='parent_id' :props_parent_page_sn='parent_page_sn' ref='{detail}'></{detail}></template>", MobileCells(model, table, page, fields, layout));
         var result = new StringBuilder("<uni-table class=\"list-page-pc-body-table\" border  stripe emptyText=\"暂无更多数据\"><uni-tr>\n<!-- 操作列可见性与默认查看权限分离，行内按钮按自身规则显示。 -->");
@@ -92,7 +101,7 @@ internal static partial class OriginalUniappListRenderer
         if (kind == 1) result.Append(Link("选择", "", "selectThis(item)", "default"));
         else
         {
-            if (kind != 2) result.Append(Link("查看", queryVisible, "toDetail(item.id)", "default"));
+            if (kind != 2 && emitsDetail) result.Append(Link("查看", queryVisible, "toDetail(item.id)", "default"));
             if (buttons.Batch) result.Append("<checkbox :checked=\"item.isSelect\" @click=\"chkChange(index)\" />");
         }
         result.Append(buttons.Grid).Append("</view></uni-td>");
@@ -100,7 +109,7 @@ internal static partial class OriginalUniappListRenderer
         result.Append("</uni-tr>");
         if (Flag(page.Source.Extra, "isSum"))
         {
-            result.Append("<uni-tr><uni-td></uni-td>");
+            result.Append(emitsDetail || action != "false" ? "<uni-tr><uni-td></uni-td>" : "<uni-tr>");
             foreach (var column in fields)
             {
                 var field = Field(model, page, column); var sum = Integer(field.Extra, "sumKind", 0);
