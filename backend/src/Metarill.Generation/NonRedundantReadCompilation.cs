@@ -184,16 +184,16 @@ internal static partial class NonRedundantReadCompilation
         var compiled=CompilePage(model,table,readOutputs,dependencies,crossBindings,singleTargets);
         if(GlobalSelectionPage(table,page))
             _=GlobalAccountMultiPage(table,page)
-                ?NonRedundantReads.CompileGlobalAccountMultiPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings)
+                ?NonRedundantReads.CompileGlobalAccountMultiPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings,singleTargets)
                 :GlobalSingleParentPage(table,page)
-                    ?NonRedundantReads.CompileGlobalSingleParentPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings)
+                    ?NonRedundantReads.CompileGlobalSingleParentPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings,singleTargets)
                 :crossPlans.Count>0
-                ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings)
+                ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings,singleTargets)
                 :FixedPageConditionCompilation.HasSelfTreeFields(page)
-                    ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies)
+                    ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,null,singleTargets)
                     :CascadeTreeReadCompilation.ForService(model,table,page).Count>0
-                        ?NonRedundantReads.CompileGlobalPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies)
-                        :NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies);
+                        ?NonRedundantReads.CompileGlobalPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,singleTargets)
+                        :NonRedundantReads.CompileGlobalCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,singleTargets);
         outputs=outputs.Select(output=>output.Type.Length>0?output:output with{Type=compiled.OutputTypes[output.Storage] switch{"string"=>"string?","int64"=>"long?","int32"=>"int?","decimal"=>"decimal?","double"=>"double?","bool"=>"bool?","datetime" or "date"=>"DateTime?","time"=>"TimeSpan?",_=>throw new InvalidOperationException("自动显示字段类型尚未接线。")}}).ToList();
         if(outputs.Select(output=>output.Property).Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count)throw new InvalidOperationException("派生显示属性冲突。");
         return new(outputs,dependencies,readOutputs,singleTargets);
@@ -201,22 +201,24 @@ internal static partial class NonRedundantReadCompilation
 
     /// <summary>业务页单值读取使用实际项目内非冗余目标以及已证明的父范围。</summary>
     internal static bool UsesProjectSingleRead(RelationModel relation)=>
-        !relation.Target.IsGlobal&&relation.Target.Source.IsRongyu==0&&relation.ParentBinding?.Declared!=true&&
-        (relation.TargetPage.Condition is not null||relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent")||
-            UsesProjectControlRead(relation));
+        relation.Target.Source.IsRongyu==0&&relation.ParentBinding?.Declared!=true&&
+        (UsesProjectControlRead(relation)||!relation.Target.IsGlobal&&
+            (relation.TargetPage.Condition is not null||relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent")));
 
     /// <summary>原下拉可以仅在控件中限定目标，读取名称时也要保留该范围。</summary>
     internal static bool UsesProjectControlRead(RelationModel relation)=>
         relation.SourceColumn.Source.ControlKind=="List"&&
-        (relation.Conditions is not null||relation.Scopes.Any(scope=>scope.Source=="parent"));
+        (relation.Conditions is not null||relation.Scopes.Any(scope=>scope.Source=="parent"||
+            relation.Target.IsGlobal&&scope.Source=="project"));
 
     /// <summary>同一来源表的各页分别固定实际目标页，物理父键按本页同父或表单关系证明。</summary>
     internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectSingleTargets(GenerationModel model,TableModel table,PageModel page,
         IEnumerable<string> fields)
     {
-        if(table.IsGlobal||table.Source.IsRongyu!=0)return [];
+        if(table.Source.IsRongyu!=0)return [];
         var direct=RelationCompilation.ForPage(model,page).Concat(RelationCompilation.ForPage(model,page,true))
-            .DistinctBy(relation=>relation.SourceColumn.Source.Id).Where(UsesProjectSingleRead)
+            .DistinctBy(relation=>relation.SourceColumn.Source.Id)
+            .Where(relation=>(!table.IsGlobal||relation.Target.IsGlobal)&&UsesProjectSingleRead(relation))
             .Select(relation=>ProjectTarget(model,table,page,relation));
         return MergeProjectTargets(direct.Concat(ProjectPathTargets(model,table,page,fields)));
     }
@@ -237,7 +239,7 @@ internal static partial class NonRedundantReadCompilation
         }
         return new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id,parent?.Source.Id)
         {
-            SourcePageId=relation.FixedParent is not null?page.Source.Id:null,
+            SourcePageId=relation.FixedParent is not null||relation.Target.IsGlobal&&parent is not null?page.Source.Id:null,
             ControlSourcePageId=UsesProjectControlRead(relation)?page.Source.Id:null
         };
     }

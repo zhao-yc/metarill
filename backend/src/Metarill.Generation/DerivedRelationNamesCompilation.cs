@@ -178,7 +178,7 @@ internal static class DerivedRelationNamesCompilation
             ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies,relation.Conditions,projectTargets)
             : target.IsGlobal && physicalTypedName || NonRedundantReadCompilation.HasGlobalRowProject(target) ||
                 HasGlobalAccountScope(target,relation.TargetPage)
-            ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, relation.TargetPage.Source.Id, outputs, dependencies)
+            ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, relation.TargetPage.Source.Id, outputs, dependencies, projectTargets)
             : physicalTypedName && target.Source.IsRongyu == 1
                 ? NonRedundantReads.CompilePhysicalRelation(model.Catalog,target.Source.Id,outputs,dependencies,
                     SharedRedundantParentCompilation.AccountPlans(model,target,relation.TargetPage))

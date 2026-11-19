@@ -161,7 +161,8 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>全局候选页面由生成的固定树图补齐显示路径，单值候选仍直接读取标量。</summary>
     internal static MySqlNonRedundantReadPlan CompileGlobalCandidate(MetadataCatalog catalog,string tableId,string pageId,
-        IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies,bool deferCascadeNames)
+        IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies,bool deferCascadeNames,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -174,8 +175,11 @@ public static partial class MySqlNonRedundantReadCompiler
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
         if(pageType!="2"&&GlobalCrossTableTarget.SingleParent(catalog,table,page) is not null)
-            return CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies??[],accountParentPageType:pageType);
-        return new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames).Compile(outputs,dependencies??[]);
+            return CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies??[],accountParentPageType:pageType,singleTargets:singleTargets);
+        return new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames)
+        {
+            ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
+        }.Compile(outputs,dependencies??[]);
     }
 
     /// <summary>普通读取及导出按对象本身的行项目归属。</summary>

@@ -41,7 +41,7 @@ public static partial class MySqlNonRedundantReadCompiler
         if(listFields is not null&&!projectSingle&&(!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0))
             throw new NotSupportedException("固定下拉附加条件必须引用已发布的逻辑级联字段。");
         // 全局单值候选从自身发布页证明物理父键；旧多选仍满足原独立页合同。
-        var physicalParent=global&&!projectSingle&&page.Extra.GetValueOrDefault("type").ToString()!="2"
+        var physicalParent=global&&page.Extra.GetValueOrDefault("type").ToString()!="2"
             ?GlobalCrossTableTarget.SingleParent(catalog,table,page):null;
         var accountParentPage=accountParentPageType is not null;
         var hasParentScope=physicalParent is not null||accountParentPage||displayBindings is not null||
@@ -307,23 +307,28 @@ public static partial class MySqlNonRedundantReadCompiler
         private string ProjectSingleReadCondition(TableMetadata owner,string ownerAlias,ColumnMetadata relation,
             TableMetadata target,string alias,NonRedundantSingleTargetScope binding)
         {
-            if(owner.IsRongyu!=0||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(owner)||
+            var global=GlobalCrossTableTarget.Declared(target);
+            if(owner.IsRongyu!=0||target.IsRongyu!=0||!global&&GlobalCrossTableTarget.Declared(owner)||
                 relation.ControlKind is not("List" or "SelectPage")||!storage[owner.Id].IsPhysical(relation))
-                throw new NotSupportedException("项目内单值读取须使用普通非冗余表的实际物理外键。");
+                throw new NotSupportedException("单值读取须使用非冗余表的实际物理外键。");
             var page=catalog.ConfigPages.Single(item=>item.Id==binding.PageId&&item.ConfigTableId==target.Id);
+            var proof=global?GlobalSingleRelationTarget.Require(catalog,owner,relation,target):null;
+            if(proof is not null&&proof.Page.Id!=page.Id)
+                throw new InvalidOperationException("全局单值读取与发布目标页不一致。");
             if(binding.NestedTargets.Count>0)
                 projectAliasTargets.Add(alias,binding.NestedTargets.ToDictionary(item=>item.ColumnId,StringComparer.Ordinal));
             if(!binding.ApplyPageCondition)return "";
+            if(global)scopedGlobalCrossTarget=true;
 
             var controlPage=binding.ControlSourcePageId is null?null:catalog.ConfigPages.Single(
                 item=>item.Id==binding.ControlSourcePageId&&item.ConfigTableId==owner.Id);
             var control=controlPage is null?null:ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,controlPage);
-            var parent=MultiParent(catalog,page);
+            var parent=global?proof!.Parent:MultiParent(catalog,page);
             var controlParent=control is null?null:MultiTargetParentScope.Compile(catalog,target,control);
             if(controlParent is {Logical:true}||parent is not null&&controlParent is not null&&parent.Target.Id!=controlParent.Target.Id)
                 throw new InvalidOperationException("单值读取的目标页与控件父范围不一致。");
             parent??=controlParent;
-            if((parent is null)!=(binding.SourceParentId is null)||parent is {Global:true,Logical:false})
+            if((parent is null)!=(binding.SourceParentId is null)||!global&&parent is {Global:true,Logical:false})
                 throw new InvalidOperationException("项目内单值读取缺少已证明的父绑定。");
             var publishedSource=parent is not null&&binding.SourcePageId is {} pageId
                 ?parent.SingleSource(catalog,owner,relation,catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==owner.Id))
@@ -427,6 +432,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         private readonly Dictionary<string,PageMetadata> singleCachePages=new(StringComparer.Ordinal);
+        private readonly Dictionary<string,string?> globalSingleVisibility=new(StringComparer.Ordinal);
 
         /// <summary>同一物理外键的联接字段沿用已登记范围和来源行身份，未登记的项目范围仍由普通联接门禁拒绝。</summary>
         private (string Alias,string? Visibility,CascadeCacheOwner? CacheOwner) JoinSinglePath(
@@ -458,7 +464,19 @@ public static partial class MySqlNonRedundantReadCompiler
                 singleCachePages[alias]=projectNested.Page;
                 return(alias,null,cacheOwner);
             }
-            return(Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true),null,cacheOwner);
+            var joined=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true);
+            if(refreshFields is null&&GlobalCrossTableTarget.Declared(target)&&ProjectSingleBinding(owner,foreign) is {} binding)
+            {
+                // 全局联接继续使用原发布范围。附加条件随当前别名的输出一起计算，零匹配显示为空。
+                if(!globalSingleVisibility.TryGetValue(joined,out var visibility))
+                {
+                    var condition=ProjectSingleReadCondition(table,owner,foreign,target,joined,binding);
+                    visibility=condition.Length==0?null:condition;
+                    globalSingleVisibility.Add(joined,visibility);
+                }
+                return(joined,visibility,cacheOwner);
+            }
+            return(joined,null,cacheOwner);
         }
 
         /// <summary>名称副本和同外键的其他联接字段共用实际发布页，逐项保留各自的反向依赖。</summary>

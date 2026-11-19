@@ -85,7 +85,11 @@ public static partial class MySqlNonRedundantReadCompiler
             FixedConditionPlan control,MySqlNonRedundantReadPlan targetPlan,string prefix)
         {
             var members=columns[target.Id];
-            var terms=control.Terms.Where(term=>!term.Values.Any(value=>
+            var project=control.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
+                value.Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))).ToArray();
+            if(project.Any(term=>term.Field!="yz_project_id"||term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1))
+                throw new InvalidOperationException("全局名称读取的项目条件必须限定实际物理项目列。");
+            var terms=control.Terms.Except(project).Where(term=>!term.Values.Any(value=>
                 value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text)));
             var syntax=FixedConditionPlan.Compile(string.Join(" AND ",terms.Select(term=>term.ToDefinition())),members.Keys);
             var plan=FixedConditionSqlPlan.Compile(syntax,syntax.Fields.ToDictionary(field=>field,field=>Column(target,field).LogicalType,StringComparer.Ordinal));
@@ -94,6 +98,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 AccountConditionVariables.IsSupported(variable)?null:SingleControlFormColumn(source,alias,validity,variable,type),
                 deferAccount:true);
             foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
+            if(project.Length>0)validity.Add(Scope(target,prefix,includeDeleted:true));
             return string.Join(" AND ",new[]{clause.Sql}.Concat(validity).Where(part=>part.Length>0));
         }
 

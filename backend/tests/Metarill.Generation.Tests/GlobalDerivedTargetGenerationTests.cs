@@ -30,6 +30,79 @@ public sealed class GlobalDerivedTargetGenerationTests
         Assert.All(c.ConfigPages,p=>{Assert.Equal(1,p.IsImport);Assert.Equal(1,p.IsExport);});
         Assert.Equal(before,JsonSerializer.Serialize(c));
     }
+    /// <summary>实时派生名称、源列表及选择回读沿全局中间页使用同一实际下拉范围。</summary>
+    [Theory][InlineData("constant")][InlineData("form")][InlineData("account")][InlineData("rowProject")]
+    public async Task Global_R0_live_name_follows_the_actual_intermediate_control(string mode)
+    {
+        var catalog=Catalog(0,"int64","int64");
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
+        Add("25","2","segment","int32");
+        var selector=catalog.ConfigColumns.Single(column=>column.Id=="13");
+        selector.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="20",nameField="name",whereSql="segment=17"});
+        var condition=mode switch
+        {
+            "form"=>"segment IN (@formParameters.globalSource.lookupSegment,3)",
+            "account"=>"store_id=@current_store_id AND segment=3",
+            "rowProject"=>"yz_project_id=@current_yz_project_id AND segment=3",
+            _=>"segment=3"
+        };
+        catalog.ConfigPageColumns.Single(field=>field.Id=="1013").Extra["controlDetail"]=
+            JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql=condition}));
+        if(mode=="form")
+        {
+            Add("26","1","lookup_segment","int64");
+            catalog.ConfigPageColumns.Add(new(){Id="1026",ConfigPageId="10",ConfigColumnId="26",YzProjectId="100",IsShow=1,IsEdit=1});
+        }
+        if(mode=="account")Add("27","2","store_id","int64");
+        if(mode=="rowProject")
+        {
+            Add("28","1","yz_project_id","int64");
+            Add("29","2","yz_project_id","string");
+        }
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-live-control");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.GlobalLiveControl");
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var actor=new RuntimeActor(9,"范围测试",false,"100","9"){StoreId=6351};
+            var consumer=assembly.GetType("Example.GlobalLiveControl.Generated.Services.CachedConsumerService",true)!;
+            var intermediate=assembly.GetType("Example.GlobalLiveControl.Generated.Services.GlobalSourceService",true)!;
+            const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.NonPublic;
+            var output=new List<(Type Owner,string Plan,string Field)>{
+                (consumer,"ReadPlan30","global_source_global_target_name"),
+                (consumer,"ExportReadPlan30","global_source_global_target_name"),
+                (consumer,"DerivedOptionsPlan30_34","global_target_name"),
+                (consumer,"DerivedOptionsPlan30_38","global_target_name"),
+                (intermediate,"ReadPlan10","global_target_name")};
+            if(mode=="rowProject")output.Add((intermediate,"CandidateReadPlan10","global_target_name"));
+            foreach(var (owner,plan,field) in output)
+            {
+                var current=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    owner.GetField(plan,flags|System.Reflection.BindingFlags.Static)!.GetValue(null)).BindAccount(actor);
+                var mysql=current.GetType().GetProperty("MySql",flags|System.Reflection.BindingFlags.Instance)!.GetValue(current)!;
+                Assert.True(Assert.IsType<bool>(mysql.GetType().GetProperty("RequiresPublishedProjectIdentity",flags|System.Reflection.BindingFlags.Instance)!.GetValue(mysql)));
+                var expression=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",flags|System.Reflection.BindingFlags.Instance)!.Invoke(mysql,[field]));
+                Assert.Contains("EXISTS (SELECT 1 FROM `global_target`",expression);
+                Assert.Contains(".`segment`",expression);
+                Assert.Contains(".`status`",expression);
+                var values=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    mysql.GetType().GetProperty("Constants",flags|System.Reflection.BindingFlags.Instance)!.GetValue(mysql)).Values;
+                Assert.Contains(3,values);
+                Assert.DoesNotContain(17,values);
+                if(mode=="form")Assert.Contains((owner==consumer&&plan.StartsWith("Read",StringComparison.Ordinal)||plan.StartsWith("Export",StringComparison.Ordinal)
+                    ?"r0":"b")+".`lookup_segment`",expression);
+                if(mode=="account")Assert.Contains(6351L,values);
+                if(mode=="rowProject")Assert.Contains(".`yz_project_id`=@project_scope_text",expression);
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+
+        void Add(string id,string table,string name,string type)=>catalog.ConfigColumns.Add(new()
+            {Id=id,ConfigTableId=table,ColumnName=name,LogicalType=type,YzProjectId="100"});
+    }
+
     /// <summary>四个交叉模型实际生成完整包、严格构建并挂载原Vue，两次更新保持手写业务和全部受管产物。</summary>
     [Theory][InlineData(0,"int64","int64")][InlineData(0,"string","string")][InlineData(1,"int64","string")][InlineData(1,"string","int64")]
     public async Task Global_r0_full_application_builds_updates_and_runs_original_controls(int mode,string outer,string inner)

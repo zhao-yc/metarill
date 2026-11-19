@@ -78,11 +78,11 @@ internal static class ExportRenderer
             var accountSingle=NonRedundantReadCompilation.GlobalSingleParentPage(table,page);
             var crossScopes=NonRedundantCrossTableCompilation.Bindings(model,table,page);
             if(accountSingle)
-                NonRedundantReads.CompileGlobalSingleParentPage(model.Catalog,table.Source.Id,page.Source.Id,names,plan.Dependencies,crossScopes);
+                NonRedundantReads.CompileGlobalSingleParentPage(model.Catalog,table.Source.Id,page.Source.Id,names,plan.Dependencies,crossScopes,plan.SingleTargets);
             else NonRedundantReadCompilation.CompilePage(model,table,names,plan.Dependencies,crossScopes,plan.SingleTargets);
             var outputs="new string[]{"+string.Join(",",names.Select(Literal))+"}";var fixedDependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
             var planCall=accountSingle
-                ?$"CompileGlobalSingleParentPage({Literal(table.Source.Id)},{Literal(page.Source.Id)},{outputs},{fixedDependencies}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)})"
+                ?$"CompileGlobalSingleParentPage({Literal(table.Source.Id)},{Literal(page.Source.Id)},{outputs},{fixedDependencies}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)}{NonRedundantReadCompilation.SingleTargetArgument(plan.SingleTargets,"singleTargets")})"
                 :NonRedundantReadCompilation.PagePlanCall(model,table,page,plan,outputs,fixedDependencies);
             result.Insert(0,$"    /// <summary>导出只读取原列及必要依赖，普通请求不重编译元数据。</summary>\n    private static readonly Metarill.Data.Queries.NonRedundantReadPlan ExportReadPlan{page.Source.Id}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{planCall};\n");
             result.AppendLine($"        var rawRows=await new Metarill.Data.Queries.NonRedundantReader(session).RowsAsync({NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ExportReadPlan"+page.Source.Id,singleTargets:plan.SingleTargets.Count>0)},{BackendRenderer.NonRedundantFilterCall(model,table,page,operation:"\"export\"",globalCandidate:accountSingle)},ReadOrder{page.Source.Id}(request),maxRows+1,cancellationToken,actor.ProjectId{(accountSingle?"":FixedPageConditionCompilation.ReadArgument(page))});")

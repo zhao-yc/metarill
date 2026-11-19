@@ -20,7 +20,7 @@ internal static class DerivedRelationNamesRenderer
         var parentPlan = accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var planStart = logical
             ? DerivedRelationNamesCompilation.LogicalPagePlanStart(model,relation.Target,relation.TargetPage,relation.Conditions)
-            : globalAccount || physicalTypedName && relation.Target.IsGlobal
+            : globalAccount || physicalTypedName && relation.Target.IsGlobal || NonRedundantReadCompilation.HasGlobalRowProject(relation.Target)
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : physicalTypedName && relation.Target.Source.IsRongyu == 1
                 ? $"CompilePhysicalRelation({Literal(relation.Target.Source.Id)}"

@@ -63,10 +63,21 @@ public static class NonRedundantReads
             _=>throw new NotSupportedException("该数据库尚未完成固定全局候选读取适配。")
         };
     }
+    /// <summary>候选附带已发布的后续单值关系，页面和输出范围由生成器指定。</summary>
+    public static NonRedundantReadPlan CompileGlobalCandidate(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
+        new(MySqlNonRedundantReadCompiler.CompileGlobalCandidate(metadata,tableId,pageId,outputs,dependencies,
+            deferCascadeNames:false,singleTargets:singleTargets));
+
     /// <summary>已发布全局页面投影的树路径由生成服务补齐，固定查询依赖仍在SQL中执行。</summary>
+    public static NonRedundantReadPlan CompileGlobalPage(MetadataCatalog metadata,string tableId,string pageId,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>
+        CompileGlobalPage(metadata,tableId,pageId,outputs,dependencies,null);
+
+    /// <summary>直接选择页和关联候选使用同一单值关系范围。</summary>
     public static NonRedundantReadPlan CompileGlobalPage(MetadataCatalog metadata,string tableId,string pageId,
-        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>
-        new(MySqlNonRedundantReadCompiler.CompileGlobalCandidate(metadata,tableId,pageId,outputs,dependencies,deferCascadeNames:true));
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
+        new(MySqlNonRedundantReadCompiler.CompileGlobalCandidate(metadata,tableId,pageId,outputs,dependencies,
+            deferCascadeNames:true,singleTargets:singleTargets));
 
     /// <summary>生成的项目内 R1 单值候选使用物理投影和项目范围，保留独立的数据库适配入口。</summary>
     public static NonRedundantReadPlan CompilePhysicalRelation(MetadataCatalog metadata, string tableId, IReadOnlyList<string> outputs,
@@ -196,8 +207,14 @@ public static class NonRedundantReads
     /// <summary>全局独立多选的分页、统计和已选回读共用实际账号与物理父范围。</summary>
     public static NonRedundantReadPlan CompileGlobalAccountMultiPage(MetadataCatalog metadata,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings)=>
+        CompileGlobalAccountMultiPage(metadata,tableId,pageId,outputs,dependencies,bindings,null);
+
+    /// <summary>全局账号父页的候选输出继续沿已发布单值范围读取。</summary>
+    public static NonRedundantReadPlan CompileGlobalAccountMultiPage(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
         new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
-            bindings,accountParentPageType:"2"));
+            bindings,accountParentPageType:"2",singleTargets:singleTargets));
 
     /// <summary>保留已生成的账号父范围入口，同页条件交给固定单选编译。</summary>
     public static NonRedundantReadPlan CompileGlobalAccountSinglePage(MetadataCatalog metadata,string tableId,string pageId,
@@ -207,8 +224,14 @@ public static class NonRedundantReads
     /// <summary>全局独立单选同时核验发布的父范围及该页的账号或级联条件。</summary>
     public static NonRedundantReadPlan CompileGlobalSingleParentPage(MetadataCatalog metadata,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings)=>
+        CompileGlobalSingleParentPage(metadata,tableId,pageId,outputs,dependencies,bindings,null);
+
+    /// <summary>独立单选的详情及导出也采用同一派生名称范围。</summary>
+    public static NonRedundantReadPlan CompileGlobalSingleParentPage(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
         new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
-            bindings,accountParentPageType:"1"));
+            bindings,accountParentPageType:"1",singleTargets:singleTargets));
 
     /// <summary>全局下拉仅登记附加条件依赖，发布页范围和全局资格仍从原元数据读取。</summary>
     public static NonRedundantReadPlan CompileGlobalListCandidate(MetadataCatalog metadata,string tableId,string pageId,

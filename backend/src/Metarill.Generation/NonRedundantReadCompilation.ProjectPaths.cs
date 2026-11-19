@@ -9,7 +9,7 @@ internal static partial class NonRedundantReadCompilation
     internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectPathTargets(GenerationModel model,TableModel table,
         PageModel page,IEnumerable<string> fields)
     {
-        if(table.IsGlobal||table.Source.IsRongyu!=0)return [];
+        if(table.Source.IsRongyu!=0)return [];
         var active=new HashSet<(string Table,string Field)>();
         return MergeProjectTargets(fields.Distinct(StringComparer.OrdinalIgnoreCase)
             .Select(field=>ProjectPathTarget(model,table,page,[field],active)).OfType<NonRedundantSingleTargetScope>());
@@ -60,7 +60,8 @@ internal static partial class NonRedundantReadCompilation
             if(foreign is null||foreign.Source.ControlKind is not("List" or "SelectPage")||!Physical(model,table,foreign))
                 return null;
             var relation=RelationCompilation.ForPage(model,page,scopeSourceId:foreign.Source.Id).SingleOrDefault();
-            if(relation is null||relation.Target.IsGlobal||relation.Target.Source.IsRongyu!=0||relation.ParentBinding?.Declared==true)
+            if(relation is null||table.IsGlobal&&!relation.Target.IsGlobal||
+                relation.Target.Source.IsRongyu!=0||relation.ParentBinding?.Declared==true)
                 return null;
             var downstream=ProjectPathTarget(model,relation.Target,relation.TargetPage,tail,active);
             IReadOnlyList<NonRedundantSingleTargetScope> nested=downstream is null?[]:[downstream];
