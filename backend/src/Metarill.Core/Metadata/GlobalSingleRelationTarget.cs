@@ -20,6 +20,12 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
     public bool ScopedLogicalPage=>ScopedSelfTree||ScopedCrossTable;
     /// <summary>候选、名称联接和回填均须执行该页的实际范围。</summary>
     public bool RequiresScopedPage=>ScopedLogicalPage||ScopedAccount;
+
+    /// <summary>同一物理副本的各来源页必须使用等价的下拉附加条件。</summary>
+    public FixedConditionPlan? CacheControl { get; internal init; }
+
+    /// <summary>控件条件也决定副本可见性，由统一维护计划重算。</summary>
+    public bool RequiresScopedCache=>RequiresScopedPage||CacheControl is {Terms.Count:>0};
 }
 
 /// <summary>普通单值全局关系的静态证明，目标和页面必须来自同一明确发布目录。</summary>
@@ -53,12 +59,12 @@ public static class GlobalSingleRelationTarget
             GlobalCachedRelationSource.RequireCachedSingleSource(catalog,owner,foreign);
             if(project is not null&&owner.Id==target.Id)
                 throw new NotSupportedException("带行项目列的全局缓存要求独立目标表。");
-            var proof=RequirePublishedTarget(catalog,owner,foreign,target,resolving,allowScopedRowProject:true);
-            if(project is not null&&!proof.RequiresScopedPage)GlobalCachedRelationSource.RequireSingle(catalog,owner,foreign);
+            var proof=RequirePublishedTarget(catalog,owner,foreign,target,resolving,allowScopedRowProject:true,cacheControl:true);
+            if(project is not null&&!proof.RequiresScopedCache)GlobalCachedRelationSource.RequireSingle(catalog,owner,foreign);
             return proof;
         }
         else if(owner.IsRongyu!=(cached?1:0)||GlobalCrossTableTarget.Declared(owner)||owner.IsView!=0||owner.IsFunctionTable!=0||owner.YzProjectId!=catalog.YzProjectId||project is null||project.LogicalType is not("int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(storage,owner,project))throw new NotSupportedException("全局单值关系要求明确发布且有真实项目列的普通R0来源或已证明的R1消费者。");
-        return RequirePublishedTarget(catalog,owner,foreign,target,resolving);
+        return RequirePublishedTarget(catalog,owner,foreign,target,resolving,cacheControl:cached);
     }
     /// <summary>从原控件的表声明或目标页定位候选实体，实际页面范围和冲突声明继续由发布证明核对。</summary>
     internal static TableMetadata ResolveTarget(MetadataCatalog catalog,ColumnMetadata foreign)
@@ -87,7 +93,7 @@ public static class GlobalSingleRelationTarget
     }
 
     /// <summary>单值路径共用完整目标证明；来源资格由各自R0实时或R1缓存入口先行核对。</summary>
-    internal static GlobalSingleRelationPlan RequirePublishedTarget(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,ISet<string>? resolving,bool projectParent=false,bool allowScopedRowProject=false)
+    internal static GlobalSingleRelationPlan RequirePublishedTarget(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,ISet<string>? resolving,bool projectParent=false,bool allowScopedRowProject=false,bool cacheControl=false)
     {
         var storage=MetadataStoragePolicy.ForTable(catalog,owner);
         if(foreign.ConfigTableId!=owner.Id||foreign.ControlKind is not("List" or "SelectPage")||!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)||foreign.LogicalType is not("int64" or "string")||!storage.IsPhysical(foreign)||foreign.IsVirtualColumn!=0)throw new NotSupportedException("全局单值关系必须使用本表物理List或SelectPage外键。");
@@ -139,8 +145,12 @@ public static class GlobalSingleRelationTarget
                     scopedCrossTable&&CrossTableStorageColumns.IsLogicalPathField(target,expanded,field)))continue;
             throw new NotSupportedException("目标条件必须使用已证明的非凭据标量或逻辑级联字段。");
         }
+        // 只有明确声明了物理名称副本时，才要求所有业务入口的附加条件等价。
+        var control=cacheControl&&target.IsRongyu==0&&foreign.ControlKind=="List"&&
+            catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName==foreign.ColumnName[..^3]+"_"+name.ColumnName)
+            ?ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target):null;
         // 实时名称和回填使用同一张发布页，禁止任何来源页覆盖表、名称或父键所属的目标页。
-        if(fixedParent is not null)
+        if(fixedParent is not null||control is {Terms.Count:>0})
         {
             foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==foreign.Id))
             {
@@ -157,7 +167,7 @@ public static class GlobalSingleRelationTarget
             }
         }
         var plan=new GlobalSingleRelationPlan(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,
-            ScopedAccount=scopedAccount,Parent=fixedParent,SourceParent=sourceParent};
+            ScopedAccount=scopedAccount,Parent=fixedParent,SourceParent=sourceParent,CacheControl=control};
         if(owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&foreign.ControlKind=="SelectPage"&&
             (!plan.RequiresScopedPage||page.Extra.GetValueOrDefault("type").ToString()!="1"))
             throw new NotSupportedException("全局冗余单选要求有固定数据范围的已发布type=1目标页。");

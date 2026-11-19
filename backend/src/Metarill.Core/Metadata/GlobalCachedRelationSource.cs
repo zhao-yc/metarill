@@ -96,7 +96,7 @@ public static class GlobalCachedRelationSource
         var stem=foreign.ColumnName[..^3];
         // 同类型副本由写入和回填共同使用，保持业务值类型与精度。
         if(path[1]!=proof.Name.ColumnName||cache.ColumnName!=stem+"_"+proof.Name.ColumnName||cache.LogicalType!=proof.Name.LogicalType)throw Invalid();
-        return new(foreign,target,proof.Page,proof.Name,cache){ScopedSingle=proof.RequiresScopedPage};
+        return new(foreign,target,proof.Page,proof.Name,cache){ScopedSingle=proof.RequiresScopedCache};
     }
     /// <summary>与现有元数据标志一致，只承认1/true。</summary>
     private static bool Joined(ColumnMetadata column)=>column.Extra.TryGetValue("isJoinColumn",out var value)&&(value.ValueKind==JsonValueKind.True||value.ToString()=="1");

@@ -113,16 +113,16 @@ public static class DerivedCrossTableCaches
     }
 
     /// <summary>实际目标页和名称由表级关系证明；不能用维护输入更换范围。</summary>
-    internal static (PageMetadata Page,ColumnMetadata Name) ScopedSingleTarget(MetadataCatalog catalog,
+    internal static (PageMetadata Page,ColumnMetadata Name,FixedConditionPlan? Control) ScopedSingleTarget(MetadataCatalog catalog,
         TableMetadata source,ColumnMetadata foreign,TableMetadata target)
     {
         if(GlobalCrossTableTarget.Declared(target))
         {
             var global=GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target);
-            if(global.RequiresScopedPage)return(global.Page,global.Name);
+            if(global.RequiresScopedCache)return(global.Page,global.Name,global.CacheControl);
         }
         else if(ProjectScopedSingleRelationTarget.Resolve(catalog,source,foreign,target) is {} project)
-            return project;
+            return(project.Page,project.Name,ProjectScopedSingleRelationTarget.ControlScope(catalog,source,foreign,target));
         throw new InvalidOperationException("固定单值缓存缺少已发布的目标页范围。");
     }
 

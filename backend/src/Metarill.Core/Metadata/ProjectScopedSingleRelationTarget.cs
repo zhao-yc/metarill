@@ -96,7 +96,8 @@ public static class ProjectScopedSingleRelationTarget
         return FixedConditionPlan.Compile(definitions.SingleOrDefault(),members);
 
         string Normalize(string text)=>string.Join(" AND ",FixedConditionPlan.Compile(text,members).Terms
-            .Where(term=>!ProjectTerm(term)).Select(term=>term.ToDefinition()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+            .Where(term=>GlobalCrossTableTarget.Declared(target)||!ProjectTerm(term))
+            .Select(term=>term.ToDefinition()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
     }
 
     /// <summary>顺着已声明的单值路径找到需要持久化的范围，循环留给与读取相同的拒绝门禁。</summary>

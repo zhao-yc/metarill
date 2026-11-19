@@ -390,7 +390,7 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>单值副本按来源行归属重算，逻辑条件沿目标页的实际级联路径读取。</summary>
         private string PublishedSingleCondition(TableMetadata table,string alias,PageMetadata page,CascadeCacheOwner? cacheOwner=null,
-            ColumnMetadata? parentField=null,string? sourceParent=null)
+            ColumnMetadata? parentField=null,string? sourceParent=null,bool allowFixedOnly=false)
         {
             var members=columns[table.Id].Values.ToArray();
             var fields=PublishedSelfTreeConditionFields(catalog,table,page,members);
@@ -400,7 +400,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(GlobalCrossTableTarget.Declared(table))scopedGlobalCrossTarget=true;
             if(cacheOwner is {} row&&logical.Count==0)
                 return PhysicalAccountCacheCondition(table,alias,page,row,parentField,
-                    allowFixedOnly:!GlobalCrossTableTarget.Declared(table));
+                    allowFixedOnly:allowFixedOnly||!GlobalCrossTableTarget.Declared(table));
             return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
                 alias,cacheOwner,parentField,fields,sourceParent);
         }
@@ -433,11 +433,11 @@ public static partial class MySqlNonRedundantReadCompiler
             TableMetadata table,string owner,ColumnMetadata foreign,TableMetadata target,CascadeCacheOwner? cacheOwner)
         {
             var source=Resolve(table,owner,foreign.ColumnName);
-            if(!GlobalCrossTableTarget.Declared(target)&&refreshFields is not null&&table.Id==root.Id&&owner==rootAlias&&
+            if(refreshFields is not null&&table.Id==root.Id&&owner==rootAlias&&
                 refreshMultiples.FirstOrDefault(binding=>!binding.Multiple&&binding.ScopedSinglePageId is not null&&
                     binding.ForeignColumnId==foreign.Id&&binding.TargetTableId==target.Id&&binding.SourceTableId==table.Id) is {} registered)
             {
-                var row=new CascadeCacheOwner(table,owner);
+                var row=new CascadeCacheOwner(table,owner,GlobalSingleSource:GlobalCrossTableTarget.Declared(table));
                 var scoped=JoinRegisteredSingleCache(table,owner,foreign,target,source,registered,row);
                 return(scoped.Alias,scoped.Visibility,row);
             }
@@ -450,7 +450,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(projectNested.Scoped)
                 {
                     var control=ProjectScopedSingleRelationTarget.ControlScope(catalog,table,foreign,target,sourcePage);
-                    var scoped=JoinProjectSingleCache(table,owner,foreign,target,source,projectNested.Page,cacheOwner,control,sourcePage);
+                    var scoped=JoinSingleCacheWithControl(table,owner,foreign,target,source,projectNested.Page,cacheOwner,control,sourcePage);
                     return(scoped.Alias,scoped.Visibility,cacheOwner);
                 }
                 // 空条件仍须把中间页传给下一段，并保留实际外键的反查位置。
@@ -468,25 +468,31 @@ public static partial class MySqlNonRedundantReadCompiler
             var proof=DerivedCrossTableCaches.ScopedSingleTarget(catalog,table,foreign,target);
             if(proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=definition.ValueColumnId)
                 throw new InvalidOperationException("单值名称缓存的目标范围与发布证明不一致。");
-            if(!GlobalCrossTableTarget.Declared(target))
-            {
-                var control=ProjectScopedSingleRelationTarget.ControlScope(catalog,table,foreign,target);
-                return JoinProjectSingleCache(table,owner,foreign,target,source,proof.Page,cacheOwner,control);
-            }
+            if(proof.Control is {} control&&(!GlobalCrossTableTarget.Declared(target)||control.Terms.Count>0))
+                return JoinSingleCacheWithControl(table,owner,foreign,target,source,proof.Page,cacheOwner,control);
             var parent=MultiParent(catalog,proof.Page);
             var binding=parent?.SingleSource(catalog,table,foreign);
             return JoinScopedSingleCache(table,owner,foreign,target,source,proof.Page,cacheOwner,parent,binding);
         }
 
         /// <summary>先保留真实外键反查，再按最终缓存来源行核对内层账号、父键和级联范围。</summary>
-        private (string Alias,string Visibility)? JoinNestedSingleCache(TableMetadata table,string owner,ColumnMetadata foreign,
+        private (string Alias,string? Visibility)? JoinNestedSingleCache(TableMetadata table,string owner,ColumnMetadata foreign,
             TableMetadata target,(string Sql,string Type) source,CascadeCacheOwner cacheOwner)
         {
             var proof=table.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,table,foreign,target)
                 :GlobalSingleRelationTarget.Require(catalog,table,foreign,target);
-            return proof.RequiresScopedPage
-                ?JoinScopedSingleCache(table,owner,foreign,target,source,proof.Page,cacheOwner,proof.Parent,proof.SourceParent)
-                :null;
+            var sourcePage=singleCachePages.GetValueOrDefault(owner);
+            var control=target.IsRongyu==0&&sourcePage is not null
+                ?ProjectScopedSingleRelationTarget.ControlScope(catalog,table,foreign,target,sourcePage):proof.CacheControl;
+            if(control is {Terms.Count:>0})
+                return JoinSingleCacheWithControl(table,owner,foreign,target,source,proof.Page,cacheOwner,control,sourcePage);
+            if(proof.RequiresScopedPage)
+                return JoinScopedSingleCache(table,owner,foreign,target,source,proof.Page,cacheOwner,proof.Parent,proof.SourceParent);
+            if(sourcePage is null)return null;
+            // 已知中间页时继续传递实际全局目标页，供更深一段恢复原控件条件。
+            var alias=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true);
+            singleCachePages[alias]=proof.Page;
+            return(alias,null);
         }
 
         /// <summary>先登记物理关联用于反查，命名和其他投影的可见性随后按已发布范围计算。</summary>
@@ -500,12 +506,15 @@ public static partial class MySqlNonRedundantReadCompiler
             var sourceFrom=owner==rootAlias&&sourceParent is null?null:" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true,scopedCacheLink:true);
             singleCachePages[alias]=page;
-            var visible=PublishedSingleCondition(target,alias,page,cacheOwner,parent?.Target,parent?.Logical==true?sourceParent:null);
+            var visible=PublishedSingleCondition(target,alias,page,cacheOwner,parent?.Target,parent?.Logical==true?sourceParent:null,
+                allowFixedOnly:control is {Terms.Count:>0});
             if(parent is {Logical:false})
                 visible+=(visible.Length==0?"":" AND ")+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,
                     cacheOwner,sourceParent,sourceFrom);
             if(control is {Terms.Count:>0})
             {
+                // 控件谓词留在可见性中以保留失效反查，直接目标路径不能简化该计划。
+                scalarCacheTarget=null;
                 var extra=SingleControlCacheCondition(table,owner,target,alias,page,control,cacheOwner);
                 if(extra.Length>0)visible+=(visible.Length==0?"":" AND ")+extra;
             }

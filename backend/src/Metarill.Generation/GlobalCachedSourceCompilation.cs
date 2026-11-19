@@ -72,6 +72,10 @@ internal static class GlobalCachedSourceCompilation
         if(string.IsNullOrWhiteSpace(overlay)||
             JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(foreign.Source.ControlDetail)))return;
 
+        // 下拉副本的作用域已由各实际来源页统一证明，只允许这些页面重复声明等价条件。
+        if(foreign.Source.ControlKind=="List"&&binding.Target.IsRongyu==0&&binding.ScopedSingle&&
+            JsonNode.Parse(overlay) is JsonObject detail&&detail.All(pair=>pair.Key=="whereSql"))return;
+
         if(foreign.Source.ControlKind=="SelectPage")
         {
             var baseline=SelectionControlDefinition.Resolve(foreign,null);

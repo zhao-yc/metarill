@@ -84,6 +84,122 @@ public sealed class GlobalCachedTargetGenerationTests
         }
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>全局目标的附加条件必须跟随真实缓存写入、反查与回填，不能只过滤原候选。</summary>
+    [Theory][InlineData("constant",true)][InlineData("form",true)][InlineData("account",true)]
+    [InlineData("constant",false)][InlineData("form",false)][InlineData("project",false)][InlineData("nested",false)]
+    public async Task Global_r0_list_cache_preserves_the_published_control_scope(string condition,bool globalSource)
+    {
+        var nested=condition=="nested";
+        var catalog=nested?GlobalDerivedTargetGenerationTests.Catalog(1,"int64","int64"):Catalog(1,"int64");
+        var sourceId=globalSource?"1":"3";
+        var pageId=globalSource?"10":"30";
+        var foreignId=globalSource?"13":"34";
+        var cacheName=globalSource?"global_target_name":nested?"global_source_global_target_name":"global_target_name";
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
+        Add("25","2","segment","int32");
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id==foreignId);
+        if(!globalSource&&!nested)
+        {
+            foreign.ColumnName="global_target_id";
+            foreign.LinkConfigTableId="2";
+            var cache=catalog.ConfigColumns.Single(column=>column.Id=="35");
+            cache.ColumnName=cacheName;
+            cache.Extra["columnFullName"]=JsonSerializer.SerializeToElement("global_target.name");
+        }
+
+        if(nested)
+        {
+            foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="1",pageId="10",nameField="global_target_name",whereSql="status>=1"});
+            catalog.ConfigPageColumns.Single(field=>field.Id=="1013").Extra["controlDetail"]=
+                JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql="segment=3"}));
+        }
+        else
+        {
+            var scope=condition switch
+            {
+                "form"=>"segment IN (@formParameters.lookupSegment,3)",
+                "account"=>"store_id=@current_store_id AND segment=3",
+                "project"=>"yz_project_id=@current_yz_project_id AND segment=3",
+                _=>"segment=3"
+            };
+            foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="20",nameField="name",whereSql="segment=17"});
+            catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==pageId&&field.ConfigColumnId==foreignId).Extra["controlDetail"]=
+                JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql=scope}));
+        }
+        if(condition=="form")
+        {
+            Add("90",sourceId,"lookup_segment","int64");
+            catalog.ConfigPageColumns.Add(new(){Id="900",ConfigPageId=pageId,ConfigColumnId="90",YzProjectId="100",IsShow=1,IsEdit=1});
+        }
+        if(condition=="account")
+        {
+            Add("91",sourceId,"store_id","int64");
+            Add("92","2","store_id","int64");
+            catalog.ConfigPages.Single(page=>page.Id==pageId).WhereSql+=" AND store_id=@current_store_id";
+            // 此样本验证有账号归属的全局副本，移除无账号条件的旧下游选择模型。
+            catalog.ConfigTables.RemoveAll(table=>table.Id=="3");
+            catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="3");
+            catalog.ConfigPages.RemoveAll(page=>page.ConfigTableId=="3");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="30");
+            catalog.ConfigMenus.RemoveAll(menu=>menu.ConfigPageId=="30");
+            catalog.ConfigButtons.Clear();
+        }
+
+        if(condition=="project")Add("93","2","yz_project_id","string");
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-control-cache");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.GlobalControlCache");
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                assembly.GetType("Example.GlobalControlCache.Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+            const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+            var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",flags)!.GetValue(maintenance));
+            var table=plans[sourceId]!;
+            var read=table.GetType().GetProperty("Read")!.GetValue(table)!;
+            var sql=Assert.IsType<string>(read.GetType().GetMethod("Expression",flags)!.Invoke(read,[cacheName]));
+            var values=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(read.GetType().GetProperty("Constants",flags)!.GetValue(read)).Values;
+            Assert.Contains(".`segment`",sql);
+            Assert.Contains(3,values);
+            Assert.DoesNotContain(17,values);
+            if(condition=="form")Assert.Contains("b.`lookup_segment`",sql);
+            if(condition=="account")Assert.Contains("b.`store_id`",sql);
+            if(condition=="project")Assert.Contains(".`yz_project_id`=@project_scope_text",sql);
+
+            // 过滤列不进入物理联接的 ON；原目标后来变得不可见时，仍必须从其主键反查到所有来源。
+            var from=Assert.IsType<string>(read.GetType().GetProperty("From",flags)!.GetValue(read));
+            Assert.DoesNotContain(".`segment`",from);
+            Assert.Null(read.GetType().GetProperty("ScalarCacheTarget",flags)!.GetValue(read));
+            var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("Reverse",flags)!.GetValue(read));
+            Assert.Contains(reverse.Cast<object>(),item=>
+                Equals("global_target",item.GetType().GetProperty("TargetTable")!.GetValue(item))&&
+                Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(item.GetType().GetProperty("Outputs")!.GetValue(item))
+                    .TryGetValue(cacheName,out var fields)&&fields.Contains("segment"));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+
+        void Add(string id,string table,string name,string type)=>catalog.ConfigColumns.Add(new()
+            {Id=id,ConfigTableId=table,ColumnName=name,LogicalType=type,YzProjectId="100"});
+    }
+
+    /// <summary>共享的全局副本拒绝按来源页面计算不同的有效条件。</summary>
+    [Fact]
+    public void Global_r0_list_cache_rejects_conflicting_source_page_conditions()
+    {
+        var catalog=Catalog(1,"int64");
+        var source=catalog.ConfigTables.Single(table=>table.Id=="1");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="2");
+        target.IsRongyu=0;
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="13");
+        foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="20",nameField="name",whereSql="status=1"});
+        catalog.ConfigPages.Add(new(){Id="11",ConfigTableId="1",YzProjectId="100",YzAdminTypeId="9"});
+        catalog.ConfigPageColumns.Add(new(){Id="1113",ConfigPageId="11",ConfigColumnId="13",YzProjectId="100",
+            Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql="status=2"}))}});
+        var error=Assert.Throws<InvalidOperationException>(()=>GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target));
+        Assert.Contains("来源页附加条件必须一致",error.Message);
+    }
+
     /// <summary>完整的三表配置；普通来源有项目列，全局缓存与物理终点都明确发布，缓存不成为可写控件。</summary>
     internal static MetadataCatalog Catalog(int mode,string type)
     {

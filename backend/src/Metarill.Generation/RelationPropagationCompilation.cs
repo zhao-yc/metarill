@@ -62,21 +62,18 @@ internal static class RelationPropagationCompilation
         {
             var target=ForeignValidationRenderer.Target(model,foreign);
             if(target is null||target.Source.IsRongyu!=0)continue;
+            var cache=SelectionDisplayFieldCompilation.Resolve(table,foreign);
+            if(cache.Source.Id==foreign.Source.Id)continue;
             (PageMetadata Page,ColumnMetadata Name) proof;
             if(target.IsGlobal)
             {
-                if(!target.Pages.Any(page=>FixedPageConditionCompilation.HasLogicalFields(page)||
-                    FixedPageConditionCompilation.HasAccountVariables(page)||
-                    GlobalCrossTableTarget.SingleParent(model.Catalog,target.Source,page.Source) is {Logical:true}))continue;
                 var global=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source);
-                if(!global.RequiresScopedPage)continue;
+                if(!global.RequiresScopedCache)continue;
                 proof=(global.Page,global.Name);
             }
             else if(ProjectScopedSingleRelationTarget.Resolve(model.Catalog,table.Source,foreign.Source,target.Source) is {} project)
                 proof=project;
             else continue;
-            var cache=SelectionDisplayFieldCompilation.Resolve(table,foreign);
-            if(cache.Source.Id==foreign.Source.Id)continue;
             var value=target.Columns.Single(column=>column.Source.Id==proof.Name.Id);
             yield return new(table,foreign,target,value,cache,false){ScopedSinglePageId=proof.Page.Id};
         }

@@ -8,7 +8,7 @@ public static partial class MySqlNonRedundantReadCompiler
     private sealed partial class Builder
     {
         /// <summary>页面和控件共用实际父键，允许控件单独限定目标物理父级。</summary>
-        private (string Alias,string Visibility) JoinProjectSingleCache(TableMetadata table,string owner,ColumnMetadata foreign,
+        private (string Alias,string Visibility) JoinSingleCacheWithControl(TableMetadata table,string owner,ColumnMetadata foreign,
             TableMetadata target,(string Sql,string Type) source,PageMetadata page,CascadeCacheOwner cacheOwner,
             FixedConditionPlan control,PageMetadata? sourcePage=null)
         {
@@ -38,14 +38,24 @@ public static partial class MySqlNonRedundantReadCompiler
             var prefix=ConditionParameterPrefix("mt_single_control_"+alias);
             var account=condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
                 AccountConditionVariables.IsSupported(value.Text))).ToArray();
+            var project=condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
+                value.Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))).ToArray();
             var predicates=new List<string>();
+            if(project.Length>0)
+            {
+                if(!GlobalCrossTableTarget.Declared(target)||project.Any(term=>term.Field!="yz_project_id"||
+                    term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1))
+                    throw new InvalidOperationException("全局名称副本的项目条件必须限定实际物理项目列。");
+                // 任务使用已发布目录的项目身份。目标虽显式全局，控件仍可只接受本项目的记录。
+                predicates.Add(Scope(target,alias));
+            }
             if(account.Length>0)
             {
                 var definition=new PageMetadata{Id=page.Id,ConfigTableId=target.Id,Extra=page.Extra,
                     WhereSql=string.Join(" AND ",account.Select(term=>term.ToDefinition()))};
                 predicates.Add(PhysicalAccountCacheCondition(target,alias,definition,cacheOwner,allowFixedOnly:true));
             }
-            var terms=condition.Terms.Except(account).Where(term=>!term.Values.Any(value=>
+            var terms=condition.Terms.Except(account).Except(project).Where(term=>!term.Values.Any(value=>
                 value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text)));
             var syntax=FixedConditionPlan.Compile(string.Join(" AND ",terms.Select(term=>term.ToDefinition())),members.Keys);
             if(syntax.Terms.Count==0)return string.Join(" AND ",predicates);
