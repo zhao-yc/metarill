@@ -6,6 +6,12 @@ function isSelectionCheckboxId(value) {
   (value.length < 19 || value <= '9223372036854775807')
 }
 
+/** 父字段使用当前标量，安全整数可以转为接口要求的字符串。 */
+function checkboxParentId(value) {
+ const text = Number.isSafeInteger(value) ? String(value) : value
+ return isSelectionCheckboxId(text) ? text : null
+}
+
 /** 原选项复用发布路由；父级和身份变化立即废弃请求。 */
 export function createOriginalListOptionsMixin({ targetParentFields = [], optionFields = [], checkboxOptionScopes = [] } = {}) {
  return {
@@ -59,12 +65,58 @@ export function createOriginalListOptionsMixin({ targetParentFields = [], option
     if (typeof this.showSelectedOnly === 'boolean') this.showSelectedOnly = false
     this.closeChildDetailPopup?.()
    },
+   /** 原数组候选按发布范围查询，所有合法值到齐后再更新复选框。 */
+   loadOriginalArrayCheckboxOptions(definition) {
+    const { field, url, requiresParent, sameParent, targetParentField, table, formFields, limit } = definition
+    const range = field + 'Range', data = {}
+    if (requiresParent) {
+     data.parentId = checkboxParentId(this.parent_id)
+     if (data.parentId === null) return
+    }
+    if (sameParent || targetParentField) {
+     data.targetParentId = sameParent ? data.parentId : checkboxParentId(this.filters?.[targetParentField])
+     if (data.targetParentId == null) return
+    }
+    if (formFields.length > 0) {
+     const values = {}
+     for (const binding of formFields) {
+      const value = binding.fromParent ? data.parentId : this.filters?.[binding.name]
+      const valid = value === null || typeof value === 'boolean' || typeof value === 'string' && value.trim() ||
+       typeof value === 'number' && Number.isFinite(value) && (!binding.int64 || Number.isSafeInteger(value))
+      if (!valid) return
+      values[binding.name] = value
+     }
+     data.formParameters = { [table]: values }
+    }
+    return this.originalOptionRequest({
+     url, data, method: 'POST', sendSessionId: true,
+     success: res => {
+      if (res.code !== 200) {
+       this[range] = []
+       uni.showModal({showCancel: false, content: res.msg})
+       return
+      }
+      const items = res.data, ids = new Set()
+      if (!Array.isArray(items) || items.length > limit || items.some(item => {
+       if (!isSelectionCheckboxId(item?.value) || item.id !== item.value ||
+           !(item.text === null || typeof item.text === 'string') || ids.has(item.value)) return true
+       ids.add(item.value)
+       return false
+      })) {
+       this[range] = []
+       uni.showModal({showCancel: false, content: '关联候选响应无效或超过' + limit + '条。'})
+       return
+      }
+      this[range] = items.map(({text, value}) => ({text: text ?? '', value}))
+     }
+    })
+   },
    /** 逐页取齐已发布的多选候选；高精度名称分批走原回读，只发布完整的一组结果。 */
    loadOriginalSelectionCheckboxOptions(definition, parent) {
     const { field, url, nameField, int32Name, textNames, requiresParent, limit } = definition
     const key = 'selection-checkbox:' + field, range = field + 'Range'
-    const parentId = Number.isSafeInteger(parent) ? String(parent) : parent
-    if (requiresParent && !isSelectionCheckboxId(parentId)) return
+    const parentId = checkboxParentId(parent)
+    if (requiresParent && parentId === null) return
     const scope = requiresParent ? { parentId } : {}
     const pageSize = 1000, labelsBatchSize = 200
     const ids = new Set(), options = []

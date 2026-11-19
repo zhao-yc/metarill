@@ -42,7 +42,10 @@ internal static class RelationCompilation
         bool ExcelSelection(ColumnModel column) => forExcel && owner.Source.IsRongyu == 1 && !column.IsSystem &&
             column.Source.ControlKind == "SelectPage" && (imported.Contains(column) || ExportRenderer.IncludesColumn(page, column));
         // 系统项目上下文保留既有List等接线，新缓存能力不额外追加隐藏候选或授权依赖。
-        var candidates = forService && !functionForm ? owner.Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||FixedListTarget(model,page,column)||FixedSelectionTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)||ExcelSelection(column)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
+        var candidates = forService && !functionForm ? owner.Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||FixedListTarget(model,page,column)||FixedSelectionTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)||ExcelSelection(column)) : page.Readable.Concat(page.Writable)
+            .Concat(page.Searchable.Where(column => column.Source.ControlKind == "List" && ControlRenderer.UsesScalarCheckboxFilter(column) &&
+                SelectionNameFilterCompilation.EffectiveFilterKind(model, page, column) == "List"))
+            .DistinctBy(x => x.Source.Id);
         if (scopeSourceId is not null) candidates = owner.Columns.Where(column => column.Source.Id == scopeSourceId);
         foreach (var source in candidates)
         {

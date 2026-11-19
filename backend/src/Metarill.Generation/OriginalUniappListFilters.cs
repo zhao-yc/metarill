@@ -40,9 +40,12 @@ internal static partial class OriginalUniappListRenderer
                 data.Append(key).Append("Range:").Append(range).Append(',');
                 var scope = kind switch
                 {
+                    "List" when ControlRenderer.UsesScalarCheckboxFilter(column) =>
+                        AppendListCheckboxFilterOptions(model, table, page, column, requests),
                     "MultiCheckBoxDatabase" when table.Source.IsRongyu == 0 &&
                         DatabaseCheckboxCompilation.Resolve(model, table, page, column).Definition is { } checkbox =>
-                        AppendDatabaseCheckboxFilterOptions(model, table, page, checkbox, requests),
+                        AppendArrayCheckboxFilterOptions(model, table, page, column, checkbox.Endpoint,
+                            checkbox.SourceParent is not null, checkbox.Conditions, requests),
                     "MultiSelectPage" when MultiSelectCompilation.CheckboxFilterOptions(model, table, page, column) is { } selection =>
                         AppendSelectionCheckboxFilterOptions(selection, requests),
                     _ => null
@@ -121,47 +124,59 @@ internal static partial class OriginalUniappListRenderer
         return new(field, selection.SameParent, targetParent is null ? [] : [targetParent]);
     }
 
-    /// <summary>非冗余成员筛选复用原受权候选入口。列表只提交现有父级及页面开放的标量条件。</summary>
-    private static CheckboxOptionScope? AppendDatabaseCheckboxFilterOptions(GenerationModel model, TableModel table, PageModel page,
-        DatabaseCheckboxModel checkbox, StringBuilder requests)
+    /// <summary>普通关联复用原数组端点。固定目录仍使用自己的已发布端点。</summary>
+    private static CheckboxOptionScope? AppendListCheckboxFilterOptions(GenerationModel model, TableModel table, PageModel page,
+        ColumnModel column, StringBuilder requests)
     {
-        var parent = checkbox.SourceParent;
-        var forms = checkbox.Conditions?.Forms.Select(binding => binding.Column).DistinctBy(column => column.Source.Id).ToArray() ?? [];
-        var filterFields = forms.Where(column => column.Source.Id != parent?.Source.Id).ToArray();
-        if (filterFields.Any(column => !ControlRenderer.HasScalarSourceFilter(model, page, column)))
+        var catalog = FixedOptionCatalogCompilation.ForPage(model, page).SingleOrDefault(item => item.Source.Source.Id == column.Source.Id);
+        if (catalog is not null)
+            return AppendArrayCheckboxFilterOptions(model, table, page, column, catalog.Endpoint, false, null, requests);
+        var relation = RelationCompilation.ForPage(model, page).SingleOrDefault(item => item.SourceColumn.Source.Id == column.Source.Id);
+        if (relation is null) return null;
+        var context = ControlRenderer.RelationContext(page, relation, true);
+        if (context.UnresolvedTarget) return null;
+        return AppendArrayCheckboxFilterOptions(model, table, page, column, relation.LegacyEndpoint,
+            relation.SourceParents.Count > 0, relation.Conditions, requests, context);
+    }
+
+    /// <summary>数组候选只接收固定来源父级、目标父级和当前页已开放的表单标量。</summary>
+    private static CheckboxOptionScope? AppendArrayCheckboxFilterOptions(GenerationModel model, TableModel table, PageModel page,
+        ColumnModel column, string endpoint, bool requiresParent, RelationConditionModel? condition, StringBuilder requests,
+        RelationUiContext? context = null)
+    {
+        var parentFields = requiresParent
+            ? page.Scopes.Where(scope => scope.Source == "parent").Select(scope => scope.Column.Source.Id).ToHashSet(StringComparer.Ordinal)
+            : [];
+        var forms = condition?.Forms.Select(binding => binding.Column).DistinctBy(field => field.Source.Id).ToArray() ?? [];
+        var sourceFilters = forms.Where(field => !parentFields.Contains(field.Source.Id)).ToArray();
+        if (sourceFilters.Any(field => !ControlRenderer.HasScalarSourceFilter(model, page, field)))
             return null;
 
-        var key = checkbox.Source.JsonName;
-        var fields = string.Join(",", forms.Select(column => $"[{J(column.JsonName)}]:" +
-            (column.Source.Id == parent?.Source.Id ? "parentId" : $"that.filters?.[{J(column.JsonName)}]")));
-        var stringIdFields = J(filterFields.Where(column => column.Type is "long?" or "long").Select(column => column.JsonName));
-        var form = forms.Length == 0 ? "" : $$$"""
-            const values = { {{{fields}}} };
-            if (Object.values(values).some(value => value !== null &&
-                (typeof value === 'string' ? !value.trim() : typeof value === 'number' ? !Number.isFinite(value) : typeof value !== 'boolean'))) return;
-            if ({{{stringIdFields}}}.some(field => typeof values[field] === 'number' && !Number.isSafeInteger(values[field]))) return;
-            data.formParameters = { [{{{J(GenerationModel.Camel(table.Source.TableName))}}}]: values };
-            """;
-        var parentScope = parent is null ? "" : "const parentId=that.parent_id;if(!parentId)return;data.parentId=parentId;";
-        var url = J($"/admin/auto/{table.Source.TableName}/{page.Source.Id}/{checkbox.Endpoint}");
-        requests.AppendLine($$$"""
-            (() => {
-              const data = {};
-              {{{parentScope}}}
-              {{{form}}}
-              that.originalOptionRequest({
-                url: {{{url}}}, data, sendSessionId: true, method: 'POST',
-                success(res) {
-                  if (res.code === 200) {
-                    that.{{{key}}}Range = Array.isArray(res.data) ? res.data.map(({text, value}) => ({text, value})) : [];
-                  } else {
-                    uni.showModal({showCancel: false, content: res.msg});
-                  }
-                }
-              });
-            })();
-            """);
-        return new(key, parent is not null, filterFields.Select(column => column.JsonName).ToArray());
+        var target = context?.TargetParentField;
+        if (target is not null && !page.Searchable.Any(field => field.JsonName == target &&
+            ControlRenderer.HasScalarSourceFilter(model, page, field)))
+            return null;
+
+        var bindings = J(new
+        {
+            field = column.JsonName,
+            url = $"/admin/auto/{table.Source.TableName}/{page.Source.Id}/{endpoint}",
+            requiresParent,
+            sameParent = context?.SameParent == true,
+            targetParentField = target,
+            table = GenerationModel.Camel(table.Source.TableName),
+            formFields = forms.Select(field => new
+            {
+                name = field.JsonName,
+                fromParent = parentFields.Contains(field.Source.Id),
+                int64 = field.Type is "long" or "long?"
+            }),
+            limit = DatabaseCheckboxValue.MaximumItems
+        });
+        requests.AppendLine($"that.loadOriginalArrayCheckboxOptions({bindings});");
+        var dependencies = sourceFilters.Select(field => field.JsonName);
+        if (target is not null) dependencies = dependencies.Append(target);
+        return new(column.JsonName, requiresParent, dependencies.Distinct(StringComparer.Ordinal).ToArray());
     }
 
     /// <summary>显式复选与原组件使用同一源键和数组形状。日期预设从可选值中挑选，不生成区间。</summary>

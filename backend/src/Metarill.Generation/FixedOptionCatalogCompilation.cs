@@ -58,7 +58,10 @@ internal static class FixedOptionCatalogCompilation
         catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException) { return Gap("目录声明格式无效。"); }
     }
 
-    /// <summary>候选与VO只采用本页可读/可写字段，不把其它页面的目录字段顺带公开。</summary>
-    internal static IReadOnlyList<FixedOptionCatalogModel> ForPage(GenerationModel model, PageModel page) => page.Readable.Concat(page.Writable).DistinctBy(column => column.Source.Id)
+    /// <summary>候选采用本页可读、可写或显式复选筛选字段。</summary>
+    internal static IReadOnlyList<FixedOptionCatalogModel> ForPage(GenerationModel model, PageModel page) => page.Readable.Concat(page.Writable)
+        .Concat(page.Searchable.Where(column => column.Source.ControlKind == "List" && ControlRenderer.UsesScalarCheckboxFilter(column) &&
+            SelectionNameFilterCompilation.EffectiveFilterKind(model, page, column) == "List"))
+        .DistinctBy(column => column.Source.Id)
         .Select(column => Resolve(model, page, column).Definition).OfType<FixedOptionCatalogModel>().ToArray();
 }
