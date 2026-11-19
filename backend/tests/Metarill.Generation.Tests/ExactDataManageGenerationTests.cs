@@ -321,7 +321,12 @@ public sealed class ExactDataManageGenerationTests
     [InlineData(false, "countryId", "country_id")]
     [InlineData(true, "countryId", "country_id")]
     [InlineData(true, "countryName", "country_name")]
-    public async Task Redundant_selection_excel_uses_target_cascade_exact_plan(bool shared, string key, string field)
+    [InlineData(false, "countryId", "country_id", "country_name")]
+    [InlineData(true, "countryName", "country_name", "area_name")]
+    [InlineData(false, "countryId", "country_id", "country_name", true)]
+    [InlineData(true, "countryName", "country_name", "area_name", true)]
+    public async Task Redundant_selection_excel_uses_target_cascade_exact_plan(bool shared, string key, string field,
+        string? fixedField = null, bool physicalName = false)
     {
         const string generatedNamespace = "Example.ExcelCascadeExact";
         var catalog = shared ? SharedCrossExactScopeGenerationTests.Catalog(key)
@@ -329,8 +334,10 @@ public sealed class ExactDataManageGenerationTests
         var targetPage = catalog.ConfigPages.Single(page => page.Id == "201");
         targetPage.Extra["type"] = JsonSerializer.SerializeToElement(1);
         targetPage.Extra["exactDataManageMatchField"] = JsonSerializer.SerializeToElement(key);
+        if (fixedField is not null) targetPage.WhereSql += $" AND {fixedField}='固定候选'";
         var project = catalog.YzProjectId;
         var admin = targetPage.YzAdminTypeId;
+        var label = physicalName ? "name" : "dictionary_name";
         catalog.YzAdminTypes.Single(type => type.Id == admin).Extra["exactDataManageMatchField"] = JsonSerializer.SerializeToElement("realName");
         catalog.ConfigTables.AddRange([
             new() { Id = "990", YzProjectId = project, TableName = "exact_excel_dictionary", IsRongyu = 0 },
@@ -344,7 +351,7 @@ public sealed class ExactDataManageGenerationTests
             new() { Id = "99101", YzProjectId = project, ConfigTableId = "991", ColumnName = "id", LogicalType = "int64", IsDbNotNull = 1 },
             new() { Id = "99102", YzProjectId = project, ConfigTableId = "991", ColumnName = "target_id", LogicalType = "int64",
                 Name = "目标名称", LinkConfigTableId = "2", ControlKind = "SelectPage",
-                ControlDetail = """{"pageId":"201","tableId":"2","nameField":"dictionary_name"}""" },
+                ControlDetail = JsonSerializer.Serialize(new { pageId = "201", tableId = "2", nameField = label }) },
             new() { Id = "99103", YzProjectId = project, ConfigTableId = "991", ColumnName = "yz_project_id", LogicalType = "int64" },
             new() { Id = "99005", YzProjectId = project, ConfigTableId = "2", ColumnName = "dictionary_id", LogicalType = "int64",
                 LinkConfigTableId = "990", ControlKind = "List", ControlDetail = """{"tableId":"990","nameField":"name"}""",
@@ -377,7 +384,13 @@ public sealed class ExactDataManageGenerationTests
             new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), generatedNamespace);
             new FrontendPackager().Validate(catalog);
             var source = await File.ReadAllTextAsync(Path.Combine(directory, "generated/Services/ExactExcelConsumerService.g.cs"));
-            Assert.Contains(shared ? "CompileProjectPage" : "CompileCross", source);
+            Assert.Contains(fixedField is not null ? "CompileRelationMembership" : shared ? "CompileProjectPage" : "CompileCross", source);
+            if (fixedField is not null)
+            {
+                Assert.Contains("ApplyCondition(query,session,DerivedOptionsPlan9911_99102.BindAccount(actor)", source);
+                Assert.Contains("Service.ExactReadPlan201", source);
+                Assert.Contains("locking:locking", source);
+            }
             Assert.Contains("DerivedOptionsRows9911_99102Async(request.ParentId,groupTargetId.Key", source);
             Assert.Contains("condition:scope.Condition,currentRead:true", source);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
@@ -395,7 +408,7 @@ public sealed class ExactDataManageGenerationTests
                 Array.Empty<IRecordMutationObserver>(), Array.Empty<IRecordMutationGuard>(), authorization])!;
             var plan = Assert.IsType<NonRedundantReadPlan>(type.GetField("DerivedOptionsPlan9911_99102",
                 BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null));
-            Assert.Equal(new[] { "dictionary_name", "id" }, plan.OutputTypes.Keys.Order());
+            Assert.Equal(new[] { "id", label }.Order(), plan.OutputTypes.Keys.Order());
             var mysql = typeof(NonRedundantReadPlan).GetProperty("MySql", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(plan.BindAccount(actor))!;
             var expression = typeof(ExactDataManageSql).GetMethod("CrossExpression", BindingFlags.Static | BindingFlags.NonPublic)!;
             var sql = (string)expression.Invoke(null, [mysql, field])!;
@@ -405,6 +418,17 @@ public sealed class ExactDataManageGenerationTests
             var scoped = (Task<(List<FixedReadFilter> Filters, FixedConditionSqlPlan? Condition)>)scope.Invoke(service,
                 [null, null, actor, CancellationToken.None, null, false])!;
             var result = await scoped;
+            if (fixedField is not null)
+            {
+                var condition = Assert.IsType<FixedConditionSqlPlan>(result.Condition);
+                using var command = new MySqlConnector.MySqlCommand();
+                var predicate = condition.BindConstants(command, session, "fixed_target");
+                Assert.Contains("\u0060" + fixedField + "\u0060", predicate);
+                Assert.Contains("固定候选", command.Parameters.Cast<System.Data.Common.DbParameter>().Select(parameter => parameter.Value));
+                Assert.DoesNotContain("固定候选", predicate);
+                var logicalSql = mysql.GetType().GetMethod("Expression", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                Assert.NotEqual($"b.\u0060{fixedField}\u0060", (string)logicalSql.Invoke(mysql, [fixedField])!);
+            }
             var filter = Assert.Single(result.Filters, candidate => candidate.Field == field);
             Assert.Equal("list", authorization.LastOperation);
             Assert.Equal(FixedReadComparison.In, filter.Comparison);

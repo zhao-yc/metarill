@@ -862,6 +862,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 }
             }
             var ormExcelExact = relation.ExcelTargetExact && !DerivedRelationNamesCompilation.UsesFixedRead(model,relation);
+            var logicalWriteExact = logicalPlan is not null && DerivedRelationNamesCompilation.UsesFixedRead(model,relation) &&
+                ExactDataManageCompilation.Declared(relation.TargetPage);
             var lockScope=relation.Conditions is not null||logicalPlan is not null||
                 relation.Target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
@@ -937,13 +939,13 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             else result.Append(FixedPageConditionCompilation.Apply(relation.TargetPage,"OptionsPageCondition"+suffix,"options_page_"+suffix,logicalPlan,"locking"));
             result.Append(SharedRedundantParentCompilation.ApplyAccountScope(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix,"r1_options","locking"))
                 .Append(RelationConditionsCompilation.Apply(relation,suffix,logicalPlan));
-            if (ormExcelExact)
+            if (ormExcelExact || logicalWriteExact)
             {
-                // 目标页列表和 Excel 使用同一个只读匹配计划。导入沿当前事务，导出沿普通读。
+                // 写前复核使用目标页固定权限计划，避免钩子更改关联后只检查固定条件。
                 var targetPlan = $"global::{model.Namespace}.Generated.Services.{relation.Target.Name}Service.ExactReadPlan{relation.TargetPage.Source.Id}";
                 var exact = ExactDataManageCompilation.Query(model, relation.Target, relation.TargetPage,
                     operation: Literal("list"), prefix: "targetExact", locking: "locking", planReference: targetPlan);
-                result.AppendLine("        if (excelScope)").AppendLine("        {");
+                result.AppendLine($"        if ({(logicalWriteExact ? "locking" : "excelScope")})").AppendLine("        {");
                 foreach (var line in exact.Split('\n', StringSplitOptions.RemoveEmptyEntries))
                     result.Append("    ").AppendLine(line);
                 result.AppendLine("        }");

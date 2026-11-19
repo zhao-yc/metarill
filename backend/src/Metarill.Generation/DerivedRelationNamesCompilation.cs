@@ -25,45 +25,55 @@ internal static class DerivedRelationNamesCompilation
     /// <summary>在生成时证明目标页所有逻辑成员，同时保留来源身份和实际父范围。</summary>
     internal static NonRedundantReadPlan CompileLogicalPage(GenerationModel model,TableModel target,PageModel page,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,RelationConditionModel? additional=null,
-        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,ExactDataManageModel? exact=null)
     {
         var logicalParent=SingleParent(model,target,page) is {Logical:true};
-        if(ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&!logicalParent)
+        if(ExactDataManageCompilation.Declared(page)&&(exact is null||target.IsGlobal||logicalParent)||
+            NonRedundantCrossParentCompilation.Enabled(model,target,page)&&!logicalParent)
             throw new NotSupportedException("单值关系的逻辑条件要求普通目标页及已证明的父范围。");
         if(target.IsGlobal||logicalParent)
             return additional is {HasLogicalFields:true}
                 ?NonRedundantReads.CompileGlobalListCandidate(model.Catalog,target.Source.Id,page.Source.Id,additional.Syntax.Fields,outputs,dependencies,singleTargets)
                 :NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,dependencies,null,singleTargets);
-        var (fields,cross,tree)=LogicalMembership(page,additional);
+        var (fields,cross,tree)=LogicalMembership(page,additional,exact);
         return NonRedundantReads.CompilePageMembership(model.Catalog,target.Source,page.Source,fields,cross,tree,outputs,dependencies,singleTargets);
     }
 
     /// <summary>生成查询复用发布时核验的字段集合，调用方仅绑定身份和业务参数。</summary>
-    internal static string LogicalPagePlanStart(GenerationModel model,TableModel target,PageModel page,RelationConditionModel? additional=null)
+    internal static string LogicalPagePlanStart(GenerationModel model,TableModel target,PageModel page,
+        RelationConditionModel? additional=null,ExactDataManageModel? exact=null)
     {
         var targetIds=JsonSerializer.Serialize(target.Source.Id)+","+JsonSerializer.Serialize(page.Source.Id);
         string Fields(IEnumerable<string> names)=>"new string[]{"+string.Join(",",names.Select(name=>JsonSerializer.Serialize(name)))+"}";
         if(target.IsGlobal||SingleParent(model,target,page) is {Logical:true})return additional is {HasLogicalFields:true}
             ?"CompileGlobalListCandidate("+targetIds+","+Fields(additional.Syntax.Fields)
             :"CompileCrossPageCandidate("+targetIds;
-        var (fields,cross,tree)=LogicalMembership(page,additional);
+        var (fields,cross,tree)=LogicalMembership(page,additional,exact);
         return "CompileRelationMembership("+string.Join(",",targetIds,
             Fields(fields),Fields(cross.Order(StringComparer.Ordinal)),Fields(tree.Order(StringComparer.Ordinal)));
     }
 
-    /// <summary>固定页面与下拉附加条件共用一份完整路径和最小字段集合。</summary>
+    /// <summary>固定条件及精确权限共用真实发布路径。权限字段只扩充依赖，授权值仍由当前账号提供。</summary>
     private static (IReadOnlyList<string> Fields,IReadOnlySet<string> Cross,IReadOnlySet<string> Tree) LogicalMembership(
-        PageModel page,RelationConditionModel? additional)=>
-        ((page.Condition?.Syntax.Fields??[]).Concat(additional is {HasLogicalFields:true}?additional.Syntax.Fields:[])
-            .Distinct(StringComparer.Ordinal).ToArray(),
-        (page.Condition?.CrossFields??Enumerable.Empty<string>()).Concat(additional?.CrossFields??Enumerable.Empty<string>())
-            .ToHashSet(StringComparer.Ordinal),
-        (page.Condition?.SelfTreeFields??Enumerable.Empty<string>()).Concat(additional?.SelfTreeFields??Enumerable.Empty<string>())
-            .ToHashSet(StringComparer.Ordinal));
+        PageModel page,RelationConditionModel? additional,ExactDataManageModel? exact)
+    {
+        var cross = (page.Condition?.CrossFields ?? Enumerable.Empty<string>())
+            .Concat(additional?.CrossFields ?? Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal);
+        if (exact?.CrossPlans is not null) cross.Add(exact.Column.Source.ColumnName);
+        var fields = (page.Condition?.Syntax.Fields ?? []).Concat(additional is { HasLogicalFields: true } ? additional.Syntax.Fields : [])
+            .Concat(cross).Distinct(StringComparer.Ordinal).ToArray();
+        var tree = (page.Condition?.SelfTreeFields ?? Enumerable.Empty<string>())
+            .Concat(additional?.SelfTreeFields ?? Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal);
+        return (fields, cross, tree);
+    }
 
-    /// <summary>有类型的物理名称与派生名称共用候选搜索、回显和工作簿范围。</summary>
+    /// <summary>名称投影和目标逻辑条件共用固定读取，物理名称也执行同样的精确权限。</summary>
     internal static bool UsesFixedRead(GenerationModel model, RelationModel relation) =>
-        Declared(model, relation) || IsPhysicalTypedName(model, relation.Target, relation.NameColumn);
+        Declared(model, relation) || IsPhysicalTypedName(model, relation.Target, relation.NameColumn) ||
+        relation.SourceColumn.Source.ControlKind == "SelectPage" &&
+        ExactDataManageCompilation.Declared(relation.TargetPage) && UsesLogicalPage(relation) &&
+        SupportsExactSelectionTarget(model.Tables.Single(table => table.Source.Id == relation.SourceColumn.Source.ConfigTableId),
+            relation.Target);
 
     /// <summary>物理名称仍使用真实声明类型作为 SQL 投影和精确反查的参数类型。</summary>
     internal static bool IsPhysicalTypedName(GenerationModel model, TableModel target, ColumnModel name) =>
@@ -118,7 +128,8 @@ internal static class DerivedRelationNamesCompilation
         }
         // 全局候选按当前名称读取，不借用仅允许int64路径的精确管理匹配用途。
         var plan=fixedParent is {Logical:true}||FixedPageConditionCompilation.HasLogicalFields(page)
-            ?CompileLogicalPage(model,target,page,[name.Source.ColumnName],[name.Source.ColumnName])
+            ?CompileLogicalPage(model,target,page,[name.Source.ColumnName],[name.Source.ColumnName],
+                exact:ExactDataManageCompilation.Resolve(model,target,page))
             :HasGlobalAccountScope(target,page)
                 ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,page.Source.Id,[name.Source.ColumnName])
                 :target.IsGlobal?NonRedundantReads.Compile(model.Catalog,target.Source.Id,[name.Source.ColumnName])
@@ -176,11 +187,11 @@ internal static class DerivedRelationNamesCompilation
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var outputs = new[] { "id", name.Source.ColumnName };
         var projectTargets=ProjectCandidateTargets(model,relation,exact);
-        var plan = exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0)
+        var plan = UsesLogicalPage(relation)
+            ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies,relation.Conditions,projectTargets,exact)
+            : exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0)
             ? NonRedundantReadCompilation.CompilePage(model, target, outputs, dependencies,
                 NonRedundantCrossTableCompilation.Bindings(exact.CrossPlans ?? []), projectTargets, [])
-            : UsesLogicalPage(relation)
-            ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies,relation.Conditions,projectTargets)
             : target.IsGlobal && physicalTypedName || NonRedundantReadCompilation.HasGlobalRowProject(target) ||
                 HasGlobalAccountScope(target,relation.TargetPage)
             ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, relation.TargetPage.Source.Id, outputs, dependencies, projectTargets)
@@ -199,7 +210,7 @@ internal static class DerivedRelationNamesCompilation
     {
         if (!ExactDataManageCompilation.Declared(relation.TargetPage)) return null;
         if (relation.SourceColumn.Source.ControlKind != "SelectPage" || !SupportsExactSelectionTarget(owner,relation.Target) ||
-            UsesLogicalPage(relation))
+            relation.FixedParent is { Logical: true })
             throw new NotSupportedException("当前派生名称目标的精确范围缺少固定候选证明。");
         return ExactDataManageCompilation.Resolve(model, relation.Target, relation.TargetPage);
     }

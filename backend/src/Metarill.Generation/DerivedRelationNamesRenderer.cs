@@ -21,7 +21,7 @@ internal static class DerivedRelationNamesRenderer
         var embedsPageScope=relation.FixedParent is {Logical:true}||relation.Target.IsGlobal&&(logical||globalAccount);
         var parentPlan = accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var planStart = logical
-            ? DerivedRelationNamesCompilation.LogicalPagePlanStart(model,relation.Target,relation.TargetPage,relation.Conditions)
+            ? DerivedRelationNamesCompilation.LogicalPagePlanStart(model,relation.Target,relation.TargetPage,relation.Conditions,exact)
             : globalAccount || physicalTypedName && relation.Target.IsGlobal || NonRedundantReadCompilation.HasGlobalRowProject(relation.Target)
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : physicalTypedName && relation.Target.Source.IsRongyu == 1
@@ -34,7 +34,7 @@ internal static class DerivedRelationNamesRenderer
         var fields = "new string[]{ " + string.Join(",", dependencies.Select(Literal)) + " }";
         // 精确过滤只引入目标页匹配字段所在路径，共享分支仍由同一个整组计划验证。
         var plan = $"{planStart},{outputs},{fields}{parentPlan}{projectTargetArgument})";
-        if (exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0))
+        if (!logical && exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0))
         {
             var crossArgument = exact.CrossPlans is { } crossPlans
                 ? NonRedundantCrossTableCompilation.BindingArgument(crossPlans)
