@@ -52,7 +52,7 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>只编译固定页面条件依赖的路径，保留祖先范围及实际目标页条件。</summary>
     internal static MySqlNonRedundantReadPlan CompilePageMembership(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
         IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields,IReadOnlySet<string> selfTreeFields,
-        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
     {
         if(!catalog.ConfigPages.Contains(page)||page.ConfigTableId!=table.Id||
             table.IsRongyu!=0||(crossFields.Count==0&&selfTreeFields.Count==0)||
@@ -64,8 +64,9 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new NotSupportedException("固定自树范围缺少已声明的叶名。");
 
         var bindings=crossFields.Count==0?[]:CrossMembershipBindings(catalog,table,page,crossFields);
-        return CompileWithCrossTables(catalog,table.Id,outputs,bindings,
-            conditionFields.Concat(dependencies).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),deferCascadeNames:selfTreeFields.Count>0);
+        return CompileRelationScope(catalog,table.Id,outputs,bindings,
+            conditionFields.Concat(dependencies).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            deferCascadeNames:selfTreeFields.Count>0,singleTargets:singleTargets);
     }
 
     /// <summary>从实际发布页发现逻辑叶名，然后校验其实际控件定义。</summary>

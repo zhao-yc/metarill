@@ -15,7 +15,8 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
         IReadOnlyList<NonRedundantCrossTableScope>? displayBindings=null,string rootAlias="b",string aliasPrefix="r",
         HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null,IReadOnlyList<string>? listFields=null,
-        bool projectSingle=false,string? accountParentPageType=null)
+        bool projectSingle=false,string? accountParentPageType=null,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -73,6 +74,7 @@ public static partial class MySqlNonRedundantReadCompiler
             MultiCandidateParent=projectSingle?null:parent,
             MultiCandidatePage=page,
             GlobalCrossCandidate=global,
+            ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             ScopedRootControls=scopes.Select(path=>path.SourceColumnId).ToHashSet(StringComparer.Ordinal),
             CrossAliasPrefix=rootAlias=="b"?"cross":aliasPrefix+"c"
         };

@@ -27,7 +27,7 @@ internal static class DerivedRelationNamesRenderer
                 : projectTargets.Count>0
                 ? $"CompileProjectRelation({Literal(relation.Target.Source.Id)}"
                 : NonRedundantReadCompilation.RelationPlanStart(relation.Target, relation.TargetPage);
-        var projectTargetArgument=NonRedundantReadCompilation.SingleTargetArgument(projectTargets);
+        var projectTargetArgument=NonRedundantReadCompilation.SingleTargetArgument(projectTargets,logical?"singleTargets":null);
         var label = MultiSelectExcelRenderer.LabelText(relation.NameColumn, $"NonRedundantReads.Value<{relation.NameColumn.Type}>(row,{Literal(name)})");
         var search = relation.NameColumn.Source.LogicalType switch
         {

@@ -24,17 +24,18 @@ internal static class DerivedRelationNamesCompilation
 
     /// <summary>在生成时证明目标页所有逻辑成员，同时保留来源身份和实际父范围。</summary>
     internal static NonRedundantReadPlan CompileLogicalPage(GenerationModel model,TableModel target,PageModel page,
-        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,RelationConditionModel? additional=null)
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,RelationConditionModel? additional=null,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
     {
         var logicalParent=SingleParent(model,target,page) is {Logical:true};
         if(ExactDataManageCompilation.Declared(page)||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&!logicalParent)
             throw new NotSupportedException("单值关系的逻辑条件要求普通目标页及已证明的父范围。");
         if(target.IsGlobal||logicalParent)
             return additional is {HasLogicalFields:true}
-                ?NonRedundantReads.CompileGlobalListCandidate(model.Catalog,target.Source.Id,page.Source.Id,additional.Syntax.Fields,outputs,dependencies)
-                :NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,dependencies);
+                ?NonRedundantReads.CompileGlobalListCandidate(model.Catalog,target.Source.Id,page.Source.Id,additional.Syntax.Fields,outputs,dependencies,singleTargets)
+                :NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,dependencies,null,singleTargets);
         var (fields,cross,tree)=LogicalMembership(page,additional);
-        return NonRedundantReads.CompilePageMembership(model.Catalog,target.Source,page.Source,fields,cross,tree,outputs,dependencies);
+        return NonRedundantReads.CompilePageMembership(model.Catalog,target.Source,page.Source,fields,cross,tree,outputs,dependencies,singleTargets);
     }
 
     /// <summary>生成查询复用发布时核验的字段集合，调用方仅绑定身份和业务参数。</summary>
@@ -174,7 +175,7 @@ internal static class DerivedRelationNamesCompilation
         var outputs = new[] { "id", name.Source.ColumnName };
         var projectTargets=ProjectCandidateTargets(model,relation);
         var plan = UsesLogicalPage(relation)
-            ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies,relation.Conditions)
+            ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies,relation.Conditions,projectTargets)
             : target.IsGlobal && physicalTypedName || NonRedundantReadCompilation.HasGlobalRowProject(target) ||
                 HasGlobalAccountScope(target,relation.TargetPage)
             ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, relation.TargetPage.Source.Id, outputs, dependencies)
@@ -190,8 +191,7 @@ internal static class DerivedRelationNamesCompilation
     }
     /// <summary>派生候选从实际选中的中间页继续解析名称路径及各段固定范围。</summary>
     internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectCandidateTargets(GenerationModel model,RelationModel relation)=>
-        UsesLogicalPage(relation)?[]:NonRedundantReadCompilation.ProjectPathTargets(
-            model,relation.Target,relation.TargetPage,[relation.NameColumn.Source.ColumnName]);
+        NonRedundantReadCompilation.ProjectPathTargets(model,relation.Target,relation.TargetPage,[relation.NameColumn.Source.ColumnName]);
 
     /// <summary>普通R0保持原合同；R1只为明确发布、有真实主键／项目的物理消费者开放同一固定候选。</summary>
     private static bool SupportedOwner(GenerationModel model,TableModel owner)

@@ -231,10 +231,12 @@ public sealed class DerivedRelationNamesTests
     [InlineData(true,false,true,null,false,true,false,false,true,true,false,false,false,false,null,false,false,true)]
     [InlineData(true,true,true,null,true,true,false,false,true,true,false,false,false,false,null,false,false,true)]
     public async Task Single_relation_target_leaf_condition_reaches_original_services(bool selection,bool derived,bool parent,
-        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false,string? rowProjectType=null,bool pageOnly=false,bool buttonOverride=false,bool independentScope=false)
+        bool? globalWithProject,bool redundant,bool cross=false,bool listCondition=false,bool fixedTargetLogic=false,bool globalParent=false,bool logicalParent=false,bool logicalSource=false,bool nested=false,bool nestedCache=false,bool globalCache=false,string? rowProjectType=null,bool pageOnly=false,bool buttonOverride=false,bool independentScope=false,
+        bool terminalProjectScope=false)
     {
         const string prefix="dr_names";
         var catalog=Catalog(prefix,parent);
+        if(terminalProjectScope)AddNestedProjectCandidateScope(catalog,prefix);
         var target=catalog.ConfigPages.Single(page=>page.Id=="201");
         var foreign=catalog.ConfigColumns.Single(column=>column.Id=="15");
         if(selection)
@@ -568,6 +570,30 @@ public sealed class DerivedRelationNamesTests
             foreach(var name in new[]{"DrNamesOrderService","DrNamesPartyService"})
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
                     assembly.GetType("Example.ScopedSingleRelation.Generated.Services."+name,true)!.TypeHandle);
+
+            if(terminalProjectScope)
+            {
+                Assert.Contains("singleTargets:new NonRedundantSingleTargetScope[]",service);
+                Assert.Contains("DerivedOptionsPlan101_15.BindAccount(actor)",service);
+                var type=assembly.GetType("Example.ScopedSingleRelation.Generated.Services.DrNamesOrderService",true)!;
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    type.GetField("DerivedOptionsPlan101_15",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                var actor=new Metarill.Core.Security.RuntimeActor(5,"验收",false,catalog.YzProjectId,"5"){StoreId=6351};
+                var bound=plan.BindAccount(actor);
+                const BindingFlags instance=BindingFlags.Instance|BindingFlags.NonPublic;
+                var mysql=bound.GetType().GetProperty("MySql",instance)!.GetValue(bound)!;
+                var sql=Assert.IsType<string>(mysql.GetType().GetProperty("From",instance)!.GetValue(mysql));
+                Assert.Contains("EXISTS (SELECT 1 FROM `dr_names_company`",sql);
+                Assert.Contains("EXISTS (SELECT 1 FROM `dr_names_region`",sql);
+                var logicalSql=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",instance)!.Invoke(mysql,[logicalField]));
+                Assert.Contains("dr_names_tree",sql+logicalSql);
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    mysql.GetType().GetProperty("Constants",instance)!.GetValue(mysql));
+                Assert.True(constants.Values.Count(value=>Equals(value,6351L))>=2);
+                Assert.Contains("公司筛选",constants.Values);
+                Assert.Contains("区域筛选",constants.Values);
+                Assert.Equal(logicalParent?"country_id":null,mysql.GetType().GetProperty("RequiredMultiParent",instance)!.GetValue(mysql));
+            }
 
             if(nested)
             {
@@ -982,6 +1008,37 @@ public sealed class DerivedRelationNamesTests
     }
 
     /// <summary>声明同项目四表：来源订单→非冗余客户→公司名称；原字段和菜单方式均由元数据生成。</summary>
+    /// <summary>逻辑来源的原候选必须保留公司、区域两层独立的固定范围。</summary>
+    [Theory][InlineData(false,false,false,false)][InlineData(true,true,false,false)]
+    [InlineData(false,true,true,false)][InlineData(true,true,false,true)][InlineData(false,true,true,true)]
+    public Task Logical_project_candidate_keeps_terminal_ranges(bool selection,bool cross,bool listCondition,bool logicalParent)=>
+        Single_relation_target_leaf_condition_reaches_original_services(selection,derived:true,parent:logicalParent,
+            globalWithProject:null,redundant:false,cross:cross,listCondition:listCondition,fixedTargetLogic:listCondition&&logicalParent,
+            logicalParent:logicalParent,terminalProjectScope:true);
+
+    /// <summary>候选源使用逻辑条件，两段普通名称联接分别受固定页的门店与常量限制。</summary>
+    private static void AddNestedProjectCandidateScope(MetadataCatalog catalog,string prefix)
+    {
+        catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=0;
+        catalog.ConfigTables.Add(new(){Id="190",TableName=prefix+"_region",YzProjectId=catalog.YzProjectId,IsRongyu=0});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="1901",ConfigTableId="190",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="1902",ConfigTableId="190",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="1903",ConfigTableId="190",ColumnName="name",LogicalType="string"},
+            new(){Id="1904",ConfigTableId="190",ColumnName="store_id",LogicalType="int64"},
+            new(){Id="45",ConfigTableId="4",ColumnName="store_id",LogicalType="int64"},
+            new(){Id="47",ConfigTableId="4",ColumnName="region_id",LogicalType="int64",LinkConfigTableId="190",ControlKind="List",
+                Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement("19001")}}
+        ]);
+        var company=catalog.ConfigPages.Single(page=>page.Id=="401");
+        company.WhereSql+=" AND store_id=@current_store_id AND name <> '公司筛选'";
+        catalog.ConfigColumns.Single(column=>column.Id=="27").Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement(company.Id);
+        catalog.ConfigPages.Add(new(){Id="19001",ConfigTableId="190",YzAdminTypeId="5",YzProjectId=catalog.YzProjectId,
+            WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id AND name <> '区域筛选'"});
+        catalog.ConfigPageColumns.Add(new(){Id="190011904",ConfigPageId="19001",ConfigColumnId="1903",IsShow=1,IsEdit=0});
+        catalog.ConfigColumns.Single(column=>column.Id=="28").Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.region.name");
+    }
+
     internal static MetadataCatalog Catalog(string prefix,bool parentAndForm)
     {
         var c=NonRedundantGeneratedFixture.Catalog(prefix);c.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;

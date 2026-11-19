@@ -252,10 +252,10 @@ internal static partial class NonRedundantReadCompilation
     }
 
     /// <summary>业务页和记录规则的生成代码复用同一目标页与物理父键字面量。</summary>
-    internal static string SingleTargetArgument(IReadOnlyList<NonRedundantSingleTargetScope> scopes)
+    internal static string SingleTargetArgument(IReadOnlyList<NonRedundantSingleTargetScope> scopes,string? parameter=null)
     {
         if(scopes.Count==0)return "";
-        return ","+SingleTargetArray(scopes);
+        return ","+(parameter is null?"":parameter+":")+SingleTargetArray(scopes);
     }
 
     /// <summary>读写共用同一关联目标；相互冲突的有效声明不能按不同优先级串表。</summary>

@@ -158,9 +158,15 @@ public static class NonRedundantReads
     public static NonRedundantReadPlan CompilePageMembership(MetadataCatalog metadata,TableMetadata table,PageMetadata page,
         IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields,IReadOnlySet<string> selfTreeFields,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>
+        CompilePageMembership(metadata,table,page,conditionFields,crossFields,selfTreeFields,outputs,dependencies,null);
+
+    /// <summary>逻辑候选的行范围和派生名称分别使用同一发布目录中的已固定关系。</summary>
+    public static NonRedundantReadPlan CompilePageMembership(MetadataCatalog metadata,TableMetadata table,PageMetadata page,
+        IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields,IReadOnlySet<string> selfTreeFields,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
         metadata.DatabaseProvider switch
         {
-            "mysql"=>new(MySqlNonRedundantReadCompiler.CompilePageMembership(metadata,table,page,conditionFields,crossFields,selfTreeFields,outputs,dependencies)),
+            "mysql"=>new(MySqlNonRedundantReadCompiler.CompilePageMembership(metadata,table,page,conditionFields,crossFields,selfTreeFields,outputs,dependencies,singleTargets)),
             _=>throw new NotSupportedException("该数据库尚未完成逻辑页面范围适配。")
         };
 
@@ -173,6 +179,13 @@ public static class NonRedundantReads
     public static NonRedundantReadPlan CompileCrossPageCandidate(MetadataCatalog metadata,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings)=>
         new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,bindings));
+
+    /// <summary>逻辑父候选在实际父范围内按已固定的多段关系读取名称。</summary>
+    public static NonRedundantReadPlan CompileCrossPageCandidate(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope>? bindings,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
+        new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
+            bindings,singleTargets:singleTargets));
 
     /// <summary>全局独立多选的分页、统计和已选回读共用实际账号与物理父范围。</summary>
     public static NonRedundantReadPlan CompileGlobalAccountMultiPage(MetadataCatalog metadata,string tableId,string pageId,
@@ -194,7 +207,14 @@ public static class NonRedundantReads
     /// <summary>全局下拉仅登记附加条件依赖，发布页范围和全局资格仍从原元数据读取。</summary>
     public static NonRedundantReadPlan CompileGlobalListCandidate(MetadataCatalog metadata,string tableId,string pageId,
         IReadOnlyList<string> fields,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>
-        new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,listFields:fields));
+        CompileGlobalListCandidate(metadata,tableId,pageId,fields,outputs,dependencies,null);
+
+    /// <summary>附加逻辑筛选和多段名称的范围由同一候选计划执行。</summary>
+    public static NonRedundantReadPlan CompileGlobalListCandidate(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> fields,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
+        new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
+            listFields:fields,singleTargets:singleTargets));
 
     /// <summary>匹配计划只编译必要单值路径，并验证最终物理值，不能借别名匹配凭据或文件数组。</summary>
     public static NonRedundantReadPlan CompileMatch(MetadataCatalog metadata,string tableId,string field)=>metadata.DatabaseProvider switch
