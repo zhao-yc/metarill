@@ -117,13 +117,13 @@ public sealed class FixedConditionSqlPlan
     }
 
     internal sealed record Clause(string Sql,[property:JsonIgnore] IReadOnlyDictionary<string,object?> Parameters);
-    /// <summary>副本只能用已证明的持久列替换控件变量，常量仍使用绑定参数。</summary>
-    internal Clause RenderRowProjection(string prefix,Func<string,string> expression,Func<string,string,string> variable)=>
-        Render(new MySqlDatabaseProvider(),EmptyVariables,prefix,expression,projectVariable:variable);
+    /// <summary>用已证明的源列替换表单变量。实时读取可将账号变量延迟到实际认证。</summary>
+    internal Clause RenderRowProjection(string prefix,Func<string,string> expression,Func<string,string,string?> variable,bool deferAccount=false)=>
+        Render(new MySqlDatabaseProvider(),EmptyVariables,prefix,expression,deferAccount,variable);
 
     /// <summary>物理或固定联接表达式由适配器提供；此入口不接受客户端SQL、列名或操作符。</summary>
     internal Clause Render(IDatabaseProvider provider,IReadOnlyDictionary<string,object?> variables,string parameterPrefix,
-        Func<string,string> expression,bool deferAccount=false,Func<string,string,string>? projectVariable=null)
+        Func<string,string> expression,bool deferAccount=false,Func<string,string,string?>? projectVariable=null)
     {
         ArgumentNullException.ThrowIfNull(variables);MetadataValidation.RequireIdentifier(parameterPrefix);
         var parameters=new Dictionary<string,object?>();var predicates=new List<string>();
@@ -138,7 +138,7 @@ public sealed class FixedConditionSqlPlan
                 object? scalar=value.Literal;
                 if(value.Variable is {} variable)
                 {
-                    if(projectVariable is not null){marks.Add(projectVariable(variable,term.Type));continue;}
+                    if(projectVariable?.Invoke(variable,term.Type) is {} projected){marks.Add(projected);continue;}
                     if(deferAccount)scalar=new AccountParameter(variable,term.Type);
                     else
                     {

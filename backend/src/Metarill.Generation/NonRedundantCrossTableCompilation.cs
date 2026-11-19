@@ -29,9 +29,9 @@ internal static class NonRedundantCrossTableCompilation
     /// <summary>直接内联不可变条件表达式，避免ReadPlan先于目标条件字段初始化而丢失范围。</summary>
     internal static string BindingArgument(GenerationModel model,TableModel table,PageModel page)=>
         BindingArgument(CrossTableWriteCompilation.ForService(model,table,page));
-    /// <summary>仅有账号目标的执行入口绑定身份，既有静态查询生成代码保持原样。</summary>
-    internal static string BoundPlan(GenerationModel model,TableModel table,PageModel page,string name,string actor="actor")=>
-        model.Tables.SelectMany(item=>item.Pages).Any(FixedPageConditionCompilation.HasAccountVariables)
+    /// <summary>固定单值路径也可能从中间下拉取得账号条件，执行入口统一绑定当前身份。</summary>
+    internal static string BoundPlan(GenerationModel model,TableModel table,PageModel page,string name,string actor="actor",bool singleTargets=false)=>
+        singleTargets||model.Tables.SelectMany(item=>item.Pages).Any(FixedPageConditionCompilation.HasAccountVariables)
             ?name+".BindAccount("+actor+")"
             :BoundPlan(CrossTableWriteCompilation.ForService(model,table,page),name,actor);
 

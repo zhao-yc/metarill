@@ -31,7 +31,7 @@ internal static partial class BackendRenderer
         scopedPages=scopedPages.Concat(scopedRelations.Select(relation=>(relation.Target,relation.TargetPage)));
         // 固定单值读取在宿主重新装载时，从实际来源页重新验证物理或逻辑父键。
         var scopedOwners=scopedRelations.Where(relation=>relation.LogicalSourceParent||
-            !relation.Target.IsGlobal&&relation.FixedParent is not null)
+            !relation.Target.IsGlobal&&(relation.FixedParent is not null||NonRedundantReadCompilation.UsesProjectControlRead(relation)))
             .Select(relation=>relation.SourceColumn.Source.ConfigTableId).ToHashSet(StringComparer.Ordinal);
         scopedPages=scopedPages.Concat(model.Tables.Where(table=>scopedOwners.Contains(table.Source.Id))
             .SelectMany(table=>table.Pages.Select(page=>(table,page))));
@@ -149,7 +149,7 @@ internal static class GeneratedNonRedundantReadCatalog
             ?$"await ValidateSelectionParents{suffix}Async({key},actor,cancellationToken);"
             :globalParent?$"await ValidateParents{suffix}Async({key},actor,cancellationToken,locking:{readLock});":"";
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
-        var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix);
+        var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix,singleTargets:plan.SingleTargets.Count>0);
         var crossCandidate=globalCandidate&&CrossTableWriteCompilation.ForService(model,table,page).Count>0;
         var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(crossCandidate||FixedPageConditionCompilation.HasSelfTreeFields(page)||FixedPageConditionCompilation.HasAccountVariables(page)||
             NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page).Any(tree=>FixedPageConditionCompilation.HasAccountVariables(tree.TargetPage))?".BindAccount(actor)":""):readPlan;
@@ -283,7 +283,8 @@ internal static class GeneratedNonRedundantReadCatalog
         var definitions=OriginalListStatisticsCompilation.ForPage(model,table,page);if(definitions is null)return "";
         var suffix=page.Source.Id;
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
-        var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix);
+        var plan=NonRedundantReadCompilation.ForPage(model,table,page);
+        var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix,singleTargets:plan.SingleTargets.Count>0);
         var crossCandidate=globalCandidate&&CrossTableWriteCompilation.ForService(model,table,page).Count>0;
         var listPlan=globalCandidate?$"CandidateReadPlan{suffix}"+(crossCandidate||FixedPageConditionCompilation.HasSelfTreeFields(page)||FixedPageConditionCompilation.HasAccountVariables(page)||
             NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page).Any(tree=>FixedPageConditionCompilation.HasAccountVariables(tree.TargetPage))?".BindAccount(actor)":""):readPlan;

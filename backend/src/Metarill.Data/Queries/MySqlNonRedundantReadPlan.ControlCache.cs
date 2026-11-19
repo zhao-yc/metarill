@@ -51,7 +51,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(syntax.Terms.Count==0)return string.Join(" AND ",predicates);
             var validity=new HashSet<string>(StringComparer.Ordinal);
             var plan=FixedConditionSqlPlan.Compile(syntax,syntax.Fields.ToDictionary(field=>field,field=>Column(target,field).LogicalType,StringComparer.Ordinal));
-            var clause=plan.RenderRowProjection(prefix,Projection,FormColumn);
+            var clause=plan.RenderRowProjection(prefix,Projection,
+                (variable,type)=>SingleControlFormColumn(table,owner,validity,variable,type));
             foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
             predicates.Add(clause.Sql);
             predicates.AddRange(validity);
@@ -67,28 +68,47 @@ public static partial class MySqlNonRedundantReadCompiler
                 Use(target,column);Touch(alias,field);
                 return alias+"."+Q(field);
             }
+        }
 
-            string FormColumn(string variable,string expectedType)
-            {
-                const string start="formParameters.";
-                if(!variable.StartsWith(start,StringComparison.Ordinal))
-                    throw new InvalidOperationException("名称副本控件变量必须来自固定表单字段、父键或账号。");
-                var path=variable[start.Length..].Split('.');
-                if(path.Length!=1&&(path.Length!=2||path[0]!=MetadataNames.Camel(table.TableName)))
-                    throw new InvalidOperationException("名称副本表单条件必须取当前关系来源记录。");
-                var column=columns[table.Id].Values.SingleOrDefault(field=>MetadataNames.Camel(field.ColumnName)==path[^1]);
-                if(column is null||!GlobalPhysicalRelationValue.IsScalar(storage[table.Id],table,column))
-                    throw new InvalidOperationException("名称副本表单条件缺少真实非凭据物理字段。");
-                var type=FixedConditionSqlPlan.Type(column.LogicalType);
-                if(type!=expectedType&&!(type is "int32" or "int64"&&expectedType is "int32" or "int64")&&
-                    !(type is "date" or "datetime"&&expectedType is "date" or "datetime"))
-                    throw new InvalidOperationException("名称副本表单值与目标逻辑类型不一致。");
-                Use(table,column);Touch(owner,column.ColumnName);
-                var expression=owner+"."+Q(column.ColumnName);
-                if(type=="int64"&&expectedType=="int32")
-                    validity.Add("("+expression+" IS NULL OR "+expression+" BETWEEN -2147483648 AND 2147483647)");
-                return expression;
-            }
+        /// <summary>实时名称在目标子查询中求值，表单参数取实际来源行，账号参数由当前身份绑定。</summary>
+        private string ProjectSingleControlCondition(TableMetadata source,string alias,TableMetadata target,
+            FixedConditionPlan control,MySqlNonRedundantReadPlan targetPlan,string prefix)
+        {
+            var members=columns[target.Id];
+            var terms=control.Terms.Where(term=>!term.Values.Any(value=>
+                value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text)));
+            var syntax=FixedConditionPlan.Compile(string.Join(" AND ",terms.Select(term=>term.ToDefinition())),members.Keys);
+            var plan=FixedConditionSqlPlan.Compile(syntax,syntax.Fields.ToDictionary(field=>field,field=>Column(target,field).LogicalType,StringComparer.Ordinal));
+            var validity=new HashSet<string>(StringComparer.Ordinal);
+            var clause=plan.RenderRowProjection(prefix+"_control",targetPlan.Expression,(variable,type)=>
+                AccountConditionVariables.IsSupported(variable)?null:SingleControlFormColumn(source,alias,validity,variable,type),
+                deferAccount:true);
+            foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
+            return string.Join(" AND ",new[]{clause.Sql}.Concat(validity).Where(part=>part.Length>0));
+        }
+
+        /// <summary>表单条件只读当前关系来源的持久标量，禁止凭据和超出目标整数范围的值。</summary>
+        private string SingleControlFormColumn(TableMetadata table,string owner,HashSet<string> validity,
+            string variable,string expectedType)
+        {
+            const string start="formParameters.";
+            if(!variable.StartsWith(start,StringComparison.Ordinal))
+                throw new InvalidOperationException("名称控件变量必须来自固定表单字段、父键或账号。");
+            var path=variable[start.Length..].Split('.');
+            if(path.Length!=1&&(path.Length!=2||path[0]!=MetadataNames.Camel(table.TableName)))
+                throw new InvalidOperationException("名称控件表单条件必须取当前关系来源记录。");
+            var column=columns[table.Id].Values.SingleOrDefault(field=>MetadataNames.Camel(field.ColumnName)==path[^1]);
+            if(column is null||!GlobalPhysicalRelationValue.IsScalar(storage[table.Id],table,column))
+                throw new InvalidOperationException("名称控件表单条件缺少真实非凭据物理字段。");
+            var type=FixedConditionSqlPlan.Type(column.LogicalType);
+            if(type!=expectedType&&!(type is "int32" or "int64"&&expectedType is "int32" or "int64")&&
+                !(type is "date" or "datetime"&&expectedType is "date" or "datetime"))
+                throw new InvalidOperationException("名称控件表单值与目标逻辑类型不一致。");
+            Use(table,column);Touch(owner,column.ColumnName);
+            var expression=owner+"."+Q(column.ColumnName);
+            if(type=="int64"&&expectedType=="int32")
+                validity.Add("("+expression+" IS NULL OR "+expression+" BETWEEN -2147483648 AND 2147483647)");
+            return expression;
         }
     }
 }

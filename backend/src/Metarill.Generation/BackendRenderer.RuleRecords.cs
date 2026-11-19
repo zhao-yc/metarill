@@ -69,7 +69,7 @@ internal static partial class BackendRenderer
             .AppendLine("        if(ruleAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"规则记录身份与当前真实身份不一致。\");")
             .AppendLine($"        var ruleScope=button?ruleAuthorization.ResolveButtonExactDataManage({Literal(page.Source.Id)},operation,{Literal(exact.ManagerField)}):ruleAuthorization.ResolveExactDataManage({Literal(page.Source.Id)},operation,{Literal(exact.ManagerField)});")
             .AppendLine($"        if(ruleScope.IsRequired)filters.Add({ExactDataManageCompilation.Filter(exact,"ruleScope",spaces:false)});");
-        var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"RuleRecordPlan"+page.Source.Id);
+        var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"RuleRecordPlan"+page.Source.Id,singleTargets:singleTargets.Count>0);
         result.AppendLine("        var reader=new NonRedundantReader(session);")
             .AppendLine($"        var rows=locking?await reader.CurrentRowsAsync({readPlan},filters,Array.Empty<FixedReadOrder>(),1,cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)}):await reader.RowsAsync({readPlan},filters,Array.Empty<FixedReadOrder>(),1,cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)});")
             .AppendLine("        if(rows.Count==0)return null;var row=rows.Single();")

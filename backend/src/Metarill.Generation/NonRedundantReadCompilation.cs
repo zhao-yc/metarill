@@ -202,7 +202,13 @@ internal static partial class NonRedundantReadCompilation
     /// <summary>业务页单值读取使用实际项目内非冗余目标以及已证明的父范围。</summary>
     internal static bool UsesProjectSingleRead(RelationModel relation)=>
         !relation.Target.IsGlobal&&relation.Target.Source.IsRongyu==0&&relation.ParentBinding?.Declared!=true&&
-        (relation.TargetPage.Condition is not null||relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"));
+        (relation.TargetPage.Condition is not null||relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent")||
+            UsesProjectControlRead(relation));
+
+    /// <summary>原下拉可以仅在控件中限定目标，读取名称时也要保留该范围。</summary>
+    internal static bool UsesProjectControlRead(RelationModel relation)=>
+        relation.SourceColumn.Source.ControlKind=="List"&&
+        (relation.Conditions is not null||relation.Scopes.Any(scope=>scope.Source=="parent"));
 
     /// <summary>同一来源表的各页分别固定实际目标页，物理父键按本页同父或表单关系证明。</summary>
     internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectSingleTargets(GenerationModel model,TableModel table,PageModel page,
@@ -219,7 +225,7 @@ internal static partial class NonRedundantReadCompilation
     private static NonRedundantSingleTargetScope ProjectTarget(GenerationModel model,TableModel table,PageModel page,RelationModel relation)
     {
         ColumnModel? parent=null;
-        if(relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"))
+        if(relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope=>scope.Source=="parent"))
         {
             var context=ControlRenderer.RelationContext(page,relation,false);
             parent=context.SameParent?page.Scopes.Single(scope=>scope.Source=="parent").Column:
@@ -231,7 +237,8 @@ internal static partial class NonRedundantReadCompilation
         }
         return new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id,parent?.Source.Id)
         {
-            SourcePageId=relation.FixedParent is not null?page.Source.Id:null
+            SourcePageId=relation.FixedParent is not null?page.Source.Id:null,
+            ControlSourcePageId=UsesProjectControlRead(relation)?page.Source.Id:null
         };
     }
 

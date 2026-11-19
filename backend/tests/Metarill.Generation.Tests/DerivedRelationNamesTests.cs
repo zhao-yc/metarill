@@ -44,8 +44,11 @@ public sealed class DerivedRelationNamesTests
     [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)][InlineData(true,true)]
     [InlineData(false,false,true)][InlineData(true,false,true)]
     [InlineData(false,false,true,true)][InlineData(true,false,false,true)]
+    [InlineData(false,false,true,false,"constant")][InlineData(false,false,true,false,"form")]
+    [InlineData(false,false,true,false,"account")][InlineData(false,true,false,false,"parent")]
+    [InlineData(false,false,false,false,"combined")]
     public async Task Derived_list_and_business_reads_keep_the_intermediate_pages_fixed_scope(
-        bool selection,bool parent,bool unscopedMiddle=false,bool deeper=false)
+        bool selection,bool parent,bool unscopedMiddle=false,bool deeper=false,string? control=null)
     {
         var catalog=Catalog("dr_names",parent);
         catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=0;
@@ -76,8 +79,30 @@ public sealed class DerivedRelationNamesTests
         {
             catalog.ConfigColumns.Add(new(){Id="46",ConfigTableId="4",ColumnName="group_id",LogicalType="int64",
                 LinkConfigTableId="3",YzProjectId=catalog.YzProjectId});
-            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="4"))
-                page.WhereSql+=" AND group_id=@parent_id";
+            if(control!="parent")
+                foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="4"))
+                    page.WhereSql+=" AND group_id=@parent_id";
+        }
+        if(control is not null)
+        {
+            if(control!="combined")companyPage.WhereSql="yz_project_id=@current_yz_project_id";
+            catalog.ConfigColumns.Add(new(){Id="49",ConfigTableId="4",ColumnName="status",LogicalType="int32"});
+            var foreign=catalog.ConfigColumns.Single(column=>column.Id=="27");
+            foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="4",nameField="name",whereSql="status=17"});
+            var condition=control switch
+            {
+                "form"=>"status IN (@formParameters.drNamesParty.cacheSegment,3)",
+                "account"=>"store_id=@current_store_id AND status=3",
+                "parent"=>"group_id=@parent_id AND status=3",
+                _=>"status=3"
+            };
+            catalog.ConfigPageColumns.Single(field=>field.Id=="20127").Extra["controlDetail"]=
+                JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql=condition}));
+            if(control=="form")
+            {
+                catalog.ConfigColumns.Add(new(){Id="229",ConfigTableId="2",ColumnName="cache_segment",LogicalType="int64"});
+                catalog.ConfigPageColumns.Add(new(){Id="201229",ConfigPageId="201",ConfigColumnId="229",IsShow=1,IsEdit=1});
+            }
         }
 
         if(unscopedMiddle)
@@ -138,7 +163,7 @@ public sealed class DerivedRelationNamesTests
                 var mysql=bound.GetType().GetProperty("MySql",scope)!.GetValue(bound)!;
                 var sql=Assert.IsType<string>(mysql.GetType().GetProperty("From",scope)!.GetValue(mysql));
                 Assert.Contains("EXISTS (SELECT 1 FROM `dr_names_company`",sql);
-                Assert.Contains(".`store_id`",sql);
+                if(control is null or "account" or "combined")Assert.Contains(".`store_id`",sql);
                 if(parent)
                 {
                     Assert.Contains("FROM `dr_names_group`",sql);
@@ -147,9 +172,21 @@ public sealed class DerivedRelationNamesTests
                     Assert.Matches(@"=BINARY CAST\(mt_\w+_page\.`group_id` AS CHAR\)",sql);
                 }
                 var values=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(mysql.GetType().GetProperty("Constants",scope)!.GetValue(mysql)).Values;
-                Assert.Contains(6351L,values);
-                Assert.Contains(selection?"当前页排除":"原页排除",values);
+                if(control is null or "account" or "combined")Assert.Contains(6351L,values);
+                if(control is null or "combined")Assert.Contains(selection?"当前页排除":"原页排除",values);
                 if(selection)Assert.DoesNotContain("原页排除",values);
+                if(control is not null)
+                {
+                    Assert.Contains(".`status`",sql);
+                    Assert.Contains(3,values);
+                    Assert.DoesNotContain(17,values);
+                    if(control=="form")
+                    {
+                        var owner=planName=="DerivedOptionsPlan101_15"?"b":"r0";
+                        Assert.Contains(owner+".`cache_segment`",sql);
+                        Assert.Contains("BETWEEN -2147483648 AND 2147483647",sql);
+                    }
+                }
                 if(deeper)
                 {
                     Assert.Contains("EXISTS (SELECT 1 FROM `dr_names_region`",sql);

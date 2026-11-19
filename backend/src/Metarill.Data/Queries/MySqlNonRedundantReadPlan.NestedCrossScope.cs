@@ -38,7 +38,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var listTrees=SelfTreeConditionFields(catalog,table,page,columns,listFields??[]);
         var listCrosses=(listFields??[]).Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToArray();
         var projectParent=!global?ProjectScopedSingleRelationTarget.LogicalParent(catalog,table,page):null;
-        if(listFields is not null&&(!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0))
+        if(listFields is not null&&!projectSingle&&(!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0))
             throw new NotSupportedException("固定下拉附加条件必须引用已发布的逻辑级联字段。");
         // 全局单值候选从自身发布页证明物理父键；旧多选仍满足原独立页合同。
         var physicalParent=global&&!projectSingle&&page.Extra.GetValueOrDefault("type").ToString()!="2"
@@ -315,7 +315,14 @@ public static partial class MySqlNonRedundantReadCompiler
                 projectAliasTargets.Add(alias,binding.NestedTargets.ToDictionary(item=>item.ColumnId,StringComparer.Ordinal));
             if(!binding.ApplyPageCondition)return "";
 
+            var controlPage=binding.ControlSourcePageId is null?null:catalog.ConfigPages.Single(
+                item=>item.Id==binding.ControlSourcePageId&&item.ConfigTableId==owner.Id);
+            var control=controlPage is null?null:ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,controlPage);
             var parent=MultiParent(catalog,page);
+            var controlParent=control is null?null:MultiTargetParentScope.Compile(catalog,target,control);
+            if(controlParent is {Logical:true}||parent is not null&&controlParent is not null&&parent.Target.Id!=controlParent.Target.Id)
+                throw new InvalidOperationException("单值读取的目标页与控件父范围不一致。");
+            parent??=controlParent;
             if((parent is null)!=(binding.SourceParentId is null)||parent is {Global:true,Logical:false})
                 throw new InvalidOperationException("项目内单值读取缺少已证明的父绑定。");
             var publishedSource=parent is not null&&binding.SourcePageId is {} pageId
@@ -326,10 +333,17 @@ public static partial class MySqlNonRedundantReadCompiler
 
             var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_page");
             var plan=CompileCrossPageCandidate(catalog,target.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
-                activeSelfTreeScopes:ActiveSelfTreeScopes,projectSingle:true);
+                activeSelfTreeScopes:ActiveSelfTreeScopes,listFields:control?.Fields.ToArray(),projectSingle:true);
             plan.CopyParametersTo(crossConstants);
             var predicate=plan.Expression("id")+"="+alias+".`id`";
             if(plan.Scope.Length>0)predicate+=" AND "+plan.Scope;
+            if(control is {Terms.Count:>0})
+            {
+                var extra=ProjectSingleControlCondition(owner,ownerAlias,target,control,plan,prefix);
+                if(extra.Length>0)predicate+=" AND "+extra;
+                foreach(var reference in plan.PhysicalReferences)
+                    references.TryAdd((reference.Table,reference.Column.Name),reference);
+            }
             if(parent is {Logical:true})
             {
                 // 目标由实际可见路径还原父级，来源则按同一父记录的持久键或已发布逻辑路径匹配。
