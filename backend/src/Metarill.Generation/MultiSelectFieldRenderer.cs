@@ -89,6 +89,8 @@ internal static class MultiSelectFieldRenderer
                 foreach (var scope in def.TargetPage.Scopes.Where(scope => scope.Source == "parent")) result.AppendLine($"        query = query.Where(row => row.{scope.Column.Property} == {Scope(scope.Column, "targetParentId!")});");
                 result.Append(FixedPageConditionCompilation.Apply(def.TargetPage,"MultiPageCondition"+suffix,"multi_page_"+suffix))
                     .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,def.Target,def.TargetPage,"MultiAccountParentScope"+suffix,"r1_multi","true"));
+                if(def.ExactTarget is not null)
+                    result.AppendLine("        if(selected.Length>0){").Append(ExactQuery(model,def,"multiExact")).AppendLine("        }");
                 // 所有缓存都来自本次已授权候选的同一当前锁读；ID展示页也不能退化为旧RR快照。
                 result.AppendLine("        query=query.OrderBy(row=>row.Id);").AppendLine("        query=query.ForUpdate();");
                 // ORM只读取真实物理值；R0逻辑名称必须走与自树相同的固定当前读，不能投影IsIgnore属性。
@@ -120,6 +122,15 @@ internal static class MultiSelectFieldRenderer
         }
         return result.ToString();
     }
+    /// <summary>已选保存和导入复用目标列表授权，派生匹配沿该目标页的同事务当前读。</summary>
+    internal static string ExactQuery(GenerationModel model,MultiSelectModel multi,string prefix)
+    {
+        if(multi.ExactTarget is null)return "";
+        var plan=$"global::{model.Namespace}.Generated.Services.{multi.Target.Name}Service.ExactReadPlan{multi.TargetPage.Source.Id}";
+        return ExactDataManageCompilation.Query(model,multi.Target,multi.TargetPage,operation:Literal("list"),
+            prefix:prefix,locking:"true",planReference:plan);
+    }
+
     /// <summary>固定逻辑类型进入强类型参数表达式。</summary>
     private static string Scope(ColumnModel column, string value) => column.Type switch { "string?" => value, "int?" => $"int.Parse({value}, CultureInfo.InvariantCulture)", _ => $"long.Parse({value}, CultureInfo.InvariantCulture)" };
     /// <summary>配置字符串只能成为生成字面量。</summary>

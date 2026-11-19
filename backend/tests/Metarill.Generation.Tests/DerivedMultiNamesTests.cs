@@ -9,6 +9,88 @@ namespace Metarill.Generation.Tests;
 [Collection(StandaloneProcessBudgetCollection.Name)]
 public sealed class DerivedMultiNamesTests
 {
+    /// <summary>多选确认、写入和名称反查使用同一目标页的精确范围，匹配字段可以不出现在页面上。</summary>
+    [Theory]
+    [InlineData(0,1,"physical")]
+    [InlineData(1,1,"physical")]
+    [InlineData(1,1,"account")]
+    [InlineData(1,0,"derived-name")]
+    [InlineData(0,0,"derived-name")]
+    [InlineData(1,0,"derived-match")]
+    public async Task Multi_selection_save_and_import_use_target_exact_scope(int sourceMode,int targetMode,string kind)
+    {
+        const string ns="Example.MultiExactRange";
+        var catalog=Catalog("multi_exact_range",false);
+        catalog.ConfigTables.Single(item=>item.Id=="2").IsRongyu=sourceMode;
+        catalog.ConfigTables.Single(item=>item.Id=="3").IsRongyu=targetMode;
+        var derivedName=kind.Contains("derived-name",StringComparison.Ordinal);
+        var derivedMatch=kind=="derived-match";
+        var account=kind.StartsWith("account",StringComparison.Ordinal);
+        var name=catalog.ConfigColumns.Single(item=>item.Id=="32");
+        if(!derivedName)name.Extra.Clear();
+        var scopeColumn=new ColumnMetadata{Id="381",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
+            ColumnName="scope_code",LogicalType="string"};
+        if(derivedMatch)
+        {
+            scopeColumn.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            scopeColumn.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.name");
+        }
+        catalog.ConfigColumns.Add(scopeColumn);
+        catalog.ConfigColumns.Add(new(){Id="382",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
+            ColumnName="store_id",LogicalType="int64"});
+        var target=catalog.ConfigPages.Single(item=>item.Id=="301");
+        target.WhereSql=account?"store_id=@current_store_id":"";
+        target.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
+        // 旧测试目录使用相同的两个后台记录，所有候选页均应读取同一固定账号字段。
+        foreach(var admin in catalog.YzAdminTypes)
+            admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=table.Pages.Single(item=>item.Source.Id=="201");
+        var resolution=MultiSelectCompilation.Resolve(model,table,page,table.Columns.Single(item=>item.Source.Id=="25"));
+        Assert.True(resolution.Definition is not null,resolution.Reason);
+        var exact=Assert.IsType<ExactDataManageModel>(resolution.Definition.ExactTarget);
+        Assert.Equal("scope_code",exact.Column.Source.ColumnName);
+        Assert.Equal(derivedMatch,exact.Derived);
+        Assert.DoesNotContain(model.Tables.Single(item=>item.Source.Id=="3").Pages.Single(item=>item.Source.Id=="301").Readable,
+            item=>item.Source.ColumnName=="scope_code");
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-multi-exact-range");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var serviceCode=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MultiExactRangeSourceService.g.cs"));
+            var saveStart=serviceCode.IndexOf("private async Task ValidateMulti201_25Async",StringComparison.Ordinal);
+            var importStart=serviceCode.IndexOf("private async Task<JsonElement> ImportMulti201_25Async",StringComparison.Ordinal);
+            Assert.True(saveStart>=0&&importStart>=0);
+            var save=serviceCode[saveStart..];
+            var import=serviceCode[importStart..];
+            Assert.Contains("""multiExactAuthorization.ResolveExactDataManage("301", "list", "real_name")""",save);
+            Assert.Contains("""multiImportExactAuthorization.ResolveExactDataManage("301", "list", "real_name")""",import);
+            Assert.Contains(derivedMatch?"ExactDataManageSql.ApplyDerived(query, session, global::Example.MultiExactRange.Generated.Services.MultiExactRangeTargetService.ExactReadPlan301":
+                "ExactDataManageSql.Apply(query, session, \"scope_code\"",save);
+            Assert.Contains(derivedName?"filters.Add(new(\"scope_code\", FixedReadComparison.In":
+                derivedMatch?"ExactDataManageSql.ApplyDerived(query, session":"ExactDataManageSql.Apply(query, session, \"scope_code\"",import);
+            Assert.True(import.IndexOf("multiImportExactAuthorization.ResolveExactDataManage",StringComparison.Ordinal)<
+                import.IndexOf("var matches=",StringComparison.Ordinal));
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var type=assembly.GetType(ns+".Generated.Services.MultiExactRangeSourceService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+            if(derivedName)
+            {
+                var plan=Assert.IsType<NonRedundantReadPlan>(type.GetField("MultiDerivedPlan201_25",
+                    System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
+                var sql=plan.GetType().GetProperty("MySql",HiddenInstance)!.GetValue(plan)!;
+                var fields=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(sql.GetType().GetProperty("Expressions",HiddenInstance)!.GetValue(sql));
+                Assert.Contains("scope_code",fields.Keys);
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>实际生成编译，同时证明显式与自动名称不落物理列。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Derived_multi_names_compile_in_original_crud_and_excel(bool automatic)

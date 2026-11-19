@@ -39,7 +39,8 @@ internal static class MultiSelectExcelRenderer
         if(multi.Target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id") is {} project&&(!multi.Target.IsGlobal||multi.TargetPage.Scopes.Any(scope=>scope.Source=="project")))result.AppendLine($"            query=query.Where(row=>row.{project.Property}=={Scope(project,"actor.ProjectId")});");
         foreach(var scope in multi.TargetPage.Scopes.Where(scope=>scope.Source=="parent"))result.AppendLine($"            query=query.Where(row=>row.{scope.Column.Property}=={Scope(scope.Column,"targetParentId!")});");
         result.Append(FixedPageConditionCompilation.Apply(multi.TargetPage,"MultiPageCondition"+suffix,"multi_import_"+suffix))
-            .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,multi.Target,multi.TargetPage,"MultiAccountParentScope"+suffix,"r1_import","true"));
+            .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,multi.Target,multi.TargetPage,"MultiAccountParentScope"+suffix,"r1_import","true"))
+            .Append(MultiSelectFieldRenderer.ExactQuery(model,multi,"multiImportExact"));
         if(multi.ImportCondition is not null)
             result.AppendLine($"            query=importCondition.ApplyConstants(query,session,\"multi_control_import_{suffix}\");");
         if(multi.Name.IsId)result.AppendLine("            if(!long.TryParse(item.ToString(),NumberStyles.None,CultureInfo.InvariantCulture,out var key)||key<=0)throw PageImportException.Input(PageImportError.Relation);query=query.Where(row=>row.Id==key);");

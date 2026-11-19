@@ -8,7 +8,7 @@ internal static class DerivedMultiNamesImportRenderer
     internal static string Render(GenerationModel model,TableModel table,PageModel page,MultiSelectModel multi,ImportDependencyPlan dependency)
     {
         var logicalImport=multi.ImportCondition?.HasLogicalFields==true;
-        if(!logicalImport)DerivedMultiNamesCompilation.Require(model,table,multi.Target,multi.TargetPage,multi.Name);
+        if(!logicalImport)DerivedMultiNamesCompilation.Require(model,table,multi.Target,multi.TargetPage,multi.Name,multi.ExactTarget);
         var suffix=page.Source.Id+"_"+multi.Source.Source.Id;var parent=multi.TargetParentField is not null?dependency.Parents[multi.Source.Source.Id]:null;
         var typed=multi.TypedLabel||multi.Name.IsId;
         var readPlan=(logicalImport?"MultiImportReadPlan":"MultiDerivedPlan")+suffix;
@@ -17,6 +17,8 @@ internal static class DerivedMultiNamesImportRenderer
         var condition=multi.ImportCondition is null?targetCondition:
             targetCondition is null?"importCondition":"importCondition.And("+targetCondition+")";
         var scopes=multi.TargetPage.Scopes.Select(scope=>"            filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Value(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));");
+        var exact=multi.ExactTarget is {} proof
+            ?ExactDataManageCompilation.ReadFilter(multi.TargetPage,proof,Literal("list"),"multiImportExact","filters"):"";
         return $$"""
     /// <summary>名称数组使用固定联接计划，不查询忽略持久化的实体名称属性。</summary>
     private async Task<JsonElement> ImportMulti{{suffix}}Async(JsonElement cell,string? parentId,RuntimeActor actor{{(dependency.Contextual?",IReadOnlyDictionary<string,JsonElement> relationContext":"")}},CancellationToken cancellationToken)
@@ -36,7 +38,7 @@ internal static class DerivedMultiNamesImportRenderer
 {{(multi.Name.IsId?"            if(name<=0)throw PageImportException.Input(PageImportError.Relation);":"")}}
             var filters=new List<FixedReadFilter>{new({{Literal(multi.Name.Source.ColumnName)}},FixedReadComparison.Equal,{{(typed?"name":"item.ToString()")}})};
 {{string.Join("\n",scopes)}}
-            var matches=await new NonRedundantReader(session).PageAsync({{readPlan}}.BindAccount(actor),filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId{{(condition is null?"":",condition:"+condition)}},currentRead:true);
+{{exact}}            var matches=await new NonRedundantReader(session).PageAsync({{readPlan}}.BindAccount(actor),filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId{{(condition is null?"":",condition:"+condition)}},currentRead:true);
             if(matches.Records.Count!=1)throw PageImportException.Input(PageImportError.Relation);
             var value=NonRedundantReads.Value<long>(matches.Records[0],"id").ToString(CultureInfo.InvariantCulture);if(selected.Contains(value))throw PageImportException.Input(PageImportError.Relation);selected.Add(value);
         }
