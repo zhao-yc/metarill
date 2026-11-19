@@ -797,7 +797,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     private static string Relations(GenerationModel model, PageModel page)
     {
         var visibleRelations = RelationCompilation.ForPage(model, page);
-        var result = new StringBuilder(); var relations = visibleRelations.Concat(RelationCompilation.ForPage(model, page, true, forExcel: true)).DistinctBy(relation => relation.SourceColumn.Source.Id).ToArray();
+        var result = new StringBuilder(); var relations = RelationCompilation.ForPage(model, page, forExcel: true)
+            .Concat(RelationCompilation.ForPage(model, page, true, forExcel: true)).DistinctBy(relation => relation.SourceColumn.Source.Id).ToArray();
         if (relations.Length == 0) return "";
         // 来源父验证单独复用，使空导出也不会跳过真实父记录校验。
         var sourceParents = relations[0].SourceParents;
@@ -866,7 +867,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(FixedPageConditionCompilation.Declaration(relation.TargetPage,"OptionsPageCondition"+suffix))
                 .Append(SharedRedundantParentCompilation.AccountDeclaration(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix));
             result.AppendLine("    /// <summary>真实父记录校验为只读，不在候选查询中获取写锁。</summary>")
-                .AppendLine($"    private async Task<ISelect<{relation.Target.EntityType}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true{RelationConditionsCompilation.Signature(relation)})")
+                .AppendLine($"    private async Task<ISelect<{relation.Target.EntityType}>> OptionsScope{suffix}Async(string? parentId, string? targetParentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking = false, bool requireSourceList = true{RelationConditionsCompilation.Signature(relation)}{(relation.ExcelTargetExact ? ", bool excelScope = false" : "")})")
                 .AppendLine("    {");
             if (IsTrustedManagerAdminOption(model, model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId), page, relation))
                 result.AppendLine("        // 候选服务直接调用也必须使用真实账号页权限；写入校验仍走既有协调器。")
@@ -935,13 +936,16 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             else result.Append(FixedPageConditionCompilation.Apply(relation.TargetPage,"OptionsPageCondition"+suffix,"options_page_"+suffix,logicalPlan,"locking"));
             result.Append(SharedRedundantParentCompilation.ApplyAccountScope(model,relation.Target,relation.TargetPage,"OptionsAccountParentScope"+suffix,"r1_options","locking"))
                 .Append(RelationConditionsCompilation.Apply(relation,suffix,logicalPlan));
-            if (relation.ExcelOnly && ExactDataManageCompilation.Declared(relation.TargetPage))
+            if (relation.ExcelTargetExact)
             {
-                // Excel 反查同样受弹窗的记录级权限约束；物理匹配直接复用目标页原权限计划。
-                if (ExactDataManageCompilation.Resolve(model, relation.Target, relation.TargetPage) is { Derived: true })
-                    throw new NotSupportedException("单选 Excel 的派生精确管理目标需要固定读取计划。");
-                result.Append(ExactDataManageCompilation.Query(model, relation.Target, relation.TargetPage,
-                    operation: Literal("list"), prefix: "targetExact"));
+                // 目标页列表和 Excel 使用同一个只读匹配计划。导入沿当前事务，导出沿普通读。
+                var targetPlan = $"global::{model.Namespace}.Generated.Services.{relation.Target.Name}Service.ExactReadPlan{relation.TargetPage.Source.Id}";
+                var exact = ExactDataManageCompilation.Query(model, relation.Target, relation.TargetPage,
+                    operation: Literal("list"), prefix: "targetExact", locking: "locking", planReference: targetPlan);
+                result.AppendLine("        if (excelScope)").AppendLine("        {");
+                foreach (var line in exact.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                    result.Append("    ").AppendLine(line);
+                result.AppendLine("        }");
             }
             if (relation.ParentBinding?.Binding?.SourceParent.Source.Id == "2076977530983813120")
             {
@@ -1005,7 +1009,7 @@ public partial class {{table.Name}}Service
 
 """;
     /// <summary>构造签名与生成DI工厂共享授权依赖判定，固定父关系不能只在手工构造时得到真实授权。</summary>
-    private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page=>BusinessRecordButtons(model,page).Count>0) || table.Pages.Any(page=>RelationCompilation.ForPage(model,page,true,forExcel:true).Any(relation=>relation.ExcelOnly||relation.Target.IsGlobal||DerivedRelationNamesCompilation.UsesFixedRead(model,relation)||relation.ImportCondition is not null)) || table.Pages.Any(ExactDataManageCompilation.Declared) || table.Pages.Any(page=>CascadeTreeReadCompilation.ForService(model,table,page).Count>0 || CrossTableReadCompilation.ForService(model,table,page).Count>0) || table.Pages.Any(page => DatabaseCheckboxCompilation.ForService(model,table,page).Count>0 || MultiSelectCompilation.ForService(model, table, page).Count > 0 || FixedRoleCheckboxCompilation.ForService(model,table,page) is not null || FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table) || TrustedSecurityProjectOptionsCompilation.RequiresAuthorization(model,table);
+    private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page=>BusinessRecordButtons(model,page).Count>0) || table.Pages.Any(page=>RelationCompilation.ForPage(model,page,true,forExcel:true).Any(relation=>relation.ExcelOnly||relation.ExcelTargetExact||relation.Target.IsGlobal||DerivedRelationNamesCompilation.UsesFixedRead(model,relation)||relation.ImportCondition is not null)) || table.Pages.Any(ExactDataManageCompilation.Declared) || table.Pages.Any(page=>CascadeTreeReadCompilation.ForService(model,table,page).Count>0 || CrossTableReadCompilation.ForService(model,table,page).Count>0) || table.Pages.Any(page => DatabaseCheckboxCompilation.ForService(model,table,page).Count>0 || MultiSelectCompilation.ForService(model, table, page).Count > 0 || FixedRoleCheckboxCompilation.ForService(model,table,page) is not null || FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table) || TrustedSecurityProjectOptionsCompilation.RequiresAuthorization(model,table);
     /// <summary>固定角色名称只在受限读取后进入VO，不新增实体写入字段。</summary>
     private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation)
     {

@@ -151,6 +151,114 @@ public sealed class ExactDataManageGenerationTests
         var expected=scenario switch{"expression"=>typeof(ArgumentException),"array-field"=>typeof(NotSupportedException),_=>typeof(InvalidOperationException)};
         var error=Assert.Throws(expected,()=>BackendRenderer.Render(model).ToArray());Assert.Contains("精确管理",error.Message);
     }
+    /// <summary>实际生成的单选 Excel 读取目标页的派生匹配计划，普通候选保持原入口。</summary>
+    [Theory]
+    [InlineData(false, "OnlyNew", "list")]
+    [InlineData(true, "OverWriteByFirstColumn", "edit")]
+    public async Task Redundant_selection_excel_uses_target_derived_exact_plan(bool fixedTarget, string importMode, string exportMode)
+    {
+        const string generatedNamespace = "Example.ExcelDerivedExact";
+        var catalog = RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
+        catalog.YzAdminTypes.Single().Extra["exactDataManageMatchField"] = JsonSerializer.SerializeToElement("realName");
+        catalog.ConfigTables.Single(table => table.Id == "3").IsRongyu = 0;
+        catalog.ConfigTables.Single(table => table.Id == "1").IsRongyu = 0;
+        var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
+        sourcePage.WhereSql = "yz_project_id=@current_yz_project_id";
+        sourcePage.IsImport = sourcePage.IsExport = 1;
+        sourcePage.Extra["importMethod"] = JsonSerializer.SerializeToElement(importMode);
+        sourcePage.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
+        var foreign = catalog.ConfigColumns.Single(column => column.Id == "25");
+        foreign.ControlKind = "SelectPage";
+        foreign.ControlDetail = """{"pageId":"301","tableId":"3","nameField":"name"}""";
+        foreign.Name = "目标名称";
+        foreign.SortNo = -10;
+
+        var targetPage = catalog.ConfigPages.Single(page => page.Id == "301");
+        targetPage.WhereSql = "yz_project_id=@current_yz_project_id" + (fixedTarget ? " AND status=3" : "");
+        targetPage.Extra["type"] = JsonSerializer.SerializeToElement(1);
+        targetPage.Extra["exactDataManageMatchField"] = JsonSerializer.SerializeToElement("parent_name");
+        var innerForeign = catalog.ConfigColumns.Single(column => column.Id == "36");
+        innerForeign.ControlKind = "List";
+        innerForeign.ControlDetail = """{"tableId":"1","nameField":"name"}""";
+        innerForeign.Extra["linkConfigPageId"] = JsonSerializer.SerializeToElement("101");
+        if (fixedTarget)
+        {
+            catalog.ConfigPages.Single(page => page.Id == "101").WhereSql += " AND store_id=@current_store_id";
+            catalog.ConfigColumns.Add(new() { Id = "15", ConfigTableId = "1", YzProjectId = catalog.YzProjectId,
+                ColumnName = "store_id", LogicalType = "int64" });
+        }
+        catalog.ConfigColumns.AddRange([
+            new() { Id = "37", ConfigTableId = "3", YzProjectId = catalog.YzProjectId, ColumnName = "parent_name", LogicalType = "string",
+                Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1), ["columnFullName"] = JsonSerializer.SerializeToElement("parent.name") } },
+            new() { Id = "38", ConfigTableId = "3", YzProjectId = catalog.YzProjectId, ColumnName = "status", LogicalType = "int32" }
+        ]);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-single-excel-exact");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, generated, generatedNamespace);
+            new FrontendPackager().Validate(catalog);
+            var source = await File.ReadAllTextAsync(Path.Combine(generated, "Services/RelationSourceService.g.cs"));
+            Assert.Contains("RelationTargetService.ExactReadPlan301", source);
+            Assert.Contains("groupTargetId.Key, actor, cancellationToken, excelScope: true", source);
+            Assert.Contains("actor,cancellationToken,true,false, excelScope: true", source);
+            Assert.Contains("query.ForUpdate().Limit(2)", source);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            using var session = new DatabaseSession(new()
+            {
+                Provider = "mysql",
+                ExpectedDatabase = "metarill_business_test",
+                ConnectionString = "Server=127.0.0.1;Database=metarill_business_test;User ID=unused;Password=unused;"
+            });
+            var actor = new RuntimeActor(1, "单选 Excel 权限", false, catalog.YzProjectId, sourcePage.YzAdminTypeId)
+            {
+                StoreId = 9007199254741987
+            };
+            var authorization = new Authorization(actor, "301");
+            var type = assembly.GetType(generatedNamespace + ".Generated.Services.RelationSourceService", true)!;
+            var mapper = Activator.CreateInstance(assembly.GetType(generatedNamespace + ".Generated.Mappers.RelationSourceMapper", true)!, [session]);
+            var service = Activator.CreateInstance(type, [session, mapper, new SnowflakeIdGenerator(862),
+                Array.Empty<IRecordMutationObserver>(), Array.Empty<IRecordMutationGuard>(), authorization])!;
+            var targetType = assembly.GetType(generatedNamespace + ".Generated.Services.RelationTargetService", true)!;
+            var match = Assert.IsType<NonRedundantReadPlan>(targetType.GetField("ExactReadPlan301", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null));
+            Assert.Equal("parent_name", Assert.Single(match.OutputTypes).Key);
+            var entity = assembly.GetType(generatedNamespace + ".Generated.Entities.RelationTarget", true)!;
+            var toSql = typeof(ExactDataManageGenerationTests).GetMethod(nameof(TypedSql), BindingFlags.NonPublic | BindingFlags.Static)!.MakeGenericMethod(entity);
+            var scope = type.GetMethod("OptionsScope201_25Async", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+            var sql = (string)toSql.Invoke(null, [await Query(false, true)])!;
+            Assert.Equal("list", authorization.LastOperation);
+            Assert.Contains("EXISTS (SELECT 1", sql);
+            Assert.Contains("relation_parent", sql);
+            Assert.Contains("_value_0", sql);
+            Assert.DoesNotContain("只允许甲", sql);
+            if (fixedTarget)
+            {
+                Assert.Contains(".`status`", sql);
+                Assert.Contains(".`store_id`", sql);
+                Assert.DoesNotContain(actor.StoreId!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), sql);
+            }
+            var normal = (string)toSql.Invoke(null, [await Query(false, false)])!;
+            Assert.DoesNotContain("_value_0", normal);
+            authorization.Value = "[]";
+            var empty = (string)toSql.Invoke(null, [await Query(false, true)])!;
+            Assert.Contains("1=0", empty);
+            authorization.Value = "[\"只允许甲\"]";
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => Query(true, true));
+            Assert.Contains("真实写事务", error.Message);
+
+            async Task<object> Query(bool locking, bool excelScope)
+            {
+                var task = (Task)scope.Invoke(service, [null, null, actor, CancellationToken.None, locking, false, excelScope])!;
+                await task;
+                return task.GetType().GetProperty("Result")!.GetValue(task)!;
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>标准模型和非冗余正式应用模型共用同一已发布后台声明，不手写业务实体。</summary>
     internal static MetadataCatalog Catalog(bool nonredundant)
     {
@@ -172,7 +280,7 @@ public sealed class ExactDataManageGenerationTests
     /// <summary>由FreeSql实际解析实体表达式，测试不复制SQL渲染算法。</summary>
     private static string TypedSql<T>(object query)where T:class=>((ISelect<T>)query).ToSql();
     /// <summary>范围测试替身仅提供服务端值，和实际Web认证/范围聚合的验收分开。</summary>
-    private sealed class Authorization(RuntimeActor actor):IRuntimeAuthorization
+    private sealed class Authorization(RuntimeActor actor, string expectedPage = "101"):IRuntimeAuthorization
     {
         internal bool Restricted=true;internal string Value="[\"只允许甲\",\"只允许乙\"]";internal string LastOperation="";
         internal RuntimeActor Actor=actor;
@@ -182,6 +290,6 @@ public sealed class ExactDataManageGenerationTests
         public void RequirePagePermission(string pageId,string operation){}
         /// <summary>记录计划传来的固定动作，并提供原JSON数组形状。</summary>
         public ExactDataManageValues ResolveExactDataManage(string pageId,string operation,string managerField)
-        {Assert.Equal("101",pageId);Assert.Equal("real_name",managerField);LastOperation=operation;return Restricted?new(true,JsonSerializer.SerializeToElement(Value)):ExactDataManageValues.Unrestricted;}
+        {Assert.Equal(expectedPage,pageId);Assert.Equal("real_name",managerField);LastOperation=operation;return Restricted?new(true,JsonSerializer.SerializeToElement(Value)):ExactDataManageValues.Unrestricted;}
     }
 }

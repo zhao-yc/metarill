@@ -73,11 +73,11 @@ internal static class ExactDataManageCompilation
     /// <summary>操作表达式由生成器固定，非请求属性。</summary>
     internal static string Argument(PageModel page,string expression)=>Declared(page)?", "+expression:"";
     /// <summary>在ORM分页、统计或写前锁定之前附加AND；空集合固定不匹配，参数按名称全部绑定。</summary>
-    internal static string Query(GenerationModel model,TableModel table,PageModel page,string query="query",string actor="actor",string operation="authorizationOperation",string prefix="exact",bool button=false,string? locking=null)
+    internal static string Query(GenerationModel model,TableModel table,PageModel page,string query="query",string actor="actor",string operation="authorizationOperation",string prefix="exact",bool button=false,string? locking=null,string? planReference=null)
     {
         var definition=Resolve(model,table,page);if(definition is null)return "";
         var prefixHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(page.Source.Id+"|"+definition.Column.Source.ColumnName+"|"+prefix))).ToLowerInvariant()[..12];
-        var plan="ExactReadPlan"+page.Source.Id;
+        var plan=planReference??"ExactReadPlan"+page.Source.Id;
         var boundPlan=definition.SingleTargets.Count>0?plan+".BindAccount("+actor+")":
             NonRedundantCrossTableCompilation.BoundPlan(definition.CrossPlans,plan,actor);
         var call=definition.Derived

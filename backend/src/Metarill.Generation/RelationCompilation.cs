@@ -11,6 +11,8 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
 {
     internal RelationConditionModel? ImportCondition { get; init; }
     internal bool ExcelOnly { get; init; }
+    internal bool ExcelTargetExact { get; init; }
+    internal string ExcelScopeArgument => ExcelTargetExact ? ", excelScope: true" : "";
     /// <summary>原 V8 路由按来源字段去掉 Id/Ids 后缀，不能用目标表名替代业务别名。</summary>
     public string LegacyEndpoint
     {
@@ -45,7 +47,8 @@ internal static class RelationCompilation
             var standard = source.Source.ControlKind == "List" || source.Source.ControlKind == "SelectPage" &&
                 (owner.Source.IsRongyu == 0 || !source.IsSystem && (ForeignValidationRenderer.Target(model,source)?.IsGlobal == true ||
                     DerivedRelationNamesCompilation.DeclaredSource(model,source) || FixedSelectionTarget(model,page,source)));
-            var excelOnly = !standard && ExcelSelection(source);
+            var excelSelection = ExcelSelection(source);
+            var excelOnly = !standard && excelSelection;
             if ((!standard && !excelOnly) || FixedOptionCatalogCompilation.Resolve(model, page, source).Declared) continue;
             var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
             var root = Definition(source.Source.ControlDetail);
@@ -132,7 +135,12 @@ internal static class RelationCompilation
                     :fixedParent.SingleSource(model.Catalog,owner.Source,source.Source);
             var fixedSourceParent=sourceBinding is null?null:owner.Columns.Single(column=>column.Source.Id==sourceBinding.Column.Id);
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,
-                fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0){ImportCondition=selection?.ImportCondition,ExcelOnly=excelOnly};
+                fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0)
+            {
+                ImportCondition = selection?.ImportCondition,
+                ExcelOnly = excelOnly,
+                ExcelTargetExact = excelSelection && ExactDataManageCompilation.Declared(targetPage)
+            };
             // 中间页的目标绑定只复用关系定义；外层计划随后编译完整的名称，避免孙级名称校验反复进入同一页。
             if(scopeSourceId is null&&DerivedRelationNamesCompilation.UsesFixedRead(model,relation))
                 _=DerivedRelationNamesCompilation.Require(model,owner,page,relation);

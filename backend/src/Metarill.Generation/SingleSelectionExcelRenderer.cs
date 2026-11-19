@@ -72,7 +72,7 @@ internal static class SingleSelectionExcelRenderer
         relationAuthorization.RequirePagePermission({{Literal(page.Source.Id)}},"import");
         if(cell.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(cell.ToString()))return JsonSerializer.SerializeToElement<object?>(null);
 {{parent}}
-        {{(fixedRead?"_":"var query")}}=await OptionsScope{{suffix}}Async(parentId,targetParentId,actor,cancellationToken,true,false);
+        {{(fixedRead?"_":"var query")}}=await OptionsScope{{suffix}}Async(parentId,targetParentId,actor,cancellationToken,true,false{{relation.ExcelScopeArgument}});
 {{(condition is null?"":RelationConditionsCompilation.BindImport(condition,conditionName,"targetParentId"))}}{{(fixedRead?"        var filters=new List<FixedReadFilter>();\n"+filters:"")}}
 {{match}}
 {{read}}
