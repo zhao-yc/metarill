@@ -55,7 +55,7 @@ internal static partial class NonRedundantReadCompilation
     {
         static string Fields(IEnumerable<string> values)=>"new string[]{"+string.Join(",",values.Select(value=>JsonSerializer.Serialize(value)))+"}";
         var field=name.Source.ColumnName;
-        var start=scopePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(table,scopePage)
+        var start=scopePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(model,table,scopePage)
             ?"CompileScopedMultiLabel("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(scopePage.Source.Id)+","+JsonSerializer.Serialize(field)
             :table.IsGlobal?RelationPlanStart(table,scopePage):"CompileMultiLabel("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(field);
         return start+","+Fields(outputs)+","+Fields(dependencies)+
@@ -68,7 +68,7 @@ internal static partial class NonRedundantReadCompilation
     {
         var id=table.Source.Id;
         var targets=MultiLabelTargets(model,table,namePage,field);
-        if(scopePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(table,scopePage))
+        if(scopePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(model,table,scopePage))
             return NonRedundantReads.CompileScopedMultiLabel(model.Catalog,id,scopePage.Source.Id,field,outputs,dependencies,targets);
         if(!table.IsGlobal)
             return NonRedundantReads.CompileMultiLabel(model.Catalog,id,field,outputs,dependencies,targets);
@@ -125,10 +125,10 @@ internal static partial class NonRedundantReadCompilation
                 GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source);
             else if(FixedPageConditionCompilation.HasSelfTreeFields(page))
                 GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(model.Catalog,table.Source,page.Source,
-                    allowMultiParent:FixedPageConditionCompilation.HasMultiTargetScope(table,page));
+                    allowMultiParent:FixedPageConditionCompilation.HasMultiTargetScope(model,table,page));
             else if(table.Columns.Any(NonRedundantCrossTableSubset.Declared))
             {
-                if(FixedPageConditionCompilation.HasMultiTargetScope(table,page)&&page.Scopes.Any(scope=>scope.Source=="parent"))
+                if(FixedPageConditionCompilation.HasMultiTargetScope(model,table,page)&&page.Scopes.Any(scope=>scope.Source=="parent"))
                     GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source);
                 else GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,table.Source,page.Source);
             }

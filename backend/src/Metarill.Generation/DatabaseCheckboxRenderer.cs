@@ -28,14 +28,14 @@ internal static class DatabaseCheckboxRenderer
         {
             var suffix=Suffix(page,def);var project=def.Target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id");
             result.Append(Declaration(def,suffix)).Append(Reader(def,suffix));
-            var excel=def.ExcelTargetPage;
-            if(excel is not null)result.Append(FixedPageConditionCompilation.Declaration(excel,"CheckboxExcelCondition"+suffix));
+            if(def.PhysicalTargetPage is {} physicalPage)
+                result.Append(FixedPageConditionCompilation.Declaration(physicalPage,"CheckboxTargetCondition"+suffix));
             if(def.GlobalPage is not null&&!def.DerivedName)
                 result.Append(FixedPageConditionCompilation.Declaration(def.GlobalPage,"CheckboxGlobalCondition"+suffix));
             if(def.DerivedName)result.Append(DerivedCheckboxNamesRenderer.Service(model,table,page,def));
             if(def.GlobalParent)result.Append(MultiGlobalParentCompilation.Declaration(model,def.LogicalTargetPage!,"CheckboxGlobalParent"+suffix));
             result.AppendLine("    /// <summary>来源身份、真实父和发布条件始终进入数据库；写校验使用当前事务锁读。</summary>")
-                .AppendLine($"    private async Task<ISelect<{def.Target.EntityType}>> CheckboxScope{suffix}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,bool locking,CancellationToken cancellationToken{(excel is null?"":",bool excel=false")})")
+                .AppendLine($"    private async Task<ISelect<{def.Target.EntityType}>> CheckboxScope{suffix}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,bool locking,CancellationToken cancellationToken)")
                 .AppendLine("    {")
                 .AppendLine("        await Task.CompletedTask;")
                 .AppendLine("        ValidateActor(actor);if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"数据库复选要求真实当前身份。\");")
@@ -71,14 +71,8 @@ internal static class DatabaseCheckboxRenderer
                 var variables=RelationConditionsCompilation.Variables(condition,"parentId");
                 result.AppendLine($"        query=CheckboxCondition{suffix}.Apply(query,session,new Dictionary<string,object?> {{ {variables} }},\"checkbox_{suffix}\");");
             }
-            if(excel is not null)
-            {
-                result.AppendLine("        if(excel)").AppendLine("        {");
-                foreach(var column in def.ExcelParents)
-                    result.AppendLine($"            query=query.Where(row=>row.{column.Property}=={Scope(column,"parentId!")});");
-                result.Append(FixedPageConditionCompilation.Apply(excel,"CheckboxExcelCondition"+suffix,"checkbox_excel_"+suffix))
-                    .AppendLine("        }");
-            }
+            if(def.PhysicalTargetPage is {} targetPage)
+                result.Append(FixedPageConditionCompilation.Apply(targetPage,"CheckboxTargetCondition"+suffix,"checkbox_target_"+suffix));
             result.AppendLine("        return locking?query.ForUpdate():query;").AppendLine("    }");
             if(exposed.Contains(def.Source.Source.Id))
             {

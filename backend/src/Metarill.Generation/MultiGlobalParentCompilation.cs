@@ -29,7 +29,7 @@ internal static class MultiGlobalParentCompilation
     internal static PageModel? PhysicalTarget(GenerationModel model,TableModel table,PageModel page)
     {
         if(PhysicalSingleTarget(model,table,page) is not null)return page;
-        if(!FixedPageConditionCompilation.HasMultiTargetScope(table,page))return null;
+        if(!FixedPageConditionCompilation.HasMultiTargetScope(model,table,page))return null;
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
         if(parents.Length!=1)return null;
         var column=parents[0].Column.Source;

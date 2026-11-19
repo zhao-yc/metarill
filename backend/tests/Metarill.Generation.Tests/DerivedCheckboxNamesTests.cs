@@ -20,11 +20,12 @@ public sealed class DerivedCheckboxNamesTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
-    /// <summary>同名反查只使用同时符合控件条件与实际目标页条件的记录。</summary>
+    /// <summary>候选、已选校验和 Excel 使用控件条件与实际目标页的同一交集。</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Checkbox_excel_applies_the_bound_target_page(bool derived)
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    public async Task Checkbox_endpoints_apply_the_bound_target_page(bool derived,bool global)
     {
         const string ns="Example.CheckboxExcelScope";
         var catalog=Catalog("checkbox_excel_scope",false);
@@ -35,12 +36,31 @@ public sealed class DerivedCheckboxNamesTests
             name.Extra.Remove("columnFullName");
         }
         var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
-        source.ControlDetail="{\"tableId\":\"3\",\"pageId\":\"301\",\"nameField\":\"name\",\"whereSql\":\"segment=@formParameters.segment AND status=1\"}";
+        var whereSql="segment=@formParameters.segment AND status=1";
+        if(global)
+        {
+            var target=catalog.ConfigTables.Single(table=>table.Id=="3");
+            target.IsRongyu=1;
+            target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="3"&&column.ColumnName=="yz_project_id");
+            source.Extra.Remove("linkConfigPageId");
+            whereSql+=" AND parent_id=@parentId";
+        }
+        source.ControlDetail=JsonSerializer.Serialize(new{tableId="3",pageId=global?null:"301",nameField="name",whereSql});
         var sourceField=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==source.Id);
         sourceField.IsShow=sourceField.IsEdit=1;
         catalog.ConfigColumns.Add(new(){Id="3005",ConfigTableId="3",ColumnName="sheet_status",LogicalType="int32"});
-        catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql+=" AND sheet_status=41";
+        var published=catalog.ConfigPages.Single(page=>page.Id=="301");
+        published.WhereSql=global?"sheet_status=41":published.WhereSql+" AND sheet_status=41";
+        published.OrderBy="sheet_status desc";
         RedundantMultiNameCacheTests.Published(catalog);
+        var model=GenerationModel.Create(catalog,ns);
+        var sourceTable=model.Tables.Single(table=>table.Source.Id=="2");
+        var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,sourceTable,sourceTable.Pages.Single(page=>page.Source.Id=="201")));
+        Assert.Equal("301",checkbox.PhysicalTargetPage!.Source.Id);
+        Assert.Equal("sheet_status",checkbox.Order[0].Column.Source.ColumnName);
+        Assert.True(checkbox.Order[0].Descending);
+        Assert.Contains(checkbox.Scopes,scope=>scope.Source=="parent"&&scope.Column.Source.ColumnName=="parent_id");
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-excel-page");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -50,21 +70,19 @@ public sealed class DerivedCheckboxNamesTests
             var generated=Assert.Single(Directory.GetFiles(Path.Combine(directory,"generated"),"CheckboxExcelScopeSourceService.g.cs",SearchOption.AllDirectories));
             var code=await File.ReadAllTextAsync(generated);
             var read=derived?"DerivedCheckboxRows":"CheckboxScope";
-            var candidate=Assert.Single(code.Split('\n'),line=>line.Contains(read+"201_25Async(request.ParentId",StringComparison.Ordinal));
-            Assert.DoesNotContain("excel:true",candidate);
-            Assert.Contains("        if(excel)",code);
-            Assert.Contains("        if(excel)",code[..code.IndexOf("CheckboxOptions201_25Async",StringComparison.Ordinal)]);
-            Assert.Contains(derived?"if(excel)filters.Add(new(\"parent_id\"":"query=query.Where(row=>row.ParentId==",code);
-            Assert.Contains(code.Split('\n'),line=>line.Contains(read+"201_25Async(parentId,actor,",StringComparison.Ordinal)&&
-                line.Contains("excel:true",StringComparison.Ordinal));
-            Assert.Contains(code.Split('\n'),line=>line.Contains(read+"201_25Async(entity.ParentId",StringComparison.Ordinal)&&
-                line.Contains("excel:true",StringComparison.Ordinal));
+            Assert.Contains(read+"201_25Async(request.ParentId,actor,form",code);
+            Assert.Contains(read+"201_25Async(entity.ParentId",code);
+            Assert.Contains(read+"201_25Async(parentId,actor,",code);
+            Assert.Contains("CheckboxTargetCondition201_25.ApplyConstants",code);
+            Assert.Contains(derived
+                ?"condition.And(publishedCondition)"
+                :"query=query.Where(row=>row.ParentId==",code);
 
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service=assembly.GetType(ns+".Generated.Services.CheckboxExcelScopeSourceService",true)!;
             const System.Reflection.BindingFlags privateStatic=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
             var plan=Assert.IsType<Metarill.Data.Queries.FixedConditionSqlPlan>(
-                service.GetField("CheckboxExcelCondition201_25",privateStatic)!.GetValue(null));
+                service.GetField("CheckboxTargetCondition201_25",privateStatic)!.GetValue(null));
             var clause=plan.GetType().GetMethod("RenderConstants",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!
                 .Invoke(plan,[new Metarill.Data.MySqlDatabaseProvider(),"scope",new Func<string,string>(field=>field)])!;
             Assert.Contains("sheet_status",Assert.IsType<string>(clause.GetType().GetProperty("Sql")!.GetValue(clause)));
@@ -78,11 +96,13 @@ public sealed class DerivedCheckboxNamesTests
 
     /// <summary>控件直接限定物理外键时，候选、保存和 Excel 可以绑定来源级联还原的同一父级。</summary>
     [Theory]
-    [InlineData(false,false)]
-    [InlineData(true,false)]
-    [InlineData(false,true)]
-    [InlineData(true,true)]
-    public async Task Checkbox_control_parent_uses_the_actual_source_cascade(bool derived,bool globalParent)
+    [InlineData(false,false,false)]
+    [InlineData(true,false,false)]
+    [InlineData(false,true,false)]
+    [InlineData(true,true,false)]
+    [InlineData(false,false,true)]
+    [InlineData(true,true,true)]
+    public async Task Checkbox_control_parent_uses_the_actual_source_cascade(bool derived,bool globalParent,bool scopeFromPage)
     {
         const string ns="Example.CheckboxControlParent";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("checkbox_control_parent","int64","int64");
@@ -99,7 +119,9 @@ public sealed class DerivedCheckboxNamesTests
             catalog.ConfigPages.Single(page=>page.ConfigTableId==parent.Id).WhereSql="status=1";
         }
         catalog.ConfigTables.Add(new(){Id="9",TableName="checkbox_control_parent_target",IsRongyu=derived?0:1});
-        catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="9",WhereSql="yz_project_id=@current_yz_project_id AND sheet_status=2"});
+        var targetScope="yz_project_id=@current_yz_project_id AND sheet_status=2";
+        if(scopeFromPage)targetScope+=" AND target_scope_id=@parentId";
+        catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="9",WhereSql=targetScope});
         var targetParent=new ColumnMetadata {Id="96",ConfigTableId="9",ColumnName="target_scope_id",
             LogicalType=derived?"string":"int64",LinkConfigTableId=parent.Id};
         if(globalParent&&derived)
@@ -112,7 +134,8 @@ public sealed class DerivedCheckboxNamesTests
             new(){Id="26",ConfigTableId="2",ColumnName="country_id",Name="国家",LogicalType="int64",LinkConfigTableId=parent.Id},
             new(){Id="28",ConfigTableId="2",ColumnName="selected_ids",Name="复选",LogicalType="string",
                 ControlKind="MultiCheckBoxDatabase",LinkConfigTableId="9",
-                ControlDetail="{\"tableId\":\"9\",\"pageId\":\"901\",\"whereSql\":\"target_scope_id=@parentId AND status=1\"}"},
+                ControlDetail=JsonSerializer.Serialize(new{tableId="9",pageId="901",
+                    whereSql=scopeFromPage?"status=1":"target_scope_id=@parentId AND status=1"})},
             new(){Id="91",ConfigTableId="9",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
             name,
             new(){Id="93",ConfigTableId="9",ColumnName="yz_project_id",LogicalType="int64"},
@@ -135,9 +158,14 @@ public sealed class DerivedCheckboxNamesTests
         var model=GenerationModel.Create(catalog,ns);
         var table=model.Tables.Single(item=>item.Source.Id=="2");
         var page=table.Pages.Single(item=>item.Source.Id=="201");
-        var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,page));
+        var resolution=DatabaseCheckboxCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="28"));
+        Assert.True(resolution.Definition is not null,resolution.Reason);
+        var checkbox=resolution.Definition!;
         Assert.True(checkbox.LogicalSourceParent);
-        Assert.Null(checkbox.LogicalTargetPage);
+        if(globalParent&&scopeFromPage)
+            Assert.Equal("901",checkbox.LogicalTargetPage!.Source.Id);
+        else
+            Assert.Null(checkbox.LogicalTargetPage);
         Assert.Equal(parent.Id,Assert.Single(checkbox.SourceParents).Source.Id);
         Assert.Contains(checkbox.Scopes,scope=>scope.Source=="parent"&&scope.Column.Source.Id==targetParent.Id);
 

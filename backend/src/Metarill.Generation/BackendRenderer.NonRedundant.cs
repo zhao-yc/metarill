@@ -88,7 +88,7 @@ internal static partial class BackendRenderer
             .Any(relation=>DerivedRelationNamesCompilation.IsPhysicalTypedName(model,relation.Target,relation.NameColumn)&&
                 SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage)))
             helpers+="    /// <summary>整数候选只能使用生成时已发布的物理父范围。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompilePhysicalRelation(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.RedundantSharedParentPlan[] parents)=>Metarill.Data.Queries.NonRedundantReads.CompilePhysicalRelation(Snapshot,tableId,outputs,dependencies,parents);\n";
-        if(model.Tables.Any(table=>table.Pages.Any(page=>FixedPageConditionCompilation.HasMultiTargetScope(table,page))))
+        if(model.Tables.Any(table=>table.Pages.Any(page=>FixedPageConditionCompilation.HasMultiTargetScope(model,table,page))))
             helpers+="    /// <summary>多值控件的目标页与逻辑范围在发布时冻结。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileScopedMultiLabel(string tableId,string pageId,string field,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(Snapshot,tableId,pageId,field,outputs,dependencies,singleTargets);\n";
         if(model.Tables.Any(table=>table.Pages.Any(page=>MultiGlobalParentCompilation.SingleTarget(model,table,page) is not null||
             MultiSelectCompilation.ForService(model,table,page).Any(multi=>multi.GlobalParent)||

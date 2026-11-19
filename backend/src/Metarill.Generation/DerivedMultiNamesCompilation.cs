@@ -6,7 +6,7 @@ internal static class DerivedMultiNamesCompilation
     /// <summary>实际物理名称继续走原实现，不因联接标记猜测存储模式。</summary>
     internal static bool Declared(GenerationModel model,TableModel target,ColumnModel name)=>!NonRedundantReadCompilation.Physical(model,target,name);
     internal static bool UsesFixedRead(GenerationModel model,MultiSelectModel multi)=>
-        Declared(model,multi.Target,multi.Name)||FixedPageConditionCompilation.HasMultiTargetScope(multi.Target,multi.TargetPage);
+        Declared(model,multi.Target,multi.Name)||FixedPageConditionCompilation.HasMultiTargetScope(model,multi.Target,multi.TargetPage);
 
     /// <summary>发布时编译目标名称和范围，不能退化为查询IsIgnore实体属性。</summary>
     internal static void Require(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name)
@@ -29,7 +29,7 @@ internal static class DerivedMultiNamesCompilation
         var target=multi.Target;
         var targetPage=multi.TargetPage;
         var dependencies=targetPage.Scopes.Select(scope=>scope.Column.Source.ColumnName)
-            .Concat(FixedPageConditionCompilation.HasMultiTargetScope(target,targetPage)?[]:targetPage.Condition?.Syntax.Fields??[])
+            .Concat(FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage)?[]:targetPage.Condition?.Syntax.Fields??[])
             .Distinct(StringComparer.OrdinalIgnoreCase);
         string[] outputs=multi.Name.IsId?["id"]:["id",multi.Name.Source.ColumnName];
         var call=NonRedundantReadCompilation.MultiLabelPlanCall(model,target,targetPage,targetPage,multi.Name,outputs,dependencies);

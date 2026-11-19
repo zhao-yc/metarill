@@ -117,10 +117,13 @@ internal static class FixedPageConditionCompilation
     internal static bool HasCrossFields(PageModel page)=>page.Condition?.CrossFields.Count>0;
     internal static bool HasSelfTreeFields(PageModel page)=>page.Condition?.SelfTreeFields.Count>0;
     internal static bool HasLogicalFields(PageModel page)=>HasCrossFields(page)||HasSelfTreeFields(page);
-    /// <summary>多值限定页可使用账号条件、逻辑常量或引用稀疏层位的父参数。</summary>
-    internal static bool HasMultiTargetScope(TableModel table,PageModel page)=>HasLogicalFields(page)||
+    /// <summary>多值限定页包含账号、逻辑条件或由实际发布关系证明的全局物理父键。</summary>
+    internal static bool HasMultiTargetScope(GenerationModel model,TableModel table,PageModel page)=>HasLogicalFields(page)||
         table.Source.IsRongyu==0&&HasAccountVariables(page)||page.Scopes.Any(scope=>
-        scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName));
+        scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName))||
+        table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent"&&
+            model.Tables.Any(parent=>parent.IsGlobal&&parent.Source.Id==scope.Column.Source.LinkConfigTableId))&&
+        NonRedundantReads.IsScopedMultiTarget(model.Catalog,table.Source,page.Source.Id);
     /// <summary>非冗余SQL按已编译表达式绑定相同条件；写后回执明确不传页面筛选。</summary>
     internal static string ReadArgument(PageModel page,bool named=false)=>page.Condition is null?"":", "+(named?"condition: ":"")+Bound(page,"PageCondition"+page.Source.Id);
     /// <summary>只有声明账号变量的页面生成请求绑定，普通静态计划维持原调用。</summary>

@@ -10,30 +10,26 @@ internal static class DerivedCheckboxNamesRenderer
         var suffix=DatabaseCheckboxRenderer.Suffix(page,def);var dependencies=DerivedCheckboxNamesCompilation.Require(model,table,def);
         var scopes=def.Scopes.Select(scope=>"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Value(scope.Column,scope.Source=="project"?"actor.ProjectId":"parentId!")+"));");
         var variables=def.Conditions is{} condition?RelationConditionsCompilation.Variables(condition,"parentId"):"";
-        var excel=def.ExcelTargetPage;
-        var excelFilters=def.ExcelParents.Select(column=>
-            "        if(excel)filters.Add(new("+Literal(column.Source.ColumnName)+",FixedReadComparison.Equal,"+
-            Value(column,"parentId!") + "));");
-        var excelCondition=excel?.Condition is null?"":
-            "        if(excel){var pageCondition="+FixedPageConditionCompilation.Bound(excel,"CheckboxExcelCondition"+suffix)+
-            ";condition=condition is null?pageCondition:condition.And(pageCondition);}";
+        var pageCondition=def.PhysicalTargetPage?.Condition is null?"":
+            "        var publishedCondition="+FixedPageConditionCompilation.Bound(def.PhysicalTargetPage,"CheckboxTargetCondition"+suffix)+
+            "; condition=condition is null?publishedCondition:condition.And(publishedCondition);";
         var call=NonRedundantReadCompilation.MultiLabelPlanCall(model,def.Target,def.LogicalTargetPage??def.GlobalPage,
             def.NameTargetPage,def.Name,["id",def.Name.Source.ColumnName],dependencies);
         return $$"""
-    /// <summary>只在类型初始化时编译，候选、保存和 Excel 共用固定目标，原 Excel 另叠加实际目标页条件。</summary>
+    /// <summary>只在类型初始化时编译，候选、保存和 Excel 共用固定目标与实际页条件。</summary>
     private static readonly NonRedundantReadPlan DerivedCheckboxPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{call}};
     private sealed record DerivedCheckboxRow{{suffix}}(long Id,{{def.Name.Type}} Name);
     /// <summary>父存在性和来源身份沿原入口验证；名称条件不读取IsIgnore实体属性。</summary>
-    private async Task<IReadOnlyList<DerivedCheckboxRow{{suffix}}>> DerivedCheckboxRows{{suffix}}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,long[]? ids,{{def.Name.Type}} name,bool matchName,int limit,bool locking,CancellationToken cancellationToken{{(excel is null?"":",bool excel=false")}})
+    private async Task<IReadOnlyList<DerivedCheckboxRow{{suffix}}>> DerivedCheckboxRows{{suffix}}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,long[]? ids,{{def.Name.Type}} name,bool matchName,int limit,bool locking,CancellationToken cancellationToken)
     {
-        _=await CheckboxScope{{suffix}}Async(parentId,actor,formValues,locking,cancellationToken{{(excel is null?"":",excel")}});
+        _=await CheckboxScope{{suffix}}Async(parentId,actor,formValues,locking,cancellationToken);
 
         var filters=new List<FixedReadFilter>();
-{{string.Join("\n",scopes.Concat(excelFilters))}}
+{{string.Join("\n",scopes)}}
         if(ids is not null){if(ids.Length==0)return [];filters.Add(new("id",FixedReadComparison.In,ids.Select(id=>(object?)id).ToArray()));}
         if(matchName)filters.Add(new({{Literal(def.Name.Source.ColumnName)}},FixedReadComparison.Equal,name));
         var condition={{(def.Conditions is null?"(FixedConditionSqlPlan?)null":"CheckboxCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"})")}};
-{{excelCondition}}
+{{pageCondition}}
         var rows=await new NonRedundantReader(session).PageAsync(DerivedCheckboxPlan{{suffix}}.BindAccount(actor),filters,[{{string.Join(",",def.Order.Select(item=>"new("+Literal(item.Column.Source.ColumnName)+","+(item.Descending?"true":"false")+")"))}}],1,limit,cancellationToken,projectId:actor.ProjectId,condition:condition,currentRead:locking);
         return rows.Records.Select(row=>new DerivedCheckboxRow{{suffix}}(NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<{{def.Name.Type}}>(row,{{Literal(def.Name.Source.ColumnName)}}))).ToArray();
     }

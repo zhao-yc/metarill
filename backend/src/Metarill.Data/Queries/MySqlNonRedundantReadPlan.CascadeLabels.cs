@@ -119,7 +119,11 @@ public static partial class MySqlNonRedundantReadCompiler
         var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
         return syntax.Variables.Any(AccountConditionVariables.IsSupported)||
             syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,members,field)||
-                CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field))?page:null;
+                CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field))||
+            syntax.Terms.Any(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
+                MultiTargetParentScope.IsParameter(value.Text))&&
+                members.SingleOrDefault(column=>column.ColumnName==term.Field) is {LinkConfigTableId.Length:>0} field&&
+                catalog.ConfigTables.Any(parent=>parent.Id==field.LinkConfigTableId&&GlobalCrossTableTarget.Declared(parent)))?page:null;
     }
 
     /// <summary>原发布元数据的页面 ID 可为精确整数或字符串。</summary>

@@ -253,7 +253,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("多值目标页包含未接通的范围。");
             if(!condition.HasLogical)
             {
-                if(!AllowLiteralMultiScope&&condition.Plan is not {Variables.Count:>0})
+                if(!AllowLiteralMultiScope&&MultiCandidateParent is not {Global:true,Logical:false}&&
+                    condition.Plan is not {Variables.Count:>0})
                     throw new NotSupportedException("多值目标页缺少固定的级联或账号范围。");
                 if(condition.Plan is not {} account)return scope;
                 cascadeLabelPages.Add(page.Id);
