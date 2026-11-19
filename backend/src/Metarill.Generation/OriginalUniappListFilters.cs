@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 
 namespace Metarill.Generation;
 
@@ -22,12 +23,25 @@ internal static partial class OriginalUniappListRenderer
             var kind = Effective(column.Source, field, "controlKind", column.Source.ControlKind);
             var detail = Effective(column.Source, field, "controlDetail", column.Source.ControlDetail);
             var focus = Flag(field.Extra, "isAutoFocus") ? "focus" : "";
-            var inputKey = kind is "SelectPage" or "MultiSelectPage" ? RelationName(model, page, table, column) : key;
-            var color = Html(model.Catalog.PrimaryColor);
+            var value = Text(field.Extra, "queryDefaultValue");
             markup.Append("<uni-forms-item label='").Append(Html(column.Source.Name)).AppendLine("'>");
             if (ControlRenderer.HasCheckboxArrayFilter(column))
-                markup.Append($"<uni-data-checkbox multiple v-model='filters.{key}' :localdata='{key}Range' />");
-            else switch (kind)
+            {
+                markup.AppendLine($"<uni-data-checkbox multiple v-model='filters.{key}' :localdata='{key}Range' /></uni-forms-item>");
+                var standardBoolean = kind == "CheckBox" && column.Type == "bool?" && string.IsNullOrWhiteSpace(detail);
+                var range = kind switch
+                {
+                    "List" or "SelectPage" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CascadeTree" => "[]",
+                    _ when standardBoolean => "this.$checkboxRange",
+                    _ => ConstantRange(column, detail)
+                };
+                data.Append(key).Append("Range:").Append(range).Append(',');
+                defaults.Append(CheckboxDefault(table, column, kind, value, standardBoolean));
+                continue;
+            }
+            var inputKey = kind is "SelectPage" or "MultiSelectPage" ? RelationName(model, page, table, column) : key;
+            var color = Html(model.Catalog.PrimaryColor);
+            switch (kind)
             {
                 case "DateTime": case "date_time": markup.Append($"<uni-datetime-picker type='datetimerange' v-model='filters.{key}' />"); break;
                 case "Date": case "date": markup.Append($"<uni-datetime-picker type='daterange' v-model='filters.{key}' />"); break;
@@ -61,15 +75,54 @@ internal static partial class OriginalUniappListRenderer
                 default: markup.Append($"<uni-easyinput primaryColor=\"{color}\" v-model='filters.{inputKey}' confirm-type='search' @confirm='filterList' {focus} />"); break;
             }
             markup.AppendLine("</uni-forms-item>");
-            if (kind is "ConstList" or "ConstDownList" || ControlRenderer.HasCheckboxArrayFilter(column))
+            if (kind is "ConstList" or "ConstDownList")
                 data.Append(key).Append("Range:").Append(ConstantRange(column, detail)).Append(',');
-            var value = Text(field.Extra, "queryDefaultValue");
             if (value.Length == 0 || kind == "CascadeTree") continue;
             if (kind is "Month" or "month") defaults.Append($"this.{key}MonthFilterChange({{detail:{{value:{(value == "today" ? "(function(){var now=new Date();return now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');})()" : J(value))}}}}});");
             else if (kind is "DateTime" or "Date" or "date_time" or "date") { if (value == "today") defaults.Append($"this.filters.{key}=utils.getTodayDateAry();"); }
             else defaults.Append("this.filters.").Append(inputKey).Append('=').Append(column.Type is "int?" or "decimal?" && decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out _) ? value : J(value)).Append(';');
         }
         return new(markup.ToString(), data.ToString(), defaults.ToString(), methods.ToString(), requests.ToString(), reset.ToString(), page.Searchable.Count, optionFields.Distinct(StringComparer.Ordinal).ToArray(), remoteOptions);
+    }
+
+    /// <summary>显式复选与原组件使用同一源键和数组形状。日期预设从可选值中挑选，不生成区间。</summary>
+    private static string CheckboxDefault(TableModel table, ColumnModel column, string kind, string value, bool standardBoolean)
+    {
+        if (value.Length == 0) return "";
+        var key = column.JsonName;
+        var month = kind is "month" or "Month";
+        if (value == "today" && (month || column.Type == "DateTime?"))
+        {
+            var length = month ? 7 : 10;
+            return $$$"""
+                {
+                  const dateKey = value => typeof value === 'string'
+                    ? value.split(/[ T]/, 1)[0].split('-').map((part, index) => index ? part.padStart(2, '0') : part).join('-').slice(0, {{{length}}})
+                    : '';
+                  const today = dateKey(utils.getTodayDateAry()[0]);
+                  this.filters.{{{key}}} = this.{{{key}}}Range.map(option => option.value).filter(value => today && dateKey(value) === today);
+                }
+                """;
+        }
+
+        if (table.Source.IsRongyu == 0 && ControlRenderer.UsesMultiIdCheckboxFilter(column) && value.TrimStart().StartsWith('['))
+        {
+            var ids = DatabaseCheckboxValue.Parse(value).Select(id => id.ToString(CultureInfo.InvariantCulture));
+            return $"this.filters.{key}={J(ids)};";
+        }
+
+        var selected = ConstantValue(column, value);
+        if (standardBoolean)
+        {
+            selected = selected switch
+            {
+                bool boolean => boolean ? 1 : 0,
+                "0" => 0,
+                "1" => 1,
+                _ => selected
+            };
+        }
+        return $"this.filters.{key}={J(new[] { selected })};";
     }
 
     /// <summary>旧选项路径按来源列生成；空POST不改成候选分页协议。</summary>
@@ -94,15 +147,17 @@ internal static partial class OriginalUniappListRenderer
     private static string ConstantRange(ColumnModel column, string detail) => J(detail.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(option =>
     {
         var parts = option.Split('|', 2); var value = parts.Length > 1 ? parts[1] : "";
-        object typed = column.Type switch
-        {
-            "bool?" when bool.TryParse(value, out var boolean) => boolean,
-            "int?" when int.TryParse(value, out var number) => number,
-            "decimal?" when decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number) => number,
-            "long?" or "long" when long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) => number.ToString(CultureInfo.InvariantCulture),
-            _ => value
-        };
-        return new { text = parts[0], value = typed };
+        return new { text = parts[0], value = ConstantValue(column, value) };
     }));
+
+    /// <summary>候选和默认值采用相同原始类型，避免复选框因数字与字符串不同而漏回显。</summary>
+    private static object ConstantValue(ColumnModel column, string value) => column.Type switch
+    {
+        "bool?" when bool.TryParse(value, out var boolean) => boolean,
+        "int?" when int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) => number,
+        "decimal?" when decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number) => number,
+        "long?" or "long" when long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) => number.ToString(CultureInfo.InvariantCulture),
+        _ => value
+    };
     private static string JsonValue(string value) { try { using var document = JsonDocument.Parse(value); return document.RootElement.GetRawText(); } catch (JsonException) { return "{}"; } }
 }
