@@ -148,21 +148,50 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>发布已绑定目标页及名称，原候选、导入、回读共用固定条件。</summary>
     internal static MySqlNonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog catalog,string tableId,string pageId,
         string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
-        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,IReadOnlyList<string>? importFields=null)
     {
         MetadataValidation.Validate(catalog);
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("多值目标页逻辑条件要求已发布的MySQL读取计划。");
         var page=catalog.ConfigPages.Single(item=>item.ConfigTableId==tableId&&item.Id==pageId);
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
-        return new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field)
+        var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
+        var parent=MultiParent(catalog,page);
+        var extraFields=(importFields??[]).ToHashSet(StringComparer.Ordinal);
+        var crossFields=new HashSet<string>(StringComparer.Ordinal);
+        IReadOnlyList<ColumnMetadata> importColumns=[];
+        IReadOnlyList<NonRedundantCrossTableScope> crossBindings=[];
+        if(extraFields.Count>0)
+        {
+            if(table.IsRongyu!=0||table.IsView!=0||table.IsFunctionTable!=0||page.Extra.GetValueOrDefault("type").ToString()!="2"||
+                page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
+                throw new NotSupportedException("Excel 多值逻辑条件要求已发布的普通非冗余多选页。");
+            var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId).ToArray();
+            var declared=RelationStorageColumns.Expand(table,members);
+            // 从当前发布页再次验证稀疏层级和自树覆盖，禁止宿主用备用页代替。
+            // 同一逻辑父的表达式由目标页范围建立，附加条件直接使用该表达式。
+            crossFields=extraFields.Where(name=>(parent is not {Logical:true}||name!=parent.Target.ColumnName)&&
+                CrossTableStorageColumns.IsLogicalPathField(table,members,name)).ToHashSet(StringComparer.Ordinal);
+            _=SelfTreeConditionFields(catalog,table,page,declared,extraFields);
+            importColumns=declared.Where(column=>extraFields.Contains(column.ColumnName)).ToArray();
+            if(crossFields.Count>0)crossBindings=CrossMembershipBindings(catalog,table,page,crossFields);
+        }
+        var plan=new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field,crossTables:crossBindings)
         {
             SelectedMultiPage=page,
             MultiNamePathPage=page,
+            AllowLiteralMultiScope=extraFields.Count>0,
+            MultiImportFields=extraFields,
+            MultiImportCrossFields=crossFields,
+            ScopedRootControls=crossBindings.Select(binding=>binding.SourceColumnId).ToHashSet(StringComparer.Ordinal),
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
-            GlobalCrossCandidate=GlobalCrossTableTarget.Declared(catalog.ConfigTables.Single(table=>table.Id==tableId))
-        }.Compile(outputs,dependencies.Concat(MultiParent(catalog,page) is { } parent?[parent.Target.ColumnName]:[])
+            GlobalCrossCandidate=GlobalCrossTableTarget.Declared(table)
+        }.Compile(outputs,dependencies.Concat(extraFields).Concat(parent is null?[]:[parent.Target.ColumnName])
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+        if(importColumns.Count!=extraFields.Count||importColumns.Any(column=>
+            !plan.Types.TryGetValue(column.ColumnName,out var type)||type!=column.LogicalType))
+            throw new NotSupportedException("Excel 逻辑条件必须落到与声明类型一致的固定字段。");
+        return plan;
     }
 
     /// <summary>按实际发布页解析原父参数，父列可能未在页面显示。</summary>
@@ -391,10 +420,13 @@ public static partial class MySqlNonRedundantReadCompiler
             return clause.Sql;
         }
 
-        /// <summary>普通选择页只在已绑定的派生名称下读取嵌套级联。精确数据管理保持原范围。</summary>
+        internal IReadOnlySet<string> MultiImportFields { get; init; }=new HashSet<string>(StringComparer.Ordinal);
+        internal IReadOnlySet<string> MultiImportCrossFields { get; init; }=new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>精确名称和 Excel 固定条件都可读取已证明的级联表达式。</summary>
         private bool AllowsCascadeLabel(TableMetadata table,string alias)
         {
-            if(multiLabel&&output==cascadeLabelField)return true;
+            if(multiLabel&&(output==cascadeLabelField||MultiImportFields.Contains(output)))return true;
             if(matching||refreshFields is not null||table.Id==root.Id&&alias==rootAlias)return false;
             declaredMultiLabelFields??=DeclaredMultiNameTargets(catalog).Where(item=>item.Table.Id==root.Id)
                 .Select(item=>item.Field).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -404,11 +436,11 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>多值名称接入完整稀疏路径。坏存储或共享分支冲突不能进入名称数组、筛选或导入。</summary>
         private (string Sql,string Type)? TryCascadeLabel(TableMetadata table,string owner,ColumnMetadata column)
         {
-            if(table.IsRongyu!=0||column.LogicalType!="string"||
-                column.IsVirtualColumn!=0||storage[table.Id].IsPhysical(column)||
-                !column.ColumnName.EndsWith("_name",StringComparison.Ordinal)||ExactDataManageValues.IsSensitiveField(column.ColumnName))
-                return null;
             var field=column.ColumnName;
+            var importPath=table.Id==root.Id&&owner==rootAlias&&MultiImportCrossFields.Contains(field);
+            if(table.IsRongyu!=0||column.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(field)||
+                !importPath&&(column.LogicalType!="string"||storage[table.Id].IsPhysical(column)||!field.EndsWith("_name",StringComparison.Ordinal)))
+                return null;
             var control=columns[table.Id].Values.FirstOrDefault(item=>item.ControlKind=="CascadeTree"&&
                 (CrossTableStorageColumns.ContainsPathField(item,field)||IsSelfTreeLabel(item,field)));
             if(control is null||!AllowsCascadeLabel(table,owner))return null;

@@ -1,3 +1,6 @@
+using System.Text.Json;
+using Metarill.Data.Queries;
+
 namespace Metarill.Generation;
 
 /// <summary>多选派生名称只在完整目标标量计划和物理范围均已证明时开放。</summary>
@@ -22,6 +25,29 @@ internal static class DerivedMultiNamesCompilation
         var plan=NonRedundantReadCompilation.CompileMultiLabelPlan(model,target,page,page,field,[field],[]);
         if(plan.OutputTypes[name.Source.ColumnName]!=name.Source.LogicalType)throw new InvalidOperationException("派生多选名称与固定物理终点类型不一致。");
     }
+    /// <summary>附加逻辑字段和显示名一同按实际候选页编译，先核对完整投影再允许包发布。</summary>
+    internal static void ValidateLogicalImport(GenerationModel model,TableModel target,PageModel page,ColumnModel name,
+        RelationConditionModel condition)
+    {
+        _=NonRedundantReads.CompileMultiImportLabel(model.Catalog,target.Source.Id,page.Source.Id,name.Source.ColumnName,
+            condition.Syntax.Fields,ImportTargets(model,target,page,name,condition));
+    }
+
+    /// <summary>导入专用计划不进入普通多选、名称回显或保存校验。</summary>
+    internal static string LogicalImportDeclaration(GenerationModel model,MultiSelectModel multi,string suffix)
+    {
+        if(multi.ImportCondition is not {HasLogicalFields:true} condition)return "";
+        var ids=string.Join(",",new[]{multi.Target.Source.Id,multi.TargetPage.Source.Id,multi.Name.Source.ColumnName}
+            .Select(value=>JsonSerializer.Serialize(value)));
+        var fields="new string[]{"+string.Join(",",condition.Syntax.Fields.Select(field=>JsonSerializer.Serialize(field)))+"}";
+        var targets=NonRedundantReadCompilation.SingleTargetArgument(ImportTargets(model,multi.Target,multi.TargetPage,multi.Name,condition));
+        return $"    private static readonly NonRedundantReadPlan MultiImportReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileMultiImportLabel({ids},{fields}{targets});\n";
+    }
+
+    private static IReadOnlyList<NonRedundantSingleTargetScope> ImportTargets(GenerationModel model,TableModel target,PageModel page,
+        ColumnModel name,RelationConditionModel condition)=>
+        NonRedundantReadCompilation.ProjectPathTargets(model,target,page,condition.Syntax.Fields.Append(name.Source.ColumnName));
+
     /// <summary>原Excel按固定名称精确反查，读计划仅静态初始化时编译。</summary>
     internal static string Declaration(GenerationModel model,PageModel page,MultiSelectModel multi)
     {
@@ -30,7 +56,7 @@ internal static class DerivedMultiNamesCompilation
         var targetPage=multi.TargetPage;
         var dependencies=targetPage.Scopes.Select(scope=>scope.Column.Source.ColumnName)
             .Concat(FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage)?[]:targetPage.Condition?.Syntax.Fields??[])
-            .Concat(ImportRenderer.Enabled(page)?multi.ImportCondition?.Syntax.Fields??[]:[])
+            .Concat(ImportRenderer.Enabled(page)&&multi.ImportCondition is {HasLogicalFields:false} condition?condition.Syntax.Fields:[])
             .Distinct(StringComparer.OrdinalIgnoreCase);
         string[] outputs=multi.Name.IsId?["id"]:["id",multi.Name.Source.ColumnName];
         var call=NonRedundantReadCompilation.MultiLabelPlanCall(model,target,targetPage,targetPage,multi.Name,outputs,dependencies);

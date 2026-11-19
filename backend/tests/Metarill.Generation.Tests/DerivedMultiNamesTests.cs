@@ -204,7 +204,9 @@ public sealed class DerivedMultiNamesTests
     [InlineData(false,false)]
     [InlineData(true,true)]
     [InlineData(false,true,true)]
-    public async Task R0_multi_excel_applies_control_conditions_in_addition_to_the_target_page(bool derived,bool overlay,bool targetAccount=false)
+    [InlineData(false,false,false,true)]
+    public async Task R0_multi_excel_applies_control_conditions_in_addition_to_the_target_page(bool derived,bool overlay,
+        bool targetAccount=false,bool joinedCondition=false)
     {
         const string ns="Example.MultiImportScope";
         var catalog=Catalog("multi_import_scope",false);
@@ -223,6 +225,13 @@ public sealed class DerivedMultiNamesTests
             new(){Id="38",ConfigTableId="3",ColumnName="segment",LogicalType="string"},
             new(){Id="39",ConfigTableId="3",ColumnName="sheet_status",LogicalType="int32"},
             new(){Id="310",ConfigTableId="3",ColumnName="store_id",LogicalType="int64"}]);
+        if(joinedCondition)
+        {
+            catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",ColumnName="segment",LogicalType="string"});
+            var segment=catalog.ConfigColumns.Single(column=>column.Id=="38");
+            segment.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            segment.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.segment");
+        }
         foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="2"))
             catalog.ConfigPageColumns.Add(new(){Id=page.Id+"28",ConfigPageId=page.Id,ConfigColumnId="28",IsEdit=1,IsShow=1});
         var target=catalog.ConfigPages.Single(page=>page.Id=="301");
@@ -247,7 +256,7 @@ public sealed class DerivedMultiNamesTests
             Assert.Contains("MultiImportCondition201_25.BindVariables",importCode);
             Assert.Contains("relationContext[\"segment\"]",importCode);
             Assert.Contains("AccountConditionVariables.Require(actor, \"current_store_id\")",importCode);
-            Assert.Contains(targetAccount?"condition:importCondition,currentRead:true":
+            Assert.Contains(targetAccount||joinedCondition?"condition:importCondition,currentRead:true":
                 derived?"condition:importCondition.And(MultiPageCondition201_25)":
                 "importCondition.ApplyConstants(query,session,\"multi_control_import_201_25\")",importCode);
             var untilImport=generated[..importAt];
@@ -267,22 +276,26 @@ public sealed class DerivedMultiNamesTests
                 .Invoke(bound,[new Metarill.Data.MySqlDatabaseProvider(),"excel",new Func<string,string>(name=>name)])!;
             var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(clause.GetType().GetProperty("Parameters")!.GetValue(clause));
             Assert.Equal(new object?[]{overlay?32:31,9007199254741197L,23L,"A"},parameters.Values);
-            if(derived||targetAccount)
+            if(derived||targetAccount||joinedCondition)
             {
+                var readField=joinedCondition?"MultiImportReadPlan201_25":"MultiDerivedPlan201_25";
                 var read=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service
-                    .GetField("MultiDerivedPlan201_25",staticPrivate)!.GetValue(null));
+                    .GetField(readField,staticPrivate)!.GetValue(null));
                 Assert.Equal(targetAccount,read.RequiresAccount);
                 var mysql=read.GetType().GetProperty("MySql",HiddenInstance)!.GetValue(read)!;
                 foreach(var name in new[]{"sheet_status","segment","store_id"})
                     Assert.EndsWith(".`"+name+"`",Assert.IsType<string>(mysql.GetType()
                         .GetMethod("Expression",HiddenInstance)!.Invoke(mysql,[name])));
+                if(joinedCondition)
+                    Assert.Contains("LEFT JOIN `multi_import_scope_company`",Assert.IsType<string>(mysql.GetType()
+                        .GetProperty("From",HiddenInstance)!.GetValue(mysql)));
             }
 
             field.Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new
                 {whereSql=Where(32)+" AND segment=@parentId"}));
             var rejected=MultiSelectCompilation.Resolve(model,table,page201,table.Columns.Single(item=>item.Source.Id=="25"));
             Assert.Null(rejected.Definition);
-            Assert.Contains("父键必须沿用目标页",rejected.Reason);
+            Assert.Contains(joinedCondition?"未证明的父级条件":"父键必须沿用目标页",rejected.Reason);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
 

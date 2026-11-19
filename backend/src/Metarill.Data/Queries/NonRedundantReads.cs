@@ -299,6 +299,12 @@ public static class NonRedundantReads
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
         new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies,singleTargets));
 
+    /// <summary>Excel 附加条件以宿主发布的逻辑表达式匹配，绑定值仍由真实导入上下文提供。</summary>
+    public static NonRedundantReadPlan CompileMultiImportLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
+        IReadOnlyList<string> conditionFields,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>
+        new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,
+            field=="id"?["id"]:["id",field],[],singleTargets,conditionFields));
+
     /// <summary>生成期取得固定单值名称实际读取的来源物理列；同表其它角色可能形成安全超集，不返回SQL。</summary>
     public static IReadOnlyList<string> CompileSourceDependencies(MetadataCatalog metadata,string tableId,string field)
     {

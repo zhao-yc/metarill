@@ -7,10 +7,12 @@ internal static class DerivedMultiNamesImportRenderer
     /// <summary>固定目标范围按原父依赖绑定，名称当前读逐项唯一定位，任一失败整批撤销。</summary>
     internal static string Render(GenerationModel model,TableModel table,PageModel page,MultiSelectModel multi,ImportDependencyPlan dependency)
     {
-        DerivedMultiNamesCompilation.Require(model,table,multi.Target,multi.TargetPage,multi.Name);
+        var logicalImport=multi.ImportCondition?.HasLogicalFields==true;
+        if(!logicalImport)DerivedMultiNamesCompilation.Require(model,table,multi.Target,multi.TargetPage,multi.Name);
         var suffix=page.Source.Id+"_"+multi.Source.Source.Id;var parent=multi.TargetParentField is not null?dependency.Parents[multi.Source.Source.Id]:null;
         var typed=multi.TypedLabel||multi.Name.IsId;
-        var targetCondition=multi.TargetPage.Condition is null||FixedPageConditionCompilation.HasMultiTargetScope(model,multi.Target,multi.TargetPage)
+        var readPlan=(logicalImport?"MultiImportReadPlan":"MultiDerivedPlan")+suffix;
+        var targetCondition=logicalImport||multi.TargetPage.Condition is null||FixedPageConditionCompilation.HasMultiTargetScope(model,multi.Target,multi.TargetPage)
             ?null:FixedPageConditionCompilation.Bound(multi.TargetPage,"MultiPageCondition"+suffix);
         var condition=multi.ImportCondition is null?targetCondition:
             targetCondition is null?"importCondition":"importCondition.And("+targetCondition+")";
@@ -34,7 +36,7 @@ internal static class DerivedMultiNamesImportRenderer
 {{(multi.Name.IsId?"            if(name<=0)throw PageImportException.Input(PageImportError.Relation);":"")}}
             var filters=new List<FixedReadFilter>{new({{Literal(multi.Name.Source.ColumnName)}},FixedReadComparison.Equal,{{(typed?"name":"item.ToString()")}})};
 {{string.Join("\n",scopes)}}
-            var matches=await new NonRedundantReader(session).PageAsync(MultiDerivedPlan{{suffix}}.BindAccount(actor),filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId{{(condition is null?"":",condition:"+condition)}},currentRead:true);
+            var matches=await new NonRedundantReader(session).PageAsync({{readPlan}}.BindAccount(actor),filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId{{(condition is null?"":",condition:"+condition)}},currentRead:true);
             if(matches.Records.Count!=1)throw PageImportException.Input(PageImportError.Relation);
             var value=NonRedundantReads.Value<long>(matches.Records[0],"id").ToString(CultureInfo.InvariantCulture);if(selected.Contains(value))throw PageImportException.Input(PageImportError.Relation);selected.Add(value);
         }

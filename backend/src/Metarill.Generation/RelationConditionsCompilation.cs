@@ -10,7 +10,8 @@ internal sealed record RelationConditionModel(string Definition, FixedConditionP
 {
     internal IReadOnlySet<string> CrossFields { get; init; }=new HashSet<string>(StringComparer.Ordinal);
     internal IReadOnlySet<string> SelfTreeFields { get; init; }=new HashSet<string>(StringComparer.Ordinal);
-    internal bool HasLogicalFields=>CrossFields.Count>0||SelfTreeFields.Count>0;
+    internal IReadOnlySet<string> JoinedFields { get; init; }=new HashSet<string>(StringComparer.Ordinal);
+    internal bool HasLogicalFields=>CrossFields.Count>0||SelfTreeFields.Count>0||JoinedFields.Count>0;
 }
 
 /// <summary>表单变量固定绑定本对象已声明的物理标量，嵌套槽沿用原表名驼峰结构。</summary>
@@ -20,18 +21,24 @@ internal static class RelationConditionsCompilation
 {
     /// <summary>生成前验证整个条件及字面量类型，不把未支持的变量或派生字段降级为宽查询。</summary>
     internal static (IReadOnlyList<(ColumnModel Column, string Source)> Scopes, RelationConditionModel? Conditions) Compile(
-        GenerationModel model, TableModel owner, PageModel page, TableModel target, string definition,bool allowLogicalList=false)
+        GenerationModel model, TableModel owner, PageModel page, TableModel target, string definition,bool allowLogicalList=false,
+        bool allowLogicalMultiImport=false)
     {
-        try { return CompileCore(model,owner,page,target,definition,allowLogicalList); }
+        try { return CompileCore(model,owner,page,target,definition,allowLogicalList,allowLogicalMultiImport); }
         catch(ArgumentException error) { throw new InvalidOperationException("关系固定条件不能按已发布物理类型安全编译。",error); }
     }
 
     /// <summary>完整分析后才签发关系条件，语法和类型错误统一保留生成失败合同。</summary>
-    private static (IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions) CompileCore(GenerationModel model,TableModel owner,PageModel page,TableModel target,string definition,bool allowLogicalList)
+    private static (IReadOnlyList<(ColumnModel Column, string Source)> Scopes, RelationConditionModel? Conditions) CompileCore(GenerationModel model,TableModel owner,PageModel page,TableModel target,string definition,bool allowLogicalList,bool allowLogicalMultiImport)
     {
         var syntax=FixedConditionPlan.Compile(definition,target.Columns.Select(column=>column.Source.ColumnName));
-        var (crossFields,selfTreeFields)=LogicalFields(target,syntax,allowLogicalList);
-        bool Logical(string field)=>crossFields.Contains(field)||selfTreeFields.Contains(field);
+        var (crossFields,selfTreeFields)=LogicalFields(target,syntax,allowLogicalList||allowLogicalMultiImport);
+        var joinedFields=allowLogicalMultiImport&&target.Source.IsRongyu==0?target.Columns.Where(column=>
+            syntax.Fields.Contains(column.Source.ColumnName)&&column.Source.IsVirtualColumn==0&&
+            GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&
+            !NonRedundantReadCompilation.Physical(model,target,column))
+            .Select(column=>column.Source.ColumnName).ToHashSet(StringComparer.Ordinal):new HashSet<string>(StringComparer.Ordinal);
+        bool Logical(string field)=>crossFields.Contains(field)||selfTreeFields.Contains(field)||joinedFields.Contains(field);
         var scopes=new List<(ColumnModel Column,string Source)>();
         var forms=new Dictionary<string,RelationFormBinding>(StringComparer.Ordinal);
         var storage=MetadataStoragePolicy.ForTable(model.Catalog,owner.Source);
@@ -49,8 +56,8 @@ internal static class RelationConditionsCompilation
                 if(Kind(column.Source.LogicalType)!=Kind(targetColumn.Source.LogicalType))throw new InvalidOperationException("表单依赖与候选字段逻辑类型不一致。");
                 forms.TryAdd(variable,new(variable,column,Array.AsReadOnly(path),Array.AsReadOnly(path.Length==1?new[]{GenerationModel.Camel(owner.Source.TableName),path[0]}:new[]{path[^1]})));continue;
             }
-            if(Logical(term.Field))
-                throw new InvalidOperationException("账号、项目或父级条件必须使用真实物理字段。");
+            if(Logical(term.Field)&&!(allowLogicalMultiImport&&crossFields.Contains(term.Field)&&MultiTargetParentScope.IsParameter(variable)))
+                throw new InvalidOperationException("账号、项目或未证明的父级条件必须使用真实物理字段。");
             if(Metarill.Core.Security.AccountConditionVariables.IsSupported(variable))
             {
                 if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||!FixedPageConditionCompilation.IsAccountColumn(target.Columns.Single(column=>column.Source.ColumnName==term.Field)))
@@ -80,7 +87,7 @@ internal static class RelationConditionsCompilation
         FixedConditionSqlPlan.Compile(syntax,types);
         return (scopes.AsReadOnly(),new(definition,syntax,types,Array.AsReadOnly(forms.Values.ToArray()))
         {
-            CrossFields=crossFields,SelfTreeFields=selfTreeFields
+            CrossFields=crossFields,SelfTreeFields=selfTreeFields,JoinedFields=joinedFields
         });
     }
 

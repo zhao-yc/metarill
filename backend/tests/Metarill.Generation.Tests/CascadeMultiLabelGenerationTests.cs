@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Metarill.Core.Metadata;
+using Metarill.Data.Queries;
 using Xunit;
 
 namespace Metarill.Generation.Tests;
@@ -258,9 +259,19 @@ public sealed class CascadeMultiLabelGenerationTests
         CompileCascadeLabel(kind,mode,selfTree:true,indirect:false,account:rowProject is null,selectedPage:true,physical:physical,
             globalRowProject:rowProject,parent:parent);
 
+    /// <summary>附加逻辑条件只进入原 Excel 名称反查的发布计划。</summary>
+    [Theory]
+    [InlineData(false,false,null)]
+    [InlineData(true,true,false)]
+    [InlineData(false,true,true)]
+    [InlineData(false,true,null,true)]
+    public Task Multi_import_compiles_control_cascade_conditions(bool selfTree,bool selectedPage,bool? rowProject,bool logicalParent=false)=>
+        CompileCascadeLabel("MultiSelectPage",0,selfTree,indirect:false,selectedPage:selectedPage,physical:true,
+            globalRowProject:rowProject,parent:logicalParent,logicalParent:logicalParent,importLogical:true);
+
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
         bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
-        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false)
+        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -392,6 +403,18 @@ public sealed class CascadeMultiLabelGenerationTests
             if(formParent)catalog.ConfigPageColumns.Add(new(){Id="901914",ConfigColumnId="914",ConfigPageId="901",IsEdit=1,IsShow=1});
             else catalog.ConfigPages.Single(page=>page.Id=="901").WhereSql+=" AND source_scope_id=@parentId";
         }
+        if(importLogical)
+        {
+            var control=catalog.ConfigColumns.Single(column=>column.Id=="95");
+            var pageField=catalog.ConfigPageColumns.Single(column=>column.Id=="90195");
+            var whereSql=selfTree?"tree_name LIKE '指定%'":
+                "country_id='9007199254741197' AND country_name <> '排除导入名称'";
+            if(logicalParent)whereSql="country_id='9007199254741197' AND country_id=@parentId";
+            if(selectedPage)
+                pageField.Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql}));
+            else
+                control.ControlDetail=JsonSerializer.Serialize(new{pageId=targetPage,nameField=display,whereSql});
+        }
         RedundantMultiNameCacheTests.Published(catalog);
 
         var model=GenerationModel.Create(catalog,ns);
@@ -462,6 +485,21 @@ public sealed class CascadeMultiLabelGenerationTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var consumer=assembly.GetType(ns+".Generated.Services.LabelConsumerService",true)!;
             RuntimeHelpers.RunClassConstructor(consumer.TypeHandle);
+            if(importLogical)
+            {
+                const System.Reflection.BindingFlags staticPrivate=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                var read=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("MultiImportReadPlan901_95",staticPrivate)!.GetValue(null));
+                Assert.Equal(selectedPage,read.RequiresAccount);
+                var sql=read.GetType().GetProperty("MySql",hidden)!.GetValue(read)!;
+                string Expression(string field)=>Assert.IsType<string>(sql.GetType().GetMethod("Expression",hidden)!.Invoke(sql,[field]));
+                if(!logicalParent)Assert.Contains("CASE WHEN",Expression(selfTree?"tree_name":"country_name"));
+                if(!selfTree)Assert.Contains("CASE WHEN",Expression("country_id"));
+                if(logicalParent)Assert.Equal("country_id",sql.GetType().GetProperty("RequiredMultiParent",hidden)!.GetValue(sql));
+                var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
+                Assert.Contains("PageAsync(MultiImportReadPlan901_95.BindAccount(actor)",code);
+                Assert.Contains("condition:importCondition,currentRead:true",code);
+            }
             RuntimeHelpers.RunClassConstructor(assembly.GetType(ns+".Generated.Services.LabelCrossSourceService",true)!.TypeHandle);
             if(indirect)RuntimeHelpers.RunClassConstructor(assembly.GetType(ns+".Generated.Services.LabelJoinService",true)!.TypeHandle);
             Assert.NotNull(consumer.GetMethod("Import901Async"));

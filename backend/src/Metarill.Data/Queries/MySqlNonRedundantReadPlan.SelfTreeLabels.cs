@@ -86,7 +86,8 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             var rootStorage=storage[root.Id];
             // 多值反查仅验证实际发布页声明的显示名，继续要求整条树路径可见。
-            var scopedLabel=SelectedMultiPage is not null&&column.ColumnName==cascadeLabelField&&column.ControlKind!="CascadeTree";
+            var scopedLabel=SelectedMultiPage is not null&&(column.ColumnName==cascadeLabelField||
+                MultiImportFields.Contains(column.ColumnName))&&column.ControlKind!="CascadeTree";
             if(matching&&!scopedLabel)return false;
             if(!deferCascadeNames&&!scopedLabel)
                 return IsSelfTreeParent(root,rootStorage,column)&&SelfTreeLabel(catalog,column).Target.Id==root.Id;

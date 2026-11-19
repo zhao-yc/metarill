@@ -11,7 +11,9 @@ internal static class MultiSelectExcelRenderer
     {
         var suffix=page.Source.Id+"_"+multi.Source.Source.Id;
         var declaration=RelationConditionsCompilation.Declaration(multi.ImportCondition,"MultiImportCondition"+suffix);
-        if(DerivedMultiNamesCompilation.UsesFixedRead(model,multi))return declaration+DerivedMultiNamesImportRenderer.Render(model,table,page,multi,dependency);
+        if(multi.ImportCondition?.HasLogicalFields==true||DerivedMultiNamesCompilation.UsesFixedRead(model,multi))
+            return declaration+DerivedMultiNamesCompilation.LogicalImportDeclaration(model,multi,suffix)+
+                DerivedMultiNamesImportRenderer.Render(model,table,page,multi,dependency);
         var result=new StringBuilder(declaration);
         result.AppendLine("    /// <summary>原JSON名称数组只在已授权来源import内反查，重名、缺失或越界让整批回滚。</summary>")
             .AppendLine($"    private async Task<JsonElement> ImportMulti{suffix}Async(JsonElement cell,string? parentId,RuntimeActor actor{(dependency.Contextual?", IReadOnlyDictionary<string,JsonElement> relationContext":"")},CancellationToken cancellationToken)")
