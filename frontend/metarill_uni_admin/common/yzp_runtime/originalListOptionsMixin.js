@@ -1,13 +1,16 @@
 import yzp from '@/common/yzp_runtime/yzp-runtime';
 
 /** 原下拉框仍消费原数组端点；内部隔离父/身份切换，退出只清理而不触发重新登录。 */
-export function createOriginalListOptionsMixin({ targetParentFields = [], optionFields = [] } = {}) {
+export function createOriginalListOptionsMixin({ targetParentFields = [], optionFields = [], checkboxOptionScopes = [] } = {}) {
  return {
   created() {
    this._originalListAlive = true; this._originalOptionSequence = 0; this._originalOptionTasks = new Map()
    // 只清生成器声明的候选数组，不能遍历实体或根据字段后缀猜测业务数据。
-   for (const field of targetParentFields) this.$watch(() => this.filters?.[field], () => {
-    if (this._originalListAlive) this.reloadOriginalListOptions()
+   const dependencies = new Set([...targetParentFields, ...checkboxOptionScopes.flatMap(scope => scope.formFields)])
+   for (const field of dependencies) this.$watch(() => this.filters?.[field], () => {
+    if (!this._originalListAlive) return
+    this.clearScopedCheckboxFilters(scope => scope.formFields.includes(field))
+    this.reloadOriginalListOptions()
    }, { flush: 'sync' })
   },
   mounted() {
@@ -24,7 +27,13 @@ export function createOriginalListOptionsMixin({ targetParentFields = [], option
   },
   onUnload() { this.disposeOriginalListOptions() },
   beforeUnmount() { this.disposeOriginalListOptions() },
-  watch: { parent_id() { if (this._originalListAlive) this.reloadOriginalListOptions() } },
+  watch: {
+   parent_id() {
+    if (!this._originalListAlive) return
+    this.clearScopedCheckboxFilters(scope => scope.parentScoped)
+    this.reloadOriginalListOptions()
+   }
+  },
   methods: {
    /** 自动加载必须有当前会话；缺少会话只清空，不绕过公共请求的认证提示。 */
    hasOriginalListSession() { return !!uni.getStorageSync('loginStateId') },
@@ -34,6 +43,7 @@ export function createOriginalListOptionsMixin({ targetParentFields = [], option
    reloadOriginalListOptions() { this.clearOriginalListOptions(); if (this.hasOriginalListSession()) this.initLists() },
    /** 退出同步清旧数据和原选择/详情上下文，不销毁实例，之后登录仍能恢复。 */
    resetOriginalListContext(clearSelection = true) {
+    this.clearScopedCheckboxFilters(() => true)
     this.clearOriginalListOptions(); this.resetListContext?.()
     if (clearSelection) this.clearSelectionContext?.()
     // 旧身份的确认意图始终失效，但有会话的身份事件不能取消新身份刚重建的回读。
@@ -55,7 +65,14 @@ export function createOriginalListOptionsMixin({ targetParentFields = [], option
    },
    /** 先失效再取消，底层同步abort回调和取消异常都不能阻止其它任务清理。 */
    invalidateOriginalListOptions() { const old = [...this._originalOptionTasks.values()]; this._originalOptionTasks.clear(); this._originalOptionSequence++; for (const pending of old) { try { pending.task?.abort?.() } catch (_) { /* 回执时效不依赖取消成功。 */ } } },
-   /** 字段清单来自当前页元数据编译，常量和用户筛选输入保持原样。 */
+   /** 父级、表单范围和身份变化只移除实际依赖该范围的已选复选 ID。 */
+   clearScopedCheckboxFilters(affected) {
+    if (!this.filters) return
+    for (const scope of checkboxOptionScopes) {
+     if (affected(scope)) delete this.filters[scope.field]
+    }
+   },
+   /** 候选字段清单来自当前页元数据编译。 */
    clearOriginalListOptions() { this.invalidateOriginalListOptions(); for (const field of optionFields) this[field] = [] },
    /** 普通页与选择页均按原生命周期清理，不影响其他页面的事件订阅。 */
    disposeOriginalListOptions() { if (!this._originalListAlive) return; this._originalListAlive = false; this.invalidateOriginalListOptions(); for (const event of ['onChangeProject', 'onLogin']) uni.$off(event, this._originalOptionIdentity); uni.$off('onLogout', this._originalOptionLogout) }

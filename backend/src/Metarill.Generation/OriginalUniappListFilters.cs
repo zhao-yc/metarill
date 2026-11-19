@@ -8,7 +8,8 @@ namespace Metarill.Generation;
 /// <summary>逐项沿用原筛选控件、默认值和选项请求，保留原字段命名。</summary>
 internal static partial class OriginalUniappListRenderer
 {
-    private sealed record ListFilters(string Markup, string Data, string Defaults, string Methods, string Requests, string Reset, int Count, IReadOnlyList<string> OptionFields, IReadOnlyList<string> RemoteOptions);
+    private sealed record CheckboxOptionScope(string Field, bool ParentScoped, IReadOnlyList<string> FormFields);
+    private sealed record ListFilters(string Markup, string Data, string Defaults, string Methods, string Requests, string Reset, int Count, IReadOnlyList<string> OptionFields, IReadOnlyList<string> RemoteOptions, IReadOnlyList<CheckboxOptionScope> CheckboxOptions);
 
     /// <summary>原筛选只在提交时生效；不新增排序器、查询按钮或清除按钮。</summary>
     private static ListFilters Filters(GenerationModel model, TableModel table, PageModel page)
@@ -17,6 +18,7 @@ internal static partial class OriginalUniappListRenderer
         var methods = new StringBuilder(); var requests = new StringBuilder(); var reset = new StringBuilder();
         // 只下发本页实际生成的远程候选数组，退出清理不猜测实体属性。
         var optionFields = new List<string>();var remoteOptions = new List<string>();
+        var checkboxOptions = new List<CheckboxOptionScope>();
         foreach (var column in page.Searchable)
         {
             var field = Field(model, page, column); var key = column.JsonName;
@@ -36,6 +38,13 @@ internal static partial class OriginalUniappListRenderer
                     _ => ConstantRange(column, detail)
                 };
                 data.Append(key).Append("Range:").Append(range).Append(',');
+                if (kind == "MultiCheckBoxDatabase" && table.Source.IsRongyu == 0 &&
+                    DatabaseCheckboxCompilation.Resolve(model, table, page, column).Definition is { } checkbox &&
+                    AppendDatabaseCheckboxFilterOptions(model, table, page, checkbox, requests) is { } scope)
+                {
+                    optionFields.Add(key + "Range");
+                    checkboxOptions.Add(scope);
+                }
                 defaults.Append(CheckboxDefault(table, column, kind, value, standardBoolean));
                 continue;
             }
@@ -82,7 +91,52 @@ internal static partial class OriginalUniappListRenderer
             else if (kind is "DateTime" or "Date" or "date_time" or "date") { if (value == "today") defaults.Append($"this.filters.{key}=utils.getTodayDateAry();"); }
             else defaults.Append("this.filters.").Append(inputKey).Append('=').Append(column.Type is "int?" or "decimal?" && decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out _) ? value : J(value)).Append(';');
         }
-        return new(markup.ToString(), data.ToString(), defaults.ToString(), methods.ToString(), requests.ToString(), reset.ToString(), page.Searchable.Count, optionFields.Distinct(StringComparer.Ordinal).ToArray(), remoteOptions);
+        return new(markup.ToString(), data.ToString(), defaults.ToString(), methods.ToString(), requests.ToString(), reset.ToString(), page.Searchable.Count, optionFields.Distinct(StringComparer.Ordinal).ToArray(), remoteOptions, checkboxOptions);
+    }
+
+    /// <summary>非冗余成员筛选复用原受权候选入口。列表只提交现有父级及页面开放的标量条件。</summary>
+    private static CheckboxOptionScope? AppendDatabaseCheckboxFilterOptions(GenerationModel model, TableModel table, PageModel page,
+        DatabaseCheckboxModel checkbox, StringBuilder requests)
+    {
+        var parent = checkbox.SourceParent;
+        var forms = checkbox.Conditions?.Forms.Select(binding => binding.Column).DistinctBy(column => column.Source.Id).ToArray() ?? [];
+        var filterFields = forms.Where(column => column.Source.Id != parent?.Source.Id).ToArray();
+        if (filterFields.Any(column => !page.Searchable.Any(field => field.Source.Id == column.Source.Id) ||
+            ControlRenderer.HasCheckboxArrayFilter(column) || column.Source.ControlKind == "CascadeTree" ||
+            SelectionNameFilterCompilation.UsesNameInput(model, page, column)))
+            return null;
+
+        var key = checkbox.Source.JsonName;
+        var fields = string.Join(",", forms.Select(column => $"[{J(column.JsonName)}]:" +
+            (column.Source.Id == parent?.Source.Id ? "parentId" : $"that.filters?.[{J(column.JsonName)}]")));
+        var stringIdFields = J(filterFields.Where(column => column.Type is "long?" or "long").Select(column => column.JsonName));
+        var form = forms.Length == 0 ? "" : $$$"""
+            const values = { {{{fields}}} };
+            if (Object.values(values).some(value => value !== null &&
+                (typeof value === 'string' ? !value.trim() : typeof value === 'number' ? !Number.isFinite(value) : typeof value !== 'boolean'))) return;
+            if ({{{stringIdFields}}}.some(field => typeof values[field] === 'number' && !Number.isSafeInteger(values[field]))) return;
+            data.formParameters = { [{{{J(GenerationModel.Camel(table.Source.TableName))}}}]: values };
+            """;
+        var parentScope = parent is null ? "" : "const parentId=that.parent_id;if(!parentId)return;data.parentId=parentId;";
+        var url = J($"/admin/auto/{table.Source.TableName}/{page.Source.Id}/{checkbox.Endpoint}");
+        requests.AppendLine($$$"""
+            (() => {
+              const data = {};
+              {{{parentScope}}}
+              {{{form}}}
+              that.originalOptionRequest({
+                url: {{{url}}}, data, sendSessionId: true, method: 'POST',
+                success(res) {
+                  if (res.code === 200) {
+                    that.{{{key}}}Range = Array.isArray(res.data) ? res.data.map(({text, value}) => ({text, value})) : [];
+                  } else {
+                    uni.showModal({showCancel: false, content: res.msg});
+                  }
+                }
+              });
+            })();
+            """);
+        return new(key, parent is not null, filterFields.Select(column => column.JsonName).ToArray());
     }
 
     /// <summary>显式复选与原组件使用同一源键和数组形状。日期预设从可选值中挑选，不生成区间。</summary>
