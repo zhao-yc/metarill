@@ -134,7 +134,7 @@ public sealed class GeneratedMultiSelectContractTests
     [Theory]
     [InlineData("scope", "额外控件范围需要固定来源字段读取协议", "额外控件范围需要固定来源字段读取协议")]
     [InlineData("name", "名称列未开放读取", "名称字段不在目标页可读投影")]
-    [InlineData("parent", "目标父没有唯一可读来源字段", "来源页未开放目标父字段")]
+    [InlineData("parent", "来源页未开放目标父字段", "来源页未开放目标父字段")]
     [InlineData("names", "冗余名称辅助列尚未明确声明", "冗余名称辅助列尚未明确声明")]
     public async Task Incomplete_field_proofs_stay_explicitly_unsupported(string kind, string generatedReason, string capabilityReason)
     {

@@ -199,6 +199,96 @@ public sealed class DerivedMultiNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>保留原弹窗范围，名称导入额外使用当前页的固定条件和整行联动值。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,true)]
+    [InlineData(false,true,true)]
+    public async Task R0_multi_excel_applies_control_conditions_in_addition_to_the_target_page(bool derived,bool overlay,bool targetAccount=false)
+    {
+        const string ns="Example.MultiImportScope";
+        var catalog=Catalog("multi_import_scope",false);
+        var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        source.ControlDetail=JsonSerializer.Serialize(new{pageId="301",nameField="name",whereSql=Where(31)});
+        var field=catalog.ConfigPageColumns.Single(column=>column.ConfigPageId=="201"&&column.ConfigColumnId==source.Id);
+        if(overlay)field.Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql=Where(32)}));
+        if(!derived)
+        {
+            var name=catalog.ConfigColumns.Single(column=>column.Id=="32");
+            name.Extra.Remove("isJoinColumn");
+            name.Extra.Remove("columnFullName");
+        }
+        catalog.ConfigColumns.AddRange([
+            new(){Id="28",ConfigTableId="2",ColumnName="segment",LogicalType="string"},
+            new(){Id="38",ConfigTableId="3",ColumnName="segment",LogicalType="string"},
+            new(){Id="39",ConfigTableId="3",ColumnName="sheet_status",LogicalType="int32"},
+            new(){Id="310",ConfigTableId="3",ColumnName="store_id",LogicalType="int64"}]);
+        foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="2"))
+            catalog.ConfigPageColumns.Add(new(){Id=page.Id+"28",ConfigPageId=page.Id,ConfigColumnId="28",IsEdit=1,IsShow=1});
+        var target=catalog.ConfigPages.Single(page=>page.Id=="301");
+        target.WhereSql+=" AND sheet_status<>99";
+        if(targetAccount)target.WhereSql+=" AND store_id=@current_store_id";
+        RedundantMultiNameCacheTests.Published(catalog);
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page201=table.Pages.Single(item=>item.Source.Id=="201");
+        var resolved=MultiSelectCompilation.Resolve(model,table,page201,table.Columns.Single(item=>item.Source.Id=="25"));
+        Assert.True(resolved.Definition is not null,resolved.Reason);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-multi-import-scope");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var generated=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/MultiImportScopeSourceService.g.cs"));
+            var importAt=generated.IndexOf("private async Task<JsonElement> ImportMulti201_25Async",StringComparison.Ordinal);
+            Assert.True(importAt>=0);
+            var importCode=generated[importAt..];
+            Assert.Contains("MultiImportCondition201_25.BindVariables",importCode);
+            Assert.Contains("relationContext[\"segment\"]",importCode);
+            Assert.Contains("AccountConditionVariables.Require(actor, \"current_store_id\")",importCode);
+            Assert.Contains(targetAccount?"condition:importCondition,currentRead:true":
+                derived?"condition:importCondition.And(MultiPageCondition201_25)":
+                "importCondition.ApplyConstants(query,session,\"multi_control_import_201_25\")",importCode);
+            var untilImport=generated[..importAt];
+            Assert.DoesNotContain("MultiImportCondition201_25.BindVariables",untilImport);
+            Assert.Equal("segment",Assert.Single(ImportDependencyCompilation.ForPage(model,table,page201).Dependencies[source.Id]).Source.ColumnName);
+
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.MultiImportScopeSourceService",true)!;
+            const System.Reflection.BindingFlags staticPrivate=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+            var condition=Assert.IsType<Metarill.Data.Queries.FixedConditionSqlPlan>(service
+                .GetField("MultiImportCondition201_25",staticPrivate)!.GetValue(null));
+            var bound=condition.BindVariables(new Dictionary<string,object?>
+            {
+                ["parentId"]="9007199254741197",["current_store_id"]=23L,["formParameters.segment"]="A"
+            });
+            var clause=bound.GetType().GetMethod("RenderConstants",HiddenInstance)!
+                .Invoke(bound,[new Metarill.Data.MySqlDatabaseProvider(),"excel",new Func<string,string>(name=>name)])!;
+            var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(clause.GetType().GetProperty("Parameters")!.GetValue(clause));
+            Assert.Equal(new object?[]{overlay?32:31,9007199254741197L,23L,"A"},parameters.Values);
+            if(derived||targetAccount)
+            {
+                var read=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service
+                    .GetField("MultiDerivedPlan201_25",staticPrivate)!.GetValue(null));
+                Assert.Equal(targetAccount,read.RequiresAccount);
+                var mysql=read.GetType().GetProperty("MySql",HiddenInstance)!.GetValue(read)!;
+                foreach(var name in new[]{"sheet_status","segment","store_id"})
+                    Assert.EndsWith(".`"+name+"`",Assert.IsType<string>(mysql.GetType()
+                        .GetMethod("Expression",HiddenInstance)!.Invoke(mysql,[name])));
+            }
+
+            field.Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new
+                {whereSql=Where(32)+" AND segment=@parentId"}));
+            var rejected=MultiSelectCompilation.Resolve(model,table,page201,table.Columns.Single(item=>item.Source.Id=="25"));
+            Assert.Null(rejected.Definition);
+            Assert.Contains("父键必须沿用目标页",rejected.Reason);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+
+        static string Where(int status)=>$"sheet_status>={status} AND parent_id=@parentId AND store_id=@current_store_id AND segment=@formParameters.segment";
+    }
+
     /// <summary>同一 R0 名称数组在不同业务页按各自的候选页匹配、显示和导出。</summary>
     [Theory]
     [InlineData(false,false)]

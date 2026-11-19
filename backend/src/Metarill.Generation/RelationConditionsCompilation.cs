@@ -105,13 +105,16 @@ internal static class RelationConditionsCompilation
     }
 
     /// <summary>生成静态不可变计划，在首次装载时校验同版运行时；普通请求只绑定真实Actor、目标父及已声明的表单叶值。</summary>
-    internal static string Declaration(RelationModel relation,string suffix)
+    internal static string Declaration(RelationModel relation,string suffix)=>Declaration(relation.Conditions,"OptionsCondition"+suffix);
+
+    /// <summary>关系候选与原多选导入共用静态参数计划声明。</summary>
+    internal static string Declaration(RelationConditionModel? condition,string name)
     {
-        if(relation.Conditions is not {} condition)return "";
+        if(condition is null)return "";
         var fields=string.Join(", ",condition.Syntax.Fields.Select(field=>JsonSerializer.Serialize(field)));
         var types=string.Join(", ",condition.Types.Select(pair=>"["+JsonSerializer.Serialize(pair.Key)+"] = "+JsonSerializer.Serialize(pair.Value)));
         return "    /// <summary>发布时固定的关系条件；请求不能替换字段、操作符或常量。</summary>\n"
-            +$"    private static readonly Metarill.Data.Queries.FixedConditionSqlPlan OptionsCondition{suffix} = Metarill.Data.Queries.FixedConditionSqlPlan.Compile(Metarill.Core.Metadata.FixedConditionPlan.Compile({JsonSerializer.Serialize(condition.Definition)}, new string[] {{ {fields} }}), new Dictionary<string, string> {{ {types} }});\n";
+            +$"    private static readonly Metarill.Data.Queries.FixedConditionSqlPlan {name} = Metarill.Data.Queries.FixedConditionSqlPlan.Compile(Metarill.Core.Metadata.FixedConditionPlan.Compile({JsonSerializer.Serialize(condition.Definition)}, new string[] {{ {fields} }}), new Dictionary<string, string> {{ {types} }});\n";
     }
 
     /// <summary>表单只按声明叶值绑定，客户端不能覆盖当前身份或真实父。</summary>

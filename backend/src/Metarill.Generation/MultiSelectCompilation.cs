@@ -10,6 +10,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
     internal bool LogicalSourceParent { get; init; }
     internal bool UsesPageRead { get; init; }
     internal bool GlobalParent { get; init; }
+    internal RelationConditionModel? ImportCondition { get; init; }
     internal bool IntegerLabel => !Name.IsId&&Name.Type is ("int?" or "long?");
     internal bool TypedLabel => !Name.IsId&&Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
 }
@@ -74,7 +75,19 @@ internal static class MultiSelectCompilation
             var pageRead=table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!table.IsGlobal&&!target.IsGlobal;
             if(pageOverride&&!pageRead&&(scoped||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate))))
                 return Gap("限定范围的目标页必须与表级读取和缓存绑定一致。");
-            if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),new(pageId,name.Source.ColumnName,Value("buttonText"),Value("whereSql"),""),out _))return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
+            var query=FixedPageQueryCompilation.For(target,targetPage);
+            var definition=new SelectionControlDefinition(pageId,name.Source.ColumnName,Value("buttonText"),Value("whereSql"),"");
+            RelationConditionModel? importCondition=null;
+            if(!FixedPageQueryCompilation.TryProveSelection(query,definition,out _))
+            {
+                if(table.Source.IsRongyu!=0)return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
+                // 原非冗余 Excel 反查叠加控件条件；弹窗继续使用已有的目标页查询合同。
+                var (importScopes,condition)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
+                if(condition is null||importScopes.Any(scope=>!query.IdentityScopes.Any(fixedScope=>
+                    fixedScope.Column.Source.Id==scope.Column.Source.Id&&fixedScope.Source==scope.Source)))
+                    return Gap("多选 Excel 附加条件的项目或父键必须沿用目标页已证明的范围。");
+                importCondition=condition;
+            }
             var ordering = Value("orderBy");
             if (!string.IsNullOrWhiteSpace(ordering) && !GenerationModel.ValidateOrderBy(ordering, target.Columns).Select(item => (item.Column.Source.Id, item.Descending)).SequenceEqual(GenerationModel.ValidateOrderBy(targetPage.Source.OrderBy, target.Columns).Select(item => (item.Column.Source.Id, item.Descending)))) return Gap("控件排序与目标页不一致。");
             TableModel Parent(ColumnModel column) => model.Tables.Single(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName);
@@ -146,7 +159,8 @@ internal static class MultiSelectCompilation
                 {
                     LogicalSourceParent=logicalSourceParent,
                     GlobalParent=scopedParent?.Global==true,
-                    UsesPageRead=usesPageRead
+                    UsesPageRead=usesPageRead,
+                    ImportCondition=importCondition
                 }, null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }

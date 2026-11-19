@@ -39,11 +39,18 @@ internal static class ImportDependencyCompilation
             fields.AddRange(relation.Conditions?.Forms.Select(binding=>binding.Column)??[]);
             if(fields.Count>0)dependencies.Add(relation.SourceColumn.Source.Id,fields.DistinctBy(column=>column.Source.Id).ToArray());
         }
-        foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>columns.Any(column=>column.Source.Id==multi.Source.Source.Id)&&multi.TargetParentField is not null))
+        foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>columns.Any(column=>column.Source.Id==multi.Source.Source.Id)))
         {
-            var parent=table.Columns.Single(column=>column.JsonName==multi.TargetParentField);
-            if(!storage.IsPhysical(parent.Source)||parent.IsJsonArray)throw new InvalidOperationException("多选导入目标父必须为物理外键。");
-            parents.Add(multi.Source.Source.Id,parent);dependencies.Add(multi.Source.Source.Id,[parent]);
+            var fields=new List<ColumnModel>();
+            if(multi.TargetParentField is not null)
+            {
+                var parent=table.Columns.Single(column=>column.JsonName==multi.TargetParentField);
+                if(!storage.IsPhysical(parent.Source)||parent.IsJsonArray)throw new InvalidOperationException("多选导入目标父必须为物理外键。");
+                parents.Add(multi.Source.Source.Id,parent);
+                fields.Add(parent);
+            }
+            fields.AddRange(multi.ImportCondition?.Forms.Select(binding=>binding.Column)??[]);
+            if(fields.Count>0)dependencies.Add(multi.Source.Source.Id,fields.DistinctBy(column=>column.Source.Id).ToArray());
         }
         foreach(var checkbox in DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>columns.Any(column=>column.Source.Id==def.Source.Source.Id)))
         {var fields=(checkbox.Conditions?.Forms.Select(binding=>binding.Column)??[]).DistinctBy(column=>column.Source.Id).ToArray();if(fields.Length>0)dependencies.Add(checkbox.Source.Source.Id,fields);}

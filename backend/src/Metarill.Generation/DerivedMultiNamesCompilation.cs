@@ -30,6 +30,7 @@ internal static class DerivedMultiNamesCompilation
         var targetPage=multi.TargetPage;
         var dependencies=targetPage.Scopes.Select(scope=>scope.Column.Source.ColumnName)
             .Concat(FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage)?[]:targetPage.Condition?.Syntax.Fields??[])
+            .Concat(ImportRenderer.Enabled(page)?multi.ImportCondition?.Syntax.Fields??[]:[])
             .Distinct(StringComparer.OrdinalIgnoreCase);
         string[] outputs=multi.Name.IsId?["id"]:["id",multi.Name.Source.ColumnName];
         var call=NonRedundantReadCompilation.MultiLabelPlanCall(model,target,targetPage,targetPage,multi.Name,outputs,dependencies);

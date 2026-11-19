@@ -10,6 +10,10 @@ internal static class DerivedMultiNamesImportRenderer
         DerivedMultiNamesCompilation.Require(model,table,multi.Target,multi.TargetPage,multi.Name);
         var suffix=page.Source.Id+"_"+multi.Source.Source.Id;var parent=multi.TargetParentField is not null?dependency.Parents[multi.Source.Source.Id]:null;
         var typed=multi.TypedLabel||multi.Name.IsId;
+        var targetCondition=multi.TargetPage.Condition is null||FixedPageConditionCompilation.HasMultiTargetScope(model,multi.Target,multi.TargetPage)
+            ?null:FixedPageConditionCompilation.Bound(multi.TargetPage,"MultiPageCondition"+suffix);
+        var condition=multi.ImportCondition is null?targetCondition:
+            targetCondition is null?"importCondition":"importCondition.And("+targetCondition+")";
         var scopes=multi.TargetPage.Scopes.Select(scope=>"            filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Value(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));");
         return $$"""
     /// <summary>名称数组使用固定联接计划，不查询忽略持久化的实体名称属性。</summary>
@@ -22,7 +26,7 @@ internal static class DerivedMultiNamesImportRenderer
         if(cell.ValueKind!=JsonValueKind.Array||cell.GetArrayLength()>200)throw PageImportException.Input(PageImportError.Array);
 {{(parent is null?"":"        if(!relationContext.TryGetValue("+Literal(parent.JsonName)+",out var parentValue)||parentValue.ValueKind==JsonValueKind.Null)throw PageImportException.Input(PageImportError.Relation);")}}
 {{(multi.TargetParents.Count==0?"":"        var targetParentId="+(parent is null?"parentId":"parentValue.ToString()")+";if(!long.TryParse(targetParentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0)throw PageImportException.Input(PageImportError.Relation);")}}
-        var selected=new List<string>();
+{{MultiSelectExcelRenderer.ImportConditionBinding(multi,suffix)}}        var selected=new List<string>();
         foreach(var item in cell.EnumerateArray())
         {
             if({{MultiSelectExcelRenderer.InvalidLabelKind(multi.Name,true)}})throw PageImportException.Input(PageImportError.Relation);
@@ -30,7 +34,7 @@ internal static class DerivedMultiNamesImportRenderer
 {{(multi.Name.IsId?"            if(name<=0)throw PageImportException.Input(PageImportError.Relation);":"")}}
             var filters=new List<FixedReadFilter>{new({{Literal(multi.Name.Source.ColumnName)}},FixedReadComparison.Equal,{{(typed?"name":"item.ToString()")}})};
 {{string.Join("\n",scopes)}}
-            var matches=await new NonRedundantReader(session).PageAsync(MultiDerivedPlan{{suffix}}.BindAccount(actor),filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId{{(multi.TargetPage.Condition is null||FixedPageConditionCompilation.HasMultiTargetScope(model,multi.Target,multi.TargetPage)?"":",condition:"+FixedPageConditionCompilation.Bound(multi.TargetPage,"MultiPageCondition"+suffix))}},currentRead:true);
+            var matches=await new NonRedundantReader(session).PageAsync(MultiDerivedPlan{{suffix}}.BindAccount(actor),filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId{{(condition is null?"":",condition:"+condition)}},currentRead:true);
             if(matches.Records.Count!=1)throw PageImportException.Input(PageImportError.Relation);
             var value=NonRedundantReads.Value<long>(matches.Records[0],"id").ToString(CultureInfo.InvariantCulture);if(selected.Contains(value))throw PageImportException.Input(PageImportError.Relation);selected.Add(value);
         }

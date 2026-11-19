@@ -9,8 +9,10 @@ internal static class MultiSelectExcelRenderer
     /// <summary>名称逐项唯一定位目标，先编译整行物理父依赖，不按客户端任意列或SQL查询。</summary>
     internal static string Import(GenerationModel model,TableModel table,PageModel page,MultiSelectModel multi,ImportDependencyPlan dependency)
     {
-        if(DerivedMultiNamesCompilation.UsesFixedRead(model,multi))return DerivedMultiNamesImportRenderer.Render(model,table,page,multi,dependency);
-        var suffix=page.Source.Id+"_"+multi.Source.Source.Id;var result=new StringBuilder();
+        var suffix=page.Source.Id+"_"+multi.Source.Source.Id;
+        var declaration=RelationConditionsCompilation.Declaration(multi.ImportCondition,"MultiImportCondition"+suffix);
+        if(DerivedMultiNamesCompilation.UsesFixedRead(model,multi))return declaration+DerivedMultiNamesImportRenderer.Render(model,table,page,multi,dependency);
+        var result=new StringBuilder(declaration);
         result.AppendLine("    /// <summary>原JSON名称数组只在已授权来源import内反查，重名、缺失或越界让整批回滚。</summary>")
             .AppendLine($"    private async Task<JsonElement> ImportMulti{suffix}Async(JsonElement cell,string? parentId,RuntimeActor actor{(dependency.Contextual?", IReadOnlyDictionary<string,JsonElement> relationContext":"")},CancellationToken cancellationToken)")
             .AppendLine("    {")
@@ -27,6 +29,7 @@ internal static class MultiSelectExcelRenderer
             result.AppendLine($"        if(!relationContext.TryGetValue({Literal(parent.JsonName)},out var parentValue)||parentValue.ValueKind==JsonValueKind.Null)throw PageImportException.Input(PageImportError.Relation);");targetParent="parentValue.ToString()";
         }
         if(multi.TargetParents.Count>0)result.AppendLine($"        var targetParentId={targetParent};if(!long.TryParse(targetParentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0)throw PageImportException.Input(PageImportError.Relation);");
+        result.Append(ImportConditionBinding(multi,suffix));
         result.AppendLine("        foreach(var item in cell.EnumerateArray())").AppendLine("        {")
             .AppendLine($"            if({InvalidLabelKind(multi.Name,true)})throw PageImportException.Input(PageImportError.Relation);")
             .AppendLine($"            var query=session.Select<{multi.Target.EntityType}>();");
@@ -35,6 +38,8 @@ internal static class MultiSelectExcelRenderer
         foreach(var scope in multi.TargetPage.Scopes.Where(scope=>scope.Source=="parent"))result.AppendLine($"            query=query.Where(row=>row.{scope.Column.Property}=={Scope(scope.Column,"targetParentId!")});");
         result.Append(FixedPageConditionCompilation.Apply(multi.TargetPage,"MultiPageCondition"+suffix,"multi_import_"+suffix))
             .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,multi.Target,multi.TargetPage,"MultiAccountParentScope"+suffix,"r1_import","true"));
+        if(multi.ImportCondition is not null)
+            result.AppendLine($"            query=importCondition.ApplyConstants(query,session,\"multi_control_import_{suffix}\");");
         if(multi.Name.IsId)result.AppendLine("            if(!long.TryParse(item.ToString(),NumberStyles.None,CultureInfo.InvariantCulture,out var key)||key<=0)throw PageImportException.Input(PageImportError.Relation);query=query.Where(row=>row.Id==key);");
         else if(multi.TypedLabel)
         {
@@ -47,6 +52,19 @@ internal static class MultiSelectExcelRenderer
             .AppendLine("            var value=matches[0].Id.ToString(CultureInfo.InvariantCulture);if(selected.Contains(value))throw PageImportException.Input(PageImportError.Relation);selected.Add(value);")
             .AppendLine("        }").AppendLine("        return JsonSerializer.SerializeToElement(selected);").AppendLine("    }");return result.ToString();
     }
+    /// <summary>只绑定来源导入事务已解析的整行值、实际目标父及真实账号身份。</summary>
+    internal static string ImportConditionBinding(MultiSelectModel multi,string suffix)
+    {
+        if(multi.ImportCondition is not {} condition)return "";
+        var forms=condition.Forms.Count==0?"":"        var formValues=new Dictionary<string,object?>{"+
+            string.Join(",",condition.Forms.Select(binding=>"["+Literal(binding.Variable)+
+                "]=Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(relationContext["+Literal(binding.Column.JsonName)+"],"+
+                Literal(binding.Column.Source.LogicalType)+")"))+"};\n";
+        var variables=RelationConditionsCompilation.Variables(condition,multi.TargetParents.Count>0?"targetParentId":"parentId");
+        return "        if(cell.GetArrayLength()==0)return JsonSerializer.SerializeToElement(Array.Empty<string>());\n"+
+            forms+$"        var importCondition=MultiImportCondition{suffix}.BindVariables(new Dictionary<string,object?>{{{variables}}});\n";
+    }
+
     /// <summary>按业务字段类型生成原名称反查的强类型参数。</summary>
     internal static string ParseLabel(ColumnModel label,string input,string result)
     {
