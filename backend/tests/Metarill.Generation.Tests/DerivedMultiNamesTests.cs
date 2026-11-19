@@ -207,7 +207,10 @@ public sealed class DerivedMultiNamesTests
     [InlineData(true,true)]
     [InlineData(false,true,true)]
     [InlineData(true,true,true)]
-    public async Task R0_array_page_override_uses_the_actual_target(bool checkbox,bool account,bool overlayOnlyAccount=false)
+    [InlineData(false,true,false,true)]
+    [InlineData(true,true,false,true)]
+    public async Task R0_array_page_override_uses_the_actual_target(bool checkbox,bool account,bool overlayOnlyAccount=false,
+        bool differentSourceParents=false)
     {
         const string ns="Example.ArrayPageOverride";
         var catalog=Catalog("array_page_override",false);
@@ -242,6 +245,12 @@ public sealed class DerivedMultiNamesTests
         }
         var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="202");
         sourcePage.IsImport=sourcePage.IsExport=1;
+        if(differentSourceParents)
+        {
+            catalog.ConfigColumns.Add(new(){Id="28",ConfigTableId="2",ColumnName="secondary_parent_id",
+                LogicalType="int64",LinkConfigTableId="1"});
+            sourcePage.WhereSql=sourcePage.WhereSql.Replace("parent_id=", "secondary_parent_id=",StringComparison.Ordinal);
+        }
         var field201=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25");
         field201.IsShow=field201.IsEdit=1;
         field201.Extra["isDetailShow"]=JsonSerializer.SerializeToElement(1);
@@ -287,6 +296,12 @@ public sealed class DerivedMultiNamesTests
                 var predicates=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(read.GetType()
                     .GetProperty("ArrayNamePredicates",HiddenInstance)!.GetValue(read));
                 Assert.Contains(".`status`",predicates["target_names"]);
+                if(differentSourceParents)
+                {
+                    var (current,other)=page=="201"?("parent_id","secondary_parent_id"):("secondary_parent_id","parent_id");
+                    Assert.Contains("b.`"+current+"`",predicates["target_names"]);
+                    Assert.DoesNotContain("b.`"+other+"`",predicates["target_names"]);
+                }
 
                 var match=Read((checkbox?"DerivedCheckboxPlan":"MultiDerivedPlan")+page+"_25");
                 Assert.Contains(condition,Parameters(match));

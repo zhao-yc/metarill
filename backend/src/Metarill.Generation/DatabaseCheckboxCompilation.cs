@@ -101,7 +101,9 @@ internal static class DatabaseCheckboxCompilation
             var namePage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage);
             var logicalPage=namePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage)?namePage:null;
             var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
-            var pageRead=explicitPage!=fixedPage&&namePage is not null&&table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!target.IsGlobal;
+            // 同一候选即使由表级继承，也必须用当前普通非冗余来源页的父键重新证明。
+            var pageRead=namePage is not null&&table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!target.IsGlobal&&
+                (explicitPage!=fixedPage||logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true);
             if(explicitPage!=fixedPage&&!pageRead&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
             if(logicalPage is not null&&ExactDataManageCompilation.Declared(logicalPage))

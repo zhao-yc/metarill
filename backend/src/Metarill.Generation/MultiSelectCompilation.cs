@@ -101,10 +101,12 @@ internal static class MultiSelectCompilation
                 targetField = fields[0].JsonName;
                 if (!forService && !page.Readable.Any(column => column.Source.Id == fields[0].Source.Id)) return Gap("来源页未开放目标父字段，前端不能猜测隐藏父值。");
             }
+            // 普通非冗余来源按实际页面校验父键，全局关系及冗余缓存继续按其固定范围证明。
+            var usesPageRead=pageRead&&(pageOverride||targetParents.Length>0||!scoped&&targetPage.Condition is not null);
             var logicalSourceParent=false;
             if(scopedParent is not null)
             {
-                var owner=pageRead&&pageOverride?scopedParent.Source(model.Catalog,table.Source,source.Source,page.Source)
+                var owner=usesPageRead?scopedParent.Source(model.Catalog,table.Source,source.Source,page.Source)
                     :scopedParent.Source(model.Catalog,table.Source,source.Source);
                 var actual=same?page.Scopes.Single(item=>item.Source=="parent").Column:table.Columns.Single(column=>column.JsonName==targetField);
                 logicalSourceParent=owner.LogicalPages.Count>0;
@@ -128,7 +130,14 @@ internal static class MultiSelectCompilation
                 if(!NonRedundantReadCompilation.Physical(model,table,source))return Gap("非冗余多选要求物理ID和标量名称。");
                 if(target.IsGlobal){var proof=Metarill.Core.Metadata.GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)return Gap("全局多选页级目标和名称声明不一致。");}
                 if(targetField is not null&&!NonRedundantReadCompilation.Physical(model,table,table.Columns.Single(column=>column.JsonName==targetField)))return Gap("非冗余目标父必须为物理外键。");
-                if(names is not null)Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[names.Source.ColumnName]);
+                if(names is not null)
+                {
+                    if(usesPageRead)
+                        Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(model.Catalog,table.Source.Id,[names.Source.ColumnName],
+                            [],[],[],[new(source.Source.Id,page.Source.Id,targetPage.Source.Id,true)]);
+                    else
+                        Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[names.Source.ColumnName]);
+                }
             }
             if(table.Source.IsRongyu==1&&target.IsGlobal){var proof=Metarill.Core.Metadata.GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)return Gap("全局多选缓存与固定目标页／名称声明不一致。");}
             // R1派生数组不能只证明候选：同一根定义还须取得数据层缓存证明，Full报告与实际发布保持一致。
@@ -137,7 +146,7 @@ internal static class MultiSelectCompilation
                 {
                     LogicalSourceParent=logicalSourceParent,
                     GlobalParent=scopedParent?.Global==true,
-                    UsesPageRead=pageRead&&(pageOverride||!scoped&&(targetPage.Condition is not null||targetParents.Length>0))
+                    UsesPageRead=usesPageRead
                 }, null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }
