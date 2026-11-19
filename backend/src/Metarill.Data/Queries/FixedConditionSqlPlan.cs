@@ -117,8 +117,13 @@ public sealed class FixedConditionSqlPlan
     }
 
     internal sealed record Clause(string Sql,[property:JsonIgnore] IReadOnlyDictionary<string,object?> Parameters);
+    /// <summary>副本只能用已证明的持久列替换控件变量，常量仍使用绑定参数。</summary>
+    internal Clause RenderRowProjection(string prefix,Func<string,string> expression,Func<string,string,string> variable)=>
+        Render(new MySqlDatabaseProvider(),EmptyVariables,prefix,expression,projectVariable:variable);
+
     /// <summary>物理或固定联接表达式由适配器提供；此入口不接受客户端SQL、列名或操作符。</summary>
-    internal Clause Render(IDatabaseProvider provider,IReadOnlyDictionary<string,object?> variables,string parameterPrefix,Func<string,string> expression,bool deferAccount=false)
+    internal Clause Render(IDatabaseProvider provider,IReadOnlyDictionary<string,object?> variables,string parameterPrefix,
+        Func<string,string> expression,bool deferAccount=false,Func<string,string,string>? projectVariable=null)
     {
         ArgumentNullException.ThrowIfNull(variables);MetadataValidation.RequireIdentifier(parameterPrefix);
         var parameters=new Dictionary<string,object?>();var predicates=new List<string>();
@@ -133,6 +138,7 @@ public sealed class FixedConditionSqlPlan
                 object? scalar=value.Literal;
                 if(value.Variable is {} variable)
                 {
+                    if(projectVariable is not null){marks.Add(projectVariable(variable,term.Type));continue;}
                     if(deferAccount)scalar=new AccountParameter(variable,term.Type);
                     else
                     {
@@ -195,7 +201,7 @@ public sealed class FixedConditionSqlPlan
         throw Invalid();
     }
     /// <summary>逻辑类型不带数据库品牌，方言名称和占位符由实际适配器承担。</summary>
-    private static string Type(string value)=>value.ToLowerInvariant() switch
+    internal static string Type(string value)=>value.ToLowerInvariant() switch
     {"id" or "long" or "bigint" or "int64"=>"int64","integer" or "int" or "int32"=>"int32","boolean" or "bool"=>"bool","money" or "number" or "decimal"=>"decimal","double"=>"double","date"=>"date","datetime" or "timestamp"=>"datetime","time"=>"time","string" or "text" or "varchar"=>"string",_=>throw Invalid()};
     /// <summary>拒绝信息不回显账号、表单值或含字面量的原配置。</summary>
     private static ArgumentException Invalid()=>new("固定条件的值或逻辑类型不符合已发布字段定义。");

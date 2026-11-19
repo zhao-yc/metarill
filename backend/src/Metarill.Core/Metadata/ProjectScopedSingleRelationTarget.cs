@@ -35,7 +35,10 @@ public static class ProjectScopedSingleRelationTarget
         var names=RelationStorageColumns.Expand(target,columns).Select(column=>column.ColumnName).ToArray();
         var matches=catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id)
             .Select(page=>TargetFor(catalog,page,foreign,selected,nameField,pages,names)).ToArray();
-        if(!matches.Any(match=>match.Page is not null&&(HasPageScope(match.Page,names)||
+        var hasNameCache=foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
+            catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName==foreign.ColumnName[..^3]+"_"+nameField);
+        var controlScope=hasNameCache?ControlScope(catalog,owner,foreign,target):null;
+        if(controlScope?.Terms.Count is not >0&&!matches.Any(match=>match.Page is not null&&(HasPageScope(match.Page,names)||
             NamePathHasScope(catalog,target,match.Page,[match.Name],new()))))return null;
         if(matches.Any(match=>match.Page is null||match.Name!=nameField)||
             matches.Select(match=>match.Page!.Id).Distinct(StringComparer.Ordinal).Count()!=1||
@@ -69,7 +72,31 @@ public static class ProjectScopedSingleRelationTarget
         // 页面覆盖可以选择同一实体的另一个页，表归属仍由物理外键确定。
         using var overlay=PageDetail(catalog,sourcePage,foreign);
         if(overlay is not null&&!PointsToTarget(overlay.RootElement,target))throw Invalid();
-        return(page,HasPageScope(page,members));
+        return(page,HasPageScope(page,members)||ControlScope(catalog,owner,foreign,target,sourcePage).Terms.Count>0);
+    }
+
+    /// <summary>下拉的附加条件取当前实际来源页。共享物理副本要求所有入口采用等价的结构化条件。</summary>
+    public static FixedConditionPlan ControlScope(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,
+        TableMetadata target,PageMetadata? sourcePage=null)
+    {
+        var members=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id))
+            .Select(column=>column.ColumnName).ToArray();
+        if(foreign.ControlKind!="List")return FixedConditionPlan.Compile(null,members);
+        using var definition=Definition(foreign);
+        var baseline=Value(definition.RootElement,"whereSql");
+        var pages=sourcePage is null?catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id).ToArray():[sourcePage];
+        var definitions=pages.Select(page=>
+        {
+            using var overlay=PageDetail(catalog,page,foreign);
+            var current=overlay is null?"":Value(overlay.RootElement,"whereSql");
+            return Normalize(current.Length==0?baseline:current);
+        }).Distinct(StringComparer.Ordinal).ToArray();
+        if(definitions.Length>1)
+            throw new InvalidOperationException("同一物理名称副本的来源页附加条件必须一致。");
+        return FixedConditionPlan.Compile(definitions.SingleOrDefault(),members);
+
+        string Normalize(string text)=>string.Join(" AND ",FixedConditionPlan.Compile(text,members).Terms
+            .Where(term=>!ProjectTerm(term)).Select(term=>term.ToDefinition()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
     }
 
     /// <summary>顺着已声明的单值路径找到需要持久化的范围，循环留给与读取相同的拒绝门禁。</summary>
@@ -153,10 +180,11 @@ public static class ProjectScopedSingleRelationTarget
 
     /// <summary>项目归属已由物理联接处理；额外固定条件和父范围需要参与名称计算。</summary>
     private static bool HasPageScope(PageMetadata page,string[] members)=>
-        FixedConditionPlan.Compile(page.WhereSql,members).Terms.Any(term=>term.Field!="yz_project_id"||
-            term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||
-            term.Values[0].Kind!=FixedConditionValueKind.Variable||
-            !term.Values[0].Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase));
+        FixedConditionPlan.Compile(page.WhereSql,members).Terms.Any(term=>!ProjectTerm(term));
+
+    private static bool ProjectTerm(FixedConditionTerm term)=>term.Field=="yz_project_id"&&
+        term.Comparison==FixedConditionComparison.Equal&&term.Values.Count==1&&term.Values[0].Kind==FixedConditionValueKind.Variable&&
+        term.Values[0].Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase);
 
     private static PageMetadata[] TargetPages(MetadataCatalog catalog,TableMetadata table)=>
         catalog.ConfigPages.Where(page=>page.ConfigTableId==table.Id).OrderBy(page=>page.Id,StringComparer.Ordinal).ToArray();

@@ -264,10 +264,10 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
     /// <summary>兼容元数据数字或布尔开关。</summary>
     internal static bool Enabled(Dictionary<string, JsonElement> extra, string key) => extra.TryGetValue(key, out var value) && (value.ValueKind == JsonValueKind.True || value.ToString() == "1");
     /// <summary>把数据库名称转换为稳定的类型成员名称。</summary>
-    internal static string Pascal(string value) => string.Concat(value.Split('_', StringSplitOptions.RemoveEmptyEntries).Select(x => char.ToUpperInvariant(x[0]) + x[1..]));
+    internal static string Pascal(string value) => MetadataNames.Pascal(value);
     /// <summary>把数据库名称转换为稳定的类型成员名称。</summary>
     /// <summary>保留现有前端使用的驼峰 JSON 名称。</summary>
-    internal static string Camel(string value) { var name = Pascal(value); return char.ToLowerInvariant(name[0]) + name[1..]; }
+    internal static string Camel(string value) => MetadataNames.Camel(value);
     /// <summary>二进制默认及长度由共享逻辑合同验证，不把数据库方言带入生成服务。</summary>
     private static string BinaryType(ColumnMetadata column)
     {

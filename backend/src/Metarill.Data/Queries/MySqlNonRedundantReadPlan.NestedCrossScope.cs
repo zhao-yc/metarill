@@ -435,9 +435,8 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 if(projectNested.Scoped)
                 {
-                    var parent=MultiParent(catalog,projectNested.Page);
-                    var binding=parent?.SingleSource(catalog,table,foreign,sourcePage);
-                    var scoped=JoinScopedSingleCache(table,owner,foreign,target,source,projectNested.Page,cacheOwner,parent,binding);
+                    var control=ProjectScopedSingleRelationTarget.ControlScope(catalog,table,foreign,target,sourcePage);
+                    var scoped=JoinProjectSingleCache(table,owner,foreign,target,source,projectNested.Page,cacheOwner,control,sourcePage);
                     return(scoped.Alias,scoped.Visibility,cacheOwner);
                 }
                 // 空条件仍须把中间页传给下一段，并保留实际外键的反查位置。
@@ -455,6 +454,11 @@ public static partial class MySqlNonRedundantReadCompiler
             var proof=DerivedCrossTableCaches.ScopedSingleTarget(catalog,table,foreign,target);
             if(proof.Page.Id!=definition.ScopedSinglePageId||proof.Name.Id!=definition.ValueColumnId)
                 throw new InvalidOperationException("单值名称缓存的目标范围与发布证明不一致。");
+            if(!GlobalCrossTableTarget.Declared(target))
+            {
+                var control=ProjectScopedSingleRelationTarget.ControlScope(catalog,table,foreign,target);
+                return JoinProjectSingleCache(table,owner,foreign,target,source,proof.Page,cacheOwner,control);
+            }
             var parent=MultiParent(catalog,proof.Page);
             var binding=parent?.SingleSource(catalog,table,foreign);
             return JoinScopedSingleCache(table,owner,foreign,target,source,proof.Page,cacheOwner,parent,binding);
@@ -474,7 +478,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>先登记物理关联用于反查，命名和其他投影的可见性随后按已发布范围计算。</summary>
         private (string Alias,string Visibility) JoinScopedSingleCache(TableMetadata table,string owner,ColumnMetadata foreign,
             TableMetadata target,(string Sql,string Type) source,PageMetadata page,CascadeCacheOwner cacheOwner,
-            MultiTargetParentScope? parent,MultiSourceParent? binding)
+            MultiTargetParentScope? parent,MultiSourceParent? binding,FixedConditionPlan? control=null)
         {
             var sourceParent=binding is not null&&(parent?.Logical==true||binding.LogicalPages.Count>0)
                 ?SingleSourceParentValue(table,owner,binding,cacheOwner):null;
@@ -486,6 +490,11 @@ public static partial class MySqlNonRedundantReadCompiler
             if(parent is {Logical:false})
                 visible+=(visible.Length==0?"":" AND ")+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,
                     cacheOwner,sourceParent,sourceFrom);
+            if(control is {Terms.Count:>0})
+            {
+                var extra=SingleControlCacheCondition(table,owner,target,alias,page,control,cacheOwner);
+                if(extra.Length>0)visible+=(visible.Length==0?"":" AND ")+extra;
+            }
             return (alias,alias+".`id` IS NOT NULL"+(visible.Length==0?"":" AND ("+visible+")"));
         }
 

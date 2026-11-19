@@ -1007,7 +1007,95 @@ public sealed class DerivedRelationNamesTests
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-name-reject");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.RejectedDerivedName",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));
     }
 
-    /// <summary>声明同项目四表：来源订单→非冗余客户→公司名称；原字段和菜单方式均由元数据生成。</summary>
+    /// <summary>名称副本只按实际记录和控件条件重算，发布后的维护目录保留反查字段。</summary>
+    [Theory][InlineData("constant")][InlineData("form")][InlineData("account")][InlineData("parent")][InlineData("nested")]
+    public async Task Control_only_scope_is_compiled_in_the_published_name_cache(string mode)
+    {
+        const string prefix="dr_names";
+        var catalog=Catalog(prefix,mode=="parent");
+        var source=catalog.ConfigTables.Single(table=>table.Id=="1");
+        source.IsRongyu=1;
+        var party=catalog.ConfigPages.Single(page=>page.Id=="201");
+        party.WhereSql="yz_project_id=@current_yz_project_id";
+        var relation=catalog.ConfigColumns.Single(column=>column.Id=="15");
+        relation.ControlDetail=JsonSerializer.Serialize(new{tableId="2",nameField="company_name",whereSql=mode switch
+        {
+            "constant"=>"status=3",
+            "form"=>"status IN (@formParameters.drNamesOrder.cacheSegment,1)",
+            "account"=>"store_id=@current_store_id",
+            "parent"=>"group_id=@parent_id AND status=3",
+            _=>""
+        }});
+        if(mode=="account")
+        {
+            catalog.ConfigColumns.AddRange([
+                new(){Id="119",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"},
+                new(){Id="229",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"}
+            ]);
+            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id))
+                page.WhereSql+=" AND store_id=@current_store_id";
+        }
+        if(mode=="form")AddForm("119",source.Id);
+        if(mode=="nested")
+        {
+            AddForm("229","2");
+            catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=0;
+            catalog.ConfigColumns.Add(new(){Id="49",ConfigTableId="4",ColumnName="status",LogicalType="int32"});
+            var company=catalog.ConfigColumns.Single(column=>column.Id=="27");
+            company.ControlDetail=JsonSerializer.Serialize(new{tableId="4",nameField="name"});
+            var field=catalog.ConfigPageColumns.Single(column=>column.Id=="20127");
+            field.Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(
+                new{whereSql="status IN (@formParameters.drNamesParty.cacheSegment,3)"}));
+        }
+        RedundantMultiNameCacheTests.Published(catalog);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-control-cache");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.ControlCache");
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                assembly.GetType("Example.ControlCache.Generated.GeneratedRelationMaintenance",true)!
+                    .GetProperty("Catalog")!.GetValue(null));
+            const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+            var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+            var plan=plans[source.Id]!;
+            var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+            var sql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["customer_company_name"]));
+            var values=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                read.GetType().GetProperty("Constants",hidden)!.GetValue(read)).Values;
+            if(mode is "form" or "nested")
+            {
+                Assert.Contains(".`cache_segment`",sql);
+                Assert.Contains("BETWEEN -2147483648 AND 2147483647",sql);
+                Assert.Contains(mode=="form"?1:3,values);
+                Assert.Equal(mode=="form",sql.Contains("b.`cache_segment`",StringComparison.Ordinal));
+            }
+            if(mode=="account")Assert.Contains("b.`store_id`",sql);
+            if(mode=="parent")Assert.Contains("b.`group_id`",sql);
+            if(mode is "constant" or "parent")Assert.Contains(3,values);
+
+            var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("Reverse",hidden)!.GetValue(read));
+            var changedField=mode=="account"?"store_id":"status";
+            Assert.Contains(reverse.Cast<object>(),item=>
+                Equals(mode=="nested"?"dr_names_company":"dr_names_party",item.GetType().GetProperty("TargetTable")!.GetValue(item))&&
+                Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(item.GetType().GetProperty("Outputs")!.GetValue(item))
+                    .TryGetValue("customer_company_name",out var fields)&&fields.Contains(changedField));
+            if(mode=="nested")
+                Assert.Contains(reverse.Cast<object>(),item=>Equals("dr_names_party",item.GetType().GetProperty("TargetTable")!.GetValue(item))&&
+                    Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(item.GetType().GetProperty("Outputs")!.GetValue(item))
+                        .TryGetValue("customer_company_name",out var fields)&&fields.Contains("cache_segment"));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+
+        void AddForm(string id,string table)
+        {
+            catalog.ConfigColumns.Add(new(){Id=id,ConfigTableId=table,ColumnName="cache_segment",LogicalType="int64"});
+            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==table))
+                catalog.ConfigPageColumns.Add(new(){Id=page.Id+"_"+id,ConfigPageId=page.Id,ConfigColumnId=id,IsShow=1,IsEdit=1});
+        }
+    }
+
     /// <summary>中间页的同父来自已选级联，另一个页面可独立使用物理父键。</summary>
     [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)][InlineData(true,true)]
     [InlineData(false,true,true)][InlineData(true,true,true)]
@@ -1211,6 +1299,7 @@ public sealed class DerivedRelationNamesTests
         catalog.ConfigColumns.Single(column=>column.Id=="28").Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.region.name");
     }
 
+    /// <summary>声明同项目四表：来源订单→非冗余客户→公司名称；原字段和菜单方式均由元数据生成。</summary>
     internal static MetadataCatalog Catalog(string prefix,bool parentAndForm)
     {
         var c=NonRedundantGeneratedFixture.Catalog(prefix);c.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;

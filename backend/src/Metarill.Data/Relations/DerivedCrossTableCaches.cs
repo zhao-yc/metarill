@@ -67,12 +67,7 @@ public static class DerivedCrossTableCaches
     {
         var referenced=new HashSet<string>(StringComparer.Ordinal);
         var byTable=definitions.Where(definition=>definition.ScopedSinglePageId is not null)
-            .Where(definition=>
-            {
-                var target=catalog.ConfigTables.Single(table=>table.Id==definition.TargetTableId);
-                var value=catalog.ConfigColumns.Single(column=>column.Id==definition.ValueColumnId);
-                return !MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(value);
-            }).GroupBy(definition=>definition.SourceTableId);
+            .GroupBy(definition=>definition.SourceTableId);
         foreach(var group in byTable)
         {
             var bindings=group.ToArray();
