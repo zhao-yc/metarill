@@ -9,13 +9,13 @@ internal static class SingleSelectionExcelRenderer
     /// <summary>先复用发布页的真实父校验，再用类型化值唯一匹配目标记录。</summary>
     internal static string Import(GenerationModel model,RelationModel relation,PageModel page,ImportDependencyPlan dependency)
     {
-        var condition=relation.ImportCondition!;
+        var condition=relation.ImportCondition;
         var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;
         var conditionName="SingleImportCondition"+suffix;
         var readName="SingleImportReadPlan"+suffix;
-        var declaration=RelationConditionsCompilation.Declaration(condition,conditionName);
-        var fixedRead=relation.Target.Source.IsRongyu==0;
-        if(fixedRead)
+        var declaration=condition is null?"":RelationConditionsCompilation.Declaration(condition,conditionName);
+        var fixedRead=condition is not null&&relation.Target.Source.IsRongyu==0;
+        if(condition is not null&&fixedRead)
         {
             var target=relation.Target;var targetPage=relation.TargetPage;var field=relation.NameColumn.Source.ColumnName;
             var targets=NonRedundantReadCompilation.ProjectPathTargets(model,target,targetPage,condition.Syntax.Fields.Append(field));
@@ -58,7 +58,7 @@ internal static class SingleSelectionExcelRenderer
         if(rows.Records.Count!=1)throw PageImportException.Input(PageImportError.Relation);
         var idValue=NonRedundantReads.Value<long>(rows.Records[0],"id");
 """:$$"""
-        query=importCondition.ApplyConstants(query,session,"single_control_import_{{suffix}}");
+{{(condition is null?"":"        query=importCondition.ApplyConstants(query,session,\"single_control_import_"+suffix+"\");")}}
         var rows=await query.ForUpdate().Limit(2).ToListAsync(row=>new{row.Id},cancellationToken);
         if(rows.Count!=1)throw PageImportException.Input(PageImportError.Relation);
         var idValue=rows[0].Id;
@@ -73,7 +73,7 @@ internal static class SingleSelectionExcelRenderer
         if(cell.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(cell.ToString()))return JsonSerializer.SerializeToElement<object?>(null);
 {{parent}}
         {{(fixedRead?"_":"var query")}}=await OptionsScope{{suffix}}Async(parentId,targetParentId,actor,cancellationToken,true,false);
-{{RelationConditionsCompilation.BindImport(condition,conditionName,"targetParentId")}}{{(fixedRead?"        var filters=new List<FixedReadFilter>();\n"+filters:"")}}
+{{(condition is null?"":RelationConditionsCompilation.BindImport(condition,conditionName,"targetParentId"))}}{{(fixedRead?"        var filters=new List<FixedReadFilter>();\n"+filters:"")}}
 {{match}}
 {{read}}
         return JsonSerializer.SerializeToElement(idValue.ToString(CultureInfo.InvariantCulture));

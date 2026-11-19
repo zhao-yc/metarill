@@ -10,6 +10,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     RelationConditionModel? Conditions = null, ColumnModel? FixedSourceParent = null, MultiTargetParentScope? FixedParent = null, bool LogicalSourceParent = false)
 {
     internal RelationConditionModel? ImportCondition { get; init; }
+    internal bool ExcelOnly { get; init; }
     /// <summary>原 V8 路由按来源字段去掉 Id/Ids 后缀，不能用目标表名替代业务别名。</summary>
     public string LegacyEndpoint
     {
@@ -28,15 +29,24 @@ internal static class RelationCompilation
 {
     /// <summary>把字段与页面覆盖合并后编译一次，三种候选入口共用同一范围。</summary>
     public static IReadOnlyList<RelationModel> ForPage(GenerationModel model, PageModel page, bool forService = false,
-        string? scopeSourceId = null)
+        string? scopeSourceId = null, bool forExcel = false)
     {
         var relations = new List<RelationModel>();
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
+        // 普通冗余单选的弹窗直达目标页，Excel 仅生成私有名称范围，不增加候选路由。
+        var imported = forExcel && ImportRenderer.Enabled(page) && ImportRenderer.Mode(page) != "custom" ? ImportRenderer.Columns(page) : [];
+        bool ExcelSelection(ColumnModel column) => forExcel && owner.Source.IsRongyu == 1 && !column.IsSystem &&
+            column.Source.ControlKind == "SelectPage" && (imported.Contains(column) || ExportRenderer.IncludesColumn(page, column));
         // 系统项目上下文保留既有List等接线，新缓存能力不额外追加隐藏候选或授权依赖。
-        var candidates = forService ? model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId).Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||FixedListTarget(model,page,column)||FixedSelectionTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
+        var candidates = forService ? owner.Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||FixedListTarget(model,page,column)||FixedSelectionTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)||ExcelSelection(column)) : page.Readable.Concat(page.Writable).DistinctBy(x => x.Source.Id);
         if (scopeSourceId is not null) candidates = owner.Columns.Where(column => column.Source.Id == scopeSourceId);
-        foreach (var source in candidates.Where(c => (c.Source.ControlKind == "List" || (owner.Source.IsRongyu==0||!c.IsSystem&&(ForeignValidationRenderer.Target(model,c)?.IsGlobal==true||DerivedRelationNamesCompilation.DeclaredSource(model,c)||FixedSelectionTarget(model,page,c)))&&c.Source.ControlKind=="SelectPage") && !FixedOptionCatalogCompilation.Resolve(model, page, c).Declared))
+        foreach (var source in candidates)
         {
+            var standard = source.Source.ControlKind == "List" || source.Source.ControlKind == "SelectPage" &&
+                (owner.Source.IsRongyu == 0 || !source.IsSystem && (ForeignValidationRenderer.Target(model,source)?.IsGlobal == true ||
+                    DerivedRelationNamesCompilation.DeclaredSource(model,source) || FixedSelectionTarget(model,page,source)));
+            var excelOnly = !standard && ExcelSelection(source);
+            if ((!standard && !excelOnly) || FixedOptionCatalogCompilation.Resolve(model, page, source).Declared) continue;
             var field = model.Catalog.ConfigPageColumns.SingleOrDefault(candidate => candidate.ConfigPageId == page.Source.Id && candidate.ConfigColumnId == source.Source.Id);
             var root = Definition(source.Source.ControlDetail);
             var overlay = Definition(field?.Extra.GetValueOrDefault("controlDetail").ToString() ?? "");
@@ -74,7 +84,7 @@ internal static class RelationCompilation
             // 原单选的附加条件已经逐项证明属于目标页，逻辑父和固定条件由同一页面计划执行。
             var fixedParent=DerivedRelationNamesCompilation.SingleParent(model,target,targetPage)??
                 PhysicalTargetForLogicalSource(model,owner,page,target,targetPage);
-            var where=selection is not null&&(selection.ImportCondition is not null||fixedParent is {Logical:true}||
+            var where=selection is not null&&(excelOnly||selection.ImportCondition is not null||fixedParent is {Logical:true}||
                 FixedPageConditionCompilation.HasLogicalFields(targetPage))?"":Mapped("whereSql");
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,allowLogicalList:selection is null);
             if ((conditions is not null||FixedPageConditionCompilation.HasLogicalFields(targetPage))&&
@@ -122,7 +132,7 @@ internal static class RelationCompilation
                     :fixedParent.SingleSource(model.Catalog,owner.Source,source.Source);
             var fixedSourceParent=sourceBinding is null?null:owner.Columns.Single(column=>column.Source.Id==sourceBinding.Column.Id);
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,
-                fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0){ImportCondition=selection?.ImportCondition};
+                fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0){ImportCondition=selection?.ImportCondition,ExcelOnly=excelOnly};
             // 中间页的目标绑定只复用关系定义；外层计划随后编译完整的名称，避免孙级名称校验反复进入同一页。
             if(scopeSourceId is null&&DerivedRelationNamesCompilation.UsesFixedRead(model,relation))
                 _=DerivedRelationNamesCompilation.Require(model,owner,page,relation);

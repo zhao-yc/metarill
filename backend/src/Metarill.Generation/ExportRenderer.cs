@@ -16,7 +16,7 @@ internal static class ExportRenderer
     /// <summary>能力门禁复用真实导出开启和列选择规则，未导出该列不产生该用途缺口。</summary>
     internal static bool IncludesColumn(PageModel page, ColumnModel column) => Enabled(page) && Columns(page).Any(candidate => candidate.Source.Id == column.Source.Id);
     /// <summary>关系导出使用与控件相同的固定目标，不按客户端参数选择授权对象。</summary>
-    private static RelationModel[] Relations(GenerationModel model, PageModel page) => RelationCompilation.ForPage(model, page)
+    private static RelationModel[] Relations(GenerationModel model, PageModel page) => RelationCompilation.ForPage(model, page, forExcel: true)
         .Where(relation => Columns(page).Contains(relation.SourceColumn) && FixedRoleAdminNameCompilation.Resolve(model,model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId),page,relation.SourceColumn).Definition is null).ToArray();
     /// <summary>只有原固定声明和实际导出列同时证明时，才使用来源动作的固定投影。</summary>
     private static bool HasFixedRole(GenerationModel model,TableModel table,PageModel page) => FixedRoleCheckboxCompilation.ForPage(model,table,page) is {} role && IncludesColumn(page,role.Source);

@@ -10,7 +10,7 @@ internal static class BoundRelationValidationRenderer
     internal static bool RequiresAuthorization(TableModel table) => table.Columns.Any(FixedParentRelationCompilation.HasDeclaration);
     /// <summary>可见候选和隐藏字段最终校验共用同一固定定义，只按稳定列ID去重。</summary>
     private static RelationModel[] Relations(GenerationModel model, PageModel page) => RelationCompilation.ForPage(model, page)
-        .Concat(RelationCompilation.ForPage(model, page, true)).Where(relation => relation.ParentBinding?.Binding is not null).DistinctBy(relation => relation.SourceColumn.Source.Id).ToArray();
+        .Concat(RelationCompilation.ForPage(model, page, true, forExcel: true)).Where(relation => relation.ParentBinding?.Binding is not null).DistinctBy(relation => relation.SourceColumn.Source.Id).ToArray();
     /// <summary>生成方法名只由已发布页面与字段ID构成，不包含请求输入。</summary>
     internal static string Suffix(PageModel page, RelationModel relation) => page.Source.Id + "_" + relation.SourceColumn.Source.Id;
 

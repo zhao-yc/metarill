@@ -20,7 +20,7 @@ internal static class ImportDependencyCompilation
         var columns=ImportRenderer.Columns(page);var parents=new Dictionary<string,ColumnModel>(StringComparer.Ordinal);
         var dependencies=new Dictionary<string,IReadOnlyList<ColumnModel>>(StringComparer.Ordinal);
         var storage=MetadataStoragePolicy.ForTable(model.Catalog,table.Source);
-        foreach(var relation in RelationCompilation.ForPage(model,page).Where(relation=>columns.Contains(relation.SourceColumn)))
+        foreach(var relation in RelationCompilation.ForPage(model,page,forExcel:true).Where(relation=>columns.Contains(relation.SourceColumn)))
         {
             var context=ControlRenderer.RelationContext(page,relation,false);
             if(context.UnresolvedTarget)

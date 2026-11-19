@@ -119,6 +119,69 @@ public sealed class DerivedSingleSelectionTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>普通冗余单选沿用原目标页，Excel 可按名称往返且不会发布新的候选路由。</summary>
+    [Theory]
+    [InlineData(false, "list", "OnlyNew")]
+    [InlineData(true, "edit", "OverWriteByFirstColumn", true)]
+    public async Task Redundant_physical_selection_uses_the_published_scope_for_excel(bool independentParent, string exportMode,
+        string importMode, bool exactTarget = false)
+    {
+        const string generatedNamespace = "Example.RedundantSingleExcel";
+        var catalog = RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
+        var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
+        sourcePage.IsImport = sourcePage.IsExport = 1;
+        sourcePage.Extra["importMethod"] = JsonSerializer.SerializeToElement(importMode);
+        sourcePage.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
+        var foreign = catalog.ConfigColumns.Single(column => column.Id == "25");
+        foreign.ControlKind = "SelectPage";
+        foreign.ControlDetail = """{"pageId":"301","tableId":"3","nameField":"name","whereSql":"status=1"}""";
+        foreign.Name = "目标名称";
+        foreign.SortNo = -10;
+        var targetPage = catalog.ConfigPages.Single(page => page.Id == "301");
+        targetPage.WhereSql += " AND status=1 AND store_id=@current_store_id";
+        targetPage.Extra["type"] = JsonSerializer.SerializeToElement(1);
+        if (exactTarget) targetPage.Extra["exactDataManageMatchField"] = JsonSerializer.SerializeToElement("store_id");
+        catalog.ConfigColumns.AddRange([
+            new() { Id = "37", YzProjectId = catalog.YzProjectId, ConfigTableId = "3", ColumnName = "status", LogicalType = "int32" },
+            new() { Id = "38", YzProjectId = catalog.YzProjectId, ConfigTableId = "3", ColumnName = "store_id", LogicalType = "int64" }
+        ]);
+        if (independentParent)
+        {
+            sourcePage.WhereSql = "yz_project_id=@current_yz_project_id";
+            catalog.ConfigColumns.Single(column => column.Id == "26").Name = "目标父记录";
+            catalog.ConfigPageColumns.Add(new() { Id = "20126", YzProjectId = catalog.YzProjectId, ConfigPageId = "201", ConfigColumnId = "26" });
+        }
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-redundant-single-excel");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, generatedNamespace);
+            var service = await File.ReadAllTextAsync(Path.Combine(output, "Services/RelationSourceService.g.cs"));
+            var controller = await File.ReadAllTextAsync(Path.Combine(output, "Controllers/RelationSourcePage201Controller.g.cs"));
+            Assert.Contains("await ImportRelation201_25Async(cell.Value", service);
+            Assert.Contains("query=query.Where(row=>row.Name==label);", service);
+            Assert.Contains("query.ForUpdate().Limit(2)", service);
+            Assert.Contains("queryTargetId = await OptionsScope201_25Async", service);
+            Assert.Contains("query = query.Where(entity => entity.ParentId", service);
+            Assert.Contains("options_page_201_25", service);
+            if (exactTarget)
+                Assert.Contains("targetExactAuthorization.ResolveExactDataManage(\"301\", \"list\",", service);
+            Assert.Contains(independentParent ? "string? targetParentId=parentValue.ToString();" : "string? targetParentId=parentId;", service);
+            Assert.Contains("importDatas201", controller);
+            Assert.Contains("initExport", controller);
+            Assert.DoesNotContain("findNameId", controller);
+            Assert.Contains("""authorization.RequirePagePermission("301", "list")""", controller);
+            new FrontendPackager().Validate(catalog);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var serviceType = assembly.GetType(generatedNamespace + ".Generated.Services.RelationSourceService", true)!;
+            Assert.NotNull(serviceType.GetMethod("Import201Async"));
+            Assert.NotNull(serviceType.GetMethod("Export201Async"));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>普通项目的两种目标存储都能把物理编号用于候选、回显和工作簿。</summary>
     [Theory]
     [InlineData(0, "int32", false)]

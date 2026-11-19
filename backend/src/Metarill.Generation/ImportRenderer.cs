@@ -43,6 +43,8 @@ public sealed partial class {{page.Name}}ImportRequest
         if (!Enabled(page)) return "";
         if (Mode(page) == "custom") throw new InvalidOperationException("定制导入需要手写 Business 入口，不能自动生成普通导入。");
         var columns = Columns(page);
+        var relations = RelationCompilation.ForPage(model, page, forExcel: true)
+            .Where(relation => columns.Contains(relation.SourceColumn)).ToDictionary(relation => relation.SourceColumn);
         var crosses=columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>CrossTableWriteCompilation.Resolve(model,table,page,column).Definition).OfType<CrossTableWriteModel>().ToArray();
         var hasCross=crosses.Length>0;
         var fixedParents=FixedSharedCrossParents(model,table,page,crosses);
@@ -196,7 +198,7 @@ public sealed partial class {{page.Name}}ImportRequest
         {
             result.AppendLine($"                case {Literal(Header(column))}:").AppendLine("                {");
             if(contextual&&!dependency.MatchFields.Contains(column.Source.Id))result.AppendLine("                    if (keyOnly) break;");
-            var relation = RelationCompilation.ForPage(model, page).SingleOrDefault(candidate => candidate.SourceColumn == column);
+            var relation = relations.GetValueOrDefault(column);
             var multi=MultiSelectCompilation.ForPage(model,table,page).SingleOrDefault(multi=>multi.Source.Source.Id==column.Source.Id);
             var checkbox=DatabaseCheckboxCompilation.ForPage(model,table,page).SingleOrDefault(def=>def.Source.Source.Id==column.Source.Id);
             if(checkbox is not null)
@@ -278,7 +280,7 @@ public sealed partial class {{page.Name}}ImportRequest
         }
         result.AppendLine("                default: throw PageImportException.Input(PageImportError.UnknownHeader);")
             .AppendLine("            }").AppendLine("        }").AppendLine(hasCross?"        return crossInputs.Merge(values);":"        return values;").AppendLine("    }");
-        foreach (var relation in RelationCompilation.ForPage(model, page).Where(relation => columns.Contains(relation.SourceColumn))) result.Append(RelationResolver(model,relation, page, dependency));
+        foreach (var relation in relations.Values) result.Append(RelationResolver(model,relation, page, dependency));
         foreach(var checkbox in DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>columns.Any(column=>column.Source.Id==def.Source.Source.Id)))result.Append(DatabaseCheckboxExcelRenderer.Import(table,page,checkbox,dependency));
         foreach(var source in columns.Where(column=>column.Source.ControlKind=="CascadeTree"))result.Append(CascadeTreeExcelRenderer.Import(model,table,page,source));
         foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>columns.Any(column=>column.Source.Id==multi.Source.Source.Id)))result.Append(MultiSelectExcelRenderer.Import(model,table,page,multi,dependency));
@@ -375,7 +377,7 @@ public sealed partial class {{page.Name}}ImportRequest
     /// <summary>候选反查复用目标项目及安全关系范围，重名和不存在均报错。</summary>
     private static string RelationResolver(GenerationModel model,RelationModel relation, PageModel page, ImportDependencyPlan dependency)
     {
-        if(relation.ImportCondition is not null)return SingleSelectionExcelRenderer.Import(model,relation,page,dependency);
+        if(relation.ExcelOnly||relation.ImportCondition is not null)return SingleSelectionExcelRenderer.Import(model,relation,page,dependency);
         if(DerivedRelationNamesCompilation.UsesFixedRead(model,relation))return DerivedRelationNamesRenderer.Import(model,relation,page,dependency);
         var result = new StringBuilder().AppendLine("    /// <summary>Excel 关系名称必须唯一落在已授权候选范围，数字 ID 也核对归属。</summary>")
             .AppendLine($"    private async Task<JsonElement> ImportRelation{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(JsonElement cell, string? parentId, RuntimeActor actor{(dependency.Contextual?", IReadOnlyDictionary<string, JsonElement> relationContext":"")}, CancellationToken cancellationToken)")
@@ -419,7 +421,7 @@ public sealed partial class {{page.Name}}ImportRequest
         return key.Source.ControlKind switch
         {
             "" or "Text" or "TextArea" or "Number" or "ConstList" or "ConstDownList" or "CheckBox" or "date" or "date_time" or "time"=>true,
-            "List" or "SelectPage"=>RelationCompilation.ForPage(model,page).Any(relation=>relation.SourceColumn.Source.Id==key.Source.Id),
+            "List" or "SelectPage"=>RelationCompilation.ForPage(model,page,forExcel:true).Any(relation=>relation.SourceColumn.Source.Id==key.Source.Id),
             "CascadeTree" when !NonRedundantCrossTableSubset.Declared(key)=>CascadeTreeWriteCompilation.Resolve(model,table,page,key).Definition is not null,
             _=>false
         };
