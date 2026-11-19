@@ -49,12 +49,18 @@ internal static class SharedCrossTableRenderer
     /// <summary>原表单只追加已确认的跨控件清理规则，组件、DOM、样式与对象负载保持。</summary>
     internal static string? Frontend(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
-        var group=SharedCrossTableCompilation.ForSource(model,table,page,source.Source.Id);if(group is null)return null;var current=group.Plans.Single(p=>p.Read.Source.Source.Id==source.Source.Id);var rules=new List<object>();
+        var group=SharedCrossTableCompilation.ForSource(model,table,page,source.Source.Id);if(group is null)return null;var current=group.Plans.Single(p=>p.Read.Source.Source.Id==source.Source.Id);var rules=new List<(string Field,string[][] Descendants)>();
         foreach(var level in current.Levels)
         {
-            var descendants=group.Plans.Where(p=>p.Read.Source.Source.Id!=source.Source.Id).SelectMany(p=>p.Levels.Select((l,i)=>(l,i)).Where(x=>x.l.Id.Source.Id==level.Id.Source.Id).SelectMany(x=>p.Levels.Skip(x.i+1))).DistinctBy(l=>l.Id.Source.Id).Select(l=>new[]{l.Id.JsonName,l.Name.JsonName}).ToArray();if(descendants.Length>0)rules.Add(new{field=level.Id.JsonName,descendants});
+            var descendants=group.Plans.Where(p=>p.Read.Source.Source.Id!=source.Source.Id).SelectMany(p=>p.Levels.Select((l,i)=>(l,i)).Where(x=>x.l.Id.Source.Id==level.Id.Source.Id).SelectMany(x=>p.Levels.Skip(x.i+1))).DistinctBy(l=>l.Id.Source.Id).Select(l=>new[]{l.Id.JsonName,l.Name.JsonName}).ToArray();if(descendants.Length>0)rules.Add((level.Id.JsonName,descendants));
         }
-        return "const incoming=value||{},next=Object.assign({},this.entity,incoming);for(const rule of "+JsonSerializer.Serialize(rules)+"){if(String(this.entity[rule.field]??'')===String(next[rule.field]??''))continue;for(const pair of rule.descendants){if(!Object.prototype.hasOwnProperty.call(incoming,pair[0])){next[pair[0]]='';next[pair[1]]='';}}}this.entity=next;";
+        return FrontendChanges(rules);
+    }
+
+    /// <summary>业务记录和功能表共用原共享上级变化后的清理规则。</summary>
+    internal static string FrontendChanges(IEnumerable<(string Field,string[][] Descendants)> rules)
+    {
+        return "const incoming=value||{},next=Object.assign({},this.entity,incoming);for(const rule of "+JsonSerializer.Serialize(rules.Select(rule=>new{field=rule.Field,descendants=rule.Descendants}))+"){if(String(this.entity[rule.field]??'')===String(next[rule.field]??''))continue;for(const pair of rule.descendants){if(!Object.prototype.hasOwnProperty.call(incoming,pair[0])){next[pair[0]]='';next[pair[1]]='';}}}this.entity=next;";
     }
     /// <summary>只输出已验证属性和转义字符串，不拼接来自请求的成员名。</summary>
     private static string Dictionary(IEnumerable<ColumnModel> columns,string entity)=>"new Dictionary<string,object?>{"+string.Join(",",columns.DistinctBy(c=>c.Source.Id).Select(c=>"["+Literal(c.Source.ColumnName)+"]="+entity+"."+c.Property))+"}";

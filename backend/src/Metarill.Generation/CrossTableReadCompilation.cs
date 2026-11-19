@@ -10,9 +10,9 @@ internal sealed record CrossTableReadResult(CrossTableReadModel? Definition,stri
 internal static class CrossTableReadCompilation
 {
     /// <summary>只有来源页已声明的可读/筛选控件才能增加原候选端点。</summary>
-    internal static IReadOnlyList<CrossTableReadModel> ForPage(GenerationModel model,TableModel table,PageModel page)=>page.Readable.Concat(page.Searchable).DistinctBy(column=>column.Source.Id).Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>Resolve(model,table,page,column).Definition).OfType<CrossTableReadModel>().ToArray();
+    internal static IReadOnlyList<CrossTableReadModel> ForPage(GenerationModel model,TableModel table,PageModel page)=>(table.Source.IsFunctionTable==1?page.DetailColumns:page.Readable.Concat(page.Searchable)).DistinctBy(column=>column.Source.Id).Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>Resolve(model,table,page,column).Definition).OfType<CrossTableReadModel>().ToArray();
     /// <summary>固定读取计划在服务内共用，不因隐藏列增加外部端点。</summary>
-    internal static IReadOnlyList<CrossTableReadModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>Resolve(model,table,page,column).Definition).OfType<CrossTableReadModel>().ToArray();
+    internal static IReadOnlyList<CrossTableReadModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsFunctionTable==1?ForPage(model,table,page):table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>Resolve(model,table,page,column).Definition).OfType<CrossTableReadModel>().ToArray();
     /// <summary>完整包继续报告未完成的保存、展示、筛选与辅助列；读接口存在不代表完整控件可发布。</summary>
     internal static string? CapabilityReason(GenerationModel model,TableModel table,PageModel page,ColumnModel column)=>Resolve(model,table,page,column).Definition is null?null:"CascadeTree跨表候选/路径已接线；已证明的各级保存、已存名称展示及来源筛选独立接线，导入导出及完整应用验收仍待完成。";
     /// <summary>逐级验证唯一可读目标页、父键指向、名称与稳定排序，任何一步不明就拒绝整个链。</summary>
@@ -30,7 +30,7 @@ internal static class CrossTableReadCompilation
             foreach(var entry in entries.EnumerateArray())
             {
                 Object(entry);if(Extra(entry))return Gap("层级额外范围或目标页映射不能忽略。");var nameOfTable=Text(entry,"table","");var target=model.Tables.SingleOrDefault(candidate=>candidate.Source.TableName==nameOfTable);
-                if(target is null||target.Source.IsRongyu is not(0 or 1)||ManagerCredentialCompilation.IsTable(target)||TrustedSecurityServiceCompilation.Applies(model,target))return Gap("目标必须是已声明的普通实体表。");
+                if(target is null||target.Source.IsFunctionTable==1||target.Source.IsRongyu is not(0 or 1)||ManagerCredentialCompilation.IsTable(target)||TrustedSecurityServiceCompilation.Applies(model,target))return Gap("目标必须是已声明的普通实体表。");
                 var key=Text(entry,"key",nameOfTable);var prefix=Text(entry,"columnPrefix",nameOfTable);Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(prefix);
                 if(!keys.Add(key)||!prefixes.Add(prefix))return Gap("层标识或字段前缀重复。");if(Text(entry,"idField","id")!="id")return Gap("主键只支持id。");
                 bool Physical(ColumnModel column)=>NonRedundantReadCompilation.Physical(model,target,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&!column.IsJsonArray&&!ManagerCredentialCompilation.IsCredential(target,column);
@@ -46,7 +46,7 @@ internal static class CrossTableReadCompilation
                 var pages=target.Pages.Where(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent")&&!ExactDataManageCompilation.Declared(candidate)&&candidate.Readable.Any(column=>column.Source.Id==name.Source.Id)&&(parent is null||candidate.Readable.Any(column=>column.Source.Id==parent.Source.Id))).ToArray();if(pages.Length!=1)return Gap("每级需要唯一且无目标父参数的可读页面。");
                 // 递归R1的完整来源行归属在混合传播目录中一次性校验。
                 if(!FixedPageConditionCompilation.HasLogicalFields(pages[0])&&
-                    FixedPageConditionCompilation.HasAccountVariables(pages[0])&&table.Source.IsRongyu==1)
+                    FixedPageConditionCompilation.HasAccountVariables(pages[0])&&table.Source.IsRongyu==1&&table.Source.IsFunctionTable==0)
                     _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,pages[0].Source);
                 if(target.IsGlobal)
                     NonRedundantCrossTargetsCompilation.RequireGlobal(model,target,pages[0],name);

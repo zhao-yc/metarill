@@ -20,7 +20,7 @@ internal static class SharedCrossTableCompilation
     /// <summary>普通单控件直接返回空；共享编译不反向调用写入证明，避免递归放行。</summary>
     internal static SharedCrossTablePage ForPage(GenerationModel model,TableModel table,PageModel page)
     {
-        if(table.Columns.Count(c=>c.Source.ControlKind=="CascadeTree")<2)return new([],new Dictionary<string,string>(),new HashSet<string>(StringComparer.Ordinal));
+        if(table.Source.IsFunctionTable==1||table.Columns.Count(c=>c.Source.ControlKind=="CascadeTree")<2)return new([],new Dictionary<string,string>(),new HashSet<string>(StringComparer.Ordinal));
         return Cache.GetValue(model,_=>new()).GetOrAdd((table.Source.Id,page.Source.Id),_=>Compile(model,table,page));
     }
     /// <summary>仅存在共享结构的控件才返回组；失败原因按所有参与者保持。</summary>

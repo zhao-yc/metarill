@@ -27,6 +27,7 @@ internal static class CascadeTreeWriteCompilation
     internal static CascadeTreeWriteResult Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
         CascadeTreeWriteResult Gap(string text)=>new(null,"CascadeTree写入尚未支持："+text);
+        if(table.Source.IsFunctionTable==1)return Gap("功能表仅提交表单参数。");
         var read=CascadeTreeReadCompilation.Resolve(model,table,page,source);
         if(read.Definition is not{} plan)return Gap(read.Reason??"未证明的读取范围。");
         if(source.Type is not("string?" or "long?") || !source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal) || source.IsSystem || GenerationModel.Enabled(source.Source.Extra,"isJoinColumn"))return Gap("叶子必须是字符串或int64物理_id列。");

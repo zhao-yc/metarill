@@ -236,17 +236,24 @@ this.$watch(()=>this.entity.{{{targetField}}},()=>{this.{{{list}}}=[];this._orig
         if(mode is not ("selfTree" or "crossTable"))throw new InvalidOperationException("原级联sourceMode无效。");
         var leafName=GenerationModel.Camel(Stem(f.Column)+"_name");
         if(leafName==name)throw new InvalidOperationException("原级联叶子ID和名称不能使用同一属性。");
-        c.Defaults.Append(leafName).Append(":'',");
+        var functionForm=c.Table.Source.IsFunctionTable==1;
+        void DefaultCascade(string field)
+        {
+            if(!functionForm||!c.Page.DetailColumns.Any(column=>column.JsonName==field)&&c.FormCascadeDefaults.Add(field))
+                c.Defaults.Append(field).Append(":'',");
+        }
+        if(!functionForm||mode=="selfTree")DefaultCascade(leafName);
         var display=$"readonlyDisplayText(entity.{leafName})";
         if(mode=="crossTable")
         {
             if(!d.TryGetProperty("levels",out var levels)||levels.ValueKind!=JsonValueKind.Array||levels.GetArrayLength()==0)throw new InvalidOperationException("原跨表级联必须包含levels。");
-            var names=new List<string>(); foreach(var level in levels.EnumerateArray()) { var prefix=Property(level,"columnPrefix",Property(level,"table")); var id=Property(level,"idPropertyName",GenerationModel.Camel(prefix+"_id")); var label=Property(level,"namePropertyName",GenerationModel.Camel(prefix+"_name")); if(!Regex.IsMatch(id,"^[A-Za-z_][A-Za-z0-9_]*$")||!Regex.IsMatch(label,"^[A-Za-z_][A-Za-z0-9_]*$"))throw new InvalidOperationException("级联需要已经解析的属性定义。"); c.Defaults.Append(id).Append(":'',").Append(label).Append(":'',"); names.Add("entity."+label); }
+            var names=new List<string>(); foreach(var level in levels.EnumerateArray()) { var prefix=Property(level,"columnPrefix",Property(level,"table")); var id=Property(level,"idPropertyName",GenerationModel.Camel(prefix+"_id")); var label=Property(level,"namePropertyName",GenerationModel.Camel(prefix+"_name")); if(!Regex.IsMatch(id,"^[A-Za-z_][A-Za-z0-9_]*$")||!Regex.IsMatch(label,"^[A-Za-z_][A-Za-z0-9_]*$"))throw new InvalidOperationException("级联需要已经解析的属性定义。"); DefaultCascade(id); DefaultCascade(label); names.Add("entity."+label); }
             // 原组件将空分隔符回退为斜线。只读详情和生成接口使用同一个显示结果。
             var joiner = Property(d, "displayJoiner", "/");
             display = $"readonlyDisplayText([{string.Join(',', names)}], {Html(Js(joiner.Length == 0 ? "/" : joiner))})";
         }
-        var shared=SharedCrossTableRenderer.Frontend(c.Model,c.Table,c.Page,f.Column);
+        var shared=functionForm?FunctionTableCascadeCompilation.Frontend(c.Model,c.Table,c.Page,f.Column):
+            SharedCrossTableRenderer.Frontend(c.Model,c.Table,c.Page,f.Column);
         c.Methods.AppendLine(shared is null?$"receiveCascadeTree{f.Column.Source.Id}(value) {{ if(this.{ro})return; this.entity=Object.assign({{}},this.entity,value||{{}}); }},":$"receiveCascadeTree{f.Column.Source.Id}(value) {{ if(this.{ro})return; {shared} }},");
         return Choice(ro,display,$"<yzp-cascade-tree :value='entity' :definition='{Html(d.GetRawText())}' request-url='{c.Api}/cascadeTreeOptions{f.Column.Source.Id}' path-request-url='{c.Api}/cascadeTreePath{f.Column.Source.Id}' leaf-id-property='{name}' leaf-name-property='{leafName}' placeholder=\"请选择{Html(f.Column.Source.Name)}\" :readonly='{ro}' primary-color=\"{c.PrimaryColor}\" @input='receiveCascadeTree{f.Column.Source.Id}' />");
     }

@@ -33,6 +33,7 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
     internal StringBuilder Components { get; } = new();
     internal StringBuilder Popups { get; } = new();
     internal List<OriginalDetailField> FieldsMetadata { get; } = [];
+    internal HashSet<string> FormCascadeDefaults { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, string> ImportedComponents { get; } = new(StringComparer.Ordinal);
     internal List<string> Mixins { get; } = [];
     internal List<string> RemoteOptions { get; } = [];

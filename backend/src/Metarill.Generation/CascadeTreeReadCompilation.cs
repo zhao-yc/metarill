@@ -14,11 +14,11 @@ internal sealed record CascadeTreeReadResult(CascadeTreeReadModel? Definition,st
 internal static class CascadeTreeReadCompilation
 {
     /// <summary>候选接口只来自本页实际声明的级联字段，避免生成未开放入口。</summary>
-    internal static IReadOnlyList<CascadeTreeReadModel> ForPage(GenerationModel model,TableModel table,PageModel page)=>page.Readable.Concat(page.Searchable).DistinctBy(column=>column.Source.Id).Where(column=>column.Source.ControlKind=="CascadeTree")
+    internal static IReadOnlyList<CascadeTreeReadModel> ForPage(GenerationModel model,TableModel table,PageModel page)=>(table.Source.IsFunctionTable==1?page.DetailColumns:page.Readable.Concat(page.Searchable)).DistinctBy(column=>column.Source.Id).Where(column=>column.Source.ControlKind=="CascadeTree")
         .Select(column=>Resolve(model,table,page,column).Definition).OfType<CascadeTreeReadModel>().ToArray();
 
     /// <summary>服务隐藏关联也需要固定读取计划，仅用于最终写入校验，不新增公开端点。</summary>
-    internal static IReadOnlyList<CascadeTreeReadModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>Resolve(model,table,page,column).Definition).OfType<CascadeTreeReadModel>().ToArray();
+    internal static IReadOnlyList<CascadeTreeReadModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsFunctionTable==1?ForPage(model,table,page):table.Columns.Where(column=>column.Source.ControlKind=="CascadeTree").Select(column=>Resolve(model,table,page,column).Definition).OfType<CascadeTreeReadModel>().ToArray();
 
     /// <summary>目标页必须唯一且明确可读；模糊范围不能退化为表级宽查询。</summary>
     internal static CascadeTreeReadResult Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source,bool usePageDetail=true)
@@ -35,9 +35,14 @@ internal static class CascadeTreeReadCompilation
             // 来源父范围由标准Scope/ValidateParents及导入Core约束；候选只查询独立固定目标树。
             if(table.Source.IsRongyu is not(0 or 1))return Gap("来源存储模式未知。");
             var target=model.Tables.SingleOrDefault(candidate=>candidate.Source.TableName==Text(tree,"table"));
-            if(target is null || target.Source.IsRongyu is not(0 or 1) || ManagerCredentialCompilation.IsTable(target) || TrustedSecurityServiceCompilation.Applies(model,target))return Gap("目标必须是已声明的普通实体表。");
+            if(target is null || target.Source.IsFunctionTable==1 || target.Source.IsRongyu is not(0 or 1) || ManagerCredentialCompilation.IsTable(target) || TrustedSecurityServiceCompilation.Applies(model,target))return Gap("目标必须是已声明的普通实体表。");
             if(Text(tree,"idField","id")!="id" || Text(tree,"rootMode","blank")!="blank")return Gap("只支持主键id与blank根模式。");
             if(Text(tree,"filterMatchMode","selfAndDescendants") is not("exact" or "selfAndDescendants"))return Gap("未知筛选模式。");
+            if(table.Source.IsFunctionTable==1&&(source.Type is not("string?" or "long?") ||
+                !source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal) || source.IsSystem ||
+                GenerationModel.Enabled(source.Source.Extra,"isJoinColumn") ||
+                source.Source.LinkConfigTableId.Length>0&&source.Source.LinkConfigTableId!=target.Source.Id))
+                return Gap("功能表叶字段须为已声明的目标字符串或int64 ID。");
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==Text(tree,"nameField","name"));
             var parent=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==Text(tree,"parentField"));
             bool Physical(ColumnModel column)=>NonRedundantReadCompilation.Physical(model,target,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&!column.IsJsonArray&&!ManagerCredentialCompilation.IsCredential(target,column);

@@ -16,7 +16,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [Fact]
     public async Task Function_form_packages_its_original_detail_and_authorized_options_without_a_mapper()
     {
-        var catalog = Catalog();
+        var catalog = WithCascades(Catalog());
         new ApplicationPackager().Create(catalog, output, "Example.FunctionForm", SourceRoot());
 
         var frontend = Path.Combine(output, "frontend");
@@ -35,6 +35,11 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.Contains("findNameIdApproved26", detail);
         Assert.Contains("v-model='entity.approvedIds'", detail);
         Assert.Contains("readonlyDisplayText(entity.approvedNames)", detail);
+        Assert.Contains("cascadeTreePath27", detail);
+        Assert.Contains("cascadeTreeOptions28", detail);
+        Assert.Contains("cascadeTreeOptions29", detail);
+        Assert.Contains("leaf-id-property='treeNodeId'", detail);
+        Assert.Contains("leaf-id-property='placeId'", detail);
         Assert.Contains("/admin/sys/config_button/execute", detail);
         Assert.Contains("saveEntity", detail);
         Assert.False(File.Exists(Path.Combine(frontend, "pages/yzp/summary_form-list-102.vue")));
@@ -55,6 +60,9 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.DoesNotContain("[HttpDelete]", controller);
         Assert.Contains("RelationOptionAuthorization.Require(authorization,\"102\",false,true)",controller);
         Assert.Contains("CheckboxOptions102_26Async(request,actor,cancellationToken)",controller);
+        Assert.Contains("CascadePath102_27Async(request,Actor(\"list\")",controller);
+        Assert.Contains("CrossPath102_28Async(request,Actor(\"list\")",controller);
+        Assert.Contains("CrossOptions102_29Async(request,Actor(\"list\")",controller);
         var targetController = File.ReadAllText(Path.Combine(backend,"Controllers/CustomerPage101Controller.g.cs"));
         Assert.Contains("[HttpPost(\"selection/selected\")]",targetController);
         Assert.Contains("SelectionSelected101Async(request, Actor(\"list\"), cancellationToken)",targetController);
@@ -66,12 +74,19 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.Contains("ReadCheckboxForm102_26",service);
         Assert.Contains("CheckboxTargetCondition102_26",service);
         Assert.DoesNotContain("ValidateCheckbox",service);
+        Assert.Contains("CrossTargetPlan102_29_1",service);
+        Assert.Contains("CascadeScope102_27(RuntimeActor",service);
+        Assert.Contains("relationAuthorization.RequirePagePermission(\"201\",\"list\")",service);
+        Assert.Contains("relationAuthorization.RequirePagePermission(\"401\",\"list\")",service);
+        Assert.DoesNotContain("ValidateCascade",service);
         var nav = File.ReadAllText(Path.Combine(output, "backend/Application.Host/DevelopmentNavigation.cs"));
         Assert.Contains("table.IsFunctionTable == 1 ? \"-detail-\" : \"-list-\"", nav);
         Assert.Contains("countEndpoint=table.IsFunctionTable==1?null", nav);
-        Assert.Equal("customer", Assert.Single(MySqlSchemaPlanner.Compile(catalog,"form_test").Tables).Name);
+        var physical=MySqlSchemaPlanner.Compile(catalog,"form_test").Tables.Select(table=>table.Name).Order(StringComparer.Ordinal);
+        Assert.Equal(new[]{"customer","function_area","function_country","function_place","function_tree_node"},physical);
 
-        await VerifyOriginalSelectionsAsync(output);
+        await VerifyVueAsync(output,"GeneratedFunctionFormProbe.mjs");
+        await VerifyVueAsync(output,"GeneratedFunctionFormCascadeProbe.mjs");
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
         {
             WorkingDirectory = output, RedirectStandardOutput = true, RedirectStandardError = true,
@@ -90,14 +105,14 @@ public sealed class FunctionTableGenerationTests : IDisposable
     }
 
     /// <summary>装载完整包内的原表单，验证原确认事件到业务按钮的实际请求参数。</summary>
-    private static async Task VerifyOriginalSelectionsAsync(string directory, [CallerFilePath] string file = "")
+    private static async Task VerifyVueAsync(string directory, string probe, [CallerFilePath] string file = "")
     {
         var start = new ProcessStartInfo("node")
         {
             RedirectStandardOutput = true, RedirectStandardError = true,
             UseShellExecute = false, CreateNoWindow = true
         };
-        start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(file)!, "GeneratedFunctionFormProbe.mjs"));
+        start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(file)!, probe));
         start.ArgumentList.Add(directory);
         using var process = Process.Start(start)!;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -189,6 +204,64 @@ public sealed class FunctionTableGenerationTests : IDisposable
         catalog.ConfigButtons.Add(JsonSerializer.SerializeToElement(new { id="63", configPageId="102", configTableId="2", yzProjectId="100",
             name="汇总", place="Edit", actionType=1, sql="/admin/custom/report/preview", visibleScheme="Normal", saveOption="Save", isNeedConfirm=1 }));
         catalog.ConfigMenus.Add(new() { Id="82", Name="汇总表单", YzProjectId="100", YzAdminTypeId="70", Kind="GENERATED_PAGE", ConfigPageId="102", IsShowCount=1 });
+        return catalog;
+    }
+
+    /// <summary>共享范围冲突和错误字段映射在打包前报告。</summary>
+    [Theory]
+    [InlineData("shared")]
+    [InlineData("alias")]
+    public void Function_form_cascade_rejects_conflicting_scopes_or_aliases(string kind)
+    {
+        var catalog=WithCascades(Catalog());
+        var branch=catalog.ConfigColumns.Single(column=>column.Id=="28");
+        branch.ControlDetail=kind=="shared"
+            ?branch.ControlDetail.Replace("\"parentField\":\"country_id\"","\"parentField\":\"country_id\",\"nameField\":\"alt_name\"",StringComparison.Ordinal)
+            :branch.ControlDetail.Replace("\"parentField\":\"country_id\"","\"parentField\":\"country_id\",\"idPropertyName\":\"title\"",StringComparison.Ordinal);
+        var error=Assert.Throws<InvalidOperationException>(()=>new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot()));
+        Assert.Contains(kind=="shared"?"共享级联的上级路径":"属性映射",error.Message);
+        Assert.False(Directory.Exists(output));
+    }
+
+    /// <summary>同一原功能表包含固定自树和共享国家地区的长短跨表路径，所有槽位留在表单。</summary>
+    private static MetadataCatalog WithCascades(MetadataCatalog catalog)
+    {
+        foreach(var (id,name,page,parent,parentTable,mode) in new (string,string,string,string?,string,int)[]
+        {
+            ("3","function_tree_node","201","parent_node_id","3",1),
+            ("4","function_country","301",null,"",1),
+            ("5","function_area","401","country_id","4",0),
+            ("6","function_place","501","area_id","5",1)
+        })
+        {
+            catalog.ConfigTables.Add(new(){Id=id,TableName=name,Name=name,YzProjectId="100",IsRongyu=mode});
+            catalog.ConfigPages.Add(new(){Id=page,ConfigTableId=id,Name=name,YzProjectId="100",YzAdminTypeId="70",WhereSql="yz_project_id=@current_yz_project_id"});
+            catalog.ConfigColumns.AddRange([
+                new(){Id=id+"01",ConfigTableId=id,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id=id+"02",ConfigTableId=id,ColumnName="name",YzProjectId="100"},
+                new(){Id=id+"03",ConfigTableId=id,ColumnName="yz_project_id",LogicalType="int64"},
+                new(){Id=id+"04",ConfigTableId=id,ColumnName="delete_no",LogicalType="datetime"},
+                new(){Id=id+"05",ConfigTableId=id,ColumnName="alt_name",YzProjectId="100"}]);
+            catalog.ConfigPageColumns.AddRange([
+                new(){Id=page+"02",ConfigPageId=page,ConfigColumnId=id+"02",IsShow=1},
+                new(){Id=page+"05",ConfigPageId=page,ConfigColumnId=id+"05",IsShow=1}]);
+            if(parent is null)continue;
+            catalog.ConfigColumns.Add(new(){Id=id+"06",ConfigTableId=id,ColumnName=parent,LogicalType="int64",LinkConfigTableId=parentTable});
+            catalog.ConfigPageColumns.Add(new(){Id=page+"06",ConfigPageId=page,ConfigColumnId=id+"06",IsShow=1});
+        }
+        var country=new{key="country",table="function_country",columnPrefix="country"};
+        var area=new{key="area",table="function_area",columnPrefix="area",parentField="country_id"};
+        var place=new{key="place",table="function_place",columnPrefix="place",parentField="area_id"};
+        catalog.ConfigColumns.AddRange([
+            new(){Id="27",ConfigTableId="2",ColumnName="tree_node_id",LogicalType="int64",LinkConfigTableId="3",IsVirtualColumn=1,
+                ControlKind="CascadeTree",DefaultValue="9007199254740993",ControlDetail=
+                """{"sourceMode":"selfTree","selfTree":{"table":"function_tree_node","parentField":"parent_node_id","nameField":"name"}}"""},
+            new(){Id="28",ConfigTableId="2",ColumnName="area_id",LogicalType="int64",LinkConfigTableId="5",IsVirtualColumn=1,
+                ControlKind="CascadeTree",ControlDetail=JsonSerializer.Serialize(new{sourceMode="crossTable",levels=new object[]{country,area}})},
+            new(){Id="29",ConfigTableId="2",ColumnName="place_id",LogicalType="string",LinkConfigTableId="6",IsVirtualColumn=1,
+                ControlKind="CascadeTree",ControlDetail=JsonSerializer.Serialize(new{sourceMode="crossTable",levels=new object[]{country,area,place}})}]);
+        foreach(var id in new[]{"27","28","29"})
+            catalog.ConfigPageColumns.Add(new(){Id="102"+id,ConfigPageId="102",ConfigColumnId=id,IsEdit=1});
         return catalog;
     }
 
