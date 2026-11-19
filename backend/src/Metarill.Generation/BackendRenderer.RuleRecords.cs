@@ -44,7 +44,8 @@ internal static partial class BackendRenderer
         var physical=table.Columns.Where(column=>NonRedundantReadCompilation.Physical(model,table,column)).ToArray();var columns=physical.Concat(derived).DistinctBy(column=>column.Source.Id).ToArray();
         var fixedQuery=FixedPageQueryCompilation.For(table,page);var exact=ExactDataManageCompilation.Resolve(model,table,page);
         var dependencies=fixedQuery.IdentityScopes.Select(scope=>scope.Column.Source.ColumnName).Concat(page.Condition?.Syntax.Fields??[]).Concat(exact is null?[]:new[]{exact.Column.Source.ColumnName}).Distinct(StringComparer.Ordinal).ToArray();
-        var singleTargets=NonRedundantReadCompilation.ProjectSingleTargets(model,table,page);
+        var singleTargets=NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,
+            derived.Select(column=>column.Source.ColumnName).Concat(dependencies));
         // 真实适配器提前证明全部输出及隐藏范围；不能到运行时才静默回退成宽查询。
         _=NonRedundantReads.CompileRuleRecord(model.Catalog,table.Source.Id,columns.Select(column=>column.Source.ColumnName).ToArray(),physical.Select(column=>column.Source.ColumnName).ToArray(),NonRedundantCrossTableCompilation.Bindings(model,table,page),dependencies,deferCascadeNames:FixedPageConditionCompilation.HasSelfTreeFields(page),logicalOutputs:derived.Select(column=>column.Source.ColumnName).ToArray(),singleTargets:singleTargets);
         var cross=CrossTableWriteCompilation.ForService(model,table,page).Count>0;

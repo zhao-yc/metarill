@@ -41,7 +41,7 @@ internal static class ExactDataManageCompilation
         }
         var derived=paths is not null||!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column.Source);
         // 精确权限只编译匹配字段，但其单值关系必须沿用本页读取相同的发布目标和物理父键。
-        var singleTargets=derived&&paths is null?NonRedundantReadCompilation.ProjectSingleTargets(model,table,page):[];
+        var singleTargets=derived&&paths is null?NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,[field]):[];
         if(derived)
         {
             var plan=paths is not null

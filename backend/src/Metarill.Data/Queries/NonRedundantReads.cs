@@ -18,7 +18,14 @@ public sealed class NonRedundantReadPlan
 }
 
 /// <summary>业务页发布时固定的单值目标页和可选来源父键，不接受请求指定。</summary>
-public sealed record NonRedundantSingleTargetScope(string ColumnId,string PageId,string? SourceParentId=null);
+public sealed record NonRedundantSingleTargetScope(string ColumnId,string PageId,string? SourceParentId=null)
+{
+    /// <summary>中间页没有额外条件时仍携带后续联接的实际目标页。</summary>
+    public bool ApplyPageCondition { get; init; } = true;
+
+    /// <summary>子绑定只用于当前目标别名，重复联接同一张表时不能借用其他角色的范围。</summary>
+    public IReadOnlyList<NonRedundantSingleTargetScope> NestedTargets { get; init; } = [];
+}
 
 /// <summary>在生成校验或宿主启动阶段编译，业务方法不判断数据库品牌。</summary>
 public static class NonRedundantReads

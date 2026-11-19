@@ -10,7 +10,7 @@ internal sealed record NonRedundantPagePlan(IReadOnlyList<NonRedundantOutput> Ou
     IReadOnlyList<string> ReadOutputs,IReadOnlyList<NonRedundantSingleTargetScope> SingleTargets);
 
 /// <summary>生成侧提前证明单值／固定多选用途和物理写边界；数据库表达式由数据适配器编译。</summary>
-internal static class NonRedundantReadCompilation
+internal static partial class NonRedundantReadCompilation
 {
     /// <summary>声明全局的R0表仍可拥有实际行归属，两种用途必须分别生成。</summary>
     internal static bool HasGlobalRowProject(TableModel table)=>table.IsGlobal&&table.Source.IsRongyu==0&&table.Columns.Any(column=>column.Source.ColumnName=="yz_project_id");
@@ -179,7 +179,7 @@ internal static class NonRedundantReadCompilation
             throw new InvalidOperationException("非冗余级联名称的筛选/排序/匹配用途缺少完整路径证明。");
         // 图只取来源已授权行的所选ID；隐藏ID为私有投影依赖，不加入VO或页面字段。
         var readOutputs=outputs.Select(output=>output.Storage).Concat(CascadeTreeViewRenderer.ForPage(model,table,page).Select(plan=>plan.Source.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var singleTargets=ProjectSingleTargets(model,table,page);
+        var singleTargets=ProjectSingleTargets(model,table,page,readOutputs.Concat(dependencies));
         var crossBindings=NonRedundantCrossTableCompilation.Bindings(crossPlans);
         var compiled=CompilePage(model,table,readOutputs,dependencies,crossBindings,singleTargets);
         if(GlobalSelectionPage(table,page))
@@ -206,29 +206,30 @@ internal static class NonRedundantReadCompilation
 
     /// <summary>同一来源表的各页分别固定实际目标页，物理父键按本页同父或表单关系证明。</summary>
     internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectSingleTargets(GenerationModel model,TableModel table,PageModel page,
-        string? scopeSourceId=null)
+        IEnumerable<string> fields)
     {
         if(table.IsGlobal||table.Source.IsRongyu!=0)return [];
-        var result=new List<NonRedundantSingleTargetScope>();
-        var relations=RelationCompilation.ForPage(model,page,scopeSourceId:scopeSourceId)
-            .Concat(RelationCompilation.ForPage(model,page,true,scopeSourceId))
-            .DistinctBy(relation=>relation.SourceColumn.Source.Id).Where(UsesProjectSingleRead);
-        foreach(var relation in relations)
+        var direct=RelationCompilation.ForPage(model,page).Concat(RelationCompilation.ForPage(model,page,true))
+            .DistinctBy(relation=>relation.SourceColumn.Source.Id).Where(UsesProjectSingleRead)
+            .Select(relation=>ProjectTarget(model,table,page,relation));
+        return MergeProjectTargets(direct.Concat(ProjectPathTargets(model,table,page,fields)));
+    }
+
+    /// <summary>固定父键从所在页面的同父或独立表单字段证明。</summary>
+    private static NonRedundantSingleTargetScope ProjectTarget(GenerationModel model,TableModel table,PageModel page,RelationModel relation)
+    {
+        ColumnModel? parent=null;
+        if(relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"))
         {
-            ColumnModel? parent=null;
-            if(relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"))
-            {
-                var context=ControlRenderer.RelationContext(page,relation,false);
-                parent=context.SameParent?page.Scopes.Single(scope=>scope.Source=="parent").Column:
-                    table.Columns.SingleOrDefault(column=>column.JsonName==context.TargetParentField);
-                if(parent is null||(!Physical(model,table,parent)&&
-                    !(relation.LogicalSourceParent&&NonRedundantCrossParentCompilation.Managed(model,table,page,parent)))||
-                    parent.Type is not("string?" or "long?" or "long"))
-                    throw new NotSupportedException("项目内实时名称缺少当前页已证明的来源父键。");
-            }
-            result.Add(new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id,parent?.Source.Id));
+            var context=ControlRenderer.RelationContext(page,relation,false);
+            parent=context.SameParent?page.Scopes.Single(scope=>scope.Source=="parent").Column:
+                table.Columns.SingleOrDefault(column=>column.JsonName==context.TargetParentField);
+            if(parent is null||(!Physical(model,table,parent)&&
+                !(relation.LogicalSourceParent&&NonRedundantCrossParentCompilation.Managed(model,table,page,parent)))||
+                parent.Type is not("string?" or "long?" or "long"))
+                throw new NotSupportedException("项目内实时名称缺少当前页已证明的来源父键。");
         }
-        return result;
+        return new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id,parent?.Source.Id);
     }
 
     /// <summary>生成验证与导出窄投影使用完全相同的各页固定目标。</summary>
@@ -254,9 +255,7 @@ internal static class NonRedundantReadCompilation
     internal static string SingleTargetArgument(IReadOnlyList<NonRedundantSingleTargetScope> scopes)
     {
         if(scopes.Count==0)return "";
-        var targets=string.Join(",",scopes.Select(scope=>"new("+JsonSerializer.Serialize(scope.ColumnId)+","+
-            JsonSerializer.Serialize(scope.PageId)+","+JsonSerializer.Serialize(scope.SourceParentId)+")"));
-        return ",new NonRedundantSingleTargetScope[]{"+targets+"}";
+        return ","+SingleTargetArray(scopes);
     }
 
     /// <summary>读写共用同一关联目标；相互冲突的有效声明不能按不同优先级串表。</summary>

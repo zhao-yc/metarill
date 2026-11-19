@@ -42,7 +42,10 @@ public sealed class DerivedRelationNamesTests
 
     /// <summary>外层客户候选的派生公司名继承客户页实际选择的公司范围。</summary>
     [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)][InlineData(true,true)]
-    public async Task Derived_list_through_project_candidate_keeps_the_intermediate_pages_fixed_scope(bool selection,bool parent)
+    [InlineData(false,false,true)][InlineData(true,false,true)]
+    [InlineData(false,false,true,true)][InlineData(true,false,false,true)]
+    public async Task Derived_list_and_business_reads_keep_the_intermediate_pages_fixed_scope(
+        bool selection,bool parent,bool unscopedMiddle=false,bool deeper=false)
     {
         var catalog=Catalog("dr_names",parent);
         catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=0;
@@ -77,6 +80,35 @@ public sealed class DerivedRelationNamesTests
                 page.WhereSql+=" AND group_id=@parent_id";
         }
 
+        if(unscopedMiddle)
+            catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql="yz_project_id=@current_yz_project_id";
+        if(deeper)
+        {
+            catalog.ConfigTables.Add(new(){Id="8",TableName="dr_names_region",YzProjectId=catalog.YzProjectId,IsRongyu=0});
+            catalog.ConfigColumns.AddRange([
+                new(){Id="81",ConfigTableId="8",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id="82",ConfigTableId="8",ColumnName="yz_project_id",LogicalType="int64"},
+                new(){Id="83",ConfigTableId="8",ColumnName="delete_no",LogicalType="datetime"},
+                new(){Id="84",ConfigTableId="8",ColumnName="name",LogicalType="string"},
+                new(){Id="85",ConfigTableId="8",ColumnName="store_id",LogicalType="int64"},
+                new(){Id="47",ConfigTableId="4",ColumnName="region_id",LogicalType="int64",ControlKind="List",LinkConfigTableId="8",
+                    Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement("801")}}
+            ]);
+            catalog.ConfigPages.Add(new(){Id="801",ConfigTableId="8",YzAdminTypeId="5",YzProjectId=catalog.YzProjectId,
+                WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id AND name <> '末段排除'"});
+            catalog.ConfigPageColumns.Add(new(){Id="80184",ConfigPageId="801",ConfigColumnId="84"});
+            // 公司页没有公开区域控件；单选原辅助列仍与其显示名一致，另一个派生列读取区域名称。
+            catalog.ConfigColumns.Add(new(){Id="212",ConfigTableId="2",ColumnName="chain_label",LogicalType="string",
+                Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=JsonSerializer.SerializeToElement("company.region.name")}});
+            catalog.ConfigPageColumns.Add(new(){Id="201212",ConfigPageId="201",ConfigColumnId="212",IsShow=1,IsEdit=0});
+            catalog.ConfigColumns.Single(column=>column.Id=="15").ControlDetail=
+                JsonSerializer.Serialize(new{tableId="2",table="dr_names_party",nameField="chain_label"});
+            var display=catalog.ConfigColumns.Single(column=>column.Id=="113");
+            display.ColumnName="customer_chain_label";
+            display.Extra["columnFullName"]=JsonSerializer.SerializeToElement("customer.chain_label");
+        }
+
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-project-join");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -87,6 +119,9 @@ public sealed class DerivedRelationNamesTests
             var sourceParent=parent?"\"29\"":"null";
             Assert.Contains($"new(\"27\",\"{actualPage.Id}\",{sourceParent})",service);
             Assert.Contains("DerivedOptionsPlan101_15.BindAccount(actor)",service);
+            Assert.Contains("ReadPlan101.BindAccount(actor)",service);
+            Assert.Contains("ExportReadPlan101.BindAccount(actor)",service);
+            if(unscopedMiddle)Assert.Contains("ApplyPageCondition=false",service);
             Assert.Contains("OptionsSelected101_15Async",service);
             Assert.Contains("Import101Async",service);
             Assert.Contains("Export101Async",service);
@@ -94,24 +129,33 @@ public sealed class DerivedRelationNamesTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var type=assembly.GetType("Example.DerivedProjectJoin.Generated.Services.DrNamesOrderService",true)!;
             const System.Reflection.BindingFlags scope=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
-            var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(type.GetField("DerivedOptionsPlan101_15",
-                System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
             var actor=new Metarill.Core.Security.RuntimeActor(9,"demo",false,catalog.YzProjectId,"5"){StoreId=6351};
-            var bound=plan.BindAccount(actor);
-            var mysql=bound.GetType().GetProperty("MySql",scope)!.GetValue(bound)!;
-            var sql=Assert.IsType<string>(mysql.GetType().GetProperty("From",scope)!.GetValue(mysql));
-            Assert.Contains("EXISTS (SELECT 1 FROM `dr_names_company`",sql);
-            Assert.Contains(".`store_id`",sql);
-            if (parent)
+            foreach(var planName in new[]{"DerivedOptionsPlan101_15","ReadPlan101","ExportReadPlan101"})
             {
-                Assert.Contains("FROM `dr_names_group`",sql);
-                Assert.Contains("=BINARY CAST(b.`group_id` AS CHAR)",sql);
-                Assert.Matches(@"=BINARY CAST\(mt_\w+_page\.`group_id` AS CHAR\)",sql);
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(type.GetField(planName,
+                    System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
+                var bound=plan.BindAccount(actor);
+                var mysql=bound.GetType().GetProperty("MySql",scope)!.GetValue(bound)!;
+                var sql=Assert.IsType<string>(mysql.GetType().GetProperty("From",scope)!.GetValue(mysql));
+                Assert.Contains("EXISTS (SELECT 1 FROM `dr_names_company`",sql);
+                Assert.Contains(".`store_id`",sql);
+                if(parent)
+                {
+                    Assert.Contains("FROM `dr_names_group`",sql);
+                    var owner=planName=="DerivedOptionsPlan101_15"?"b":"r0";
+                    Assert.Contains($"=BINARY CAST({owner}.`group_id` AS CHAR)",sql);
+                    Assert.Matches(@"=BINARY CAST\(mt_\w+_page\.`group_id` AS CHAR\)",sql);
+                }
+                var values=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(mysql.GetType().GetProperty("Constants",scope)!.GetValue(mysql)).Values;
+                Assert.Contains(6351L,values);
+                Assert.Contains(selection?"当前页排除":"原页排除",values);
+                if(selection)Assert.DoesNotContain("原页排除",values);
+                if(deeper)
+                {
+                    Assert.Contains("EXISTS (SELECT 1 FROM `dr_names_region`",sql);
+                    Assert.Contains("末段排除",values);
+                }
             }
-            var values=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(mysql.GetType().GetProperty("Constants",scope)!.GetValue(mysql)).Values;
-            Assert.Contains(6351L,values);
-            Assert.Contains(selection?"当前页排除":"原页排除",values);
-            if (selection) Assert.DoesNotContain("原页排除",values);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }

@@ -294,14 +294,25 @@ public static partial class MySqlNonRedundantReadCompiler
         internal IReadOnlyDictionary<string,NonRedundantSingleTargetScope> ProjectSingleTargets { get; init; }=
             new Dictionary<string,NonRedundantSingleTargetScope>(StringComparer.Ordinal);
 
+        private readonly Dictionary<string,IReadOnlyDictionary<string,NonRedundantSingleTargetScope>> projectAliasTargets=
+            new(StringComparer.Ordinal);
+
+        /// <summary>按实际来源别名继续读取下一段范围，不用同一张表的其它页面替代。</summary>
+        private NonRedundantSingleTargetScope? ProjectSingleBinding(string ownerAlias,ColumnMetadata relation)=>
+            (ownerAlias==rootAlias?ProjectSingleTargets:projectAliasTargets.GetValueOrDefault(ownerAlias))?.GetValueOrDefault(relation.Id);
+
         /// <summary>业务页的单值联接只显示其固定候选范围内的名称。目标条件在相关子查询内独立编译。</summary>
-        private string ProjectSingleReadCondition(ColumnMetadata relation,TableMetadata target,string alias,
-            NonRedundantSingleTargetScope binding)
+        private string ProjectSingleReadCondition(TableMetadata owner,string ownerAlias,ColumnMetadata relation,
+            TableMetadata target,string alias,NonRedundantSingleTargetScope binding)
         {
-            if(root.IsRongyu!=0||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(root)||
-                relation.ControlKind is not("List" or "SelectPage")||!storage[root.Id].IsPhysical(relation))
+            if(owner.IsRongyu!=0||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(owner)||
+                relation.ControlKind is not("List" or "SelectPage")||!storage[owner.Id].IsPhysical(relation))
                 throw new NotSupportedException("项目内单值读取须使用普通非冗余表的实际物理外键。");
             var page=catalog.ConfigPages.Single(item=>item.Id==binding.PageId&&item.ConfigTableId==target.Id);
+            if(binding.NestedTargets.Count>0)
+                projectAliasTargets.Add(alias,binding.NestedTargets.ToDictionary(item=>item.ColumnId,StringComparer.Ordinal));
+            if(!binding.ApplyPageCondition)return "";
+
             var parent=MultiParent(catalog,page);
             if((parent is null)!=(binding.SourceParentId is null)||parent is {Global:true,Logical:false})
                 throw new InvalidOperationException("项目内单值读取缺少已证明的父绑定。");
@@ -315,23 +326,23 @@ public static partial class MySqlNonRedundantReadCompiler
             if(parent is {Logical:true})
             {
                 // 目标由实际可见路径还原父级，来源则按同一父记录的持久键或已发布逻辑路径匹配。
-                var sourceParent=parent.SingleSource(catalog,root,relation);
+                var sourceParent=parent.SingleSource(catalog,owner,relation);
                 if(sourceParent.Column.Id!=binding.SourceParentId)
                     throw new InvalidOperationException("项目内单值读取父键与实际级联来源不一致。");
-                var sourceValue=SingleSourceParentValue(root,rootAlias,sourceParent);
+                var sourceValue=SingleSourceParentValue(owner,ownerAlias,sourceParent);
                 predicate+=" AND "+SameSingleParent(plan.Expression(parent.Target.ColumnName),sourceValue);
                 foreach(var reference in plan.PhysicalReferences)
                     references.TryAdd((reference.Table,reference.Column.Name),reference);
             }
             else if(parent is not null)
             {
-                var field=columns[root.Id].Values.Single(item=>item.Id==binding.SourceParentId);
+                var field=columns[owner.Id].Values.Single(item=>item.Id==binding.SourceParentId);
                 if(field.Id==relation.Id||field.LogicalType is not("string" or "int64")||
-                    !GlobalPhysicalRelationValue.IsScalar(storage[root.Id],root,field)||
+                    !GlobalPhysicalRelationValue.IsScalar(storage[owner.Id],owner,field)||
                     (field.LinkConfigTableId.Length>0?field.LinkConfigTableId!=parent.Parent.Id:
                         field.ColumnName!=parent.Parent.TableName+"_id"))
                     throw new InvalidOperationException("项目内单值读取父键与目标发布页不一致。");
-                predicate+=" AND "+SinglePhysicalParentCondition(root,rootAlias,prefix,parent,field);
+                predicate+=" AND "+SinglePhysicalParentCondition(owner,ownerAlias,prefix,parent,field);
             }
             return "EXISTS (SELECT 1"+plan.From+" WHERE "+predicate+")";
         }

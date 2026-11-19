@@ -688,8 +688,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!global&&ordinaryRelation&&refreshFields is not null&&ProjectScopedSingleRelationTarget.Resolve(
                 catalog,tables[relation.ConfigTableId],relation,target) is not null)
                 throw new InvalidOperationException("项目内固定单值名称必须使用已发布维护绑定。");
-            var projectSingle=!global&&ordinaryRelation&&ownerAlias==rootAlias&&relation.ConfigTableId==root.Id
-                ?ProjectSingleTargets.GetValueOrDefault(relation.Id):null;
+            var projectSingle=!global&&ordinaryRelation?ProjectSingleBinding(ownerAlias,relation):null;
             PageMetadata? publishedPage=cachePage;
             var scopedSingle=false;
             var scopedCrossTable=false;
@@ -735,7 +734,10 @@ public static partial class MySqlNonRedundantReadCompiler
             if(accountParent is {Logical:false})
                 scope+=(scope.Length==0?"":" AND ")+SinglePhysicalParentCondition(ownerTable,ownerAlias,alias,accountParent,parentBinding!.Column,sourceParent:sourceParent);
             if(projectSingle is not null)
-                scope+=(scope.Length==0?"":" AND ")+ProjectSingleReadCondition(relation,target,alias,projectSingle);
+            {
+                var condition=ProjectSingleReadCondition(ownerTable,ownerAlias,relation,target,alias,projectSingle);
+                if(condition.Length>0)scope+=(scope.Length==0?"":" AND ")+condition;
+            }
             if(trackReverse)
             {
                 Touch(alias,"id");reverse.Add(alias,(target.TableName,prefix,source,sourceType));

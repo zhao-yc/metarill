@@ -188,20 +188,10 @@ internal static class DerivedRelationNamesCompilation
             throw new InvalidOperationException("关系名称必须编译为与声明一致的固定标量。");
         return dependencies;
     }
-    /// <summary>按中间记录实际发布页编译名称路径的第一段，沿用该页的外键、目标条件和父绑定。</summary>
-    internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectCandidateTargets(GenerationModel model,RelationModel relation)
-    {
-        var table=relation.Target;
-        if(table.IsGlobal||table.Source.IsRongyu!=0||UsesLogicalPage(relation)||
-            !GenerationModel.Enabled(relation.NameColumn.Source.Extra,"isJoinColumn"))return [];
-        var path=relation.NameColumn.Source.Extra.GetValueOrDefault("columnFullName").ToString();
-        var separator=path.IndexOf('.');
-        if(separator<=0)return [];
-        var segment=path[..separator];
-        var key=table.Columns.FirstOrDefault(column=>column.Source.ColumnName.Equals(segment+"_id",StringComparison.OrdinalIgnoreCase))??
-            table.Columns.FirstOrDefault(column=>column.Source.ColumnName.Equals(segment,StringComparison.OrdinalIgnoreCase));
-        return key is null?[]:NonRedundantReadCompilation.ProjectSingleTargets(model,table,relation.TargetPage,key.Source.Id);
-    }
+    /// <summary>派生候选从实际选中的中间页继续解析名称路径及各段固定范围。</summary>
+    internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectCandidateTargets(GenerationModel model,RelationModel relation)=>
+        UsesLogicalPage(relation)?[]:NonRedundantReadCompilation.ProjectPathTargets(
+            model,relation.Target,relation.TargetPage,[relation.NameColumn.Source.ColumnName]);
 
     /// <summary>普通R0保持原合同；R1只为明确发布、有真实主键／项目的物理消费者开放同一固定候选。</summary>
     private static bool SupportedOwner(GenerationModel model,TableModel owner)
