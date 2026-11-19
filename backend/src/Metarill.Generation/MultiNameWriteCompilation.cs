@@ -8,7 +8,7 @@ internal static class MultiNameWriteCompilation
     /// <summary>仅汇总已证明的根定义与页级定义，不从相似列名推断缓存或解释客户端元数据。</summary>
     internal static IReadOnlyList<MultiNameWriteBinding> ForTable(GenerationModel model,TableModel table)
     {
-        if(table.Source.IsRongyu!=1)return [];
+        if(table.Source.IsRongyu!=1||table.Source.IsFunctionTable==1)return [];
         var definitions=new List<MultiSelectModel>();
         foreach(var page in table.Pages)
         foreach(var source in table.Columns.Where(column=>column.Source.ControlKind=="MultiSelectPage"))

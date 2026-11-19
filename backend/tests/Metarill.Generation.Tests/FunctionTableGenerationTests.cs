@@ -27,6 +27,11 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.Contains("page_is_update:true", detail);
         Assert.Contains("title", detail);
         Assert.Contains("findNameIdCustomer24", detail);
+        Assert.Contains("createMultiSelectFieldMixin", detail);
+        Assert.Contains("customer-list-101.vue", detail);
+        Assert.Contains(":selectedIds=\"entity.customerIds\"", detail);
+        Assert.Contains(":selectedNames=\"entity.customerNames\"", detail);
+        Assert.Contains("receiveMultiSelection", detail);
         Assert.Contains("/admin/sys/config_button/execute", detail);
         Assert.Contains("saveEntity", detail);
         Assert.False(File.Exists(Path.Combine(frontend, "pages/yzp/summary_form-list-102.vue")));
@@ -45,15 +50,20 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.DoesNotContain("[HttpPost(\"page\")]", controller);
         Assert.DoesNotContain("[HttpGet(\"detail/{id}\")]", controller);
         Assert.DoesNotContain("[HttpDelete]", controller);
+        var targetController = File.ReadAllText(Path.Combine(backend,"Controllers/CustomerPage101Controller.g.cs"));
+        Assert.Contains("[HttpPost(\"selection/selected\")]",targetController);
+        Assert.Contains("SelectionSelected101Async(request, Actor(\"list\"), cancellationToken)",targetController);
         var service = File.ReadAllText(Path.Combine(backend, "Services/SummaryFormService.g.cs"));
         Assert.Contains("Select<global::Example.FunctionForm.Generated.Entities.Customer>", service);
         Assert.Contains("entity.YzProjectId == long.Parse(actor.ProjectId", service);
         Assert.DoesNotContain("InsertAsync", service);
+        Assert.DoesNotContain("MultiName",service);
         var nav = File.ReadAllText(Path.Combine(output, "backend/Application.Host/DevelopmentNavigation.cs"));
         Assert.Contains("table.IsFunctionTable == 1 ? \"-detail-\" : \"-list-\"", nav);
         Assert.Contains("countEndpoint=table.IsFunctionTable==1?null", nav);
         Assert.Equal("customer", Assert.Single(MySqlSchemaPlanner.Compile(catalog,"form_test").Tables).Name);
 
+        await VerifyMultiSelectionAsync(output);
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
         {
             WorkingDirectory = output, RedirectStandardOutput = true, RedirectStandardError = true,
@@ -69,6 +79,37 @@ public sealed class FunctionTableGenerationTests : IDisposable
         try { await process.WaitForExitAsync(timeout.Token); }
         catch (OperationCanceledException) { if (!process.HasExited) process.Kill(true); throw; }
         Assert.True(process.ExitCode == 0, (await stdout) + (await stderr));
+    }
+
+    /// <summary>装载完整包内的原表单，验证原确认事件到业务按钮的实际请求参数。</summary>
+    private static async Task VerifyMultiSelectionAsync(string directory, [CallerFilePath] string file = "")
+    {
+        var start = new ProcessStartInfo("node")
+        {
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false, CreateNoWindow = true
+        };
+        start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(file)!, "GeneratedFunctionFormProbe.mjs"));
+        start.ArgumentList.Add(directory);
+        using var process = Process.Start(start)!;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var stdout = process.StandardOutput.ReadToEndAsync(timeout.Token);
+        var stderr = process.StandardError.ReadToEndAsync(timeout.Token);
+        await process.WaitForExitAsync(timeout.Token);
+        Assert.True(process.ExitCode == 0, (await stdout) + (await stderr));
+    }
+
+    /// <summary>功能表不能使用超出目标页已证明合同的附加条件。</summary>
+    [Fact]
+    public void Function_form_rejects_an_unbound_multiselect_filter()
+    {
+        var catalog = Catalog();
+        catalog.ConfigColumns.Single(column => column.Id == "25").ControlDetail =
+            """{"pageId":"101","nameField":"name","whereSql":"name = '限定客户'"}""";
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            new ApplicationPackager().Create(catalog, output, "Example.FunctionForm", SourceRoot()));
+        Assert.Contains("额外控件范围", error.Message);
+        Assert.False(Directory.Exists(output));
     }
 
     /// <summary>功能表不能作为实体候选或选择列表，拒绝生成悬空导航。</summary>
@@ -94,10 +135,15 @@ public sealed class FunctionTableGenerationTests : IDisposable
         catalog.YzAdminTypes.Add(new() { Id="70", Name="业务后台", YzProjectId="100" });
         catalog.ConfigPages[0].YzProjectId="100";
         catalog.ConfigPages[0].YzAdminTypeId="70";
+        catalog.ConfigPages[0].Extra["type"]=JsonSerializer.SerializeToElement(2);
         catalog.ConfigPages.Add(new() { Id="102", Name="汇总表单", ConfigTableId="2", YzProjectId="100", YzAdminTypeId="70", IsCopy=1, WhereSql="yz_project_id=@current_yz_project_id" });
         catalog.ConfigColumns.Add(new() { Id="23", ConfigTableId="2", ColumnName="title", Name="标题", DefaultValue="业务汇总", IsVirtualColumn=1 });
         catalog.ConfigColumns.Add(new() { Id="24", ConfigTableId="2", ColumnName="customer_id", Name="客户", LogicalType="int64",
             ControlKind="List", ControlDetail="""{"tableId":"1","table":"customer","nameField":"name"}""" });
+        catalog.ConfigColumns.Add(new() { Id="25", ConfigTableId="2", ColumnName="customer_ids", Name="多选客户",
+            LogicalType="string", ColumnLength="max", ControlKind="MultiSelectPage", LinkConfigTableId="1", IsVirtualColumn=1,
+            ControlDetail="""{"pageId":"101","nameField":"name","buttonText":"选择"}""" });
+        catalog.ConfigPageColumns.Add(new() { Id="115", ConfigPageId="102", ConfigColumnId="25", IsEdit=1 });
         catalog.ConfigPageColumns.Add(new() { Id="113", ConfigPageId="102", ConfigColumnId="23", IsEdit=1, IsRequired=1 });
         catalog.ConfigPageColumns.Add(new() { Id="114", ConfigPageId="102", ConfigColumnId="24", IsEdit=1 });
         catalog.ConfigButtons.Add(JsonSerializer.SerializeToElement(new { id="63", configPageId="102", configTableId="2", yzProjectId="100",

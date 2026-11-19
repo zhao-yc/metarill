@@ -22,7 +22,9 @@ internal static class MultiSelectCompilation
     /// <summary>辅助名称只读且使用HTTP数组，实体仍保持原JSON文本存储。</summary>
     internal static GenerationModel Prepare(GenerationModel model)
     {
-        var managed = model.Tables.ToDictionary(table => table.Source.Id, table => table.Pages.SelectMany(page => ForService(model, table, page)).Where(def => def.Names is not null).Select(def => def.Names!.Source.Id).ToHashSet(StringComparer.Ordinal));
+        var managed = model.Tables.ToDictionary(table => table.Source.Id, table => table.Pages
+            .SelectMany(page => table.Source.IsFunctionTable == 1 ? ForPage(model, table, page) : ForService(model, table, page))
+            .Where(def => def.Names is not null).Select(def => def.Names!.Source.Id).ToHashSet(StringComparer.Ordinal));
         return model with { Tables = model.Tables.Select(table =>
         {
             var names = managed[table.Source.Id];names.UnionWith(MultiNameWriteCompilation.ForTable(model,table).Select(binding=>binding.Cache.Source.Id));
@@ -44,6 +46,7 @@ internal static class MultiSelectCompilation
     internal static MultiSelectResult Resolve(GenerationModel model, TableModel table, PageModel page, ColumnModel source, bool forService = false, bool rootDefinition = false)
     {
         MultiSelectResult Gap(string reason) => new(null, "MultiSelectPage尚未支持：" + reason);
+        var functionForm = table.Source.IsFunctionTable == 1;
         if (table.Source.IsRongyu is not (0 or 1)) return Gap("未识别的多选存储模式。");
         if (source.Type != "string?" || !source.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal)) return Gap("字段必须为已声明的字符串_ids存储。");
         if (!forService && !page.Readable.Any(column => column.Source.Id == source.Source.Id)) return Gap("来源页未开放ID字段，无法形成完整字段合同。");
@@ -56,7 +59,7 @@ internal static class MultiSelectCompilation
             var pageId = Value("pageId", source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString());
             var target = model.Tables.SingleOrDefault(candidate => candidate.Pages.Any(targetPage => targetPage.Source.Id == pageId));
             var targetPage = target?.Pages.Single(candidate => candidate.Source.Id == pageId);
-            if (target is null || targetPage is null || !SelectionPageRenderer.Enabled(targetPage)) return Gap("目标必须是已声明的type=2多选页面。");
+            if (target is null || target.Source.IsFunctionTable == 1 || targetPage is null || !SelectionPageRenderer.Enabled(targetPage)) return Gap("目标必须是已声明的type=2多选页面。");
             if (!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId) && source.Source.LinkConfigTableId != target.Source.Id) return Gap("目标页与声明关联表不一致。");
             if (!target.IsGlobal && !target.Columns.Any(column => column.Source.ColumnName == "yz_project_id")) return Gap("目标未声明项目归属或明确全局范围。");
             var name = target.Columns.SingleOrDefault(column => column.Source.ColumnName == Value("nameField", "name"));
@@ -73,7 +76,7 @@ internal static class MultiSelectCompilation
             if(fixedPage.Length==0)fixedPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
             var pageOverride=pageId!=fixedPage;
             var pageRead=table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!table.IsGlobal&&!target.IsGlobal;
-            if(pageOverride&&!pageRead&&(scoped||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate))))
+            if(!functionForm&&pageOverride&&!pageRead&&(scoped||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate))))
                 return Gap("限定范围的目标页必须与表级读取和缓存绑定一致。");
             var query=FixedPageQueryCompilation.For(target,targetPage);
             var definition=new SelectionControlDefinition(pageId,name.Source.ColumnName,Value("buttonText"),Value("whereSql"),"");
@@ -115,7 +118,7 @@ internal static class MultiSelectCompilation
             // 普通非冗余来源按实际页面校验父键，全局关系及冗余缓存继续按其固定范围证明。
             var usesPageRead=pageRead&&(pageOverride||targetParents.Length>0||!scoped&&targetPage.Condition is not null);
             var logicalSourceParent=false;
-            if(scopedParent is not null)
+            if(scopedParent is not null && !functionForm)
             {
                 var owner=usesPageRead?scopedParent.Source(model.Catalog,table.Source,source.Source,page.Source)
                     :scopedParent.Source(model.Catalog,table.Source,source.Source);
@@ -124,6 +127,10 @@ internal static class MultiSelectCompilation
                 if(actual.Source.Id!=owner.Column.Id||logicalSourceParent&&(!same||!NonRedundantCrossParentCompilation.Managed(model,table,page,actual)))
                     return Gap("目标页父字段须与来源记录的固定父键一致。");
             }
+            if (functionForm)
+                return new(new(source, target, targetPage, name, FunctionFormNames(table, source, name), same,
+                    targetField, targetParents, Value("buttonText", "选择")), null);
+
             ColumnModel? names = null;
             if (!name.IsId)
             {
@@ -162,6 +169,26 @@ internal static class MultiSelectCompilation
                 }, null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }
+    }
+
+    /// <summary>只为功能表回执提供原表单名称属性，保持显式同名字段且不增加数据库列。</summary>
+    private static ColumnModel? FunctionFormNames(TableModel table, ColumnModel source, ColumnModel name)
+    {
+        if (name.IsId) return null;
+        var field = name.Source.ColumnName;
+        var alias = source.Source.ColumnName[..^4] + "_" + (field.EndsWith('s') ? field : field + "s");
+        MetadataValidation.RequireIdentifier(alias);
+        var declared = table.Columns.SingleOrDefault(column => column.JsonName == GenerationModel.Camel(alias));
+        if (declared is not null)
+        {
+            if (declared.Source.ColumnName != alias || declared.Type != "string?" || declared.IsSystem ||
+                declared.Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage")
+                throw new InvalidOperationException("功能表多选名称辅助字段须为同名字符串字段。");
+            return declared;
+        }
+        var metadata = new ColumnMetadata { Id=source.Source.Id+"_display", ConfigTableId=table.Source.Id,
+            ColumnName=alias, LogicalType="string", ColumnLength="max", IsVirtualColumn=1 };
+        return new(metadata, GenerationModel.Pascal(alias), GenerationModel.Camel(alias), "string?", IsManagedMultiNames:true);
     }
 
     /// <summary>生成与数据层使用同一标量终点证明，范围仍由固定目标页证明。</summary>
