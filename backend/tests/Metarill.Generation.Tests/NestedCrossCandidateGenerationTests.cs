@@ -67,8 +67,21 @@ public sealed class NestedCrossCandidateGenerationTests
                 var inner=model.Tables.Single(item=>item.Source.Id=="2");
                 var candidateType=assembly.GetType(ns+".Generated.Services."+inner.Name+"Service",true)!;
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(candidateType.TypeHandle);
-                Assert.IsType<NonRedundantReadPlan>(candidateType.GetField("CandidateReadPlan201",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
-                Assert.Null(candidateType.GetField("CandidateReadPlan202",BindingFlags.Static|BindingFlags.NonPublic));
+                const BindingFlags flags=BindingFlags.Static|BindingFlags.NonPublic;
+                var candidate=Assert.IsType<NonRedundantReadPlan>(candidateType.GetField("CandidateReadPlan201",flags)!.GetValue(null));
+                var business=Assert.IsType<NonRedundantReadPlan>(candidateType.GetField("ReadPlan202",flags)!.GetValue(null));
+                Assert.Null(candidateType.GetField("CandidateReadPlan202",flags));
+                Assert.Null(candidateType.GetField("PageMultiGlobalParent202",flags));
+                Assert.Contains("b.`yz_project_id`=@project_scope_number",Scope(business));
+                Assert.DoesNotContain("b.`yz_project_id`=@project_scope_number",Scope(candidate));
+                var actor=new Metarill.Core.Security.RuntimeActor(1,"范围测试",false,catalog.YzProjectId,"5");
+                Assert.Throws<UnauthorizedAccessException>(()=>candidate.BindAccount(actor));
+                candidate.BindAccount(actor with{StoreId=9007199254740993L});
+                var innerService=await File.ReadAllTextAsync(Path.Combine(output,$"Services/{inner.Name}Service.g.cs"));
+                Assert.Contains("LogicalParentScope202",innerService);
+                Assert.Contains("await VerifyLogicalParent202Async(entity,actor,parentId,cancellationToken)",innerService);
+                Assert.Throws<NotSupportedException>(()=>GlobalCrossTableTarget.RequireCrossTableCandidate(
+                    catalog,inner.Source,catalog.ConfigPages.Single(item=>item.Id=="202")));
             }
             var targetPlan=(NonRedundantReadPlan)type.GetField("CrossTargetPlan900_9004_0",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
             Assert.Equal(new[]{"id","name"},targetPlan.OutputTypes.Keys);
@@ -133,7 +146,7 @@ public sealed class NestedCrossCandidateGenerationTests
                 await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new NonRedundantReader(session)
                     .RowsAsync(targetPlan.BindAccount(actor),[],[],1,projectId:actor.ProjectId));
             }
-            if(shared)
+            if(shared||mode=="row-project")
             {
                 // 完整应用重新生成必须识别新增运行时文件，也要重新证明精简目录里的候选范围。
                 var packager=new ApplicationPackager();
@@ -150,6 +163,14 @@ public sealed class NestedCrossCandidateGenerationTests
             Assert.Equal(before,JsonSerializer.Serialize(catalog));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    /// <summary>读取实际编译出的根表条件，核对普通页和候选页各自的行归属。</summary>
+    private static string Scope(NonRedundantReadPlan plan)
+    {
+        const BindingFlags flags=BindingFlags.Instance|BindingFlags.NonPublic;
+        var mysql=typeof(NonRedundantReadPlan).GetProperty("MySql",flags)!.GetValue(plan)!;
+        return Assert.IsType<string>(mysql.GetType().GetProperty("Scope",flags)!.GetValue(mysql));
     }
 
     private static string Sql<T>(FreeSql.ISelect<T> query) where T:class=>query.ToSql();

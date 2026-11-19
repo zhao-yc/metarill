@@ -17,9 +17,14 @@ internal static class MultiGlobalParentCompilation
     internal static string Check(string plan,string key,string currentRead)=>
         $"        if((await new Metarill.Data.Queries.NonRedundantReader(session).KeyRowsAsync({plan}.BindAccount(actor),[],[{key}],cancellationToken,actor.ProjectId,currentRead:{currentRead})).Count!=1)throw new InvalidOperationException(\"全局父记录不存在、已删除或不在固定父范围。\");";
 
-    /// <summary>目标页的物理或逻辑父为全局表时，均按其实际发布页验证。</summary>
-    internal static MultiTargetParentScope? SingleTarget(GenerationModel model,TableModel table,PageModel page)=>
-        DerivedRelationNamesCompilation.SingleParent(model,table,page) is {Global:true} parent?parent:null;
+    /// <summary>全局候选的父级按其实际发布页验证，普通项目页沿用自身的项目和父级范围。</summary>
+    internal static MultiTargetParentScope? SingleTarget(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(NonRedundantReadCompilation.HasGlobalRowProject(table)&&
+            !NonRedundantReadCompilation.GlobalSelectionPage(table,page)&&page.Scopes.Any(scope=>scope.Source=="project"))
+            return null;
+        return DerivedRelationNamesCompilation.SingleParent(model,table,page) is {Global:true} parent?parent:null;
+    }
 
     /// <summary>实体范围只直接接入已证明的物理父；逻辑父走既有级联范围。</summary>
     internal static MultiTargetParentScope? PhysicalSingleTarget(GenerationModel model,TableModel table,PageModel page)=>
