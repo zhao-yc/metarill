@@ -24,7 +24,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 var column=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(item=>item.ConfigTableId==target.Id))
                     .SingleOrDefault(item=>item.ColumnName==field);
                 if(column is null)continue;
-                var selected=ScopedMultiTargetPage(catalog,target,namePage);
+                var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
+                var selected=ScopedMultiTargetPage(catalog,target,namePage,checkbox);
                 // 普通物理父页如果被同父多路径引用，精简目录也必须保留实际目标和来源页。
                 var compoundPhysical=selected is null&&namePage is not null&&source is not null&&sourcePage is not null&&
                     HasCompoundMultiSelectSource(catalog,source,sourcePage,relation,namePage);
@@ -46,7 +47,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(source is not null&&(plan.RequiresAccount&&source.IsRongyu==1||selected is not null&&plan.RequiredMultiParent is not null))
                     owners.UnionWith(catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&
                         (sourcePage is null||page.Id==sourcePage.Id)).Select(page=>page.Id));
-                if(source is not null&&selected is not null&&MultiParent(catalog,selected) is {} parent)
+                if(source is not null&&selected is not null&&MultiParent(catalog,selected,checkbox) is {} parent)
                 {
                     var sourceParent=sourcePage is null?parent.Source(catalog,source,relation):parent.Source(catalog,source,relation,sourcePage);
                     foreach(var logicalPage in sourceParent.LogicalPages)
@@ -131,7 +132,8 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>查找由原多值关系显式绑定的固定范围页。</summary>
     internal static bool IsScopedMultiTarget(MetadataCatalog catalog,TableMetadata target,string pageId,bool selectOnly=false)=>
         DeclaredMultiNameTargets(catalog).Any(item=>item.Table.Id==target.Id&&item.NamePage?.Id==pageId&&
-            (!selectOnly||item.Relation.ControlKind=="MultiSelectPage")&&ScopedMultiTargetPage(catalog,target,item.NamePage) is not null);
+            (!selectOnly||item.Relation.ControlKind=="MultiSelectPage")&&
+            ScopedMultiTargetPage(catalog,target,item.NamePage,item.Relation.ControlKind=="MultiCheckBoxDatabase") is not null);
 
     /// <summary>由实际多值控件绑定找到名称所处的页面，纯物理根条件也保留中间页上下文。</summary>
     private static PageMetadata? MultiTargetNamePage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
@@ -148,17 +150,17 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>只在原逻辑或账号条件确实存在时，将目标页本身的范围嵌入多值计划。</summary>
     internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
-        =>ScopedMultiTargetPage(catalog,table,MultiTargetNamePage(catalog,table,relation));
+        =>ScopedMultiTargetPage(catalog,table,MultiTargetNamePage(catalog,table,relation),relation.ControlKind=="MultiCheckBoxDatabase");
 
     /// <summary>比较当前绑定页的逻辑、账号及实际全局父范围，表级和页面覆盖共用同一证明。</summary>
-    private static PageMetadata? ScopedMultiTargetPage(MetadataCatalog catalog,TableMetadata table,PageMetadata? page)
+    private static PageMetadata? ScopedMultiTargetPage(MetadataCatalog catalog,TableMetadata table,PageMetadata? page,bool checkbox)
     {
         if(page is null||page.WhereSql.Length==0)return null;
         var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         var declared=RelationStorageColumns.Expand(table,members);
         var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
         return syntax.Variables.Any(AccountConditionVariables.IsSupported)||
-            page.Extra.GetValueOrDefault("type").ToString()=="2"&&syntax.Terms.Count(term=>term.Values.Any(value=>
+            (checkbox||page.Extra.GetValueOrDefault("type").ToString()=="2")&&syntax.Terms.Count(term=>term.Values.Any(value=>
                 value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text)))>1||
             syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,members,field)||
                 CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field))||
@@ -187,15 +189,17 @@ public static partial class MySqlNonRedundantReadCompiler
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
-        var parent=MultiParent(catalog,page);
+        var parent=MultiParent(catalog,page,storedExactCheckbox);
         var extraFields=(importFields??[]).ToHashSet(StringComparer.Ordinal);
-        if(exactMultiSelection)extraFields.Add(RequireExactMultiSelection(catalog,table,page));
+        if(exactMultiSelection)extraFields.Add(RequireExactMultiSelection(catalog,table,page,storedExactCheckbox));
         var crossFields=new HashSet<string>(StringComparer.Ordinal);
         IReadOnlyList<ColumnMetadata> importColumns=[];
         IReadOnlyList<NonRedundantCrossTableScope> crossBindings=[];
         if(extraFields.Count>0)
         {
-            if(table.IsRongyu!=0||table.IsView!=0||table.IsFunctionTable!=0||page.Extra.GetValueOrDefault("type").ToString()!=importPageType||
+            var pageType=page.Extra.GetValueOrDefault("type").ToString();
+            var typeMatches=storedExactCheckbox?pageType is "" or "0" or "1" or "2":pageType==importPageType;
+            if(table.IsRongyu!=0||table.IsView!=0||table.IsFunctionTable!=0||!typeMatches||
                 !exactMultiSelection&&page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
                 throw new NotSupportedException("Excel 逻辑条件要求实际发布的普通非冗余选择页。");
             var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId).ToArray();
@@ -248,11 +252,12 @@ public static partial class MySqlNonRedundantReadCompiler
     }
 
     /// <summary>按实际发布页解析原父参数，父列可能未在页面显示。</summary>
-    private static MultiTargetParentScope? MultiParent(MetadataCatalog catalog,PageMetadata page)
+    private static MultiTargetParentScope? MultiParent(MetadataCatalog catalog,PageMetadata page,bool checkbox=false)
     {
         var table=catalog.ConfigTables.Single(item=>item.Id==page.ConfigTableId);
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+        if(checkbox)return MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax);
         return page.Extra.GetValueOrDefault("type").ToString()=="2"
             ?MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax)
             :MultiTargetParentScope.Compile(catalog,table,syntax);

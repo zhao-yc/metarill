@@ -351,6 +351,13 @@ public static class NonRedundantReads
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
         new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies,singleTargets));
 
+    /// <summary>复选的真实目标页允许同父多范围，精确授权仍由生成服务绑定。</summary>
+    public static NonRedundantReadPlan CompileScopedCheckboxLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,bool exact,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>
+        new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies,
+            singleTargets,exactMultiSelection:exact,storedExactCheckbox:true));
+
     /// <summary>Excel 附加条件以宿主发布的逻辑表达式匹配，绑定值仍由真实导入上下文提供。</summary>
     public static NonRedundantReadPlan CompileMultiImportLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
         IReadOnlyList<string> conditionFields,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>

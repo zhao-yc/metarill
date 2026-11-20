@@ -272,7 +272,7 @@ public static partial class MySqlNonRedundantReadCompiler
             AllowsStoredExactCheckbox=relation?.ControlKind=="MultiCheckBoxDatabase",
             MultiNamePathPage=relation is null?null:MultiTargetNamePage(catalog,catalog.ConfigTables.Single(table=>table.Id==tableId),relation),
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
-            MultiParentOwner=cacheOwner is null||selectedPage is null||MultiParent(catalog,selectedPage) is not {} parent?null:
+            MultiParentOwner=cacheOwner is null||selectedPage is null||MultiParent(catalog,selectedPage,relation?.ControlKind=="MultiCheckBoxDatabase") is not {} parent?null:
                 (cacheOwner,parent.Source(catalog,cacheOwner.Table,relation??throw new InvalidOperationException("多值缓存缺少发布关系。")).Column),
             GlobalCrossCandidate=selectedPage is not null&&GlobalCrossTableTarget.Declared(catalog.ConfigTables.Single(table=>table.Id==tableId))
         }.Compile(outputs,dependencies);
@@ -354,7 +354,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>主键作为稳定排序依赖；根及每个目标分别保留软删和项目范围。</summary>
         internal MySqlNonRedundantReadPlan Compile(IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
         {
-            if(SelectedMultiPage is not null)MultiCandidateParent=MultiParent(catalog,SelectedMultiPage);
+            if(SelectedMultiPage is not null)MultiCandidateParent=MultiParent(catalog,SelectedMultiPage,AllowsStoredExactCheckbox);
             var globalSource=refreshFields is not null&&GlobalCrossTableTarget.Declared(root);
             var globalDerivedSource = refreshFields is null && root.IsRongyu == 0 && GlobalCrossTableTarget.Declared(root);
             var physicalCandidate = candidatePage is not null && root.IsRongyu == 1;

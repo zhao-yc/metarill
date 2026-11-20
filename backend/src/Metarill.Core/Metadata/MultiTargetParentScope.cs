@@ -14,14 +14,21 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public IReadOnlyList<MultiTargetParentScope> AdditionalTargets { get; init; } = [];
 
     /// <summary>原多选目标页可以用多个已证明的字段匹配同一业务父记录。</summary>
-    public static MultiTargetParentScope? CompileSelectionPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)
+    public static MultiTargetParentScope? CompileSelectionPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)=>
+        CompilePublishedPage(catalog,table,condition,checkbox:false);
+
+    /// <summary>原数据库复选的实际发布页也可用已声明的自定义物理父字段。</summary>
+    public static MultiTargetParentScope? CompileCheckboxPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)=>
+        CompilePublishedPage(catalog,table,condition,checkbox:true);
+
+    private static MultiTargetParentScope? CompilePublishedPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox)
     {
         var terms=condition.Terms.Where(ParentTerm).ToArray();
         if(terms.Length<=1)return Compile(catalog,table,condition);
         if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table))throw Invalid();
         var fields=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
             .Select(column=>column.ColumnName).ToArray();
-        var scopes=terms.Select(term=>Compile(catalog,table,FixedConditionPlan.Compile(term.ToDefinition(),fields))!)
+        var scopes=terms.Select(term=>Compile(catalog,table,FixedConditionPlan.Compile(term.ToDefinition(),fields),checkbox)!)
             .DistinctBy(scope=>scope.Target.Id).OrderByDescending(scope=>scope.Logical)
             .ThenBy(scope=>scope.Target.Id,StringComparer.Ordinal).ToArray();
         var parent=scopes[0];

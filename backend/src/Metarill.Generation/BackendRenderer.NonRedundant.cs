@@ -161,6 +161,9 @@ internal static partial class BackendRenderer
             MultiSelectCompilation.ForService(model,table,page).Any(multi=>multi.GlobalParent)||
             DatabaseCheckboxCompilation.ForService(model,table,page).Any(checkbox=>checkbox.GlobalParent))))
             helpers+="    /// <summary>校验实际多值目标页绑定的全局父。源码冻结后只接受规范ID。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMultiGlobalParent(string tableId,string pageId)=>Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(Snapshot,tableId,pageId);\n";
+        if(model.Tables.Any(table=>table.Pages.Any(page=>
+            DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.CompoundTargetParents))))
+            helpers+="    /// <summary>原复选目标页的各父级与精确范围按实际发布页编译。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileScopedCheckboxLabel(string tableId,string pageId,string field,string[] outputs,string[] dependencies,bool exact,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileScopedCheckboxLabel(Snapshot,tableId,pageId,field,outputs,dependencies,exact,singleTargets);\n";
         if(exactMultiTargets.Length>0)
             helpers+="    /// <summary>实际多选页的逻辑范围和精确匹配投影共同冻结。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileExactMultiLabel(string tableId,string pageId,string field,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null,string[]? conditionFields=null)=>Metarill.Data.Queries.NonRedundantReads.CompileExactMultiLabel(Snapshot,tableId,pageId,field,outputs,dependencies,singleTargets,conditionFields);\n";
         if(logicalMultiImports.Length>0)

@@ -93,7 +93,7 @@ public static partial class MySqlNonRedundantReadCompiler
             // 全局单值路径已证明字符串键的二进制读取；这里不是仅允许int64键的精确管理匹配用途。
             var prefixForNames=publishedPage is null&&publishedArrayScopeCount==0?"multi_name_":aliasPrefix+"array"+publishedArrayScopeCount+"_";
             publishedArrayScopeCount++;
-            var pageParent=selectedScope is null?null:MultiParent(catalog,selectedScope);
+            var pageParent=selectedScope is null?null:MultiParent(catalog,selectedScope,checkbox);
             var controlParents=CheckboxControlParents(target,control);
             var parent=pageParent??controlParents.FirstOrDefault();
             if(parent is not null&&controlParents.Any(candidate=>candidate.Parent.Id!=parent.Parent.Id))
@@ -127,7 +127,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var parents=new List<string>();
             foreach(var range in controlParents)
             {
-                if(range.Target.Id==pageParent?.Target.Id)continue;
+                if(range.Target.Id==pageParent?.Target.Id||pageParent?.AdditionalTargets.Any(parent=>parent.Target.Id==range.Target.Id)==true)continue;
                 var targetKey="multi_value."+Q(range.Target.ColumnName);
                 Use(target,range.Target);
                 if(pageParent is null&&parents.Count==0&&!range.Global)

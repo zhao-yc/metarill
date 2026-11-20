@@ -12,7 +12,7 @@ internal static class DerivedCheckboxNamesCompilation
         if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0||def.Target.Source.IsView!=0||def.Target.Source.IsFunctionTable!=0||def.Name.Type!="string?"&&!Metarill.Core.Contracts.MultiValueLabel.IsTyped(def.Name.Source.LogicalType)||def.Name.IsJsonArray)throw new InvalidOperationException("派生复选名称要求已证明来源与普通R0目标的固定单值名称。");
         var fields=def.Scopes.Select(scope=>scope.Column).Concat(def.Conditions?.Syntax.Fields.Select(field=>def.Target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();
         if(fields.Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,def.Target,column)&&
-            (def.FunctionParentField is null||def.LogicalTargetPage is null||
+            (!def.CompoundTargetParents&&def.FunctionParentField is null||def.LogicalTargetPage is null||
              !NonRedundantCrossParentCompilation.Managed(model,def.Target,def.LogicalTargetPage,column))))throw new InvalidOperationException("派生复选的身份、父及附加条件必须为物理标量。");
         var pageFields=def.PhysicalTargetPage?.Condition?.Syntax.Fields??[];
         var dependencies=fields.Select(column=>column.Source.ColumnName)
@@ -33,6 +33,9 @@ internal static class DerivedCheckboxNamesCompilation
     {
         var field=def.Name.Source.ColumnName;
         string[] outputs=["id",field];
+        if(def.CompoundTargetParents)
+            return NonRedundantReads.CompileScopedCheckboxLabel(model.Catalog,def.Target.Source.Id,def.LogicalTargetPage!.Source.Id,
+                field,outputs,dependencies,def.ExactTarget is not null,CompoundNameTargets(model,def));
         if(UsesGlobalExactPage(def))
         {
             var published=def.NameTargetPage!;
@@ -60,6 +63,11 @@ internal static class DerivedCheckboxNamesCompilation
     {
         var field=def.Name.Source.ColumnName;
         static string Fields(IEnumerable<string> names)=>"new string[]{"+string.Join(",",names.Select(name=>JsonSerializer.Serialize(name)))+"}";
+        if(def.CompoundTargetParents)
+            return "CompileScopedCheckboxLabel("+JsonSerializer.Serialize(def.Target.Source.Id)+","+
+                JsonSerializer.Serialize(def.LogicalTargetPage!.Source.Id)+","+JsonSerializer.Serialize(field)+","+
+                Fields(["id",field])+","+Fields(dependencies)+","+(def.ExactTarget is null?"false":"true")+
+                NonRedundantReadCompilation.SingleTargetArgument(CompoundNameTargets(model,def))+")";
         if(UsesGlobalExactPage(def))
         {
             var published=def.NameTargetPage!;
@@ -101,8 +109,13 @@ internal static class DerivedCheckboxNamesCompilation
 
     /// <summary>固定逻辑成员计划只解析字段，页面字面条件和当前账号在调用时显式附加。</summary>
     internal static PageModel? ExactMembershipPage(GenerationModel model,DatabaseCheckboxModel def)=>
-        def.ExactTarget is {} exact&&!UsesGlobalExactPage(def)&&!HasExactLogicalParent(model,def)
+        !def.CompoundTargetParents&&def.ExactTarget is {} exact&&!UsesGlobalExactPage(def)&&!HasExactLogicalParent(model,def)
             ?def.LogicalTargetPage??(exact.SelfTree&&def.DerivedName?def.NameTargetPage:null):null;
+
+    /// <summary>复合父级名称与精确字段沿用同一实际目标页的联接。</summary>
+    private static IReadOnlyList<NonRedundantSingleTargetScope> CompoundNameTargets(GenerationModel model,DatabaseCheckboxModel def)=>
+        def.ExactTarget is {} exact?ExactNameTargets(model,def,exact):
+            NonRedundantReadCompilation.ProjectPathTargets(model,def.Target,def.LogicalTargetPage!,[def.Name.Source.ColumnName]);
 
     /// <summary>授权和名称共用已发布的中间关系，冲突的绑定在生成时拒绝。</summary>
     private static IReadOnlyList<NonRedundantSingleTargetScope> ExactNameTargets(GenerationModel model,
