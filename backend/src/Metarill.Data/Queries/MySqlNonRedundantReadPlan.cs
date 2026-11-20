@@ -504,7 +504,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(alias==rootAlias&&table.Id==root.Id&&refreshFields?.Contains(name)==true&&refreshMultiples.SingleOrDefault(item=>item.CacheColumnId==column?.Id) is{} refresh)
                 {
                     var foreign=columns[table.Id].Values.Single(item=>item.Id==refresh.ForeignColumnId);var target=tables[refresh.TargetTableId];var value=columns[target.Id].Values.Single(item=>item.Id==refresh.ValueColumnId);
-                    if(refresh.Multiple)return MultiDisplay(table,alias,foreign,value.ColumnName,refresh.CheckboxTargetPageId);
+                    if(refresh.Multiple)return MultiDisplay(table,alias,foreign,value.ColumnName,refresh.CheckboxTargetPageId,refresh.CheckboxSourceParentId);
                     if(refresh.ScopedSinglePageId is not null)return ScopedSingleCacheValue(table,alias,foreign,target,value,refresh);
                     if(SelfTreeCache.UsesWholePath(catalog,table,refresh.SelfTreePageId))
                         return (SelfTreeLabelExpression(table,alias,foreign,column!,refresh.SelfTreePageId),"string");
@@ -634,7 +634,8 @@ public static partial class MySqlNonRedundantReadCompiler
             finally{resolving.Remove(key);}
         }
         /// <summary>仅编译明确多选的物理ID与名称；窗口聚合按原数组顺序保留缺失目标的null位置。</summary>
-        private (string Sql,string Type) MultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,string display,string? checkboxPageId=null)
+        private (string Sql,string Type) MultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,string display,
+            string? checkboxPageId=null,string? checkboxSourceParentId=null)
         {
             if(matching)throw new NotSupportedException("固定单值名称路径不能穿过多值关系或数组。");
             if(!storage[table.Id].IsPhysical(relation)||relation.LogicalType!="string")throw new NotSupportedException("多值关系必须以物理字符串列存储JSON ID数组。");
@@ -653,6 +654,12 @@ public static partial class MySqlNonRedundantReadCompiler
             var (sourcePage,overridden,applyPageScope,control,nameOverride)=ProjectMultiTarget(table,owner,relation,target);
             display=nameOverride??display;
             var value=Column(target,display);
+            if(checkboxSourceParentId is not null)
+            {
+                var (page,targetParent,sourceParent)=MySqlPublishedRelationCondition.RequireProjectCheckboxParent(
+                    catalog,table,relation,target,checkboxPageId??throw new InvalidOperationException("缺少复选目标页。"),checkboxSourceParentId);
+                return DerivedMultiDisplay(table,owner,relation,target,value,null,page,page,null,null,(targetParent,sourceParent));
+            }
             var typedCache=GlobalPhysicalRelationValue.IsPublishedTypedCache(catalog,storage[target.Id],target,value);
             PageMetadata? publishedPage=null;
             if(global)

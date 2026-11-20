@@ -12,6 +12,17 @@ public static class DerivedCrossTableCaches
         foreach(var d in derived)
         {
             var source=catalog.ConfigTables.SingleOrDefault(t=>t.Id==d.SourceTableId)??throw new InvalidOperationException("跨表来源未发布。");var target=catalog.ConfigTables.SingleOrDefault(t=>t.Id==d.TargetTableId)??throw new InvalidOperationException("派生目标未发布。");
+            if(d.CheckboxSourceParentId is not null)
+            {
+                if(!d.Multiple||d.CheckboxTargetPageId is null)
+                    throw new InvalidOperationException("复选父级缓存缺少实际发布的多值目标页。");
+                // 物理列证明复用原计划，父级条件则由同一维护投影核对并执行。
+                _=RelationMutationPlan.Compile(catalog,[d with{CheckboxTargetPageId=null,CheckboxSourceParentId=null}]);
+                var cacheColumn=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id))
+                    .Single(column=>column.Id==d.CacheColumnId);
+                _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cacheColumn.ColumnName],[d]);
+                continue;
+            }
             if(d.ScopedSinglePageId is not null)
             {
                 RequireScopedSingle(catalog,source,target,d);

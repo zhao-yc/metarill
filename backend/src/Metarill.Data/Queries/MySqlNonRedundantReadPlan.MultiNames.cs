@@ -99,10 +99,12 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>派生多值名称使用独立固定别名域，联接保持在目标子查询内，不把来源扩成多行。</summary>
         private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,
-            ColumnMetadata value,PageMetadata? publishedPage,PageMetadata? selectedScope,PageMetadata? namePage,PageMetadata? sourcePage,FixedConditionPlan? control)
+            ColumnMetadata value,PageMetadata? publishedPage,PageMetadata? selectedScope,PageMetadata? namePage,PageMetadata? sourcePage,FixedConditionPlan? control,
+            (MultiTargetParentScope Target,ColumnMetadata Source)? fixedParent=null)
         {
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
-            var physicalScope=checkbox&&table.IsRongyu==0&&target.IsRongyu==1&&sourcePage is not null&&(selectedScope is not null||control is not null);
+            var physicalScope=checkbox&&target.IsRongyu==1&&(fixedParent is not null||
+                table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
                 throw new NotSupportedException("多值名称要求已证明的目标及原多选或数据库复选。");
             var global=GlobalCrossTableTarget.Declared(target);
@@ -117,12 +119,13 @@ public static partial class MySqlNonRedundantReadCompiler
             // 全局单值路径已证明字符串键的二进制读取；这里不是仅允许int64键的精确管理匹配用途。
             var prefixForNames=publishedPage is null&&publishedArrayScopeCount==0?"multi_name_":aliasPrefix+"array"+publishedArrayScopeCount+"_";
             publishedArrayScopeCount++;
-            var pageParent=selectedScope is null?null:MultiParent(catalog,selectedScope,checkbox);
+            var pageParent=fixedParent?.Target??(selectedScope is null?null:MultiParent(catalog,selectedScope,checkbox));
             var controlParents=CheckboxControlParents(target,control);
             var parent=pageParent??controlParents.FirstOrDefault();
             if(parent is not null&&controlParents.Any(candidate=>candidate.Parent.Id!=parent.Parent.Id))
                 throw new InvalidOperationException("复选目标页与控件必须绑定同一实际来源父表。");
-            var sourceBinding=sourcePage is null?parent?.Source(catalog,table,relation):
+            var sourceBinding=fixedParent is {} paired?new MultiSourceParent(paired.Source,[]):
+                sourcePage is null?parent?.Source(catalog,table,relation):
                 controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage):parent?.Source(catalog,table,relation,sourcePage);
             var sourceParent=sourceBinding?.Column;
             var logicalSource=sourceBinding?.LogicalPages.Count>0;
@@ -139,16 +142,17 @@ public static partial class MySqlNonRedundantReadCompiler
                 :GlobalCrossTableTarget.DeclaresExactMulti(target,candidatePage));
             var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:candidatePage,multiLabel:true,cascadeLabelField:value.ColumnName,
-                cascadeCacheOwner:refreshFields is null?null:new(table,owner),scopedPhysicalCandidate:physicalScope&&!global,
+                cascadeCacheOwner:refreshFields is null||fixedParent is not null?null:new(table,owner),scopedPhysicalCandidate:physicalScope&&!global,
                 exactSingleCandidate:storedGlobalExact)
             {
                 SelectedMultiPage=selectedPage,
+                MultiCandidateParent=fixedParent?.Target,
                 AllowsExactMultiSelection=!checkbox,
                 AllowsStoredExactCheckbox=checkbox,
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent,[]),
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
                 MultiNamePathPage=namePage,
-                AllowLiteralMultiScope=sourcePage is not null,
+                AllowLiteralMultiScope=sourcePage is not null||fixedParent is not null,
                 GlobalCrossCandidate=global&&selectedPage is not null
             };
             var parents=new List<string>();

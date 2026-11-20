@@ -154,10 +154,11 @@ internal static class DatabaseCheckboxCompilation
             PageModel? physicalPage=null;
             var scopeAlreadyBound=logicalPage is not null||globalPage is not null&&
                 (!derived||NonRedundantReadCompilation.HasGlobalRowProject(target));
-            // 多份物理名称共用声明的目标页常量，名称页和简称页都必须绑定。
+            // 多份物理名称共用声明的目标页常量与单一物理父键，名称页和简称页都必须绑定。
             var sharedFixedPage=table.Source.IsRongyu==1&&!functionForm&&!target.IsGlobal&&
-                namePage is not null&&namePage.Source.Id==fixedPage&&namePage.Condition is {Syntax.Variables.Count:0}&&
-                !FixedPageConditionCompilation.HasLogicalFields(namePage)&&!namePage.Scopes.Any(scope=>scope.Source=="parent")&&
+                namePage is not null&&namePage.Source.Id==fixedPage&&
+                (namePage.Condition is {Syntax.Variables.Count:0}||namePage.Condition is null&&namePage.Scopes.Any(scope=>scope.Source=="parent"))&&
+                !FixedPageConditionCompilation.HasLogicalFields(namePage)&&namePage.Scopes.Count(scope=>scope.Source=="parent")<=1&&
                 model.Catalog.ConfigPageColumns.Any(setting=>setting.ConfigColumnId==source.Source.Id&&
                     table.Pages.Any(candidate=>candidate.Source.Id==setting.ConfigPageId)&&
                     baseline.WithPageOverride(setting.Extra.GetValueOrDefault("controlDetail").ToString()).NameField!=baseline.NameField);
@@ -293,13 +294,25 @@ internal static class DatabaseCheckboxCompilation
     /// <summary>缓存只共享物理标量和同一项目范围，避免按一个页面的附加筛选替其他页面刷新。</summary>
     private static bool CanSharePhysicalNames(DatabaseCheckboxModel definition) => !definition.DerivedName &&
         !definition.Target.IsGlobal && definition.Name.Type=="string?" && definition.ExactTarget is null &&
-        definition.Conditions is null && definition.Scopes.All(scope=>scope.Source=="project") &&
+        definition.Conditions is null &&
         (definition.NameTargetPage?.Condition is null || definition.PhysicalTargetPage?.Condition is {Syntax.Variables.Count:0}) &&
-        definition.NameTargetPage?.Scopes.Any(scope=>scope.Source=="parent")!=true;
+        (definition.Scopes.All(scope=>scope.Source=="project")&&definition.NameTargetPage?.Scopes.Any(scope=>scope.Source=="parent")!=true||
+            FixedCacheParent(definition) is not null);
 
-    /// <summary>只有确实含常量的实际发布页需要随物理名称缓存下发。</summary>
+    /// <summary>来源和目标须各有一个实际物理父字段，所有名称缓存绑定同一个来源行键。</summary>
+    private static string? FixedCacheParent(DatabaseCheckboxModel definition)
+    {
+        if(definition.PhysicalTargetPage is null||definition.LogicalSourceParent||definition.GlobalParent||
+            definition.SourceScopeColumns.Count!=1||definition.SourceParents.Count!=1||definition.SourceParents[0].IsGlobal)
+            return null;
+        var target=definition.PhysicalTargetPage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();
+        var effective=definition.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();
+        return target.Length==1&&target.SequenceEqual(effective,StringComparer.Ordinal)?definition.SourceParent?.Source.Id:null;
+    }
+
+    /// <summary>含物理常量或父参数的实际发布页随名称缓存下发。</summary>
     private static string? FixedCachePage(DatabaseCheckboxModel definition) =>
-        definition.PhysicalTargetPage is {Condition:not null} page?page.Source.Id:null;
+        definition.PhysicalTargetPage is {} page&&(page.Condition is not null||FixedCacheParent(definition) is not null)?page.Source.Id:null;
 
     /// <summary>所有写入口以同一事务写齐各页和表级的名称副本。</summary>
     internal static IReadOnlyList<MultiNameWriteBinding> Caches(GenerationModel model,TableModel table)
@@ -312,17 +325,20 @@ internal static class DatabaseCheckboxCompilation
             var actual=relation.Select(item=>item.Definition).ToList();
             var alternate=relation.FirstOrDefault(item=>item.Definition.UsesNameOverride);
             string? fixedPage=null;
+            string? fixedParent=null;
             if(alternate.Definition is {} changed)
             {
                 var root=Resolve(model,table,alternate.Page,changed.Source,forService:true,rootDefinition:true).Definition;
                 if(root is null||actual.Append(root).Any(definition=>!CanSharePhysicalNames(definition)||
-                    definition.Target.Source.Id!=root.Target.Source.Id||FixedCachePage(definition)!=FixedCachePage(root)))
+                    definition.Target.Source.Id!=root.Target.Source.Id||FixedCachePage(definition)!=FixedCachePage(root)||
+                    FixedCacheParent(definition)!=FixedCacheParent(root)))
                     throw new InvalidOperationException("同一数据库复选的多页名称副本必须采用同一普通项目候选范围。");
                 fixedPage=FixedCachePage(root);
+                fixedParent=FixedCacheParent(root);
                 actual.Add(root);
             }
             bindings.AddRange(actual.Select(definition=>new MultiNameWriteBinding(definition.Source,definition.Target,definition.Name,definition.Names)
-                {CheckboxTargetPageId=fixedPage}));
+                {CheckboxTargetPageId=fixedPage,CheckboxSourceParentId=fixedParent}));
         }
         foreach(var binding in bindings.GroupBy(item=>item.Cache.Source.Id))
             if(binding.Select(item=>(item.Source.Source.Id,item.Target.Source.Id,item.Value.Source.Id)).Distinct().Count()!=1)

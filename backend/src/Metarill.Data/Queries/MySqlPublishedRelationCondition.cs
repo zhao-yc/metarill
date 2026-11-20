@@ -24,6 +24,29 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         return page;
     }
 
+    /// <summary>按发布页重证来源行使用的物理父键，避免维护和改名只按目标 ID 读取。</summary>
+    internal static (PageMetadata Page,MultiTargetParentScope TargetParent,ColumnMetadata SourceParent) RequireProjectCheckboxParent(
+        MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,TableMetadata target,string pageId,string sourceParentId)
+    {
+        var page=RequireProjectCheckboxPage(catalog,source,relation,target,pageId);
+        var fields=MetadataStoragePolicy.ForTable(catalog,target).PhysicalColumns;
+        var syntax=FixedConditionPlan.Compile(page.WhereSql,fields.Select(column=>column.ColumnName));
+        var parent=MultiTargetParentScope.CompileCheckboxParent(catalog,target,syntax);
+        if(parent is null||parent.Global||parent.Logical||syntax.Variables.Any(variable=>
+            !MultiTargetParentScope.IsParameter(variable)&&!variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("复选多名称要求实际普通物理目标父键。");
+        var sourcePages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==source.Id).ToArray();
+        ColumnMetadata? sourceKey=null;
+        foreach(var published in sourcePages)
+        {
+            var bound=parent.CheckboxSource(catalog,source,relation,published);
+            if(bound.Column.Id!=sourceParentId||bound.LogicalPages.Count>0||bound.AdditionalColumns.Count>0)
+                throw new InvalidOperationException("复选多名称要求所有来源页使用同一物理父键。");
+            sourceKey=bound.Column;
+        }
+        return (page,parent,sourceKey??throw new InvalidOperationException("复选多名称缺少实际来源页父级。"));
+    }
+
     /// <summary>只从真实目标表解析类型；调用方已证明页面和目标同属发布目录。</summary>
     internal static MySqlPublishedRelationCondition? Compile(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowAccount=false,bool projectParent=false)
     {

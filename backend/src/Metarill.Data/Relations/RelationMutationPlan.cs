@@ -31,6 +31,9 @@ public sealed record RelationCacheDefinition(string SourceTableId,string Foreign
     /// <summary>普通复选的多份物理名称使用同一声明目标页及其常量条件。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? CheckboxTargetPageId { get; init; }
+    /// <summary>当目标依赖来源行的父键时，改名和回填使用混合队列。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CheckboxSourceParentId { get; init; }
     /// <summary>自树全局叶子缓存只读取生成时选定的目标页。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? SelfTreePageId{get;init;}
@@ -70,6 +73,7 @@ public sealed class RelationMutationPlan
         foreach(var definition in definitions.Distinct())
         {
             if(definition.CrossTableAccountPageId is not null||definition.CrossTableRecursivePageId is not null||definition.ScopedSinglePageId is not null||
+                definition.CheckboxSourceParentId is not null||
                 SelfTreeCache.UsesWholePath(catalog,catalog.ConfigTables.Single(table=>table.Id==definition.SourceTableId),definition.SelfTreePageId))
                 throw new InvalidOperationException("账号或递归条件的跨表缓存必须使用统一维护计划。");
             if(!tables.TryGetValue(definition.SourceTableId,out var source)||!tables.TryGetValue(definition.TargetTableId,out var target))throw new InvalidOperationException("传播关系引用了未发布的表。");

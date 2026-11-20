@@ -94,17 +94,20 @@ public sealed class DatabaseCheckboxGenerationTests
 
     /// <summary>原冗余复选在名称页和简称页各自显示及筛选，从任一入口保存都更新两个名称副本。</summary>
     [Theory]
-    [InlineData(0, true, false)]
-    [InlineData(1, false, false)]
-    [InlineData(0, true, true)]
-    [InlineData(1, false, true)]
-    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget)
+    [InlineData(0, true, false, false)]
+    [InlineData(1, false, false, false)]
+    [InlineData(0, true, true, false)]
+    [InlineData(1, false, true, false)]
+    [InlineData(0, true, true, true)]
+    [InlineData(1, false, false, true)]
+    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,bool fixedParent)
     {
         var catalog=Published(Catalog(false));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
         target.IsRongyu=targetStorage;
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
         targetPage.WhereSql="yz_project_id=@current_yz_project_id";
+        if(fixedParent)targetPage.WhereSql+=" AND parent_id=@parentId";
         if(fixedTarget)
         {
             catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
@@ -150,10 +153,13 @@ public sealed class DatabaseCheckboxGenerationTests
         Assert.Equal("alias",checkbox.Name.Source.ColumnName);
         Assert.Equal("targetAlias",checkbox.Names.JsonName);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
-        var propagation=RelationPropagationCompilation.Bindings(model).Where(binding=>binding.Foreign.Source.Id==source.Id).ToArray();
+        var cacheBindings=fixedParent?RelationPropagationCompilation.DerivedBindings(model):RelationPropagationCompilation.Bindings(model);
+        var propagation=cacheBindings.Where(binding=>binding.Foreign.Source.Id==source.Id).ToArray();
         Assert.Equal(new[]{"target_alias","target_names"},propagation.Select(binding=>binding.Cache.Source.ColumnName));
-        if(fixedTarget)
+        if(fixedTarget||fixedParent)
             Assert.All(RelationPropagationCompilation.Definitions(propagation),definition=>Assert.Equal("301",definition.CheckboxTargetPageId));
+        if(fixedParent)Assert.All(RelationPropagationCompilation.Definitions(propagation),definition=>
+            Assert.Equal("26",definition.CheckboxSourceParentId));
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-redundant-checkbox-page");
         var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -189,6 +195,11 @@ public sealed class DatabaseCheckboxGenerationTests
                     Assert.Contains("CheckboxTargetCondition"+page.Source.Id+"_25",service);
                     Assert.Contains("active_flag",service);
                 }
+                if(fixedParent)
+                {
+                    Assert.Contains(".Where(row=>row.ParentId==",service);
+                    Assert.Contains("entity.ParentId",write);
+                }
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
             var serviceType=assembly.GetTypes().Single(type=>type.Name=="RelationSourceService");
@@ -211,7 +222,21 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Null(maintenancePlan.GetType().GetProperty("Error")!.GetValue(maintenancePlan));
             var read=maintenancePlan.GetType().GetProperty("Read")!.GetValue(maintenancePlan)!;
             Assert.NotNull(read);
-            if(fixedTarget)
+            if(fixedParent)
+            {
+                var expression=read.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)!;
+                foreach(var name in new[]{"target_alias","target_names"})
+                {
+                    var sql=Assert.IsType<string>(expression.Invoke(read,[name]));
+                    Assert.Contains("b.`parent_id`",sql);
+                    Assert.Contains("multi_value.`parent_id`",sql);
+                    if(fixedTarget)Assert.Contains("active_flag",sql);
+                }
+                var affected=(IReadOnlyList<string>)maintenance.GetType().GetProperty("MixedTargets")!.GetValue(maintenance)!;
+                Assert.Contains("relation_parent",affected);
+                Assert.Contains("relation_target",affected);
+            }
+            else if(fixedTarget)
             {
                 var expression=read.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)!;
                 foreach(var name in new[]{"target_alias","target_names"})
