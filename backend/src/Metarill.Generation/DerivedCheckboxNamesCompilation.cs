@@ -28,9 +28,15 @@ internal static class DerivedCheckboxNamesCompilation
             throw new InvalidOperationException("复选名称与固定物理终点类型不一致。");
         // 冗余来源的每份名称数组都须进入原维护及反向传播。
         if(owner.Source.IsRongyu==1&&owner.Source.IsFunctionTable==0)
-            Metarill.Data.Relations.DerivedCrossTableCaches.Validate(model.Catalog,
-                [new(owner.Source.Id,def.Source.Source.Id,def.Target.Source.Id,def.Name.Source.Id,def.Names.Source.Id,true)
-                    {CheckboxTargetPageId=def.SharedLogicalParentScope||def.SharedDerivedAccountScope?ScopedCheckboxPage(def).Source.Id:null}],[]);
+        {
+            var cache=new Metarill.Data.Relations.RelationCacheDefinition(owner.Source.Id,def.Source.Source.Id,
+                def.Target.Source.Id,def.Name.Source.Id,def.Names.Source.Id,true)
+                {CheckboxTargetPageId=def.SharedLogicalParentScope||def.SharedDerivedPageScope?ScopedCheckboxPage(def).Source.Id:null};
+            // 固定常量页里的物理副本仍复用原物理传播；保存可以同时投影物理和联接名称。
+            if(def.SharedDerivedPageScope&&!def.SharedAccountScope&&NonRedundantReadCompilation.Physical(model,def.Target,def.Name))
+                _=Metarill.Data.Relations.RelationMutationPlan.Compile(model.Catalog,[cache]);
+            else Metarill.Data.Relations.DerivedCrossTableCaches.Validate(model.Catalog,[cache],[]);
+        }
         return dependencies;
     }
 
@@ -122,7 +128,7 @@ internal static class DerivedCheckboxNamesCompilation
 
     /// <summary>实际复选页承担多父条件，也承担单物理全局父叠加精确匹配的范围。</summary>
     internal static bool UsesScopedCheckboxLabel(GenerationModel model,DatabaseCheckboxModel def)=>
-        !UsesGlobalExactPage(def)&&(def.GlobalRealtimeNameOverride||def.SharedDerivedAccountScope||def.SharedLogicalParentScope||
+        !UsesGlobalExactPage(def)&&(def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||
             def.RealtimeLogicalParentScope||def.CompoundTargetParents||
             def.GlobalParent&&def.LogicalTargetPage is not null&&def.ExactTarget is not null&&!HasExactLogicalParent(model,def));
 

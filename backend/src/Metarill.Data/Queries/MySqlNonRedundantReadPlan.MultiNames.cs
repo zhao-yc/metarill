@@ -176,7 +176,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent,[]),
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
                 MultiNamePathPage=namePage,
-                AllowLiteralMultiScope=sourcePage is not null||fixedParent is not null,
+                AllowLiteralMultiScope=sourcePage is not null||fixedParent is not null||sharedCheckbox,
                 GlobalCrossCandidate=global&&selectedPage is not null
             };
             var parents=new List<string>();

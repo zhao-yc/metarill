@@ -154,8 +154,6 @@ internal static class RelationPropagationCompilation
         foreach(var definition in definitions)
         {
             if(definition.CheckboxTargetPageId is not {} targetPage)continue;
-            var target=model.Tables.Single(table=>table.Source.Id==definition.TargetTableId);
-            if(!target.IsGlobal&&!FixedPageConditionCompilation.HasMultiTargetScope(model,target,target.Pages.Single(page=>page.Source.Id==targetPage)))continue;
             fields.Add((targetPage,definition.ValueColumnId));
             var source=model.Tables.Single(table=>table.Source.Id==definition.SourceTableId);
             var relation=source.Columns.Single(column=>column.Source.Id==definition.ForeignColumnId);

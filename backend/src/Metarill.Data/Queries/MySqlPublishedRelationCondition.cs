@@ -36,12 +36,18 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
         bool PublishedText(ColumnMetadata label)=>label.LogicalType=="string"&&
             (GlobalPhysicalRelationValue.IsScalar(storage,target,label)||
-             MultiNameStorageColumns.IsDerivedCheckboxText(target,storage,label)&&
-             MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,relation)?.Id==pageId);
+             MultiNameStorageColumns.IsDerivedCheckboxText(target,storage,label));
         if(relation.ControlKind!="MultiCheckBoxDatabase"||page.Id!=pageId||
             !string.IsNullOrWhiteSpace(baseline.WhereSql)||page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
             !PublishedText(original)||!PublishedText(value))
             throw new InvalidOperationException("复选多名称必须使用固定目标页的已证明文本。");
+        if(!storage.IsPhysical(original)||!storage.IsPhysical(value))
+        {
+            // 没有逻辑或账号范围时，必须证明页条件只由物理常量与普通项目归属组成。
+            var scoped=MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,relation);
+            if(scoped is null)_=Compile(catalog,target,page,projectParent:global is null);
+            else if(scoped.Id!=page.Id)throw new InvalidOperationException("复选名称与实际目标页范围不一致。");
+        }
         if(value.Id==original.Id)return page;
 
         var sourcePages=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&page.YzProjectId==catalog.YzProjectId)

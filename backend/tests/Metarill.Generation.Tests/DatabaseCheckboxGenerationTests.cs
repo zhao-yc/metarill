@@ -112,6 +112,10 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(0, true, true, false, false, false, false, "current_yz_manager_id", "joined-alias")]
     [InlineData(0, true, true, false, false, true, false, "current_store_id", "joined-both")]
     [InlineData(0, true, true, false, false, true, true, "current_yz_manager_id", "joined-name")]
+    [InlineData(0, true, true, false, false, false, false, "", "joined-both")]
+    [InlineData(0, true, true, false, false, true, false, "", "joined-alias")]
+    [InlineData(0, true, false, false, false, true, true, "", "joined-name")]
+    [InlineData(0, true, false, false, false, false, false, "", "joined-alias")]
     public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,
         bool fixedParent,bool independentParent,bool global=false,bool globalRowProject=false,string accountVariable="",string joinedNames="")
     {
@@ -182,7 +186,7 @@ public sealed class DatabaseCheckboxGenerationTests
             targetPage.WhereSql+=" AND "+targetOwner+"=@"+accountVariable;
         }
         var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
-        source.ControlDetail=accountScoped?"""{"tableId":"3","pageId":"301","nameField":"name"}""":
+        source.ControlDetail=accountScoped||joinedFields.Length>0?"""{"tableId":"3","pageId":"301","nameField":"name"}""":
             """{"tableId":"3","nameField":"name"}""";
         var cache=new ColumnMetadata
         {
@@ -237,10 +241,13 @@ public sealed class DatabaseCheckboxGenerationTests
         Assert.Equal("alias",checkbox.Name.Source.ColumnName);
         Assert.Equal("targetAlias",checkbox.Names.JsonName);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
-        var cacheBindings=fixedParent||accountScoped?RelationPropagationCompilation.DerivedBindings(model):RelationPropagationCompilation.Bindings(model);
-        var propagation=cacheBindings.Where(binding=>binding.Foreign.Source.Id==source.Id).ToArray();
+        var cacheBindings=joinedFields.Length>0&&!accountScoped
+            ?RelationPropagationCompilation.DerivedBindings(model).Concat(RelationPropagationCompilation.Bindings(model))
+            :fixedParent||accountScoped?RelationPropagationCompilation.DerivedBindings(model):RelationPropagationCompilation.Bindings(model);
+        var propagation=cacheBindings.Where(binding=>binding.Foreign.Source.Id==source.Id)
+            .OrderBy(binding=>binding.Cache.Source.ColumnName,StringComparer.Ordinal).ToArray();
         Assert.Equal(new[]{"target_alias","target_names"},propagation.Select(binding=>binding.Cache.Source.ColumnName));
-        if(fixedTarget||fixedParent||global)
+        if(fixedTarget||fixedParent||global||joinedFields.Length>0)
             Assert.All(RelationPropagationCompilation.Definitions(propagation),definition=>Assert.Equal("301",definition.CheckboxTargetPageId));
         if(fixedParent)Assert.All(RelationPropagationCompilation.Definitions(propagation),definition=>
             Assert.Equal("26",definition.CheckboxSourceParentId));
@@ -330,7 +337,7 @@ public sealed class DatabaseCheckboxGenerationTests
                         BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
                     Assert.Equal("string",candidate.OutputTypes["name"]);
                     Assert.Equal("string",candidate.OutputTypes["alias"]);
-                    Assert.True(candidate.RequiresAccount);
+                    Assert.Equal(accountScoped,candidate.RequiresAccount);
                     const long accountId=9007199254740993L,storeId=9007199254740994L;
                     var actor=new RuntimeActor(accountId,"测试账号",false,catalog.YzProjectId,"5"){StoreId=storeId};
                     var bound=candidate.BindAccount(actor);
@@ -338,10 +345,10 @@ public sealed class DatabaseCheckboxGenerationTests
                     var sql=bound.GetType().GetProperty("MySql",hidden)!.GetValue(bound)!;
                     var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(sql.GetType()
                         .GetProperty("Constants",hidden)!.GetValue(sql));
-                    Assert.Contains<object?>(accountVariable=="current_store_id"?storeId:accountId,constants.Values);
+                    if(accountScoped)Assert.Contains<object?>(accountVariable=="current_store_id"?storeId:accountId,constants.Values);
                     var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
-                    Assert.Contains(targetOwner,scope);
-                    Assert.Contains("active_flag",scope);
+                    if(accountScoped)Assert.Contains(targetOwner,scope);
+                    Assert.Equal(fixedTarget,scope.Contains("active_flag",StringComparison.Ordinal));
                     var from=Assert.IsType<string>(sql.GetType().GetProperty("From",hidden)!.GetValue(sql));
                     foreach(var field in joinedFields)
                     {
@@ -364,7 +371,26 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Null(maintenancePlan.GetType().GetProperty("Error")!.GetValue(maintenancePlan));
             var read=maintenancePlan.GetType().GetProperty("Read")!.GetValue(maintenancePlan)!;
             Assert.NotNull(read);
-            if(global&&!accountScoped)
+            if(joinedFields.Length>0&&!accountScoped)
+            {
+                var expression=read.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                var affected=(IReadOnlyList<string>)maintenance.GetType().GetProperty("MixedTargets")!.GetValue(maintenance)!;
+                Assert.Contains("relation_target",affected);
+                foreach(var field in new[]{"name","alias"})
+                {
+                    var cacheName=field=="name"?"target_names":"target_alias";
+                    var sql=Assert.IsType<string>(expression.Invoke(read,[cacheName]));
+                    Assert.Equal(fixedTarget,sql.Contains("multi_value.`active_flag`",StringComparison.Ordinal));
+                    if(joinedFields.Contains(field))
+                    {
+                        Assert.Contains("account_checkbox_"+field+"_dictionary",sql);
+                        Assert.Contains("available_flag",sql);
+                        Assert.Contains("account_checkbox_"+field+"_dictionary",affected);
+                    }
+                    else Assert.Contains("multi_value.`"+field+"`",sql);
+                }
+            }
+            else if(global&&!accountScoped)
             {
                 var propagationType=assembly.GetTypes().Single(type=>type.Name=="GeneratedRelationMutation");
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(propagationType.TypeHandle);
@@ -431,7 +457,7 @@ public sealed class DatabaseCheckboxGenerationTests
                     Assert.Contains("multi_value.`active_flag`",Assert.IsType<string>(expression.Invoke(read,[name])));
                 var propagationPlan=maintenance.GetType().GetProperty("Propagation",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(maintenance)!;
                 var bindings=(System.Collections.IEnumerable)propagationPlan.GetType().GetProperty("Bindings",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(propagationPlan)!;
-                Assert.Equal(2,bindings.Cast<object>().Count());
+                Assert.Equal(2-joinedFields.Length,bindings.Cast<object>().Count());
                 foreach(var binding in bindings)
                 {
                     var condition=binding.GetType().GetProperty("PublishedCondition")!.GetValue(binding)!;
@@ -442,7 +468,7 @@ public sealed class DatabaseCheckboxGenerationTests
             // 同一缓存被多个页面读写时，不允许某一页用额外条件改变派生范围。
             catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==current.Id&&field.ConfigColumnId==source.Id)
                 .Extra["controlDetail"]=JsonSerializer.SerializeToElement(new{nameField="alias",
-                    whereSql=joinedFields.Length>0?"active_flag=0":"name='固定名称'"});
+                    whereSql=joinedFields.Length>0?"id=5":"name='固定名称'"});
             var mismatch=GenerationModel.Create(catalog,ns);
             Assert.Contains(GenerationCapabilityAudit.Collect(mismatch), gap=>gap.PageId==current.Id&&
                 gap.Reason.Contains("同一固定目标范围",StringComparison.Ordinal));

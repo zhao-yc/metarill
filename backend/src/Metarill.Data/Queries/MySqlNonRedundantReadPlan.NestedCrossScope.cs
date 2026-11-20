@@ -420,7 +420,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(cascadeCacheOwner is {} owner)
                 {
                     var predicate=PhysicalAccountCacheCondition(root,rootAlias,page,owner,MultiCandidateParent?.Target,
-                        separateExactScope:exact,additionalParents:additional);
+                        allowFixedOnly:AllowLiteralMultiScope,separateExactScope:exact,additionalParents:additional);
                     return scope.Length==0?predicate:scope+" AND "+predicate;
                 }
                 // 项目和父参数已由实际范围负责，账号条件只追加已证明的物理字段。

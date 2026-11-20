@@ -19,7 +19,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal ColumnModel? FunctionParentField { get; init; }
     internal ColumnModel? FormParentField { get; init; }
     internal bool SharedAccountScope { get; init; }
-    internal bool SharedDerivedAccountScope { get; init; }
+    internal bool SharedDerivedPageScope { get; init; }
     internal bool SharedLogicalParentScope { get; init; }
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
@@ -130,13 +130,14 @@ internal static class DatabaseCheckboxCompilation
                     .ToHashSet(StringComparer.Ordinal):[];
             var sharedNamesPage=pageNames.Any(field=>field!=baseline.NameField);
             // 保存按实际身份读取，维护从每条来源记录的持久归属绑定同一账号范围。
-            var sharedAccountScope=sharedNamesPage&&target.Source.IsRongyu==0&&exactTarget is null&&
-                !FixedPageConditionCompilation.HasLogicalFields(namePage!)&&FixedPageConditionCompilation.HasAccountVariables(namePage!)&&
-                namePage!.Scopes.All(scope=>scope.Source=="project");
+            var sharedScalarPage=sharedNamesPage&&target.Source.IsRongyu==0&&exactTarget is null&&
+                !FixedPageConditionCompilation.HasLogicalFields(namePage!)&&namePage!.Scopes.All(scope=>scope.Source=="project");
+            var sharedAccountScope=sharedScalarPage&&FixedPageConditionCompilation.HasAccountVariables(namePage!);
+            var sharedLiteralScope=sharedScalarPage&&(namePage!.Condition is null||namePage.Condition.Syntax.Variables.Count==0);
             if(sharedAccountScope)
                 _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,namePage!.Source);
             // 任一副本来自联接时，各页的写入口都必须使用可以一次投影全部名称的计划。
-            var sharedDerivedAccountScope=sharedAccountScope&&target.Columns.Any(label=>
+            var sharedDerivedPageScope=(sharedAccountScope||sharedLiteralScope)&&target.Columns.Any(label=>
                 (label.Source.ColumnName==baseline.NameField||pageNames.Contains(label.Source.ColumnName))&&
                 !NonRedundantReadCompilation.Physical(model,target,label));
             // 多个目标父层位仍由同一发布页证明，所有名称共用同一个来源父键。
@@ -151,7 +152,7 @@ internal static class DatabaseCheckboxCompilation
                 bool TextLabel(ColumnModel label)=>target.IsGlobal&&realtimeFixedName
                     ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(model.Catalog,target.Source,label.Source)
                     :MultiSelectCompilation.PhysicalTextLabel(model,target,label)||
-                        (sharedLogicalParentScope||sharedDerivedAccountScope||realtimeFixedName)&&
+                        (sharedLogicalParentScope||sharedDerivedPageScope||realtimeFixedName)&&
                         MultiNameStorageColumns.IsDerivedCheckboxText(target.Source,storage,label.Source);
                 var baseName=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baseline.NameField);
                 if(functionForm||target.IsGlobal&&table.Source.IsRongyu!=1&&!realtimeFixedName||baseName is null||!TextLabel(baseName)||
@@ -328,7 +329,7 @@ internal static class DatabaseCheckboxCompilation
                 FunctionParentField=functionForm?sourceParent:null,
                 FormParentField=formParent,
                 SharedAccountScope=sharedAccountScope,
-                SharedDerivedAccountScope=sharedDerivedAccountScope,
+                SharedDerivedPageScope=sharedDerivedPageScope,
                 SharedLogicalParentScope=sharedLogicalParentScope,
                 GlobalRealtimeNameOverride=globalRealtimeNameOverride,
                 RealtimeLogicalParentScope=realtimeRead&&exactTarget is null&&logicalPage is not null&&
@@ -340,7 +341,7 @@ internal static class DatabaseCheckboxCompilation
                 CompoundSourceDependencies=compoundGlobalSource
                     ?NonRedundantCrossParentCompilation.Dependencies(model,table,page,sourceScopeColumns):[],
                 GlobalParentPage=globalParentPage,
-                DerivedName=derived||logicalPage is not null||globalRealtimeNameOverride||sharedDerivedAccountScope
+                DerivedName=derived||logicalPage is not null||globalRealtimeNameOverride||sharedDerivedPageScope
             };
             if(independentCache&&!CanSharePhysicalNames(result))
                 return Gap("多个物理名称副本要求同一固定目标范围。");
@@ -357,7 +358,7 @@ internal static class DatabaseCheckboxCompilation
         if(definition.SharedLogicalParentScope)
             return !definition.LogicalSourceParent&&definition.SourceParent is not null&&
                 (definition.SourceScopeColumns.Count==1||definition.FormParentField is not null);
-        if(definition.DerivedName&&!definition.SharedDerivedAccountScope)return false;
+        if(definition.DerivedName&&!definition.SharedDerivedPageScope)return false;
         return definition.Target.IsGlobal
             ? definition.NameTargetPage is {Scopes.Count:0} globalPage&&definition.Scopes.Count==0&&
                 (globalPage.Condition is null||globalPage.Condition.Syntax.Variables.Count==0||definition.SharedAccountScope)
@@ -380,7 +381,8 @@ internal static class DatabaseCheckboxCompilation
     }
 
     /// <summary>全局固定目录及含物理条件的普通发布页随名称缓存下发。</summary>
-    private static string? FixedCachePage(DatabaseCheckboxModel definition) => definition.Target.IsGlobal||definition.SharedLogicalParentScope
+    private static string? FixedCachePage(DatabaseCheckboxModel definition) => definition.Target.IsGlobal||
+        definition.SharedLogicalParentScope||definition.SharedDerivedPageScope
         ? definition.NameTargetPage?.Source.Id
         : definition.PhysicalTargetPage is {} page&&(page.Condition is not null||FixedCacheParent(definition) is not null)?page.Source.Id:null;
 

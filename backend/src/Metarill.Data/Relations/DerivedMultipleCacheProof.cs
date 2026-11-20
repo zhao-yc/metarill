@@ -12,19 +12,14 @@ internal static class DerivedMultipleCacheProof
     {
         if(foreign.LogicalType!="string"||!foreign.ColumnName.EndsWith("_ids",StringComparison.Ordinal))throw Invalid();
         var global=GlobalCrossTableTarget.Declared(target);
-        if(checkboxTargetPageId is not null)
-        {
-            var pageBinding=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,source,foreign,target,value,checkboxTargetPageId);
-            // 后续编译必须使用同一发布页，按实际来源行重新证明账号或逻辑父范围。
-            if(MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign)?.Id!=pageBinding.Id)
-                throw Invalid();
-        }
-        else if(global&&GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).Name.Id!=value.Id)throw Invalid();
+        var sharedPage=checkboxTargetPageId is null?null:
+            MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,source,foreign,target,value,checkboxTargetPageId);
+        if(sharedPage is null&&global&&GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).Name.Id!=value.Id)
+            throw Invalid();
         if(foreign.ControlKind=="MultiCheckBoxDatabase")
         {
-            var shared=checkboxTargetPageId is not null;
-            RequireCheckbox(catalog,foreign,target,value,cache,shared);
-            RequireValue(catalog,source,foreign,target,value,global,shared);
+            RequireCheckbox(catalog,foreign,target,value,cache,sharedPage is not null);
+            RequireValue(catalog,source,foreign,target,value,global,sharedPage);
             return;
         }
         if(foreign.ControlKind!="MultiSelectPage")throw Invalid();using var doc=JsonDocument.Parse(foreign.ControlDetail);var root=doc.RootElement;if(root.ValueKind!=JsonValueKind.Object||root.EnumerateObject().Select(p=>p.Name).Distinct(StringComparer.Ordinal).Count()!=root.EnumerateObject().Count())throw Invalid();
@@ -59,16 +54,16 @@ internal static class DerivedMultipleCacheProof
 
     /// <summary>缓存重算只沿已存 ID 读取名称；整数别名必须与物理终点类型相同。</summary>
     private static void RequireValue(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign,TableMetadata target,
-        ColumnMetadata value,bool global,bool sharedCheckbox=false)
+        ColumnMetadata value,bool global,PageMetadata? sharedPage=null)
     {
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
-        var scoped=MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign);
+        var scoped=sharedPage??MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign);
         var typed=scoped is not null&&storage.IsPhysical(value)
             ?MultiNameStorageColumns.IsPhysicalScalarLabel(source,foreign,target,value,storage)
             :MultiNameStorageColumns.IsDerivedScalarLabel(target,value,storage);
         if(value.LogicalType!="string"&&!typed)throw Invalid();
         var read=global&&scoped is null?NonRedundantReads.Compile(catalog,target.Id,[value.ColumnName]).MySql:
-            MySqlNonRedundantReadCompiler.CompileMultiLabelForCache(catalog,source,target,value.ColumnName,scoped,foreign,sharedCheckbox);
+            MySqlNonRedundantReadCompiler.CompileMultiLabelForCache(catalog,source,target,value.ColumnName,scoped,foreign,sharedPage is not null);
         if(read.Types[value.ColumnName]!=value.LogicalType)throw Invalid();
     }
     /// <summary>异常不包含目录原文或任何连接配置。</summary>

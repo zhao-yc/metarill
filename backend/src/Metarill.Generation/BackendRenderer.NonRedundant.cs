@@ -73,7 +73,7 @@ internal static partial class BackendRenderer
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page))).ToArray();
         var scopedCheckboxes=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))
-            .Where(checkbox=>checkbox.ExactTarget is not null||checkbox.SharedLogicalParentScope||checkbox.SharedDerivedAccountScope).ToArray();
+            .Where(checkbox=>checkbox.ExactTarget is not null||checkbox.SharedLogicalParentScope||checkbox.SharedDerivedPageScope).ToArray();
         var realtimeCheckboxes=model.Tables.Where(table=>table.Source.IsRongyu==0&&table.Source.IsFunctionTable==0)
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))
             .Where(checkbox=>checkbox.UsesNameOverride&&checkbox.DerivedName&&checkbox.NameTargetPage is not null).ToArray();
@@ -91,7 +91,7 @@ internal static partial class BackendRenderer
             .Select(page=>(table,page))));
         var publishedCheckboxes=functionCheckboxes.Concat(scopedCheckboxes).Concat(realtimeCheckboxes);
         var checkboxScopes=publishedCheckboxes.Where(checkbox=>checkbox.DerivedName&&
-            (checkbox.GlobalRealtimeNameOverride||checkbox.SharedDerivedAccountScope||checkbox.LogicalTargetPage is not null||
+            (checkbox.GlobalRealtimeNameOverride||checkbox.SharedDerivedPageScope||checkbox.LogicalTargetPage is not null||
                 checkbox.ExactTarget is not null)).ToArray();
         // 复选的物理目标页也可能绑定全局父，冻结实际目标及父页条件。
         foreach(var checkbox in publishedCheckboxes.Where(checkbox=>checkbox.GlobalParentPage is not null))
@@ -117,9 +117,9 @@ internal static partial class BackendRenderer
         var hasExactCheckboxParent=checkboxScopes.Any(checkbox=>DerivedCheckboxNamesCompilation.HasExactLogicalParent(model,checkbox));
         var hasExactCheckboxMembership=checkboxScopes.Any(checkbox=>DerivedCheckboxNamesCompilation.ExactMembershipPage(model,checkbox) is not null);
         var nestedTables=RelationPropagationCompilation.PublishedRecursiveTables(model,scopedPages).ToHashSet(StringComparer.Ordinal);
-        if(scopedCheckboxes.Where(checkbox=>checkbox.SharedLogicalParentScope||checkbox.SharedDerivedAccountScope).Any(checkbox=>
+        if(scopedCheckboxes.Where(checkbox=>checkbox.SharedLogicalParentScope||checkbox.SharedDerivedPageScope).Any(checkbox=>
         {
-            if(checkbox.SharedDerivedAccountScope||!NonRedundantReadCompilation.Physical(model,checkbox.Target,checkbox.Name))return true;
+            if(checkbox.SharedDerivedPageScope||!NonRedundantReadCompilation.Physical(model,checkbox.Target,checkbox.Name))return true;
             var baseline=DatabaseCheckboxDefinition.Parse(checkbox.Source.Source.ControlDetail).NameField;
             return checkbox.Target.Columns.Any(column=>column.Source.ColumnName==baseline&&
                 !NonRedundantReadCompilation.Physical(model,checkbox.Target,column));
