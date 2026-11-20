@@ -221,7 +221,7 @@ internal static class MultiSelectCompilation
     }
 
     /// <summary>页级显示只覆盖普通物理文本，保留现有数组协议及索引范围。</summary>
-    private static bool PhysicalTextLabel(GenerationModel model,TableModel target,ColumnModel label)=>
+    internal static bool PhysicalTextLabel(GenerationModel model,TableModel target,ColumnModel label)=>
         label.Type=="string?"&&!label.IsJsonArray&&label.Source.ControlKind!="FileLibrary"&&
         !Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(label.Source.ColumnName)&&
         NonRedundantReadCompilation.Physical(model,target,label);

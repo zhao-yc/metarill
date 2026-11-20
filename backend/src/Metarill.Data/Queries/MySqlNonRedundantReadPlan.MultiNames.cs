@@ -33,8 +33,10 @@ public static partial class MySqlNonRedundantReadCompiler
             string? name=null;
             if(relation.ControlKind=="MultiCheckBoxDatabase")
             {
-                var definition=DatabaseCheckboxDefinition.Parse(relation.ControlDetail).WithPageOverride(overlay);
+                var baseline=DatabaseCheckboxDefinition.Parse(relation.ControlDetail);
+                var definition=baseline.WithPageOverride(overlay);
                 pageId=definition.PageId;
+                name=PageMultiNameOverride(target,baseline.NameField,definition.NameField);
                 if(binding.ApplyControlScope)
                 {
                     control=FixedConditionPlan.Compile(definition.WhereSql,columns[target.Id].Keys);
@@ -61,14 +63,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var label=Value(definition.RootElement,"nameField");
                     var baseline=Value(Definition(relation),"nameField");
                     if(baseline.Length==0)baseline="name";
-                    if(!string.IsNullOrWhiteSpace(label)&&label!=baseline)
-                    {
-                        // 只解释固定来源页上已发布的列名，ID顺序、条件与原辅助数组名继续沿用。
-                        if(relation.ControlKind!="MultiSelectPage"||GlobalCrossTableTarget.Declared(target)||
-                            !PhysicalTextMultiLabel(target,Column(target,baseline))||!PhysicalTextMultiLabel(target,Column(target,label)))
-                            throw new InvalidOperationException("页级多选名称必须是同一目标的物理文本列。");
-                        name=label;
-                    }
+                    if(relation.ControlKind=="MultiSelectPage")name=PageMultiNameOverride(target,baseline,label);
                 }
                 if(pageId.Length==0)pageId=MultiPageId(Definition(relation));
                 if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
@@ -79,12 +74,22 @@ public static partial class MySqlNonRedundantReadCompiler
             var physicalNameOverride=name is not null&&target.IsRongyu==1&&!binding.ApplyPageScope;
             if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!physicalNameOverride||GlobalCrossTableTarget.Declared(table)||
                 GlobalCrossTableTarget.Declared(target)&&!checkbox||pageId!=(selected?.Id??"")||
-                selected is null&&(binding.ApplyPageScope||control is null)||
+                selected is null&&(binding.ApplyPageScope||control is null&&name is null)||
                 binding.ApplyControlScope&&control is null||
                 source.YzProjectId.Length>0&&source.YzProjectId!=catalog.YzProjectId||
                 selected is not null&&selected.YzProjectId.Length>0&&selected.YzProjectId!=catalog.YzProjectId)
                 throw new InvalidOperationException("多值名称目标与当前页的发布配置不一致。");
             return(source,selected,binding.ApplyPageScope,control,name);
+        }
+
+        /// <summary>只解释固定来源页中已发布的名称，原辅助数组、范围和ID顺序保持。</summary>
+        private string? PageMultiNameOverride(TableMetadata target,string baseline,string label)
+        {
+            if(string.IsNullOrWhiteSpace(label)||label==baseline)return null;
+            if(GlobalCrossTableTarget.Declared(target)||
+                !PhysicalTextMultiLabel(target,Column(target,baseline))||!PhysicalTextMultiLabel(target,Column(target,label)))
+                throw new InvalidOperationException("页级多值名称必须是同一项目内目标的物理文本列。");
+            return label;
         }
 
         /// <summary>仅允许可信声明的普通物理文本进入名称投影。</summary>

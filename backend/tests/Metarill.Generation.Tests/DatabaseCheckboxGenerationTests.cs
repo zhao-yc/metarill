@@ -39,6 +39,59 @@ public sealed class DatabaseCheckboxGenerationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>页级简称沿用原复选选项及名称数组，条件及 Excel 按同一份配置编译。</summary>
+    [Theory]
+    [InlineData(false,1,true)]
+    [InlineData(true,0,false)]
+    public async Task Checkbox_page_label_override_reuses_candidate_range_and_name_array(bool automatic,int targetStorage,bool explicitPage)
+    {
+        var catalog=Published(Catalog(true,automatic));
+        var target=catalog.ConfigTables.Single(table=>table.Id=="3");target.IsRongyu=targetStorage;
+        catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId=target.Id,YzProjectId=catalog.YzProjectId,ColumnName="short_name",Name="简称",LogicalType="string",ColumnLength="100"});
+        catalog.ConfigPageColumns.Add(new(){Id="3009",ConfigPageId="301",ConfigColumnId="39",YzProjectId=catalog.YzProjectId,IsShow=1});
+        var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        if(!explicitPage)source.Extra.Remove("linkConfigPageId");
+        var settings=catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId==source.Id);
+        settings.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"short_name"}""");
+        var page=catalog.ConfigPages.Single(page=>page.Id=="201");page.IsImport=1;page.IsExport=1;
+        if(automatic)
+        {
+            page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+            page.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+        }
+        else catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="27").Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        const string ns="Example.CheckboxPageLabel";
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(table=>table.Source.Id=="2");var pageModel=table.Pages.Single();
+        var effective=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,pageModel));
+        Assert.Equal("short_name",effective.Name.Source.ColumnName);
+        Assert.Equal("targetNames",effective.Names.JsonName);
+        Assert.Contains(effective.Scopes,scope=>scope.Source=="parent"&&scope.Column.Source.ColumnName=="parent_id");
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-page-label");
+        var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(root,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var detail=await File.ReadAllTextAsync(Path.Combine(generated,"frontend/pages/yzp/relation_source-detail-201.vue"));
+            Assert.Contains("readonlyDisplayText(entity.targetNames)",detail);
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/RelationSourceService.g.cs"));
+            Assert.Contains("CheckboxScope201_25Async",service);
+            Assert.Contains("ShortName",service);
+            if(!automatic)Assert.Contains("FixedReadComparison.JsonArrayAnyContains",service);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            var serviceType=assembly.GetTypes().Single(type=>type.Name=="RelationSourceService");
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
+            Assert.NotNull(serviceType.GetMethod("Import201Async"));
+            Assert.NotNull(serviceType.GetMethod("Export201Async"));
+            var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
+    }
+
     /// <summary>整数业务名称在原复选中仍输出文本，Excel 与维护使用同一物理字段。</summary>
     [Theory]
     [InlineData(true,false,"int32","list")]

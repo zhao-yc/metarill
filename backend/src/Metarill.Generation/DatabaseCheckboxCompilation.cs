@@ -13,6 +13,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal PageModel? PhysicalTargetPage { get; init; }
     internal bool UsesPageRead { get; init; }
     internal bool UsesControlRead { get; init; }
+    internal bool UsesNameOverride { get; init; }
     internal ColumnModel? FunctionParentField { get; init; }
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
@@ -101,7 +102,7 @@ internal static class DatabaseCheckboxCompilation
                     table.Source.IsRongyu==1&&publishedGlobalPage.Condition is not null)
                     globalPage=publishedGlobalPage;
             }
-            if(definition.NameField!=baseline.NameField)return Gap("页级名称覆盖未绑定同一固定读取和缓存。");
+            var usesNameOverride=definition.NameField!=baseline.NameField;
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
             var scalarLabel=name is not null&&MultiSelectCompilation.SupportsTypedLabel(model,table,source,target,name);
             if(name is null||name.Type!="string?"&&!scalarLabel||name.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,name))
@@ -113,6 +114,16 @@ internal static class DatabaseCheckboxCompilation
             var explicitPage=definition.PageId.Length>0?definition.PageId:linkedPage;
             var namePage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage);
             if(functionForm&&explicitPage.Length>0&&namePage is null)return Gap("功能表复选的显式目标页未在实际目标表发布。");
+            if(usesNameOverride)
+            {
+                // 页级名称只改变原实时数组的文本值；冗余缓存、固定全局目录和功能表沿用其已证明合同。
+                var baseName=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baseline.NameField);
+                if(functionForm||table.Source.IsRongyu!=0||target.IsGlobal||baseName is null||
+                    !MultiSelectCompilation.PhysicalTextLabel(model,target,baseName)||
+                    !MultiSelectCompilation.PhysicalTextLabel(model,target,name)||
+                    namePage is not null&&!namePage.Readable.Any(column=>column.Source.Id==name.Source.Id))
+                    return Gap("页级名称须沿用同项目物理文本，显式目标页必须已开放该字段。");
+            }
             var exactTarget=namePage is null?null:ExactDataManageCompilation.Resolve(model,target,namePage);
             // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。
             var compoundTargetParents=!functionForm&&target.Source.IsRongyu==0&&
@@ -249,6 +260,7 @@ internal static class DatabaseCheckboxCompilation
                 UsesPageRead=pageRead||realtimeRead&&(physicalPage is not null||
                     target.IsGlobal&&publishedGlobalPage is not null&&(controlRead||globalPage is not null||logicalPage is not null)),
                 UsesControlRead=controlRead,
+                UsesNameOverride=usesNameOverride,
                 FunctionParentField=functionForm?sourceParent:null,
                 ExactTarget=exactTarget,
                 LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)

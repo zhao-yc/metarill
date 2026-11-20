@@ -68,6 +68,39 @@ public sealed class NonRedundantMultiReadTests
         Assert.DoesNotContain("short_name",baseline.Expression("party_names"));
     }
 
+    /// <summary>旧复选只绑定目标表时也按页面名称读取，原控件条件仍参与投影和元素筛选。</summary>
+    [Theory]
+    [InlineData(0,false)]
+    [InlineData(1,false)]
+    [InlineData(1,true)]
+    public void Checkbox_uses_page_text_label_with_table_only_and_controls(int targetStorage,bool hasCondition)
+    {
+        var catalog=Catalog();
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=targetStorage;
+        var relation=catalog.ConfigColumns.Single(column=>column.Id=="120");
+        relation.ControlKind="MultiCheckBoxDatabase";
+        relation.ControlDetail=JsonSerializer.Serialize(new{tableId="2",nameField="name",
+            whereSql=hasCondition?"name <> '停用'":""});
+        catalog.ConfigColumns.Add(new(){Id="27",ConfigTableId="2",ColumnName="short_name",LogicalType="string"});
+        catalog.ConfigPages.Add(new(){Id="101",ConfigTableId="1"});
+        catalog.ConfigPageColumns.Add(new(){Id="101120",ConfigPageId="101",ConfigColumnId="120",
+            Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"short_name"}""")}});
+        var binding=new NonRedundantMultiTargetScope("120","101",null,false,hasCondition);
+        var plan=NonRedundantReads.CompileProjectPage(catalog,"1",["party_names"],["party_names"],[],[],[binding]).MySql;
+        var sql=plan.Expression("party_names");
+        Assert.Contains("`short_name`",sql);
+        Assert.Contains("`yz_project_id`",sql);
+        Assert.Contains("`delete_no` IS NULL",sql);
+        Assert.Contains("ORDER BY multi_ids.ordinal",sql);
+        Assert.Contains("LIKE {parameter}",plan.ArrayNamePredicates["party_names"]);
+        if(hasCondition)
+        {
+            Assert.Contains("`name`<>@",sql);
+            Assert.Contains("停用",plan.Constants.Values);
+        }
+        Assert.DoesNotContain("停用",sql);
+    }
+
     /// <summary>名称数组不占物理列；相同项目和主键约束来自正式目录。</summary>
     private static MetadataCatalog Catalog()
     {
