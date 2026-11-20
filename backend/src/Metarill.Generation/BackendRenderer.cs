@@ -357,8 +357,13 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var blankCheck=like&&!column.IsManagedMultiNames&&!column.IsJsonArray?"Metarill.Data.Queries.StringNameQuery.IsPatternBlank":"string.IsNullOrWhiteSpace";
             result.AppendLine($"                case {Literal(column.JsonName)}:").AppendLine("                {")
                 .AppendLine($"                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && {blankCheck}(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;");
-            // 原冗余显式复选按整列 IN，普通数据库复选下拉继续按单个成员读取。
-            if(DatabaseCheckboxCompilation.Generic(table,column)&&!ControlRenderer.UsesMultiIdCheckboxFilter(column)&&DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is not null)result.AppendLine($"                    query=Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayHasId(session,query,entity=>entity.{column.Property},DatabaseCheckboxValue.ReadId(filter.Value));");
+            var checkbox=DatabaseCheckboxCompilation.Generic(table,column)?DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition:null;
+            var multiIdCheckbox=ControlRenderer.UsesMultiIdCheckboxFilter(column);
+            // 有独立父选择的显式复选按精确数组成员查询，普通下拉仍提交单个成员。
+            if(checkbox?.FormParentField is not null&&multiIdCheckbox)
+                result.AppendLine("                    var selectedIds=DatabaseCheckboxValue.ReadSelected(filter.Value);")
+                    .AppendLine($"                    if(selectedIds.Length>0)query=Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayHasAnyId(session,query,entity=>entity.{column.Property},selectedIds);");
+            else if(checkbox is not null&&!multiIdCheckbox)result.AppendLine($"                    query=Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayHasId(session,query,entity=>entity.{column.Property},DatabaseCheckboxValue.ReadId(filter.Value));");
             else if(column.IsManagedMultiNames&&DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.Names.Source.Id==column.Source.Id))result.AppendLine("                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException(\"复选名称筛选只接受文本。\");").AppendLine($"                    query=Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayAnyLike(session,query,entity=>entity.{column.Property},filter.Value.GetString()!);");
             else if(column.Source.ControlKind=="CascadeTree")result.Append(CascadeTreeViewRenderer.Filter(model,table,page,column));
             else if (ManagerCredentialCompilation.IsCredential(table,column))

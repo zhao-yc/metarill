@@ -42,10 +42,11 @@ internal static partial class OriginalUniappListRenderer
                 {
                     "List" when ControlRenderer.UsesScalarCheckboxFilter(column) =>
                         AppendListCheckboxFilterOptions(model, table, page, column, requests),
-                    "MultiCheckBoxDatabase" when table.Source.IsRongyu == 0 &&
-                        DatabaseCheckboxCompilation.Resolve(model, table, page, column).Definition is { } checkbox =>
+                    "MultiCheckBoxDatabase" when DatabaseCheckboxCompilation.Resolve(model, table, page, column).Definition is { } checkbox &&
+                        (table.Source.IsRongyu == 0 || checkbox.FormParentField is not null) =>
                         AppendArrayCheckboxFilterOptions(model, table, page, column, checkbox.Endpoint,
-                            checkbox.SourceParent is not null, checkbox.Conditions, requests),
+                            checkbox.SourceParent is not null && checkbox.FormParentField is null, checkbox.Conditions, requests,
+                            formParentField:checkbox.FormParentField),
                     "MultiSelectPage" when MultiSelectCompilation.CheckboxFilterOptions(model, table, page, column) is { } selection =>
                         AppendSelectionCheckboxFilterOptions(selection, requests),
                     _ => null
@@ -79,7 +80,14 @@ internal static partial class OriginalUniappListRenderer
                     var remote=kind=="List"?OriginalRemoteOptionsCompilation.Definition(model,page,column,name+"_list",true):null;
                     markup.Append($"<zxz-uni-data-select v-model='filters.{key}' :localdata='{name}_list' filterable dataKey='name' dataValue='id'{(remote is null?"":OriginalRemoteOptionsCompilation.Attributes(column))} />");
                     data.Append(name).Append("_list:[],");
-                    if(remote is null){optionFields.Add(name+"_list");requests.Append(OriginalOptionsRequest(model,table,page,column,name));}
+                    if(kind=="MultiCheckBoxDatabase"&&DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is {FormParentField:not null} checkbox)
+                    {
+                        optionFields.Add(name+"_list");
+                        var scope=AppendArrayCheckboxFilterOptions(model,table,page,column,checkbox.Endpoint,false,checkbox.Conditions,requests,
+                            formParentField:checkbox.FormParentField,optionField:name+"_list");
+                        if(scope is not null)checkboxOptions.Add(scope);
+                    }
+                    else if(remote is null){optionFields.Add(name+"_list");requests.Append(OriginalOptionsRequest(model,table,page,column,name));}
                     else {remoteOptions.Add(remote);requests.Append("that.loadOriginalRemoteOptions(").Append(J(column.Source.Id)).Append(");");} break;
                 case "CheckBox": markup.Append($"<uni-data-checkbox v-model='filters.{key}' :localdata='$checkboxRange' />"); break;
                 case "CascadeTree":
@@ -142,7 +150,7 @@ internal static partial class OriginalUniappListRenderer
     /// <summary>数组候选只接收固定来源父级、目标父级和当前页已开放的表单标量。</summary>
     private static CheckboxOptionScope? AppendArrayCheckboxFilterOptions(GenerationModel model, TableModel table, PageModel page,
         ColumnModel column, string endpoint, bool requiresParent, RelationConditionModel? condition, StringBuilder requests,
-        RelationUiContext? context = null)
+        RelationUiContext? context = null, ColumnModel? formParentField=null, string? optionField=null)
     {
         var parentFields = requiresParent
             ? page.Scopes.Where(scope => scope.Source == "parent").Select(scope => scope.Column.Source.Id).ToHashSet(StringComparer.Ordinal)
@@ -157,25 +165,31 @@ internal static partial class OriginalUniappListRenderer
             ControlRenderer.HasScalarSourceFilter(model, page, field)))
             return null;
 
-        var bindings = J(new
+        var bindings = new Dictionary<string,object?>
         {
-            field = column.JsonName,
-            url = $"/admin/auto/{table.Source.TableName}/{page.Source.Id}/{endpoint}",
-            requiresParent,
-            sameParent = context?.SameParent == true,
-            targetParentField = target,
-            table = GenerationModel.Camel(table.Source.TableName),
-            formFields = forms.Select(field => new
+            ["field"] = column.JsonName,
+            ["url"] = $"/admin/auto/{table.Source.TableName}/{page.Source.Id}/{endpoint}",
+            ["requiresParent"] = requiresParent,
+            ["sameParent"] = context?.SameParent == true,
+            ["targetParentField"] = target,
+            ["table"] = GenerationModel.Camel(table.Source.TableName),
+            ["formFields"] = forms.Select(field => new
             {
                 name = field.JsonName,
                 fromParent = parentFields.Contains(field.Source.Id),
                 int64 = field.Type is "long" or "long?"
             }),
-            limit = DatabaseCheckboxValue.MaximumItems
-        });
-        requests.AppendLine($"that.loadOriginalArrayCheckboxOptions({bindings});");
+            ["limit"] = DatabaseCheckboxValue.MaximumItems
+        };
         var dependencies = sourceFilters.Select(field => field.JsonName);
         if (target is not null) dependencies = dependencies.Append(target);
+        if(formParentField is not null)
+        {
+            bindings["formParentField"]=formParentField.JsonName;
+            dependencies=dependencies.Append(formParentField.JsonName);
+        }
+        if(optionField is not null)bindings["optionField"]=optionField;
+        requests.AppendLine($"that.loadOriginalArrayCheckboxOptions({J(bindings)});");
         return new(column.JsonName, requiresParent, dependencies.Distinct(StringComparer.Ordinal).ToArray());
     }
 

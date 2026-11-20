@@ -17,14 +17,32 @@ public static class JsonArrayNameQuery
     /// <summary>数据库复选原单ID筛选按数组成员精确相等，不把序列化JSON当子串搜索。</summary>
     public static ISelect<T> ApplyJsonArrayHasId<T>(DatabaseSession session,ISelect<T> query,Expression<Func<T,string?>> storageColumn,long id) where T:class
     {
-        ArgumentNullException.ThrowIfNull(session);ArgumentNullException.ThrowIfNull(query);ArgumentNullException.ThrowIfNull(storageColumn);
         if(id<=0)throw new ArgumentException("复选筛选ID必须为正整数。",nameof(id));
+        return ApplyIdMember(session,query,storageColumn,nameof(DatabaseFunctions.HasId),id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>原显式复选匹配任一精确 ID，全部选择值只占一个 JSON 参数。</summary>
+    public static ISelect<T> ApplyJsonArrayHasAnyId<T>(DatabaseSession session,ISelect<T> query,Expression<Func<T,string?>> storageColumn,
+        IReadOnlyList<long> ids) where T:class
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        if(ids.Count==0||ids.Count>Metarill.Core.Contracts.DatabaseCheckboxValue.MaximumItems||ids.Any(id=>id<=0))
+            throw new ArgumentException("复选筛选ID数组必须包含有界的正整数。",nameof(ids));
+        var selected=System.Text.Json.JsonSerializer.Serialize(ids.Select(id=>id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        return ApplyIdMember(session,query,storageColumn,nameof(DatabaseFunctions.HasAnyId),selected);
+    }
+
+    /// <summary>单值和数组成员共用同一ORM直接物理列证明。</summary>
+    private static ISelect<T> ApplyIdMember<T>(DatabaseSession session,ISelect<T> query,Expression<Func<T,string?>> storageColumn,
+        string method,string value) where T:class
+    {
+        ArgumentNullException.ThrowIfNull(session);ArgumentNullException.ThrowIfNull(query);ArgumentNullException.ThrowIfNull(storageColumn);
         if(!string.Equals(session.Provider.Name,"mysql",StringComparison.OrdinalIgnoreCase)||session.Orm.Ado.DataType!=DataType.MySql)throw new NotSupportedException("当前数据库尚未实现复选成员筛选。");
         if(storageColumn.Body is not MemberExpression{Expression:ParameterExpression parameter,Member:PropertyInfo property}||parameter!=storageColumn.Parameters[0]||property.PropertyType!=typeof(string)||property.GetMethod is not{IsStatic:false,IsPublic:true})throw new ArgumentException("复选存储列必须是已映射直接字符串属性。",nameof(storageColumn));
         var table=session.Orm.CodeFirst.GetTableByEntity(typeof(T));
         if(table is null||!table.ColumnsByCs.TryGetValue(property.Name,out var mapped)||mapped.Attribute.IsIgnore)throw new ArgumentException("复选存储列没有实体映射。",nameof(storageColumn));
         MetadataValidation.RequireIdentifier(mapped.Attribute.Name);
-        var call=Expression.Call(typeof(DatabaseFunctions).GetMethod(nameof(DatabaseFunctions.HasId))!,storageColumn.Body,Expression.Constant(id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        var call=Expression.Call(typeof(DatabaseFunctions).GetMethod(method)!,storageColumn.Body,Expression.Constant(value));
         return query.Where(Expression.Lambda<Func<T,bool>>(call,storageColumn.Parameters));
     }
 
@@ -98,6 +116,18 @@ public static class JsonArrayNameQuery
             var array=$"CASE WHEN JSON_VALID({column})=1 THEN CASE WHEN JSON_TYPE({column})='ARRAY' AND JSON_DEPTH({column})<=2 THEN {column} ELSE '[]' END ELSE '[]' END";
             // 与非冗余计划共用有界标量形式，避免WHERE EXISTS对不同来源数组产生漏判。
             call.Result=$"((SELECT 1 FROM JSON_TABLE({array},'$[*]' COLUMNS(member_id VARCHAR(32) PATH '$' NULL ON ERROR)) checkbox_ids WHERE CAST(checkbox_ids.member_id AS BINARY)=CAST(@{name} AS BINARY) LIMIT 1) IS NOT NULL)";
+            return false;
+        }
+
+        /// <summary>显式复选复用固定读取的二进制数组成员比较。</summary>
+        public static bool HasAnyId(string? document,[RawValue] string selected)
+        {
+            var call=context.Value??throw new InvalidOperationException("JSON成员谓词只能用于数据库表达式。");
+            if(call.DataType!=DataType.MySql)throw new NotSupportedException("当前数据库尚未实现复选成员筛选。");
+            var column=call.ParsedContent[nameof(document)];var name="mt_json_ids_"+Guid.NewGuid().ToString("N");
+            call.UserParameters.Add(new MySqlParameter(name,MySqlDbType.LongText){Value=selected});
+            var array=$"CASE WHEN JSON_VALID({column})=1 THEN CASE WHEN JSON_TYPE({column})='ARRAY' AND JSON_DEPTH({column})<=2 THEN {column} ELSE '[]' END ELSE '[]' END";
+            call.Result=ArrayMemberSql(array,"@"+name,matchAny:true);
             return false;
         }
 

@@ -94,13 +94,15 @@ public sealed class DatabaseCheckboxGenerationTests
 
     /// <summary>原冗余复选在名称页和简称页各自显示及筛选，从任一入口保存都更新两个名称副本。</summary>
     [Theory]
-    [InlineData(0, true, false, false)]
-    [InlineData(1, false, false, false)]
-    [InlineData(0, true, true, false)]
-    [InlineData(1, false, true, false)]
-    [InlineData(0, true, true, true)]
-    [InlineData(1, false, false, true)]
-    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,bool fixedParent)
+    [InlineData(0, true, false, false, false)]
+    [InlineData(1, false, false, false, false)]
+    [InlineData(0, true, true, false, false)]
+    [InlineData(1, false, true, false, false)]
+    [InlineData(0, true, true, true, false)]
+    [InlineData(1, false, false, true, false)]
+    [InlineData(0, true, true, true, true)]
+    [InlineData(1, false, false, true, true)]
+    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,bool fixedParent,bool independentParent)
     {
         var catalog=Published(Catalog(false));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
@@ -125,6 +127,13 @@ public sealed class DatabaseCheckboxGenerationTests
         catalog.ConfigColumns.Add(cache);
         var current=catalog.ConfigPages.Single(page=>page.Id=="201");
         current.IsImport=current.IsExport=1;
+        if(independentParent)
+        {
+            current.WhereSql="yz_project_id=@current_yz_project_id";
+            catalog.ConfigPageColumns.Add(new(){Id="2026",ConfigPageId=current.Id,ConfigColumnId="26",
+                YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1,Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
+            if(targetStorage==1)source.Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
+        }
         if(includeNamePage)
         {
             var original=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(current))!;
@@ -174,13 +183,25 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Contains("relationDisplayText(item.targetAlias)",list);
             Assert.Contains("filters.targetAlias",list);
             Assert.Contains("filters.targetIds",list);
+            if(independentParent)
+            {
+                Assert.Contains("String(that.entity.parentId??'')",detail);
+                Assert.Contains("parentId:optionParent",detail);
+                Assert.DoesNotContain("targetParentId:optionParent",detail);
+                Assert.Contains("this.$watch(()=>this.entity.parentId",detail);
+                Assert.Contains("\"formParentField\":\"parentId\"",list);
+                Assert.Contains("\"formFields\":[\"parentId\"]",list);
+                Assert.Contains(targetStorage==1?"targetIdsRange":"target__list",list);
+            }
             if(includeNamePage)
                 Assert.Contains("relationDisplayText(item.targetNames)",await File.ReadAllTextAsync(Original("list","202")));
 
             var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/RelationSourceService.g.cs"));
             Assert.Contains("case \"targetAlias\":",service);
             Assert.Contains("ApplyJsonArrayAnyLike(session,query,entity=>entity.TargetAlias",service);
-            Assert.Contains("ApplyJsonArrayHasId(session,query,entity=>entity.TargetIds",service);
+            if(independentParent&&targetStorage==1)
+                Assert.Contains("ApplyJsonArrayHasAnyId(session,query,entity=>entity.TargetIds",service);
+            else Assert.Contains("ApplyJsonArrayHasId(session,query,entity=>entity.TargetIds",service);
             foreach(var page in table.Pages)
             {
                 var marker="private async Task ValidateCheckbox"+page.Source.Id+"_25Async(";
@@ -199,6 +220,7 @@ public sealed class DatabaseCheckboxGenerationTests
                 {
                     Assert.Contains(".Where(row=>row.ParentId==",service);
                     Assert.Contains("entity.ParentId",write);
+                    if(independentParent)Assert.Contains("selected.Length==0&&",write);
                 }
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);

@@ -15,6 +15,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool UsesControlRead { get; init; }
     internal bool UsesNameOverride { get; init; }
     internal ColumnModel? FunctionParentField { get; init; }
+    internal ColumnModel? FormParentField { get; init; }
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
@@ -219,6 +220,22 @@ internal static class DatabaseCheckboxCompilation
                     globalParentPage=namePage;
                 }
             }
+            ColumnModel? formParent=null;
+            // 无页面父路由时，固定目标父可绑定来源详情中唯一的真实表单外键。
+            if(sharedFixedPage&&sourceScopeColumns.Length==0&&physicalParents.Length==1)
+            {
+                var binding=MultiTargetParentScope.CompileCheckboxParent(model.Catalog,target.Source,
+                    FixedConditionPlan.Compile(namePage!.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName)));
+                if(binding is null||binding.Global||binding.Logical||binding.Target.Id!=physicalParents[0].Column.Source.Id||
+                    Protected(model.Tables.Single(candidate=>candidate.Source.Id==binding.Parent.Id)))
+                    return Gap("表单父范围须绑定实际普通目标父键。");
+                var owner=binding.CheckboxSource(model.Catalog,table.Source,source.Source,page.Source,allowFormParent:true);
+                sourceParent=table.Columns.Single(column=>column.Source.Id==owner.Column.Id);
+                if(page.Searchable.Contains(source)&&!ControlRenderer.HasScalarSourceFilter(model,page,sourceParent))
+                    return Gap("启用复选列表筛选时须开启表单父字段的标量筛选。");
+                formParent=sourceParent;
+                parents=[model.Tables.Single(candidate=>candidate.Source.Id==binding.Parent.Id)];
+            }
             // 控件和普通目标页的物理父键都须匹配来源已证明的同一张父表。
             if(!functionForm&&physicalParents.Any(scope=>sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id))
                 return Gap("原parentId必须由来源页同一真实父表证明，不能猜测其他父范围。");
@@ -275,6 +292,7 @@ internal static class DatabaseCheckboxCompilation
                 UsesControlRead=controlRead,
                 UsesNameOverride=usesNameOverride,
                 FunctionParentField=functionForm?sourceParent:null,
+                FormParentField=formParent,
                 ExactTarget=exactTarget,
                 LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)
                     .DistinctBy(path=>(path.Read.Source.Source.Id,path.Index)).ToArray(),
@@ -303,7 +321,8 @@ internal static class DatabaseCheckboxCompilation
     private static string? FixedCacheParent(DatabaseCheckboxModel definition)
     {
         if(definition.PhysicalTargetPage is null||definition.LogicalSourceParent||definition.GlobalParent||
-            definition.SourceScopeColumns.Count!=1||definition.SourceParents.Count!=1||definition.SourceParents[0].IsGlobal)
+            definition.SourceScopeColumns.Count!=1&&definition.FormParentField is null||
+            definition.SourceParents.Count!=1||definition.SourceParents[0].IsGlobal)
             return null;
         var target=definition.PhysicalTargetPage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();
         var effective=definition.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();

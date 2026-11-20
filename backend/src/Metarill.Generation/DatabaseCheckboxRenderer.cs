@@ -115,10 +115,17 @@ internal static class DatabaseCheckboxRenderer
                 .AppendLine($"        if(operation==RecordMutationOperation.Import)relationAuthorization.RequirePagePermission({Literal(page.Source.Id)},\"import\");")
                 .AppendLine($"        var selected=DatabaseCheckboxValue.Parse(entity.{def.Source.Property});");
             if(int.TryParse(def.Source.Source.ColumnLength,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var sourceLimit)&&sourceLimit>0)result.AppendLine($"        if(entity.{def.Source.Property} is {{Length:>{sourceLimit}}})throw new ArgumentException(\"复选ID数组超过已声明物理列长度。\");");
-            result
+            if(def.FormParentField is not null)
+            {
+                // 父键和选中项都为空时保留原空表单，存在选中项仍校验真实父记录。
+                result.AppendLine("        ValidateActor(actor);")
+                    .AppendLine("        if(session.CurrentTransaction is null)throw new InvalidOperationException(\"复选最终校验必须加入实际写事务。\");")
+                    .AppendLine($"        var rows=selected.Length==0&&string.IsNullOrWhiteSpace({writeParent})?[]:await (await CheckboxScope{suffix}Async({writeParent},actor,{EntityForm(def,"entity")},true,cancellationToken)).Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>{projection},cancellationToken);");
+            }
+            else result
                 .Append(def.DerivedName?"":$"        var query=await CheckboxScope{suffix}Async({writeParent},actor,{EntityForm(def,"entity")},true,cancellationToken);\n")
-                .AppendLine(def.DerivedName?$"        var rows=await DerivedCheckboxRows{suffix}Async({writeParent},actor,{EntityForm(def,"entity")},selected,null,false,DatabaseCheckboxValue.MaximumItems,true,cancellationToken);":$"        var rows=await query.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>{projection},cancellationToken);")
-                .AppendLine("        if(rows.Count!=selected.Length)throw new InvalidOperationException(\"复选项不存在、已删除或已离开当前固定候选范围，整笔未保存。\");");
+                .AppendLine(def.DerivedName?$"        var rows=await DerivedCheckboxRows{suffix}Async({writeParent},actor,{EntityForm(def,"entity")},selected,null,false,DatabaseCheckboxValue.MaximumItems,true,cancellationToken);":$"        var rows=await query.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>{projection},cancellationToken);");
+            result.AppendLine("        if(rows.Count!=selected.Length)throw new InvalidOperationException(\"复选项不存在、已删除或已离开当前固定候选范围，整笔未保存。\");");
             if(table.Source.IsRongyu==1)
             {
                 // 同一有界当前锁读返回所有名称列，每份缓存沿原所选 ID 次序写入。

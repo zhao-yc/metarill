@@ -155,9 +155,8 @@ internal static class OriginalUniappDetailFields
         var context=relation is null?null:ControlRenderer.RelationContext(c.Page,relation,false);
         var method="loadOriginalOptions"+column.Source.Id;
         var dynamic=Enabled(column.Source.Extra,"isAutoPostBackQuery");
-        var checkboxModel = checkbox && (dynamic || c.Table.Source.IsFunctionTable==1)
-            ? DatabaseCheckboxCompilation.Resolve(c.Model,c.Table,c.Page,column).Definition : null;
-        var checkboxParent=checkboxModel?.FunctionParentField?.JsonName;
+        var checkboxModel = checkbox ? DatabaseCheckboxCompilation.Resolve(c.Model,c.Table,c.Page,column).Definition : null;
+        var checkboxParent=(checkboxModel?.FormParentField??checkboxModel?.FunctionParentField)?.JsonName;
         var targetField=context?.TargetParentField??checkboxParent;
         var target=targetField is {} parent?"that.entity."+parent:context?.SameParent==true?"that.parent_id":null;
         var form = DatabaseCheckboxCompilation.LiveDetailForm(column, checkboxModel) is { } forms

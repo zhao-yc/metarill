@@ -39,7 +39,7 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         ColumnMetadata? sourceKey=null;
         foreach(var published in sourcePages)
         {
-            var bound=parent.CheckboxSource(catalog,source,relation,published);
+            var bound=parent.CheckboxSource(catalog,source,relation,published,allowFormParent:true);
             if(bound.Column.Id!=sourceParentId||bound.LogicalPages.Count>0||bound.AdditionalColumns.Count>0)
                 throw new InvalidOperationException("复选多名称要求所有来源页使用同一物理父键。");
             sourceKey=bound.Column;

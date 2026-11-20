@@ -38,6 +38,22 @@ public sealed class JsonArrayNameQueryTests
         Assert.Throws<ArgumentException>(()=>JsonArrayNameQuery.ApplyJsonArrayHasId(session,query,row=>row.Ignored,1));Assert.Throws<ArgumentException>(()=>JsonArrayNameQuery.ApplyJsonArrayHasId(session,query,row=>row.Names,0));
     }
 
+    /// <summary>多个相邻高位ID使用同一参数，并按数组元素精确匹配。</summary>
+    [Fact]
+    public void Checkbox_any_members_use_one_parameter_and_keep_high_ids_out_of_sql()
+    {
+        using var session=Session();
+        var query=JsonArrayNameQuery.ApplyJsonArrayHasAnyId(session,session.Select<Row>().As("source_checkbox"),
+            row=>row.Names,[9007199254740992L,9007199254740993L]);
+        var sql=query.ToSql();
+        Assert.Contains("source_checkbox.`stored_names`",sql);
+        Assert.Contains("JSON_TABLE(@mt_json_ids_",sql);
+        Assert.Contains("selected_ids.member_id AS BINARY",sql);
+        Assert.DoesNotContain("900719925474099",sql);
+        Assert.Throws<ArgumentException>(()=>JsonArrayNameQuery.ApplyJsonArrayHasAnyId(session,query,row=>row.Ignored,[1]));
+        Assert.Throws<ArgumentException>(()=>JsonArrayNameQuery.ApplyJsonArrayHasAnyId(session,query,row=>row.Names,[0]));
+    }
+
     /// <summary>标量名称使用参数化LIKE与原列比较，不改用会改变重音语义的Contains。</summary>
     [Fact]
     public void Scalar_name_keeps_fixed_column_like_and_literal_pattern_without_json_or_inline_values()

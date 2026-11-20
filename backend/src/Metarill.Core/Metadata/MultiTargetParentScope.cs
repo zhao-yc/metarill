@@ -121,8 +121,9 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         ResolveSource(catalog,source,relation,single:false,allowLogical:true,sourcePageId:sourcePage.Id);
 
     /// <summary>复选仍从当前页已声明的父范围取值，支持通过关联表已明确的自定义字段名。</summary>
-    public MultiSourceParent CheckboxSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,PageMetadata sourcePage)=>
-        ResolveSource(catalog,source,relation,single:false,allowLogical:true,sourcePageId:sourcePage.Id,checkbox:true);
+    public MultiSourceParent CheckboxSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,PageMetadata sourcePage,
+        bool allowFormParent=false)=>
+        ResolveSource(catalog,source,relation,single:false,allowLogical:true,sourcePageId:sourcePage.Id,checkbox:true,allowFormParent:allowFormParent);
 
 
     /// <summary>单值固定页和多值页共用持久父键证明；单值只允许实际物理父字段。</summary>
@@ -138,7 +139,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         ResolveSource(catalog,source,relation,single:true,allowLogical:source.IsRongyu==0,sourcePageId:sourcePage.Id);
 
     private MultiSourceParent ResolveSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,
-        bool single,bool allowLogical,string? sourcePageId=null,bool checkbox=false)
+        bool single,bool allowLogical,string? sourcePageId=null,bool checkbox=false,bool allowFormParent=false)
     {
         var columns=catalog.ConfigColumns.Where(item=>item.ConfigTableId==source.Id).ToArray();
         var keys=columns.Where(column=>(PhysicalKey(catalog,source,column)||checkbox&&CheckboxKey(catalog,source,column,target:false))&&References(column,Parent)).ToArray();
@@ -151,6 +152,16 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
             var scoped=FixedConditionPlan.Compile(page.WhereSql,fields).Terms.Where(term=>
                 term.Comparison==FixedConditionComparison.Equal&&term.Values.Count==1&&
                 term.Values[0].Kind==FixedConditionValueKind.Variable&&IsParameter(term.Values[0].Text)).ToArray();
+            // 独立表单父级只能从实际详情开放的唯一物理字段取得。
+            if(allowFormParent&&scoped.Length==0)
+            {
+                var displayed=catalog.ConfigPageColumns.Where(setting=>setting.ConfigPageId==page.Id&&
+                    (setting.Extra.TryGetValue("isInEdit",out var flag)?flag.ValueKind==System.Text.Json.JsonValueKind.True||flag.ToString()=="1":setting.IsEdit==1))
+                    .Select(setting=>setting.ConfigColumnId).ToHashSet(StringComparer.Ordinal);
+                var formKeys=keys.Where(key=>key.Id!=relation.Id&&displayed.Contains(key.Id)).Take(2).ToArray();
+                if(formKeys.Length!=1)throw Invalid();
+                return (Column:(ColumnMetadata?)formKeys[0],Page:(PageMetadata?)null,AdditionalColumns:Array.Empty<ColumnMetadata>());
+            }
             if(scoped.Length==1)
             {
                 var field=scoped[0].Field;

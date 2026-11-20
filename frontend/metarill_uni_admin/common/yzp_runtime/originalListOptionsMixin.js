@@ -67,8 +67,13 @@ export function createOriginalListOptionsMixin({ targetParentFields = [], option
    },
    /** 原数组候选按发布范围查询，所有合法值到齐后再更新复选框。 */
    loadOriginalArrayCheckboxOptions(definition) {
-    const { field, url, requiresParent, sameParent, targetParentField, table, formFields, limit } = definition
-    const range = field + 'Range', data = {}
+    const { field, url, requiresParent, sameParent, targetParentField, table, formFields, limit, formParentField, optionField } = definition
+    const range = optionField ?? (field + 'Range'), data = {}
+    // 数据库复选原端点接收 parentId，独立值来自本页实际的父字段筛选。
+    if (formParentField) {
+     data.parentId = checkboxParentId(this.filters?.[formParentField])
+     if (data.parentId === null) return
+    }
     if (requiresParent) {
      data.parentId = checkboxParentId(this.parent_id)
      if (data.parentId === null) return
@@ -107,7 +112,7 @@ export function createOriginalListOptionsMixin({ targetParentFields = [], option
        uni.showModal({showCancel: false, content: '关联候选响应无效或超过' + limit + '条。'})
        return
       }
-      this[range] = items.map(({text, value}) => ({text: text ?? '', value}))
+      this[range] = optionField ? items : items.map(({text, value}) => ({text: text ?? '', value}))
      }
     })
    },
