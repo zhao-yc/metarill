@@ -910,7 +910,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var ormExcelExact = relation.ExcelTargetExact && !DerivedRelationNamesCompilation.UsesFixedRead(model,relation);
             var fixedWriteExact = !relation.FunctionForm && DerivedRelationNamesCompilation.UsesFixedRead(model,relation) &&
                 ExactDataManageCompilation.Declared(relation.TargetPage) &&
-                (logicalPlan is not null || DerivedRelationNamesCompilation.UsesExactList(relation));
+                (logicalPlan is not null || DerivedRelationNamesCompilation.UsesExactSingle(relation));
             var lockScope=fixedWriteExact||relation.Conditions is not null||logicalPlan is not null||
                 relation.Target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));

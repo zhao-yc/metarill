@@ -14,22 +14,23 @@ internal static class DerivedRelationNamesCompilation
         relation.SourceColumn.Source.ControlKind is "List" or "SelectPage"&&
         NonRedundantReadCompilation.SelfTreeExactColumn(relation.Target,relation.TargetPage) is not null;
 
-    /// <summary>原下拉按实际项目内目标页执行已声明的精确权限。</summary>
-    internal static bool UsesExactList(RelationModel relation)=>
-        relation.SourceColumn.Source.ControlKind=="List"&&UsesExactListTarget(relation.Target,relation.TargetPage);
+    /// <summary>原单值控件按实际项目内目标页执行已声明的精确权限。</summary>
+    internal static bool UsesExactSingle(RelationModel relation)=>
+        relation.SourceColumn.Source.ControlKind is "List" or "SelectPage"&&UsesExactSingleTarget(relation.Target,relation.TargetPage);
 
-    /// <summary>隐藏下拉也使用实际目标页范围，供写入登记复用。</summary>
-    internal static bool UsesExactListTarget(TableModel target,PageModel page)=>
+    /// <summary>隐藏单值外键也使用实际目标页范围，供写入登记复用。</summary>
+    internal static bool UsesExactSingleTarget(TableModel target,PageModel page)=>
         !target.IsGlobal&&ExactDataManageCompilation.Declared(page);
 
     /// <summary>选档条件只扩充静态依赖，交互候选仍执行原目标页范围。</summary>
     internal static RelationConditionModel? ProjectionCondition(RelationModel relation)=>
-        relation.Conditions??(UsesSelfTreeExact(relation)?relation.ImportCondition:null);
+        relation.Conditions??(UsesExactSingle(relation)?relation.ImportCondition:null);
 
     /// <summary>普通目标页的级联条件在原候选和当前读中重用同一发布范围。</summary>
     internal static bool UsesLogicalPage(RelationModel relation)=>
         relation.FixedParent is {Logical:true}||FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||
-        relation.Conditions?.HasLogicalFields==true||UsesSelfTreeExact(relation);
+        relation.Conditions?.HasLogicalFields==true||UsesSelfTreeExact(relation)||
+        UsesExactSingle(relation)&&relation.ImportCondition is ({CrossFields.Count:>0} or {SelfTreeFields.Count:>0});
 
     /// <summary>全局非冗余目标的账号范围来自实际发布页，仅绑定认证的账号值。</summary>
     internal static bool HasGlobalAccountScope(TableModel target,PageModel page)=>
@@ -94,15 +95,11 @@ internal static class DerivedRelationNamesCompilation
 
     /// <summary>名称投影和目标逻辑条件共用固定读取，物理名称也执行同样的精确权限。</summary>
     internal static bool UsesFixedRead(GenerationModel model, RelationModel relation) =>
-        UsesExactList(relation) || UsesSelfTreeExact(relation) || Declared(model, relation) ||
+        UsesExactSingle(relation) || UsesSelfTreeExact(relation) || Declared(model, relation) ||
         IsPhysicalTypedName(model, relation.Target, relation.NameColumn) ||
         relation.FunctionForm && (relation.Target.IsGlobal || relation.TargetParents.Count > 0 ||
             ExactDataManageCompilation.Declared(relation.TargetPage) ||
-            RelationCompilation.HasFixedTargetScope(relation.Target, relation.TargetPage) || UsesLogicalPage(relation)) ||
-        relation.SourceColumn.Source.ControlKind == "SelectPage" &&
-        ExactDataManageCompilation.Declared(relation.TargetPage) && UsesLogicalPage(relation) &&
-        SupportsExactSelectionTarget(model.Tables.Single(table => table.Source.Id == relation.SourceColumn.Source.ConfigTableId),
-            relation.Target,relation.TargetPage);
+            RelationCompilation.HasFixedTargetScope(relation.Target, relation.TargetPage) || UsesLogicalPage(relation));
 
     /// <summary>读取用途与下发产物共用实际全局发布页。</summary>
     internal static bool UsesGlobalPlan(GenerationModel model, RelationModel relation) =>
@@ -111,7 +108,7 @@ internal static class DerivedRelationNamesCompilation
 
     /// <summary>普通冗余目标的固定候选只能读取物理列及已发布的父范围。</summary>
     internal static bool UsesPhysicalPlan(GenerationModel model, RelationModel relation) =>
-        relation.Target.Source.IsRongyu == 1 && (relation.FunctionForm || UsesExactList(relation) ||
+        relation.Target.Source.IsRongyu == 1 && (relation.FunctionForm || UsesExactSingle(relation) ||
             IsPhysicalTypedName(model, relation.Target, relation.NameColumn));
 
     /// <summary>物理名称仍使用真实声明类型作为 SQL 投影和精确反查的参数类型。</summary>
@@ -152,7 +149,7 @@ internal static class DerivedRelationNamesCompilation
         var fixedParent=SingleParent(model,target,page);
         var globalCached=owner.IsGlobal&&owner.Source.IsRongyu==1&&GlobalCachedSourceCompilation.ForModel(model)
             .Any(binding=>binding.Source.Source.Id==owner.Source.Id&&binding.ScopedSingle&&binding.Page.Source.Id==page.Source.Id);
-        if(!(globalCached||SupportedOwner(model,owner))||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!IsTypedName(model,owner,target,name)||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)&&!SupportsExactSelectionTarget(owner,target,page)||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&fixedParent is not {Logical:true})throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");
+        if(!(globalCached||SupportedOwner(model,owner))||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!IsTypedName(model,owner,target,name)||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)&&(owner.IsGlobal||target.IsGlobal)||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&fixedParent is not {Logical:true})throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");
         if(page.Scopes.Any(scope=>scope.Column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,scope.Column)&&
             (fixedParent is not {Logical:true}||fixedParent.Target.Id!=scope.Column.Source.Id)))
             throw new InvalidOperationException("派生单选名称的目标身份与父字段必须为物理标量。");
@@ -193,7 +190,7 @@ internal static class DerivedRelationNamesCompilation
             target.Source.IsRongyu!=0&&!UsesPhysicalPlan(model,relation)||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
             name.Type != "string?" && !typedName || name.IsJsonArray || relation.ParentBinding?.Declared==true||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage)&&relation.FixedParent is not {Logical:true})
             throw new InvalidOperationException("固定名称关系要求已发布来源、物理标量或已证明的派生目标及候选范围。");
-        if ((typedName||UsesExactList(relation)) && !relation.FunctionForm &&
+        if ((typedName||UsesExactSingle(relation)) && !relation.FunctionForm &&
             ForeignValidationRenderer.Target(model, relation.SourceColumn)?.Source.Id != target.Source.Id)
             throw new InvalidOperationException("名称候选必须与来源外键使用同一固定目标。");
         if(target.IsGlobal&&!relation.FunctionForm)
@@ -224,7 +221,7 @@ internal static class DerivedRelationNamesCompilation
             (relation.FixedParent is not {Logical:true} logical||logical.Target.Id!=column.Source.Id)))throw new InvalidOperationException("派生名称候选的身份、父及附加范围必须为已发布物理标量。");
         var orderFields = relation.OptionsOrder?.Select(item => item.Column.Source.ColumnName) ?? [];
         var dependencies = fields.Select(column => column.Source.ColumnName).Concat(orderFields)
-            .Concat(UsesSelfTreeExact(relation)?relation.ImportCondition?.Syntax.Fields??[]:[])
+            .Concat(UsesExactSingle(relation)?relation.ImportCondition?.Syntax.Fields??[]:[])
             .Concat(["id", name.Source.ColumnName]).Concat(exact is null ? [] : new[] { exact.Column.Source.ColumnName })
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var outputs = new[] { "id", name.Source.ColumnName };
@@ -250,18 +247,10 @@ internal static class DerivedRelationNamesCompilation
     internal static ExactDataManageModel? CandidateExact(GenerationModel model, TableModel owner, RelationModel relation)
     {
         if (!ExactDataManageCompilation.Declared(relation.TargetPage)) return null;
-        var scopedList=!owner.IsGlobal&&UsesExactList(relation);
-        if (!(relation.FunctionForm && !relation.Target.IsGlobal) && !scopedList &&
-            (relation.SourceColumn.Source.ControlKind != "SelectPage" || !SupportsExactSelectionTarget(owner,relation.Target,relation.TargetPage)))
+        if(!UsesExactSingle(relation)||!relation.FunctionForm&&owner.IsGlobal)
             throw new NotSupportedException("当前派生名称目标的精确范围缺少固定候选证明。");
         return ExactDataManageCompilation.Resolve(model, relation.Target, relation.TargetPage);
     }
-
-    /// <summary>项目内单选沿非冗余目标页匹配。叶名固定计划也适用于非冗余来源。</summary>
-    private static bool SupportsExactSelectionTarget(TableModel owner, TableModel target,PageModel targetPage) =>
-        !owner.IsGlobal && target.Source.IsRongyu == 0 && !target.IsGlobal &&
-        (owner.Source.IsRongyu == 1 || owner.Source.IsRongyu == 0 &&
-            NonRedundantReadCompilation.SelfTreeExactColumn(target,targetPage) is not null);
 
     /// <summary>名称和权限匹配字段使用同一份固定中间页，避免借用名称相同的其他目标。</summary>
     internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectCandidateTargets(GenerationModel model,
@@ -269,7 +258,7 @@ internal static class DerivedRelationNamesCompilation
     {
         var nameTargets = NonRedundantReadCompilation.ProjectPathTargets(model, relation.Target, relation.TargetPage,
             [relation.NameColumn.Source.ColumnName]);
-        var fields=UsesSelfTreeExact(relation)?relation.ImportCondition?.Syntax.Fields??[]:[];
+        var fields=UsesExactSingle(relation)?relation.ImportCondition?.Syntax.Fields??[]:[];
         var conditionTargets=NonRedundantReadCompilation.ProjectPathTargets(model,relation.Target,relation.TargetPage,fields);
         return NonRedundantReadCompilation.MergeProjectTargets(nameTargets.Concat(conditionTargets).Concat(exact?.SingleTargets??[]));
     }

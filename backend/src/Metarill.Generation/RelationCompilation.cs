@@ -42,7 +42,7 @@ internal static class RelationCompilation
         bool ExcelSelection(ColumnModel column) => forExcel && owner.Source.IsRongyu == 1 && !column.IsSystem &&
             column.Source.ControlKind == "SelectPage" && (imported.Contains(column) || ExportRenderer.IncludesColumn(page, column));
         // 系统项目上下文保留既有List等接线，新缓存能力不额外追加隐藏候选或授权依赖。
-        var candidates = forService && !functionForm ? owner.Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||FixedListTarget(model,page,column)||FixedSelectionTarget(model,page,column)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)||ExcelSelection(column)) : page.Readable.Concat(page.Writable)
+        var candidates = forService && !functionForm ? owner.Columns.Where(column=>FixedParentRelationCompilation.HasDeclaration(column)||owner.Source.IsRongyu==0&&column.Source.ControlKind=="SelectPage"||!column.IsSystem&&(DerivedRelationNamesCompilation.DeclaredSource(model,column)||FixedListTarget(model,page,column)||FixedSelectionTarget(model,page,column,includeExact:true)||(column.Source.ControlKind is "List" or "SelectPage")&&ForeignValidationRenderer.Target(model,column)?.IsGlobal==true)||ExcelSelection(column)) : page.Readable.Concat(page.Writable)
             .Concat(page.Searchable.Where(column => column.Source.ControlKind == "List" && ControlRenderer.UsesScalarCheckboxFilter(column) &&
                 SelectionNameFilterCompilation.EffectiveFilterKind(model, page, column) == "List"))
             .DistinctBy(x => x.Source.Id);
@@ -53,7 +53,7 @@ internal static class RelationCompilation
             if(functionForm&&source.Source.ControlKind=="SelectPage")continue;
             var standard = source.Source.ControlKind == "List" || source.Source.ControlKind == "SelectPage" &&
                 (owner.Source.IsRongyu == 0 || !source.IsSystem && (ForeignValidationRenderer.Target(model,source)?.IsGlobal == true ||
-                    DerivedRelationNamesCompilation.DeclaredSource(model,source) || FixedSelectionTarget(model,page,source)));
+                    DerivedRelationNamesCompilation.DeclaredSource(model,source) || FixedSelectionTarget(model,page,source,includeExact:forService)));
             var excelSelection = ExcelSelection(source);
             var excelOnly = !standard && excelSelection;
             if ((!standard && !excelOnly) || FixedOptionCatalogCompilation.Resolve(model, page, source).Declared) continue;
@@ -206,7 +206,7 @@ internal static class RelationCompilation
     {
         if(source.Source.ControlKind!="List"||ForeignValidationRenderer.Target(model,source) is not {} target||
             ListTargetPage(target,page,source,requireExplicit:false) is not {} targetPage)return false;
-        if(HasFixedTargetScope(target,targetPage)||DerivedRelationNamesCompilation.UsesExactListTarget(target,targetPage))return true;
+        if(HasFixedTargetScope(target,targetPage)||DerivedRelationNamesCompilation.UsesExactSingleTarget(target,targetPage))return true;
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var effective=Text(Definition(field?.Extra.GetValueOrDefault("controlDetail").ToString()??""),"whereSql");
         if(string.IsNullOrWhiteSpace(effective))effective=Text(Definition(source.Source.ControlDetail),"whereSql");
@@ -214,12 +214,14 @@ internal static class RelationCompilation
     }
 
     /// <summary>隐藏的单选必须沿实际固定目标页复核默认和提交值。</summary>
-    private static bool FixedSelectionTarget(GenerationModel model,PageModel page,ColumnModel source)
+    private static bool FixedSelectionTarget(GenerationModel model,PageModel page,ColumnModel source,bool includeExact)
     {
-        if(source.Source.ControlKind!="SelectPage"||ForeignValidationRenderer.Target(model,source) is not {Source.IsRongyu:0} target||
+        if(source.Source.ControlKind!="SelectPage"||ForeignValidationRenderer.Target(model,source) is not {} target||
             !target.Pages.Any(HasScope))return false;
-        bool HasScope(PageModel candidate)=>HasFixedTargetScope(target,candidate)||
-            NonRedundantReadCompilation.SelfTreeExactColumn(target,candidate) is not null;
+        // 只有内部保存和选档需要追加精确权限专用的范围。普通弹窗仍直接打开实际单选页。
+        bool HasScope(PageModel candidate)=>includeExact&&DerivedRelationNamesCompilation.UsesExactSingleTarget(target,candidate)||
+            target.Source.IsRongyu==0&&(HasFixedTargetScope(target,candidate)||
+                NonRedundantReadCompilation.SelfTreeExactColumn(target,candidate) is not null);
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var definition=SelectionControlDefinition.Resolve(source,field);
         return target.Pages.Any(candidate=>candidate.Source.Id==definition.PageId&&HasScope(candidate));

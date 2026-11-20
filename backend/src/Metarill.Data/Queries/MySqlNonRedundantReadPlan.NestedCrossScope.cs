@@ -36,8 +36,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var publishedMatch=(projectSingle||exactSingleParent)?PublishedSingleExactColumn(catalog,table,page,columns):null;
         // 已保存名称由来源记录授权。候选和写入仍在自己的入口校验目标页精确权限。
         var storedSingle=projectSingle&&publishedMatch is not null&&pageType is "" or "0" or "1"&&
-            (projectSingleControlKind=="List"||projectSingleControlKind=="SelectPage"&&
-                SelfTreeConditionFields(catalog,table,page,columns,[publishedMatch.ColumnName]).Count==1);
+            projectSingleControlKind is "List" or "SelectPage";
         if(table.IsRongyu!=0||exactField.Length>0&&!exactParent&&!storedSingle||
             page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new NotSupportedException("候选必须属于已发布项目的普通非冗余目标页。");
