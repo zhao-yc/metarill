@@ -207,7 +207,7 @@ internal static class DatabaseCheckboxCompilation
                 var syntax=FixedConditionPlan.Compile(scopedPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
                 var binding=(target.IsGlobal
                     ?MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax,checkbox:true)
-                    :MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax))!;
+                    :MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax,allowGlobalParent:true))!;
                 var owner=pageRead?binding.Source(model.Catalog,table.Source,source.Source,page.Source)
                     :binding.Source(model.Catalog,table.Source,source.Source);
                 if(binding.Global)

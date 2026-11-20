@@ -38,8 +38,15 @@ internal static class MultiGlobalParentCompilation
     {
         if(table.Source.IsView!=0||table.Source.IsFunctionTable!=0||table.IsGlobal&&!SelectionPageRenderer.Enabled(page))return null;
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
-        if(parents.Length>1&&table.IsGlobal)
-            return GlobalCrossTableTarget.PhysicalAccountParent(model.Catalog,table.Source,page.Source) is {Global:true} compound?compound:null;
+        if(parents.Length>1)
+        {
+            if(table.IsGlobal)
+                return GlobalCrossTableTarget.PhysicalAccountParent(model.Catalog,table.Source,page.Source) is {Global:true} compound?compound:null;
+            if(PublishedMultiParent(model,table,page) is not {Global:true,Logical:false,AdditionalTargets.Count:>0} compoundParent)
+                return null;
+            _=NonRedundantReads.MultiGlobalParentPageId(model.Catalog,table.Source.Id,page.Source.Id);
+            return compoundParent;
+        }
         if(parents.Length!=1)return null;
         var key=parents[0].Column;
         if(!model.Tables.Any(candidate=>candidate.IsGlobal&&candidate.Source.Id==key.Source.LinkConfigTableId)||
@@ -52,22 +59,27 @@ internal static class MultiGlobalParentCompilation
     /// <summary>多个父字段含逻辑级联时，逐个证明同一实际全局父页，再开放该页的父范围。</summary>
     internal static MultiTargetParentScope? LogicalCompoundTarget(GenerationModel model,TableModel table,PageModel page)
     {
-        if(!table.IsGlobal||table.Source.IsRongyu!=0||page.Scopes.Count(scope=>scope.Source=="parent")<2||
+        if(table.Source.IsRongyu!=0||page.Scopes.Count(scope=>scope.Source=="parent")<2||
             !page.Scopes.Any(scope=>scope.Source=="parent"&&
                 CrossTableStorageColumns.IsLogicalPathField(table.Source,model.Catalog.ConfigColumns,scope.Column.Source.ColumnName)))
             return null;
-        var parent=SingleTarget(model,table,page);
-        if(parent is null)
-        {
-            var checkbox=!SelectionPageRenderer.Enabled(page);
-            if(checkbox&&(page.Source.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1")||
-                !NonRedundantReads.IsScopedMultiTarget(model.Catalog,table.Source,page.Source.Id)))return null;
-            var condition=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
-            parent=MultiTargetParentScope.CompileGlobalPage(model.Catalog,table.Source,condition,checkbox);
-        }
+        var parent=SingleTarget(model,table,page)??PublishedMultiParent(model,table,page);
         if(parent is not {Global:true,Logical:true,AdditionalTargets.Count:>0})return null;
         _=NonRedundantReads.MultiGlobalParentPageId(model.Catalog,table.Source.Id,page.Source.Id);
         return parent;
+    }
+
+    /// <summary>项目内多值目标仍使用实际项目归属，只开放明确发布的父范围。</summary>
+    private static MultiTargetParentScope? PublishedMultiParent(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(table.Source.IsRongyu!=0)return null;
+        var checkbox=!SelectionPageRenderer.Enabled(page);
+        if(checkbox&&(page.Source.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1")||
+            !NonRedundantReads.IsScopedMultiTarget(model.Catalog,table.Source,page.Source.Id)))return null;
+        var condition=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
+        if(table.IsGlobal)return MultiTargetParentScope.CompileGlobalPage(model.Catalog,table.Source,condition,checkbox);
+        return checkbox?MultiTargetParentScope.CompileCheckboxPage(model.Catalog,table.Source,condition,allowGlobalParent:true):
+            MultiTargetParentScope.CompileSelectionPage(model.Catalog,table.Source,condition,allowGlobalParent:true);
     }
 
     /// <summary>按目标页证明的实际全局父键，原多值引用保持已有同页校验。</summary>
@@ -131,15 +143,10 @@ internal static class MultiGlobalParentCompilation
         var targets=new List<PageModel>();
         foreach(var column in table.Columns.Where(column=>column.Source.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"))
         {
-            if(ForeignValidationRenderer.Target(model,column) is not {IsGlobal:true,Source.IsRongyu:0} target||
+            if(ForeignValidationRenderer.Target(model,column) is not {Source.IsRongyu:0} target||
                 !target.Pages.Any(candidate=>candidate.Scopes.Any(scope=>scope.Source=="parent")))continue;
-            var proof=table.Source.IsRongyu==1
-                ?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,column.Source,target.Source)
-                :GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,column.Source,target.Source);
-            var targetPage=target.Pages.Single(candidate=>candidate.Source.Id==proof.Page.Id);
-            var condition=FixedConditionPlan.Compile(proof.Page.WhereSql,target.Columns.Select(field=>field.Source.ColumnName));
-            if(MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,condition,
-                checkbox:column.Source.ControlKind=="MultiCheckBoxDatabase") is not {Global:true} parent||
+            var targetPage=MultiRelationTargetPage(model,table,page,column,target);
+            if(targetPage is null||PublishedMultiParent(model,target,targetPage) is not {Global:true} parent||
                 physical.Any(field=>ForeignValidationRenderer.Target(model,field)?.Source.Id!=parent.Parent.Id))continue;
             var owner=parent.Source(model.Catalog,table.Source,column.Source,page.Source);
             if(owner.AdditionalColumns.Count==0)continue;
@@ -147,6 +154,26 @@ internal static class MultiGlobalParentCompilation
             targets.Add(targetPage);
         }
         return targets;
+    }
+
+    /// <summary>在级联生成前读取原控件发布绑定，项目内页面覆盖沿用正常候选的字段优先级。</summary>
+    private static PageModel? MultiRelationTargetPage(GenerationModel model,TableModel table,PageModel page,ColumnModel column,TableModel target)
+    {
+        if(target.IsGlobal)
+        {
+            var proof=table.Source.IsRongyu==1
+                ?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,column.Source,target.Source)
+                :GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,column.Source,target.Source);
+            return target.Pages.Single(candidate=>candidate.Source.Id==proof.Page.Id);
+        }
+        var settings=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>
+            field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id);
+        var pageId=column.Source.ControlKind=="MultiSelectPage"
+            ?SelectionControlDefinition.Resolve(column,settings).PageId
+            :DatabaseCheckboxDefinition.Parse(column.Source.ControlDetail)
+                .WithPageOverride(settings?.Extra.GetValueOrDefault("controlDetail").ToString()).PageId;
+        if(pageId.Length==0)pageId=column.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+        return target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==pageId);
     }
 
     /// <summary>独立表单父键也须有唯一父页；写入只读取该字段已有的物理值。</summary>

@@ -125,7 +125,7 @@ internal static class MultiSelectCompilation
             {
                 var syntax=FixedConditionPlan.Compile(targetPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
                 scopedParent=target.IsGlobal?MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax):
-                    MultiTargetParentScope.CompileSelectionPage(model.Catalog,target.Source,syntax);
+                    MultiTargetParentScope.CompileSelectionPage(model.Catalog,target.Source,syntax,allowGlobalParent:true);
             }
             if(functionForm)scopedParent??=MultiGlobalParentCompilation.PhysicalPageParent(model,target,targetPage);
             var targetParents = scopedParent is not null?[model.Tables.Single(parent=>parent.Source.Id==scopedParent.Parent.Id)]:

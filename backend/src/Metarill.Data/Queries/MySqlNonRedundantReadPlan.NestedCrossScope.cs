@@ -183,7 +183,9 @@ public static partial class MySqlNonRedundantReadCompiler
         var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
-        var parent=MultiParent(catalog,page);
+        var checkbox=!GlobalCrossTableTarget.Declared(table)&&page.Extra.GetValueOrDefault("type").ToString()!="2"&&
+            IsScopedMultiTarget(catalog,table,page.Id);
+        var parent=MultiParent(catalog,page,checkbox);
         if(parent is not{Global:true})throw new NotSupportedException("多值全局父须显式声明全局表关系。");
         var pages=parent.AdditionalTargets.Prepend(parent)
             .Select(scope=>scope.Logical?PublishedLogicalMultiParent(catalog,table,page,scope):

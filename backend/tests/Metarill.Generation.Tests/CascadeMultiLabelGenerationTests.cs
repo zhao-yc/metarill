@@ -378,10 +378,28 @@ public sealed class CascadeMultiLabelGenerationTests
             sourceLogicalParent:sourceScope!="physicalOnly",globalParent:true,parentWithoutProject:true,parentAccount:true,
             compoundSourceParent:sourceScope,compoundTargetParent:targetScope,globalCompoundSource:true);
 
+    /// <summary>项目内目标仍按项目过滤，同时验证指向同一全局父记录的所有已发布字段。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage","physical",false,0)]
+    [InlineData("MultiSelectPage","mixed",true,0)]
+    [InlineData("MultiSelectPage","independent",true,0)]
+    [InlineData("MultiCheckBoxDatabase","physical",false,0)]
+    [InlineData("MultiCheckBoxDatabase","independent",true,0)]
+    [InlineData("MultiCheckBoxDatabase","mixed",false,1)]
+    [InlineData("MultiSelectPage","physical",true,0,"physical")]
+    [InlineData("MultiCheckBoxDatabase","mixed",false,0,"physicalOnly")]
+    public Task Project_multivalue_target_preserves_compound_global_parent(
+        string kind,string targetScope,bool logicalSource,int storageMode,string? sourceScope=null)=>
+        CompileCascadeLabel(kind,storageMode,selfTree:false,indirect:false,selectedPage:true,
+            physical:targetScope=="physical",parent:true,logicalParent:targetScope!="physical",
+            sourceLogicalParent:logicalSource,globalParent:true,parentWithoutProject:true,parentAccount:true,
+            compoundTargetParent:targetScope,projectTargetGlobalParent:true,
+            compoundSourceParent:sourceScope,globalCompoundSource:sourceScope is not null);
+
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
         bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
         bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false,string? compoundSourceParent=null,string? compoundTargetParent=null,
-        bool globalCompoundSource=false)
+        bool globalCompoundSource=false,bool projectTargetGlobalParent=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -446,7 +464,7 @@ public sealed class CascadeMultiLabelGenerationTests
             var scopePage=catalog.ConfigPages.Single(page=>page.Id=="201");
             if(!onlyParent)
             {
-                var scopeName=compoundTargetParent=="physical"&&globalRowProject is not null?"name":
+                var scopeName=compoundTargetParent=="physical"&&(globalRowProject is not null||projectTargetGlobalParent)?"name":
                     selfTree?"tree_name":"country_name";
                 scopePage.WhereSql+=$" AND {scopeName} <> '排除目标页名称' AND store_id=@current_store_id";
             }
@@ -516,7 +534,8 @@ public sealed class CascadeMultiLabelGenerationTests
                     catalog.ConfigColumns.Add(new(){Id="3099",ConfigTableId=parentTable,ColumnName="store_id",LogicalType="int64"});
                     globalPage.WhereSql+=" AND store_id=@current_store_id";
                 }
-                if(!sourceLogicalParent&&!(compoundTargetParent is not null&&globalRowProject is not null&&parentAccount))
+                if(!sourceLogicalParent&&!(compoundTargetParent is not null&&
+                    (globalRowProject is not null||projectTargetGlobalParent)&&parentAccount))
                 {
                     var foreign=catalog.ConfigColumns.Single(column=>column.Id=="914");
                     foreign.ControlKind="List";
@@ -757,6 +776,27 @@ public sealed class CascadeMultiLabelGenerationTests
                 var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
                 Assert.Contains("BINARY CAST(",scope);
                 Assert.Contains(compoundTargetParent=="independent"?"`other_area_id`":"`other_country_id`",scope);
+                if(projectTargetGlobalParent)
+                {
+                    Assert.Contains("`yz_project_id`",scope);
+                    Assert.True(plan.RequiresAccount);
+                    if(mode==1)
+                    {
+                        var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                            assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+                        var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                            maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+                        var registered=plans["9"]!;
+                        var read=registered.GetType().GetProperty("Read")!.GetValue(registered)!;
+                        var owner=model.Tables.Single(item=>item.Source.Id=="9");
+                        var sourcePage=owner.Pages.Single(item=>item.Source.Id=="901");
+                        var cache=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,owner,sourcePage)).Names;
+                        var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,[cache.Source.ColumnName]));
+                        Assert.Contains("`yz_project_id`",expression);
+                        Assert.Contains("`other_country_id`",expression);
+                        Assert.Contains("`store_id`",expression);
+                    }
+                }
 
                 var targetMetadata=catalog.ConfigPages.Single(item=>item.Id=="201");
                 var previousWhere=targetMetadata.WhereSql;
@@ -765,7 +805,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 if(compoundTargetParent=="independent")
                     targetMetadata.WhereSql=previousWhere.Replace("other_country_id=@parentId","other_area_id=@parentId",StringComparison.Ordinal);
                 else linked.LinkConfigTableId="4";
-                if(globalParent&&globalRowProject is not null&&compoundTargetParent!="physical")
+                if(globalParent&&(globalRowProject is not null||projectTargetGlobalParent)&&compoundTargetParent!="physical")
                 {
                     var error=Assert.ThrowsAny<InvalidOperationException>(()=>NonRedundantReads.MultiGlobalParentPageId(catalog,"2","201"));
                     Assert.Contains("同一真实父表",error.Message);
@@ -784,7 +824,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 targetMetadata.WhereSql=previousWhere;
                 linked.LinkConfigTableId=previousLink;
 
-                if(globalParent&&globalRowProject is not null&&compoundTargetParent is "physical" or "mixed")
+                if(globalParent&&(globalRowProject is not null||projectTargetGlobalParent)&&compoundTargetParent is "physical" or "mixed")
                 {
                     // 同一父表的不同发布页不能由两个物理外键或级联与物理外键混用。
                     var parentTable=catalog.ConfigTables.Single(table=>table.Id==previousLink);
@@ -811,7 +851,8 @@ public sealed class CascadeMultiLabelGenerationTests
 
                 if(compoundTargetParent=="physical"&&(globalRowProject is null||kind=="MultiSelectPage"&&globalParent)||
                     compoundTargetParent=="independent"&&globalRowProject==false&&kind=="MultiSelectPage"||
-                    globalCompoundSource&&compoundSourceParent=="independent"&&kind=="MultiCheckBoxDatabase")
+                    globalCompoundSource&&compoundSourceParent=="independent"&&kind=="MultiCheckBoxDatabase"||
+                    projectTargetGlobalParent&&compoundTargetParent=="independent"&&kind=="MultiCheckBoxDatabase")
                 {
                     // 发布包必须保留原弹窗和多选页真实绑定，恢复后的运行时读取仍可编译。
                     foreach(var configPage in catalog.ConfigPages)

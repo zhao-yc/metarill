@@ -19,19 +19,21 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         AdditionalTargets.Any(scope=>scope.Target.Id==columnId&&(!logicalOnly||scope.Logical));
 
     /// <summary>原多选目标页可以用多个已证明的字段匹配同一业务父记录。</summary>
-    public static MultiTargetParentScope? CompileSelectionPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)=>
-        CompilePublishedPage(catalog,table,condition,checkbox:false);
+    public static MultiTargetParentScope? CompileSelectionPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,
+        bool allowGlobalParent=false)=>
+        CompilePublishedPage(catalog,table,condition,checkbox:false,allowGlobalParent:allowGlobalParent);
 
     /// <summary>原数据库复选的实际发布页也可用已声明的自定义物理父字段。</summary>
-    public static MultiTargetParentScope? CompileCheckboxPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)=>
-        CompilePublishedPage(catalog,table,condition,checkbox:true);
+    public static MultiTargetParentScope? CompileCheckboxPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,
+        bool allowGlobalParent=false)=>
+        CompilePublishedPage(catalog,table,condition,checkbox:true,allowGlobalParent:allowGlobalParent);
 
     /// <summary>全局发布页可使用同一真实父表的物理父字段和已声明级联层位，父页由调用方逐项核对。</summary>
     public static MultiTargetParentScope? CompileGlobalPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox=false)=>
-        CompilePublishedPage(catalog,table,condition,checkbox,globalTarget:true);
+        CompilePublishedPage(catalog,table,condition,checkbox,globalTarget:true,allowGlobalParent:true);
 
     private static MultiTargetParentScope? CompilePublishedPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,
-        bool checkbox,bool globalTarget=false)
+        bool checkbox,bool globalTarget=false,bool allowGlobalParent=false)
     {
         var terms=condition.Terms.Where(ParentTerm).ToArray();
         if(terms.Length<=1)return Compile(catalog,table,condition);
@@ -42,7 +44,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
             .DistinctBy(scope=>scope.Target.Id).OrderByDescending(scope=>scope.Logical)
             .ThenBy(scope=>scope.Target.Id,StringComparer.Ordinal).ToArray();
         var parent=scopes[0];
-        if(!globalTarget&&parent.Global||scopes.Any(scope=>scope.Parent.Id!=parent.Parent.Id))throw Invalid();
+        if(parent.Global&&!allowGlobalParent||scopes.Any(scope=>scope.Parent.Id!=parent.Parent.Id))throw Invalid();
         return parent with{AdditionalTargets=scopes[1..]};
     }
 
