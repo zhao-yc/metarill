@@ -17,14 +17,20 @@ public sealed class DerivedRelationNamesTests
     [InlineData(false,false,true)]
     [InlineData(true,false,true)]
     [InlineData(false,true,true)]
-    public async Task Single_excel_applies_control_conditions(bool physical,bool logical,bool cached=false)
+    [InlineData(false,false,true,true)]
+    [InlineData(false,true,true,true)]
+    [InlineData(true,false,true,true)]
+    [InlineData(false,false,true,true,1)]
+    [InlineData(false,true,true,true,2)]
+    [InlineData(false,true,true,true,3)]
+    public async Task Single_excel_applies_control_conditions(bool physical,bool logical,bool cached=false,bool globalTarget=false,int globalSource=0)
     {
         const string ns="Example.SingleImportCondition";
         var catalog=Catalog("dr_selection",parentAndForm:true);
         if(cached)
         {
             catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=1;
-            if(logical)
+            if(logical||globalTarget&&!physical)
             {
                 // 冗余名称副本用实际来源行的门店归属，导入条件再绑定当前账号和工作簿字段。
                 catalog.ConfigColumns.Add(new(){Id="998",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"});
@@ -35,13 +41,31 @@ public sealed class DerivedRelationNamesTests
         var targetTable=catalog.ConfigTables.Single(table=>table.Id=="2");
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
         targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        if(globalTarget)
+        {
+            targetTable.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigTables.Single(table=>table.Id=="4").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="";
+            targetPage.WhereSql=physical?"status=1":"status=1 AND group_id=@parent_id";
+        }
+        if(globalSource!=0)
+        {
+            foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "1" or "3"))
+                table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.Id is "16" or "17" or "32"||globalSource==1&&column.Id=="12");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "16" or "17" or "32"||globalSource==1&&field.ConfigColumnId=="12");
+            if(globalSource==3)catalog.ConfigColumns.Single(column=>column.Id=="12").LogicalType="string";
+            foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+                sourcePage.OrderBy="id desc";
+        }
         var foreign=catalog.ConfigColumns.Single(column=>column.Id=="15");
         foreign.ControlKind="SelectPage";
         if(physical)
         {
             targetTable.IsRongyu=1;
-            catalog.ConfigColumns.RemoveAll(column=>column.Id=="28");
-            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="28");
+            // 物理名称场景去掉夹具遗留的上游公司下拉，只保留本次发布的单选。
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="28"||globalTarget&&column.Id=="27");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="28"||globalTarget&&field.ConfigColumnId=="27");
             var display=catalog.ConfigColumns.Single(column=>column.Id=="113");
             display.ColumnName="customer_name";
             display.Extra["columnFullName"]=JsonSerializer.SerializeToElement("customer.name");
@@ -55,9 +79,10 @@ public sealed class DerivedRelationNamesTests
                     ControlDetail=JsonSerializer.Serialize(new{sourceMode="selfTree",selfTree=new{table="dr_selection_company",parentField="parent_company_id"}})}]);
             catalog.ConfigPageColumns.Add(new(){Id="40145",ConfigPageId="401",ConfigColumnId="45"});
             catalog.ConfigPageColumns.Add(new(){Id="201216",ConfigPageId="201",ConfigColumnId="216"});
-            targetPage.WhereSql+=" AND store_id=@current_store_id";
         }
-        var whereSql="status>=1 AND group_id=@parent_id AND store_id=@current_store_id AND segment=@formParameters.segment";
+        if(logical||globalTarget&&!physical)targetPage.WhereSql+=" AND store_id=@current_store_id";
+        var whereSql="status>=1"+(globalTarget&&physical?"":" AND group_id=@parent_id")+
+            " AND store_id=@current_store_id AND segment=@formParameters.segment";
         foreign.ControlDetail=JsonSerializer.Serialize(new{pageId="201",nameField=physical?"name":"company_name",whereSql});
         var field=catalog.ConfigPageColumns.Single(column=>column.ConfigPageId=="101"&&column.ConfigColumnId=="15");
         field.Extra["isDetailShow"]=JsonSerializer.SerializeToElement(1);
@@ -84,6 +109,9 @@ public sealed class DerivedRelationNamesTests
             var import=code[at..];
             Assert.Contains("OptionsScope101_15Async(parentId,targetParentId,actor,cancellationToken,true,false)",import);
             Assert.Contains("SingleImportCondition101_15.BindVariables",import);
+            var overwrite=code[code.IndexOf("private async Task<JsonElement> ImportRelation103_15Async",StringComparison.Ordinal)..];
+            Assert.Contains("OptionsScope103_15Async(parentId,targetParentId,actor,cancellationToken,true,false)",overwrite);
+            Assert.Contains("SingleImportCondition103_15.BindVariables",overwrite);
             Assert.Contains("AccountConditionVariables.Require(actor, \"current_store_id\")",import);
             Assert.Contains("relationContext[\"segment\"]",import);
             Assert.Contains(physical?"importCondition.ApplyConstants(query,session,\"single_control_import_101_15\")":
@@ -102,8 +130,18 @@ public sealed class DerivedRelationNamesTests
             var clause=bound.GetType().GetMethod("RenderConstants",hidden)!
                 .Invoke(bound,[new Metarill.Data.MySqlDatabaseProvider(),"excel",new Func<string,string>(name=>name)])!;
             var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(clause.GetType().GetProperty("Parameters")!.GetValue(clause));
-            Assert.Equal(logical?new object?[]{1,9007199254741197L,23L,3,"不导入"}:
-                new object?[]{1,9007199254741197L,23L,3},parameters.Values);
+            var expected=new List<object?>{1};
+            if(!globalTarget||!physical)expected.Add(9007199254741197L);
+            expected.AddRange([23L,3]);
+            if(logical)expected.Add("不导入");
+            Assert.Equal(expected,parameters.Values);
+            if(globalSource!=0)
+            {
+                Assert.Contains("ValidateActor(actor)",code);
+                var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(assembly
+                    .GetType(ns+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains("customer_company_name",maintenance.MixedSourceColumns["dr_selection_order"]);
+            }
             if(logical)
             {
                 var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("SingleImportReadPlan101_15",staticPrivate)!.GetValue(null));

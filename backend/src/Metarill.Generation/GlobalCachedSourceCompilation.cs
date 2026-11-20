@@ -87,7 +87,8 @@ internal static class GlobalCachedSourceCompilation
                 value.ValueKind is JsonValueKind.String or JsonValueKind.Number&&
                 (string.IsNullOrWhiteSpace(value.ToString())||value.ToString()==expected);
 
-            if(baseline==(effective with{ButtonText=baseline.ButtonText})&&
+            // 单选的附加条件只用于来源页 Excel，编译时仍逐页证明字段、值及父范围。
+            if(baseline==(effective with{ButtonText=baseline.ButtonText,WhereSql=baseline.WhereSql})&&
                 Matches("tableId",binding.Target.Id)&&Matches("table",binding.Target.TableName))return;
         }
 

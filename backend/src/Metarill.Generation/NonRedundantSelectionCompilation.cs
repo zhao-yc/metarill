@@ -36,8 +36,8 @@ internal static class NonRedundantSelectionCompilation
         RelationConditionModel? importCondition=null;
         if(!FixedPageQueryCompilation.TryProveSelection(query,definition,out var reason))
         {
-            // 项目内冗余表也可按已证明的物理外键和同一发布页解析导入条件。
-            if(table.Source.IsRongyu!=0&&(table.IsGlobal||target.IsGlobal)||string.IsNullOrWhiteSpace(definition.WhereSql))
+            // 上文已证明物理外键和发布范围；附加条件只收紧 Excel 的名称反查。
+            if(string.IsNullOrWhiteSpace(definition.WhereSql))
                 throw new InvalidOperationException(reason);
             if(!FixedPageQueryCompilation.TryProveSelection(query,definition with{WhereSql=""},out var orderReason))
                 throw new InvalidOperationException(orderReason);
