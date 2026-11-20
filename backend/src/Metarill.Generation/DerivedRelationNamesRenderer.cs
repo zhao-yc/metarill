@@ -36,7 +36,7 @@ internal static class DerivedRelationNamesRenderer
                 ? $"CompileProjectRelation({Literal(relation.Target.Source.Id)}"
                 : NonRedundantReadCompilation.RelationPlanStart(relation.Target, relation.TargetPage);
         var projectTargetArgument=NonRedundantReadCompilation.SingleTargetArgument(projectTargets,logical||globalExact?"singleTargets":null);
-        var outputs = "new string[]{\"id\"," + Literal(name) + "}";
+        var outputs = relation.NameColumn.IsId?"new string[]{\"id\"}":"new string[]{\"id\"," + Literal(name) + "}";
         var fields = "new string[]{ " + string.Join(",", dependencies.Select(Literal)) + " }";
         // 精确过滤只引入目标页匹配字段所在路径，共享分支仍由同一个整组计划验证。
         var additionalFields=exact is not null&&(globalExact||embeddedParent)&&projection is {HasLogicalFields:true}
@@ -50,7 +50,8 @@ internal static class DerivedRelationNamesRenderer
             var compiler = projectTargets.Count == 0 ? "CompileCross" : "CompileProjectPage";
             plan = $"{compiler}({Literal(relation.Target.Source.Id)},{outputs},{fields}{crossArgument}{projectTargetArgument})";
         }
-        var label = MultiSelectExcelRenderer.LabelText(relation.NameColumn, $"NonRedundantReads.Value<{relation.NameColumn.Type}>(row,{Literal(name)})");
+        var label = relation.NameColumn.IsId?"id.ToString(CultureInfo.InvariantCulture)":
+            MultiSelectExcelRenderer.LabelText(relation.NameColumn, $"NonRedundantReads.Value<{relation.NameColumn.Type}>(row,{Literal(name)})");
         var search = relation.NameColumn.Source.LogicalType switch
         {
             "int32" or "int64" => "IntegerLabelContains",
@@ -59,7 +60,7 @@ internal static class DerivedRelationNamesRenderer
         };
         var order = relation.OptionsOrder is { } ordering
             ? string.Join(", ", ordering.Select(item => $"new({Literal(item.Column.Source.ColumnName)}, {(item.Descending ? "true" : "false")})"))
-            : $"new({Literal(name)}), new(\"id\")";
+            : relation.NameColumn.IsId?"new(\"id\")":$"new({Literal(name)}), new(\"id\")";
         var filters=string.Join("\n",relation.TargetPage.Scopes.Concat(relation.Scopes).DistinctBy(scope=>scope.Column.Source.Id).Select(scope=>"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+ScopeValue(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));"));
         var same=ControlRenderer.RelationContext(page,relation,false).SameParent;
         var variables=relation.Conditions is not{} condition?"":RelationConditionsCompilation.Variables(condition,"targetParentId");

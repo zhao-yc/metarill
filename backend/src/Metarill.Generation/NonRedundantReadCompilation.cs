@@ -207,6 +207,7 @@ internal static partial class NonRedundantReadCompilation
             if(nameField=="id"||!relation.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal))continue;
             var target=ForeignValidationRenderer.Target(model,relation)??throw new InvalidOperationException("关联目标缺少已接通的固定候选来源。");
             ValidateTargetDeclarations(model,relation,target);
+            if(NonRedundantSelectionCompilation.DisplaysId(model,page,relation))continue;
             var display=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==nameField);
             if(display is null)throw new InvalidOperationException("未知名称候选仍待完整接线。");
             if(target.IsGlobal)_=GlobalSingleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);

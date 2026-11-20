@@ -135,7 +135,8 @@ internal static class ControlRenderer
         var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);
         if (fixedCatalog.Declared) return fixedCatalog.Definition is not null ? Wrap("<text>受控模板版本候选</text>") : new("", fixedCatalog.Reason);
         if (UsesScalarCheckboxFilter(column)) return Wrap(""); // 原多选组件由列表模板渲染。
-        if (SelectionNameFilterCompilation.UsesMultiIdTextInput(model,page,column))
+        if (SelectionNameFilterCompilation.UsesMultiIdTextInput(model,page,column)||
+            NonRedundantSelectionCompilation.DisplaysId(model,page,column))
             return Wrap(""); // 原模板继续渲染 ID 文本筛选框。
         if (UsesMultiIdCheckboxFilter(column))
         {

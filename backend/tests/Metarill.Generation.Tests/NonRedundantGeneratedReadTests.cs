@@ -164,6 +164,71 @@ public sealed class NonRedundantGeneratedReadTests
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
+    /// <summary>原单选用 ID 显示时，原筛选和 Excel 使用物理外键并保留独立目标父范围。</summary>
+    [Theory]
+    [InlineData(0,1)]
+    [InlineData(0,0)]
+    [InlineData(1,1)]
+    public async Task Single_id_display_preserves_exact_web_filter_and_excel(int storage,int targetStorage)
+    {
+        var catalog=NonRedundantApplicationFixture.Catalog("mt_single_id");
+        catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=storage;
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=targetStorage;
+        // R1 对照保留原名称缓存，本用例只在 ID 页开启筛选。
+        if(storage==1)
+            foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId=="15"))
+                field.Extra.Remove("isSearch");
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId is "104" or "105"&&field.ConfigColumnId=="15"))
+            field.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"id"}""");
+        var page=catalog.ConfigPages.Single(page=>page.Id=="104");page.IsExport=1;
+        page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(targetStorage==0?"list":"edit");
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId=="15")
+            .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        const string ns="Example.SingleIdDisplay";
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(table=>table.Source.Id=="1");
+        var actual=table.Pages.Single(page=>page.Source.Id=="104");
+        Assert.Empty(SelectionNameFilterCompilation.ForPage(model,table,actual).Gaps);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var root=Path.Combine(Path.GetTempPath(),"metarill-single-id",Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(root,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var list=await File.ReadAllTextAsync(Path.Combine(generated,"frontend/pages/yzp/mt_single_id_order-list-104.vue"));
+            Assert.Contains("filters.customerId",list);
+            Assert.DoesNotContain("filters.customerName",list);
+            var detail=await File.ReadAllTextAsync(Path.Combine(generated,"frontend/pages/yzp/mt_single_id_order-detail-104.vue"));
+            Assert.Contains("selected-name-field=\"id\"",detail);
+            Assert.Contains("readonlyDisplayText(entity.customerId)",detail);
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtSingleIdOrderService.g.cs"));
+            Assert.Contains("case \"customerId\":",service);
+            Assert.Contains("ImportRelation105_15Async",service);
+            Assert.Contains("namesCustomerId",service);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            var serviceType=assembly.GetType(ns+".Generated.Services.MtSingleIdOrderService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
+            if(storage==0)
+            {
+                var request=new Metarill.Core.Contracts.PageRequest
+                {
+                    Filters=new(){{"customerId",JsonSerializer.SerializeToElement("9007199254740993")}}
+                };
+                var actor=new Metarill.Core.Security.RuntimeActor(1,"单选 ID",false,catalog.YzProjectId,"5");
+                var filters=(IReadOnlyList<Metarill.Data.Queries.FixedReadFilter>)serviceType
+                    .GetMethod("ReadFilters104",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!
+                    .Invoke(null,[request,actor])!;
+                var filter=Assert.Single(filters,item=>item.Field=="customer_id");
+                Assert.Equal(Metarill.Data.Queries.FixedReadComparison.Equal,filter.Comparison);
+                Assert.Equal(9007199254740993L,Assert.IsType<long>(filter.Value));
+            }
+            var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),
+                ns,NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+        }
+        finally{if(Directory.Exists(root))Directory.Delete(root,true);}
+    }
+
     /// <summary>未接线原功能不能以静默退化方式生成；公开完整包仍保留能力门槛。</summary>
     [Theory]
     [InlineData("customImport")][InlineData("global")][InlineData("select")][InlineData("filterType")][InlineData("conflictingTarget")][InlineData("effectiveOverride")]

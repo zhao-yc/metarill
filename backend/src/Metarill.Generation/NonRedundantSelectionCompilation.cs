@@ -26,11 +26,13 @@ internal static class NonRedundantSelectionCompilation
         if (name is null || name.IsJsonArray || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id) ||
             ManagerCredentialCompilation.IsCredential(target, name))
             throw new InvalidOperationException("非冗余单选目标名称必须是已开放的非凭据标量。");
-        var displayOverride=definition.NameField==baseline.NameField?null:
+        var idLabel=name.IsId&&name.Type=="long"&&!table.IsGlobal&&!target.IsGlobal;
+        // 主键展示沿来源外键协议；即使覆盖表级名称也无需新的辅助名称列。
+        var displayOverride=idLabel||definition.NameField==baseline.NameField?null:
             NonRedundantReadCompilation.PageSingleDisplayOverride(model,table,source,target,name)??
             throw new InvalidOperationException("非冗余单选页级名称必须是同一目标的物理文本，且沿用原辅助属性。");
         var typedName = DerivedRelationNamesCompilation.IsTypedName(model, table, target, name);
-        if (name.Type != "string?" && !typedName)
+        if (name.Type != "string?" && !typedName && !idLabel)
             throw new InvalidOperationException("非冗余单选目标名称必须是已证明的单值标量。");
         if(!NonRedundantReadCompilation.Physical(model,target,name))DerivedRelationNamesCompilation.RequireSelection(model,table,target,targetPage,name);
         if(target.IsGlobal){var proof=cached?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalSingleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)throw new InvalidOperationException("全局单选页面和名称来源不一致。");}
@@ -49,10 +51,29 @@ internal static class NonRedundantSelectionCompilation
         }
         var selection=new NonRedundantSelectionModel(target,targetPage,name,definition,importCondition,displayOverride);
         var display=SelectionDisplayFieldCompilation.AutomaticSingle(table,source,name)??SelectionDisplayFieldCompilation.Resolve(table,source);
-        if (displayOverride is null && (typedName || display.Source.Id != source.Source.Id) && !IsDisplay(source,display,name))
+        if (!idLabel && displayOverride is null && (typedName || display.Source.Id != source.Source.Id) && !IsDisplay(source,display,name))
             throw new InvalidOperationException("非冗余单选辅助名称与真实外键、名称路径或类型不一致。");
         return selection;
     }
+    /// <summary>列表和筛选仅采用已证明的单选主键显示。功能表和固定全局目录沿既有入口。</summary>
+    internal static bool DisplaysId(GenerationModel model,PageModel page,ColumnModel source)
+    {
+        if(source.Source.ControlKind!="SelectPage"||source.Type!="long?")return false;
+        var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
+        if(owner.Source.IsFunctionTable!=0)return false;
+        var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
+        try
+        {
+            return SelectionControlDefinition.Resolve(source,field).NameField=="id" &&
+                Resolve(model,owner,page,source).Name.IsId;
+        }
+        catch(Exception error) when(error is System.Text.Json.JsonException or InvalidOperationException or ArgumentException)
+        {
+            // 证明失败时沿现有名称筛选诊断，不切换到普通 ID 查询。
+            return false;
+        }
+    }
+
     /// <summary>原名称筛选键只接受指向同一外键/名称的显式联接列，避免借别的派生列改变筛选含义。</summary>
     internal static bool IsDisplay(ColumnModel source, ColumnModel storage, ColumnModel name)
     {

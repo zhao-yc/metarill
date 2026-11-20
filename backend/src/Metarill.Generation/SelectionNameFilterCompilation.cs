@@ -141,7 +141,7 @@ internal static class SelectionNameFilterCompilation
     internal static bool UsesNameInput(GenerationModel model,PageModel page,ColumnModel column)
         => !ControlRenderer.HasCheckboxArrayFilter(column)&&
             EffectiveFilterKind(model,page,column) is ("SelectPage" or "MultiSelectPage")&&
-            !UsesMultiIdTextInput(model,page,column);
+            !UsesMultiIdTextInput(model,page,column)&&!NonRedundantSelectionCompilation.DisplaysId(model,page,column);
 
     /// <summary>原纯 ID 显示页的文本框提交物理 ID 数组键，由普通原文筛选合同处理。</summary>
     internal static bool UsesMultiIdTextInput(GenerationModel model,PageModel page,ColumnModel column)

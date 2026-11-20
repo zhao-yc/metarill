@@ -98,7 +98,7 @@ internal static class RelationCompilation
             var name = selection?.Name ?? target.Columns.SingleOrDefault(c => c.Source.ColumnName == Mapped("nameField", "name"));
             if (name is null) continue;
             var typedName = DerivedRelationNamesCompilation.IsTypedName(model, owner, target, name);
-            if (name.Type != "string?" && !typedName) continue;
+            if (name.Type != "string?" && !typedName && selection?.Name.IsId!=true) continue;
             if (ManagerCredentialCompilation.IsCredential(target,name)) throw new InvalidOperationException("账号凭据不能作为关系名称、候选或导出读取列。");
             var targetPage = selection?.TargetPage ?? (functionPageId.Length > 0
                 ? target.Pages.Single(candidate => candidate.Source.Id == functionPageId)

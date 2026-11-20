@@ -103,7 +103,7 @@ internal static class DerivedRelationNamesCompilation
     /// <summary>名称投影和目标逻辑条件共用固定读取，物理名称也执行同样的精确权限。</summary>
     internal static bool UsesFixedRead(GenerationModel model, RelationModel relation) =>
         relation.FixedParent is {AdditionalTargets.Count:>0} || UsesExactSingle(relation) || UsesSelfTreeExact(relation) || Declared(model, relation) ||
-        IsPhysicalTypedName(model, relation.Target, relation.NameColumn) ||
+        IsPhysicalTypedName(model, relation.Target, relation.NameColumn) || relation.NameColumn.IsId ||
         relation.FunctionForm && (relation.Target.IsGlobal || relation.TargetParents.Count > 0 ||
             ExactDataManageCompilation.Declared(relation.TargetPage) ||
             RelationCompilation.HasFixedTargetScope(relation.Target, relation.TargetPage) || UsesLogicalPage(relation));
@@ -116,7 +116,7 @@ internal static class DerivedRelationNamesCompilation
     /// <summary>普通冗余目标的固定候选只能读取物理列及已发布的父范围。</summary>
     internal static bool UsesPhysicalPlan(GenerationModel model, RelationModel relation) =>
         relation.Target.Source.IsRongyu == 1 && (relation.FunctionForm || UsesExactSingle(relation) ||
-            IsPhysicalTypedName(model, relation.Target, relation.NameColumn));
+            relation.NameColumn.IsId || IsPhysicalTypedName(model, relation.Target, relation.NameColumn));
 
     /// <summary>物理名称仍使用真实声明类型作为 SQL 投影和精确反查的参数类型。</summary>
     internal static bool IsPhysicalTypedName(GenerationModel model, TableModel target, ColumnModel name) =>
@@ -135,7 +135,7 @@ internal static class DerivedRelationNamesCompilation
 
     /// <summary>日期与日期时间有相同的 CLR 类型，终点校验直接比较声明的逻辑类型。</summary>
     internal static string NameType(ColumnModel name) =>
-        name.Type == "string?" ? "string" : IsTypedLabel(name) ? name.Source.LogicalType :
+        name.Type == "string?" ? "string" : name.IsId||IsTypedLabel(name) ? name.Source.LogicalType :
         throw new InvalidOperationException("关系名称不是已接通的标量类型。");
 
     /// <summary>隐藏字段也保留表级派生目标证明，仅用于内部最终值校验，不新增公开路由。</summary>
@@ -200,7 +200,7 @@ internal static class DerivedRelationNamesCompilation
         if(!(relation.FunctionForm||scopedGlobalCache||typedName&&owner.IsGlobal)&&!SupportedOwner(model,owner)||
             relation.SourceColumn.Source.ControlKind is not("List" or "SelectPage")||
             target.Source.IsRongyu!=0&&!UsesPhysicalPlan(model,relation)||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
-            name.Type != "string?" && !typedName || name.IsJsonArray || relation.ParentBinding?.Declared==true||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage)&&relation.FixedParent is not {Logical:true})
+            name.Type != "string?" && !typedName && !name.IsId || name.IsJsonArray || relation.ParentBinding?.Declared==true||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage)&&relation.FixedParent is not {Logical:true})
             throw new InvalidOperationException("固定名称关系要求已发布来源、物理标量或已证明的派生目标及候选范围。");
         if ((typedName||UsesExactSingle(relation)) && !relation.FunctionForm &&
             ForeignValidationRenderer.Target(model, relation.SourceColumn)?.Source.Id != target.Source.Id)
@@ -236,7 +236,7 @@ internal static class DerivedRelationNamesCompilation
             .Concat(UsesExactSingle(relation)?relation.ImportCondition?.Syntax.Fields??[]:[])
             .Concat(["id", name.Source.ColumnName]).Concat(exact is null ? [] : new[] { exact.Column.Source.ColumnName })
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var outputs = new[] { "id", name.Source.ColumnName };
+        var outputs = name.IsId?new[]{"id"}:new[]{"id",name.Source.ColumnName};
         var projectTargets=ProjectCandidateTargets(model,relation,exact);
         var plan = IsGlobalExactSingle(relation)
             ? NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,target.Source.Id,relation.TargetPage.Source.Id,
