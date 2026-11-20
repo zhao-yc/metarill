@@ -1,4 +1,7 @@
+using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Metarill.Data.Queries;
 using Metarill.Core.Metadata;
 using Metarill.Runtime.Files;
 using Xunit;
@@ -13,6 +16,69 @@ public sealed class SharedCrossFilesGenerationTests
     {
         var c=SharedCrossParentGenerationTests.Catalog(prefix,type,parent,shorter,derived);c.ConfigColumns.Add(new(){Id="9001",YzProjectId=c.YzProjectId,ConfigTableId="2",ColumnName="attachments",Name="附件",LogicalType="string",ColumnLength="max",ControlKind="FileLibrary",ControlDetail="{\"accessMode\":\"PROTECTED\",\"maxCount\":3}"});foreach(var page in c.ConfigPages.Where(p=>p.ConfigTableId=="2"))c.ConfigPageColumns.Add(new(){Id=page.Id+"9001",YzProjectId=c.YzProjectId,ConfigPageId=page.Id,ConfigColumnId="9001",IsShow=1,IsEdit=1});if(physicalDelete){var deleted=c.ConfigColumns.Single(x=>x.ConfigTableId=="2"&&x.ColumnName=="delete_no");c.ConfigColumns.Remove(deleted);c.ConfigPageColumns.RemoveAll(x=>x.ConfigColumnId==deleted.Id);}return c;
     }
+    /// <summary>共享父子页可同时用独立级联或自树叶名做数据授权，完整包发布原附件范围。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Full_shared_file_independent_exact_path_builds(bool selfTree)
+    {
+        var catalog=Catalog("shared_parent","int64","int64");
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="202");
+        var cascade=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        var definition=JsonNode.Parse(cascade.ControlDetail)!;
+        var targetId=cascade.LinkConfigTableId;
+        var pathColumn="isolated_place_id";
+        var match="isolatedCountryName";
+        if(selfTree)
+        {
+            targetId="3";
+            pathColumn="tree_id";
+            match="treeName";
+            catalog.ConfigColumns.Add(new(){Id="9502",YzProjectId=catalog.YzProjectId,ConfigTableId=targetId,
+                ColumnName="upstream_id",LogicalType="int64",LinkConfigTableId=targetId});
+            catalog.ConfigPageColumns.Add(new(){Id="3019502",YzProjectId=catalog.YzProjectId,
+                ConfigPageId="301",ConfigColumnId="9502",IsShow=1});
+            definition=JsonSerializer.SerializeToNode(new{sourceMode="selfTree",selfTree=new
+            {
+                table="shared_parent_country",idField="id",nameField="name",parentField="upstream_id",rootMode="blank"
+            }})!;
+        }
+        else
+        {
+            foreach(var level in definition["levels"]!.AsArray())
+                level!["columnPrefix"]="isolated_"+level["columnPrefix"]!.GetValue<string>();
+        }
+        catalog.ConfigColumns.Add(new(){Id="9501",YzProjectId=catalog.YzProjectId,ConfigTableId="2",ColumnName=pathColumn,
+            LogicalType="int64",LinkConfigTableId=targetId,ControlKind="CascadeTree",ControlDetail=definition.ToJsonString()});
+        catalog.ConfigPageColumns.Add(new(){Id="2029501",YzProjectId=catalog.YzProjectId,
+            ConfigPageId=sourcePage.Id,ConfigColumnId="9501",IsShow=1,IsEdit=1});
+        sourcePage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(match);
+        catalog.YzAdminTypes.Single(item=>item.Id=="5").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-files-exact");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,"Example.SharedFileExact",NonRedundantApplicationFixture.Root());
+            foreach(var operation in new[]{"restore","build"})
+                await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+            var metadata=await File.ReadAllTextAsync(Path.Combine(directory,"backend/metadata/project.json"));
+            var published=JsonSerializer.Deserialize<MetadataCatalog>(metadata,new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            var context=new FileMetadataContext([published]);
+            var frozen=Assert.Single(context.Catalogs);
+            var page=frozen.ConfigPages.Single(item=>item.Id==sourcePage.Id);
+            var attachment=frozen.ConfigColumns.Single(item=>item.Id=="9001");
+            var compiled=typeof(FileMetadataContext).GetMethod("DerivedExactPlan",BindingFlags.Instance|BindingFlags.NonPublic);
+            Assert.NotNull(compiled);
+            var plan=Assert.IsType<NonRedundantReadPlan>(compiled.Invoke(context,[frozen,page,attachment]));
+            Assert.Contains("country_id",plan.OutputTypes.Keys);
+            Assert.Contains("attachments",plan.OutputTypes.Keys);
+            Assert.DoesNotContain(selfTree?"tree_name":"isolated_country_name",plan.OutputTypes.Keys);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+
     /// <summary>普通、短主叶和派生目标三种Full实际更新、保护手写partial并核对原文件上下文／挂载级联组件。</summary>
     [Theory][InlineData(false,false,false)][InlineData(true,false,true)][InlineData(false,true,false)]
     public async Task Full_shared_file_packages_build_update_and_keep_original_controls(bool shorter,bool derived,bool physicalDelete)

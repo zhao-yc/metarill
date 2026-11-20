@@ -37,8 +37,20 @@ internal sealed class FileSharedCrossParentScope
         if(!FileReferenceReadAuthorization.IsScalarExactField(column))return false;
         // 与实际授权使用相同的逻辑类型转换，编译阶段不读取账号值。
         _=ExactDataManageValues.Unrestricted.ReadLogical(column.LogicalType);
-        return NonRedundantReads.SharedExactGroup(catalog,table,column.ColumnName) is not null||
-            MetadataStoragePolicy.ForTable(catalog,table).IsPhysical(column);
+        if(NonRedundantReads.SharedExactGroup(catalog,table,column.ColumnName) is not null)return true;
+        if(NonRedundantReads.IndependentCrossExact(catalog,table,column.ColumnName) is {} independent)
+        {
+            var binding=FileMetadataContext.CompileIndependentExactBinding(catalog,table,page,independent);
+            var match=NonRedundantReads.CompileCrossExactMatch(catalog,table.Id,column.ColumnName,[binding]);
+            return match.OutputTypes[column.ColumnName]==column.LogicalType;
+        }
+        var declared=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(item=>item.ConfigTableId==table.Id));
+        if(CascadeTreeStorageColumns.IsLogicalNameField(table,declared,column.ColumnName))
+        {
+            var match=NonRedundantReads.CompileSelfTreeExactMatch(catalog,table.Id,page.Id);
+            return match.OutputTypes[column.ColumnName]==column.LogicalType;
+        }
+        return MetadataStoragePolicy.ForTable(catalog,table).IsPhysical(column);
     }
 
     /// <summary>在同一读快照／写事务内检查全部已存末端，拒绝实际祖先冲突；共同物理位只读取一次。</summary>

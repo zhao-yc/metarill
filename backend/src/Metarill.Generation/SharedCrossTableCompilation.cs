@@ -80,11 +80,13 @@ internal static class SharedCrossTableCompilation
                 if(table.Source.IsRongyu==0)
                 {
                     var sparse=SharedCrossTableSparseSelection.Compile(table.Source,component[0].Source.Id,model.Catalog.ConfigColumns.Where(c=>c.ConfigTableId==table.Source.Id));if(sparse.Branches.Count!=plans.Count||plans.Any(p=>!sparse.BranchSelection(p.Read.Source.Source.Id).Slots.Select(s=>s.ColumnName).SequenceEqual(p.Levels.Select(l=>l.Id.Source.ColumnName),StringComparer.Ordinal)))throw new InvalidOperationException("共享R0存储与当前页面层位不一致。");
-                    // 共享组只核对字段归属；独立标量联接由精确权限编译器在完整组建立后证明。
+                    // 共享组只核对字段归属，独立匹配路径由精确权限编译器在组建立后证明。
                     if(ExactDataManageCompilation.MatchColumn(table,page) is{} exact&&
                         storage.Kind(exact.Source) is not (MetadataFieldStorage.Physical or MetadataFieldStorage.Join)&&
-                        Metarill.Data.Queries.NonRedundantReads.SharedExactGroup(model.Catalog,table.Source,exact.Source.ColumnName) is null)
-                        throw new NotSupportedException("共享R0精确权限需要物理标量、已声明联接或固定共享级联字段。");
+                        Metarill.Data.Queries.NonRedundantReads.SharedExactGroup(model.Catalog,table.Source,exact.Source.ColumnName) is null&&
+                        Metarill.Data.Queries.NonRedundantReads.IndependentCrossExact(model.Catalog,table.Source,exact.Source.ColumnName,page.Source) is null&&
+                        NonRedundantReadCompilation.SelfTreeExactColumn(table,page) is null)
+                        throw new NotSupportedException("共享R0精确权限需要已证明的物理标量、联接或级联字段。");
                 }
                 if(table.Source.IsRongyu==0)SharedCrossTableParentCompilation.Require(model,table,page);
                 groups.Add(new(plans,new SharedCrossTableCoordinator(branches)));

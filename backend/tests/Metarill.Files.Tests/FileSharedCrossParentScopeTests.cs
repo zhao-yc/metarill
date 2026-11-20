@@ -50,6 +50,66 @@ public sealed class FileSharedCrossParentScopeTests
         Assert.Equal(derived,exact.Shared);
     }
 
+    /// <summary>共享逻辑父与独立级联或自树的精确匹配各自核验，并保留真实稀疏存储槽。</summary>
+    [Theory]
+    [InlineData("isolatedCountryName","string",false)]
+    [InlineData("isolatedPlaceId","int64",false)]
+    [InlineData("treeName","string",false)]
+    [InlineData("isolatedCountryName","string",true)]
+    [InlineData("treeName","string",true)]
+    public void Shared_file_parent_supports_another_published_exact_path(string field,string type,bool changedShape)
+    {
+        var catalog=Catalog(type,"int64");
+        var page=catalog.ConfigPages.Single(item=>item.Id=="102");
+        catalog.YzAdminTypes.Add(new(){Id="900",YzProjectId=catalog.YzProjectId});
+        foreach(var item in catalog.ConfigPages)item.YzAdminTypeId="900";
+        page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(field);
+        var selfTree=field=="treeName";
+        JsonNode definition;
+        if(selfTree)
+        {
+            catalog.ConfigColumns.Add(new(){Id="28",YzProjectId="1",ConfigTableId="2",ColumnName="parent_file_shared_country_id",
+                LogicalType="int64",LinkConfigTableId="2"});
+            catalog.ConfigPageColumns.Add(new(){Id="20128",YzProjectId="1",ConfigPageId="201",ConfigColumnId="28",IsShow=1});
+            definition=JsonNode.Parse("""{"sourceMode":"selfTree","selfTree":{"table":"file_shared_country","idField":"id","nameField":"name","parentField":"parent_file_shared_country_id","rootMode":"blank"}}""")!;
+        }
+        else
+        {
+            definition=JsonNode.Parse(catalog.ConfigColumns.Single(item=>item.Id=="15").ControlDetail)!;
+            foreach(var level in definition["levels"]!.AsArray())level!["columnPrefix"]="isolated_"+level["columnPrefix"]!.GetValue<string>();
+        }
+        catalog.ConfigColumns.Add(new(){Id="19",YzProjectId="1",ConfigTableId="1",ControlKind="CascadeTree",
+            ColumnName=selfTree?"tree_id":"isolated_place_id",LinkConfigTableId=selfTree?"2":"4",LogicalType=type,ControlDetail=definition.ToJsonString()});
+        var fieldPage=new PageColumnMetadata{Id="10219",YzProjectId="1",ConfigPageId=page.Id,ConfigColumnId="19",IsEdit=1};
+        catalog.ConfigPageColumns.Add(fieldPage);
+        if(changedShape)
+        {
+            if(selfTree)definition["selfTree"]!["parentField"]="id";
+            else definition["levels"]![1]!["parentField"]="id";
+            fieldPage.Extra["controlDetail"]=JsonSerializer.SerializeToElement(definition.ToJsonString());
+        }
+
+        var context=new FileMetadataContext([catalog]);
+        var frozen=context.Catalogs.Single();
+        var source=frozen.ConfigPages.Single(item=>item.Id==page.Id);
+        if(changedShape)
+        {
+            Assert.Throws<NotSupportedException>(()=>context.PageScope(frozen,source));
+            return;
+        }
+        var parent=Assert.Single(context.PageScope(frozen,source).Crosses);
+        Assert.True(parent.IsShared);
+        var exact=context.ExactField(frozen,source);
+        Assert.True(exact.Derived);
+        Assert.Equal(!selfTree,exact.Shared);
+        Assert.Equal(selfTree,exact.SelfTree);
+        var plan=Assert.IsType<NonRedundantReadPlan>(context.DerivedExactPlan(frozen,source,
+            frozen.ConfigColumns.Single(item=>item.ColumnName=="attachments")));
+        Assert.Contains("attachments",plan.OutputTypes.Keys);
+        Assert.All(parent.StorageNames,name=>Assert.Contains(name,plan.OutputTypes.Keys));
+        Assert.DoesNotContain(exact.Column.ColumnName,plan.OutputTypes.Keys);
+    }
+
     /// <summary>展示分隔符不参与文件父身份；同一页修改目标父键仍须关闭整个范围。</summary>
     [Theory]
     [InlineData("single")]
