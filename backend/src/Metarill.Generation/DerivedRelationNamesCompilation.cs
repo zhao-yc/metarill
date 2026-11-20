@@ -16,7 +16,9 @@ internal static class DerivedRelationNamesCompilation
 
     /// <summary>原单值控件按实际项目内目标页执行已声明的精确权限。</summary>
     internal static bool UsesExactSingle(RelationModel relation)=>
-        relation.SourceColumn.Source.ControlKind is "List" or "SelectPage"&&UsesExactSingleTarget(relation.Target,relation.TargetPage);
+        relation.SourceColumn.Source.ControlKind is "List" or "SelectPage"&&
+        (UsesExactSingleTarget(relation.Target,relation.TargetPage)||relation.SourceColumn.Source.ControlKind=="SelectPage"&&
+            GlobalCrossTableTarget.DeclaresExactSingle(relation.Target.Source,relation.TargetPage.Source));
 
     /// <summary>隐藏单值外键也使用实际目标页范围，供写入登记复用。</summary>
     internal static bool UsesExactSingleTarget(TableModel target,PageModel page)=>
@@ -146,15 +148,17 @@ internal static class DerivedRelationNamesCompilation
     /// <summary>type=1 单选独立证明目标；名称必须落到与声明类型一致的非凭据标量。</summary>
     internal static void RequireSelection(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name)
     {
-        var fixedParent=SingleParent(model,target,page);
+        var globalExact=GlobalCrossTableTarget.DeclaresExactSingle(target.Source,page.Source);
+        var fixedParent=globalExact?null:SingleParent(model,target,page);
         var globalCached=owner.IsGlobal&&owner.Source.IsRongyu==1&&GlobalCachedSourceCompilation.ForModel(model)
             .Any(binding=>binding.Source.Source.Id==owner.Source.Id&&binding.ScopedSingle&&binding.Page.Source.Id==page.Source.Id);
-        if(!(globalCached||SupportedOwner(model,owner))||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!IsTypedName(model,owner,target,name)||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)&&(owner.IsGlobal||target.IsGlobal)||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&fixedParent is not {Logical:true})throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");
+        if(!(globalCached||SupportedOwner(model,owner))||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!IsTypedName(model,owner,target,name)||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)&&owner.IsGlobal&&!globalExact||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&fixedParent is not {Logical:true})throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");
         if(page.Scopes.Any(scope=>scope.Column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,scope.Column)&&
             (fixedParent is not {Logical:true}||fixedParent.Target.Id!=scope.Column.Source.Id)))
             throw new InvalidOperationException("派生单选名称的目标身份与父字段必须为物理标量。");
         // 物理父范围已经由候选证明；名称继续通过下面的固定投影。
-        if (target.IsGlobal&&fixedParent is null)
+        if(globalExact)GlobalCrossTableTarget.RequireExactSingleCandidate(model.Catalog,target.Source,page.Source);
+        else if (target.IsGlobal&&fixedParent is null)
         {
             if(FixedPageConditionCompilation.HasSelfTreeFields(page))
                 GlobalCrossTableTarget.RequireScopedSelfTreeName(model.Catalog,target.Source,page.Source,name.Source);
@@ -165,7 +169,10 @@ internal static class DerivedRelationNamesCompilation
         }
         // 全局候选按当前名称读取，不借用仅允许int64路径的精确管理匹配用途。
         var exact=ExactDataManageCompilation.Resolve(model,target,page);
-        var plan=fixedParent is {Logical:true}||FixedPageConditionCompilation.HasLogicalFields(page)||exact?.SelfTree==true
+        var plan=globalExact
+            ?NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,target.Source.Id,page.Source.Id,
+                [name.Source.ColumnName],[exact!.Column.Source.ColumnName])
+            :fixedParent is {Logical:true}||FixedPageConditionCompilation.HasLogicalFields(page)||exact?.SelfTree==true
             ?CompileLogicalPage(model,target,page,[name.Source.ColumnName],[name.Source.ColumnName],
                 exact:exact)
             :HasGlobalAccountScope(target,page)
@@ -226,7 +233,10 @@ internal static class DerivedRelationNamesCompilation
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var outputs = new[] { "id", name.Source.ColumnName };
         var projectTargets=ProjectCandidateTargets(model,relation,exact);
-        var plan = UsesLogicalPage(relation)
+        var plan = IsGlobalExactSingle(relation)
+            ? NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,target.Source.Id,relation.TargetPage.Source.Id,
+                outputs,dependencies,projectTargets)
+            : UsesLogicalPage(relation)
             ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies,ProjectionCondition(relation),projectTargets,exact)
             : exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0)
             ? NonRedundantReadCompilation.CompilePage(model, target, outputs, dependencies,
@@ -243,12 +253,18 @@ internal static class DerivedRelationNamesCompilation
             throw new InvalidOperationException("关系名称必须编译为与声明一致的固定标量。");
         return dependencies;
     }
+    /// <summary>只有实际全局单选关系可以使用专门的精确候选计划。</summary>
+    internal static bool IsGlobalExactSingle(RelationModel relation)=>relation.SourceColumn.Source.ControlKind=="SelectPage"&&
+        GlobalCrossTableTarget.DeclaresExactSingle(relation.Target.Source,relation.TargetPage.Source);
+
     /// <summary>原单值候选沿目标列表授权，匹配字段及投影由实际目标页证明。</summary>
     internal static ExactDataManageModel? CandidateExact(GenerationModel model, TableModel owner, RelationModel relation)
     {
         if (!ExactDataManageCompilation.Declared(relation.TargetPage)) return null;
-        if(!UsesExactSingle(relation)||!relation.FunctionForm&&owner.IsGlobal)
+        if(!UsesExactSingle(relation)||!relation.FunctionForm&&owner.IsGlobal&&!IsGlobalExactSingle(relation))
             throw new NotSupportedException("当前派生名称目标的精确范围缺少固定候选证明。");
+        if(IsGlobalExactSingle(relation)&&relation.ImportCondition?.HasLogicalFields==true)
+            throw new NotSupportedException("全局精确单选的导入条件需要已发布的物理字段。");
         return ExactDataManageCompilation.Resolve(model, relation.Target, relation.TargetPage);
     }
 

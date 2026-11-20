@@ -19,7 +19,8 @@ internal static partial class NonRedundantReadCompilation
     /// <summary>有行归属的全局选择页及独立物理父多选使用固定全局候选。</summary>
     internal static bool GlobalSelectionPage(TableModel table,PageModel page)=>
         HasGlobalRowProject(table)&&page.Source.Extra.GetValueOrDefault("type").ToString() is "1" or "2"||
-        GlobalAccountMultiPage(table,page)||GlobalSingleParentPage(table,page);
+        GlobalAccountMultiPage(table,page)||GlobalSingleParentPage(table,page)||
+        table.Source.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source);
 
     /// <summary>原独立单选在分页和详情中使用已证明的父级以及该页实际的账号或级联条件。</summary>
     internal static bool GlobalSingleParentPage(TableModel table,PageModel page)=>
@@ -128,7 +129,9 @@ internal static partial class NonRedundantReadCompilation
     internal static NonRedundantPagePlan ForPage(GenerationModel model,TableModel table,PageModel page)
     {
         // 固定候选约束实际发布页，普通业务页可使用自己的项目条件。
-        if(HasGlobalRowProject(table))GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
+        if(GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source))
+            GlobalCrossTableTarget.RequireExactSingleCandidate(model.Catalog,table.Source,page.Source);
+        else if(HasGlobalRowProject(table))GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
         else if(table.IsGlobal&&GlobalCrossTableTarget.SingleParent(model.Catalog,table.Source,page.Source) is null)
         {
             if(GlobalAccountParentScope(table,page))
@@ -228,7 +231,9 @@ internal static partial class NonRedundantReadCompilation
         var account=compiled.RequiresAccount;
         if(GlobalSelectionPage(table,page))
         {
-            var candidate=GlobalAccountMultiPage(table,page)
+            var candidate=GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source)
+                ?NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,singleTargets)
+                :GlobalAccountMultiPage(table,page)
                 ?NonRedundantReads.CompileGlobalAccountMultiPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings,singleTargets)
                 :GlobalSingleParentPage(table,page)
                     ?NonRedundantReads.CompileGlobalSingleParentPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings,singleTargets)

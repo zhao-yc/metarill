@@ -350,6 +350,12 @@ public static class NonRedundantReads
         new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies,
             singleTargets,conditionFields,exactMultiSelection:true));
 
+    /// <summary>全局单选的结构按实际页面证明，调用端按本次授权追加类型化精确筛选。</summary>
+    public static NonRedundantReadPlan CompileGlobalExactSingleCandidate(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>
+        new(MySqlNonRedundantReadCompiler.CompileGlobalCandidate(metadata,tableId,pageId,outputs,dependencies,
+            deferCascadeNames:false,singleTargets:singleTargets,exactSingleCandidate:true));
+
     /// <summary>非冗余单选 Excel 使用实际单选页与同一固定条件编译器。</summary>
     public static NonRedundantReadPlan CompileSingleImportLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
         IReadOnlyList<string> conditionFields,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>

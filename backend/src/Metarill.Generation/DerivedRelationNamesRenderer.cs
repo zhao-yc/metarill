@@ -17,12 +17,15 @@ internal static class DerivedRelationNamesRenderer
         var validateCurrent=exact is not null||accountParent||logical||FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
         var projectTargets=DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation,exact);
         var bindParent=validateCurrent||projectTargets.Count>0?".BindAccount(actor)":"";
-        var embedsPageScope=relation.FixedParent is {Logical:true}||relation.Target.IsGlobal&&(logical||globalAccount||relation.FunctionForm);
+        var globalExact=DerivedRelationNamesCompilation.IsGlobalExactSingle(relation);
+        var embedsPageScope=globalExact||relation.FixedParent is {Logical:true}||relation.Target.IsGlobal&&(logical||globalAccount||relation.FunctionForm);
         var parentPlan = exact is not null && relation.FixedParent is { Logical: true }
             ? NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans ?? [])
             : accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var projection=DerivedRelationNamesCompilation.ProjectionCondition(relation);
-        var planStart = logical
+        var planStart = globalExact
+            ? $"CompileGlobalExactSingleCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
+            : logical
             ? DerivedRelationNamesCompilation.LogicalPagePlanStart(model,relation.Target,relation.TargetPage,projection,exact)
             : DerivedRelationNamesCompilation.UsesGlobalPlan(model, relation)
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"

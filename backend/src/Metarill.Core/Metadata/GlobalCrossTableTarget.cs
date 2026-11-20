@@ -12,6 +12,28 @@ public static class GlobalCrossTableTarget
     public static void Require(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>RequireTarget(catalog,table,page,false);
     /// <summary>单值及其候选根可另证R0实体；级联和文件父范围继续使用原R1入口。</summary>
     public static void RequireSingle(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>RequireTarget(catalog,table,page,true);
+    /// <summary>全局单选只接受实际发布的 type=1 页声明；记录权限仍由请求方校验。</summary>
+    public static bool DeclaresExactSingle(TableMetadata table,PageMetadata page)=>
+        Declared(table)&&page.Extra.GetValueOrDefault("type").ToString()=="1"&&
+        !string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
+
+    /// <summary>证明全局单选的物理权限键及发布身份，下发和实际读计划均使用此校验。</summary>
+    public static void RequireExactSingleCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
+        if(!DeclaresExactSingle(table,page)||
+            !ReferenceEquals(catalog.ConfigTables.SingleOrDefault(item=>item.Id==table.Id),table)||
+            !ReferenceEquals(catalog.ConfigPages.SingleOrDefault(item=>item.Id==page.Id),page)||
+            !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
+            throw new NotSupportedException("全局精确单选必须属于当前项目发布的单选页及后台。");
+        RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0,allowExactSingle:true);
+        var value=page.Extra["exactDataManageMatchField"];
+        var field=value.ValueKind==JsonValueKind.String?ExactDataManageValues.Field(value.GetString()):"";
+        var match=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==table.Id&&column.ColumnName==field);
+        if(match is null||!GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,table),table,match))
+            throw new NotSupportedException("全局精确单选要求已声明的非凭据物理标量匹配字段。");
+        _=ExactDataManageValues.Unrestricted.ReadLogical(match.LogicalType);
+    }
+
     /// <summary>多值仅复用目标实体资格，源数组、名称和原页面规则仍由多值专用证明核对。</summary>
     public static void RequireMultiple(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>RequireTarget(catalog,table,page,true);
     /// <summary>跨表与全局候选可绑定受限账号等值；既有其它全局关系仍要求常量。</summary>
@@ -68,7 +90,7 @@ public static class GlobalCrossTableTarget
     }
 
     /// <summary>只按明确用途开放R0，逻辑成员须在实际级联计划中进一步证明。</summary>
-    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false)
+    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false)
     {
         if(!Declared(table)||(table.IsRongyu!=1&&!(allowR0&&table.IsRongyu==0))||table.IsView!=0||table.IsFunctionTable!=0)throw new NotSupportedException("全局跨表目标要求显式声明的普通R0或R1实体。");
         if(table.IsRongyu==0)GlobalDerivedRelationSource.RequireTable(catalog,table);
@@ -95,7 +117,7 @@ public static class GlobalCrossTableTarget
                 LogicalConditionField(table,columns,column,allowLogical,allowSelfTree)||!GlobalPhysicalRelationValue.IsScalar(storage,table,column))
                 throw new NotSupportedException("全局跨表账号条件要求真实非凭据的业务归属列。");
         }
-        if(page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&!string.IsNullOrWhiteSpace(exact.ToString()))throw new NotSupportedException("全局跨表目标的精确管理范围尚未接线。");
+        if(!allowExactSingle&&page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&!string.IsNullOrWhiteSpace(exact.ToString()))throw new NotSupportedException("全局跨表目标的精确管理范围尚未接线。");
     }
     /// <summary>原跨表名称保持物理字符串或已证明R1缓存；R0实时名称由独立单值或多值用途入口分别证明。</summary>
     public static void RequireName(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata name)=>RequirePublishedName(catalog,table,page,name,false);

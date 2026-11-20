@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
 
@@ -26,6 +27,9 @@ internal static partial class BackendRenderer
                 MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null).Select(page=>(table,page))));
         var relations=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>RelationCompilation.ForPage(model,page)
             .Concat(RelationCompilation.ForPage(model,page,true,forExcel:true)))).ToArray();
+        var globalExactPages=model.Tables.SelectMany(table=>table.Pages.Where(page=>
+            GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source)).Select(page=>(table,page))).ToArray();
+        scopedPages=scopedPages.Concat(globalExactPages);
         var functionRelations = relations.Where(relation => relation.FunctionForm &&
             DerivedRelationNamesCompilation.UsesFixedRead(model, relation)).ToArray();
         var scopedRelations=relations.Where(relation=>relation.FunctionForm&&relation.Target.IsGlobal||
@@ -121,6 +125,8 @@ internal static partial class BackendRenderer
             helpers+="    /// <summary>功能表复选按实际目标页加载逻辑父级和精确匹配依赖。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileExactCheckboxParentCandidate(string tableId,string pageId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[] bindings,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileExactCheckboxParentCandidate(Snapshot,tableId,pageId,outputs,dependencies,bindings,singleTargets);\n";
         if(recursiveCandidates||scopedRelations.Any(relation=>relation.FixedParent is {Logical:true}))helpers+="    /// <summary>候选通过发布目录保留实际依赖的逻辑级联条件。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileCrossPageCandidate(string tableId,string pageId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[]? bindings=null,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(Snapshot,tableId,pageId,outputs,dependencies,bindings,singleTargets);\n";
         if(model.Tables.Any(table=>RuleRecordEntity(model,table)))helpers+="    /// <summary>规则实体保留根物理存储；父范围及条件使用同一冻结逻辑投影。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileRuleRecord(string tableId,string[] outputs,string[] storage,string[] dependencies,string[] rules,Metarill.Data.Queries.NonRedundantCrossTableScope[] bindings,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singles=null)=>Metarill.Data.Queries.NonRedundantReads.CompileRuleRecord(Snapshot,tableId,outputs,storage,bindings,dependencies,deferCascadeNames:true,logicalOutputs:rules,singleTargets:singles);\n";
+        if(globalExactPages.Length>0)
+            helpers+="    /// <summary>全局单选匹配列来自实际发布页，当前授权由生成服务绑定。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileGlobalExactSingleCandidate(string tableId,string pageId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalExactSingleCandidate(Snapshot,tableId,pageId,outputs,dependencies,singleTargets);\n";
         if(model.Tables.Any(table=>table.Pages.Any(page=>NonRedundantReadCompilation.GlobalAccountMultiPage(table,page))))
             helpers+="    /// <summary>全局多选列表、统计和已选回读沿同一个带父参数的发布计划。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileGlobalAccountMultiPage(string tableId,string pageId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[]? bindings=null,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalAccountMultiPage(Snapshot,tableId,pageId,outputs,dependencies,bindings??Array.Empty<Metarill.Data.Queries.NonRedundantCrossTableScope>(),singleTargets);\n";
         if(model.Tables.Any(table=>table.Pages.Any(page=>NonRedundantReadCompilation.GlobalSingleParentPage(table,page))))
@@ -238,7 +244,8 @@ internal static class GeneratedNonRedundantReadCatalog
         var crossCandidate=globalCandidate&&CrossTableWriteCompilation.ForService(model,table,page).Count>0;
         var listPlan=globalCandidate?NonRedundantListReadPlan(model,table,page,plan):readPlan;
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
-        var detailUsesCandidate=NonRedundantReadCompilation.GlobalSingleParentPage(table,page);
+        var globalExact=GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source);
+        var detailUsesCandidate=globalExact||NonRedundantReadCompilation.GlobalSingleParentPage(table,page);
         var logicalCondition=FixedPageConditionCompilation.HasLogicalFields(page);
         var lockScope=NonRedundantCrossParentCompilation.Enabled(model,table,page)||logicalCondition;
         // 普通写范围默认维持真实事务锁；Agent原记录预检显式选择无锁派生匹配。
@@ -254,7 +261,8 @@ internal static class GeneratedNonRedundantReadCatalog
                 .AppendLine($"    private static readonly NonRedundantReadPlan CrossConditionPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{(CrossTableWriteCompilation.ForService(model,table,page).Count>0?"CompileCross":"Compile")}({Literal(table.Source.Id)},new string[]{{\"id\"}},new string[]{{{string.Join(",",page.Condition!.Syntax.Fields.Select(Literal))}}}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)});");
         if(globalCandidate)
         {
-            var compiler=detailUsesCandidate?"CompileGlobalSingleParentPage":
+            var compiler=globalExact?"CompileGlobalExactSingleCandidate":
+                detailUsesCandidate?"CompileGlobalSingleParentPage":
                 NonRedundantReadCompilation.GlobalAccountMultiPage(table,page)?"CompileGlobalAccountMultiPage":
                 crossCandidate||FixedPageConditionCompilation.HasSelfTreeFields(page)?"CompileCrossPageCandidate":
                 CascadeTreeReadCompilation.ForService(model,table,page).Count>0?"CompileGlobalPage":"CompileGlobalCandidate";

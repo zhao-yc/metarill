@@ -653,8 +653,13 @@ public sealed class ExactDataManageGenerationTests
     [InlineData(1,0,true,false,false,true,true)]
     [InlineData(1,0,true,true,false,true)]
     [InlineData(1,0,false,false,true,true)]
+    [InlineData(0,1,false,false,false,true,true,1)]
+    [InlineData(1,1,false,false,false,true,true,2)]
+    [InlineData(0,0,false,false,false,true,true,1)]
+    [InlineData(1,0,false,false,false,true,true,2)]
+    [InlineData(1,0,false,false,true,true,false,3)]
     public async Task Single_exact_scope_uses_physical_or_joined_match(int sourceMode,int targetMode,bool joined,bool parent,bool hidden,
-        bool selection=false,bool importCondition=false)
+        bool selection=false,bool importCondition=false,int globalTarget=0)
     {
         const string ns="Example.ListExactMatch";
         var catalog=RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
@@ -667,6 +672,23 @@ public sealed class ExactDataManageGenerationTests
         var sourceField=catalog.ConfigColumns.Single(column=>column.Id=="25");
         var match=joined?"parent_name":"rank_no";
         if(!parent)sourcePage.WhereSql=targetPage.WhereSql="yz_project_id=@current_yz_project_id";
+        if(globalTarget!=0)
+        {
+            target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            targetPage.WhereSql="rank_no >= 0";
+            if(globalTarget==2)
+            {
+                var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="3"&&column.ColumnName=="yz_project_id").Id;
+                catalog.ConfigColumns.RemoveAll(column=>column.Id==project);
+                catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId==project);
+            }
+            if(globalTarget==3)
+            {
+                catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
+                    ColumnName="store_id",LogicalType="int64"});
+                targetPage.WhereSql+=" AND store_id=@current_store_id";
+            }
+        }
         var where=parent?"parent_id=@parentId AND rank_no > 0":importCondition?
             joined?"parent_name <> '排除导入'":"rank_no > 0":"";
         if(selection)
@@ -716,7 +738,7 @@ public sealed class ExactDataManageGenerationTests
             Assert.Contains("""ResolveExactDataManage("301", "list", "real_name")""",serviceText);
             Assert.Contains("actor, cancellationToken, true, false",serviceText);
             Assert.Contains(joined?"ExactDataManageSql.ApplyDerived":"ExactDataManageSql.Apply(",serviceText);
-            var visible=!hidden&&(!selection||sourceMode==0||targetMode==0&&parent);
+            var visible=!hidden&&(!selection||sourceMode==0||targetMode==0&&parent||globalTarget!=0);
             Assert.Equal(visible,serviceText.Contains("public Task<PageResult<GeneratedOption>> OptionsPage201_25Async",StringComparison.Ordinal));
             Assert.Equal(importCondition,serviceText.Contains("scope.Condition.And(importCondition)",StringComparison.Ordinal));
             if(!hidden)
@@ -731,10 +753,21 @@ public sealed class ExactDataManageGenerationTests
             var plan=Assert.IsType<NonRedundantReadPlan>(type.GetField("DerivedOptionsPlan201_25",plans)!.GetValue(null));
             Assert.Equal(new[]{"id","name"},plan.OutputTypes.Keys.Order());
             var actor=new RuntimeActor(19,"下拉权限测试",false,catalog.YzProjectId,targetPage.YzAdminTypeId){StoreId=9007199254741987};
-            if(joined)Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with {StoreId=null}));
+            if(joined||globalTarget==3)Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with {StoreId=null}));
             var mysql=typeof(NonRedundantReadPlan).GetProperty("MySql",internals)!.GetValue(plan.BindAccount(actor))!;
             var sql=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",internals)!.Invoke(mysql,[match]));
             Assert.Equal(!joined,sql=="b.`rank_no`");
+            if(globalTarget!=0)
+            {
+                Assert.Contains("CompileGlobalExactSingleCandidate(\"3\",\"301\"",serviceText);
+                var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",internals)!.GetValue(mysql));
+                Assert.DoesNotContain("yz_project_id",scope);
+                Assert.Contains("rank_no",scope);
+                // 没有精确权限接线的通用全局读取入口仍拒绝这个页面。
+                Assert.Throws<NotSupportedException>(()=>NonRedundantReads.CompileGlobalCandidate(catalog,target.Id,targetPage.Id,["id","name"]));
+                var targetCode=await File.ReadAllTextAsync(Path.Combine(generated,"Services/RelationTargetService.g.cs"));
+                Assert.Contains("ResolveExactDataManage(\"301\",",targetCode);
+            }
             if(parent)return;
             using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="metarill_business_test",
                 ConnectionString="Server=127.0.0.1;Database=metarill_business_test;User ID=unused;Password=unused;"});
@@ -750,6 +783,14 @@ public sealed class ExactDataManageGenerationTests
             Assert.Equal(FixedReadComparison.In,exact.Comparison);
             Assert.Equal(joined?(object)"只允许甲":identifier,Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<object?>>(exact.Value)));
             if(importCondition)Assert.Null(result.Condition);
+            if(globalTarget!=0)
+            {
+                Assert.Equal("list",authorization.LastOperation);
+                authorization.Value="[]";
+                var empty=await (Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)>)read.Invoke(service,
+                    [null,null,actor,CancellationToken.None,null,false])!;
+                Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<object?>>(Assert.Single(empty.Filters,item=>item.Field==match).Value));
+            }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }

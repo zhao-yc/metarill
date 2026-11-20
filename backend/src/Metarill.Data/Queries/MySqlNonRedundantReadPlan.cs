@@ -162,7 +162,7 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>全局候选页面由生成的固定树图补齐显示路径，单值候选仍直接读取标量。</summary>
     internal static MySqlNonRedundantReadPlan CompileGlobalCandidate(MetadataCatalog catalog,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string>? dependencies,bool deferCascadeNames,
-        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,bool exactSingleCandidate=false)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -174,9 +174,9 @@ public static partial class MySqlNonRedundantReadCompiler
             ??throw new InvalidOperationException("全局候选页必须属于固定目标表。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
-        if(pageType!="2"&&GlobalCrossTableTarget.SingleParent(catalog,table,page) is not null)
+        if(!exactSingleCandidate&&pageType!="2"&&GlobalCrossTableTarget.SingleParent(catalog,table,page) is not null)
             return CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies??[],accountParentPageType:pageType,singleTargets:singleTargets);
-        return new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames)
+        return new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames,exactSingleCandidate:exactSingleCandidate)
         {
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
         }.Compile(outputs,dependencies??[]);
@@ -320,7 +320,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly bool scopedPhysicalCandidate;
         private readonly IReadOnlyList<RedundantSharedParentPlan> candidateParents;
         private readonly bool accountPhysicalCandidate;
-        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false,string? cascadeLabelField=null,CascadeCacheOwner? cascadeCacheOwner=null,bool scopedPhysicalCandidate=false,IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,bool accountPhysicalCandidate=false)
+        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false,string? cascadeLabelField=null,CascadeCacheOwner? cascadeCacheOwner=null,bool scopedPhysicalCandidate=false,IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,bool accountPhysicalCandidate=false,bool exactSingleCandidate=false)
         {
             this.scopedPhysicalCandidate = scopedPhysicalCandidate;
             this.accountPhysicalCandidate=accountPhysicalCandidate;
@@ -336,7 +336,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new InvalidOperationException("固定读取要求非冗余实体表或明确发布的物理候选。");
             if (candidatePage is not null)
             {
-                if (physicalCandidate&&!accountPhysicalCandidate) GlobalCrossTableTarget.Require(catalog, root, candidatePage);
+                if (exactSingleCandidate) GlobalCrossTableTarget.RequireExactSingleCandidate(catalog,root,candidatePage);
+                else if (physicalCandidate&&!accountPhysicalCandidate) GlobalCrossTableTarget.Require(catalog, root, candidatePage);
                 else GlobalCrossTableTarget.RequireAccountCandidate(catalog, root, candidatePage);
             }
             if(tables.Values.GroupBy(table=>table.TableName,StringComparer.OrdinalIgnoreCase).Any(group=>group.Count()!=1))throw new InvalidOperationException("项目表名重复。");
@@ -401,6 +402,12 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(!HasGlobalRowProject(root)&&SelectedMultiPage is null&&candidatePage is null)
                     foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==root.Id))
                     {
+                        // 这里只证明已发布页面结构，公开请求的精确权限仍由生成服务执行。
+                        if(GlobalCrossTableTarget.DeclaresExactSingle(root,page))
+                        {
+                            GlobalCrossTableTarget.RequireExactSingleCandidate(catalog,root,page);
+                            continue;
+                        }
                         // 页面投影由生成服务另外附加自己的父筛选；任意单值读取仍须用无父参数的候选。
                         var multiPage=page.Extra.GetValueOrDefault("type").ToString()=="2"||IsScopedMultiTarget(catalog,root,page.Id)||
                             GlobalCrossTableTarget.SingleParent(catalog,root,page) is not null;

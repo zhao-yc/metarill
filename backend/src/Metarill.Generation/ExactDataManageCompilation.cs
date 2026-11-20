@@ -25,6 +25,8 @@ internal static class ExactDataManageCompilation
     internal static ExactDataManageModel? Resolve(GenerationModel model,TableModel table,PageModel page)
     {
         if(MatchColumn(table,page) is not{} column)return null;
+        if(GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source))
+            GlobalCrossTableTarget.RequireExactSingleCandidate(model.Catalog,table.Source,page.Source);
         var admin=model.Catalog.YzAdminTypes.SingleOrDefault(admin=>admin.Id==page.Source.YzAdminTypeId)??throw new InvalidOperationException("精确管理页面必须声明已发布后台。");
         if(column.IsJsonArray||column.Source.LogicalType.ToLowerInvariant()=="json")throw new NotSupportedException("精确管理的数组记录字段尚需固定范围证明。");
         var field=column.Source.ColumnName;
