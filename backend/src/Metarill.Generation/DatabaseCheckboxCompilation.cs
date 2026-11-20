@@ -232,6 +232,15 @@ internal static class DatabaseCheckboxCompilation
                 }
             }
             ColumnModel? formParent=null;
+            void BindFormParent(MultiTargetParentScope binding,MultiSourceParent owner)
+            {
+                var field=table.Columns.Single(column=>column.Source.Id==owner.Column.Id);
+                if(page.Searchable.Contains(source)&&!ControlRenderer.HasScalarSourceFilter(model,page,field))
+                    throw new InvalidOperationException("启用复选列表筛选时须开启表单父字段的标量筛选。");
+                formParent=sourceParent=field;
+                parents=[model.Tables.Single(candidate=>candidate.Source.Id==binding.Parent.Id)];
+            }
+
             // 无页面父路由时，固定目标父可绑定来源详情中唯一的真实表单外键。
             if(sharedFixedPage&&sourceScopeColumns.Length==0&&physicalParents.Length==1)
             {
@@ -240,12 +249,7 @@ internal static class DatabaseCheckboxCompilation
                 if(binding is null||binding.Global||binding.Logical||binding.Target.Id!=physicalParents[0].Column.Source.Id||
                     Protected(model.Tables.Single(candidate=>candidate.Source.Id==binding.Parent.Id)))
                     return Gap("表单父范围须绑定实际普通目标父键。");
-                var owner=binding.CheckboxSource(model.Catalog,table.Source,source.Source,page.Source,allowFormParent:true);
-                sourceParent=table.Columns.Single(column=>column.Source.Id==owner.Column.Id);
-                if(page.Searchable.Contains(source)&&!ControlRenderer.HasScalarSourceFilter(model,page,sourceParent))
-                    return Gap("启用复选列表筛选时须开启表单父字段的标量筛选。");
-                formParent=sourceParent;
-                parents=[model.Tables.Single(candidate=>candidate.Source.Id==binding.Parent.Id)];
+                BindFormParent(binding,binding.CheckboxSource(model.Catalog,table.Source,source.Source,page.Source,allowFormParent:true));
             }
             // 控件和普通目标页的物理父键都须匹配来源已证明的同一张父表。
             if(!functionForm&&physicalParents.Any(scope=>sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id))
@@ -256,8 +260,11 @@ internal static class DatabaseCheckboxCompilation
                 var binding=(target.IsGlobal
                     ?MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax,checkbox:true)
                     :MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax,allowGlobalParent:true))!;
-                var owner=pageRead?binding.Source(model.Catalog,table.Source,source.Source,page.Source)
-                    :binding.Source(model.Catalog,table.Source,source.Source);
+                var owner=sharedLogicalParentScope?binding.CheckboxSource(model.Catalog,table.Source,source.Source):
+                    pageRead?binding.Source(model.Catalog,table.Source,source.Source,page.Source):
+                    binding.Source(model.Catalog,table.Source,source.Source);
+                if(sharedLogicalParentScope&&sourceScopeColumns.Length==0)
+                    BindFormParent(binding,owner);
                 if(binding.Global)
                 {
                     _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,scopedPage.Source.Id);
@@ -328,7 +335,8 @@ internal static class DatabaseCheckboxCompilation
         if(definition.Name.Type!="string?"||definition.ExactTarget is not null||definition.Conditions is not null)
             return false;
         if(definition.SharedLogicalParentScope)
-            return !definition.LogicalSourceParent&&definition.SourceParent is not null&&definition.SourceScopeColumns.Count==1;
+            return !definition.LogicalSourceParent&&definition.SourceParent is not null&&
+                (definition.SourceScopeColumns.Count==1||definition.FormParentField is not null);
         if(definition.DerivedName)return false;
         return definition.Target.IsGlobal
             ? definition.NameTargetPage is {Scopes.Count:0} globalPage&&definition.Scopes.Count==0&&

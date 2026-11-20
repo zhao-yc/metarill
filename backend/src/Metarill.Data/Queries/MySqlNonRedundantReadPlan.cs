@@ -254,11 +254,12 @@ public static partial class MySqlNonRedundantReadCompiler
         =>CompileMultiLabel(catalog,tableId,field,outputs,dependencies,cacheOwner:null,singleTargets:singleTargets);
 
     /// <summary>发布时验证名称缓存能以来源表真实行归属独立重算。</summary>
-    internal static MySqlNonRedundantReadPlan CompileMultiLabelForCache(MetadataCatalog catalog,TableMetadata source,TableMetadata target,string field,PageMetadata? selectedPage=null,ColumnMetadata? relation=null)
-        =>CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner"),selectedPage,relation);
+    internal static MySqlNonRedundantReadPlan CompileMultiLabelForCache(MetadataCatalog catalog,TableMetadata source,TableMetadata target,
+        string field,PageMetadata? selectedPage,ColumnMetadata relation,bool sharedCheckbox)
+        =>CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner"),selectedPage,relation,sharedCheckbox:sharedCheckbox);
 
     private static MySqlNonRedundantReadPlan CompileMultiLabel(MetadataCatalog catalog,string tableId,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,CascadeCacheOwner? cacheOwner,PageMetadata? selectedPage=null,ColumnMetadata? relation=null,
-        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,bool sharedCheckbox=false)
     {
         MetadataValidation.Validate(catalog);
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("多值名称要求已发布的MySQL读取计划。");
@@ -266,8 +267,13 @@ public static partial class MySqlNonRedundantReadCompiler
             !long.TryParse(catalog.YzProjectId,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var project)||project<=0)
             throw new InvalidOperationException("多值名称的项目或输出字段无效。");
         var parent=cacheOwner is null||selectedPage is null?null:MultiParent(catalog,selectedPage,relation?.ControlKind=="MultiCheckBoxDatabase");
-        var source=parent is null?null:parent.Source(catalog,cacheOwner!.Table,
-            relation??throw new InvalidOperationException("多值缓存缺少发布关系。"));
+        MultiSourceParent? source=null;
+        if(parent is not null)
+        {
+            var publishedRelation=relation??throw new InvalidOperationException("多值缓存缺少发布关系。");
+            source=sharedCheckbox?parent.CheckboxSource(catalog,cacheOwner!.Table,publishedRelation):
+                parent.Source(catalog,cacheOwner!.Table,publishedRelation);
+        }
         if(parent is {Global:true}&&source is {AdditionalColumns.Count:>0})
             RequireCompoundGlobalSourceParent(catalog,tableId,selectedPage!.Id,source);
         return new Builder(catalog,tableId,true,multiLabel:true,cascadeLabelField:field,cascadeCacheOwner:cacheOwner)
@@ -683,7 +689,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!global&&selectedScope is not null&&checkboxPageId is {} scopedCheckboxPage)
                 _=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,table,relation,target,value,scopedCheckboxPage);
             if(control is not null||selectedScope is not null||!storage[target.Id].IsPhysical(value))
-                return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage,selectedScope,namePage,sourcePage,control);
+                return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage,selectedScope,namePage,sourcePage,control,
+                    sharedCheckbox:checkboxPageId is not null);
             var scalarLabel=typedCache||MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id]);
             if(value.LogicalType!="string"&&!scalarLabel)throw new NotSupportedException("多值物理名称类型未支持。");
             Use(table,relation);

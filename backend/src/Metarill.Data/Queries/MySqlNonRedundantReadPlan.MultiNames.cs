@@ -100,7 +100,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>派生多值名称使用独立固定别名域，联接保持在目标子查询内，不把来源扩成多行。</summary>
         private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,
             ColumnMetadata value,PageMetadata? publishedPage,PageMetadata? selectedScope,PageMetadata? namePage,PageMetadata? sourcePage,FixedConditionPlan? control,
-            (MultiTargetParentScope Target,ColumnMetadata Source)? fixedParent=null)
+            (MultiTargetParentScope Target,ColumnMetadata Source)? fixedParent=null,bool sharedCheckbox=false)
         {
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             var physicalScope=checkbox&&target.IsRongyu==1&&(fixedParent is not null||
@@ -125,6 +125,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(parent is not null&&controlParents.Any(candidate=>candidate.Parent.Id!=parent.Parent.Id))
                 throw new InvalidOperationException("复选目标页与控件必须绑定同一实际来源父表。");
             var sourceBinding=fixedParent is {} paired?new MultiSourceParent(paired.Source,[]):
+                sharedCheckbox?parent?.CheckboxSource(catalog,table,relation):
                 sourcePage is null?parent?.Source(catalog,table,relation):
                 controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage):parent?.Source(catalog,table,relation,sourcePage);
             var sourceParent=sourceBinding?.Column;

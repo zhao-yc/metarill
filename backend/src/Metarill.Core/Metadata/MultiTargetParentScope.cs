@@ -120,6 +120,10 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public MultiSourceParent Source(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,PageMetadata sourcePage)=>
         ResolveSource(catalog,source,relation,single:false,allowLogical:true,sourcePageId:sourcePage.Id);
 
+    /// <summary>共享的复选名称必须从各来源页同一个真实外键读回，独立表单页须实际开放该字段。</summary>
+    public MultiSourceParent CheckboxSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation)=>
+        ResolveSource(catalog,source,relation,single:false,allowLogical:false,checkbox:true,allowFormParent:true);
+
     /// <summary>复选仍从当前页已声明的父范围取值，支持通过关联表已明确的自定义字段名。</summary>
     public MultiSourceParent CheckboxSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,PageMetadata sourcePage,
         bool allowFormParent=false)=>

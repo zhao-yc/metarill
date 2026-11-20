@@ -377,8 +377,11 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(null,true,"current_yz_manager_id","logical")]
     [InlineData(false,false,"current_store_id","logical")]
     [InlineData(true,true,"current_yz_manager_id","physical")]
+    [InlineData(null,false,"","","form")]
+    [InlineData(false,true,"current_store_id","logical","form")]
+    [InlineData(true,false,"current_yz_manager_id","physical","mixed")]
     public async Task Redundant_checkbox_shares_names_under_a_logical_target_parent(bool? globalWithRowProject,bool explicitCheckbox,
-        string accountVariable="",string additionalParent="")
+        string accountVariable="",string additionalParent="",string formParentMode="")
     {
         const string ns="Example.CheckboxLogicalParent";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("checkbox_parent_label","string","int64");
@@ -423,6 +426,17 @@ public sealed class DatabaseCheckboxGenerationTests
                 catalog.ConfigPageColumns.Add(new(){Id="201284",ConfigPageId=targetPage.Id,ConfigColumnId="284",IsEdit=1,IsShow=1});
             }
         }
+        var usesFormParent=formParentMode.Length>0;
+        if(usesFormParent)
+        {
+            var parentField=catalog.ConfigColumns.Single(column=>column.Id=="94");
+            parentField.LogicalType="int64";
+            parentField.ColumnLength="";
+            parentField.ControlKind="List";
+            parentField.ControlDetail="""{"tableId":"3","pageId":"301","nameField":"id"}""";
+            parentField.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("301");
+            catalog.ConfigPageColumns.Add(new(){Id="30131",ConfigPageId="301",ConfigColumnId="31",IsShow=1});
+        }
         var useAccount=accountVariable.Length>0;
         var storeScope=accountVariable=="current_store_id";
         var targetOwner=storeScope?"store_id":"dictionary_owner_id";
@@ -438,8 +452,12 @@ public sealed class DatabaseCheckboxGenerationTests
         foreach(var id in new[]{"901","902"})
         {
             var aliasPage=id=="902";
+            var formParent=usesFormParent&&(formParentMode!="mixed"||aliasPage);
             var page=new PageMetadata {Id=id,ConfigTableId="9",IsImport=1,IsExport=1,
-                WhereSql="yz_project_id=@current_yz_project_id AND owner_country_id=@parentId"};
+                WhereSql="yz_project_id=@current_yz_project_id"+(formParent?"":" AND owner_country_id=@parentId")};
+            if(formParent)
+                catalog.ConfigPageColumns.Add(new(){Id=id+"94",ConfigPageId=id,ConfigColumnId="94",IsShow=1,IsEdit=1,
+                    Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
             if(useAccount)page.WhereSql+=" AND "+sourceOwner+"=@"+accountVariable;
             if(aliasPage)
             {
@@ -470,6 +488,8 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.True(resolution.Definition is not null,resolution.Reason);
             Assert.Equal("201",resolution.Definition!.LogicalTargetPage?.Source.Id);
             Assert.Equal("94",resolution.Definition.SourceParent?.Source.Id);
+            Assert.Equal(usesFormParent&&(page.Source.Id=="902"||formParentMode!="mixed")?"94":null,
+                resolution.Definition.FormParentField?.Source.Id);
             Assert.Equal(additionalParent.Length>0?2:1,resolution.Definition.Scopes.Count(scope=>scope.Source=="parent"));
         }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
@@ -498,6 +518,15 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Contains("findNameIdSelected95",detail);
             Assert.Contains("selectedAlias",list);
             Assert.Contains("selectedAlias",detail);
+            if(usesFormParent)
+            {
+                Assert.Contains("String(that.entity.ownerCountryId??'')",detail);
+                Assert.Contains("this.$watch(()=>this.entity.ownerCountryId",detail);
+                Assert.Contains("parentId:optionParent",detail);
+                Assert.Contains("\"formParentField\":\"ownerCountryId\"",list);
+                Assert.Contains("submitted.Contains(\"owner_country_id\")",code);
+                Assert.Contains("selected.Length==0&&string.IsNullOrWhiteSpace(entity.OwnerCountryId?.ToString(CultureInfo.InvariantCulture))?[]:await DerivedCheckboxRows902_95Async(entity.OwnerCountryId?.ToString(CultureInfo.InvariantCulture)",code);
+            }
 
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var type=assembly.GetType(ns+".Generated.Services.CheckboxParentLabelConsumerService",true)!;
@@ -593,7 +622,13 @@ public sealed class DatabaseCheckboxGenerationTests
                     Metarill.Data.Relations.RelationMaintenanceCatalog.CompileWithDerivedCrossTables(published,[],bindings));
                 sourcePage.WhereSql=publishedScope;
             }
-            published.ConfigPages.Single(page=>page.Id=="902").WhereSql="yz_project_id=@current_yz_project_id";
+            if(usesFormParent)
+            {
+                var savedParent=Assert.Single(published.ConfigPageColumns,field=>field.ConfigPageId=="902"&&field.ConfigColumnId=="94");
+                Assert.Equal(1,savedParent.IsEdit);
+                published.ConfigPageColumns.Remove(savedParent);
+            }
+            else published.ConfigPages.Single(page=>page.Id=="902").WhereSql="yz_project_id=@current_yz_project_id";
             Assert.Throws<InvalidOperationException>(()=>
                 Metarill.Data.Relations.RelationMaintenanceCatalog.CompileWithDerivedCrossTables(published,[],bindings));
         }

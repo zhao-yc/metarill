@@ -157,8 +157,15 @@ internal static class RelationPropagationCompilation
             var target=model.Tables.Single(table=>table.Source.Id==definition.TargetTableId);
             if(!target.IsGlobal&&!FixedPageConditionCompilation.HasMultiTargetScope(model,target,target.Pages.Single(page=>page.Source.Id==targetPage)))continue;
             fields.Add((targetPage,definition.ValueColumnId));
-            foreach(var page in model.Tables.Single(table=>table.Source.Id==definition.SourceTableId).Pages)
-                fields.Add((page.Source.Id,definition.ForeignColumnId));
+            var source=model.Tables.Single(table=>table.Source.Id==definition.SourceTableId);
+            var relation=source.Columns.Single(column=>column.Source.Id==definition.ForeignColumnId);
+            foreach(var page in source.Pages)
+            {
+                if(!fields.Add((page.Source.Id,definition.ForeignColumnId))||page.Scopes.Any(scope=>scope.Source=="parent"))continue;
+                var checkbox=DatabaseCheckboxCompilation.Resolve(model,source,page,relation,forService:true).Definition;
+                if(checkbox is {SharedLogicalParentScope:true,FormParentField:{} formParent})
+                    fields.Add((page.Source.Id,formParent.Source.Id));
+            }
         }
         return fields;
     }

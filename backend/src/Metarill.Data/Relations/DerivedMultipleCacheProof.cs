@@ -20,7 +20,13 @@ internal static class DerivedMultipleCacheProof
                 throw Invalid();
         }
         else if(global&&GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).Name.Id!=value.Id)throw Invalid();
-        if(foreign.ControlKind=="MultiCheckBoxDatabase"){RequireCheckbox(catalog,foreign,target,value,cache,checkboxTargetPageId is not null);RequireValue(catalog,source,foreign,target,value,global);return;}
+        if(foreign.ControlKind=="MultiCheckBoxDatabase")
+        {
+            var shared=checkboxTargetPageId is not null;
+            RequireCheckbox(catalog,foreign,target,value,cache,shared);
+            RequireValue(catalog,source,foreign,target,value,global,shared);
+            return;
+        }
         if(foreign.ControlKind!="MultiSelectPage")throw Invalid();using var doc=JsonDocument.Parse(foreign.ControlDetail);var root=doc.RootElement;if(root.ValueKind!=JsonValueKind.Object||root.EnumerateObject().Select(p=>p.Name).Distinct(StringComparer.Ordinal).Count()!=root.EnumerateObject().Count())throw Invalid();
         string Text(string key,string fallback="")=>!root.TryGetProperty(key,out var v)||v.ValueKind==JsonValueKind.Null?fallback:v.ValueKind==JsonValueKind.String?string.IsNullOrWhiteSpace(v.GetString())?fallback:v.GetString()!:
             v.ValueKind==JsonValueKind.Number&&key is "pageId" or "tableId"&&v.TryGetInt64(out var id)
@@ -52,7 +58,8 @@ internal static class DerivedMultipleCacheProof
     }
 
     /// <summary>缓存重算只沿已存 ID 读取名称；整数别名必须与物理终点类型相同。</summary>
-    private static void RequireValue(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,bool global)
+    private static void RequireValue(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign,TableMetadata target,
+        ColumnMetadata value,bool global,bool sharedCheckbox=false)
     {
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
         var scoped=MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign);
@@ -61,7 +68,7 @@ internal static class DerivedMultipleCacheProof
             :MultiNameStorageColumns.IsDerivedScalarLabel(target,value,storage);
         if(value.LogicalType!="string"&&!typed)throw Invalid();
         var read=global&&scoped is null?NonRedundantReads.Compile(catalog,target.Id,[value.ColumnName]).MySql:
-            MySqlNonRedundantReadCompiler.CompileMultiLabelForCache(catalog,source,target,value.ColumnName,scoped,foreign);
+            MySqlNonRedundantReadCompiler.CompileMultiLabelForCache(catalog,source,target,value.ColumnName,scoped,foreign,sharedCheckbox);
         if(read.Types[value.ColumnName]!=value.LogicalType)throw Invalid();
     }
     /// <summary>异常不包含目录原文或任何连接配置。</summary>
