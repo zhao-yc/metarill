@@ -504,7 +504,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(alias==rootAlias&&table.Id==root.Id&&refreshFields?.Contains(name)==true&&refreshMultiples.SingleOrDefault(item=>item.CacheColumnId==column?.Id) is{} refresh)
                 {
                     var foreign=columns[table.Id].Values.Single(item=>item.Id==refresh.ForeignColumnId);var target=tables[refresh.TargetTableId];var value=columns[target.Id].Values.Single(item=>item.Id==refresh.ValueColumnId);
-                    if(refresh.Multiple)return MultiDisplay(table,alias,foreign,value.ColumnName);
+                    if(refresh.Multiple)return MultiDisplay(table,alias,foreign,value.ColumnName,refresh.CheckboxTargetPageId);
                     if(refresh.ScopedSinglePageId is not null)return ScopedSingleCacheValue(table,alias,foreign,target,value,refresh);
                     if(SelfTreeCache.UsesWholePath(catalog,table,refresh.SelfTreePageId))
                         return (SelfTreeLabelExpression(table,alias,foreign,column!,refresh.SelfTreePageId),"string");
@@ -634,7 +634,7 @@ public static partial class MySqlNonRedundantReadCompiler
             finally{resolving.Remove(key);}
         }
         /// <summary>仅编译明确多选的物理ID与名称；窗口聚合按原数组顺序保留缺失目标的null位置。</summary>
-        private (string Sql,string Type) MultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,string display)
+        private (string Sql,string Type) MultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,string display,string? checkboxPageId=null)
         {
             if(matching)throw new NotSupportedException("固定单值名称路径不能穿过多值关系或数组。");
             if(!storage[table.Id].IsPhysical(relation)||relation.LogicalType!="string")throw new NotSupportedException("多值关系必须以物理字符串列存储JSON ID数组。");
@@ -678,9 +678,13 @@ public static partial class MySqlNonRedundantReadCompiler
             var source=owner+"."+Q(relation.ColumnName);
             // JSON_TYPE只在有效JSON分支求值，损坏历史值与非数组按原空集合处理，不能让JSON_TABLE整页失败。
             var array=Array(source);
-            var targetScope=publishedPage is null
-                ?Scope(target,"multi_value",projectScoped:!global)
-                :PublishedScope(target,"multi_value",publishedPage,aliasPrefix+"array"+publishedArrayScopeCount++);
+            // 普通复选维护和传播都应用同一实际发布页，仍按来源行的项目范围读取。
+            var targetScope=checkboxPageId is {} fixedPage
+                ?PublishedScope(target,"multi_value",MySqlPublishedRelationCondition.RequireProjectCheckboxPage(
+                    catalog,table,relation,target,fixedPage),aliasPrefix+"array"+publishedArrayScopeCount++,projectParent:true)
+                :publishedPage is null
+                    ?Scope(target,"multi_value",projectScoped:!global)
+                    :PublishedScope(target,"multi_value",publishedPage,aliasPrefix+"array"+publishedArrayScopeCount++);
             var expression="CAST(COALESCE((SELECT JSON_ARRAYAGG("+label+") OVER (ORDER BY multi_ids.ordinal ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM JSON_TABLE("+array+", '$[*]' COLUMNS(ordinal FOR ORDINALITY, member_id VARCHAR(32) PATH '$' NULL ON ERROR)) multi_ids LEFT JOIN "+Q(target.TableName)+" multi_value ON "+(relation.ControlKind=="MultiCheckBoxDatabase"||global?"CAST(CAST(multi_value.`id` AS CHAR) AS BINARY)=CAST(multi_ids.member_id AS BINARY)":"CAST(multi_value.`id` AS CHAR)=multi_ids.member_id")+(targetScope.Length==0?"":" AND "+targetScope)+" ORDER BY multi_ids.ordinal LIMIT 1),JSON_ARRAY()) AS CHAR)";
             multiProjections[expression]=new(source,Q(target.TableName),Q(display),targetScope,NameExpression:scalarLabel?label:null);
             // 名称筛选直接对目标做EXISTS，不先聚合整份名称数组，也不把根记录JOIN成多行。

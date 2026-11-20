@@ -10,6 +10,7 @@ internal sealed record RelationPropagationBinding(TableModel Source,ColumnModel 
     internal string? CrossTableAccountPageId { get; init; }
     internal string? CrossTableRecursivePageId { get; init; }
     internal string? ScopedSinglePageId { get; init; }
+    internal string? CheckboxTargetPageId { get; init; }
 }
 /// <summary>下发已证明的普通多值及跨表级联物理名称依赖，平台固定配置仍由其专用协调器维护。</summary>
 internal static class RelationPropagationCompilation
@@ -33,7 +34,8 @@ internal static class RelationPropagationCompilation
             }
             result.AddRange(ScopedSingleBindings(model,table));
             foreach(var binding in MultiNameWriteCompilation.ForTable(model,table))result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache));
-            foreach(var binding in DatabaseCheckboxCompilation.Caches(model,table))result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache));
+            foreach(var binding in DatabaseCheckboxCompilation.Caches(model,table))
+                result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache){CheckboxTargetPageId=binding.CheckboxTargetPageId});
             // 完整写入链定义各级ID／名称归属；不按字段后缀猜目标，也不接受页间冲突定义。
             foreach(var page in table.Pages)foreach(var plan in CrossTableWriteCompilation.ForService(model,table,page))
             {
@@ -52,7 +54,7 @@ internal static class RelationPropagationCompilation
             }
         }
         foreach(var group in result.GroupBy(binding=>(binding.Source.Source.Id,binding.Cache.Source.Id)))
-            if(group.Select(binding=>(binding.Foreign.Source.Id,binding.Target.Source.Id,binding.Value.Source.Id,binding.Multiple,binding.CrossTableColumnId,binding.CrossTableLevelKey,binding.CrossTablePageId,binding.SelfTreePageId,binding.CrossTableAccountPageId,binding.CrossTableRecursivePageId,binding.ScopedSinglePageId,PagesIdentity(binding.CrossTableGlobalPages))).Distinct().Count()!=1&&!group.All(binding=>SharedCrossTableCompilation.Equivalent(model,group.First(),binding)))throw new InvalidOperationException("同一名称缓存存在相互冲突的页面关系定义，未发布传播计划。");
+            if(group.Select(binding=>(binding.Foreign.Source.Id,binding.Target.Source.Id,binding.Value.Source.Id,binding.Multiple,binding.CrossTableColumnId,binding.CrossTableLevelKey,binding.CrossTablePageId,binding.SelfTreePageId,binding.CrossTableAccountPageId,binding.CrossTableRecursivePageId,binding.ScopedSinglePageId,binding.CheckboxTargetPageId,PagesIdentity(binding.CrossTableGlobalPages))).Distinct().Count()!=1&&!group.All(binding=>SharedCrossTableCompilation.Equivalent(model,group.First(),binding)))throw new InvalidOperationException("同一名称缓存存在相互冲突的页面关系定义，未发布传播计划。");
         var bindings=result.GroupBy(binding=>(binding.Source.Source.Id,binding.Cache.Source.Id)).Select(group=>group.OrderByDescending(binding=>binding.CrossTableColumnId==binding.Foreign.Source.Id).ThenBy(binding=>binding.CrossTableColumnId,StringComparer.Ordinal).First()).OrderBy(binding=>binding.Source.Source.TableName,StringComparer.Ordinal).ThenBy(binding=>binding.Cache.Source.ColumnName,StringComparer.Ordinal).ToArray();
         var physical=bindings.Where(binding=>!Derived(model,binding)).ToArray();var derived=bindings.Where(binding=>Derived(model,binding)).ToArray();if(physical.Length>0)_=RelationMutationPlan.Compile(model.Catalog,Definitions(physical));if(derived.Length>0)DerivedCrossTableCaches.Validate(model.Catalog,Definitions(derived),Definitions(physical));return bindings;
     }
@@ -93,7 +95,7 @@ internal static class RelationPropagationCompilation
     /// <summary>只有静态绑定的精确来源才发布传播能力，不按后缀扩大范围。</summary>
     internal static bool Supports(GenerationModel model,TableModel table,ColumnModel source)=>Bindings(model).Concat(DerivedBindings(model)).Any(binding=>binding.Source.Source.Id==table.Source.Id&&binding.Foreign.Source.Id==source.Source.Id);
     /// <summary>稳定ID是编译器与数据层之间唯一的关系输入，不传SQL或客户端路径。</summary>
-    internal static RelationCacheDefinition[] Definitions(IReadOnlyList<RelationPropagationBinding> bindings)=>bindings.Select(binding=>new RelationCacheDefinition(binding.Source.Source.Id,binding.Foreign.Source.Id,binding.Target.Source.Id,binding.Value.Source.Id,binding.Cache.Source.Id,binding.Multiple){CrossTableColumnId=binding.CrossTableColumnId,CrossTableLevelKey=binding.CrossTableLevelKey,CrossTablePageId=binding.CrossTablePageId,CrossTableGlobalPages=binding.CrossTableGlobalPages,SelfTreePageId=binding.SelfTreePageId,CrossTableAccountPageId=binding.CrossTableAccountPageId,CrossTableRecursivePageId=binding.CrossTableRecursivePageId,ScopedSinglePageId=binding.ScopedSinglePageId}).ToArray();
+    internal static RelationCacheDefinition[] Definitions(IReadOnlyList<RelationPropagationBinding> bindings)=>bindings.Select(binding=>new RelationCacheDefinition(binding.Source.Source.Id,binding.Foreign.Source.Id,binding.Target.Source.Id,binding.Value.Source.Id,binding.Cache.Source.Id,binding.Multiple){CrossTableColumnId=binding.CrossTableColumnId,CrossTableLevelKey=binding.CrossTableLevelKey,CrossTablePageId=binding.CrossTablePageId,CrossTableGlobalPages=binding.CrossTableGlobalPages,SelfTreePageId=binding.SelfTreePageId,CrossTableAccountPageId=binding.CrossTableAccountPageId,CrossTableRecursivePageId=binding.CrossTableRecursivePageId,ScopedSinglePageId=binding.ScopedSinglePageId,CheckboxTargetPageId=binding.CheckboxTargetPageId}).ToArray();
     /// <summary>派生级联或共享控制列携带完整全局页映射，供独立维护编译验证同一层链。</summary>
     internal static IReadOnlyDictionary<string,string>? GlobalPages(CrossTableWriteModel plan)
     {
@@ -108,6 +110,7 @@ internal static class RelationPropagationCompilation
         var pages=new HashSet<string>(StringComparer.Ordinal);
         foreach(var definition in definitions)
         {
+            if(definition.CheckboxTargetPageId is {} checkboxPage)pages.Add(checkboxPage);
             if(definition.Multiple&&model.Catalog.ConfigColumns.Single(column=>column.Id==definition.ForeignColumnId) is
                 {ControlKind:"MultiCheckBoxDatabase"} checkbox&&
                 model.Catalog.ConfigTables.Single(table=>table.Id==definition.TargetTableId) is {} target&&GlobalCrossTableTarget.Declared(target))

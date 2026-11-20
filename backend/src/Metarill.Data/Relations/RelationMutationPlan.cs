@@ -28,6 +28,9 @@ public sealed record RelationCacheDefinition(string SourceTableId,string Foreign
     /// <summary>单值名称副本按实际来源行与目标固定自树条件重算。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? ScopedSinglePageId { get; init; }
+    /// <summary>普通复选的多份物理名称使用同一声明目标页及其常量条件。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CheckboxTargetPageId { get; init; }
     /// <summary>自树全局叶子缓存只读取生成时选定的目标页。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? SelfTreePageId{get;init;}
@@ -98,6 +101,12 @@ public sealed class RelationMutationPlan
             foreach(var field in new[]{foreign,value,cache})if(field.YzProjectId.Length>0&&field.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("传播字段超出发布项目。");
             var global=GlobalCrossTableTarget.Declared(target);
             MySqlPublishedRelationCondition? publishedCondition=null;
+            if(definition.CheckboxTargetPageId is {} checkboxPage)
+            {
+                if(!definition.Multiple)throw new InvalidOperationException("复选固定目标页必须绑定多值缓存。");
+                var page=MySqlPublishedRelationCondition.RequireProjectCheckboxPage(catalog,source,foreign,target,checkboxPage);
+                publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,page,projectParent:true);
+            }
             if(global)
             {
                 if(cross||selfTree)

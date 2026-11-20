@@ -94,15 +94,23 @@ public sealed class DatabaseCheckboxGenerationTests
 
     /// <summary>原冗余复选在名称页和简称页各自显示及筛选，从任一入口保存都更新两个名称副本。</summary>
     [Theory]
-    [InlineData(0, true)]
-    [InlineData(1, false)]
-    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage)
+    [InlineData(0, true, false)]
+    [InlineData(1, false, false)]
+    [InlineData(0, true, true)]
+    [InlineData(1, false, true)]
+    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget)
     {
         var catalog=Published(Catalog(false));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
         target.IsRongyu=targetStorage;
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
         targetPage.WhereSql="yz_project_id=@current_yz_project_id";
+        if(fixedTarget)
+        {
+            catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
+                ColumnName="active_flag",LogicalType="int32"});
+            targetPage.WhereSql+=" AND active_flag=1";
+        }
         var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
         source.ControlDetail="""{"tableId":"3","nameField":"name"}""";
         var cache=new ColumnMetadata
@@ -144,6 +152,8 @@ public sealed class DatabaseCheckboxGenerationTests
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var propagation=RelationPropagationCompilation.Bindings(model).Where(binding=>binding.Foreign.Source.Id==source.Id).ToArray();
         Assert.Equal(new[]{"target_alias","target_names"},propagation.Select(binding=>binding.Cache.Source.ColumnName));
+        if(fixedTarget)
+            Assert.All(RelationPropagationCompilation.Definitions(propagation),definition=>Assert.Equal("301",definition.CheckboxTargetPageId));
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-redundant-checkbox-page");
         var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -174,6 +184,11 @@ public sealed class DatabaseCheckboxGenerationTests
                 Assert.Contains("entity.TargetAlias=",write);
                 Assert.Contains("entity.TargetNames=",write);
                 Assert.Contains("selected.Select(id=>",write);
+                if(fixedTarget)
+                {
+                    Assert.Contains("CheckboxTargetCondition"+page.Source.Id+"_25",service);
+                    Assert.Contains("active_flag",service);
+                }
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
             var serviceType=assembly.GetTypes().Single(type=>type.Name=="RelationSourceService");
@@ -194,7 +209,22 @@ public sealed class DatabaseCheckboxGenerationTests
                 .GetProperty("Plans",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(maintenance)!;
             var maintenancePlan=plans["2"]!;
             Assert.Null(maintenancePlan.GetType().GetProperty("Error")!.GetValue(maintenancePlan));
-            Assert.NotNull(maintenancePlan.GetType().GetProperty("Read")!.GetValue(maintenancePlan));
+            var read=maintenancePlan.GetType().GetProperty("Read")!.GetValue(maintenancePlan)!;
+            Assert.NotNull(read);
+            if(fixedTarget)
+            {
+                var expression=read.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)!;
+                foreach(var name in new[]{"target_alias","target_names"})
+                    Assert.Contains("multi_value.`active_flag`",Assert.IsType<string>(expression.Invoke(read,[name])));
+                var propagationPlan=maintenance.GetType().GetProperty("Propagation",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(maintenance)!;
+                var bindings=(System.Collections.IEnumerable)propagationPlan.GetType().GetProperty("Bindings",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(propagationPlan)!;
+                Assert.Equal(2,bindings.Cast<object>().Count());
+                foreach(var binding in bindings)
+                {
+                    var condition=binding.GetType().GetProperty("PublishedCondition")!.GetValue(binding)!;
+                    Assert.Contains("active_flag",Assert.IsAssignableFrom<IReadOnlyList<string>>(condition.GetType().GetProperty("Fields")!.GetValue(condition)));
+                }
+            }
 
             // 同一缓存被多个页面读写时，不允许某一页用额外条件改变派生范围。
             catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==current.Id&&field.ConfigColumnId==source.Id)

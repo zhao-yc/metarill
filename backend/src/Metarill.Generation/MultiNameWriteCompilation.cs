@@ -1,6 +1,9 @@
 namespace Metarill.Generation;
 
-internal sealed record MultiNameWriteBinding(ColumnModel Source,TableModel Target,ColumnModel Value,ColumnModel Cache);
+internal sealed record MultiNameWriteBinding(ColumnModel Source,TableModel Target,ColumnModel Value,ColumnModel Cache)
+{
+    internal string? CheckboxTargetPageId{get;init;}
+}
 
 /// <summary>多值名称属于表级派生值；页级ID展示不能取消根缓存，多个名称页共享同一次目标当前读。</summary>
 internal static class MultiNameWriteCompilation

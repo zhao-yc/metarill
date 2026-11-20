@@ -154,8 +154,15 @@ internal static class DatabaseCheckboxCompilation
             PageModel? physicalPage=null;
             var scopeAlreadyBound=logicalPage is not null||globalPage is not null&&
                 (!derived||NonRedundantReadCompilation.HasGlobalRowProject(target));
+            // 多份物理名称共用声明的目标页常量，名称页和简称页都必须绑定。
+            var sharedFixedPage=table.Source.IsRongyu==1&&!functionForm&&!target.IsGlobal&&
+                namePage is not null&&namePage.Source.Id==fixedPage&&namePage.Condition is {Syntax.Variables.Count:0}&&
+                !FixedPageConditionCompilation.HasLogicalFields(namePage)&&!namePage.Scopes.Any(scope=>scope.Source=="parent")&&
+                model.Catalog.ConfigPageColumns.Any(setting=>setting.ConfigColumnId==source.Source.Id&&
+                    table.Pages.Any(candidate=>candidate.Source.Id==setting.ConfigPageId)&&
+                    baseline.WithPageOverride(setting.Extra.GetValueOrDefault("controlDetail").ToString()).NameField!=baseline.NameField);
             // 普通全局派生名称没有行项目列时，固定发布条件由复选查询显式合并。
-            if((realtimeRead||functionForm||globalPage is not null||exactTarget is not null)&&!scopeAlreadyBound&&namePage is not null&&
+            if((realtimeRead||functionForm||globalPage is not null||exactTarget is not null||sharedFixedPage)&&!scopeAlreadyBound&&namePage is not null&&
                 (functionForm||namePage.Condition is not null||namePage.Scopes.Any(scope=>scope.Source=="parent")))
             {
                 physicalPage=namePage;
@@ -287,8 +294,12 @@ internal static class DatabaseCheckboxCompilation
     private static bool CanSharePhysicalNames(DatabaseCheckboxModel definition) => !definition.DerivedName &&
         !definition.Target.IsGlobal && definition.Name.Type=="string?" && definition.ExactTarget is null &&
         definition.Conditions is null && definition.Scopes.All(scope=>scope.Source=="project") &&
-        definition.NameTargetPage?.Condition is null &&
+        (definition.NameTargetPage?.Condition is null || definition.PhysicalTargetPage?.Condition is {Syntax.Variables.Count:0}) &&
         definition.NameTargetPage?.Scopes.Any(scope=>scope.Source=="parent")!=true;
+
+    /// <summary>只有确实含常量的实际发布页需要随物理名称缓存下发。</summary>
+    private static string? FixedCachePage(DatabaseCheckboxModel definition) =>
+        definition.PhysicalTargetPage is {Condition:not null} page?page.Source.Id:null;
 
     /// <summary>所有写入口以同一事务写齐各页和表级的名称副本。</summary>
     internal static IReadOnlyList<MultiNameWriteBinding> Caches(GenerationModel model,TableModel table)
@@ -300,15 +311,18 @@ internal static class DatabaseCheckboxCompilation
         {
             var actual=relation.Select(item=>item.Definition).ToList();
             var alternate=relation.FirstOrDefault(item=>item.Definition.UsesNameOverride);
+            string? fixedPage=null;
             if(alternate.Definition is {} changed)
             {
                 var root=Resolve(model,table,alternate.Page,changed.Source,forService:true,rootDefinition:true).Definition;
                 if(root is null||actual.Append(root).Any(definition=>!CanSharePhysicalNames(definition)||
-                    definition.Target.Source.Id!=root.Target.Source.Id))
+                    definition.Target.Source.Id!=root.Target.Source.Id||FixedCachePage(definition)!=FixedCachePage(root)))
                     throw new InvalidOperationException("同一数据库复选的多页名称副本必须采用同一普通项目候选范围。");
+                fixedPage=FixedCachePage(root);
                 actual.Add(root);
             }
-            bindings.AddRange(actual.Select(definition=>new MultiNameWriteBinding(definition.Source,definition.Target,definition.Name,definition.Names)));
+            bindings.AddRange(actual.Select(definition=>new MultiNameWriteBinding(definition.Source,definition.Target,definition.Name,definition.Names)
+                {CheckboxTargetPageId=fixedPage}));
         }
         foreach(var binding in bindings.GroupBy(item=>item.Cache.Source.Id))
             if(binding.Select(item=>(item.Source.Source.Id,item.Target.Source.Id,item.Value.Source.Id)).Distinct().Count()!=1)
