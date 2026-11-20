@@ -145,7 +145,7 @@ internal static class MultiSelectCompilation
             // 普通非冗余来源按实际页面校验父键，全局关系及冗余缓存继续按其固定范围证明。
             var usesPageRead=pageRead&&(pageOverride||targetParents.Length>0||!scoped&&targetPage.Condition is not null);
             var logicalSourceParent=false;
-            ColumnModel[] compoundSourceDependencies=[];
+            IReadOnlyList<ColumnModel> compoundSourceDependencies=[];
             if(scopedParent is not null && !functionForm)
             {
                 var owner=usesPageRead?scopedParent.Source(model.Catalog,table.Source,source.Source,page.Source)
@@ -157,12 +157,9 @@ internal static class MultiSelectCompilation
                     return Gap("目标页父字段须与来源记录的固定父键一致。");
                 if(owner.AdditionalColumns.Count>0)
                 {
-                    // 修改任何父路径或其实际持久层位都重新确认已有的选中记录。
-                    var paths=sourceScopes.Select(column=>NonRedundantCrossParentCompilation.Find(model,table,page,column))
-                        .OfType<(CrossTableReadModel Read,int Index)>().Select(path=>path.Read.Source.Source.Id).ToHashSet(StringComparer.Ordinal);
-                    compoundSourceDependencies=sourceScopes.Concat(CrossTableWriteCompilation.ForService(model,table,page)
-                        .Where(plan=>paths.Contains(plan.Read.Source.Source.Id)).SelectMany(plan=>plan.Levels.Select(level=>level.Id)))
-                        .DistinctBy(column=>column.Source.Id).ToArray();
+                    if(scopedParent.Global)
+                        Metarill.Data.Queries.NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,targetPage.Source.Id,owner);
+                    compoundSourceDependencies=NonRedundantCrossParentCompilation.Dependencies(model,table,page,sourceScopes);
                 }
             }
             if (functionForm)

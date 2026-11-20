@@ -102,9 +102,12 @@ public static partial class MySqlNonRedundantReadCompiler
                 controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage):parent?.Source(catalog,table,relation,sourcePage);
             var sourceParent=sourceBinding?.Column;
             var logicalSource=sourceBinding?.LogicalPages.Count>0;
-            var parentAlias=logicalSource?"mt_parent_input":owner;
-            var sourceParentSql=logicalSource?LogicalRelationSourceParent(table,owner,sourceBinding!):null;
-            if(sourceParent is not null&&!logicalSource){Use(table,sourceParent);Touch(owner,sourceParent.ColumnName);}
+            if(pageParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0})
+                RequireCompoundGlobalSourceParent(catalog,target.Id,selectedScope!.Id,sourceBinding);
+            var sourceParentSql=sourceBinding is {LogicalPages.Count:>0} or {AdditionalColumns.Count:>0}
+                ?SingleSourceParentValue(table,owner,sourceBinding):null;
+            var parentAlias=sourceParentSql is not null?"mt_parent_input":owner;
+            if(sourceParent is not null&&sourceParentSql is null){Use(table,sourceParent);Touch(owner,sourceParent.ColumnName);}
             // 已保存名称按实际发布范围读取；用户角色值只在本次选择或写入时应用。
             var candidatePage=physicalGlobalPage??(selectedPage is null?publishedPage:null);
             var storedGlobalExact=candidatePage is not null&&(checkbox
@@ -118,7 +121,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 SelectedMultiPage=selectedPage,
                 AllowsExactMultiSelection=!checkbox,
                 AllowsStoredExactCheckbox=checkbox,
-                MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent),
+                MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent,[]),
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
                 MultiNamePathPage=namePage,
                 AllowLiteralMultiScope=sourcePage is not null,

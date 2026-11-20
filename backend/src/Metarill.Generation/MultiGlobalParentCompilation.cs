@@ -94,7 +94,7 @@ internal static class MultiGlobalParentCompilation
     internal static PageModel? PhysicalSourceTarget(GenerationModel model,TableModel table,PageModel page)
     {
         var scopes=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
-        if(scopes.Length>1)return CompoundSingleSourceTarget(model,table,page);
+        if(scopes.Length>1)return CompoundSourceTarget(model,table,page);
         if(scopes.Length!=1||NonRedundantCrossParentCompilation.Enabled(model,table,page))return null;
         var source=scopes[0].Column;
         var targets=MultiSelectCompilation.ForService(model,table,page).Where(multi=>multi.GlobalParent&&multi.SameParent)
@@ -107,18 +107,46 @@ internal static class MultiGlobalParentCompilation
         return targets.SingleOrDefault();
     }
 
-    /// <summary>来源页有多个同父条件时，物理字段通过实际单值目标及全部来源条件证明。</summary>
-    internal static PageModel? CompoundSingleSourceTarget(GenerationModel model,TableModel table,PageModel page)
+    /// <summary>来源页有多个同父条件时，物理字段通过实际目标和全部来源条件证明。</summary>
+    internal static PageModel? CompoundSourceTarget(GenerationModel model,TableModel table,PageModel page)
     {
         var scopes=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
         if(scopes.Length<2)return null;
         var physical=scopes.Where(column=>!CrossTableStorageColumns.IsLogicalPathField(
             table.Source,model.Catalog.ConfigColumns,column.Source.ColumnName)).ToArray();
+        if(physical.Length==0)return null;
         var targets=physical.SelectMany(column=>SingleParentTargets(model,table,page,column,compoundOnly:true))
-            .Select(binding=>binding.Target).DistinctBy(target=>NonRedundantReads.MultiGlobalParentPageId(
-                model.Catalog,target.Source.ConfigTableId,target.Source.Id),StringComparer.Ordinal).ToArray();
+            .Select(binding=>binding.Target).Concat(CompoundMultiSourceTargets(model,table,page,physical))
+            .DistinctBy(target=>NonRedundantReads.MultiGlobalParentPageId(model.Catalog,
+                target.Source.ConfigTableId,target.Source.Id),StringComparer.Ordinal).ToArray();
         if(targets.Length>1)throw new NotSupportedException("同一来源页的全局父范围须绑定同一个实际父页面。");
         return targets.SingleOrDefault();
+    }
+
+    /// <summary>从固定多值发布元数据证明来源父字段，避免在级联证明中递归编译写入或生成页面。</summary>
+    private static IEnumerable<PageModel> CompoundMultiSourceTargets(GenerationModel model,TableModel table,PageModel page,
+        IReadOnlyList<ColumnModel> physical)
+    {
+        if(table.IsGlobal||table.Source.IsFunctionTable!=0||table.Source.IsView!=0)return [];
+        var targets=new List<PageModel>();
+        foreach(var column in table.Columns.Where(column=>column.Source.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"))
+        {
+            if(ForeignValidationRenderer.Target(model,column) is not {IsGlobal:true,Source.IsRongyu:0} target||
+                !target.Pages.Any(candidate=>candidate.Scopes.Any(scope=>scope.Source=="parent")))continue;
+            var proof=table.Source.IsRongyu==1
+                ?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,column.Source,target.Source)
+                :GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,column.Source,target.Source);
+            var targetPage=target.Pages.Single(candidate=>candidate.Source.Id==proof.Page.Id);
+            var condition=FixedConditionPlan.Compile(proof.Page.WhereSql,target.Columns.Select(field=>field.Source.ColumnName));
+            if(MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,condition,
+                checkbox:column.Source.ControlKind=="MultiCheckBoxDatabase") is not {Global:true} parent||
+                physical.Any(field=>ForeignValidationRenderer.Target(model,field)?.Source.Id!=parent.Parent.Id))continue;
+            var owner=parent.Source(model.Catalog,table.Source,column.Source,page.Source);
+            if(owner.AdditionalColumns.Count==0)continue;
+            NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,targetPage.Source.Id,owner);
+            targets.Add(targetPage);
+        }
+        return targets;
     }
 
     /// <summary>独立表单父键也须有唯一父页；写入只读取该字段已有的物理值。</summary>
@@ -152,7 +180,7 @@ internal static class MultiGlobalParentCompilation
                     if(fixedSource.AdditionalColumns.Count>0&&
                         (direct||fixedSource.AdditionalColumns.Any(column=>column.Id==source.Source.Id)))
                     {
-                        NonRedundantReads.RequireCompoundGlobalSingleSource(model.Catalog,target.Source.Id,proof.Page.Id,fixedSource);
+                        NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,proof.Page.Id,fixedSource);
                         yield return (foreign,target.Pages.Single(candidate=>candidate.Source.Id==proof.Page.Id));
                     }
                     else if(!compoundOnly&&direct)

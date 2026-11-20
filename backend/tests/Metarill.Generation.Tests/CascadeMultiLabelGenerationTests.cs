@@ -363,9 +363,25 @@ public sealed class CascadeMultiLabelGenerationTests
             physical:logicalParent,parent:logicalParent,logicalParent:logicalParent,
             globalRowProject:rowProject,exact:true,exactLeaf:selfTree);
 
+    /// <summary>原弹窗和复选的全局父范围也须执行来源页全部同父条件。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage","physical","physical",true,0)]
+    [InlineData("MultiSelectPage","independent","mixed",false,0)]
+    [InlineData("MultiCheckBoxDatabase","physical","mixed",false,0)]
+    [InlineData("MultiCheckBoxDatabase","independent","independent",true,0)]
+    [InlineData("MultiSelectPage","physicalOnly","physical",false,0)]
+    [InlineData("MultiCheckBoxDatabase","physicalOnly","mixed",false,1)]
+    public Task Global_multivalue_source_compound_parents_compile_in_original_endpoints(
+        string kind,string sourceScope,string targetScope,bool hasRowProject,int storageMode)=>
+        CompileCascadeLabel(kind,storageMode,selfTree:false,indirect:false,selectedPage:true,
+            physical:targetScope=="physical",globalRowProject:hasRowProject,parent:true,logicalParent:targetScope!="physical",
+            sourceLogicalParent:sourceScope!="physicalOnly",globalParent:true,parentWithoutProject:true,parentAccount:true,
+            compoundSourceParent:sourceScope,compoundTargetParent:targetScope,globalCompoundSource:true);
+
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
         bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
-        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false,string? compoundSourceParent=null,string? compoundTargetParent=null)
+        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false,string? compoundSourceParent=null,string? compoundTargetParent=null,
+        bool globalCompoundSource=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -522,7 +538,7 @@ public sealed class CascadeMultiLabelGenerationTests
             {
                 // 物理父条件放在前面；固定缓存和渲染依然必须使用实际逻辑父级。
                 var owner=catalog.ConfigPages.Single(page=>page.Id=="901");
-                if(compoundSourceParent=="physical")
+                if(compoundSourceParent is "physical" or "physicalOnly")
                 {
                     catalog.ConfigColumns.Add(new(){Id="916",ConfigTableId="9",ColumnName="other_country_id",LogicalType="int64",LinkConfigTableId="3"});
                     owner.WhereSql="other_country_id=@parentId AND "+owner.WhereSql;
@@ -581,7 +597,29 @@ public sealed class CascadeMultiLabelGenerationTests
                 Assert.True(resolved.Definition!.SameParent);
             }
         }
-        if(compoundSourceParent is not null)
+        if(globalCompoundSource)
+        {
+            var owner=model.Tables.Single(item=>item.Source.Id=="9");
+            var sourcePage=owner.Pages.Single(item=>item.Source.Id=="901");
+            var input=owner.Columns.Single(item=>item.Source.Id=="95");
+            if(kind=="MultiSelectPage")
+            {
+                var resolved=MultiSelectCompilation.Resolve(model,owner,sourcePage,input);
+                Assert.True(resolved.Definition is not null,resolved.Reason);
+                Assert.True(resolved.Definition!.GlobalParent&&resolved.Definition.SameParent);
+                Assert.NotEmpty(resolved.Definition.CompoundSourceDependencies);
+            }
+            else
+            {
+                var resolved=DatabaseCheckboxCompilation.Resolve(model,owner,sourcePage,input);
+                Assert.True(resolved.Definition is not null,resolved.Reason);
+                Assert.True(resolved.Definition!.GlobalParent);
+                Assert.Equal(2,resolved.Definition.SourceScopeColumns.Count);
+                if(sourceLogicalParent)
+                    Assert.Contains(resolved.Definition.CompoundSourceDependencies,field=>field.Source.ColumnName=="source_area_id");
+            }
+        }
+        if(compoundSourceParent is not null&&!globalCompoundSource)
         {
             var owner=model.Tables.Single(item=>item.Source.Id=="9");
             var ownerPage=owner.Pages.Single(item=>item.Source.Id=="901");
@@ -772,7 +810,8 @@ public sealed class CascadeMultiLabelGenerationTests
                 }
 
                 if(compoundTargetParent=="physical"&&(globalRowProject is null||kind=="MultiSelectPage"&&globalParent)||
-                    compoundTargetParent=="independent"&&globalRowProject==false&&kind=="MultiSelectPage")
+                    compoundTargetParent=="independent"&&globalRowProject==false&&kind=="MultiSelectPage"||
+                    globalCompoundSource&&compoundSourceParent=="independent"&&kind=="MultiCheckBoxDatabase")
                 {
                     // 发布包必须保留原弹窗和多选页真实绑定，恢复后的运行时读取仍可编译。
                     foreach(var configPage in catalog.ConfigPages)
@@ -795,7 +834,69 @@ public sealed class CascadeMultiLabelGenerationTests
                     }
                 }
             }
-            if(compoundSourceParent is not null)
+            if(globalCompoundSource)
+            {
+                var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
+                var dependency=compoundSourceParent=="independent"?"other_area_id":"other_country_id";
+                Assert.Contains("submitted.Contains("+JsonSerializer.Serialize(dependency)+")",code);
+                if(compoundSourceParent!="independent")
+                    Assert.Contains("PageMultiGlobalParent901.BindAccount(actor)",code);
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                const System.Reflection.BindingFlags staticPrivate=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+                if(mode==0)
+                {
+                    var read=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("ReadPlan901",staticPrivate)!.GetValue(null));
+                    var sql=read.GetType().GetProperty("MySql",hidden)!.GetValue(read)!;
+                    var owner=model.Tables.Single(item=>item.Source.Id=="9");
+                    var page=owner.Pages.Single(item=>item.Source.Id=="901");
+                    var field=kind=="MultiSelectPage"?Assert.Single(MultiSelectCompilation.ForPage(model,owner,page)).Names!:
+                        Assert.Single(DatabaseCheckboxCompilation.ForPage(model,owner,page)).Names;
+                    var expression=Assert.IsType<string>(sql.GetType().GetMethod("Expression",hidden)!.Invoke(sql,[field.Source.ColumnName]));
+                    Assert.Contains("BINARY CAST(",expression);
+                    Assert.Contains("`"+dependency+"`",expression);
+                    if(compoundSourceParent=="independent")Assert.Contains("`source_area_id`",expression);
+                }
+                else
+                {
+                    var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                        assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+                    var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                        maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+                    var plan=plans["9"]!;
+                    var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+                    var owner=model.Tables.Single(item=>item.Source.Id=="9");
+                    var page=owner.Pages.Single(item=>item.Source.Id=="901");
+                    var cache=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,owner,page)).Names;
+                    var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,[cache.Source.ColumnName]));
+                    Assert.Contains("BINARY CAST(",expression);
+                    Assert.Contains("`"+dependency+"`",expression);
+                }
+                if(compoundSourceParent=="physical"&&compoundTargetParent=="physical")
+                {
+                    // 来源物理父与其他范围引用同一表，但切到另一发布页时必须拒绝。
+                    var parentPage=catalog.ConfigPages.Single(item=>item.Id=="301");
+                    var different=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(parentPage))!;
+                    different.Id="319";
+                    different.WhereSql+=" AND name <> '另一来源父页'";
+                    var fixedKeys=catalog.ConfigColumns.Where(column=>column.Id is "214" or "217").ToArray();
+                    var sourceKey=catalog.ConfigColumns.Single(column=>column.Id=="916");
+                    foreach(var key in fixedKeys)key.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement(parentPage.Id);
+                    sourceKey.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement(different.Id);
+                    catalog.ConfigPages.Add(different);
+                    try
+                    {
+                        var invalid=Assert.ThrowsAny<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+                        Assert.Contains("来源字段与目标字段必须绑定同一个实际发布父页",invalid.Message);
+                    }
+                    finally
+                    {
+                        foreach(var key in fixedKeys)key.Extra.Remove("linkConfigPageId");
+                        sourceKey.Extra.Remove("linkConfigPageId");
+                        catalog.ConfigPages.Remove(different);
+                    }
+                }
+            }
+            if(compoundSourceParent is not null&&!globalCompoundSource)
             {
                 var owner=model.Tables.Single(item=>item.Source.Id=="9");
                 var ownerPage=owner.Pages.Single(item=>item.Source.Id=="901");

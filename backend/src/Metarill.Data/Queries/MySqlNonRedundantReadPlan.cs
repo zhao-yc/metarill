@@ -265,6 +265,11 @@ public static partial class MySqlNonRedundantReadCompiler
         if(outputs.Count==0||outputs.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count||
             !long.TryParse(catalog.YzProjectId,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var project)||project<=0)
             throw new InvalidOperationException("多值名称的项目或输出字段无效。");
+        var parent=cacheOwner is null||selectedPage is null?null:MultiParent(catalog,selectedPage,relation?.ControlKind=="MultiCheckBoxDatabase");
+        var source=parent is null?null:parent.Source(catalog,cacheOwner!.Table,
+            relation??throw new InvalidOperationException("多值缓存缺少发布关系。"));
+        if(parent is {Global:true}&&source is {AdditionalColumns.Count:>0})
+            RequireCompoundGlobalSourceParent(catalog,tableId,selectedPage!.Id,source);
         return new Builder(catalog,tableId,true,multiLabel:true,cascadeLabelField:field,cascadeCacheOwner:cacheOwner)
         {
             SelectedMultiPage=selectedPage,
@@ -272,8 +277,7 @@ public static partial class MySqlNonRedundantReadCompiler
             AllowsStoredExactCheckbox=relation?.ControlKind=="MultiCheckBoxDatabase",
             MultiNamePathPage=relation is null?null:MultiTargetNamePage(catalog,catalog.ConfigTables.Single(table=>table.Id==tableId),relation),
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
-            MultiParentOwner=cacheOwner is null||selectedPage is null||MultiParent(catalog,selectedPage,relation?.ControlKind=="MultiCheckBoxDatabase") is not {} parent?null:
-                (cacheOwner,parent.Source(catalog,cacheOwner.Table,relation??throw new InvalidOperationException("多值缓存缺少发布关系。")).Column),
+            MultiParentOwner=source is null?null:(cacheOwner!,source.Column,source.AdditionalColumns),
             GlobalCrossCandidate=selectedPage is not null&&GlobalCrossTableTarget.Declared(catalog.ConfigTables.Single(table=>table.Id==tableId))
         }.Compile(outputs,dependencies);
     }
@@ -763,7 +767,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var ownerTable=tables[relation.ConfigTableId];
             // 来源路径须先加入联接；后续目标别名的 ON 才能引用已经声明的祖先。
             if(accountParent is {Global:true}&&parentBinding is {AdditionalColumns.Count:>0})
-                RequireCompoundGlobalSingleSource(catalog,target.Id,publishedPage!.Id,parentBinding);
+                RequireCompoundGlobalSourceParent(catalog,target.Id,publishedPage!.Id,parentBinding);
             var sourceParent=parentBinding is not null&&(accountParent?.Logical==true||
                 parentBinding.LogicalPages.Count>0||parentBinding.AdditionalColumns.Count>0)
                 ?SingleSourceParentValue(ownerTable,ownerAlias,parentBinding):null;

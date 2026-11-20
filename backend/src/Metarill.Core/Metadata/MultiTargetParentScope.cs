@@ -161,11 +161,12 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
                 }
             }
             var checkboxRelation=relation.ControlKind=="MultiCheckBoxDatabase";
-            var multiSelection=relation.ControlKind=="MultiSelectPage"&&allowLogical&&source.IsRongyu==0&&
+            var multiRelation=relation.ControlKind=="MultiSelectPage";
+            var multiSelection=multiRelation&&allowLogical&&source.IsRongyu==0&&
                 scoped.Any(term=>CrossTableStorageColumns.IsLogicalPathField(source,columns,term.Field));
             var singleSelection=single&&relation.ControlKind is ("List" or "SelectPage");
-            var compoundGlobalSingle=singleSelection&&Global;
-            if(scoped.Length>1&&(checkboxRelation||multiSelection||singleSelection&&(allowLogical||compoundGlobalSingle)))
+            var compoundGlobal=Global&&(singleSelection||multiRelation||checkboxRelation);
+            if(scoped.Length>1&&(checkboxRelation||multiSelection||compoundGlobal||singleSelection&&allowLogical))
             {
                 // 只有所有范围指向同一父表时才能绑定原 parentId，独立表单父字段仍按原定义解析。
                 var parents=scoped.Select(term=>Compile(catalog,source,
@@ -174,8 +175,8 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
                 if(parents.Length==scoped.Length&&parents.All(parent=>parent.Parent.Id==Parent.Id&&(!parent.Logical||allowLogical)))
                 {
                     var logicalParents=parents.Where(parent=>parent.Logical);
-                    // 跨页读取固定代表列。全局单值也保留实际来源的所有同父条件。
-                    var keepAll=multiSelection||compoundGlobalSingle;
+                    // 跨页读取固定代表列，全局关系保留实际来源的所有同父条件。
+                    var keepAll=multiSelection||compoundGlobal;
                     var representative=keepAll
                         ?logicalParents.MinBy(parent=>parent.Target.Id,StringComparer.Ordinal)??parents.MinBy(parent=>parent.Target.Id,StringComparer.Ordinal)!
                         :logicalParents.FirstOrDefault()??parents[0];

@@ -28,6 +28,18 @@ internal static class NonRedundantCrossParentCompilation
         table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent"&&!Managed(model,table,page,scope.Column))&&
         CrossTableWriteCompilation.ForService(model,table,page).Count>0;
 
+    /// <summary>同父关系的重验既看物理父字段，也看各逻辑路径的实际存储层位。</summary>
+    internal static IReadOnlyList<ColumnModel> Dependencies(GenerationModel model,TableModel table,PageModel page,
+        IReadOnlyList<ColumnModel> scopes)
+    {
+        var paths=scopes.Select(column=>Find(model,table,page,column)).OfType<(CrossTableReadModel Read,int Index)>()
+            .Select(path=>path.Read.Source.Source.Id).ToHashSet(StringComparer.Ordinal);
+        if(paths.Count==0)return scopes;
+        return scopes.Concat(CrossTableWriteCompilation.ForService(model,table,page)
+            .Where(plan=>paths.Contains(plan.Read.Source.Source.Id)).SelectMany(plan=>plan.Levels.Select(level=>level.Id)))
+            .DistinctBy(column=>column.Source.Id).ToArray();
+    }
+
     /// <summary>原写事务明确选当前锁读，不能沿用默认快照。</summary>
     internal static string LockArgument(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)||FixedPageConditionCompilation.HasLogicalFields(page)||
         SharedRedundantParentCompilation.HasAccountPath(model,table,page)?",locking:true":"";

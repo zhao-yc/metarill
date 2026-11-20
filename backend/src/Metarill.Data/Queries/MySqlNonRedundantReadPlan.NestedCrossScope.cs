@@ -194,7 +194,7 @@ public static partial class MySqlNonRedundantReadCompiler
     }
 
     /// <summary>每条来源路径及物理外键复用目标的实际发布父页；等值字段不能借另一页权限。</summary>
-    internal static void RequireCompoundGlobalSingleSource(MetadataCatalog catalog,string tableId,string pageId,MultiSourceParent source)
+    internal static void RequireCompoundGlobalSourceParent(MetadataCatalog catalog,string tableId,string pageId,MultiSourceParent source)
     {
         if(source.AdditionalColumns.Count==0)return;
         var (parent,published)=PublishedMultiGlobalParent(catalog,tableId,pageId);
@@ -312,7 +312,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private bool IsSelectedLogicalParent(string field)=>SelectedMultiPage is not null&&
             MultiCandidateParent is {} parent&&(parent.Logical&&parent.Target.ColumnName==field||
                 parent.AdditionalTargets.Any(scope=>scope.Logical&&scope.Target.ColumnName==field));
-        internal (CascadeCacheOwner Owner,ColumnMetadata Column)? MultiParentOwner{get;init;}
+        internal (CascadeCacheOwner Owner,ColumnMetadata Column,IReadOnlyList<ColumnMetadata> Additional)? MultiParentOwner{get;init;}
 
         /// <summary>普通父表沿用实际项目范围。全局逻辑父由已验证的完整级联表达式确定可见性。</summary>
         private string MultiParentPredicate(MultiTargetParentScope parent,string target)
@@ -329,11 +329,13 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             else if(!parent.Logical)predicate=PhysicalGlobalParentPredicate(parent,target);
             if(MultiParentOwner is not {} binding)return predicate;
-            var (owner,source)=binding;
+            var (owner,source,additional)=binding;
             cascadeCacheOwnerFields.Add(source.ColumnName);
             var fromOwner=owner.Alias+"."+Q(source.ColumnName);
-            // 批量名称读取把来源值作为文本传入，保持相邻高位整数的精确比较。
-            return predicate+" AND BINARY CAST("+target+" AS CHAR)=BINARY CAST("+fromOwner+" AS CHAR)";
+            cascadeCacheOwnerFields.UnionWith(additional.Select(column=>column.ColumnName));
+            // 批量名称读取使用真实行的全部父字段，高位整数仍按文本精确比较。
+            return predicate+" AND "+SameSingleParent(target,fromOwner)+
+                string.Concat(additional.Select(column=>" AND "+SameSingleParent(owner.Alias+"."+Q(column.ColumnName),fromOwner)));
         }
 
         /// <summary>使用完整固定父页关联现有物理键；内层变化即使使父页失去可见性，也进入反向传播。</summary>
@@ -777,7 +779,7 @@ public static partial class MySqlNonRedundantReadCompiler
             MultiTargetParentScope? parent,MultiSourceParent? binding,FixedConditionPlan? control=null)
         {
             if(parent is {Global:true}&&binding is {AdditionalColumns.Count:>0})
-                RequireCompoundGlobalSingleSource(catalog,target.Id,page.Id,binding);
+                RequireCompoundGlobalSourceParent(catalog,target.Id,page.Id,binding);
             var sourceParent=binding is not null&&(parent?.Logical==true||binding.LogicalPages.Count>0||binding.AdditionalColumns.Count>0)
                 ?SingleSourceParentValue(table,owner,binding,cacheOwner):null;
             // 反查需要从最终写回的根表出发，保存中间记录及逻辑父表达式引用的祖先别名。

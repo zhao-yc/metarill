@@ -169,7 +169,7 @@ internal static class RelationCompilation
                     ?fixedParent.SingleSource(model.Catalog,owner.Source,source.Source,page.Source)
                     :fixedParent.SingleSource(model.Catalog,owner.Source,source.Source);
             if(fixedParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0})
-                NonRedundantReads.RequireCompoundGlobalSingleSource(model.Catalog,target.Source.Id,targetPage.Source.Id,sourceBinding);
+                NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,targetPage.Source.Id,sourceBinding);
             if (functionForm && targetParents.Length > 1)
                 throw new InvalidOperationException("功能表下拉必须绑定唯一目标父范围。");
             var fixedSourceParent = functionForm && targetParents.Length == 1

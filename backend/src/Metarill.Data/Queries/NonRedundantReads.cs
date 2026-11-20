@@ -343,8 +343,8 @@ public static class NonRedundantReads
         MySqlNonRedundantReadCompiler.PublishedMultiGlobalParent(metadata,tableId,pageId).Page.Id;
 
     /// <summary>同一全局父记录的来源字段和目标字段必须使用同一个实际发布父页。</summary>
-    public static void RequireCompoundGlobalSingleSource(MetadataCatalog metadata,string tableId,string pageId,MultiSourceParent source)=>
-        MySqlNonRedundantReadCompiler.RequireCompoundGlobalSingleSource(metadata,tableId,pageId,source);
+    public static void RequireCompoundGlobalSourceParent(MetadataCatalog metadata,string tableId,string pageId,MultiSourceParent source)=>
+        MySqlNonRedundantReadCompiler.RequireCompoundGlobalSourceParent(metadata,tableId,pageId,source);
 
     public static NonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)=>

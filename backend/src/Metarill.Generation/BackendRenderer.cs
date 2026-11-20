@@ -604,7 +604,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if(GlobalCachedParentCompilation.ForSelfTree(model,table,page) is {} parent)
             return Check(parent.Foreign);
         if(NonRedundantCrossParentCompilation.Enabled(model,table,page)||
-            MultiGlobalParentCompilation.CompoundSingleSourceTarget(model,table,page) is null)return "";
+            MultiGlobalParentCompilation.CompoundSourceTarget(model,table,page) is null)return "";
         return string.Concat(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>Check(scope.Column)));
 
         static string Check(ColumnModel column)=>

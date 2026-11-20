@@ -18,13 +18,15 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
     internal IReadOnlyList<ColumnModel> SourceScopeColumns { get; init; } = [];
+    internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal PageModel? GlobalParentPage { get; init; }
     internal bool GlobalParent => GlobalParentPage is not null;
     internal bool IntegerLabel => Name.Type is ("int?" or "long?");
     internal bool TypedLabel => Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
     internal string Endpoint=>"findNameId"+GenerationModel.Pascal(Source.Source.ColumnName[..^4])+Source.Source.Id;
     internal IEnumerable<ColumnModel> Dependencies=>(Conditions?.Forms.Select(binding=>binding.Column)??[])
-        .Concat(SourceScopeColumns).Concat(SourceParent is null?[]:[SourceParent]).DistinctBy(column=>column.Source.Id);
+        .Concat(SourceScopeColumns).Concat(CompoundSourceDependencies)
+        .Concat(SourceParent is null?[]:[SourceParent]).DistinctBy(column=>column.Source.Id);
 }
 internal sealed record DatabaseCheckboxResult(DatabaseCheckboxModel? Definition,string? Reason);
 
@@ -171,6 +173,7 @@ internal static class DatabaseCheckboxCompilation
             if(logicalSource&&physicalParents.Length==0&&!pageHasParent)
                 return Gap("来源逻辑父键须对应明确的控件或目标页父范围。");
             PageModel? globalParentPage=null;
+            var compoundGlobalSource=false;
             if(functionForm&&physicalParents.Length>0)
             {
                 if(physicalParents.Length!=1)return Gap("功能表复选必须绑定唯一目标父字段。");
@@ -211,6 +214,12 @@ internal static class DatabaseCheckboxCompilation
                 {
                     _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,scopedPage.Source.Id);
                     globalParentPage=scopedPage;
+                    if(owner.AdditionalColumns.Count>0)
+                    {
+                        Metarill.Data.Queries.NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,scopedPage.Source.Id,owner);
+                        sourceParent=sourceScopeColumns.SingleOrDefault(field=>field.Source.Id==owner.Column.Id);
+                        compoundGlobalSource=true;
+                    }
                 }
                 if(sourceParent?.Source.Id!=owner.Column.Id||(owner.LogicalPages.Count>0)!=logicalSource)
                     return Gap("复选目标页父参数缺少同一来源父记录。");
@@ -245,6 +254,8 @@ internal static class DatabaseCheckboxCompilation
                 LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)
                     .DistinctBy(path=>(path.Read.Source.Source.Id,path.Index)).ToArray(),
                 SourceScopeColumns=sourceScopeColumns,
+                CompoundSourceDependencies=compoundGlobalSource
+                    ?NonRedundantCrossParentCompilation.Dependencies(model,table,page,sourceScopeColumns):[],
                 GlobalParentPage=globalParentPage,
                 DerivedName=derived||logicalPage is not null
             };
