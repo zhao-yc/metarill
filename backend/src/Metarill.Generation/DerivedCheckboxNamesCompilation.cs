@@ -148,11 +148,11 @@ internal static class DerivedCheckboxNamesCompilation
     private static IReadOnlyList<NonRedundantSingleTargetScope> ScopedNameTargets(GenerationModel model,DatabaseCheckboxModel def,
         IReadOnlyList<string> outputs)=>
         def.ExactTarget is {} exact?ExactNameTargets(model,def,exact):
-            NonRedundantReadCompilation.ProjectPathTargets(model,def.Target,ScopedCheckboxPage(def),outputs,includeStoredTargets:true);
+            NonRedundantReadCompilation.ProjectPathTargets(model,def.Target,ScopedCheckboxPage(def),outputs,multiValuePath:true);
 
     /// <summary>授权和名称共用已发布的中间关系，冲突的绑定在生成时拒绝。</summary>
     private static IReadOnlyList<NonRedundantSingleTargetScope> ExactNameTargets(GenerationModel model,
         DatabaseCheckboxModel def,ExactDataManageModel exact)=>
         NonRedundantReadCompilation.MergeProjectTargets(NonRedundantReadCompilation.ProjectPathTargets(model,def.Target,
-            def.NameTargetPage!,[def.Name.Source.ColumnName],includeStoredTargets:true).Concat(exact.SingleTargets));
+            def.NameTargetPage!,[def.Name.Source.ColumnName],multiValuePath:true).Concat(exact.SingleTargets));
 }

@@ -58,7 +58,7 @@ internal static class DerivedMultiNamesCompilation
     internal static IReadOnlyList<NonRedundantSingleTargetScope> NameTargets(GenerationModel model,TableModel target,PageModel page,
         ColumnModel name,RelationConditionModel? condition=null)=>
         NonRedundantReadCompilation.ProjectPathTargets(model,target,page,
-            (condition?.Syntax.Fields??[]).Append(name.Source.ColumnName),includeStoredTargets:true);
+            (condition?.Syntax.Fields??[]).Append(name.Source.ColumnName),multiValuePath:true);
 
     /// <summary>名称、精确匹配和导入附加条件共享实际页的联接绑定。</summary>
     private static IReadOnlyList<NonRedundantSingleTargetScope> ExactTargets(GenerationModel model,TableModel target,

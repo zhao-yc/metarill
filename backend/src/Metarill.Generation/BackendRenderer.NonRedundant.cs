@@ -85,7 +85,7 @@ internal static partial class BackendRenderer
             .SelectMany(table=>table.Pages.SelectMany(page=>MultiSelectCompilation.ForService(model,table,page))).ToArray();
         var multiNamePages=realtimeCheckboxes.SelectMany(checkbox=>NamePages(
             NonRedundantReadCompilation.ProjectPathTargets(model,checkbox.Target,checkbox.NameTargetPage!,
-                [checkbox.Name.Source.ColumnName],includeStoredTargets:true)))
+                [checkbox.Name.Source.ColumnName],multiValuePath:true)))
             .Concat(multiSelections.SelectMany(multi=>NamePages(DerivedMultiNamesCompilation.NameTargets(
                 model,multi.Target,multi.TargetPage,multi.Name))))
             .Concat(logicalMultiImports.SelectMany(multi=>NamePages(DerivedMultiNamesCompilation.NameTargets(

@@ -83,7 +83,7 @@ internal static partial class NonRedundantReadCompilation
     }
 
     private static IReadOnlyList<NonRedundantSingleTargetScope> MultiLabelTargets(GenerationModel model,TableModel table,
-        PageModel? page,string field)=>page is null?[]:ProjectPathTargets(model,table,page,[field],includeStoredTargets:true);
+        PageModel? page,string field)=>page is null?[]:ProjectPathTargets(model,table,page,[field],multiValuePath:true);
 
     /// <summary>没有派生关系的原纯物理非冗余页继续使用既有强类型路径。</summary>
     internal static bool Requires(GenerationModel model,TableModel table)=>HasGlobalRowProject(table)||

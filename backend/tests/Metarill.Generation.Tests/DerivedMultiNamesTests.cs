@@ -253,6 +253,10 @@ public sealed class DerivedMultiNamesTests
     [InlineData(false,1,false,"global-stored-dictionary")]
     [InlineData(true,0,false,"global-stored-dictionary")]
     [InlineData(true,1,false,"global-stored-dictionary")]
+    [InlineData(false,0,false,"global-page-constant")]
+    [InlineData(false,1,false,"global-page-constant")]
+    [InlineData(true,0,false,"global-page-constant")]
+    [InlineData(true,1,false,"global-page-constant")]
     public async Task Array_label_matching_uses_the_actual_nested_page(bool checkbox,int storage,bool globalAccount,string dictionaryMode="")
     {
         const string ns="Example.DerivedArrayScope";
@@ -261,14 +265,16 @@ public sealed class DerivedMultiNamesTests
         source.IsRongyu=storage;
         var companyTable=catalog.ConfigTables.Single(table=>table.Id=="4");
         var globalStored=dictionaryMode=="global-stored-dictionary";
-        var stored=dictionaryMode.Length>0;
+        var globalPageConstant=dictionaryMode=="global-page-constant";
+        var stored=dictionaryMode=="stored-dictionary"||globalStored;
         companyTable.IsRongyu=stored?1:0;
         var company=catalog.ConfigColumns.Single(column=>column.Id=="37");
-        company.ControlDetail=JsonSerializer.Serialize(new{tableId="4",pageId="401",nameField="name",whereSql="status=17"});
+        company.ControlDetail=JsonSerializer.Serialize(new{tableId="4",pageId="401",nameField="name",
+            whereSql=globalPageConstant?"":"status=17"});
         var companyPage=catalog.ConfigPages.Single(page=>page.Id=="401");
         companyPage.WhereSql+=" AND status>=1";
         catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",ColumnName="status",LogicalType="int32"});
-        if(globalStored)
+        if(globalStored||globalPageConstant)
         {
             companyTable.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             catalog.ConfigColumns.RemoveAll(column=>column.Id=="43");
@@ -284,8 +290,9 @@ public sealed class DerivedMultiNamesTests
             foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id))
                 sourcePage.WhereSql+=" AND store_id=@current_store_id";
         }
-        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="301"&&field.ConfigColumnId=="37")
-            .Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"whereSql\":\"status=3\"}");
+        if(!globalPageConstant)
+            catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="301"&&field.ConfigColumnId=="37")
+                .Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"whereSql\":\"status=3\"}");
         if(checkbox)
         {
             var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
@@ -350,9 +357,10 @@ public sealed class DerivedMultiNamesTests
             {
                 var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(read.GetType()
                     .GetProperty("Constants",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(read));
-                Assert.Contains(3,constants.Values);
+                if(globalPageConstant)Assert.DoesNotContain(3,constants.Values);
+                else Assert.Contains(3,constants.Values);
                 Assert.DoesNotContain(17,constants.Values);
-                if(stored)Assert.Contains(1,constants.Values);
+                if(stored||globalPageConstant)Assert.Contains(1,constants.Values);
                 return constants;
             }
         }

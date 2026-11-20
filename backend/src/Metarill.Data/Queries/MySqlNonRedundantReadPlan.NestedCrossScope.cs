@@ -492,9 +492,9 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 var proof=GlobalSingleRelationTarget.Require(catalog,owner,relation,target,sourcePage);
                 page=proof.Page;
-                // 复选名称的内层全局页即使只有物理常量，也须与缓存回填使用相同的可见性范围。
+                // 多值名称的内层全局页即使只有物理常量，也须与缓存回填使用相同的可见性范围。
                 scoped=proof.RequiresScopedPage||proof.CacheControl is {Terms.Count:>0}||
-                    AllowsStoredExactCheckbox&&!string.IsNullOrWhiteSpace(page.WhereSql);
+                    multiLabel&&!string.IsNullOrWhiteSpace(page.WhereSql);
                 parent=proof.Parent;
             }
             else
@@ -539,6 +539,12 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("单值读取须使用非冗余表的实际物理外键。");
             var page=catalog.ConfigPages.Single(item=>item.Id==binding.PageId&&item.ConfigTableId==target.Id);
             var multiPage=MultiNameSourcePage(ownerAlias);
+            if(global&&multiLabel&&binding.SourcePageId is {} nameSourceId)
+            {
+                multiPage??=catalog.ConfigPages.Single(item=>item.Id==nameSourceId&&item.ConfigTableId==owner.Id);
+                if(multiPage.Id!=nameSourceId)
+                    throw new InvalidOperationException("多值名称的全局目标范围与实际来源页不一致。");
+            }
             var proof=global?(multiPage is null?GlobalSingleRelationTarget.Require(catalog,owner,relation,target):
                 GlobalSingleRelationTarget.Require(catalog,owner,relation,target,multiPage)):null;
             if(multiPage is not null)
