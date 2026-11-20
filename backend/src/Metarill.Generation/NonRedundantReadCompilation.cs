@@ -284,15 +284,15 @@ internal static partial class NonRedundantReadCompilation
     /// <summary>页级名称沿用相同的物理外键和原候选条件。纯名称变化不引入额外范围。</summary>
     private static NonRedundantSingleTargetScope? PageTarget(GenerationModel model,TableModel table,PageModel page,RelationModel relation)
     {
-        var name=PageListDisplayOverride(model,table,relation);
+        var display=PageListDisplayOverride(model,table,relation);
         if(UsesProjectSingleRead(relation))
-            return ProjectTarget(model,table,page,relation) with{DisplayNameColumnId=name?.Source.Id};
-        return name is null?null:new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id)
-            {ApplyPageCondition=false,DisplayNameColumnId=name.Source.Id};
+            return ProjectTarget(model,table,page,relation) with{DisplayNameColumnId=display?.Name.Source.Id};
+        return display is null?null:new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id)
+            {ApplyPageCondition=false,DisplayNameColumnId=display.Value.Name.Source.Id};
     }
 
-    /// <summary>只覆盖同一目标的文本显示值。固定全局名称、显式联接列和目标授权不随页级名称改写。</summary>
-    internal static ColumnModel? PageListDisplayOverride(GenerationModel model,TableModel table,RelationModel relation)
+    /// <summary>按原稳定辅助属性覆盖同一目标的文本值，显式联接必须指向同一外键和表级名称。</summary>
+    internal static (ColumnModel Name,ColumnModel Output)? PageListDisplayOverride(GenerationModel model,TableModel table,RelationModel relation)
     {
         var source=relation.SourceColumn;
         var target=relation.Target;
@@ -303,8 +303,13 @@ internal static partial class NonRedundantReadCompilation
             Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(name.Source.ColumnName))
             return null;
         var baseline=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==BaselineSingleName(source));
-        return baseline is not null&&baseline!=name&&Physical(model,target,baseline)&&
-            SelectionDisplayFieldCompilation.AutomaticSingle(table,source,baseline) is not null?name:null;
+        if(baseline is null||baseline==name||baseline.Type!="string?"||!Physical(model,target,baseline))return null;
+        var automatic=SelectionDisplayFieldCompilation.AutomaticSingle(table,source,baseline);
+        if(automatic is not null)return (name,automatic);
+
+        var declared=SelectionDisplayFieldCompilation.Resolve(table,source);
+        return !declared.IsJsonArray&&MetadataStoragePolicy.IsTextListDisplayJoin(source.Source,declared.Source,baseline.Source.ColumnName)
+            ?(name,declared):null;
     }
 
     /// <summary>原响应属性从表级名称推导，页面覆盖不能改变 JSON 协议。</summary>

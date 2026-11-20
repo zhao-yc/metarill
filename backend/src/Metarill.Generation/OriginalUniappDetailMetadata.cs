@@ -121,9 +121,8 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
         if (table.Source.IsRongyu == 0 && column.Source.ControlKind == "List" &&
             RelationCompilation.ForPage(model, page, scopeSourceId: column.Source.Id).SingleOrDefault() is { } relation &&
             relation.NameColumn.Source.ColumnName == nameField &&
-            NonRedundantReadCompilation.PageListDisplayOverride(model, table, relation) is not null &&
-            SelectionDisplayFieldCompilation.AutomaticSingle(model, table, page, column) is { } published)
-            return published.JsonName;
+            NonRedundantReadCompilation.PageListDisplayOverride(model, table, relation) is { } published)
+            return published.Output.JsonName;
         var stem = column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? column.Source.ColumnName[..^4] : column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) ? column.Source.ColumnName[..^3] : column.Source.ColumnName;
         var expected = stem + "_" + nameField + (column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? "s" : "");
         return table.Columns.SingleOrDefault(item => item.Source.ColumnName == expected)?.JsonName ??

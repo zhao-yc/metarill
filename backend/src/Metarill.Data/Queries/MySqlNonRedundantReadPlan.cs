@@ -575,6 +575,13 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(column is not null&&(Kind(table,alias,column)!=MetadataFieldStorage.Join||Text(column,"columnFullName")!=multi.ColumnName[..^4]+"."+display&&Text(column,"columnFullName")!=multi.ColumnName+"."+display))throw new InvalidOperationException("多值显示字段必须声明同一关系与名称路径。");
                     return MultiDisplay(table,alias,multi,display);
                 }
+                if(InferredSingleDisplay(table,name,alias,column) is {} inferred)
+                {
+                    var target=Target(inferred.Foreign);
+                    var joined=JoinSinglePath(table,alias,inferred.Foreign,target,singleCacheOwner);
+                    var value=Resolve(target,joined.Alias,inferred.Display,joined.CacheOwner);
+                    return joined.Visibility is null?value:("CASE WHEN "+joined.Visibility+" THEN "+value.Sql+" END",value.Type);
+                }
                 if(column is not null)
                 {
                     var kind=Kind(table,alias,column);
@@ -621,13 +628,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(name is "insert_manager_real_name" or "update_manager_real_name")
                     {var relation=Column(table,name.Replace("_real_name","_id",StringComparison.Ordinal));var target=tables.Values.SingleOrDefault(item=>item.TableName=="yz_manager")??throw new InvalidOperationException("缺少固定管理员基础设施元数据。");ValidateTarget(target);var id=Resolve(table,alias,relation.ColumnName);return Resolve(target,Join(alias,relation,target,id.Sql,id.Type),"real_name");}
                 }
-                if(InferredSingleDisplay(table,name,alias) is {} inferred)
-                {
-                    var target=Target(inferred.Foreign);
-                    var joined=JoinSinglePath(table,alias,inferred.Foreign,target,singleCacheOwner);
-                    var value=Resolve(target,joined.Alias,inferred.Display,joined.CacheOwner);
-                    return joined.Visibility is null?value:("CASE WHEN "+joined.Visibility+" THEN "+value.Sql+" END",value.Type);
-                }
+
                 throw new NotSupportedException("字段不是已支持的物理列或单值派生关系："+name);
             }
             finally{resolving.Remove(key);}

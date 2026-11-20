@@ -24,11 +24,32 @@ public sealed class NonRedundantGeneratedReadTests
         finally{if(Directory.Exists(root))Directory.Delete(root,true);}
     }
     /// <summary>两个业务页共享原稳定名称属性，分别使用表级名称及本页覆盖的简称。</summary>
-    [Fact]
-    public async Task Page_list_label_override_retains_original_auxiliary_and_excel_contract()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("customer.name")]
+    [InlineData("customer_id.name")]
+    public async Task Page_list_label_override_retains_original_auxiliary_and_excel_contract(string? displayPath)
     {
         var root = Path.Combine(Path.GetTempPath(), "metarill-list-label-override", Guid.NewGuid().ToString("N"));
         var catalog = NonRedundantGeneratedFixture.Catalog("mt_page_label");
+        if (displayPath is not null)
+        {
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "118", ConfigTableId = "1", ColumnName = "customer_name", Name = "客户名称",
+                LogicalType = "string", ColumnLength = "100",
+                Extra = new()
+                {
+                    ["isJoinColumn"] = JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"] = JsonSerializer.SerializeToElement(displayPath)
+                }
+            });
+            catalog.ConfigPageColumns.Add(new()
+            {
+                Id = "101118", ConfigPageId = "101", ConfigColumnId = "118", IsShow = 1,
+                Extra = new() { ["isSort"] = JsonSerializer.SerializeToElement(1) }
+            });
+        }
         var source = catalog.ConfigPages.Single(page => page.Id == "101");
         source.IsExport = 1;
         source.IsImport = 1;

@@ -680,9 +680,11 @@ public static partial class MySqlNonRedundantReadCompiler
         private NonRedundantSingleTargetScope? ExplicitSingleBinding(string owner,ColumnMetadata relation)=>
             (owner==rootAlias?ProjectSingleTargets:projectAliasTargets.GetValueOrDefault(owner))?.GetValueOrDefault(relation.Id);
 
-        /// <summary>稳定的辅助字段名沿表级定义，页级绑定仅决定实际取值列。</summary>
-        private (ColumnMetadata Foreign,string Display)? InferredSingleDisplay(TableMetadata table,string name,string? owner=null)
+        /// <summary>稳定的辅助字段名沿表级定义，显式名称只在能证明同一联接时采用页级绑定。</summary>
+        private (ColumnMetadata Foreign,string Display)? InferredSingleDisplay(TableMetadata table,string name,string? owner=null,ColumnMetadata? declared=null)
         {
+            if(declared is not null&&(owner is null||storage[table.Id].Kind(declared)!=MetadataFieldStorage.Join))
+                return null;
             foreach(var foreign in columns[table.Id].Values.Where(MetadataStoragePolicy.IsRelationColumn))
             {
                 if(!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal))continue;
@@ -690,7 +692,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(display.Length==0)display="name";
                 if(display=="id"||!name.Equals(foreign.ColumnName[..^3]+"_"+display,StringComparison.OrdinalIgnoreCase))
                     continue;
-                if(owner is not null&&ExplicitSingleBinding(owner,foreign) is {DisplayNameColumnId:{} id} binding)
+                var binding=owner is null?null:ExplicitSingleBinding(owner,foreign);
+                if(declared is not null&&(binding?.DisplayNameColumnId is null||
+                    !MetadataStoragePolicy.IsTextListDisplayJoin(foreign,declared,display)))
+                    continue;
+                if(binding is {DisplayNameColumnId:{} id})
                 {
                     var target=Target(foreign);
                     var column=columns[target.Id].Values.SingleOrDefault(item=>item.Id==id);

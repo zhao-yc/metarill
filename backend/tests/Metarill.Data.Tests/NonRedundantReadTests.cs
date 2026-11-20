@@ -38,12 +38,21 @@ public sealed class NonRedundantReadTests
 
     /// <summary>两个外键可联接同表，名称覆盖只改变实际配置页对应角色的稳定输出。</summary>
     [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public void List_display_override_uses_only_the_bound_role_and_keeps_project_scope(int targetStorage)
+    [InlineData(0, null)]
+    [InlineData(1, null)]
+    [InlineData(0, "bill.name")]
+    [InlineData(1, "bill_id.name")]
+    public void List_display_override_uses_only_the_bound_role_and_keeps_project_scope(int targetStorage, string? displayPath)
     {
         var catalog = Catalog("mt_read_root", "mt_read_party");
         catalog.ConfigTables[1].IsRongyu = targetStorage;
+        if (displayPath is not null)
+        {
+            var display = Column("111", "1", "bill_name");
+            display.Extra["isJoinColumn"] = JsonSerializer.SerializeToElement(1);
+            display.Extra["columnFullName"] = JsonSerializer.SerializeToElement(displayPath);
+            catalog.ConfigColumns.Add(display);
+        }
         catalog.ConfigPages.Add(new() { Id = "201", ConfigTableId = "2" });
         catalog.ConfigColumns.Add(Column("27", "2", "short_name"));
         var baseline = MySqlNonRedundantReadCompiler.Compile(catalog, "1", ["bill_name", "ship_name"]);
@@ -60,6 +69,30 @@ public sealed class NonRedundantReadTests
         Assert.Contains("delete_no", plan.From);
         Assert.Throws<InvalidOperationException>(() => NonRedundantReads.CompileProjectPage(
             catalog, "1", ["bill_name"], [], [], [binding with { DisplayNameColumnId = "26" }]));
+    }
+
+    /// <summary>同名显式列若映射另一外键，读取不能用当前外键的简称替换它。</summary>
+    [Fact]
+    public void List_display_override_leaves_same_name_join_for_other_role()
+    {
+        var catalog = Catalog("mt_read_root", "mt_read_party");
+        catalog.ConfigPages.Add(new() { Id = "201", ConfigTableId = "2" });
+        catalog.ConfigColumns.Add(Column("27", "2", "short_name"));
+        var display = Column("111", "1", "bill_name");
+        display.Extra["isJoinColumn"] = JsonSerializer.SerializeToElement(1);
+        display.Extra["columnFullName"] = JsonSerializer.SerializeToElement("ship.name");
+        catalog.ConfigColumns.Add(display);
+
+        var binding = new NonRedundantSingleTargetScope("15", "201")
+        {
+            ApplyPageCondition = false,
+            DisplayNameColumnId = "27"
+        };
+        var baseline = MySqlNonRedundantReadCompiler.Compile(catalog, "1", ["bill_name"]);
+        var plan = NonRedundantReads.CompileProjectPage(catalog, "1", ["bill_name"], [], [], [binding]).MySql;
+        Assert.Equal(baseline.Expression("bill_name"), plan.Expression("bill_name"));
+        Assert.Contains("ship_id", plan.From);
+        Assert.DoesNotContain("bill_id", plan.From);
     }
 
     /// <summary>实际递归字段循环被拒，普通自关联不是循环。</summary>
