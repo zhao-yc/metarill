@@ -139,7 +139,9 @@ public sealed partial class {{page.Name}}ImportRequest
                 .AppendLine("            }");
         result.AppendLine("            catch (PageImportException error) when (error.IsInputError)").AppendLine("            {")
             .AppendLine("                throw error.AtRow(rowNumber);").AppendLine("            }")
-            // 已声明业务规则保留原类型和提示，由外层事务回滚及宿主HTTP200/R500边界处理。
+            .AppendLine("            catch (BusinessRuleException error) when (error.RequiredFieldName is not null)")
+            .AppendLine("            {").AppendLine("                throw PageImportException.Input(PageImportError.Required, rowNumber, error.RequiredFieldName, error);").AppendLine("            }")
+            // 其它已声明业务规则保留原类型和提示，由外层事务回滚及宿主HTTP200/R500边界处理。
             .AppendLine("            catch (Exception error) when (error is not OperationCanceledException and not UnauthorizedAccessException and not System.Security.SecurityException and not BusinessRuleException)").AppendLine("            {")
             .AppendLine("                throw PageImportException.Execution(rowNumber, error);").AppendLine("            }");
         result.AppendLine("        }")

@@ -1,7 +1,7 @@
 namespace Metarill.Core.Contracts;
 
 /// <summary>导入错误只使用固定分类，不能用任意异常消息充当可展示业务提示。</summary>
-public enum PageImportError { RowsArray, RowObject, DuplicateHeader, UnknownHeader, Number, Boolean, DateTime, Array, Constant, Relation, Binary, BinaryLength, AmbiguousOverwrite, MissingOverwriteKey, AmbiguousPageOverwrite, OverwriteKeyChanged }
+public enum PageImportError { RowsArray, RowObject, DuplicateHeader, UnknownHeader, Number, Boolean, DateTime, Array, Constant, Relation, Binary, BinaryLength, AmbiguousOverwrite, MissingOverwriteKey, AmbiguousPageOverwrite, OverwriteKeyChanged, Required }
 
 /// <summary>明确区分可修正的单元格输入与内部执行失败；内部异常链只供宿主日志使用。</summary>
 public sealed class PageImportException : Exception
@@ -52,6 +52,7 @@ public sealed class PageImportException : Exception
             PageImportError.Number => "应填写有效数字。", PageImportError.Boolean => "应填写有效布尔选项。", PageImportError.DateTime => "应填写有效日期或时间。",
             PageImportError.Binary => "应填写有效Base64二进制文本。",
             PageImportError.BinaryLength => "解码后的二进制内容超过配置的字节长度。",
+            PageImportError.Required => "不能为空。",
             PageImportError.MissingOverwriteKey => "覆盖匹配字段不能为空。",
             PageImportError.OverwriteKeyChanged => "首列与原记录的联动条件不一致，请核对首列和联动字段。",
             PageImportError.AmbiguousPageOverwrite => "当前页面范围内有多个匹配，请先消除重复记录后再导入。",

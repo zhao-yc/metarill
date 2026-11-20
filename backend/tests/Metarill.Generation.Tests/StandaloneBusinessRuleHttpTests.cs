@@ -32,6 +32,8 @@ public sealed class BusinessRuleProbeController:ControllerBase
     {
         "business"=>throw new BusinessRuleException("合同金额不能小于零"),
         "argument"=>throw new ArgumentException("参数正文标记不得回显"),
+        "required"=>throw BusinessRuleException.RequiredField("合同名称"),
+        "import-required"=>throw PageImportException.Input(PageImportError.Required,2,"合同名称"),
         "import-input"=>throw PageImportException.Input(PageImportError.Number,2,"数量"),
         "import-execution"=>throw PageImportException.Execution(2,new InvalidOperationException("导入内部错误不得回显")),
         "database"=>throw new InvalidOperationException("SQL连接正文标记不得回显"),
@@ -80,6 +82,8 @@ public sealed class BusinessRuleProbeController:ControllerBase
             {
                 ("business",200,500,"合同金额不能小于零"),
                 ("argument",400,400,"请求参数不符合页面定义。"),
+                ("required",200,500,"合同名称不能为空。"),
+                ("import-required",400,400,"第2行，列「合同名称」：不能为空。"),
                 ("import-input",400,400,"第2行，列「数量」：应填写有效数字。"),
                 ("import-execution",500,500,internalError),
                 ("database",500,500,internalError),

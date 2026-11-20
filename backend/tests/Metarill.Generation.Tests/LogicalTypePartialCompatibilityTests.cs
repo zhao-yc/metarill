@@ -51,15 +51,15 @@ public partial class ConfigColumnService
             }
             foreach(var body in new[]{"{\"id\":\"20\",\"columnType\":\"\"}","{\"id\":\"20\",\"columnType\":null}","{\"id\":\"20\",\"logicalType\":\"decimal\"}","{\"id\":\"20\",\"logicalType\":\"invalid\"}"})
             {
-                offline.Set("decimal","");var before=offline.Writes;await Assert.ThrowsAsync<ArgumentException>(()=>Invoke("Update"+Page+"Async",Request("Update",body),null,actor,CancellationToken.None));Assert.Equal(before,offline.Writes);
+                offline.Set("decimal","");var before=offline.Writes;await Assert.ThrowsAsync<BusinessRuleException>(()=>Invoke("Update"+Page+"Async",Request("Update",body),null,actor,CancellationToken.None));Assert.Equal(before,offline.Writes);
             }
             foreach(var original in new string?[]{null," "})
-            {offline.Set("decimal",original);await Assert.ThrowsAsync<ArgumentException>(()=>Invoke("Update"+Page+"Async",Request("Update","{\"id\":\"20\",\"controlDetail\":\"配置\"}"),null,actor,CancellationToken.None));}
-            offline.Set("invalid","");await Assert.ThrowsAsync<ArgumentException>(()=>Invoke("Update"+Page+"Async",Request("Update","{\"id\":\"20\",\"controlDetail\":\"配置\"}"),null,actor,CancellationToken.None));
-            offline.Set("decimal","");await Assert.ThrowsAsync<ArgumentException>(()=>Invoke("Update"+Page+"Async",Request("Update","{\"id\":\"20\",\"controlDetail\":\"配置\"}"),null,actor with{AccountName="改变逻辑"},CancellationToken.None));
-            await Assert.ThrowsAsync<ArgumentException>(()=>Invoke("Create"+Page+"Async",Request("Create","{\"logicalType\":\"decimal\",\"columnType\":\"\"}"),null,actor,CancellationToken.None));
-            offline.Set("decimal","");await Assert.ThrowsAsync<ArgumentException>(()=>Invoke("Copy"+Page+"Async",20L,null,actor,CancellationToken.None));
-            offline.Set("decimal","");await Assert.ThrowsAsync<ArgumentException>(()=>Invoke("Update99Async",Request("Update","{\"id\":\"20\",\"controlDetail\":\"配置\"}","99"),null,actor,CancellationToken.None));
+            {offline.Set("decimal",original);await Assert.ThrowsAsync<BusinessRuleException>(()=>Invoke("Update"+Page+"Async",Request("Update","{\"id\":\"20\",\"controlDetail\":\"配置\"}"),null,actor,CancellationToken.None));}
+            offline.Set("invalid","");await Assert.ThrowsAsync<BusinessRuleException>(()=>Invoke("Update"+Page+"Async",Request("Update","{\"id\":\"20\",\"controlDetail\":\"配置\"}"),null,actor,CancellationToken.None));
+            offline.Set("decimal","");await Assert.ThrowsAsync<BusinessRuleException>(()=>Invoke("Update"+Page+"Async",Request("Update","{\"id\":\"20\",\"controlDetail\":\"配置\"}"),null,actor with{AccountName="改变逻辑"},CancellationToken.None));
+            await Assert.ThrowsAsync<BusinessRuleException>(()=>Invoke("Create"+Page+"Async",Request("Create","{\"logicalType\":\"decimal\",\"columnType\":\"\"}"),null,actor,CancellationToken.None));
+            offline.Set("decimal","");await Assert.ThrowsAsync<BusinessRuleException>(()=>Invoke("Copy"+Page+"Async",20L,null,actor,CancellationToken.None));
+            offline.Set("decimal","");await Assert.ThrowsAsync<BusinessRuleException>(()=>Invoke("Update99Async",Request("Update","{\"id\":\"20\",\"controlDetail\":\"配置\"}","99"),null,actor,CancellationToken.None));
             offline.Set("decimal","");observer.Fail=true;var snapshot=offline.Snapshot();var rollbacks=offline.Rollbacks;
             await Assert.ThrowsAsync<InvalidOperationException>(()=>Invoke("Update"+Page+"Async",Request("Update","{\"id\":\"20\",\"controlDetail\":\"应回滚\"}"),null,actor,CancellationToken.None));
             Assert.Equal(snapshot,offline.Snapshot());Assert.Equal(rollbacks+1,offline.Rollbacks);Assert.Equal(0,offline.RawCommands);

@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.Json;
 using FreeSql;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
@@ -116,7 +117,8 @@ public sealed class GeneratedMutationGuardContractTests(GeneratedMutationGuardFi
     public async Task Required_validation_still_precedes_final_guard_and_write()
     {
         using var run = fixture.Run(); var guard = new Guard(run);
-        await Assert.ThrowsAsync<ArgumentException>(() => run.Invoke(run.Service([guard]), RecordMutationOperation.Create, run.Request(RecordMutationOperation.Create, "{}")));
+        var error=await Assert.ThrowsAsync<BusinessRuleException>(()=>run.Invoke(run.Service([guard]), RecordMutationOperation.Create, run.Request(RecordMutationOperation.Create, "{}")));
+        Assert.NotNull(error.RequiredFieldName);
         Assert.Single(guard.Preparations); Assert.Empty(guard.Validations); Assert.DoesNotContain(run.Trace, item => item.StartsWith("write:", StringComparison.Ordinal));
         Assert.Equal("rollback", run.Trace[^1]);
     }

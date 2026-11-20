@@ -94,6 +94,30 @@ public partial class CustomerService
                 Assert.True(error.IsInputError); Assert.Equal(2, error.RowNumber); Assert.Equal(code, error.Code); Assert.Null(error.ColumnName); Assert.DoesNotContain("SQL", error.Message);
             }
             var shape = await Assert.ThrowsAsync<PageImportException>(() => Call("{\"requestJson\":{}}")); Assert.Equal(PageImportError.RowsArray, shape.Code); Assert.Null(shape.RowNumber);
+            // 次行缺少必填列时，保留列名和行号，并回滚先前已进入同一事务的写入。
+            var requiredInserts=probe.Inserts;
+            var requiredCommits=probe.Commits;
+            var requiredRollbacks=probe.Rollbacks;
+            var required=await Assert.ThrowsAsync<PageImportException>(()=>Call(
+                """{"requestJson":[{"名称":"合法首行"},{"数量":7}]}"""));
+            Assert.True(required.IsInputError);
+            Assert.Equal(PageImportError.Required,required.Code);
+            Assert.Equal(2,required.RowNumber);
+            Assert.Equal("名称",required.ColumnName);
+            Assert.Equal("第2行，列「名称」：不能为空。",required.Message);
+            Assert.Equal(requiredInserts+1,probe.Inserts);
+            Assert.Equal(requiredCommits,probe.Commits);
+            Assert.Equal(requiredRollbacks+1,probe.Rollbacks);
+
+            var createRequest=assembly.GetType("Example.ImportErrors.Generated.DTOs.CustomerPage101CreateRequest",true)!;
+            var missing=JsonSerializer.Deserialize("{}",createRequest,new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            var create=serviceType.GetMethod("Create101Async")!;
+            var saveRequired=await Assert.ThrowsAsync<BusinessRuleException>(()=>
+                (Task)create.Invoke(service,[missing,null,actor,CancellationToken.None])!);
+            Assert.Equal("名称不能为空。",saveRequired.Message);
+            Assert.Equal("名称",saveRequired.RequiredFieldName);
+            Assert.Equal(requiredInserts+1,probe.Inserts);
+            Assert.Equal(requiredRollbacks+2,probe.Rollbacks);
             await Call("{\"requestJson\":[{\"名称\":\"合法字符串\",\"金额\":\"12.30\",\"数量\":\"7\",\"长编号\":\"9007199254740993\",\"启用\":1,\"附件\":[],\"状态\":\"启用\"},{\"名称\":\"清空\",\"金额\":null,\"数量\":\"\",\"长编号\":null}]}" );
             await Call("""{"requestJson":[{"名称":"第一行含中文、🌏与引号\"","数量":"7","长编号":"9007199254740993"},{"名称":"空","数量":null},{"名称":"省"}]}""");
             var execution = await Assert.ThrowsAsync<PageImportException>(() => Call("{\"requestJson\":[{\"名称\":\"首行\"},{\"名称\":\"内部失败\"}]}"));

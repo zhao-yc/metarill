@@ -56,6 +56,7 @@ public sealed class GlobalCachedSourceGenerationTests
         Assert.Contains("guards.All(guard => guard.CanBufferScalarAppend(\"sample_contract_line\"))",rendered);
         Assert.Contains("observers.All(observer => observer.CanBufferScalarAppend",rendered);
         Assert.Contains("TryInsertPackedScalarSourceAsync",rendered);
+        Assert.Contains("return PageImportException.Input(PageImportError.Required, row, fieldName, error);",rendered);
         Assert.Contains("if (flushEarlierRows is not null) await flushEarlierRows();",rendered);
         Assert.Contains("queuePackedRow(entity, deferredParent, PersistAsync);",rendered);
         Assert.True(rendered.IndexOf("await ValidateMutationAsync(\"81003\", RecordMutationOperation.Create",StringComparison.Ordinal) <

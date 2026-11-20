@@ -68,6 +68,8 @@ internal static class PackedAppendRenderer
         static Exception ImportFailure(Exception error, int row)
         {
             if (error is PageImportException { IsInputError: true } input) return input.AtRow(row);
+            if (error is BusinessRuleException { RequiredFieldName: { } fieldName })
+                return PageImportException.Input(PageImportError.Required, row, fieldName, error);
             if (error is PageImportException { RowNumber: not null } or OperationCanceledException or UnauthorizedAccessException or System.Security.SecurityException or BusinessRuleException)
                 return error;
             return PageImportException.Execution(row, error);

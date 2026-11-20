@@ -2,6 +2,7 @@ using System.Data.Common;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
@@ -45,7 +46,8 @@ public sealed class FixedAdminNameButtonUpdateTests(FixedAdminNameButtonFixture 
     public async Task Required_role_admin_is_still_rejected_before_the_mapper()
     {
         using var run=fixture.Run(false);run.Entity.GetType().GetProperty("YzAdminTypeId")!.SetValue(run.Entity,null);
-        var error=await Assert.ThrowsAsync<ArgumentException>(()=>run.Update());Assert.Equal("后台类型不能为空。",error.Message);
+        var error=await Assert.ThrowsAsync<BusinessRuleException>(()=>run.Update());Assert.Equal("后台类型不能为空。",error.Message);
+        Assert.Equal("后台类型",error.RequiredFieldName);
         Assert.Empty(run.Rows.Writes);Assert.Empty(run.NameQueries);Assert.Equal("rollback",run.Transactions.Trace[^1]);
     }
     /// <summary>未知按钮、换主体、已撤权和三处当前证明拒绝都保留原阶段及回滚。</summary>

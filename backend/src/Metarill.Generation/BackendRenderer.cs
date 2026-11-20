@@ -713,7 +713,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             }
             var compatibility = updating ? PlatformColumnTypeCompatibilityCompilation.Exception(model, table, page, column) : "";
             if (compatibility.Length != 0) condition = $"({condition}) && !({compatibility})";
-            result.AppendLine($"        if ({condition}) throw new ArgumentException({Literal(column.Source.Name + "不能为空。")});");
+            var fieldName=string.IsNullOrWhiteSpace(column.Source.Name)?column.Source.ColumnName:column.Source.Name;
+            result.AppendLine($"        if ({condition}) throw BusinessRuleException.RequiredField({Literal(fieldName)});");
         }
         // 手写规则同样按实际字节长度校验，不能依赖数据库截断或只检查Base64字符。
         foreach(var column in table.Columns.Where(column=>column.Type=="byte[]?"&&NonRedundantReadCompilation.Physical(model,table,column)))
