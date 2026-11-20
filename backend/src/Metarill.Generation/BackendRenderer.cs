@@ -952,7 +952,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var sameParent = ControlRenderer.RelationContext(page,relation,false).SameParent;
             if (relation.TargetParents.Count > 0)
             {
-                if (relation.LogicalSourceParent||sameParent&&relation.FixedParent is {AdditionalTargets.Count:>0})
+                if (relation.LogicalSourceParent||sameParent&&
+                    (relation.FixedParent is {AdditionalTargets.Count:>0}||!relation.Target.IsGlobal&&fixedGlobalParent is not null))
                 {
                     var conflict=relation.LogicalSourceParent?"关联目标父必须与来源页的逻辑父一致。":"关联目标父必须与来源页的父记录一致。";
                     result.AppendLine($"        if(targetParentId is not null&&targetParentId!=parentId)throw new ArgumentException({Literal(conflict)});");
@@ -989,7 +990,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 relation.FixedParent?.HasTarget(s.Column.Source.Id,logicalOnly:true)!=true).DistinctBy(scope => scope.Column.Source.Id))
                 result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
             // 固定候选包含已发布逻辑父层位，附加搜索继续复用同一相关查询。
-            if((relation.Target.IsGlobal||DerivedRelationNamesCompilation.EmbedsParentScope(relation.FixedParent))&&logicalPlan is not null)
+            if((relation.Target.IsGlobal||DerivedRelationNamesCompilation.EmbedsParentScope(relation.Target,relation.FixedParent))&&logicalPlan is not null)
             {
                 if(relation.Conditions?.HasLogicalFields!=true)
                 {

@@ -1651,6 +1651,17 @@ public sealed class DerivedRelationNamesTests
         VerifySingleRelationCompoundParents(selection,independent,targetScope,redundant,exact,globalParent:true,
             compoundGlobalSource:compoundSource,physicalSource:physicalSource,projectTargetGlobalParent:true);
 
+    /// <summary>项目内原候选仅有一个物理父键时仍须执行实际全局父页范围。</summary>
+    [Theory]
+    [InlineData(false,false,false,false)]
+    [InlineData(true,false,true,false)]
+    [InlineData(true,true,false,true)]
+    [InlineData(false,true,false,false)]
+    public Task Project_single_relation_preserves_physical_global_parent(
+        bool selection,bool redundant,bool independent,bool exact)=>
+        VerifySingleRelationCompoundParents(selection,independent,"physicalSingle",redundant,exact,globalParent:true,
+            compoundGlobalSource:independent,projectTargetGlobalParent:true);
+
     private static async Task VerifySingleRelationCompoundParents(bool selection,bool independent,string? targetScope,
         bool redundant=false,bool exact=false,bool? globalTargetWithProject=null,bool globalParent=false,bool compoundGlobalSource=false,
         bool physicalSource=false,bool projectTargetGlobalParent=false)
@@ -1705,7 +1716,7 @@ public sealed class DerivedRelationNamesTests
             {
                 catalog.ConfigColumns.Add(new(){Id="220",ConfigTableId="2",ColumnName="depot_group_id",LogicalType="int64",LinkConfigTableId="3"});
             }
-            else
+            else if(targetScope!="physicalSingle")
             {
                 AddPath("220","depot","2");
                 catalog.ConfigPageColumns.Add(new(){Id="201220",ConfigPageId="201",ConfigColumnId="220",IsShow=1,IsEdit=1});
@@ -1717,7 +1728,7 @@ public sealed class DerivedRelationNamesTests
                     StringComparison.Ordinal);
                 catalog.ConfigPageColumns.Add(new(){Id="201221",ConfigPageId="201",ConfigColumnId="221",IsShow=1,IsEdit=1});
             }
-            target.WhereSql+=" AND depot_group_id=@parentId";
+            if(targetScope!="physicalSingle")target.WhereSql+=" AND depot_group_id=@parentId";
             if(exact)target.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");
             if(selection&&targetScope=="independent"&&!exact)
                 foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField="company_name",
@@ -1733,7 +1744,8 @@ public sealed class DerivedRelationNamesTests
                 target.WhereSql=target.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
                 catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="name <> '停用公司'";
             }
-            target.WhereSql+=" AND store_id=@current_store_id";
+            // 下拉样本只在全局父页放账号条件，核对父级自身的范围也会传入候选。
+            if(targetScope!="physicalSingle"||selection)target.WhereSql+=" AND store_id=@current_store_id";
             catalog.ConfigColumns.Add(new(){Id="218",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"});
             catalog.ConfigColumns.Add(new(){Id="118",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"});
             if(redundant)
@@ -1777,7 +1789,13 @@ public sealed class DerivedRelationNamesTests
         if(targetScope is not null)
         {
             Assert.NotNull(relation.FixedParent);
-            Assert.Single(relation.FixedParent!.AdditionalTargets);
+            if(targetScope=="physicalSingle")
+            {
+                Assert.Empty(relation.FixedParent!.AdditionalTargets);
+                Assert.True(relation.FixedParent.Global);
+                Assert.False(relation.FixedParent.Logical);
+            }
+            else Assert.Single(relation.FixedParent!.AdditionalTargets);
         }
         Assert.True(ControlRenderer.RelationContext(source,relation,false).SameParent);
         if(compoundGlobalSource)
@@ -1792,6 +1810,12 @@ public sealed class DerivedRelationNamesTests
         else Assert.Equal(logicalSource?"origin_group_id":"group_id",relation.FixedSourceParent!.Source.ColumnName);
         new FrontendPackager().Validate(catalog);
 
+        var scopedTargetField=targetScope switch
+        {
+            "physicalSingle"=>"group_id",
+            "physical"=>"depot_group_id",
+            _=>"depot_zone_id"
+        };
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-compound-single-parent");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -1829,8 +1853,13 @@ public sealed class DerivedRelationNamesTests
                     BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
                 var sql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
                 var condition=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
-                Assert.Contains("BINARY CAST(",condition);
-                Assert.Contains(targetScope=="physical"?"`depot_group_id`":"`depot_zone_id`",condition);
+                if(targetScope!="physicalSingle")Assert.Contains("BINARY CAST(",condition);
+                Assert.Contains("`"+scopedTargetField+"`",condition);
+                if(targetScope=="physicalSingle")
+                {
+                    Assert.Contains("`single_compound_group`",condition);
+                    Assert.Contains("`store_id`",condition);
+                }
                 if(hasGlobalParentFixture)
                 {
                     Assert.True(plan.RequiresAccount);
@@ -1844,7 +1873,7 @@ public sealed class DerivedRelationNamesTests
                         var readSql=read.GetType().GetProperty("MySql",hidden)!.GetValue(read)!;
                         var joins=Assert.IsType<string>(readSql.GetType().GetProperty("From",hidden)!.GetValue(readSql));
                         Assert.Contains("BINARY CAST(",joins);
-                        Assert.Contains(targetScope=="physical"?"`depot_group_id`":"`depot_zone_id`",joins);
+                        Assert.Contains("`"+scopedTargetField+"`",joins);
                         if(compoundGlobalSource&&physicalSource)
                             Assert.Contains("CASE WHEN BINARY CAST(b.`backup_group_id` AS CHAR)=BINARY CAST(b.`group_id` AS CHAR)",joins);
                         else if(compoundGlobalSource&&independent)
@@ -1867,12 +1896,12 @@ public sealed class DerivedRelationNamesTests
                     var read=stored.GetType().GetProperty("Read")!.GetValue(stored)!;
                     var nameSql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["customer_company_name"]));
                     Assert.Contains("BINARY CAST(",nameSql);
-                    Assert.Contains(targetScope=="physical"?"`depot_group_id`":"`depot_zone_id`",nameSql);
+                    Assert.Contains("`"+scopedTargetField+"`",nameSql);
                     if(physicalSource)Assert.Contains("`backup_group_id`",nameSql);
                 }
             }
 
-            if(selection&&(independent||targetScope=="independent"&&!exact))
+            if(selection&&(independent||targetScope=="independent"&&!exact||targetScope=="physicalSingle"&&exact))
             {
                 foreach(var publishedPage in catalog.ConfigPages)
                     catalog.ConfigMenus.Add(new(){Id="700"+publishedPage.Id,YzProjectId=catalog.YzProjectId,
@@ -1937,6 +1966,14 @@ public sealed class DerivedRelationNamesTests
                     second.Extra.Remove("linkConfigPageId");
                     catalog.ConfigPages.Remove(other);
                 }
+            }
+            if(targetScope=="physicalSingle")
+            {
+                // 外键仍指向全局父表，只把父发布页错绑到另一张表，不能回退到任意页面。
+                catalog.ConfigColumns.Single(column=>column.Id=="29").Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("601");
+                var invalid=Assert.ThrowsAny<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+                Assert.Contains("全局物理父键必须绑定唯一发布页",invalid.Message);
+                return;
             }
             if(targetScope is not null)
             {

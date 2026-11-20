@@ -55,8 +55,9 @@ public static partial class MySqlNonRedundantReadCompiler
         // 复选独立使用已发布的稀疏父字段，普通业务和多选页沿用各自页面类型。
         var projectParent=exactCheckboxParent?MultiTargetParentScope.Compile(catalog,table,syntax):
             !global?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null;
-        if(exactParent&&projectParent is not ({Logical:true} or {AdditionalTargets.Count:>0}))
-            throw new NotSupportedException("精确候选缺少已发布的逻辑父级。");
+        if(exactParent&&projectParent is not ({Logical:true} or {AdditionalTargets.Count:>0})&&
+            !(exactSingleParent&&projectParent is {Global:true}))
+            throw new NotSupportedException("精确候选缺少已发布的父范围。");
         if(listFields is not null&&!globalExactSingle&&!projectSingle&&
             (!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0))
             throw new NotSupportedException("固定下拉附加条件必须引用已发布的逻辑级联字段。");
@@ -73,7 +74,7 @@ public static partial class MySqlNonRedundantReadCompiler
             else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page);
         }
         if(!globalExactSingle&&!projectSingle&&!accountParentPage&&physicalParent is null&&
-            projectParent?.AdditionalTargets.Count is not >0&&logical.Count==0&&
+            projectParent is not ({Global:true} or {AdditionalTargets.Count:>0})&&logical.Count==0&&
             treeNames.Count==0&&listFields is null&&(!global||displayBindings is not{Count:>0}))
             throw new InvalidOperationException("候选页未声明逻辑级联条件或已证明的全局跨表投影。");
         var parent=physicalParent??projectParent??(hasParentScope||projectSingle
@@ -538,13 +539,14 @@ public static partial class MySqlNonRedundantReadCompiler
             var controlPage=binding.ControlSourcePageId is null?null:catalog.ConfigPages.Single(
                 item=>item.Id==binding.ControlSourcePageId&&item.ConfigTableId==owner.Id);
             var control=controlPage is null?null:ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,controlPage);
-            var parent=global?proof!.Parent:ProjectScopedSingleRelationTarget.PageParent(catalog,target,page)??MultiParent(catalog,page);
+            var projectParent=global?null:ProjectScopedSingleRelationTarget.PageParent(catalog,target,page);
+            var parent=global?proof!.Parent:projectParent??MultiParent(catalog,page);
             var controlParent=control is null?null:MultiTargetParentScope.Compile(catalog,target,control);
             if(controlParent is {Logical:true}||parent is not null&&controlParent is not null&&!parent.HasTarget(controlParent.Target.Id))
                 throw new InvalidOperationException("单值读取的目标页与控件父范围不一致。");
             parent??=controlParent;
             if((parent is null)!=(binding.SourceParentId is null)||
-                !global&&parent is {Global:true,Logical:false,AdditionalTargets.Count:0})
+                !global&&parent is {Global:true,Logical:false}&&projectParent is null)
                 throw new InvalidOperationException("项目内单值读取缺少已证明的父绑定。");
             var publishedSource=parent is not null&&binding.SourcePageId is {} pageId
                 ?parent.SingleSource(catalog,owner,relation,catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==owner.Id))

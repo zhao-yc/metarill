@@ -27,13 +27,13 @@ internal static class DerivedRelationNamesCompilation
     internal static RelationConditionModel? ProjectionCondition(RelationModel relation)=>
         relation.Conditions??(UsesExactSingle(relation)?relation.ImportCondition:null);
 
-    /// <summary>固定读取直接核对逻辑父级或同父多范围。</summary>
-    internal static bool EmbedsParentScope(MultiTargetParentScope? parent)=>
-        parent is {Logical:true} or {AdditionalTargets.Count:>0};
+    /// <summary>固定读取直接核对逻辑父、同父多范围及项目内目标引用的全局父页。</summary>
+    internal static bool EmbedsParentScope(TableModel target,MultiTargetParentScope? parent)=>
+        parent is {Logical:true} or {AdditionalTargets.Count:>0}||!target.IsGlobal&&parent is {Global:true};
 
     /// <summary>普通目标页的级联条件在原候选和当前读中重用同一发布范围。</summary>
     internal static bool UsesLogicalPage(RelationModel relation)=>
-        EmbedsParentScope(relation.FixedParent)||FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||
+        EmbedsParentScope(relation.Target,relation.FixedParent)||FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||
         relation.Conditions?.HasLogicalFields==true||UsesSelfTreeExact(relation)||
         UsesExactSingle(relation)&&relation.ImportCondition is ({CrossFields.Count:>0} or {SelfTreeFields.Count:>0});
 
@@ -53,7 +53,7 @@ internal static class DerivedRelationNamesCompilation
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,RelationConditionModel? additional=null,
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,ExactDataManageModel? exact=null)
     {
-        var logicalParent=EmbedsParentScope(SingleParent(model,target,page));
+        var logicalParent=EmbedsParentScope(target,SingleParent(model,target,page));
         if(ExactDataManageCompilation.Declared(page)&&(exact is null||target.IsGlobal)||
             NonRedundantCrossParentCompilation.Enabled(model,target,page)&&!logicalParent)
             throw new NotSupportedException("单值关系的逻辑条件要求普通目标页及已证明的父范围。");
@@ -75,7 +75,7 @@ internal static class DerivedRelationNamesCompilation
     {
         var targetIds=JsonSerializer.Serialize(target.Source.Id)+","+JsonSerializer.Serialize(page.Source.Id);
         string Fields(IEnumerable<string> names)=>"new string[]{"+string.Join(",",names.Select(name=>JsonSerializer.Serialize(name)))+"}";
-        var logicalParent = EmbedsParentScope(SingleParent(model,target,page));
+        var logicalParent = EmbedsParentScope(target,SingleParent(model,target,page));
         if (logicalParent && exact is not null) return "CompileExactSingleParentCandidate("+targetIds;
         if(target.IsGlobal||logicalParent)return additional is {HasLogicalFields:true}
             ?"CompileGlobalListCandidate("+targetIds+","+Fields(additional.Syntax.Fields)
@@ -177,7 +177,7 @@ internal static class DerivedRelationNamesCompilation
         var plan=globalExact
             ?NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,target.Source.Id,page.Source.Id,
                 [name.Source.ColumnName],[exact!.Column.Source.ColumnName],exact.SingleTargets)
-            :EmbedsParentScope(fixedParent)||FixedPageConditionCompilation.HasLogicalFields(page)||exact?.SelfTree==true
+            :EmbedsParentScope(target,fixedParent)||FixedPageConditionCompilation.HasLogicalFields(page)||exact?.SelfTree==true
             ?CompileLogicalPage(model,target,page,[name.Source.ColumnName],[name.Source.ColumnName],
                 exact:exact)
             :HasGlobalAccountScope(target,page)

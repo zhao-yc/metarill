@@ -10,7 +10,7 @@ public static class ProjectScopedSingleRelationTarget
     public static MultiTargetParentScope? LogicalParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
         PageParent(catalog,target,page) is {Logical:true} parent?parent:null;
 
-    /// <summary>实际单值目标页允许多条同父条件，单独物理父键继续沿原绑定。</summary>
+    /// <summary>单值目标读取实际逻辑父或显式全局父，普通项目内单物理父仍走原绑定。</summary>
     public static MultiTargetParentScope? PageParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
     {
         if(target.IsRongyu!=0||GlobalCrossTableTarget.Declared(target)||page.ConfigTableId!=target.Id||
@@ -20,7 +20,10 @@ public static class ProjectScopedSingleRelationTarget
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
         var terms=condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
             MultiTargetParentScope.IsParameter(value.Text))).ToArray();
-        if(terms.Length<=1&&!terms.Any(term=>CrossTableStorageColumns.IsLogicalPathField(target,columns,term.Field)))return null;
+        if(terms.Length==0)return null;
+        if(terms.Length==1&&!CrossTableStorageColumns.IsLogicalPathField(target,columns,terms[0].Field)&&
+            !columns.Any(column=>column.ColumnName==terms[0].Field&&catalog.ConfigTables.Any(parent=>
+                parent.Id==column.LinkConfigTableId&&GlobalCrossTableTarget.Declared(parent))))return null;
         return MultiTargetParentScope.CompileSelectionPage(catalog,target,condition,allowGlobalParent:true);
     }
 
