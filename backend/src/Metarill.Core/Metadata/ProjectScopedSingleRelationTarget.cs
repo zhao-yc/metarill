@@ -7,16 +7,21 @@ namespace Metarill.Core.Metadata;
 public static class ProjectScopedSingleRelationTarget
 {
     /// <summary>项目内单值页可用已声明的跨表层位限定父级。</summary>
-    public static MultiTargetParentScope? LogicalParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
+    public static MultiTargetParentScope? LogicalParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
+        PageParent(catalog,target,page) is {Logical:true} parent?parent:null;
+
+    /// <summary>实际单值目标页允许多条同父条件，单独物理父键继续沿原绑定。</summary>
+    public static MultiTargetParentScope? PageParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
     {
         if(target.IsRongyu!=0||GlobalCrossTableTarget.Declared(target)||page.ConfigTableId!=target.Id||
             page.Extra.GetValueOrDefault("type").ToString()=="2")return null;
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
         var expanded=RelationStorageColumns.Expand(target,columns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
-        if(!condition.Terms.Any(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
-            MultiTargetParentScope.IsParameter(value.Text))&&CrossTableStorageColumns.IsLogicalPathField(target,columns,term.Field)))return null;
-        return MultiTargetParentScope.Compile(catalog,target,condition) is {Logical:true} parent?parent:null;
+        var terms=condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
+            MultiTargetParentScope.IsParameter(value.Text))).ToArray();
+        if(terms.Length<=1&&!terms.Any(term=>CrossTableStorageColumns.IsLogicalPathField(target,columns,term.Field)))return null;
+        return MultiTargetParentScope.CompileSelectionPage(catalog,target,condition);
     }
 
     /// <summary>路径任一实际目标页有额外范围时，所有写入入口必须共享同一固定名称来源。</summary>

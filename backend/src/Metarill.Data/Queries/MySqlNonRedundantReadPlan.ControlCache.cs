@@ -12,9 +12,9 @@ public static partial class MySqlNonRedundantReadCompiler
             TableMetadata target,(string Sql,string Type) source,PageMetadata page,CascadeCacheOwner cacheOwner,
             FixedConditionPlan control,PageMetadata? sourcePage=null)
         {
-            var pageParent=MultiParent(catalog,page);
+            var pageParent=ProjectScopedSingleRelationTarget.PageParent(catalog,target,page)??MultiParent(catalog,page);
             var controlParent=MultiTargetParentScope.Compile(catalog,target,control);
-            if(controlParent is {Logical:true}||pageParent is not null&&controlParent is not null&&pageParent.Target.Id!=controlParent.Target.Id)
+            if(controlParent is {Logical:true}||pageParent is not null&&controlParent is not null&&!pageParent.HasTarget(controlParent.Target.Id))
                 throw new InvalidOperationException("名称副本的目标页与控件父范围不一致。");
             var parent=pageParent??controlParent;
             var binding=sourcePage is null?parent?.SingleSource(catalog,table,foreign):

@@ -354,7 +354,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>主键作为稳定排序依赖；根及每个目标分别保留软删和项目范围。</summary>
         internal MySqlNonRedundantReadPlan Compile(IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
         {
-            if(SelectedMultiPage is not null)MultiCandidateParent=MultiParent(catalog,SelectedMultiPage,AllowsStoredExactCheckbox);
+            if(SelectedMultiPage is not null)MultiCandidateParent??=MultiParent(catalog,SelectedMultiPage,AllowsStoredExactCheckbox);
             var globalSource=refreshFields is not null&&GlobalCrossTableTarget.Declared(root);
             var globalDerivedSource = refreshFields is null && root.IsRongyu == 0 && GlobalCrossTableTarget.Declared(root);
             var physicalCandidate = candidatePage is not null && root.IsRongyu == 1;

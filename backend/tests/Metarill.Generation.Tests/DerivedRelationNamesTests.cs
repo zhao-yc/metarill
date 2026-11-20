@@ -1,7 +1,9 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using Metarill.Core.Metadata;
+using Metarill.Data.Queries;
 using Xunit;
 namespace Metarill.Generation.Tests;
 
@@ -1596,7 +1598,23 @@ public sealed class DerivedRelationNamesTests
     [InlineData(false,true)]
     [InlineData(true,false)]
     [InlineData(true,true)]
-    public async Task Single_relation_preserves_compound_source_parent(bool selection,bool independent)
+    public Task Single_relation_preserves_compound_source_parent(bool selection,bool independent)=>
+        VerifySingleRelationCompoundParents(selection,independent,null);
+
+    /// <summary>原下拉及单选必须验证目标页所有同父字段，保留已发布的实际逻辑路径。</summary>
+    [Theory]
+    [InlineData(false,"physical",false,false)]
+    [InlineData(false,"mixed",false,false)]
+    [InlineData(true,"mixed",false,false)]
+    [InlineData(true,"independent",false,false)]
+    [InlineData(true,"independent",false,true)]
+    [InlineData(false,"mixed",true,false)]
+    [InlineData(false,"physical",true,false)]
+    public Task Single_relation_preserves_compound_target_parent(bool selection,string targetScope,bool redundant,bool exact)=>
+        VerifySingleRelationCompoundParents(selection,false,targetScope,redundant,exact);
+
+    private static async Task VerifySingleRelationCompoundParents(bool selection,bool independent,string? targetScope,
+        bool redundant=false,bool exact=false)
     {
         const string prefix="single_compound";
         const string ns="Example.CompoundSingle";
@@ -1615,11 +1633,17 @@ public sealed class DerivedRelationNamesTests
         catalog.ConfigPages.Add(new(){Id="601",ConfigTableId="6",WhereSql="yz_project_id=@current_yz_project_id AND name<>'停用'"});
         foreach(var field in new[]{"62","64"})
             catalog.ConfigPageColumns.Add(new(){Id="601"+field,ConfigPageId="601",ConfigColumnId=field,IsShow=1,IsEdit=1});
-        AddPath("120","origin");
+        if(redundant)catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=1;
+        else AddPath("120","origin");
         if(independent)AddPath("121","alternate");
         foreach(var page in catalog.ConfigPages.Where(item=>item.ConfigTableId=="1"))
         {
             // 物理外键在前，仍必须用获授权的逻辑父参数进行写入，不能读取稀疏父槽。
+            if(redundant)
+            {
+                page.WhereSql="yz_project_id=@current_yz_project_id AND group_id=@parent_id";
+                continue;
+            }
             page.WhereSql=independent?"origin_group_id=@parent_id AND alternate_group_id=@parent_id":
                 "group_id=@parent_id AND origin_group_id=@parent_id";
             var id=page.Id;
@@ -1627,14 +1651,47 @@ public sealed class DerivedRelationNamesTests
             if(independent)
                 catalog.ConfigPageColumns.Add(new(){Id=id+"121",ConfigPageId=id,ConfigColumnId="121",IsShow=1,IsEdit=1});
         }
+        if(targetScope is not null)
+        {
+            var target=catalog.ConfigPages.Single(item=>item.Id=="201");
+            if(targetScope=="physical")
+            {
+                catalog.ConfigColumns.Add(new(){Id="220",ConfigTableId="2",ColumnName="depot_group_id",LogicalType="int64",LinkConfigTableId="3"});
+            }
+            else
+            {
+                AddPath("220","depot","2");
+                catalog.ConfigPageColumns.Add(new(){Id="201220",ConfigPageId="201",ConfigColumnId="220",IsShow=1,IsEdit=1});
+            }
+            if(targetScope=="independent")
+            {
+                AddPath("221","delivery","2");
+                target.WhereSql=target.WhereSql.Replace("group_id=@parent_id","delivery_group_id=@parent_id",
+                    StringComparison.Ordinal);
+                catalog.ConfigPageColumns.Add(new(){Id="201221",ConfigPageId="201",ConfigColumnId="221",IsShow=1,IsEdit=1});
+            }
+            target.WhereSql+=" AND depot_group_id=@parentId";
+            if(exact)target.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");
+            if(selection&&targetScope=="independent"&&!exact)
+                foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField="company_name",
+                    whereSql="depot_group_name <> '排除仓组'"});
+        }
         catalog.YzAdminTypes.Clear();
         RedundantMultiNameCacheTests.Published(catalog);
+        if(exact)
+            foreach(var admin in catalog.YzAdminTypes)
+                admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
         var model=GenerationModel.Create(catalog,ns);
         var owner=model.Tables.Single(table=>table.Source.Id=="1");
         var source=owner.Pages.Single(page=>page.Source.Id=="101");
         var relation=RelationCompilation.ForPage(model,source,true).Single(option=>option.SourceColumn.Source.Id=="15");
-        Assert.True(relation.LogicalSourceParent);
-        Assert.Equal("origin_group_id",relation.FixedSourceParent!.Source.ColumnName);
+        Assert.Equal(!redundant,relation.LogicalSourceParent);
+        if(targetScope is not null)
+        {
+            Assert.NotNull(relation.FixedParent);
+            Assert.Single(relation.FixedParent!.AdditionalTargets);
+        }
+        Assert.Equal(redundant?"group_id":"origin_group_id",relation.FixedSourceParent!.Source.ColumnName);
         Assert.True(ControlRenderer.RelationContext(source,relation,false).SameParent);
         new FrontendPackager().Validate(catalog);
 
@@ -1644,14 +1701,17 @@ public sealed class DerivedRelationNamesTests
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
             var text=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/SingleCompoundOrderService.g.cs"));
-            Assert.Contains("CrossReader101_120(actor,false,false).PathAsync(0,LogicalParentId101(parentId)",text);
-            Assert.Contains("CrossReader101_120(actor,locking,false).PathAsync(0,LogicalParentId101(parentId)",text);
+            if(!redundant)
+            {
+                Assert.Contains("CrossReader101_120(actor,false,false).PathAsync(0,LogicalParentId101(parentId)",text);
+                Assert.Contains("CrossReader101_120(actor,locking,false).PathAsync(0,LogicalParentId101(parentId)",text);
+            }
             if(independent)
             {
                 Assert.Contains("CrossReader101_121(actor,false,false).PathAsync(0,LogicalParentId101(parentId)",text);
                 Assert.Contains("CrossReader101_121(actor,locking,false).PathAsync(0,LogicalParentId101(parentId)",text);
             }
-            Assert.Contains("OptionsScope101_15Async(logicalRelationParentId, null",text);
+            if(!redundant)Assert.Contains("OptionsScope101_15Async(logicalRelationParentId, null",text);
             Assert.Contains("targetParentId!=parentId",text);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service=assembly.GetType(ns+".Generated.Services.SingleCompoundOrderService",true)!;
@@ -1659,7 +1719,32 @@ public sealed class DerivedRelationNamesTests
             Assert.NotNull(service.GetMethod("Import103Async"));
             Assert.NotNull(service.GetMethod("Export101Async"));
 
-            if(selection&&independent)
+            if(targetScope is not null)
+            {
+                RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+                const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+                var plan=Assert.IsType<NonRedundantReadPlan>(service.GetField("DerivedOptionsPlan101_15",
+                    BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
+                var sql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+                var condition=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
+                Assert.Contains("BINARY CAST(",condition);
+                Assert.Contains(targetScope=="physical"?"`depot_group_id`":"`depot_zone_id`",condition);
+                if(exact)Assert.Contains("""ResolveExactDataManage("201", "list", "real_name")""",text);
+                if(selection&&targetScope=="independent"&&!exact)Assert.Contains("CompileSingleImportLabel",text);
+                if(redundant)
+                {
+                    var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                        assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+                    var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+                    var stored=plans["1"]!;
+                    var read=stored.GetType().GetProperty("Read")!.GetValue(stored)!;
+                    var nameSql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["customer_company_name"]));
+                    Assert.Contains("BINARY CAST(",nameSql);
+                    Assert.Contains(targetScope=="physical"?"`depot_group_id`":"`depot_zone_id`",nameSql);
+                }
+            }
+
+            if(selection&&(independent||targetScope=="independent"&&!exact))
             {
                 foreach(var publishedPage in catalog.ConfigPages)
                     catalog.ConfigMenus.Add(new(){Id="700"+publishedPage.Id,YzProjectId=catalog.YzProjectId,
@@ -1674,15 +1759,20 @@ public sealed class DerivedRelationNamesTests
                 Assert.Contains(":parent_id=\"parent_id\"",detail);
             }
 
-            var configured=catalog.ConfigPages.Single(page=>page.Id=="101");
-            configured.WhereSql+=" AND origin_zone_id=@parent_id";
+            if(targetScope is not null)
+            {
+                var target=catalog.ConfigPages.Single(item=>item.Id=="201");
+                if(targetScope=="physical")catalog.ConfigColumns.Single(column=>column.Id=="220").LinkConfigTableId="6";
+                else target.WhereSql=target.WhereSql.Replace("depot_group_id=@parentId","depot_zone_id=@parentId",StringComparison.Ordinal);
+            }
+            else catalog.ConfigPages.Single(page=>page.Id=="101").WhereSql+=" AND origin_zone_id=@parent_id";
             Assert.ThrowsAny<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
 
-        void AddPath(string id,string role)
+        void AddPath(string id,string role,string tableId="1")
         {
-            catalog.ConfigColumns.Add(new(){Id=id,ConfigTableId="1",ColumnName=role+"_zone_id",LogicalType="int64",
+            catalog.ConfigColumns.Add(new(){Id=id,ConfigTableId=tableId,ColumnName=role+"_zone_id",LogicalType="int64",
                 ControlKind="CascadeTree",LinkConfigTableId="6",ControlDetail=JsonSerializer.Serialize(new
                 {
                     sourceMode="crossTable",levels=new object[]{new{table=prefix+"_group",columnPrefix=role+"_group"},

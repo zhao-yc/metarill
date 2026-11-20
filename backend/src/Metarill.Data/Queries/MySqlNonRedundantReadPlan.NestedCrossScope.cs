@@ -54,8 +54,8 @@ public static partial class MySqlNonRedundantReadCompiler
         var listCrosses=(listFields??[]).Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)).ToArray();
         // 复选独立使用已发布的稀疏父字段，普通业务和多选页沿用各自页面类型。
         var projectParent=exactCheckboxParent?MultiTargetParentScope.Compile(catalog,table,syntax):
-            !global?ProjectScopedSingleRelationTarget.LogicalParent(catalog,table,page):null;
-        if(exactParent&&projectParent is not {Logical:true})
+            !global?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null;
+        if(exactParent&&projectParent is not ({Logical:true} or {AdditionalTargets.Count:>0}))
             throw new NotSupportedException("精确候选缺少已发布的逻辑父级。");
         if(listFields is not null&&!globalExactSingle&&!projectSingle&&
             (!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0))
@@ -72,7 +72,8 @@ public static partial class MySqlNonRedundantReadCompiler
             else if(displayBindings is null&&!accountParentPage&&physicalParent is null)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
             else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page);
         }
-        if(!globalExactSingle&&!projectSingle&&!accountParentPage&&physicalParent is null&&logical.Count==0&&
+        if(!globalExactSingle&&!projectSingle&&!accountParentPage&&physicalParent is null&&
+            projectParent?.AdditionalTargets.Count is not >0&&logical.Count==0&&
             treeNames.Count==0&&listFields is null&&(!global||displayBindings is not{Count:>0}))
             throw new InvalidOperationException("候选页未声明逻辑级联条件或已证明的全局跨表投影。");
         var parent=physicalParent??projectParent??(hasParentScope||projectSingle?MultiTargetParentScope.Compile(catalog,table,syntax):null);
@@ -80,7 +81,8 @@ public static partial class MySqlNonRedundantReadCompiler
             parent is null||(accountParentPageType=="2"
                 ?parent.Logical||!syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported):physicalParent is null)))
             throw new NotSupportedException("全局候选必须使用实际发布的条件和物理父键。");
-        var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target,treeNames);
+        var additional=parent?.AdditionalTargets.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal);
+        var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target,treeNames,additional);
         // 私有匹配和 Excel 条件只扩充投影；不把路径有效性强加给有无限定范围的账号。
         var match=exactParent||globalExactSingle?Metarill.Core.Security.ExactDataManageValues.Field(exactField):"";
         var exactCross=globalExactSingle&&CrossTableStorageColumns.IsLogicalPathField(table,columns,match);
@@ -103,7 +105,7 @@ public static partial class MySqlNonRedundantReadCompiler
             CrossCandidateCondition=condition,
             SelfTreeCandidateFields=projectionTrees,
             ActiveSelfTreeScopes=activeSelfTreeScopes??new(),
-            MultiCandidateParent=projectSingle?null:parent,
+            MultiCandidateParent=projectSingle&&parent?.AdditionalTargets.Count is not >0?null:parent,
             MultiCandidatePage=page,
             GlobalCrossCandidate=global,
             MultiNamePathPage=globalExactSingle?page:null,
@@ -251,7 +253,8 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 var field=scope.Target.ColumnName;
                 var value=scope.Logical
-                    ?additionalMultiParentSql[field]:rootAlias+"."+Q(field);
+                    ?additionalMultiParentSql.GetValueOrDefault(field)??expressions[field]
+                    :rootAlias+"."+Q(field);
                 if(scope.Logical)
                 {
                     expressions[field]=value;
@@ -492,9 +495,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var controlPage=binding.ControlSourcePageId is null?null:catalog.ConfigPages.Single(
                 item=>item.Id==binding.ControlSourcePageId&&item.ConfigTableId==owner.Id);
             var control=controlPage is null?null:ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,controlPage);
-            var parent=global?proof!.Parent:MultiParent(catalog,page);
+            var parent=global?proof!.Parent:ProjectScopedSingleRelationTarget.PageParent(catalog,target,page)??MultiParent(catalog,page);
             var controlParent=control is null?null:MultiTargetParentScope.Compile(catalog,target,control);
-            if(controlParent is {Logical:true}||parent is not null&&controlParent is not null&&parent.Target.Id!=controlParent.Target.Id)
+            if(controlParent is {Logical:true}||parent is not null&&controlParent is not null&&!parent.HasTarget(controlParent.Target.Id))
                 throw new InvalidOperationException("单值读取的目标页与控件父范围不一致。");
             parent??=controlParent;
             if((parent is null)!=(binding.SourceParentId is null)||!global&&parent is {Global:true,Logical:false})
@@ -566,23 +569,38 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>单值副本按来源行归属重算，逻辑条件沿目标页的实际级联路径读取。</summary>
         private string PublishedSingleCondition(TableMetadata table,string alias,PageMetadata page,CascadeCacheOwner? cacheOwner=null,
-            ColumnMetadata? parentField=null,string? sourceParent=null,bool allowFixedOnly=false)
+            ColumnMetadata? parentField=null,string? sourceParent=null,bool allowFixedOnly=false,
+            IReadOnlyList<MultiTargetParentScope>? additionalScopes=null)
         {
             var members=columns[table.Id].Values.ToArray();
             var fields=PublishedSelfTreeConditionFields(catalog,table,page,members);
             var syntax=FixedConditionPlan.Compile(page.WhereSql,members.Select(member=>member.ColumnName));
-            var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields);
-            var logical=RequireCrossCondition(table,page,condition,parentField,fields);
+            var additional=additionalScopes is {Count:>0}
+                ?additionalScopes.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal):null;
+            var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields,additional);
+            var logical=RequireCrossCondition(table,page,condition,parentField,fields,additional);
             if(GlobalCrossTableTarget.Declared(table))scopedGlobalCrossTarget=true;
             // 已保存副本沿来源行归属重算。候选及写入使用当前身份的实际精确匹配值。
             var globalExact=GlobalCrossTableTarget.DeclaresExactSingle(table,page);
             if(globalExact)GlobalCrossTableTarget.RequireExactSingleCandidate(catalog,table,page);
             var storedExact=cacheOwner is not null&&(globalExact||PublishedSingleExactColumn(catalog,table,page,members) is not null);
             if(cacheOwner is {} row&&logical.Count==0)
-                return PhysicalAccountCacheCondition(table,alias,page,row,parentField,
-                    allowFixedOnly:allowFixedOnly||!GlobalCrossTableTarget.Declared(table),separateExactScope:storedExact);
+            {
+                var visible=PhysicalAccountCacheCondition(table,alias,page,row,parentField,
+                    allowFixedOnly:allowFixedOnly||!GlobalCrossTableTarget.Declared(table),separateExactScope:storedExact,
+                    additionalParents:additional);
+                if(additional is null)return visible;
+                var canonical=alias+"."+Q(parentField!.ColumnName);
+                foreach(var scope in additionalScopes!)
+                {
+                    Use(table,scope.Target);Touch(alias,scope.Target.ColumnName);
+                    visible+=(visible.Length==0?"":" AND ")+SameSingleParent(alias+"."+Q(scope.Target.ColumnName),canonical);
+                }
+                return visible;
+            }
             return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
-                alias,cacheOwner,parentField,fields,sourceParent,storedSingleExact:storedExact);
+                alias,cacheOwner,parentField,fields,sourceParent,storedSingleExact:storedExact,
+                additionalParents:additional,compareAdditionalParents:true);
         }
 
         /// <summary>物理账号条件按来源行归属计算，并记录源字段和目标筛选列的反向依赖。</summary>
@@ -690,7 +708,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new InvalidOperationException("单值名称缓存的目标范围与发布证明不一致。");
             if(proof.Control is {} control&&(!GlobalCrossTableTarget.Declared(target)||control.Terms.Count>0))
                 return JoinSingleCacheWithControl(table,owner,foreign,target,source,proof.Page,cacheOwner,control);
-            var parent=MultiParent(catalog,proof.Page);
+            var parent=ProjectScopedSingleRelationTarget.PageParent(catalog,target,proof.Page)??MultiParent(catalog,proof.Page);
             var binding=parent?.SingleSource(catalog,table,foreign);
             return JoinScopedSingleCache(table,owner,foreign,target,source,proof.Page,cacheOwner,parent,binding);
         }
@@ -724,7 +742,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true,scopedCacheLink:true);
             singleCachePages[alias]=page;
             var visible=PublishedSingleCondition(target,alias,page,cacheOwner,parent?.Target,parent?.Logical==true?sourceParent:null,
-                allowFixedOnly:true);
+                allowFixedOnly:true,additionalScopes:parent?.AdditionalTargets);
             if(parent is {Logical:false})
                 visible+=(visible.Length==0?"":" AND ")+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,
                     cacheOwner,sourceParent,sourceFrom);
@@ -814,7 +832,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>同一条查询展开所需祖先，写入沿同一事务锁定全部联接。候选内部的存储校验不进入外层 VO。</summary>
         private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null,ColumnMetadata? multiParent=null,
             IReadOnlySet<string>? selfTreeFields=null,string? sourceParent=null,bool storedSingleExact=false,
-            IReadOnlySet<string>? additionalParents=null)
+            IReadOnlySet<string>? additionalParents=null,bool compareAdditionalParents=false)
         {
             var table=level.Table;
             cacheOwner??=cascadeCacheOwner;
@@ -859,7 +877,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 // 同一可见路径既负责页面条件，也负责恢复可能没有实际落库的逻辑父键。
                 if(sourceParent is null&&multiParent is not null&&level.LogicalFields.Contains(multiParent.ColumnName))
                     selectedMultiParentSql=Projection(multiParent.ColumnName);
-                if(additionalParents is not null)
+                if(additionalParents is not null&&!compareAdditionalParents)
                     foreach(var field in additionalParents.Where(level.LogicalFields.Contains))
                         additionalMultiParentSql[field]=Projection(field);
                 string predicate;
@@ -883,6 +901,13 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(multiParent is null||!level.LogicalFields.Contains(multiParent.ColumnName))
                         throw new InvalidOperationException("全局单值缓存缺少已发布逻辑父层位。");
                     predicate+=(predicate.Length==0?"":" AND ")+SameSingleParent(Projection(multiParent.ColumnName),sourceParent);
+                }
+
+                if(compareAdditionalParents&&additionalParents is not null)
+                {
+                    var canonical=Projection(multiParent!.ColumnName);
+                    foreach(var field in additionalParents)
+                        predicate+=(predicate.Length==0?"":" AND ")+SameSingleParent(Projection(field),canonical);
                 }
 
                 // 空选择允许原 IS NULL；已存但不可见或无法恢复的节点不能冒充空值放宽候选。

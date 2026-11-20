@@ -942,8 +942,11 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var sameParent = ControlRenderer.RelationContext(page,relation,false).SameParent;
             if (relation.TargetParents.Count > 0)
             {
-                if (relation.LogicalSourceParent)
-                    result.AppendLine("        if(targetParentId is not null&&targetParentId!=parentId)throw new ArgumentException(\"关联目标父必须与来源页的逻辑父一致。\");");
+                if (relation.LogicalSourceParent||sameParent&&relation.FixedParent is {AdditionalTargets.Count:>0})
+                {
+                    var conflict=relation.LogicalSourceParent?"关联目标父必须与来源页的逻辑父一致。":"关联目标父必须与来源页的父记录一致。";
+                    result.AppendLine($"        if(targetParentId is not null&&targetParentId!=parentId)throw new ArgumentException({Literal(conflict)});");
+                }
                 if (sameParent) result.AppendLine("        targetParentId ??= parentId; // 元数据证明同父时兼容原 parentId。");
                 result.AppendLine($"        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException({Literal("关联目标范围要求有效 targetParentId，请使用 " + relation.Endpoint + "/page 分页合同。")});");
                 if (relation.ParentBinding?.Binding is null)
@@ -973,10 +976,10 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var project = relation.Target.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
             if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent"&&
-                (relation.FixedParent is not {Logical:true} logicalParent||logicalParent.Target.Id!=s.Column.Source.Id)).DistinctBy(scope => scope.Column.Source.Id))
+                relation.FixedParent?.HasTarget(s.Column.Source.Id,logicalOnly:true)!=true).DistinctBy(scope => scope.Column.Source.Id))
                 result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
             // 固定候选包含已发布逻辑父层位，附加搜索继续复用同一相关查询。
-            if((relation.Target.IsGlobal||relation.FixedParent is {Logical:true})&&logicalPlan is not null)
+            if((relation.Target.IsGlobal||DerivedRelationNamesCompilation.EmbedsParentScope(relation.FixedParent))&&logicalPlan is not null)
             {
                 if(relation.Conditions?.HasLogicalFields!=true)
                 {

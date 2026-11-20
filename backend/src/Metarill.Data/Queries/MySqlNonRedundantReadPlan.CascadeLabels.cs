@@ -189,7 +189,8 @@ public static partial class MySqlNonRedundantReadCompiler
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
-        var parent=MultiParent(catalog,page,storedExactCheckbox);
+        var parent=(importPageType=="1"?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null)
+            ??MultiParent(catalog,page,storedExactCheckbox);
         var extraFields=(importFields??[]).ToHashSet(StringComparer.Ordinal);
         if(exactMultiSelection)extraFields.Add(RequireExactMultiSelection(catalog,table,page,storedExactCheckbox));
         var crossFields=new HashSet<string>(StringComparer.Ordinal);
@@ -215,6 +216,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var plan=new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field,crossTables:crossBindings)
         {
             SelectedMultiPage=page,
+            MultiCandidateParent=parent,
             AllowsExactMultiSelection=exactMultiSelection,
             AllowsStoredExactCheckbox=storedExactCheckbox,
             MultiNamePathPage=page,
@@ -435,9 +437,10 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>固定页条件保留实际类型与原账号等值，只有已声明逻辑路径可以引用非物理层位。</summary>
     private static FixedConditionSqlPlan? CascadeScopeCondition(TableMetadata target,MetadataStoragePlan storage,
-        IReadOnlyList<ColumnMetadata> columns,FixedConditionPlan syntax,ColumnMetadata? multiParent=null,IReadOnlySet<string>? selfTreeFields=null)
+        IReadOnlyList<ColumnMetadata> columns,FixedConditionPlan syntax,ColumnMetadata? multiParent=null,
+        IReadOnlySet<string>? selfTreeFields=null,IReadOnlySet<string>? additionalParents=null)
     {
-        var terms=syntax.Terms.Where(term=>!IsProjectScope(term)&&!(multiParent?.ColumnName==term.Field&&
+        var terms=syntax.Terms.Where(term=>!IsProjectScope(term)&&!((multiParent?.ColumnName==term.Field||additionalParents?.Contains(term.Field)==true)&&
             term.Values.Count==1&&term.Values[0].Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(term.Values[0].Text))).ToArray();
         if(terms.Length==0)return null;
         var physical=columns.Where(column=>GlobalPhysicalRelationValue.IsScalar(storage,target,column))

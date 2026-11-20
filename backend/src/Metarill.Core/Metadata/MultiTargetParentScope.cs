@@ -13,6 +13,11 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public bool Global=>GlobalCrossTableTarget.Declared(Parent);
     public IReadOnlyList<MultiTargetParentScope> AdditionalTargets { get; init; } = [];
 
+    /// <summary>按稳定字段 ID 检查目标范围，稀疏逻辑位须使用其真实路径。</summary>
+    public bool HasTarget(string columnId,bool logicalOnly=false)=>
+        Target.Id==columnId&&(!logicalOnly||Logical)||
+        AdditionalTargets.Any(scope=>scope.Target.Id==columnId&&(!logicalOnly||scope.Logical));
+
     /// <summary>原多选目标页可以用多个已证明的字段匹配同一业务父记录。</summary>
     public static MultiTargetParentScope? CompileSelectionPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)=>
         CompilePublishedPage(catalog,table,condition,checkbox:false);

@@ -27,9 +27,13 @@ internal static class DerivedRelationNamesCompilation
     internal static RelationConditionModel? ProjectionCondition(RelationModel relation)=>
         relation.Conditions??(UsesExactSingle(relation)?relation.ImportCondition:null);
 
+    /// <summary>固定读取直接核对逻辑父级或同父多范围。</summary>
+    internal static bool EmbedsParentScope(MultiTargetParentScope? parent)=>
+        parent is {Logical:true} or {AdditionalTargets.Count:>0};
+
     /// <summary>普通目标页的级联条件在原候选和当前读中重用同一发布范围。</summary>
     internal static bool UsesLogicalPage(RelationModel relation)=>
-        relation.FixedParent is {Logical:true}||FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||
+        EmbedsParentScope(relation.FixedParent)||FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||
         relation.Conditions?.HasLogicalFields==true||UsesSelfTreeExact(relation)||
         UsesExactSingle(relation)&&relation.ImportCondition is ({CrossFields.Count:>0} or {SelfTreeFields.Count:>0});
 
@@ -42,14 +46,14 @@ internal static class DerivedRelationNamesCompilation
         GlobalCrossTableTarget.DeclaresExactSingle(target.Source,page.Source)
             ?GlobalCrossTableTarget.ExactSingleParent(model.Catalog,target.Source,page.Source)
             :target.IsGlobal?GlobalCrossTableTarget.SingleParent(model.Catalog,target.Source,page.Source)
-                :ProjectScopedSingleRelationTarget.LogicalParent(model.Catalog,target.Source,page.Source);
+                :ProjectScopedSingleRelationTarget.PageParent(model.Catalog,target.Source,page.Source);
 
     /// <summary>在生成时证明目标页所有逻辑成员，同时保留来源身份和实际父范围。</summary>
     internal static NonRedundantReadPlan CompileLogicalPage(GenerationModel model,TableModel target,PageModel page,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,RelationConditionModel? additional=null,
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,ExactDataManageModel? exact=null)
     {
-        var logicalParent=SingleParent(model,target,page) is {Logical:true};
+        var logicalParent=EmbedsParentScope(SingleParent(model,target,page));
         if(ExactDataManageCompilation.Declared(page)&&(exact is null||target.IsGlobal)||
             NonRedundantCrossParentCompilation.Enabled(model,target,page)&&!logicalParent)
             throw new NotSupportedException("单值关系的逻辑条件要求普通目标页及已证明的父范围。");
@@ -71,7 +75,7 @@ internal static class DerivedRelationNamesCompilation
     {
         var targetIds=JsonSerializer.Serialize(target.Source.Id)+","+JsonSerializer.Serialize(page.Source.Id);
         string Fields(IEnumerable<string> names)=>"new string[]{"+string.Join(",",names.Select(name=>JsonSerializer.Serialize(name)))+"}";
-        var logicalParent = SingleParent(model,target,page) is { Logical: true };
+        var logicalParent = EmbedsParentScope(SingleParent(model,target,page));
         if (logicalParent && exact is not null) return "CompileExactSingleParentCandidate("+targetIds;
         if(target.IsGlobal||logicalParent)return additional is {HasLogicalFields:true}
             ?"CompileGlobalListCandidate("+targetIds+","+Fields(additional.Syntax.Fields)
@@ -98,7 +102,7 @@ internal static class DerivedRelationNamesCompilation
 
     /// <summary>名称投影和目标逻辑条件共用固定读取，物理名称也执行同样的精确权限。</summary>
     internal static bool UsesFixedRead(GenerationModel model, RelationModel relation) =>
-        UsesExactSingle(relation) || UsesSelfTreeExact(relation) || Declared(model, relation) ||
+        relation.FixedParent is {AdditionalTargets.Count:>0} || UsesExactSingle(relation) || UsesSelfTreeExact(relation) || Declared(model, relation) ||
         IsPhysicalTypedName(model, relation.Target, relation.NameColumn) ||
         relation.FunctionForm && (relation.Target.IsGlobal || relation.TargetParents.Count > 0 ||
             ExactDataManageCompilation.Declared(relation.TargetPage) ||
@@ -155,7 +159,7 @@ internal static class DerivedRelationNamesCompilation
             .Any(binding=>binding.Source.Source.Id==owner.Source.Id&&binding.ScopedSingle&&binding.Page.Source.Id==page.Source.Id);
         if(!(globalCached||SupportedOwner(model,owner))||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!IsTypedName(model,owner,target,name)||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)&&owner.IsGlobal&&!globalExact||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&fixedParent is not {Logical:true})throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");
         if(page.Scopes.Any(scope=>scope.Column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,scope.Column)&&
-            (fixedParent is not {Logical:true}||fixedParent.Target.Id!=scope.Column.Source.Id)))
+            fixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true))
             throw new InvalidOperationException("派生单选名称的目标身份与父字段必须为物理标量。");
         // 物理父范围已经由候选证明；名称继续通过下面的固定投影。
         if(globalExact)GlobalCrossTableTarget.RequireExactSingleCandidate(model.Catalog,target.Source,page.Source);
@@ -173,7 +177,7 @@ internal static class DerivedRelationNamesCompilation
         var plan=globalExact
             ?NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,target.Source.Id,page.Source.Id,
                 [name.Source.ColumnName],[exact!.Column.Source.ColumnName],exact.SingleTargets)
-            :fixedParent is {Logical:true}||FixedPageConditionCompilation.HasLogicalFields(page)||exact?.SelfTree==true
+            :EmbedsParentScope(fixedParent)||FixedPageConditionCompilation.HasLogicalFields(page)||exact?.SelfTree==true
             ?CompileLogicalPage(model,target,page,[name.Source.ColumnName],[name.Source.ColumnName],
                 exact:exact)
             :HasGlobalAccountScope(target,page)
@@ -226,7 +230,7 @@ internal static class DerivedRelationNamesCompilation
             .Concat(relation.Conditions is {HasLogicalFields:false} conditions
                 ?conditions.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field)):[]).DistinctBy(column=>column.Source.Id).ToArray();
         if(fields.Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)&&
-            (relation.FixedParent is not {Logical:true} logical||logical.Target.Id!=column.Source.Id)))throw new InvalidOperationException("派生名称候选的身份、父及附加范围必须为已发布物理标量。");
+            relation.FixedParent?.HasTarget(column.Source.Id,logicalOnly:true)!=true))throw new InvalidOperationException("派生名称候选的身份、父及附加范围必须为已发布物理标量。");
         var orderFields = relation.OptionsOrder?.Select(item => item.Column.Source.ColumnName) ?? [];
         var dependencies = fields.Select(column => column.Source.ColumnName).Concat(orderFields)
             .Concat(UsesExactSingle(relation)?relation.ImportCondition?.Syntax.Fields??[]:[])

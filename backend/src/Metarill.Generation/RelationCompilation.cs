@@ -121,7 +121,7 @@ internal static class RelationCompilation
                 : DerivedRelationNamesCompilation.SingleParent(model,target,targetPage)??
                     PhysicalTargetForLogicalSource(model,owner,page,target,targetPage);
             var where=selection is not null&&(excelOnly||selection.ImportCondition is not null||fixedParent is {Logical:true}||
-                FixedPageConditionCompilation.HasLogicalFields(targetPage))?"":Mapped("whereSql");
+                fixedParent is {AdditionalTargets.Count:>0}||FixedPageConditionCompilation.HasLogicalFields(targetPage))?"":Mapped("whereSql");
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,allowLogicalList:selection is null);
             if ((conditions is not null||FixedPageConditionCompilation.HasLogicalFields(targetPage))&&
                 !functionForm && ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
@@ -129,7 +129,7 @@ internal static class RelationCompilation
             var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(model, scope.Column, owner, page)).DistinctBy(parent => parent.Source.Id).ToArray();
             var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,target,targetPage);
             var targetParents = targetPage.Scopes.Concat(scopes).Where(scope => scope.Source == "parent")
-                .Select(scope => fixedParent?.Target.Id==scope.Column.Source.Id
+                .Select(scope => fixedParent?.HasTarget(scope.Column.Source.Id)==true
                     ?model.Tables.Single(table=>table.Source.Id==fixedParent.Parent.Id)
                     :accountParent?Parent(model,scope.Column,target,targetPage):Parent(model,scope.Column))
                 .DistinctBy(parent => parent.Source.Id).ToArray();
