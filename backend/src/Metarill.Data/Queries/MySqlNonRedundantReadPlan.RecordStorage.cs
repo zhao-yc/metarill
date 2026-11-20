@@ -38,7 +38,7 @@ public static partial class MySqlNonRedundantReadCompiler
         if(match.Types[field]!=column.LogicalType)throw new NotSupportedException("附件精确联接的实际类型不一致。");
         var builder=new Builder(catalog,tableId,crossTables:crossTables){MultiNamePathPage=page,LockPublishedJoinScopes=true};
         var plan=builder.Compile(outputs,dependencies);
-        return builder.RecordStorage(plan,storageOutputs,[]);
+        return storageOutputs.Count==0?plan:builder.RecordStorage(plan,storageOutputs,[]);
     }
 
     private sealed partial class Builder

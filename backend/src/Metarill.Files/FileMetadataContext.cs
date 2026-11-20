@@ -88,7 +88,7 @@ public sealed class FileMetadataContext
         HasLogicalFileParents=fileScopes.Any(scope=>scope is {Crosses.Count:>0});
         foreach(var catalog in snapshots)foreach(var page in catalog.ConfigPages)CompileDerivedExact(catalog,page);
         NeedsFileReadSnapshot=HasLogicalFileParents||fileScopes.Any(scope=>scope?.LogicalConditionPlan is not null)||
-            derivedExactPlans.Keys.Any(key=>exactKinds[(key.Project,key.Page)].SelfTree);
+            derivedExactPlans.Count>0;
     }
     /// <summary>文件父范围和精确读取使用同一张已发布表的规范字段身份。</summary>
     internal static ColumnMetadata ResolveExactColumn(MetadataCatalog catalog,TableMetadata table,string field)=>
@@ -113,8 +113,8 @@ public sealed class FileMetadataContext
             exactKinds.Add((catalog.YzProjectId,page.Id),(column,derived,cross,selfTree));
             if(!derived)return;
             var scope=PageScope(catalog,page);
-            var joinedLogicalParent=!cross&&!selfTree&&scope.Crosses.Any(parent=>parent.ReadBindings.Count>0)&&
-                !GlobalCrossTableTarget.Declared(table)&&MetadataStoragePolicy.ForTable(catalog,table).Kind(column)==MetadataFieldStorage.Join;
+            var publishedJoin=!cross&&!selfTree&&!GlobalCrossTableTarget.Declared(table)&&
+                MetadataStoragePolicy.ForTable(catalog,table).Kind(column)==MetadataFieldStorage.Join;
             var raw=scope.Crosses.SelectMany(parent=>parent.StorageNames).Distinct(StringComparer.Ordinal).ToArray();
             var bindings=ExactReadBindings(catalog,table,page,scope,group,independent);
             var match=cross?NonRedundantReads.CompileCrossExactMatch(catalog,table.Id,column.ColumnName,bindings):
@@ -129,7 +129,7 @@ public sealed class FileMetadataContext
                     .Concat(scope.Parents.Select(parent=>parent.Source.ColumnName)).Concat(scope.GlobalParents.Select(parent=>parent.ColumnName))
                     .Concat(raw).Distinct(StringComparer.Ordinal).ToArray();
                 // 逻辑权限走同一条件；后续父链检查仍消费实际稀疏存储位。
-                var plan=joinedLogicalParent?
+                var plan=publishedJoin?
                     NonRedundantReads.CompilePublishedJoinRecord(catalog,table.Id,page.Id,names,raw,bindings,dependencies):
                     raw.Length==0?NonRedundantReads.CompileWithCrossTables(catalog,table.Id,names,bindings,dependencies,deferCascadeNames:selfTree):
                     NonRedundantReads.CompileRuleRecord(catalog,table.Id,names,raw,bindings,dependencies,deferCascadeNames:selfTree);

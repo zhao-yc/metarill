@@ -57,14 +57,52 @@ public sealed class FileSharedCrossParentScopeTests
     [InlineData(false,"independent")]
     [InlineData(true,"independent")]
     [InlineData(true,"mixed")]
+    [InlineData(false,"unparented")]
+    [InlineData(true,"unparented")]
+    [InlineData(true,"physical")]
     public void File_parents_support_a_published_joined_exact_field(bool scoped,string parents)
+    {
+        var catalog=JoinedExactCatalog(scoped,parents);
+        var context=new FileMetadataContext([catalog]);
+        var frozen=Assert.Single(context.Catalogs);
+        var source=frozen.ConfigPages.Single(item=>item.Id=="102");
+        var scope=context.PageScope(frozen,source);
+        Assert.Equal(parents switch{"mixed"=>2,"unparented" or "physical"=>0,_=>1},scope.Crosses.Count);
+        Assert.Equal(parents is "shared" or "mixed",scope.Crosses.Any(parent=>parent.IsShared));
+        Assert.Equal(parents=="physical"?1:0,scope.Parents.Count);
+        Assert.True(context.NeedsFileReadSnapshot);
+        var exact=context.ExactField(frozen,source);
+        Assert.True(exact.Derived);
+        Assert.False(exact.Shared);
+        var plan=Assert.IsType<NonRedundantReadPlan>(context.DerivedExactPlan(frozen,source,
+            frozen.ConfigColumns.Single(item=>item.ColumnName=="attachments")));
+        Assert.All(scope.Crosses.SelectMany(parent=>parent.StorageNames),name=>Assert.Contains(name,plan.OutputTypes.Keys));
+        Assert.All(scope.Parents,parent=>Assert.Contains(parent.Source.ColumnName,plan.OutputTypes.Keys));
+        Assert.DoesNotContain("branch_name",plan.OutputTypes.Keys);
+        Assert.Equal(scoped,plan.RequiresAccount);
+        if(scoped)
+        {
+            var actor=new Metarill.Core.Security.RuntimeActor(12,"测试",false,"1","900");
+            Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor));
+            Assert.NotSame(plan,plan.BindAccount(actor with{StoreId=5}));
+        }
+    }
+
+    /// <summary>相同附件联接通过普通页、物理外键子页和逻辑父级验证。</summary>
+    internal static MetadataCatalog JoinedExactCatalog(bool scoped,string parents)
     {
         var catalog=Catalog("int64","int64");
         var page=catalog.ConfigPages.Single(item=>item.Id=="102");
         catalog.YzAdminTypes.Add(new(){Id="900",YzProjectId=catalog.YzProjectId});
         page.YzAdminTypeId="900";
         page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("branchName");
-        if(parents!="shared")AddIndependentParent(catalog,page,parents=="mixed");
+        if(parents is "independent" or "mixed")AddIndependentParent(catalog,page,parents=="mixed");
+        if(parents is "unparented" or "physical")
+        {
+            foreach(var sourcePage in catalog.ConfigPages.Where(item=>item.ConfigTableId==page.ConfigTableId))
+                sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
+            if(parents=="physical")page.WhereSql+=" AND owner_country_id=@parentId";
+        }
         catalog.ConfigTables.Add(new(){Id="6",YzProjectId="1",TableName="file_shared_branch",IsRongyu=scoped?0:1});
         catalog.ConfigColumns.AddRange([
             new(){Id="61",YzProjectId="1",ConfigTableId="6",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
@@ -86,26 +124,7 @@ public sealed class FileSharedCrossParentScopeTests
             catalog.ConfigPageColumns.Add(new(){Id="10219",YzProjectId="1",ConfigPageId="102",ConfigColumnId="19",IsEdit=1});
         }
 
-        var context=new FileMetadataContext([catalog]);
-        var frozen=Assert.Single(context.Catalogs);
-        var source=frozen.ConfigPages.Single(item=>item.Id==page.Id);
-        var scopes=context.PageScope(frozen,source).Crosses;
-        Assert.Equal(parents=="mixed"?2:1,scopes.Count);
-        Assert.Equal(parents!="independent",scopes.Any(parent=>parent.IsShared));
-        var exact=context.ExactField(frozen,source);
-        Assert.True(exact.Derived);
-        Assert.False(exact.Shared);
-        var plan=Assert.IsType<NonRedundantReadPlan>(context.DerivedExactPlan(frozen,source,
-            frozen.ConfigColumns.Single(item=>item.ColumnName=="attachments")));
-        Assert.All(scopes.SelectMany(parent=>parent.StorageNames),name=>Assert.Contains(name,plan.OutputTypes.Keys));
-        Assert.DoesNotContain("branch_name",plan.OutputTypes.Keys);
-        Assert.Equal(scoped,plan.RequiresAccount);
-        if(scoped)
-        {
-            var actor=new Metarill.Core.Security.RuntimeActor(12,"测试",false,"1","900");
-            Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor));
-            Assert.NotSame(plan,plan.BindAccount(actor with{StoreId=5}));
-        }
+        return catalog;
     }
 
     /// <summary>共享逻辑父与独立级联或自树的精确匹配各自核验，并保留真实稀疏存储槽。</summary>

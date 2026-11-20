@@ -267,6 +267,104 @@ public sealed class FileCommandFactoryTests
         Assert.Equal(mode is "exact-allowed" or "exact-denied" ? 1 : 0, authorization.ExactCalls);
     }
 
+    /// <summary>普通附件沿用账号目标范围，并让引用与业务行位于同一快照或写事务。</summary>
+    [Theory]
+    [InlineData("snapshot")]
+    [InlineData("current")]
+    [InlineData("missing-store")]
+    [InlineData("unrestricted-update")]
+    public async Task Ordinary_file_uses_published_join_scope_for_reference_access(string mode)
+    {
+        const long recordId=9007199254740993;
+        const long fileId=9007199254740994;
+        var catalog=FileSharedCrossParentScopeTests.JoinedExactCatalog(true,"unparented");
+        catalog.ConfigTables.Add(new(){Id="80",TableName="yz_file_ref",YzProjectId="1"});
+        var ordinal=0;
+        foreach(var name in new[]{"id","yz_project_id","file_id","page_id","record_id","field_name"})
+            catalog.ConfigColumns.Add(new(){Id="8_"+(++ordinal),ConfigTableId="80",YzProjectId="1",
+                ColumnName=name,LogicalType=name=="field_name"?"string":"int64"});
+
+        var registry=new FileMetadataContext([catalog]);
+        var frozen=Assert.Single(registry.Catalogs);
+        var page=frozen.ConfigPages.Single(item=>item.Id=="102");
+        var entity=frozen.ConfigTables.Single(item=>item.Id==page.ConfigTableId);
+        var physical=registry.PhysicalColumns(frozen,entity);
+        var field=physical.Single(item=>item.ColumnName=="attachments");
+        var actor=new RuntimeActor(12,"测试",false,"1","900"){StoreId=mode is "snapshot" or "current"?21L:null};
+        var authorization=new JoinedFileAuthorization(actor,mode=="unrestricted-update");
+        var provider=new Provider();
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline"},null,provider);
+        var store=new SqlRowStore(session,frozen);
+        var recordReads=0;
+        provider.Read=command=>
+        {
+            Assert.NotNull(command.Transaction);
+            Assert.Same(session.CurrentTransaction,command.Transaction);
+            var data=new DataTable();
+            var sql=command.CommandText;
+            if(sql.Contains("FROM `yz_file_ref`",StringComparison.Ordinal))
+            {
+                data.Columns.Add("record_id",typeof(long));
+                data.Columns.Add("field_name",typeof(string));
+                data.Rows.Add(recordId,"attachments");
+                return data.CreateDataReader();
+            }
+            recordReads++;
+            Assert.Contains("FROM `file_shared_source`",sql);
+            Assert.DoesNotContain(" AS `branch_name`",sql);
+            if(mode=="unrestricted-update")
+            {
+                Assert.DoesNotContain("JOIN",sql);
+                Assert.EndsWith("FOR UPDATE",sql);
+            }
+            else
+            {
+                Assert.Contains("EXISTS (SELECT 1",sql);
+                Assert.Contains(".`store_id`",sql);
+                Assert.Contains(command.Parameters.Cast<DbParameter>(),parameter=>Equals(parameter.Value,21L));
+                Assert.Contains(command.Parameters.Cast<DbParameter>(),parameter=>Equals(parameter.Value,"分组甲"));
+                Assert.Equal(mode=="current",sql.Contains(" FOR SHARE)",StringComparison.Ordinal));
+                Assert.Equal(mode=="current",sql.EndsWith(" FOR SHARE",StringComparison.Ordinal));
+            }
+            data.Columns.Add("id",typeof(long));data.Columns.Add("yz_project_id",typeof(long));
+            data.Columns.Add("attachments",typeof(string));
+            data.Rows.Add(recordId,1L,"[\""+fileId+"\"]");
+            return data.CreateDataReader();
+        };
+
+        Task<bool> CanRead()=>FileReferenceReadAuthorization.CanReadAsync(store,registry,authorization,fileId,actor,default);
+        if(mode=="unrestricted-update")
+        {
+            await session.InTransactionAsync(async()=>
+            {
+                await FileReferenceReadAuthorization.RequireCurrentUpdateScopeAsync(store,registry,authorization,
+                    frozen,entity,page,field,physical,registry.PageScope(frozen,page),recordId,actor,default);
+                return true;
+            });
+        }
+        else if(mode=="current")Assert.True(await session.InTransactionAsync(CanRead));
+        else Assert.Equal(mode=="snapshot",await CanRead());
+
+        Assert.Equal(mode=="missing-store"?0:1,recordReads);
+        Assert.Equal(1,provider.Connections);
+    }
+
+    /// <summary>固定测试身份只获一张来源页的精确数据范围，其他页拒绝。</summary>
+    private sealed class JoinedFileAuthorization(RuntimeActor actor,bool unrestricted):IRuntimeAuthorization
+    {
+        public RuntimeActor RequireActor()=>actor;
+        public void RequirePagePermission(string pageId,string operation)
+        {
+            if(pageId!="102")throw new UnauthorizedAccessException();
+        }
+        public ExactDataManageValues ResolveExactDataManage(string pageId,string operation,string managerField)
+        {
+            RequirePagePermission(pageId,operation);
+            return unrestricted?ExactDataManageValues.Unrestricted:
+                new(true,System.Text.Json.JsonSerializer.SerializeToElement("分组甲"));
+        }
+    }
+
     /// <summary>只放行测试项目的原修改动作。</summary>
     private sealed class ReferenceSyncAuthorization(bool match) : IRuntimeAuthorization
     {

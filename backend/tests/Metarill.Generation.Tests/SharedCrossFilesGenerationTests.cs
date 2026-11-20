@@ -56,14 +56,16 @@ public sealed class SharedCrossFilesGenerationTests
         catalog.YzAdminTypes.Single(item=>item.Id=="5").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
 
         await AssertFullSharedFileExactPlan(catalog,sourcePage.Id,
-            selfTree?"tree_name":"isolated_country_name",false);
+            selfTree?"tree_name":"isolated_country_name",false,"country_id");
     }
 
-    /// <summary>完整应用的附件和原 CRUD 都按当前页发布联接条件与共享父级。</summary>
+    /// <summary>普通、物理父键及逻辑父级的完整应用均按当前发布页编译附件范围。</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Full_shared_file_joined_exact_path_builds(bool compoundParent)
+    [InlineData("shared")]
+    [InlineData("compound")]
+    [InlineData("unparented")]
+    [InlineData("physical")]
+    public async Task Full_file_joined_exact_path_builds(string parentMode)
     {
         var catalog=Catalog("shared_parent","int64","int64");
         var project=catalog.YzProjectId;
@@ -87,7 +89,7 @@ public sealed class SharedCrossFilesGenerationTests
             Kind="GENERATED_PAGE",ConfigPageId="959"});
         sourcePage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("branchName");
         catalog.YzAdminTypes.Single(item=>item.Id=="5").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
-        if(compoundParent)
+        if(parentMode=="compound")
         {
             var shared=catalog.ConfigColumns.Single(column=>column.Id=="25");
             var path=JsonNode.Parse(shared.ControlDetail)!;
@@ -99,8 +101,19 @@ public sealed class SharedCrossFilesGenerationTests
                 ConfigColumnId="957",IsShow=1,IsEdit=1});
             sourcePage.WhereSql+=" AND parent_country_id=@parent_id";
         }
-        await AssertFullSharedFileExactPlan(catalog,sourcePage.Id,"branch_name",true,
-            compoundParent?["parent_country_id","parent_area_id","parent_place_id"]:[]);
+        if(parentMode is "unparented" or "physical")
+        {
+            sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
+            if(parentMode=="physical")sourcePage.WhereSql+=" AND owner_country_id=@parent_id";
+        }
+        var requiredStorage=parentMode switch
+        {
+            "compound"=>new[]{"country_id","parent_country_id","parent_area_id","parent_place_id"},
+            "physical"=>["owner_country_id"],
+            "shared"=>["country_id"],
+            _=>Array.Empty<string>()
+        };
+        await AssertFullSharedFileExactPlan(catalog,sourcePage.Id,"branch_name",true,requiredStorage);
     }
 
     /// <summary>从正式源码包的发布目录查询窄投影，避免以生成前元数据冒充完整包权限。</summary>
@@ -122,7 +135,6 @@ public sealed class SharedCrossFilesGenerationTests
             var compiled=typeof(FileMetadataContext).GetMethod("DerivedExactPlan",BindingFlags.Instance|BindingFlags.NonPublic);
             Assert.NotNull(compiled);
             var plan=Assert.IsType<NonRedundantReadPlan>(compiled.Invoke(context,[frozen,page,attachment]));
-            Assert.Contains("country_id",plan.OutputTypes.Keys);
             Assert.All(additionalStorage,column=>Assert.Contains(column,plan.OutputTypes.Keys));
             Assert.Contains("attachments",plan.OutputTypes.Keys);
             Assert.DoesNotContain(matchColumn,plan.OutputTypes.Keys);

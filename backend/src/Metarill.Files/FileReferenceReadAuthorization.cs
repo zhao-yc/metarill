@@ -89,7 +89,7 @@ internal static class FileReferenceReadAuthorization
             !await FilePageScope.MatchesAsync(store.Session, logicalScope, condition, recordId, actor.ProjectId, true, token))
             throw new UnauthorizedAccessException("文件记录不在本页固定范围。");
         var exact = ExactScope(registry, catalog, physical, page, authorization, update: true);
-        var projection = registry.DerivedExactPlan(catalog, page, field)?.BindAccount(actor);
+        var projection = exact is { Derived:true }?registry.DerivedExactPlan(catalog,page,field)?.BindAccount(actor):null;
         var row = await ReadRecordAsync(store, table, physical, field, scope, exact, projection, recordId,
             FileReferenceScope.PositiveId(actor.ProjectId), logicalScope is null ? condition : null, token,
             currentRead: true, forceCurrent: true);
@@ -101,19 +101,19 @@ internal static class FileReferenceReadAuthorization
         column.ControlKind is not("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase")&&
         !column.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)&&!ExactDataManageValues.IsSensitiveField(column.ColumnName);
 
-    private sealed record ExactFileScope(ColumnMetadata Column,IReadOnlyList<object?> Values,bool Derived,bool Shared,bool SelfTree);
+    private sealed record ExactFileScope(ColumnMetadata Column,IReadOnlyList<object?> Values,bool Derived,bool Shared);
     /// <summary>文件真实引用另附来源页的查询精确范围，不能只看页面动作；值经同一逻辑类型转换并参数化。</summary>
     private static ExactFileScope? ExactScope(FileMetadataContext registry,MetadataCatalog catalog,IReadOnlyList<ColumnMetadata> physical,PageMetadata page,IRuntimeAuthorization authorization,bool update=false)
     {
         if(ExactDataManageValues.Field(Configured(page)).Length==0)return null;
-        var (column,derived,shared,selfTree)=registry.ExactField(catalog,page);
+        var (column,derived,shared,_)=registry.ExactField(catalog,page);
         if(!IsScalarExactField(column))throw new NotSupportedException("文件来源匹配必须为非凭据单值列。");
         if(derived&&physical.Where(item=>item.ControlKind=="FileLibrary").Any(file=>registry.DerivedExactPlan(catalog,page,file) is null))throw new NotSupportedException("文件来源派生匹配缺少固定读取证明。");
         var admin=catalog.YzAdminTypes.SingleOrDefault(admin=>admin.Id==page.YzAdminTypeId)??throw new NotSupportedException("文件来源页后台未发布。");
         var managerField=ExactDataManageValues.Field(Configured(admin));
         var scope=update?authorization.ResolveExactDataManage(page.Id,"update",managerField):
             authorization.ResolveFileSourceExactDataManage(page.Id,managerField);
-        return scope.IsRequired?new(column,scope.ReadLogical(column.LogicalType),derived,shared,selfTree):null;
+        return scope.IsRequired?new(column,scope.ReadLogical(column.LogicalType),derived,shared):null;
         /// <summary>损坏声明不能静默解释为未配置。</summary>
         static string Configured(MetadataRecord record)=>!record.Extra.TryGetValue("exactDataManageMatchField",out var value)||value.ValueKind==JsonValueKind.Null?"":value.ValueKind==JsonValueKind.String?value.GetString()??"":throw new NotSupportedException("精确管理字段声明无效。");
     }
@@ -133,7 +133,7 @@ internal static class FileReferenceReadAuthorization
                 FixedReadFilter.ForCrossExact(exact.Column.ColumnName,exact.Values):new(exact.Column.ColumnName,FixedReadComparison.In,exact.Values)};
             var logicalReader=new NonRedundantReader(store.Session);var projectId=project.ToString(CultureInfo.InvariantCulture);
             // 写事务必须看当前授权路径，不能用旧快照中的目标或名称继续授权文件。
-            var rows=currentRead&&(forceCurrent||exact.Shared||exact.SelfTree||scope.Crosses.Count>0||scope.LogicalConditionPlan is not null)?
+            var rows=currentRead?
                 await logicalReader.CurrentRowsAsync(derivedPlan,filters,[],1,token,projectId,condition):
                 await logicalReader.RowsAsync(derivedPlan,filters,[],1,token,projectId,condition);
             return rows.Count==0?null:rows[0].ToDictionary(pair=>pair.Key,pair=>pair.Value,StringComparer.Ordinal);
