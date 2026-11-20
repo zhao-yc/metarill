@@ -353,8 +353,17 @@ public static class NonRedundantReads
     /// <summary>全局单选的结构按实际页面证明，调用端按本次授权追加类型化精确筛选。</summary>
     public static NonRedundantReadPlan CompileGlobalExactSingleCandidate(MetadataCatalog metadata,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>
-        new(MySqlNonRedundantReadCompiler.CompileGlobalCandidate(metadata,tableId,pageId,outputs,dependencies,
-            deferCascadeNames:false,singleTargets:singleTargets,exactSingleCandidate:true));
+        CompileGlobalExactSingleCandidate(metadata,tableId,pageId,outputs,dependencies,singleTargets,null,null);
+
+    /// <summary>同一候选保留实际父范围及附加级联字段，角色值和选档条件分别由请求绑定。</summary>
+    public static NonRedundantReadPlan CompileGlobalExactSingleCandidate(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets,
+        IReadOnlyList<NonRedundantCrossTableScope>? bindings,IReadOnlyList<string>? listFields)=>
+        metadata.ConfigTables.Single(table=>table.Id==tableId).IsRongyu==0
+            ?new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
+                bindings,listFields:listFields,singleTargets:singleTargets,globalExactSingle:true))
+            :new(MySqlNonRedundantReadCompiler.CompileGlobalCandidate(metadata,tableId,pageId,outputs,dependencies,
+                deferCascadeNames:false,singleTargets:singleTargets,exactSingleCandidate:true));
 
     /// <summary>非冗余单选 Excel 使用实际单选页与同一固定条件编译器。</summary>
     public static NonRedundantReadPlan CompileSingleImportLabel(MetadataCatalog metadata,string tableId,string pageId,string field,

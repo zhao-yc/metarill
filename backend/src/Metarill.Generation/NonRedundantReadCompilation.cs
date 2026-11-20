@@ -232,7 +232,8 @@ internal static partial class NonRedundantReadCompilation
         if(GlobalSelectionPage(table,page))
         {
             var candidate=GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source)
-                ?NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,singleTargets)
+                ?NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,table.Source.Id,page.Source.Id,
+                    readOutputs,dependencies,singleTargets,crossBindings,null)
                 :GlobalAccountMultiPage(table,page)
                 ?NonRedundantReads.CompileGlobalAccountMultiPage(model.Catalog,table.Source.Id,page.Source.Id,readOutputs,dependencies,crossBindings,singleTargets)
                 :GlobalSingleParentPage(table,page)

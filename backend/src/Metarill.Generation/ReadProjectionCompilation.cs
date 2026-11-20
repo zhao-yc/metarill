@@ -617,7 +617,8 @@ internal static class ReadProjectionCompilation
                 {
                     // 筛选、排序、固定父范围继续沿用原发布依赖，不能把这些依赖公开成响应属性。
                     read = GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source)
-                        ? NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,table.Source.Id,page.Source.Id,outputs,published.Dependencies)
+                        ? NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,table.Source.Id,page.Source.Id,
+                            outputs,published.Dependencies,published.SingleTargets,NonRedundantCrossTableCompilation.Bindings(model,table,page),null)
                         : purpose != ReadProjectionPurpose.Detail && NonRedundantReadCompilation.GlobalSelectionPage(table, page)
                         ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, table.Source.Id, page.Source.Id, outputs, published.Dependencies)
                         : NonRedundantReads.CompileWithCrossTables(model.Catalog, table.Source.Id, outputs,

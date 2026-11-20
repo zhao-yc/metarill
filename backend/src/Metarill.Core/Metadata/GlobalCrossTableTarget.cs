@@ -18,20 +18,34 @@ public static class GlobalCrossTableTarget
         !string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
 
     /// <summary>证明全局单选的物理权限键及发布身份，下发和实际读计划均使用此校验。</summary>
-    public static void RequireExactSingleCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    public static void RequireExactSingleCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
+        _=ExactSingleParent(catalog,table,page);
+
+    /// <summary>同一发布证明返回实际父层位，候选不能用任意父字段替代。</summary>
+    public static MultiTargetParentScope? ExactSingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
     {
         if(!DeclaresExactSingle(table,page)||
             !ReferenceEquals(catalog.ConfigTables.SingleOrDefault(item=>item.Id==table.Id),table)||
             !ReferenceEquals(catalog.ConfigPages.SingleOrDefault(item=>item.Id==page.Id),page)||
             !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
             throw new NotSupportedException("全局精确单选必须属于当前项目发布的单选页及后台。");
-        RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0,allowExactSingle:true);
+        var parent=SingleParent(catalog,table,page,allowLogical:true,allowExactSingle:true);
+        if(parent is null)
+        {
+            var columns=ConditionColumns(catalog,table,allowLogical:true);
+            var fields=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName)).Fields;
+            var tree=fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field));
+            var logical=tree||fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field));
+            RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0,allowLogical:logical,
+                allowSelfTree:tree,allowExactSingle:true);
+        }
         var value=page.Extra["exactDataManageMatchField"];
         var field=value.ValueKind==JsonValueKind.String?ExactDataManageValues.Field(value.GetString()):"";
         var match=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==table.Id&&column.ColumnName==field);
         if(match is null||!GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,table),table,match))
             throw new NotSupportedException("全局精确单选要求已声明的非凭据物理标量匹配字段。");
         _=ExactDataManageValues.Unrestricted.ReadLogical(match.LogicalType);
+        return parent;
     }
 
     /// <summary>多值仅复用目标实体资格，源数组、名称和原页面规则仍由多值专用证明核对。</summary>
@@ -70,7 +84,7 @@ public static class GlobalCrossTableTarget
     public static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
         SingleParent(catalog,table,page,allowLogical:true);
 
-    private static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowLogical)
+    private static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowLogical,bool allowExactSingle=false)
     {
         if(!Declared(table)||table.IsRongyu!=0)return null;
         var columns=ConditionColumns(catalog,table,allowLogical:true);
@@ -85,7 +99,8 @@ public static class GlobalCrossTableTarget
         else if(!condition.Variables.Any(AccountConditionVariables.IsSupported))return null;
         var parent=MultiTargetParentScope.Compile(catalog,table,condition);
         if(parent is null||parent.Logical&&(!allowLogical||page.Extra.GetValueOrDefault("type").ToString()=="2"))return null;
-        RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:cross||tree,allowMultiParent:true,allowSelfTree:tree);
+        RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:cross||tree,allowMultiParent:true,
+            allowSelfTree:tree,allowExactSingle:allowExactSingle);
         return parent;
     }
 

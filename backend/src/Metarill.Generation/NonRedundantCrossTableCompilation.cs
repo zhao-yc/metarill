@@ -41,10 +41,10 @@ internal static class NonRedundantCrossTableCompilation
             ?name+".BindAccount("+actor+")":name;
 
     /// <summary>共享匹配与普通跨表读取使用同一固定目标页字面量。</summary>
-    internal static string BindingArgument(IReadOnlyList<CrossTableWriteModel> plans)
+    internal static string BindingArgument(IReadOnlyList<CrossTableWriteModel> plans,string? parameter=null)
     {
         if(plans.Count==0)return "";
-        return ",new Metarill.Data.Queries.NonRedundantCrossTableScope[]{"+string.Join(",",plans.Select(plan=>"new("+Literal(plan.Read.Source.Source.Id)+",new Metarill.Data.Queries.NonRedundantCrossTableTargetScope[]{"+string.Join(",",plan.Levels.Select(level=>"new("+Literal(level.Read.Page.Source.Id)+","+Condition(level.Read.Page)+")"))+"})"))+"}";
+        return ","+(parameter is null?"":parameter+":")+"new Metarill.Data.Queries.NonRedundantCrossTableScope[]{"+string.Join(",",plans.Select(plan=>"new("+Literal(plan.Read.Source.Source.Id)+",new Metarill.Data.Queries.NonRedundantCrossTableTargetScope[]{"+string.Join(",",plan.Levels.Select(level=>"new("+Literal(level.Read.Page.Source.Id)+","+Condition(level.Read.Page)+")"))+"})"))+"}";
     }
     /// <summary>类型和字段来自已验证的常量计划，所有元数据文本只作为字符串字面量。</summary>
     private static string Condition(PageModel page)=>page.Condition is not{} condition?"null":"Metarill.Data.Queries.FixedConditionSqlPlan.Compile(Metarill.Core.Metadata.FixedConditionPlan.Compile("+Literal(condition.Definition)+",new string[]{"+string.Join(",",condition.Syntax.Fields.Select(Literal))+"}),new Dictionary<string,string>{"+string.Join(",",condition.Types.Select(pair=>"["+Literal(pair.Key)+"]="+Literal(pair.Value)))+"})";

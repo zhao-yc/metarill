@@ -40,8 +40,10 @@ internal static class DerivedRelationNamesCompilation
 
     /// <summary>单值候选父级来自实际发布页，项目内稀疏层位与显式全局父复用同一父键模型。</summary>
     internal static MultiTargetParentScope? SingleParent(GenerationModel model,TableModel target,PageModel page)=>
-        target.IsGlobal?GlobalCrossTableTarget.SingleParent(model.Catalog,target.Source,page.Source)
-            :ProjectScopedSingleRelationTarget.LogicalParent(model.Catalog,target.Source,page.Source);
+        GlobalCrossTableTarget.DeclaresExactSingle(target.Source,page.Source)
+            ?GlobalCrossTableTarget.ExactSingleParent(model.Catalog,target.Source,page.Source)
+            :target.IsGlobal?GlobalCrossTableTarget.SingleParent(model.Catalog,target.Source,page.Source)
+                :ProjectScopedSingleRelationTarget.LogicalParent(model.Catalog,target.Source,page.Source);
 
     /// <summary>在生成时证明目标页所有逻辑成员，同时保留来源身份和实际父范围。</summary>
     internal static NonRedundantReadPlan CompileLogicalPage(GenerationModel model,TableModel target,PageModel page,
@@ -149,7 +151,7 @@ internal static class DerivedRelationNamesCompilation
     internal static void RequireSelection(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name)
     {
         var globalExact=GlobalCrossTableTarget.DeclaresExactSingle(target.Source,page.Source);
-        var fixedParent=globalExact?null:SingleParent(model,target,page);
+        var fixedParent=SingleParent(model,target,page);
         var globalCached=owner.IsGlobal&&owner.Source.IsRongyu==1&&GlobalCachedSourceCompilation.ForModel(model)
             .Any(binding=>binding.Source.Source.Id==owner.Source.Id&&binding.ScopedSingle&&binding.Page.Source.Id==page.Source.Id);
         if(!(globalCached||SupportedOwner(model,owner))||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&!IsTypedName(model,owner,target,name)||name.IsJsonArray||!page.Source.Extra.TryGetValue("type",out var kind)||kind.ToString()!="1"||ExactDataManageCompilation.Declared(page)&&owner.IsGlobal&&!globalExact||NonRedundantCrossParentCompilation.Enabled(model,target,page)&&fixedParent is not {Logical:true})throw new InvalidOperationException("派生单选名称要求普通R0或已发布R1物理来源、普通R0目标及原type=1固定单值页面。");
@@ -235,7 +237,8 @@ internal static class DerivedRelationNamesCompilation
         var projectTargets=ProjectCandidateTargets(model,relation,exact);
         var plan = IsGlobalExactSingle(relation)
             ? NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,target.Source.Id,relation.TargetPage.Source.Id,
-                outputs,dependencies,projectTargets)
+                outputs,dependencies,projectTargets,null,
+                ProjectionCondition(relation) is {HasLogicalFields:true} globalCondition?globalCondition.Syntax.Fields:null)
             : UsesLogicalPage(relation)
             ? CompileLogicalPage(model,target,relation.TargetPage,outputs,dependencies,ProjectionCondition(relation),projectTargets,exact)
             : exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0)
@@ -263,8 +266,7 @@ internal static class DerivedRelationNamesCompilation
         if (!ExactDataManageCompilation.Declared(relation.TargetPage)) return null;
         if(!UsesExactSingle(relation)||!relation.FunctionForm&&owner.IsGlobal&&!IsGlobalExactSingle(relation))
             throw new NotSupportedException("当前派生名称目标的精确范围缺少固定候选证明。");
-        if(IsGlobalExactSingle(relation)&&relation.ImportCondition?.HasLogicalFields==true)
-            throw new NotSupportedException("全局精确单选的导入条件需要已发布的物理字段。");
+
         return ExactDataManageCompilation.Resolve(model, relation.Target, relation.TargetPage);
     }
 

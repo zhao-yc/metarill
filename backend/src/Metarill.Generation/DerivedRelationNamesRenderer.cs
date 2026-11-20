@@ -19,7 +19,7 @@ internal static class DerivedRelationNamesRenderer
         var bindParent=validateCurrent||projectTargets.Count>0?".BindAccount(actor)":"";
         var globalExact=DerivedRelationNamesCompilation.IsGlobalExactSingle(relation);
         var embedsPageScope=globalExact||relation.FixedParent is {Logical:true}||relation.Target.IsGlobal&&(logical||globalAccount||relation.FunctionForm);
-        var parentPlan = exact is not null && relation.FixedParent is { Logical: true }
+        var parentPlan = globalExact?"":exact is not null && relation.FixedParent is { Logical: true }
             ? NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans ?? [])
             : accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var projection=DerivedRelationNamesCompilation.ProjectionCondition(relation);
@@ -34,11 +34,11 @@ internal static class DerivedRelationNamesRenderer
                 : projectTargets.Count>0
                 ? $"CompileProjectRelation({Literal(relation.Target.Source.Id)}"
                 : NonRedundantReadCompilation.RelationPlanStart(relation.Target, relation.TargetPage);
-        var projectTargetArgument=NonRedundantReadCompilation.SingleTargetArgument(projectTargets,logical?"singleTargets":null);
+        var projectTargetArgument=NonRedundantReadCompilation.SingleTargetArgument(projectTargets,logical||globalExact?"singleTargets":null);
         var outputs = "new string[]{\"id\"," + Literal(name) + "}";
         var fields = "new string[]{ " + string.Join(",", dependencies.Select(Literal)) + " }";
         // 精确过滤只引入目标页匹配字段所在路径，共享分支仍由同一个整组计划验证。
-        var additionalFields=exact is not null&&relation.FixedParent is {Logical:true}&&projection is {HasLogicalFields:true}
+        var additionalFields=exact is not null&&(globalExact||relation.FixedParent is {Logical:true})&&projection is {HasLogicalFields:true}
             ?",listFields:new string[]{"+string.Join(",",projection.Syntax.Fields.Select(Literal))+"}":"";
         var plan = $"{planStart},{outputs},{fields}{parentPlan}{projectTargetArgument}{additionalFields})";
         if (!logical && exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0))

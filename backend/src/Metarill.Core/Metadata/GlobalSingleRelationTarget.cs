@@ -131,11 +131,11 @@ public static class GlobalSingleRelationTarget
         var scopedAccount=allowsLogical&&target.IsRongyu==0&&!scopedSelfTree&&!scopedCrossTable&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
         var exactSingle=foreign.ControlKind=="SelectPage"&&GlobalCrossTableTarget.DeclaresExactSingle(target,page);
-        var fixedParent=allowsLogical&&!exactSingle?GlobalCrossTableTarget.SingleParent(catalog,target,page):null;
+        var fixedParent=exactSingle?GlobalCrossTableTarget.ExactSingleParent(catalog,target,page):
+            allowsLogical?GlobalCrossTableTarget.SingleParent(catalog,target,page):null;
         var sourceParent=fixedParent?.SingleSource(catalog,owner,foreign);
         if(projectParent)RequireProjectParentPage(catalog,target,page);
-        else if(exactSingle)GlobalCrossTableTarget.RequireExactSingleCandidate(catalog,target,page);
-        else if(fixedParent is null)
+        else if(!exactSingle&&fixedParent is null)
         {
             if(scopedSelfTree)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page);
             else if(scopedCrossTable)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,page);
