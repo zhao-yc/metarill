@@ -40,6 +40,34 @@ public sealed class NonRedundantMultiReadTests
         if(scenario is "physicalAlias" or "wrongAliasPath")catalog.ConfigColumns.Add(new(){Id="121",ConfigTableId="1",ColumnName="party_names",LogicalType="string",Extra=scenario=="wrongAliasPath"?new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("ship.name")}:new()});
         Assert.ThrowsAny<Exception>(()=>MySqlNonRedundantReadCompiler.Compile(catalog,"1",["party_"+(scenario=="credential"?"passwords":"names")]));
     }
+    /// <summary>原名称数组和元素筛选都读取当前页简称，保留ID顺序与范围。</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void Uses_page_label_for_array_and_element_filter(int targetStorage)
+    {
+        var catalog=Catalog();
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=targetStorage;
+        var relation=catalog.ConfigColumns.Single(column=>column.Id=="120");
+        relation.ControlDetail="""{"tableId":"2","pageId":"201","nameField":"name"}""";
+        catalog.ConfigColumns.Add(new(){Id="27",ConfigTableId="2",ColumnName="short_name",LogicalType="string"});
+        catalog.ConfigPages.Add(new(){Id="101",ConfigTableId="1"});
+        catalog.ConfigPages.Add(new(){Id="201",ConfigTableId="2",Extra=new(){["type"]=JsonSerializer.SerializeToElement(2)}});
+        catalog.ConfigPageColumns.Add(new(){Id="101120",ConfigPageId="101",ConfigColumnId="120",
+            Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"short_name"}""")}});
+        var binding=new NonRedundantMultiTargetScope("120","101","201",false);
+        var plan=NonRedundantReads.CompileProjectPage(catalog,"1",["party_names"],["party_names"],[],[],[binding]).MySql;
+        var sql=plan.Expression("party_names");
+        Assert.Contains("multi_value.`short_name`",sql);
+        Assert.Contains("multi_value.`yz_project_id`",sql);
+        Assert.Contains("multi_value.`delete_no` IS NULL",sql);
+        Assert.Contains("ORDER BY multi_ids.ordinal",sql);
+        Assert.Contains("multi_value.`short_name` LIKE {parameter}",plan.ArrayNamePredicates["party_names"]);
+        var baseline=MySqlNonRedundantReadCompiler.Compile(catalog,"1",["party_names"]);
+        Assert.Contains("multi_value.`name`",baseline.Expression("party_names"));
+        Assert.DoesNotContain("short_name",baseline.Expression("party_names"));
+    }
+
     /// <summary>名称数组不占物理列；相同项目和主键约束来自正式目录。</summary>
     private static MetadataCatalog Catalog()
     {

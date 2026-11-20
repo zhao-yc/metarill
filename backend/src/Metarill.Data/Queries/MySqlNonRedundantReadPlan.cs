@@ -650,6 +650,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(id.Length>0&&tables.GetValueOrDefault(id)?.Id!=target.Id||pageId.Length>0&&PageTarget(pageId)?.Id!=target.Id||Value(definition,"table") is {Length:>0} declared&&declared!=target.TableName||Text(relation,"linkConfigPageId") is {Length:>0} linkedPage&&PageTarget(linkedPage)?.Id!=target.Id)throw new InvalidOperationException("多值关系的目标声明缺失或相互矛盾。");
             if(relation.LinkConfigTableId.Length>0&&relation.LinkConfigTableId!=target.Id)throw new InvalidOperationException("多值关系目标声明不一致。");
             var global=GlobalCrossTableTarget.Declared(target);
+            var (sourcePage,overridden,applyPageScope,control,nameOverride)=ProjectMultiTarget(table,owner,relation,target);
+            display=nameOverride??display;
             var value=Column(target,display);
             var typedCache=GlobalPhysicalRelationValue.IsPublishedTypedCache(catalog,storage[target.Id],target,value);
             PageMetadata? publishedPage=null;
@@ -664,7 +666,6 @@ public static partial class MySqlNonRedundantReadCompiler
                     publishedPage=proof.Page;
             }
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
-            var (sourcePage,overridden,applyPageScope,control)=ProjectMultiTarget(table,owner,relation,target);
             var namePage=overridden??MultiTargetNamePage(catalog,target,relation);
             var selectedScope=overridden is null?MultiTargetLogicalPage(catalog,target,relation):applyPageScope?overridden:null;
             if(control is not null||selectedScope is not null||!storage[target.Id].IsPhysical(value))

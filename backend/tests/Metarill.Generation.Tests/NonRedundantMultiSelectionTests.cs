@@ -41,6 +41,65 @@ public sealed class NonRedundantMultiSelectionTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>原多选配置简称后保留同一个名称数组，筛选和 Excel 一起编译。</summary>
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 0)]
+    public async Task Multi_page_override_keeps_the_original_name_array(bool automatic,int targetStorage)
+    {
+        var catalog=Catalog();
+        catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=targetStorage;
+        if(automatic)
+        {
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="27");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="27");
+        }
+        catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="short_name",Name="简称",LogicalType="string",ColumnLength="100"});
+        catalog.ConfigPageColumns.Add(new(){Id="3009",ConfigPageId="301",ConfigColumnId="39",IsShow=1});
+        var settings=catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="25");
+        settings.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        settings.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"short_name"}""");
+        var source=catalog.ConfigPages.Single(page=>page.Id=="201");source.IsImport=1;source.IsExport=1;
+        if(automatic)
+        {
+            source.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+            source.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+        }
+        catalog.YzAdminTypes.Add(new(){Id="5",Name="多选后台",YzProjectId=catalog.YzProjectId});
+        foreach(var page in catalog.ConfigPages)page.YzAdminTypeId="5";
+        catalog.ConfigMenus.Add(new(){Id="9001",Name="来源",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",
+            Kind="GENERATED_PAGE",ConfigPageId="201"});
+        foreach(var record in catalog.ConfigTables.Cast<MetadataRecord>().Concat(catalog.ConfigColumns).Concat(catalog.ConfigPages).Concat(catalog.ConfigPageColumns))
+            record.YzProjectId=catalog.YzProjectId;
+        var model=GenerationModel.Create(catalog,"Example.MultiPageLabel");
+        var table=model.Tables.Single(table=>table.Source.Id=="2");var pageModel=table.Pages.Single();
+        var filter=Assert.Single(SelectionNameFilterCompilation.ForPage(model,table,pageModel).Bindings);
+        Assert.Equal("targetNames",filter.FilterKey);
+        Assert.Equal(SelectionNameFilterKind.JoinedJsonArrayAnyLike,filter.Kind);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-multi-page-label");var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(root,"generated");
+            new CSharpGenerator().Generate(catalog,generated,model.Namespace);
+            var detail=await File.ReadAllTextAsync(Path.Combine(generated,"frontend/pages/yzp/relation_source-detail-201.vue"));
+            Assert.Contains("selected-name-field=\"shortName\"",detail);
+            Assert.Contains("selectedNames=\"entity.targetNames\"",detail);
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/RelationSourceService.g.cs"));
+            Assert.Contains("target_names", service);
+            Assert.Contains("ShortName", service);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
+                assembly.GetType("Example.MultiPageLabel.Generated.Services.RelationSourceService",true)!.TypeHandle);
+            var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),
+                model.Namespace,NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+            Assert.True(package.FrontendIncluded);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
+    }
+
     /// <summary>实际编译挂载原Vue模板，验证确认/取消/长ID和只读迟到；不是浏览器验收。</summary>
     private static async Task RunOriginalVueProbe(string output,[System.Runtime.CompilerServices.CallerFilePath]string source="")
     {
@@ -79,7 +138,12 @@ public sealed class NonRedundantMultiSelectionTests
         if(scenario=="physical")names.Extra.Clear();
         if(scenario=="wrongPath")names.Extra["columnFullName"]=JsonSerializer.SerializeToElement("parent.name");
         if(scenario=="credential")catalog.ConfigColumns.Single(column=>column.Id=="32").ColumnName="password";
-        if(scenario=="nameOverride")catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="25").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"nameField\":\"alias\"}");
+        if(scenario=="nameOverride")
+        {
+            // 合法的物理文本已支持覆盖，未在目标页发布的文本仍必须拒绝生成。
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="301"&&field.ConfigColumnId=="35");
+            catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="25").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"nameField\":\"alias\"}");
+        }
         if(scenario=="targetOverride"){catalog.ConfigColumns.Single(column=>column.Id=="25").LinkConfigTableId="";catalog.ConfigPages.Single(page=>page.Id=="101").Extra["type"]=JsonSerializer.SerializeToElement(2);catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="25").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"pageId\":\"101\"}");}
         var output=Path.Combine(Path.GetTempPath(),"metarill-nonred-multi-reject",Guid.NewGuid().ToString("N"));Assert.ThrowsAny<Exception>(()=>new CSharpGenerator().Generate(catalog,output,"Example.NonRedMulti"));Assert.False(Directory.Exists(output));
     }

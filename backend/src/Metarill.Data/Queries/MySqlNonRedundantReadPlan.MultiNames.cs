@@ -19,7 +19,7 @@ public static partial class MySqlNonRedundantReadCompiler
             new Dictionary<string,NonRedundantMultiTargetScope>(StringComparer.Ordinal);
 
         /// <summary>运行目录重新核对当前页的控件目标，禁止外部请求指定页、换表或读取别的发布项目。</summary>
-        private (PageMetadata? Source,PageMetadata? Target,bool Scope,FixedConditionPlan? Control) ProjectMultiTarget(TableMetadata table,string alias,
+        private (PageMetadata? Source,PageMetadata? Target,bool Scope,FixedConditionPlan? Control,string? Name) ProjectMultiTarget(TableMetadata table,string alias,
             ColumnMetadata relation,TableMetadata target)
         {
             if(alias!=rootAlias||!ProjectMultiTargets.TryGetValue(relation.Id,out var binding))return default;
@@ -30,6 +30,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==source.Id&&field.ConfigColumnId==relation.Id)
                 ?.Extra.GetValueOrDefault("controlDetail").ToString();
             string pageId;
+            string? name=null;
             if(relation.ControlKind=="MultiCheckBoxDatabase")
             {
                 var definition=DatabaseCheckboxDefinition.Parse(relation.ControlDetail).WithPageOverride(overlay);
@@ -57,21 +58,39 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     using var definition=System.Text.Json.JsonDocument.Parse(overlay);
                     pageId=MultiPageId(definition.RootElement);
+                    var label=Value(definition.RootElement,"nameField");
+                    var baseline=Value(Definition(relation),"nameField");
+                    if(baseline.Length==0)baseline="name";
+                    if(!string.IsNullOrWhiteSpace(label)&&label!=baseline)
+                    {
+                        // 只解释固定来源页上已发布的列名，ID顺序、条件与原辅助数组名继续沿用。
+                        if(relation.ControlKind!="MultiSelectPage"||GlobalCrossTableTarget.Declared(target)||
+                            !PhysicalTextMultiLabel(target,Column(target,baseline))||!PhysicalTextMultiLabel(target,Column(target,label)))
+                            throw new InvalidOperationException("页级多选名称必须是同一目标的物理文本列。");
+                        name=label;
+                    }
                 }
-                if(pageId.Length==0)pageId=MultiTargetNamePage(catalog,target,relation)?.Id??"";
+                if(pageId.Length==0)pageId=MultiPageId(Definition(relation));
+                if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
             }
-            // R1 及显式全局目标只开放数据库复选的已发布范围。
+            // 冗余目标的纯名称覆盖复用原项目可见性，额外范围继续由现有复选分支证明。
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             var scopedPhysicalCheckbox=checkbox&&target.IsRongyu==1&&(binding.ApplyPageScope||control is not null);
-            if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox||GlobalCrossTableTarget.Declared(table)||
+            var physicalNameOverride=name is not null&&target.IsRongyu==1&&!binding.ApplyPageScope;
+            if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!physicalNameOverride||GlobalCrossTableTarget.Declared(table)||
                 GlobalCrossTableTarget.Declared(target)&&!checkbox||pageId!=(selected?.Id??"")||
                 selected is null&&(binding.ApplyPageScope||control is null)||
                 binding.ApplyControlScope&&control is null||
                 source.YzProjectId.Length>0&&source.YzProjectId!=catalog.YzProjectId||
                 selected is not null&&selected.YzProjectId.Length>0&&selected.YzProjectId!=catalog.YzProjectId)
                 throw new InvalidOperationException("多值名称目标与当前页的发布配置不一致。");
-            return(source,selected,binding.ApplyPageScope,control);
+            return(source,selected,binding.ApplyPageScope,control,name);
         }
+
+        /// <summary>仅允许可信声明的普通物理文本进入名称投影。</summary>
+        private bool PhysicalTextMultiLabel(TableMetadata target,ColumnMetadata label)=>
+            label.LogicalType=="string"&&label.ControlKind is not ("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase")&&
+            !ExactDataManageValues.IsSensitiveField(label.ColumnName)&&storage[target.Id].IsPhysical(label);
 
         /// <summary>派生多值名称使用独立固定别名域，联接保持在目标子查询内，不把来源扩成多行。</summary>
         private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,

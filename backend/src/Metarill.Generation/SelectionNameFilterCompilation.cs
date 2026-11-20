@@ -31,7 +31,7 @@ internal static class SelectionNameFilterCompilation
                 var settings=model.Catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);
                 var definition=SelectionControlDefinition.Resolve(source,settings);var baseline=SelectionControlDefinition.Resolve(source,null);
                 var changedName=definition.NameField!=baseline.NameField;
-                if(changedName&&(table.Source.IsRongyu!=0||source.Source.ControlKind!="SelectPage"))
+                if(changedName&&table.Source.IsRongyu!=0)
                 {Gap("页级nameField改变了稳定辅助列取值，尚未建立同页读取计划。");continue;}
                 var target=model.Tables.SingleOrDefault(candidate=>candidate.Pages.Any(candidatePage=>candidatePage.Source.Id==definition.PageId));
                 var targetPage=target?.Pages.Single(candidatePage=>candidatePage.Source.Id==definition.PageId);
@@ -42,7 +42,8 @@ internal static class SelectionNameFilterCompilation
                     !(source.Source.ControlKind=="SelectPage"&&DerivedRelationNamesCompilation.IsTypedName(model,table,target,name))&&
                     !MultiSelectCompilation.SupportsTypedLabel(model,table,source,target,name)||
                     !targetPage.Readable.Any(column=>column.Source.Id==name.Source.Id)){Gap("目标名称字段不是已开放读取的受支持标量。");continue;}
-                var overrideSelection=changedName?NonRedundantSelectionCompilation.Resolve(model,table,page,source):null;
+                var overrideSelection=changedName&&source.Source.ControlKind=="SelectPage"
+                    ?NonRedundantSelectionCompilation.Resolve(model,table,page,source):null;
                 var automatic=changedName?null:SelectionDisplayFieldCompilation.AutomaticSingle(table,source,name);
                 if((overrideSelection?.DisplayOverride??automatic) is {} display){storage=display;key=storage.JsonName;}
                 if(storage.Source.Id==source.Source.Id){Gap("没有独立名称列，ID筛选必须使用独立合同。");continue;}

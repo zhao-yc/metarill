@@ -10,6 +10,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
     internal bool LogicalSourceParent { get; init; }
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal bool UsesPageRead { get; init; }
+    internal bool UsesNameOverride { get; init; }
     internal bool GlobalParent { get; init; }
     internal RelationConditionModel? ImportCondition { get; init; }
     internal ExactDataManageModel? ExactTarget { get; init; }
@@ -144,6 +145,7 @@ internal static class MultiSelectCompilation
             }
             // 普通非冗余来源按实际页面校验父键，全局关系及冗余缓存继续按其固定范围证明。
             var usesPageRead=pageRead&&(pageOverride||targetParents.Length>0||!scoped&&targetPage.Condition is not null);
+            var usesNameOverride=false;
             var logicalSourceParent=false;
             IReadOnlyList<ColumnModel> compoundSourceDependencies=[];
             if(scopedParent is not null && !functionForm)
@@ -179,15 +181,24 @@ internal static class MultiSelectCompilation
             if(table.Source.IsRongyu==0)
             {
                 var baselineName=Scalar(root,"nameField");if(string.IsNullOrWhiteSpace(baselineName))baselineName="name";
-                if(ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id||baselineName!=name.Source.ColumnName)return Gap("页级目标或名称覆盖尚未绑定同一非冗余读取计划。");
+                if(ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
+                    return Gap("页级目标与实际存储外键不一致。");
+                usesNameOverride=baselineName!=name.Source.ColumnName;
+                if(usesNameOverride)
+                {
+                    var baseline=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baselineName);
+                    if(table.IsGlobal||target.IsGlobal||names is null||baseline is null||
+                        !PhysicalTextLabel(model,target,baseline)||!PhysicalTextLabel(model,target,name))
+                        return Gap("页级名称必须为同一项目内目标的物理文本，沿用表级名称数组。");
+                }
                 if(!NonRedundantReadCompilation.Physical(model,table,source))return Gap("非冗余多选要求物理ID和标量名称。");
                 if(target.IsGlobal){var proof=Metarill.Core.Metadata.GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)return Gap("全局多选页级目标和名称声明不一致。");}
                 if(targetField is not null&&!NonRedundantReadCompilation.Physical(model,table,table.Columns.Single(column=>column.JsonName==targetField)))return Gap("非冗余目标父必须为物理外键。");
                 if(names is not null)
                 {
-                    if(usesPageRead)
+                    if(usesPageRead||usesNameOverride)
                         Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(model.Catalog,table.Source.Id,[names.Source.ColumnName],
-                            [],[],[],[new(source.Source.Id,page.Source.Id,targetPage.Source.Id,true)]);
+                            [],[],[],[new(source.Source.Id,page.Source.Id,targetPage.Source.Id,usesPageRead)]);
                     else
                         Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[names.Source.ColumnName]);
                 }
@@ -201,12 +212,19 @@ internal static class MultiSelectCompilation
                     CompoundSourceDependencies=compoundSourceDependencies,
                     GlobalParent=scopedParent?.Global==true,
                     UsesPageRead=usesPageRead,
+                    UsesNameOverride=usesNameOverride,
                     ImportCondition=importCondition,
                     ExactTarget=exactTarget
                 }, null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }
     }
+
+    /// <summary>页级显示只覆盖普通物理文本，保留现有数组协议及索引范围。</summary>
+    private static bool PhysicalTextLabel(GenerationModel model,TableModel target,ColumnModel label)=>
+        label.Type=="string?"&&!label.IsJsonArray&&label.Source.ControlKind!="FileLibrary"&&
+        !Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(label.Source.ColumnName)&&
+        NonRedundantReadCompilation.Physical(model,target,label);
 
     /// <summary>生成与数据层使用同一标量终点证明，范围仍由固定目标页证明。</summary>
     internal static bool SupportsTypedLabel(GenerationModel model,TableModel table,ColumnModel source,TableModel target,ColumnModel name)

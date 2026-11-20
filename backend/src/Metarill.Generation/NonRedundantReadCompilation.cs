@@ -343,8 +343,8 @@ internal static partial class NonRedundantReadCompilation
     internal static IReadOnlyList<NonRedundantMultiTargetScope> ProjectMultiTargets(GenerationModel model,TableModel table,PageModel page)
     {
         if(table.Source.IsRongyu!=0||table.IsGlobal)return [];
-        return MultiSelectCompilation.ForService(model,table,page).Where(def=>def.UsesPageRead&&def.Names is not null)
-            .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.TargetPage.Source.Id,true))
+        return MultiSelectCompilation.ForService(model,table,page).Where(def=>(def.UsesPageRead||def.UsesNameOverride)&&def.Names is not null)
+            .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.TargetPage.Source.Id,def.UsesPageRead))
             .Concat(DatabaseCheckboxCompilation.ForService(model,table,page).Where(def=>def.UsesPageRead||def.UsesControlRead)
                 .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.NameTargetPage?.Source.Id,
                     def.LogicalTargetPage is not null||def.PhysicalTargetPage is not null||def.Target.IsGlobal,def.UsesControlRead))).ToArray();
