@@ -33,7 +33,7 @@ internal static class RelationPropagationCompilation
             }
             result.AddRange(ScopedSingleBindings(model,table));
             foreach(var binding in MultiNameWriteCompilation.ForTable(model,table))result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache));
-            foreach(var definition in table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))result.Add(new(table,definition.Source,definition.Target,definition.Name,definition.Names));
+            foreach(var binding in DatabaseCheckboxCompilation.Caches(model,table))result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache));
             // 完整写入链定义各级ID／名称归属；不按字段后缀猜目标，也不接受页间冲突定义。
             foreach(var page in table.Pages)foreach(var plan in CrossTableWriteCompilation.ForService(model,table,page))
             {

@@ -24,6 +24,7 @@ internal static class DatabaseCheckboxRenderer
     internal static string Service(GenerationModel model,TableModel table,PageModel page)
     {
         var result=new StringBuilder();var exposed=DatabaseCheckboxCompilation.ForPage(model,table,page).Select(def=>def.Source.Source.Id).ToHashSet(StringComparer.Ordinal);
+        var tableCaches=DatabaseCheckboxCompilation.Caches(model,table).ToLookup(binding=>binding.Source.Source.Id);
         foreach(var def in DatabaseCheckboxCompilation.ForService(model,table,page))
         {
             var suffix=Suffix(page,def);var project=def.Target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id");
@@ -103,6 +104,10 @@ internal static class DatabaseCheckboxRenderer
             }
             if(table.Source.IsFunctionTable==1)continue;
             var writeParent=def.LogicalSourceParent?"logicalRelationParentId":ParentValue(def,"entity");
+            var caches=tableCaches[def.Source.Source.Id].ToArray();
+            var sharedCaches=caches.Length>1;
+            var projection=sharedCaches?"new {row.Id,"+string.Join(",",caches.Select(cache=>"row."+cache.Value.Property).Distinct(StringComparer.Ordinal))+"}":
+                $"new {{row.Id,Name=row.{def.Name.Property}}}";
             result.AppendLine("    /// <summary>来源依赖变化重新校验完整所选集合，冗余名称仅在本事务派生；未提交无关字段不刷新。</summary>")
                 .AppendLine($"    private async Task ValidateCheckbox{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,RecordMutationOperation? operation=null{(def.LogicalSourceParent?",string? logicalRelationParentId=null":"")})")
                 .AppendLine("    {")
@@ -112,12 +117,21 @@ internal static class DatabaseCheckboxRenderer
             if(int.TryParse(def.Source.Source.ColumnLength,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var sourceLimit)&&sourceLimit>0)result.AppendLine($"        if(entity.{def.Source.Property} is {{Length:>{sourceLimit}}})throw new ArgumentException(\"复选ID数组超过已声明物理列长度。\");");
             result
                 .Append(def.DerivedName?"":$"        var query=await CheckboxScope{suffix}Async({writeParent},actor,{EntityForm(def,"entity")},true,cancellationToken);\n")
-                .AppendLine(def.DerivedName?$"        var rows=await DerivedCheckboxRows{suffix}Async({writeParent},actor,{EntityForm(def,"entity")},selected,null,false,DatabaseCheckboxValue.MaximumItems,true,cancellationToken);":$"        var rows=await query.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>new {{row.Id,Name=row.{def.Name.Property}}},cancellationToken);")
+                .AppendLine(def.DerivedName?$"        var rows=await DerivedCheckboxRows{suffix}Async({writeParent},actor,{EntityForm(def,"entity")},selected,null,false,DatabaseCheckboxValue.MaximumItems,true,cancellationToken);":$"        var rows=await query.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>{projection},cancellationToken);")
                 .AppendLine("        if(rows.Count!=selected.Length)throw new InvalidOperationException(\"复选项不存在、已删除或已离开当前固定候选范围，整笔未保存。\");");
             if(table.Source.IsRongyu==1)
-                result.AppendLine($"        var names=rows.ToDictionary(row=>row.Id,row=>{LabelText(def,"row.Name")});")
-                    .AppendLine($"        entity.{def.Names.Property}=entity.{def.Source.Property} is null?null:JsonSerializer.Serialize(selected.Select(id=>names[id]).ToArray());submitted.Add({Literal(def.Names.Source.ColumnName)});");
-            if(table.Source.IsRongyu==1&&int.TryParse(def.Names.Source.ColumnLength,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var nameLimit)&&nameLimit>0)result.AppendLine($"        if(entity.{def.Names.Property} is {{Length:>{nameLimit}}})throw new ArgumentException(\"复选名称数组超过已声明物理列长度。\");");
+            {
+                // 同一有界当前锁读返回所有名称列，每份缓存沿原所选 ID 次序写入。
+                result.AppendLine(sharedCaches?"        var names=rows.ToDictionary(row=>row.Id);":
+                    $"        var names=rows.ToDictionary(row=>row.Id,row=>{LabelText(def,"row.Name")});");
+                foreach(var cache in caches)
+                {
+                    var label=sharedCaches?$"names[id].{cache.Value.Property}":"names[id]";
+                    result.AppendLine($"        entity.{cache.Cache.Property}=entity.{def.Source.Property} is null?null:JsonSerializer.Serialize(selected.Select(id=>{label}).ToArray());submitted.Add({Literal(cache.Cache.Source.ColumnName)});");
+                    if(int.TryParse(cache.Cache.Source.ColumnLength,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var nameLimit)&&nameLimit>0)
+                        result.AppendLine($"        if(entity.{cache.Cache.Property} is {{Length:>{nameLimit}}})throw new ArgumentException(\"复选名称数组超过已声明物理列长度。\");");
+                }
+            }
             result.AppendLine("    }");
         }
         return result.ToString();

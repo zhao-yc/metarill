@@ -10,15 +10,27 @@ internal static class MultiNameStorageCompilation
         MultiSelectCompilation.ForPage(model,table,page).Where(def=>def.Names is not null&&page.Readable.Any(column=>column.Source.Id==def.Source.Source.Id)).Select(def=>def.Names!)
         .Concat(DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>page.Readable.Any(column=>column.Source.Id==def.Source.Source.Id)).Select(def=>def.Names))
         .Where(cache=>cache.IsManagedMultiNames&&IsImplicit(model,cache)&&!page.Readable.Any(column=>column.Source.Id==cache.Source.Id)).DistinctBy(cache=>cache.Source.Id).ToArray();
+    /// <summary>按原多值名称规则定位声明列；完整归属仍由 Supports 检查。</summary>
+    internal static ColumnModel? FindPhysicalName(TableModel table,ColumnModel source,ColumnModel value)
+    {
+        var name=CacheName(source,value);
+        return table.Columns.SingleOrDefault(column=>column.Source.ColumnName==name);
+    }
+
     /// <summary>普通名称列沿既有合同；联接列必须声明同一来源别名的原两段路径。</summary>
     internal static bool Supports(GenerationModel model,TableModel table,ColumnModel source,ColumnModel value,ColumnModel cache)
     {
         if(table.Source.IsRongyu!=1||source.Source.ConfigTableId!=table.Source.Id||cache.Source.ConfigTableId!=table.Source.Id||cache.Source.Id==source.Source.Id||cache.Type!="string?"||cache.IsSystem||cache.Source.IsVirtualColumn!=0||!NonRedundantReadCompilation.Physical(model,table,cache))return false;
         var stem=source.Source.ColumnName.EndsWith("_ids",StringComparison.Ordinal)?source.Source.ColumnName[..^4]:"";
-        var field=value.Source.ColumnName;var expected=stem+"_"+(field.EndsWith('s')?field:field+"s");
-        if(stem.Length==0||cache.Source.ColumnName!=expected||cache.Source.ControlKind is not("" or "TextArea")||cache.Source.LinkConfigTableId.Length>0||cache.Source.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)return false;
+        if(stem.Length==0)return false;
+        var field=value.Source.ColumnName;var expected=CacheName(source,value);
+        if(cache.Source.ColumnName!=expected||cache.Source.ControlKind is not("" or "TextArea")||cache.Source.LinkConfigTableId.Length>0||cache.Source.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)return false;
         if(!GenerationModel.Enabled(cache.Source.Extra,"isJoinColumn"))return true;
         var path=cache.Source.Extra.GetValueOrDefault("columnFullName");
         return path.ValueKind==System.Text.Json.JsonValueKind.String&&(path.GetString()==stem+"."+field||path.GetString()==source.Source.ColumnName+"."+field);
     }
+
+    /// <summary>末尾已有 s 的名称遵循原规则直接拼接。</summary>
+    private static string CacheName(ColumnModel source,ColumnModel value) =>
+        source.Source.ColumnName[..^4]+"_"+(value.Source.ColumnName.EndsWith('s')?value.Source.ColumnName:value.Source.ColumnName+"s");
 }

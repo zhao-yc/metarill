@@ -231,7 +231,8 @@ internal static class RelationConditionsCompilation
         }
         foreach(var multi in MultiSelectCompilation.ForService(model,table,page).Where(def=>MultiNameWriteCompilation.ForSource(model,table,def).Count>0))
         {result.Add(multi.Source);result.AddRange(MultiNameWriteCompilation.ForSource(model,table,multi).Select(binding=>binding.Cache));result.AddRange(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column));if(multi.TargetParentField is{} field)result.Add(table.Columns.Single(column=>column.JsonName==field));}
-        foreach(var checkbox in DatabaseCheckboxCompilation.ForService(model,table,page)){result.Add(checkbox.Source);result.AddRange(checkbox.Dependencies);if(table.Source.IsRongyu==1)result.Add(checkbox.Names);}
+        foreach(var checkbox in DatabaseCheckboxCompilation.ForService(model,table,page)){result.Add(checkbox.Source);result.AddRange(checkbox.Dependencies);}
+        result.AddRange(DatabaseCheckboxCompilation.Caches(model,table).Select(binding=>binding.Cache));
         return result.DistinctBy(column=>column.Source.Id).ToArray();
     }
     /// <summary>真实物理父键按原字符串ID协议格式化，空值保持空值。</summary>

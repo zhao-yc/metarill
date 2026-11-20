@@ -92,6 +92,120 @@ public sealed class DatabaseCheckboxGenerationTests
         finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
     }
 
+    /// <summary>原冗余复选在名称页和简称页各自显示及筛选，从任一入口保存都更新两个名称副本。</summary>
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage)
+    {
+        var catalog=Published(Catalog(false));
+        var target=catalog.ConfigTables.Single(table=>table.Id=="3");
+        target.IsRongyu=targetStorage;
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+        targetPage.WhereSql="yz_project_id=@current_yz_project_id";
+        var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        source.ControlDetail="""{"tableId":"3","nameField":"name"}""";
+        var cache=new ColumnMetadata
+        {
+            Id="29",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="target_alias",
+            Name="目标简称",LogicalType="string",ColumnLength="max",
+            Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("target.alias")}
+        };
+        catalog.ConfigColumns.Add(cache);
+        var current=catalog.ConfigPages.Single(page=>page.Id=="201");
+        current.IsImport=current.IsExport=1;
+        if(includeNamePage)
+        {
+            var original=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(current))!;
+            original.Id="202";
+            original.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+            original.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+            catalog.ConfigPages.Add(original);
+            foreach(var setting in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId==current.Id).ToArray())
+            {
+                var field=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(setting))!;
+                field.Id="202"+field.ConfigColumnId;
+                field.ConfigPageId=original.Id;
+                catalog.ConfigPageColumns.Add(field);
+            }
+        }
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==current.Id&&field.ConfigColumnId==source.Id)
+            .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"alias"}""");
+        catalog.ConfigPageColumns.Add(new(){Id="2029",ConfigPageId=current.Id,ConfigColumnId=cache.Id,
+            YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1,Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
+
+        const string ns="Example.RedundantCheckboxPageLabel";
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(table=>table.Source.Id=="2");
+        var actual=table.Pages.Single(page=>page.Source.Id==current.Id);
+        var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,actual));
+        Assert.Equal("alias",checkbox.Name.Source.ColumnName);
+        Assert.Equal("targetAlias",checkbox.Names.JsonName);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var propagation=RelationPropagationCompilation.Bindings(model).Where(binding=>binding.Foreign.Source.Id==source.Id).ToArray();
+        Assert.Equal(new[]{"target_alias","target_names"},propagation.Select(binding=>binding.Cache.Source.ColumnName));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-redundant-checkbox-page");
+        var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(root,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            string Original(string kind,string id)=>Path.Combine(generated,$"frontend/pages/yzp/relation_source-{kind}-{id}.vue");
+            var detail=await File.ReadAllTextAsync(Original("detail","201"));
+            var list=await File.ReadAllTextAsync(Original("list","201"));
+            Assert.Contains("readonlyDisplayText(entity.targetAlias)",detail);
+            Assert.Contains("relationDisplayText(item.targetAlias)",list);
+            Assert.Contains("filters.targetAlias",list);
+            Assert.Contains("filters.targetIds",list);
+            if(includeNamePage)
+                Assert.Contains("relationDisplayText(item.targetNames)",await File.ReadAllTextAsync(Original("list","202")));
+
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/RelationSourceService.g.cs"));
+            Assert.Contains("case \"targetAlias\":",service);
+            Assert.Contains("ApplyJsonArrayAnyLike(session,query,entity=>entity.TargetAlias",service);
+            Assert.Contains("ApplyJsonArrayHasId(session,query,entity=>entity.TargetIds",service);
+            foreach(var page in table.Pages)
+            {
+                var marker="private async Task ValidateCheckbox"+page.Source.Id+"_25Async(";
+                var start=service.IndexOf(marker,StringComparison.Ordinal);
+                var end=service.IndexOf("\n    }",start,StringComparison.Ordinal);
+                var write=service[start..end];
+                Assert.Contains("entity.TargetAlias=",write);
+                Assert.Contains("entity.TargetNames=",write);
+                Assert.Contains("selected.Select(id=>",write);
+            }
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            var serviceType=assembly.GetTypes().Single(type=>type.Name=="RelationSourceService");
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
+            foreach(var page in model.Tables.Single(table=>table.Source.Id=="2").Pages)
+            {
+                Assert.NotNull(serviceType.GetMethod("Import"+page.Source.Id+"Async"));
+                Assert.NotNull(serviceType.GetMethod("Export"+page.Source.Id+"Async"));
+            }
+            var request=assembly.GetTypes().Single(type=>type.Name=="RelationSourcePage201CreateRequest");
+            Assert.Null(request.GetProperty("TargetAlias"));
+            Assert.Null(request.GetProperty("TargetNames"));
+            var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+            var maintenance=assembly.GetTypes().Single(type=>type.Name=="GeneratedRelationMaintenance")
+                .GetProperty("Catalog")!.GetValue(null)!;
+            var plans=(System.Collections.IDictionary)maintenance.GetType()
+                .GetProperty("Plans",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(maintenance)!;
+            var maintenancePlan=plans["2"]!;
+            Assert.Null(maintenancePlan.GetType().GetProperty("Error")!.GetValue(maintenancePlan));
+            Assert.NotNull(maintenancePlan.GetType().GetProperty("Read")!.GetValue(maintenancePlan));
+
+            // 同一缓存被多个页面读写时，不允许某一页用额外条件改变派生范围。
+            catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==current.Id&&field.ConfigColumnId==source.Id)
+                .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"alias","whereSql":"name='固定名称'"}""");
+            var mismatch=GenerationModel.Create(catalog,ns);
+            Assert.Contains(GenerationCapabilityAudit.Collect(mismatch), gap=>gap.PageId==current.Id&&
+                gap.Reason.Contains("同一个普通项目目标范围",StringComparison.Ordinal));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
+    }
+
     /// <summary>整数业务名称在原复选中仍输出文本，Excel 与维护使用同一物理字段。</summary>
     [Theory]
     [InlineData(true,false,"int32","list")]

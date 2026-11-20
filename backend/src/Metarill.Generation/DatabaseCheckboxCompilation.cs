@@ -54,7 +54,7 @@ internal static class DatabaseCheckboxCompilation
     }
     /// <summary>隐藏字段也在复制或默认值触发时校验；不因此开放公开候选或VO。
     /// </summary>
-    internal static IReadOnlyList<DatabaseCheckboxModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsFunctionTable==1?ForPage(model,table,page):table.Columns.Where(column=>Generic(table,column)).Select(column=>Resolve(model,table,page,column).Definition).OfType<DatabaseCheckboxModel>().ToArray();
+    internal static IReadOnlyList<DatabaseCheckboxModel> ForService(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsFunctionTable==1?ForPage(model,table,page):table.Columns.Where(column=>Generic(table,column)).Select(column=>Resolve(model,table,page,column,forService:true).Definition).OfType<DatabaseCheckboxModel>().ToArray();
     /// <summary>候选用于原详情及筛选，名称输出仍单独按实际Readable字段决定。
     /// </summary>
     internal static IReadOnlyList<DatabaseCheckboxModel> ForPage(GenerationModel model,TableModel table,PageModel page)=>page.Readable.Concat(page.Writable).Concat(page.Searchable).DistinctBy(column=>column.Source.Id).Where(column=>Generic(table,column)).Select(column=>Resolve(model,table,page,column).Definition).OfType<DatabaseCheckboxModel>().ToArray();
@@ -71,7 +71,8 @@ internal static class DatabaseCheckboxCompilation
 
     /// <summary>复选使用物理 ID 和已证明名称。原候选条件完整编译，独立于目标页的其他条件。</summary>
     /// </summary>
-    internal static DatabaseCheckboxResult Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
+    internal static DatabaseCheckboxResult Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source,
+        bool forService=false,bool rootDefinition=false)
     {
         DatabaseCheckboxResult Gap(string message)=>new(null,"数据库复选尚未支持："+message);
         if(!Generic(table,source))return Gap("固定安全表必须使用其专用协调器。");
@@ -86,7 +87,7 @@ internal static class DatabaseCheckboxCompilation
             var field=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);
             if(field?.Extra.GetValueOrDefault("controlKind").ToString() is{Length:>0} kind&&kind!="MultiCheckBoxDatabase")
                 return Gap("页级控件覆盖改变了原复选存储协议。");
-            var definition=baseline.WithPageOverride(field?.Extra.GetValueOrDefault("controlDetail").ToString());
+            var definition=rootDefinition?baseline:baseline.WithPageOverride(field?.Extra.GetValueOrDefault("controlDetail").ToString());
             var target=Target(model,source,definition);if(target.Source.Id!=Target(model,source,baseline).Source.Id)return Gap("页级目标覆盖未绑定同一物理关系，不能错读名称。");
             if(Protected(target)||target.Source.IsFunctionTable==1)return Gap("目标必须是有记录的业务表。");
             PageModel? globalPage=null;
@@ -116,9 +117,9 @@ internal static class DatabaseCheckboxCompilation
             if(functionForm&&explicitPage.Length>0&&namePage is null)return Gap("功能表复选的显式目标页未在实际目标表发布。");
             if(usesNameOverride)
             {
-                // 页级名称只改变原实时数组的文本值；冗余缓存、固定全局目录和功能表沿用其已证明合同。
+                // 实时名称沿用原响应数组，物理缓存则按同一关系的实际名称登记。
                 var baseName=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baseline.NameField);
-                if(functionForm||table.Source.IsRongyu!=0||target.IsGlobal||baseName is null||
+                if(functionForm||target.IsGlobal||baseName is null||
                     !MultiSelectCompilation.PhysicalTextLabel(model,target,baseName)||
                     !MultiSelectCompilation.PhysicalTextLabel(model,target,name)||
                     namePage is not null&&!namePage.Readable.Any(column=>column.Source.Id==name.Source.Id))
@@ -247,8 +248,12 @@ internal static class DatabaseCheckboxCompilation
                 orderBy=namePage?.Source.OrderBy??"";
             var order=GenerationModel.ValidateOrderBy(string.IsNullOrWhiteSpace(orderBy)?definition.NameField+" asc":orderBy,target.Columns).ToList();
             if(order.Any(item=>(!NonRedundantReadCompilation.Physical(model,target,item.Column)&&!(derived&&item.Column.Source.Id==name.Source.Id))||item.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,item.Column)))return Gap("候选排序必须为非凭据物理字段。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));
-            var names=functionForm?SelectionDisplayFieldCompilation.FunctionFormNames(table,source,name):SelectionDisplayFieldCompilation.Resolve(table,source);
-            if(!functionForm&&(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names)))return Gap("冗余模式需要已证明的同一关系名称数组缓存，非冗余使用只读联接或自动名称。");
+            var independentCache=table.Source.IsRongyu==1&&usesNameOverride;
+            var names=functionForm?SelectionDisplayFieldCompilation.FunctionFormNames(table,source,name):
+                independentCache?MultiNameStorageCompilation.FindPhysicalName(table,source,name):SelectionDisplayFieldCompilation.Resolve(table,source);
+            if(names is null||!functionForm&&(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names)))return Gap("冗余模式需要已证明的同一关系名称数组缓存，非冗余使用只读联接或自动名称。");
+            if(independentCache&&!forService&&!page.Readable.Any(column=>column.Source.Id==names.Source.Id))
+                return Gap("本页必须开放简称对应的物理名称数组。");
             if(!functionForm&&table.Source.IsRongyu==0&&(!GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")||names.Source.IsVirtualColumn!=0))return Gap("非冗余名称必须是明确只读联接或自动投影。");
             var result=new DatabaseCheckboxModel(source,target,name,names,scopes,conditions,order,parents,sourceParent,derived,globalPage)
             {
@@ -271,16 +276,52 @@ internal static class DatabaseCheckboxCompilation
                 GlobalParentPage=globalParentPage,
                 DerivedName=derived||logicalPage is not null
             };
+            if(independentCache&&!CanSharePhysicalNames(result))
+                return Gap("多个物理名称副本要求同一个普通项目目标范围。");
             if(result.DerivedName)DerivedCheckboxNamesCompilation.Require(model,table,result);
             return new(result,null);
         }
         catch(Exception error)when(error is ArgumentException or InvalidOperationException or JsonException or NotSupportedException){return Gap(error.Message);}
     }
-    /// <summary>名称数组是服务端管理的只读字段；保持原布局，不把普通名称列继续作为可写DTO输入。
-    /// </summary>
+    /// <summary>缓存只共享物理标量和同一项目范围，避免按一个页面的附加筛选替其他页面刷新。</summary>
+    private static bool CanSharePhysicalNames(DatabaseCheckboxModel definition) => !definition.DerivedName &&
+        !definition.Target.IsGlobal && definition.Name.Type=="string?" && definition.ExactTarget is null &&
+        definition.Conditions is null && definition.Scopes.All(scope=>scope.Source=="project") &&
+        definition.NameTargetPage?.Condition is null &&
+        definition.NameTargetPage?.Scopes.Any(scope=>scope.Source=="parent")!=true;
+
+    /// <summary>所有写入口以同一事务写齐各页和表级的名称副本。</summary>
+    internal static IReadOnlyList<MultiNameWriteBinding> Caches(GenerationModel model,TableModel table)
+    {
+        if(table.Source.IsRongyu!=1||table.Source.IsFunctionTable==1)return [];
+        var definitions=table.Pages.SelectMany(page=>ForService(model,table,page).Select(definition=>(Page:page,Definition:definition))).ToArray();
+        var bindings=new List<MultiNameWriteBinding>();
+        foreach(var relation in definitions.GroupBy(item=>item.Definition.Source.Source.Id))
+        {
+            var actual=relation.Select(item=>item.Definition).ToList();
+            var alternate=relation.FirstOrDefault(item=>item.Definition.UsesNameOverride);
+            if(alternate.Definition is {} changed)
+            {
+                var root=Resolve(model,table,alternate.Page,changed.Source,forService:true,rootDefinition:true).Definition;
+                if(root is null||actual.Append(root).Any(definition=>!CanSharePhysicalNames(definition)||
+                    definition.Target.Source.Id!=root.Target.Source.Id))
+                    throw new InvalidOperationException("同一数据库复选的多页名称副本必须采用同一普通项目候选范围。");
+                actual.Add(root);
+            }
+            bindings.AddRange(actual.Select(definition=>new MultiNameWriteBinding(definition.Source,definition.Target,definition.Name,definition.Names)));
+        }
+        foreach(var binding in bindings.GroupBy(item=>item.Cache.Source.Id))
+            if(binding.Select(item=>(item.Source.Source.Id,item.Target.Source.Id,item.Value.Source.Id)).Distinct().Count()!=1)
+                throw new InvalidOperationException("复选的同一物理名称列绑定了不同来源或目标名称。");
+        return bindings.DistinctBy(binding=>binding.Cache.Source.Id).OrderBy(binding=>binding.Cache.Source.ColumnName,StringComparer.Ordinal).ToArray();
+    }
+
+    /// <summary>名称数组是服务端管理的只读字段；保持原布局，不把普通名称列继续作为可写DTO输入。</summary>
     internal static GenerationModel Prepare(GenerationModel model)=>model with{Tables=model.Tables.Select(table=>
     {
-        var managed=table.Pages.SelectMany(page=>ForService(model,table,page)).Select(def=>def.Names.Source.Id).ToHashSet(StringComparer.Ordinal);ColumnModel Fix(ColumnModel column)=>managed.Contains(column.Source.Id)?column with{IsManagedMultiNames=true}:column;IReadOnlyList<ColumnModel> All(IEnumerable<ColumnModel> columns)=>columns.Select(Fix).ToArray();
+        var managed=(table.Source.IsRongyu==1&&table.Source.IsFunctionTable==0
+            ?Caches(model,table).Select(binding=>binding.Cache.Source.Id)
+            :table.Pages.SelectMany(page=>ForService(model,table,page)).Select(def=>def.Names.Source.Id)).ToHashSet(StringComparer.Ordinal);ColumnModel Fix(ColumnModel column)=>managed.Contains(column.Source.Id)?column with{IsManagedMultiNames=true}:column;IReadOnlyList<ColumnModel> All(IEnumerable<ColumnModel> columns)=>columns.Select(Fix).ToArray();
         return table with{Columns=All(table.Columns),Pages=table.Pages.Select(page=>page with{Readable=All(page.Readable),Writable=All(page.Writable.Where(column=>!managed.Contains(column.Source.Id))),Searchable=All(page.Searchable),Sortable=All(page.Sortable),ListColumns=All(page.ListColumns),DetailColumns=All(page.DetailColumns)}).ToArray()};
     }).ToArray()};
 }

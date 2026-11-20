@@ -51,7 +51,8 @@ internal static class ForeignValidationRenderer
         var crossFields=CrossTableWriteCompilation.ForService(model,table,page).SelectMany(plan=>plan.Levels).SelectMany(level=>new[]{level.Id.Source.Id,level.Name.Source.Id}).ToHashSet(StringComparer.Ordinal);
         var derived = MaterializedDerivedWriteCompilation.ForTable(model, table).Where(binding=>!crossFields.Contains(binding.Storage.Source.Id)).ToArray();
         var cascadeNames=CascadeTreeWriteCompilation.ForService(model,table,page).Select(plan=>plan.Name.Source.Id).Concat(crossFields).ToHashSet(StringComparer.Ordinal);
-        var multiReadNames=MultiNameWriteCompilation.ForTable(model,table).Select(binding=>binding.Cache.Source.Id).Concat(MultiSelectCompilation.ForService(model,table,page).Where(multi=>multi.Names is not null).Select(multi=>multi.Names!.Source.Id)).Concat(DatabaseCheckboxCompilation.ForService(model,table,page).Select(def=>def.Names.Source.Id)).ToHashSet(StringComparer.Ordinal);
+        var checkboxCaches=DatabaseCheckboxCompilation.Caches(model,table).ToLookup(binding=>binding.Source.Source.Id);
+        var multiReadNames=MultiNameWriteCompilation.ForTable(model,table).Select(binding=>binding.Cache.Source.Id).Concat(MultiSelectCompilation.ForService(model,table,page).Where(multi=>multi.Names is not null).Select(multi=>multi.Names!.Source.Id)).Concat(DatabaseCheckboxCompilation.ForService(model,table,page).Select(def=>def.Names.Source.Id)).Concat(checkboxCaches.SelectMany(group=>group).Select(binding=>binding.Cache.Source.Id)).ToHashSet(StringComparer.Ordinal);
         // 未证明的派生值不能借默认值、复制或手写钩子的submitted集合绕过严格DTO。
         foreach (var storage in table.Columns.Where(column => GenerationModel.Enabled(column.Source.Extra, "isJoinColumn") && !multiReadNames.Contains(column.Source.Id) && !derived.Any(binding => binding.Storage.Source.Id == column.Source.Id)&&!cascadeNames.Contains(column.Source.Id)))
             result.AppendLine($"        if (creating ? entity.{storage.Property} is not null : submitted.Contains({Literal(storage.Source.ColumnName)})) throw new InvalidOperationException({Literal("物理派生写入尚未证明：" + storage.Source.ColumnName)});");
@@ -118,10 +119,10 @@ internal static class ForeignValidationRenderer
             }
             if(DatabaseCheckboxCompilation.Generic(table,column))
             {
-                var resolved=DatabaseCheckboxCompilation.Resolve(model,table,page,column);
+                var resolved=DatabaseCheckboxCompilation.Resolve(model,table,page,column,forService:true);
                 if(resolved.Definition is {} checkbox)
                 {
-                    var trigger="creating || submitted.Contains("+Literal(column.Source.ColumnName)+")"+string.Concat(checkbox.Dependencies.Append(checkbox.Names).DistinctBy(field=>field.Source.Id).Select(field=>" || submitted.Contains("+Literal(field.Source.ColumnName)+")"));
+                    var trigger="creating || submitted.Contains("+Literal(column.Source.ColumnName)+")"+string.Concat(checkbox.Dependencies.Append(checkbox.Names).Concat(checkboxCaches[column.Source.Id].Select(binding=>binding.Cache)).DistinctBy(field=>field.Source.Id).Select(field=>" || submitted.Contains("+Literal(field.Source.ColumnName)+")"));
                     result.AppendLine($"        if({trigger})await ValidateCheckbox{page.Source.Id}_{column.Source.Id}Async(entity,actor,submitted,cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?",cascadeOperation":"")}{(checkbox.LogicalSourceParent?", logicalRelationParentId: logicalRelationParentId":"")});");
                 }
                 else result.AppendLine($"        if((creating||submitted.Contains({Literal(column.Source.ColumnName)}))&&entity.{column.Property} is not null)throw new InvalidOperationException({Literal(resolved.Reason!)});");
