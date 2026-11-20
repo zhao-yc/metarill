@@ -146,15 +146,16 @@ internal static class RelationPropagationCompilation
         }
         return pages;
     }
-    /// <summary>冻结全局复选多缓存的目标可见字段及各来源页的实际名称声明。</summary>
+    /// <summary>冻结全局或账号复选多缓存的目标可见字段及各来源页的实际名称声明。</summary>
     internal static IReadOnlySet<(string Page,string Column)> PublishedCheckboxProofFields(GenerationModel model,
         IEnumerable<RelationCacheDefinition> definitions)
     {
         var fields=new HashSet<(string,string)>();
         foreach(var definition in definitions)
         {
-            if(definition.CheckboxTargetPageId is not {} targetPage||
-                !model.Tables.Any(table=>table.Source.Id==definition.TargetTableId&&table.IsGlobal))continue;
+            if(definition.CheckboxTargetPageId is not {} targetPage)continue;
+            var target=model.Tables.Single(table=>table.Source.Id==definition.TargetTableId);
+            if(!target.IsGlobal&&!FixedPageConditionCompilation.HasAccountVariables(target.Pages.Single(page=>page.Source.Id==targetPage)))continue;
             fields.Add((targetPage,definition.ValueColumnId));
             foreach(var page in model.Tables.Single(table=>table.Source.Id==definition.SourceTableId).Pages)
                 fields.Add((page.Source.Id,definition.ForeignColumnId));

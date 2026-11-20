@@ -7,11 +7,18 @@ namespace Metarill.Data.Relations;
 internal static class DerivedMultipleCacheProof
 {
     /// <summary>数据层独立核对生成器声明；派生值仍须由单值匹配编译器取得终点证明。</summary>
-    internal static void Require(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,ColumnMetadata cache)
+    internal static void Require(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,ColumnMetadata cache,
+        string? checkboxTargetPageId)
     {
         if(foreign.LogicalType!="string"||!foreign.ColumnName.EndsWith("_ids",StringComparison.Ordinal))throw Invalid();
-        var global=GlobalCrossTableTarget.Declared(target);if(global){var proof=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);if(proof.Name.Id!=value.Id)throw Invalid();}
-        if(foreign.ControlKind=="MultiCheckBoxDatabase"){RequireCheckbox(catalog,foreign,target,value,cache);RequireValue(catalog,source,foreign,target,value,global);return;}
+        var global=GlobalCrossTableTarget.Declared(target);
+        if(checkboxTargetPageId is not null)
+        {
+            var accountPage=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,source,foreign,target,value,checkboxTargetPageId);
+            _=AccountScopedCrossCache.Compile(catalog,source,target,accountPage);
+        }
+        else if(global&&GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).Name.Id!=value.Id)throw Invalid();
+        if(foreign.ControlKind=="MultiCheckBoxDatabase"){RequireCheckbox(catalog,foreign,target,value,cache,checkboxTargetPageId is not null);RequireValue(catalog,source,foreign,target,value,global);return;}
         if(foreign.ControlKind!="MultiSelectPage")throw Invalid();using var doc=JsonDocument.Parse(foreign.ControlDetail);var root=doc.RootElement;if(root.ValueKind!=JsonValueKind.Object||root.EnumerateObject().Select(p=>p.Name).Distinct(StringComparer.Ordinal).Count()!=root.EnumerateObject().Count())throw Invalid();
         string Text(string key,string fallback="")=>!root.TryGetProperty(key,out var v)||v.ValueKind==JsonValueKind.Null?fallback:v.ValueKind==JsonValueKind.String?string.IsNullOrWhiteSpace(v.GetString())?fallback:v.GetString()!:
             v.ValueKind==JsonValueKind.Number&&key is "pageId" or "tableId"&&v.TryGetInt64(out var id)
@@ -22,10 +29,11 @@ internal static class DerivedMultipleCacheProof
         RequireValue(catalog,source,foreign,target,value,global);
     }
     /// <summary>原复选按来源动作授权，目标页只用于关系归属，不借用type=2或目标列表权限。</summary>
-    private static void RequireCheckbox(MetadataCatalog catalog,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,ColumnMetadata cache)
+    private static void RequireCheckbox(MetadataCatalog catalog,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,ColumnMetadata cache,
+        bool sharedName)
     {
         var definition=DatabaseCheckboxDefinition.Parse(foreign.ControlDetail);
-        if(definition.NameField!=value.ColumnName||cache.ColumnName!=foreign.ColumnName[..^4]+"_"+(value.ColumnName.EndsWith('s')?value.ColumnName:value.ColumnName+"s"))throw Invalid();
+        if(!sharedName&&definition.NameField!=value.ColumnName||cache.ColumnName!=foreign.ColumnName[..^4]+"_"+(value.ColumnName.EndsWith('s')?value.ColumnName:value.ColumnName+"s"))throw Invalid();
         if(foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id||definition.TableId.Length>0&&definition.TableId!=target.Id||definition.Table.Length>0&&definition.Table!=target.TableName)throw Invalid();
         var joined=foreign.Extra.GetValueOrDefault("joinTable").ToString();var linked=foreign.Extra.GetValueOrDefault("linkConfigPageId").ToString();
         if(joined.Length>0&&joined!=target.TableName||linked.Length>0&&definition.PageId.Length>0&&linked!=definition.PageId)throw Invalid();

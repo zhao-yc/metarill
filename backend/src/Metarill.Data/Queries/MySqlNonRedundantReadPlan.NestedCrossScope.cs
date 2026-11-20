@@ -662,7 +662,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,
                 parentField,owner.GlobalSingleSource,allowFixedOnly,separateExactScope,additionalParents);
             cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
-            return AccountCacheScope(ownership,table,alias,owner.Alias,render:true,owner.Table);
+            // 多份名称可用同一目标别名，常量参数必须沿各自投影前缀隔离。
+            var parameterPrefix=multiLabel?"mt_cross_cache_"+aliasPrefix+alias:null;
+            return AccountCacheScope(ownership,table,alias,owner.Alias,render:true,owner.Table,parameterPrefix);
         }
 
         /// <summary>先按物理键联接以便失效后仍可反查，再按来源行归属计算可见名称。</summary>

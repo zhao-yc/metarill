@@ -665,7 +665,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(global)
             {
                 if(checkboxPageId is {} sharedPage)
-                    publishedPage=MySqlPublishedRelationCondition.RequireGlobalCheckboxCachePage(catalog,table,relation,target,value,sharedPage);
+                    publishedPage=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,table,relation,target,value,sharedPage);
                 else
                 {
                     var proof=table.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target):GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
@@ -680,6 +680,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
             var namePage=overridden??MultiTargetNamePage(catalog,target,relation);
             var selectedScope=overridden is null?MultiTargetLogicalPage(catalog,target,relation):applyPageScope?overridden:null;
+            if(!global&&selectedScope is not null&&checkboxPageId is {} scopedCheckboxPage)
+                _=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,table,relation,target,value,scopedCheckboxPage);
             if(control is not null||selectedScope is not null||!storage[target.Id].IsPhysical(value))
                 return DerivedMultiDisplay(table,owner,relation,target,value,publishedPage,selectedScope,namePage,sourcePage,control);
             var scalarLabel=typedCache||MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id]);

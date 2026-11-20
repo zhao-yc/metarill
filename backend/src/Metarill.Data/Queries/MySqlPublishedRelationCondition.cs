@@ -24,19 +24,22 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         return page;
     }
 
-    /// <summary>全局多名称只接受实际来源页声明且固定目标页开放的物理文本。</summary>
-    internal static PageMetadata RequireGlobalCheckboxCachePage(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,
+    /// <summary>固定目标页只接受原名称和实际来源页声明且目标页开放的物理文本。</summary>
+    internal static PageMetadata RequireSharedCheckboxCachePage(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,
         TableMetadata target,ColumnMetadata value,string pageId)
     {
-        var proof=GlobalMultipleRelationTarget.RequireCached(catalog,source,relation,target);
         var baseline=DatabaseCheckboxDefinition.Parse(relation.ControlDetail);
+        var global=GlobalCrossTableTarget.Declared(target)
+            ?GlobalMultipleRelationTarget.RequireCached(catalog,source,relation,target):null;
+        var page=global?.Page??RequireProjectCheckboxPage(catalog,source,relation,target,pageId);
+        var original=global?.Name??catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName==baseline.NameField);
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
-        if(relation.ControlKind!="MultiCheckBoxDatabase"||proof.Page.Id!=pageId||
-            !string.IsNullOrWhiteSpace(baseline.WhereSql)||GlobalCrossTableTarget.DeclaresExactPage(target,proof.Page)||
-            proof.Name.LogicalType!="string"||!GlobalPhysicalRelationValue.IsScalar(storage,target,proof.Name)||
+        if(relation.ControlKind!="MultiCheckBoxDatabase"||page.Id!=pageId||
+            !string.IsNullOrWhiteSpace(baseline.WhereSql)||page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
+            original.LogicalType!="string"||!GlobalPhysicalRelationValue.IsScalar(storage,target,original)||
             value.LogicalType!="string"||!GlobalPhysicalRelationValue.IsScalar(storage,target,value))
-            throw new InvalidOperationException("全局复选多名称必须使用固定目标页的物理文本。");
-        if(value.Id==proof.Name.Id)return proof.Page;
+            throw new InvalidOperationException("复选多名称必须使用固定目标页的物理文本。");
+        if(value.Id==original.Id)return page;
 
         var sourcePages=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&page.YzProjectId==catalog.YzProjectId)
             .Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
@@ -53,8 +56,8 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         if(!catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==pageId&&field.ConfigColumnId==value.Id&&
                 (PublishedFlag(field,"isInGrid",field.IsShow)||PublishedFlag(field,"isInEdit",field.IsEdit)))||
             !catalog.ConfigPageColumns.Any(field=>field.ConfigColumnId==relation.Id&&sourcePages.Contains(field.ConfigPageId)&&PublishedOverride(field)))
-            throw new InvalidOperationException("全局复选名称副本缺少已发布的来源覆盖或目标显示字段。");
-        return proof.Page;
+            throw new InvalidOperationException("复选名称副本缺少已发布的来源覆盖或目标显示字段。");
+        return page;
     }
 
     /// <summary>读取与生成模板一致的原表格和详情发布标记。</summary>

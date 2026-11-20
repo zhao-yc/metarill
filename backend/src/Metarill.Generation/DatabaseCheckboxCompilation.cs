@@ -16,6 +16,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool UsesNameOverride { get; init; }
     internal ColumnModel? FunctionParentField { get; init; }
     internal ColumnModel? FormParentField { get; init; }
+    internal bool SharedAccountScope { get; init; }
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
@@ -127,15 +128,25 @@ internal static class DatabaseCheckboxCompilation
                     return Gap("页级名称须沿用同一物理文本关系，显式目标页必须已开放该字段。");
             }
             var exactTarget=namePage is null?null:ExactDataManageCompilation.Resolve(model,target,namePage);
+            var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
+            var sharedNamesPage=table.Source.IsRongyu==1&&!functionForm&&namePage is not null&&namePage.Source.Id==fixedPage&&
+                model.Catalog.ConfigPageColumns.Any(setting=>setting.ConfigColumnId==source.Source.Id&&
+                    table.Pages.Any(candidate=>candidate.Source.Id==setting.ConfigPageId)&&
+                    baseline.WithPageOverride(setting.Extra.GetValueOrDefault("controlDetail").ToString()).NameField!=baseline.NameField);
+            // 各名称都是真实列时，当前锁读一次取齐所有值。回填另按持久归属核对同一目标页。
+            var sharedAccountScope=sharedNamesPage&&!derived&&target.Source.IsRongyu==0&&exactTarget is null&&
+                !FixedPageConditionCompilation.HasLogicalFields(namePage!)&&FixedPageConditionCompilation.HasAccountVariables(namePage!)&&
+                namePage!.Scopes.All(scope=>scope.Source=="project");
+            if(sharedAccountScope)
+                _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,namePage!.Source);
             // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。
             var compoundTargetParents=!functionForm&&target.Source.IsRongyu==0&&
                 namePage?.Scopes.Count(scope=>scope.Source=="parent")>1;
-            var logicalPage=namePage is not null&&(compoundTargetParents||FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage))&&
+            var logicalPage=!sharedAccountScope&&namePage is not null&&(compoundTargetParents||FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage))&&
                 (!functionForm||FixedPageConditionCompilation.HasLogicalFields(namePage)||namePage.Scopes.Any(scope=>scope.Source=="parent"&&
                     (!NonRedundantReadCompilation.Physical(model,target,scope.Column)||
                      CrossTableStorageColumns.IsLogicalPathField(target.Source,model.Catalog.ConfigColumns,scope.Column.Source.ColumnName)||
                      target.IsGlobal&&model.Tables.Any(parent=>parent.IsGlobal&&parent.Source.Id==scope.Column.Source.LinkConfigTableId))))?namePage:null;
-            var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
             // 同一候选即使由表级继承，也必须用当前普通非冗余来源页的父键重新证明。
             var pageRead=namePage is not null&&table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!target.IsGlobal&&
                 (explicitPage!=fixedPage||logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true);
@@ -155,14 +166,10 @@ internal static class DatabaseCheckboxCompilation
             PageModel? physicalPage=null;
             var scopeAlreadyBound=logicalPage is not null||globalPage is not null&&
                 (!derived||NonRedundantReadCompilation.HasGlobalRowProject(target));
-            // 多份物理名称共用声明的目标页常量与单一物理父键，名称页和简称页都必须绑定。
-            var sharedFixedPage=table.Source.IsRongyu==1&&!functionForm&&!target.IsGlobal&&
-                namePage is not null&&namePage.Source.Id==fixedPage&&
+            // 名称页和简称页共用声明的常量、物理父键或已证明的账号条件。
+            var sharedFixedPage=sharedAccountScope||sharedNamesPage&&!target.IsGlobal&&namePage is not null&&
                 (namePage.Condition is {Syntax.Variables.Count:0}||namePage.Condition is null&&namePage.Scopes.Any(scope=>scope.Source=="parent"))&&
-                !FixedPageConditionCompilation.HasLogicalFields(namePage)&&namePage.Scopes.Count(scope=>scope.Source=="parent")<=1&&
-                model.Catalog.ConfigPageColumns.Any(setting=>setting.ConfigColumnId==source.Source.Id&&
-                    table.Pages.Any(candidate=>candidate.Source.Id==setting.ConfigPageId)&&
-                    baseline.WithPageOverride(setting.Extra.GetValueOrDefault("controlDetail").ToString()).NameField!=baseline.NameField);
+                !FixedPageConditionCompilation.HasLogicalFields(namePage)&&namePage.Scopes.Count(scope=>scope.Source=="parent")<=1;
             // 普通全局派生名称没有行项目列时，固定发布条件由复选查询显式合并。
             if((realtimeRead||functionForm||globalPage is not null||exactTarget is not null||sharedFixedPage)&&!scopeAlreadyBound&&namePage is not null&&
                 (functionForm||namePage.Condition is not null||namePage.Scopes.Any(scope=>scope.Source=="parent")))
@@ -293,6 +300,7 @@ internal static class DatabaseCheckboxCompilation
                 UsesNameOverride=usesNameOverride,
                 FunctionParentField=functionForm?sourceParent:null,
                 FormParentField=formParent,
+                SharedAccountScope=sharedAccountScope,
                 ExactTarget=exactTarget,
                 LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)
                     .DistinctBy(path=>(path.Read.Source.Source.Id,path.Index)).ToArray(),
@@ -314,8 +322,9 @@ internal static class DatabaseCheckboxCompilation
         definition.Name.Type=="string?" && definition.ExactTarget is null && definition.Conditions is null &&
         (definition.Target.IsGlobal
             ? definition.NameTargetPage is {Scopes.Count:0} globalPage && definition.Scopes.Count==0 &&
-                (globalPage.Condition is null||globalPage.Condition.Syntax.Variables.Count==0)
-            : (definition.NameTargetPage?.Condition is null||definition.PhysicalTargetPage?.Condition is {Syntax.Variables.Count:0}) &&
+                (globalPage.Condition is null||globalPage.Condition.Syntax.Variables.Count==0||definition.SharedAccountScope)
+            : (definition.NameTargetPage?.Condition is null||definition.PhysicalTargetPage?.Condition is {Syntax.Variables.Count:0}||
+                definition.SharedAccountScope) &&
                 (definition.Scopes.All(scope=>scope.Source=="project")&&definition.NameTargetPage?.Scopes.Any(scope=>scope.Source=="parent")!=true||
                     FixedCacheParent(definition) is not null));
 

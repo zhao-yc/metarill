@@ -106,7 +106,10 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(1, true, false, false, false, true, false)]
     [InlineData(1, false, true, false, false, true, false)]
     [InlineData(0, true, true, false, false, true, true)]
-    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,bool fixedParent,bool independentParent,bool global=false,bool globalRowProject=false)
+    [InlineData(0, true, true, false, false, false, false, "current_yz_manager_id")]
+    [InlineData(0, true, true, false, false, true, false, "current_store_id")]
+    [InlineData(0, true, true, false, false, true, true, "current_yz_manager_id")]
+    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,bool fixedParent,bool independentParent,bool global=false,bool globalRowProject=false,string accountVariable="")
     {
         var catalog=Published(Catalog(false));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
@@ -129,8 +132,20 @@ public sealed class DatabaseCheckboxGenerationTests
                 ColumnName="active_flag",LogicalType="int32"});
             targetPage.WhereSql+=global?"active_flag=1":" AND active_flag=1";
         }
+        var accountScoped=accountVariable.Length>0;
+        var sourceOwner=accountVariable=="current_store_id"?"store_id":"record_owner_id";
+        var targetOwner=accountVariable=="current_store_id"?"store_id":"dictionary_owner_id";
+        if(accountScoped)
+        {
+            catalog.ConfigColumns.Add(new(){Id="41",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
+                ColumnName=sourceOwner,LogicalType="string",ColumnLength="24"});
+            catalog.ConfigColumns.Add(new(){Id="42",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
+                ColumnName=targetOwner,LogicalType="int64"});
+            targetPage.WhereSql+=" AND "+targetOwner+"=@"+accountVariable;
+        }
         var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
-        source.ControlDetail="""{"tableId":"3","nameField":"name"}""";
+        source.ControlDetail=accountScoped?"""{"tableId":"3","pageId":"301","nameField":"name"}""":
+            """{"tableId":"3","nameField":"name"}""";
         var cache=new ColumnMetadata
         {
             Id="29",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="target_alias",
@@ -148,6 +163,7 @@ public sealed class DatabaseCheckboxGenerationTests
                 catalog.ConfigPageColumns.Add(new(){Id="3099",ConfigPageId=targetPage.Id,ConfigColumnId=alias.Id,
                     YzProjectId=catalog.YzProjectId,IsShow=1});
         }
+        if(accountScoped)current.WhereSql="yz_project_id=@current_yz_project_id AND "+sourceOwner+"=@"+accountVariable;
         if(independentParent)
         {
             current.WhereSql="yz_project_id=@current_yz_project_id";
@@ -183,7 +199,7 @@ public sealed class DatabaseCheckboxGenerationTests
         Assert.Equal("alias",checkbox.Name.Source.ColumnName);
         Assert.Equal("targetAlias",checkbox.Names.JsonName);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
-        var cacheBindings=fixedParent?RelationPropagationCompilation.DerivedBindings(model):RelationPropagationCompilation.Bindings(model);
+        var cacheBindings=fixedParent||accountScoped?RelationPropagationCompilation.DerivedBindings(model):RelationPropagationCompilation.Bindings(model);
         var propagation=cacheBindings.Where(binding=>binding.Foreign.Source.Id==source.Id).ToArray();
         Assert.Equal(new[]{"target_alias","target_names"},propagation.Select(binding=>binding.Cache.Source.ColumnName));
         if(fixedTarget||fixedParent||global)
@@ -237,6 +253,13 @@ public sealed class DatabaseCheckboxGenerationTests
                     Assert.Contains((global?"CheckboxGlobalCondition":"CheckboxTargetCondition")+page.Source.Id+"_25",service);
                     Assert.Contains("active_flag",service);
                 }
+                if(accountScoped)
+                {
+                    var condition=(global?"CheckboxGlobalCondition":"CheckboxTargetCondition")+page.Source.Id+"_25";
+                    Assert.Contains(condition+".BindAccount(actor).ApplyConstants",service);
+                    Assert.Contains("AccountConditionVariables.Require(actor, "+JsonSerializer.Serialize(accountVariable),service);
+                    Assert.Contains("ForUpdate()",service);
+                }
                 if(fixedParent)
                 {
                     Assert.Contains(".Where(row=>row.ParentId==",service);
@@ -265,7 +288,7 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Null(maintenancePlan.GetType().GetProperty("Error")!.GetValue(maintenancePlan));
             var read=maintenancePlan.GetType().GetProperty("Read")!.GetValue(maintenancePlan)!;
             Assert.NotNull(read);
-            if(global)
+            if(global&&!accountScoped)
             {
                 var propagationType=assembly.GetTypes().Single(type=>type.Name=="GeneratedRelationMutation");
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(propagationType.TypeHandle);
@@ -296,6 +319,26 @@ public sealed class DatabaseCheckboxGenerationTests
                 var affected=(IReadOnlyList<string>)maintenance.GetType().GetProperty("MixedTargets")!.GetValue(maintenance)!;
                 Assert.Contains("relation_parent",affected);
                 Assert.Contains("relation_target",affected);
+            }
+            else if(accountScoped)
+            {
+                var expression=read.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)!;
+                Assert.False(Assert.IsType<bool>(read.GetType().GetProperty("RequiresAccount",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(read)));
+                foreach(var name in new[]{"target_alias","target_names"})
+                {
+                    var sql=Assert.IsType<string>(expression.Invoke(read,[name]));
+                    Assert.Contains($"BINARY CAST(b.`{sourceOwner}` AS CHAR)",sql);
+                    Assert.Contains($"BINARY CAST(multi_value.`{targetOwner}` AS CHAR)",sql);
+                    Assert.Contains("multi_value.`active_flag`",sql);
+                }
+                var affected=(IReadOnlyList<string>)maintenance.GetType().GetProperty("MixedTargets")!.GetValue(maintenance)!;
+                Assert.Contains("relation_target",affected);
+                var definitions=RelationPropagationCompilation.Definitions(propagation);
+                var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,definitions);
+                Assert.Contains("@"+accountVariable,published.ConfigPages.Single(page=>page.Id=="202").WhereSql);
+                published.ConfigPages.Single(page=>page.Id=="202").WhereSql="yz_project_id=@current_yz_project_id";
+                Assert.Throws<InvalidOperationException>(()=>
+                    Metarill.Data.Relations.RelationMaintenanceCatalog.CompileWithDerivedCrossTables(published,[],definitions));
             }
             else if(fixedTarget)
             {

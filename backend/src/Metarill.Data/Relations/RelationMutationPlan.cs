@@ -116,7 +116,7 @@ public sealed class RelationMutationPlan
                 if(definition.CheckboxTargetPageId is {} globalCheckboxPage)
                 {
                     if(!definition.Multiple||cross||selfTree)throw new InvalidOperationException("全局复选固定页必须绑定普通多值缓存。");
-                    var page=MySqlPublishedRelationCondition.RequireGlobalCheckboxCachePage(catalog,source,foreign,target,value,globalCheckboxPage);
+                    var page=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,source,foreign,target,value,globalCheckboxPage);
                     publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,page);
                 }
                 else if(cross||selfTree)
