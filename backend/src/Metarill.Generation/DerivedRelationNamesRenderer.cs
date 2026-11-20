@@ -41,7 +41,7 @@ internal static class DerivedRelationNamesRenderer
         var additionalFields=exact is not null&&(globalExact||relation.FixedParent is {Logical:true})&&projection is {HasLogicalFields:true}
             ?",listFields:new string[]{"+string.Join(",",projection.Syntax.Fields.Select(Literal))+"}":"";
         var plan = $"{planStart},{outputs},{fields}{parentPlan}{projectTargetArgument}{additionalFields})";
-        if (!logical && exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0))
+        if (!globalExact && !logical && exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0))
         {
             var crossArgument = exact.CrossPlans is { } crossPlans
                 ? NonRedundantCrossTableCompilation.BindingArgument(crossPlans)

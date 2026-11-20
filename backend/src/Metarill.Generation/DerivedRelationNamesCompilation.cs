@@ -173,7 +173,7 @@ internal static class DerivedRelationNamesCompilation
         var exact=ExactDataManageCompilation.Resolve(model,target,page);
         var plan=globalExact
             ?NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,target.Source.Id,page.Source.Id,
-                [name.Source.ColumnName],[exact!.Column.Source.ColumnName])
+                [name.Source.ColumnName],[exact!.Column.Source.ColumnName],exact.SingleTargets)
             :fixedParent is {Logical:true}||FixedPageConditionCompilation.HasLogicalFields(page)||exact?.SelfTree==true
             ?CompileLogicalPage(model,target,page,[name.Source.ColumnName],[name.Source.ColumnName],
                 exact:exact)

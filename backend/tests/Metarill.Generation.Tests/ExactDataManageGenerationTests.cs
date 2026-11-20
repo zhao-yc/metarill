@@ -299,6 +299,7 @@ public sealed class ExactDataManageGenerationTests
     [InlineData(true, "name", "name", "area_name", true, true, true, false,1,true,true)]
     [InlineData(false, "name", "name", "country_name", true, true, false, false,1,false,true,true)]
     [InlineData(false, "name", "name", "country_name", true, true, false, false,1,true,true,true,true)]
+    [InlineData(true, "dictionaryName", "dictionary_name", "area_name", true, true, true, false,1,true,true)]
     public async Task Selection_excel_uses_target_cascade_exact_plan(bool shared, string key, string field,
         string? fixedField = null, bool physicalName = false, bool logicalParent = false, bool independentParent = false,
         bool list=false,int sourceMode=1,bool importCondition=false,bool globalTarget=false,bool globalAncestor=false,bool globalSource=false)
@@ -366,7 +367,8 @@ public sealed class ExactDataManageGenerationTests
         {
             // 全局目标的公开联接也必须沿已发布目标；字典不是项目私有表。
             catalog.ConfigTables.Single(table=>table.Id=="990").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-            catalog.ConfigPages.Single(page=>page.Id=="9901").WhereSql="";
+            catalog.ConfigPages.Single(page=>page.Id=="9901").WhereSql=field=="dictionary_name"?
+                "store_id=@current_store_id":"";
         }
         if (logicalParent)
         {
@@ -458,6 +460,11 @@ public sealed class ExactDataManageGenerationTests
                     Assert.Contains("CandidateReadPlan201=",File.ReadAllText(Path.Combine(directory,"generated/Services/"+table.Name+"Service.g.cs")));
                     Assert.Contains("ExportReadPlan201=",File.ReadAllText(Path.Combine(directory,"generated/Services/"+table.Name+"Service.g.cs")));
                     if(globalAncestor)Assert.Contains("OptionsGlobalParent9911_99102",source);
+                    if(exact.Derived)
+                    {
+                        Assert.Contains("ExactReadPlan201.BindAccount(actor)",source);
+                        Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+                    }
                     if(globalSource)
                     {
                         var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(assembly
@@ -705,6 +712,9 @@ public sealed class ExactDataManageGenerationTests
     [InlineData(1,0,false,false,false,true,true,2)]
     [InlineData(1,0,false,false,true,true,false,3)]
     [InlineData(1,0,false,true,false,true,false,4)]
+    [InlineData(0,0,true,false,false,true,true,1)]
+    [InlineData(1,0,true,false,false,true,true,2)]
+    [InlineData(1,0,true,true,false,true,true,4)]
     public async Task Single_exact_scope_uses_physical_or_joined_match(int sourceMode,int targetMode,bool joined,bool parent,bool hidden,
         bool selection=false,bool importCondition=false,int globalTarget=0)
     {
@@ -745,6 +755,7 @@ public sealed class ExactDataManageGenerationTests
             targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
             if(parent)targetPage.WhereSql+=" AND rank_no > 0";
         }
+        if(globalTarget!=0&&parent&&importCondition)where+=" AND parent_name <> '排除导入'";
         sourceField.ControlDetail=JsonSerializer.Serialize(new{tableId="3",pageId="301",nameField="name",whereSql=where});
         catalog.YzAdminTypes.Single().Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
         targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(match);
@@ -757,7 +768,17 @@ public sealed class ExactDataManageGenerationTests
             parentColumn.ControlDetail="""{"tableId":"1","nameField":"name"}""";
             parentColumn.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("101");
             var parentPage=catalog.ConfigPages.Single(page=>page.Id=="101");
-            parentPage.WhereSql+=" AND store_id=@current_store_id";
+            if(globalTarget==0)parentPage.WhereSql+=" AND store_id=@current_store_id";
+            else
+            {
+                catalog.ConfigTables.Single(table=>table.Id=="1").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                parentPage.WhereSql="store_id=@current_store_id";
+                if(!parent)catalog.ConfigColumns.RemoveAll(column=>column.Id=="26");
+                catalog.ConfigPageColumns.Add(new(){Id="30136",ConfigPageId="301",ConfigColumnId="36",
+                    YzProjectId=catalog.YzProjectId,IsShow=0,IsEdit=0,
+                    Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement(
+                        JsonSerializer.Serialize(new{whereSql="name <> '源页限定'"}))}});
+            }
             catalog.ConfigColumns.AddRange([
                 new(){Id="15",ConfigTableId="1",YzProjectId=catalog.YzProjectId,ColumnName="store_id",LogicalType="int64"},
                 new(){Id="37",ConfigTableId="3",YzProjectId=catalog.YzProjectId,ColumnName="parent_name",LogicalType="string",
@@ -810,13 +831,33 @@ public sealed class ExactDataManageGenerationTests
                 Assert.Contains("CompileGlobalExactSingleCandidate(\"3\",\"301\"",serviceText);
                 var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",internals)!.GetValue(mysql));
                 Assert.DoesNotContain("b.`yz_project_id`",scope);
-                if(parent)Assert.Contains("rmulti_parent.`yz_project_id`",scope);
+                if(parent&&!joined)Assert.Contains("rmulti_parent.`yz_project_id`",scope);
                 Assert.Contains("rank_no",scope);
                 if(parent)Assert.Equal("parent_id",mysql.GetType().GetProperty("RequiredMultiParent",internals)!.GetValue(mysql));
                 // 没有精确权限接线的通用全局读取入口仍拒绝这个页面。
                 Assert.Throws<NotSupportedException>(()=>NonRedundantReads.CompileGlobalCandidate(catalog,target.Id,targetPage.Id,["id","name"]));
                 var targetCode=await File.ReadAllTextAsync(Path.Combine(generated,"Services/RelationTargetService.g.cs"));
                 Assert.Contains("ResolveExactDataManage(\"301\",",targetCode);
+                if(joined)
+                {
+                    Assert.Contains("RelationTargetService.ExactReadPlan301.BindAccount(actor)",serviceText);
+                    var targetType=assembly.GetType(ns+".Generated.Services.RelationTargetService",true)!;
+                    var writePlan=Assert.IsType<NonRedundantReadPlan>(targetType.GetField("ExactReadPlan301",plans)!.GetValue(null));
+                    Assert.Equal(new[]{"parent_name"},writePlan.OutputTypes.Keys);
+                    Assert.Throws<UnauthorizedAccessException>(()=>writePlan.BindAccount(actor with{StoreId=null}));
+                    var writeSql=typeof(NonRedundantReadPlan).GetProperty("MySql",internals)!.GetValue(writePlan.BindAccount(actor))!;
+                    Assert.Null(writeSql.GetType().GetProperty("RequiredMultiParent",internals)!.GetValue(writeSql));
+                    var writeScope=Assert.IsType<string>(writeSql.GetType().GetProperty("Scope",internals)!.GetValue(writeSql));
+                    Assert.DoesNotContain("b.`yz_project_id`",writeScope);
+                    foreach(var compiledPlan in new[]{mysql,writeSql})
+                    {
+                        var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                            compiledPlan.GetType().GetProperty("Constants",internals)!.GetValue(compiledPlan));
+                        Assert.Contains("源页限定",parameters.Values);
+                        Assert.Contains(actor.StoreId,parameters.Values);
+                    }
+                    Assert.Throws<NotSupportedException>(()=>NonRedundantReads.CompileGlobalExactSingleMatch(catalog,target.Id,targetPage.Id,"id"));
+                }
             }
             if(parent)return;
             using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="metarill_business_test",

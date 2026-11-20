@@ -131,7 +131,7 @@ public static class GlobalSingleRelationTarget
         var scopedAccount=allowsLogical&&target.IsRongyu==0&&!scopedSelfTree&&!scopedCrossTable&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
         var exactSingle=foreign.ControlKind=="SelectPage"&&GlobalCrossTableTarget.DeclaresExactSingle(target,page);
-        var fixedParent=exactSingle?GlobalCrossTableTarget.ExactSingleParent(catalog,target,page):
+        var fixedParent=exactSingle?GlobalCrossTableTarget.ExactSingleParent(catalog,target,page,resolving):
             allowsLogical?GlobalCrossTableTarget.SingleParent(catalog,target,page):null;
         var sourceParent=fixedParent?.SingleSource(catalog,owner,foreign);
         if(projectParent)RequireProjectParentPage(catalog,target,page);

@@ -365,6 +365,11 @@ public static class NonRedundantReads
             :new(MySqlNonRedundantReadCompiler.CompileGlobalCandidate(metadata,tableId,pageId,outputs,dependencies,
                 deferCascadeNames:false,singleTargets:singleTargets,exactSingleCandidate:true));
 
+    /// <summary>写入前的关联校验仅锁定实际发布的精确联接，外层继续校验父键和固定页面条件。</summary>
+    public static NonRedundantReadPlan CompileGlobalExactSingleMatch(MetadataCatalog metadata,string tableId,string pageId,
+        string field,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>
+        new(MySqlNonRedundantReadCompiler.CompileGlobalExactSingleMatch(metadata,tableId,pageId,field,singleTargets));
+
     /// <summary>非冗余单选 Excel 使用实际单选页与同一固定条件编译器。</summary>
     public static NonRedundantReadPlan CompileSingleImportLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
         IReadOnlyList<string> conditionFields,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>

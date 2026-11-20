@@ -57,7 +57,8 @@ public static partial class MySqlNonRedundantReadCompiler
             !global?ProjectScopedSingleRelationTarget.LogicalParent(catalog,table,page):null;
         if(exactParent&&projectParent is not {Logical:true})
             throw new NotSupportedException("精确候选缺少已发布的逻辑父级。");
-        if(listFields is not null&&!projectSingle&&(!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0))
+        if(listFields is not null&&!globalExactSingle&&!projectSingle&&
+            (!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0))
             throw new NotSupportedException("固定下拉附加条件必须引用已发布的逻辑级联字段。");
         // 全局单值候选从自身发布页证明物理父键；旧多选仍满足原独立页合同。
         var physicalParent=globalExactSingle?globalExactParent:
@@ -103,6 +104,7 @@ public static partial class MySqlNonRedundantReadCompiler
             MultiCandidateParent=projectSingle?null:parent,
             MultiCandidatePage=page,
             GlobalCrossCandidate=global,
+            MultiNamePathPage=globalExactSingle?page:null,
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             ScopedRootControls=(pageScopes??scopes).Select(path=>path.SourceColumnId).ToHashSet(StringComparer.Ordinal),
             CrossAliasPrefix=rootAlias=="b"?"cross":aliasPrefix+"c"
@@ -111,6 +113,27 @@ public static partial class MySqlNonRedundantReadCompiler
         return builder.Compile(outputs,dependencies.Concat(syntax.Fields).Concat(listFields??[])
             .Concat(exactParent||globalExactSingle ? new[] { Metarill.Core.Security.ExactDataManageValues.Field(exactField) } : [])
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+    }
+
+    /// <summary>写入锁只读取本页的精确匹配联接，目标根的父和页面范围已经由外层查询校验。</summary>
+    internal static MySqlNonRedundantReadPlan CompileGlobalExactSingleMatch(MetadataCatalog catalog,string tableId,
+        string pageId,string field,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)
+    {
+        MetadataValidation.Validate(catalog);
+        if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("全局精确单选联接要求 MySQL。");
+        var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
+        var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
+        GlobalCrossTableTarget.RequireExactSingleCandidate(catalog,table,page);
+        var match=Metarill.Core.Security.ExactDataManageValues.Field(page.Extra["exactDataManageMatchField"].ToString());
+        var column=catalog.ConfigColumns.Single(item=>item.ConfigTableId==tableId&&item.ColumnName==match);
+        if(field!=match||table.IsRongyu!=0||MetadataStoragePolicy.ForTable(catalog,table).Kind(column)!=MetadataFieldStorage.Join)
+            throw new NotSupportedException("全局精确单选联接必须使用实际发布的匹配字段。");
+        return new Builder(catalog,tableId,matching:true)
+        {
+            GlobalCrossCandidate=true,
+            MultiNamePathPage=page,
+            ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
+        }.Compile([field],[]);
     }
 
     /// <summary>独立父ID校验取实际全局层的发布页。多个共享分支必须指向同一页，不回退到任意全局候选。</summary>

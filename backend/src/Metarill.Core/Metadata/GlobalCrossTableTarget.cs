@@ -17,12 +17,17 @@ public static class GlobalCrossTableTarget
         Declared(table)&&page.Extra.GetValueOrDefault("type").ToString()=="1"&&
         !string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
 
-    /// <summary>证明全局单选的物理权限键及发布身份，下发和实际读计划均使用此校验。</summary>
+    /// <summary>证明全局单选匹配字段及发布身份，下发和实际读计划均使用此校验。</summary>
     public static void RequireExactSingleCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
         _=ExactSingleParent(catalog,table,page);
 
     /// <summary>同一发布证明返回实际父层位，候选不能用任意父字段替代。</summary>
-    public static MultiTargetParentScope? ExactSingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    public static MultiTargetParentScope? ExactSingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
+        ExactSingleParent(catalog,table,page,null);
+
+    /// <summary>联接匹配沿调用方证明栈校验终点，防止经另一个精确单选页重置循环检测。</summary>
+    internal static MultiTargetParentScope? ExactSingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        ISet<string>? resolving)
     {
         if(!DeclaresExactSingle(table,page)||
             !ReferenceEquals(catalog.ConfigTables.SingleOrDefault(item=>item.Id==table.Id),table)||
@@ -42,8 +47,12 @@ public static class GlobalCrossTableTarget
         var value=page.Extra["exactDataManageMatchField"];
         var field=value.ValueKind==JsonValueKind.String?ExactDataManageValues.Field(value.GetString()):"";
         var match=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==table.Id&&column.ColumnName==field);
-        if(match is null||!GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,table),table,match))
-            throw new NotSupportedException("全局精确单选要求已声明的非凭据物理标量匹配字段。");
+        var storage=MetadataStoragePolicy.ForTable(catalog,table);
+        if(match is null||!GlobalPhysicalRelationValue.IsScalar(storage,table,match)&&
+            !(table.IsRongyu==0&&storage.Kind(match)==MetadataFieldStorage.Join&&
+                GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,table,match,
+                    resolving??new HashSet<string>(StringComparer.Ordinal),page,out _)))
+            throw new NotSupportedException("全局精确单选要求非凭据的物理标量或已发布的标量联接。");
         _=ExactDataManageValues.Unrestricted.ReadLogical(match.LogicalType);
         return parent;
     }
