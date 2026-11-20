@@ -56,12 +56,16 @@ internal static class MultiGlobalParentCompilation
             !page.Scopes.Any(scope=>scope.Source=="parent"&&
                 CrossTableStorageColumns.IsLogicalPathField(table.Source,model.Catalog.ConfigColumns,scope.Column.Source.ColumnName)))
             return null;
-        var checkbox=!SelectionPageRenderer.Enabled(page);
-        if(checkbox&&(page.Source.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1")||
-            !NonRedundantReads.IsScopedMultiTarget(model.Catalog,table.Source,page.Source.Id)))return null;
-        var condition=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
-        if(MultiTargetParentScope.CompileGlobalPage(model.Catalog,table.Source,condition,checkbox)
-            is not {Global:true,Logical:true,AdditionalTargets.Count:>0} parent)return null;
+        var parent=SingleTarget(model,table,page);
+        if(parent is null)
+        {
+            var checkbox=!SelectionPageRenderer.Enabled(page);
+            if(checkbox&&(page.Source.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1")||
+                !NonRedundantReads.IsScopedMultiTarget(model.Catalog,table.Source,page.Source.Id)))return null;
+            var condition=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
+            parent=MultiTargetParentScope.CompileGlobalPage(model.Catalog,table.Source,condition,checkbox);
+        }
+        if(parent is not {Global:true,Logical:true,AdditionalTargets.Count:>0})return null;
         _=NonRedundantReads.MultiGlobalParentPageId(model.Catalog,table.Source.Id,page.Source.Id);
         return parent;
     }

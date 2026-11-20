@@ -764,7 +764,7 @@ public static partial class MySqlNonRedundantReadCompiler
             // 来源路径须先加入联接；后续目标别名的 ON 才能引用已经声明的祖先。
             var sourceParent=parentBinding is not null&&(accountParent?.Logical==true||parentBinding.LogicalPages.Count>0)
                 ?SingleSourceParentValue(ownerTable,ownerAlias,parentBinding):null;
-            var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global){globalSingleAliases.Add(alias);if(target.IsRongyu==0)globalDerivedAliases.Add(alias);}var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=publishedPage is null?Scope(target,alias,projectScoped:!global):PublishedScope(target,alias,publishedPage,alias,allowAccount:scopedAccount,projectParent:projectParent,scopedSingle:scopedSingle,scopedCrossTable:scopedCrossTable,accountParent:accountParent?.Target,sourceParent:accountParent?.Logical==true?sourceParent:null);
+            var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global){globalSingleAliases.Add(alias);if(target.IsRongyu==0)globalDerivedAliases.Add(alias);}var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=publishedPage is null?Scope(target,alias,projectScoped:!global):PublishedScope(target,alias,publishedPage,alias,allowAccount:scopedAccount,projectParent:projectParent,scopedSingle:scopedSingle,scopedCrossTable:scopedCrossTable,accountParent:accountParent,sourceParent:accountParent?.Logical==true?sourceParent:null);
             if(accountParent is {Logical:false})
                 scope+=(scope.Length==0?"":" AND ")+SinglePhysicalParentCondition(ownerTable,ownerAlias,alias,accountParent,parentBinding!.Column,sourceParent:sourceParent);
             if(projectSingle is not null)
@@ -803,12 +803,14 @@ public static partial class MySqlNonRedundantReadCompiler
         private bool HasGlobalRowProject(TableMetadata table)=>table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table)&&columns[table.Id].ContainsKey("yz_project_id");
 
         /// <summary>全局候选和联接用同一固定页面条件，逻辑删除仍由物理字段约束。</summary>
-        private string PublishedScope(TableMetadata table,string alias,PageMetadata page,string parameterKey,bool allowAccount=false,bool projectParent=false,bool scopedSingle=false,bool scopedCrossTable=false,ColumnMetadata? accountParent=null,string? sourceParent=null)
+        private string PublishedScope(TableMetadata table,string alias,PageMetadata page,string parameterKey,bool allowAccount=false,bool projectParent=false,bool scopedSingle=false,bool scopedCrossTable=false,MultiTargetParentScope? accountParent=null,string? sourceParent=null)
         {
             var scope=Scope(table,alias,projectScoped:projectParent);
             if(scopedSingle||accountParent is not null)
             {
-                var logical=scopedCrossTable?PublishedSingleCrossCondition(table,alias,page,sourceParent):PublishedSingleCondition(table,alias,page,parentField:accountParent);
+                // 原单值联接和候选一样携带全部同父字段，隐藏名称也不能绕过附加父范围。
+                var logical=scopedCrossTable?PublishedSingleCrossCondition(table,alias,page,sourceParent):
+                    PublishedSingleCondition(table,alias,page,parentField:accountParent?.Target,additionalScopes:accountParent?.AdditionalTargets);
                 return scope.Length==0?logical:scope+" AND "+logical;
             }
             var condition=PublishedCondition(table,alias,page,allowAccount,projectParent);

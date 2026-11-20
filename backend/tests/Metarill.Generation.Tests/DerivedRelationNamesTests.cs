@@ -1613,8 +1613,20 @@ public sealed class DerivedRelationNamesTests
     public Task Single_relation_preserves_compound_target_parent(bool selection,string targetScope,bool redundant,bool exact)=>
         VerifySingleRelationCompoundParents(selection,false,targetScope,redundant,exact);
 
+    /// <summary>原下拉和单选对已发布全局目标执行全部同父条件，保留真实项目和账号范围。</summary>
+    [Theory]
+    [InlineData(false,"physical",false,false,false)]
+    [InlineData(true,"physical",true,true,false)]
+    [InlineData(false,"mixed",false,true,true)]
+    [InlineData(true,"independent",false,true,false)]
+    [InlineData(true,"independent",true,false,false)]
+    public Task Global_single_relation_preserves_compound_target_parent(
+        bool selection,string scope,bool rowProject,bool globalParent,bool redundant)=>
+        VerifySingleRelationCompoundParents(selection,false,scope,redundant,
+            globalTargetWithProject:rowProject,globalParent:globalParent);
+
     private static async Task VerifySingleRelationCompoundParents(bool selection,bool independent,string? targetScope,
-        bool redundant=false,bool exact=false)
+        bool redundant=false,bool exact=false,bool? globalTargetWithProject=null,bool globalParent=false)
     {
         const string prefix="single_compound";
         const string ns="Example.CompoundSingle";
@@ -1644,8 +1656,9 @@ public sealed class DerivedRelationNamesTests
                 page.WhereSql="yz_project_id=@current_yz_project_id AND group_id=@parent_id";
                 continue;
             }
-            page.WhereSql=independent?"origin_group_id=@parent_id AND alternate_group_id=@parent_id":
-                "group_id=@parent_id AND origin_group_id=@parent_id";
+            page.WhereSql=globalTargetWithProject is not null?"origin_group_id=@parent_id":
+                independent?"origin_group_id=@parent_id AND alternate_group_id=@parent_id":
+                    "group_id=@parent_id AND origin_group_id=@parent_id";
             var id=page.Id;
             catalog.ConfigPageColumns.Add(new(){Id=id+"120",ConfigPageId=id,ConfigColumnId="120",IsShow=1,IsEdit=1});
             if(independent)
@@ -1675,6 +1688,44 @@ public sealed class DerivedRelationNamesTests
             if(selection&&targetScope=="independent"&&!exact)
                 foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField="company_name",
                     whereSql="depot_group_name <> '排除仓组'"});
+        }
+        if(globalTargetWithProject is {} rowProject)
+        {
+            foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "2" or "4"))
+                table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            var target=catalog.ConfigPages.Single(page=>page.Id=="201");
+            target.WhereSql=target.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal)+
+                " AND store_id=@current_store_id";
+            catalog.ConfigColumns.Add(new(){Id="218",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"});
+            catalog.ConfigColumns.Add(new(){Id="118",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"});
+            if(redundant)
+                foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+                    sourcePage.WhereSql+=" AND store_id=@current_store_id";
+            else
+            {
+                // 本轮验证目标组合，来源页依赖单一真实级联父层。
+                catalog.ConfigColumns.RemoveAll(column=>column.Id=="19");
+                catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId=="19");
+            }
+            if(targetScope=="independent")
+            {
+                catalog.ConfigColumns.RemoveAll(column=>column.Id=="29");
+                catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId=="29");
+            }
+            catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql="name <> '停用公司'";
+            if(!rowProject)
+            {
+                catalog.ConfigColumns.RemoveAll(column=>column.Id=="22");
+                catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId=="22");
+            }
+            if(globalParent)
+            {
+                catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="store_id",LogicalType="int64"});
+                catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="name <> '停用父记录' AND store_id=@current_store_id";
+                catalog.ConfigColumns.RemoveAll(column=>column.Id=="32");
+                catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId=="32");
+            }
         }
         catalog.YzAdminTypes.Clear();
         RedundantMultiNameCacheTests.Published(catalog);
@@ -1712,6 +1763,7 @@ public sealed class DerivedRelationNamesTests
                 Assert.Contains("CrossReader101_121(actor,locking,false).PathAsync(0,LogicalParentId101(parentId)",text);
             }
             if(!redundant)Assert.Contains("OptionsScope101_15Async(logicalRelationParentId, null",text);
+            if(globalTargetWithProject is not null)Assert.Contains(".BindAccount(actor)",text);
             Assert.Contains("targetParentId!=parentId",text);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service=assembly.GetType(ns+".Generated.Services.SingleCompoundOrderService",true)!;
@@ -1729,6 +1781,21 @@ public sealed class DerivedRelationNamesTests
                 var condition=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
                 Assert.Contains("BINARY CAST(",condition);
                 Assert.Contains(targetScope=="physical"?"`depot_group_id`":"`depot_zone_id`",condition);
+                if(globalTargetWithProject is not null)
+                {
+                    Assert.True(plan.RequiresAccount);
+                    var target=assembly.GetType(ns+".Generated.Services.SingleCompoundPartyService",true)!;
+                    RuntimeHelpers.RunClassConstructor(target.TypeHandle);
+                    if(!redundant)
+                    {
+                        var read=Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan101",
+                            BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
+                        var readSql=read.GetType().GetProperty("MySql",hidden)!.GetValue(read)!;
+                        var joins=Assert.IsType<string>(readSql.GetType().GetProperty("From",hidden)!.GetValue(readSql));
+                        Assert.Contains("BINARY CAST(",joins);
+                        Assert.Contains(targetScope=="physical"?"`depot_group_id`":"`depot_zone_id`",joins);
+                    }
+                }
                 if(exact)Assert.Contains("""ResolveExactDataManage("201", "list", "real_name")""",text);
                 if(selection&&targetScope=="independent"&&!exact)Assert.Contains("CompileSingleImportLabel",text);
                 if(redundant)
@@ -1759,6 +1826,30 @@ public sealed class DerivedRelationNamesTests
                 Assert.Contains(":parent_id=\"parent_id\"",detail);
             }
 
+            if(globalTargetWithProject is not null&&globalParent&&targetScope=="physical")
+            {
+                // 两个外键虽指向同一张表，绑定不同的固定发布页仍不能生成。
+                var parent=catalog.ConfigPages.Single(page=>page.Id=="301");
+                var other=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(parent))!;
+                other.Id="302";
+                other.WhereSql+=" AND name <> '另一父页'";
+                var first=catalog.ConfigColumns.Single(column=>column.Id=="29");
+                var second=catalog.ConfigColumns.Single(column=>column.Id=="220");
+                first.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement(parent.Id);
+                second.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement(other.Id);
+                catalog.ConfigPages.Add(other);
+                try
+                {
+                    var invalid=Assert.ThrowsAny<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+                    Assert.Contains("同一个实际发布父页",invalid.Message);
+                }
+                finally
+                {
+                    first.Extra.Remove("linkConfigPageId");
+                    second.Extra.Remove("linkConfigPageId");
+                    catalog.ConfigPages.Remove(other);
+                }
+            }
             if(targetScope is not null)
             {
                 var target=catalog.ConfigPages.Single(item=>item.Id=="201");

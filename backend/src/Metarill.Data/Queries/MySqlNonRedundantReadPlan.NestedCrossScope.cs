@@ -597,6 +597,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var syntax=FixedConditionPlan.Compile(page.WhereSql,members.Select(member=>member.ColumnName));
             var additional=additionalScopes is {Count:>0}
                 ?additionalScopes.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal):null;
+            // 读取和缓存都按同一个实际父页计算，全局父的各外键或逻辑层位不得各自选择发布页。
+            if(additional is not null&&GlobalCrossTableTarget.Declared(table)&&additionalScopes![0].Global)
+                _=PublishedMultiGlobalParent(catalog,table.Id,page.Id);
             var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields,additional);
             var logical=RequireCrossCondition(table,page,condition,parentField,fields,additional);
             if(GlobalCrossTableTarget.Declared(table))scopedGlobalCrossTarget=true;
