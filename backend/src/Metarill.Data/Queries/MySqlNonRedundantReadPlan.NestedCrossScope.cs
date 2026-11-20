@@ -185,7 +185,8 @@ public static partial class MySqlNonRedundantReadCompiler
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
         var checkbox=!GlobalCrossTableTarget.Declared(table)&&page.Extra.GetValueOrDefault("type").ToString()!="2"&&
             IsScopedMultiTarget(catalog,table,page.Id);
-        var parent=MultiParent(catalog,page,checkbox);
+        var parent=checkbox?MultiParent(catalog,page,checkbox:true):
+            ProjectScopedSingleRelationTarget.PageParent(catalog,table,page)??MultiParent(catalog,page);
         if(parent is not{Global:true})throw new NotSupportedException("多值全局父须显式声明全局表关系。");
         var pages=parent.AdditionalTargets.Prepend(parent)
             .Select(scope=>scope.Logical?PublishedLogicalMultiParent(catalog,table,page,scope):
@@ -542,27 +543,30 @@ public static partial class MySqlNonRedundantReadCompiler
             if(controlParent is {Logical:true}||parent is not null&&controlParent is not null&&!parent.HasTarget(controlParent.Target.Id))
                 throw new InvalidOperationException("单值读取的目标页与控件父范围不一致。");
             parent??=controlParent;
-            if((parent is null)!=(binding.SourceParentId is null)||!global&&parent is {Global:true,Logical:false})
+            if((parent is null)!=(binding.SourceParentId is null)||
+                !global&&parent is {Global:true,Logical:false,AdditionalTargets.Count:0})
                 throw new InvalidOperationException("项目内单值读取缺少已证明的父绑定。");
             var publishedSource=parent is not null&&binding.SourcePageId is {} pageId
                 ?parent.SingleSource(catalog,owner,relation,catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==owner.Id))
                 :null;
             if(publishedSource is not null&&publishedSource.Column.Id!=binding.SourceParentId)
                 throw new InvalidOperationException("项目内单值读取父键与实际来源页不一致。");
+            if(parent is {Global:true}&&publishedSource is {AdditionalColumns.Count:>0})
+                RequireCompoundGlobalSourceParent(catalog,target.Id,page.Id,publishedSource);
 
             var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_page");
             var plan=CompileCrossPageCandidate(catalog,target.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
                 activeSelfTreeScopes:ActiveSelfTreeScopes,listFields:control?.Fields.ToArray(),projectSingle:true,
                 projectSingleControlKind:relation.ControlKind);
             plan.CopyParametersTo(crossConstants);
+            foreach(var reference in plan.PhysicalReferences)
+                references.TryAdd((reference.Table,reference.Column.Name),reference);
             var predicate=plan.Expression("id")+"="+alias+".`id`";
             if(plan.Scope.Length>0)predicate+=" AND "+plan.Scope;
             if(control is {Terms.Count:>0})
             {
                 var extra=ProjectSingleControlCondition(owner,ownerAlias,target,control,plan,prefix);
                 if(extra.Length>0)predicate+=" AND "+extra;
-                foreach(var reference in plan.PhysicalReferences)
-                    references.TryAdd((reference.Table,reference.Column.Name),reference);
             }
             if(parent is {Logical:true})
             {
@@ -572,10 +576,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     throw new InvalidOperationException("项目内单值读取父键与实际级联来源不一致。");
                 var sourceValue=SingleSourceParentValue(owner,ownerAlias,sourceParent);
                 predicate+=" AND "+SameSingleParent(plan.Expression(parent.Target.ColumnName),sourceValue);
-                foreach(var reference in plan.PhysicalReferences)
-                    references.TryAdd((reference.Table,reference.Column.Name),reference);
             }
-            else if(parent is not null&&publishedSource is {LogicalPages.Count:>0})
+            else if(parent is not null&&publishedSource is ({LogicalPages.Count:>0} or {AdditionalColumns.Count:>0}))
             {
                 var sourceValue=SingleSourceParentValue(owner,ownerAlias,publishedSource);
                 predicate+=" AND "+SinglePhysicalParentCondition(owner,ownerAlias,prefix,parent,publishedSource.Column,sourceParent:sourceValue);
@@ -620,7 +622,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var additional=additionalScopes is {Count:>0}
                 ?additionalScopes.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal):null;
             // 读取和缓存都按同一个实际父页计算，全局父的各外键或逻辑层位不得各自选择发布页。
-            if(additional is not null&&GlobalCrossTableTarget.Declared(table)&&additionalScopes![0].Global)
+            if(additional is not null&&additionalScopes![0].Global)
                 _=PublishedMultiGlobalParent(catalog,table.Id,page.Id);
             var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields,additional);
             var logical=RequireCrossCondition(table,page,condition,parentField,fields,additional);

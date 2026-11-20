@@ -20,13 +20,22 @@ internal static class MultiGlobalParentCompilation
     /// <summary>全局候选的父级按其实际发布页验证，普通项目页沿用自身的项目和父级范围。</summary>
     internal static MultiTargetParentScope? SingleTarget(GenerationModel model,TableModel table,PageModel page)
     {
-        // 项目内普通业务页仍按各自层位校验；全局页的物理多范围共用已证明的父页。
         var parentCount=page.Scopes.Count(scope=>scope.Source=="parent");
-        if(parentCount==0||parentCount>1&&!table.IsGlobal)return null;
+        if(parentCount==0)return null;
         if(NonRedundantReadCompilation.HasGlobalRowProject(table)&&
             !NonRedundantReadCompilation.GlobalSelectionPage(table,page)&&page.Scopes.Any(scope=>scope.Source=="project"))
             return null;
-        return DerivedRelationNamesCompilation.SingleParent(model,table,page) is {Global:true} parent?parent:null;
+        // 多父普通业务页仅在实际用作下拉或单选目标时接入单值候选证明。
+        if(!table.IsGlobal&&parentCount>1&&!model.Tables.Any(owner=>owner.Columns.Any(column=>
+            column.Source.ControlKind is "List" or "SelectPage"&&
+            ForeignValidationRenderer.Target(model,column)?.Source.Id==table.Source.Id&&
+            owner.Pages.Any(source=>ProjectSinglePage(model,source,column,table)?.Source.Id==page.Source.Id))))
+            return null;
+        var parent=DerivedRelationNamesCompilation.SingleParent(model,table,page);
+        if(parent is not {Global:true})return null;
+        if(!table.IsGlobal&&parent.AdditionalTargets.Count>0)
+            _=NonRedundantReads.MultiGlobalParentPageId(model.Catalog,table.Source.Id,page.Source.Id);
+        return parent;
     }
 
     /// <summary>实体范围只直接接入已证明的物理父；逻辑父走既有级联范围。</summary>
@@ -215,14 +224,21 @@ internal static class MultiGlobalParentCompilation
                 }
                 continue;
             }
-            if(compoundOnly||table.IsGlobal||target.Source.IsRongyu!=0)continue;
+            if(table.IsGlobal||target.Source.IsRongyu!=0)continue;
             var targetPage=ProjectSinglePage(model,page,foreign,target);
-            if(targetPage is null||SingleTarget(model,target,targetPage) is not {Logical:true} parent||
+            if(targetPage is null||SingleTarget(model,target,targetPage) is not {} parent||
                 parent.Parent.Id!=parentTable.Source.Id)continue;
             var sourceBinding=table.Source.IsRongyu==0
                 ?parent.SingleSource(model.Catalog,table.Source,foreign.Source,page.Source)
                 :parent.SingleSource(model.Catalog,table.Source,foreign.Source);
-            if(sourceBinding.LogicalPages.Count==0&&sourceBinding.Column.Id==source.Source.Id)
+            var primary=sourceBinding.LogicalPages.Count==0&&sourceBinding.Column.Id==source.Source.Id;
+            if(sourceBinding.AdditionalColumns.Count>0&&
+                (primary||sourceBinding.AdditionalColumns.Any(column=>column.Id==source.Source.Id)))
+            {
+                NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,targetPage.Source.Id,sourceBinding);
+                yield return (foreign,targetPage);
+            }
+            else if(!compoundOnly&&primary)
                 yield return (foreign,targetPage);
         }
     }

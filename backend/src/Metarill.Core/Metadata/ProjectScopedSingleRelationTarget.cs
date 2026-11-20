@@ -21,7 +21,7 @@ public static class ProjectScopedSingleRelationTarget
         var terms=condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
             MultiTargetParentScope.IsParameter(value.Text))).ToArray();
         if(terms.Length<=1&&!terms.Any(term=>CrossTableStorageColumns.IsLogicalPathField(target,columns,term.Field)))return null;
-        return MultiTargetParentScope.CompileSelectionPage(catalog,target,condition);
+        return MultiTargetParentScope.CompileSelectionPage(catalog,target,condition,allowGlobalParent:true);
     }
 
     /// <summary>路径任一实际目标页有额外范围时，所有写入入口必须共享同一固定名称来源。</summary>
