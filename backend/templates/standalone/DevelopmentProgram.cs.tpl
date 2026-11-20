@@ -113,6 +113,14 @@ app.Use(async (context, next) =>
     }
     catch (Exception error) when (!context.Response.HasStarted)
     {
+        // 显式业务提示沿用原页面的 HTTP 200 与 R500，调用方可以展示规则提示。
+        if (error is BusinessRuleException rule)
+        {
+            context.Response.Clear();
+            context.Response.StatusCode = 200;
+            await context.Response.WriteAsJsonAsync(R<object>.Error(rule.Message));
+            return;
+        }
         var (status, message) = error switch
         {
             // 文件运行时已核真实actor后的拒权不能误报401，避免原客户端误判登录失效。
