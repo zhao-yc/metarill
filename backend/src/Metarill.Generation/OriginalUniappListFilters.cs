@@ -43,7 +43,7 @@ internal static partial class OriginalUniappListRenderer
                     "List" when ControlRenderer.UsesScalarCheckboxFilter(column) =>
                         AppendListCheckboxFilterOptions(model, table, page, column, requests),
                     "MultiCheckBoxDatabase" when DatabaseCheckboxCompilation.Resolve(model, table, page, column).Definition is { } checkbox &&
-                        (table.Source.IsRongyu == 0 || checkbox.FormParentField is not null) =>
+                        (table.Source.IsRongyu==0||checkbox.FormParentField is not null||checkbox.SharedLogicalParentScope) =>
                         AppendArrayCheckboxFilterOptions(model, table, page, column, checkbox.Endpoint,
                             checkbox.SourceParent is not null && checkbox.FormParentField is null, checkbox.Conditions, requests,
                             formParentField:checkbox.FormParentField),
@@ -56,7 +56,7 @@ internal static partial class OriginalUniappListRenderer
                     optionFields.Add(key + "Range");
                     checkboxOptions.Add(scope);
                 }
-                defaults.Append(CheckboxDefault(table, column, kind, value, standardBoolean));
+                defaults.Append(CheckboxDefault(table,column,kind,value,standardBoolean,kind=="MultiCheckBoxDatabase"&&scope is not null));
                 continue;
             }
             var inputKey = kind is "SelectPage" or "MultiSelectPage" ? RelationName(model, page, table, column) : key;
@@ -194,7 +194,7 @@ internal static partial class OriginalUniappListRenderer
     }
 
     /// <summary>显式复选与原组件使用同一源键和数组形状。日期预设从可选值中挑选，不生成区间。</summary>
-    private static string CheckboxDefault(TableModel table, ColumnModel column, string kind, string value, bool standardBoolean)
+    private static string CheckboxDefault(TableModel table,ColumnModel column,string kind,string value,bool standardBoolean,bool usesArrayCandidates)
     {
         if (value.Length == 0) return "";
         var key = column.JsonName;
@@ -213,7 +213,7 @@ internal static partial class OriginalUniappListRenderer
                 """;
         }
 
-        if (table.Source.IsRongyu == 0 && ControlRenderer.UsesMultiIdCheckboxFilter(column) && value.TrimStart().StartsWith('['))
+        if ((table.Source.IsRongyu==0||usesArrayCandidates)&&ControlRenderer.UsesMultiIdCheckboxFilter(column)&&value.TrimStart().StartsWith('['))
         {
             var ids = DatabaseCheckboxValue.Parse(value).Select(id => id.ToString(CultureInfo.InvariantCulture));
             return $"this.filters.{key}={J(ids)};";

@@ -28,12 +28,15 @@ internal static class DatabaseCheckboxRenderer
         foreach(var def in DatabaseCheckboxCompilation.ForService(model,table,page))
         {
             var suffix=Suffix(page,def);var project=def.Target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id");
+            var caches=tableCaches[def.Source.Source.Id].ToArray();
+            var sharedCaches=caches.Length>1;
             result.Append(Declaration(def,suffix)).Append(Reader(def,suffix));
             if((def.PhysicalTargetPage??DerivedCheckboxNamesCompilation.ExactMembershipPage(model,def)) is {} physicalPage)
                 result.Append(FixedPageConditionCompilation.Declaration(physicalPage,"CheckboxTargetCondition"+suffix));
             if(def.GlobalPage is not null&&!def.DerivedName)
                 result.Append(FixedPageConditionCompilation.Declaration(def.GlobalPage,"CheckboxGlobalCondition"+suffix));
-            if(def.DerivedName)result.Append(DerivedCheckboxNamesRenderer.Service(model,table,page,def));
+            if(def.DerivedName)result.Append(DerivedCheckboxNamesRenderer.Service(model,table,page,def,
+                sharedCaches?caches.Select(cache=>cache.Value).DistinctBy(label=>label.Source.Id).ToArray():[]));
             if(def.GlobalParentPage is {} parentPage)
                 result.Append(MultiGlobalParentCompilation.Declaration(model,parentPage,"CheckboxGlobalParent"+suffix));
             result.AppendLine("    /// <summary>来源身份、真实父和发布条件始终进入数据库；写校验使用当前事务锁读。</summary>")
@@ -104,8 +107,6 @@ internal static class DatabaseCheckboxRenderer
             }
             if(table.Source.IsFunctionTable==1)continue;
             var writeParent=def.LogicalSourceParent?"logicalRelationParentId":ParentValue(def,"entity");
-            var caches=tableCaches[def.Source.Source.Id].ToArray();
-            var sharedCaches=caches.Length>1;
             var projection=sharedCaches?"new {row.Id,"+string.Join(",",caches.Select(cache=>"row."+cache.Value.Property).Distinct(StringComparer.Ordinal))+"}":
                 $"new {{row.Id,Name=row.{def.Name.Property}}}";
             result.AppendLine("    /// <summary>来源依赖变化重新校验完整所选集合，冗余名称仅在本事务派生；未提交无关字段不刷新。</summary>")
@@ -133,7 +134,7 @@ internal static class DatabaseCheckboxRenderer
                     $"        var names=rows.ToDictionary(row=>row.Id,row=>{LabelText(def,"row.Name")});");
                 foreach(var cache in caches)
                 {
-                    var label=sharedCaches?$"names[id].{cache.Value.Property}":"names[id]";
+                    var label=sharedCaches?$"names[id].{(def.DerivedName?"Cache":"")}{cache.Value.Property}":"names[id]";
                     result.AppendLine($"        entity.{cache.Cache.Property}=entity.{def.Source.Property} is null?null:JsonSerializer.Serialize(selected.Select(id=>{label}).ToArray());submitted.Add({Literal(cache.Cache.Source.ColumnName)});");
                     if(int.TryParse(cache.Cache.Source.ColumnLength,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var nameLimit)&&nameLimit>0)
                         result.AppendLine($"        if(entity.{cache.Cache.Property} is {{Length:>{nameLimit}}})throw new ArgumentException(\"复选名称数组超过已声明物理列长度。\");");

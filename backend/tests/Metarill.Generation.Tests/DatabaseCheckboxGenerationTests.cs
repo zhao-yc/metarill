@@ -365,6 +365,141 @@ public sealed class DatabaseCheckboxGenerationTests
         finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
     }
 
+    /// <summary>同一逻辑目标父范围连接原候选、写入和两份名称回填，实际父键由稀疏级联还原。</summary>
+    [Theory]
+    [InlineData(null,false)]
+    [InlineData(false,true)]
+    [InlineData(true,false)]
+    public async Task Redundant_checkbox_shares_names_under_a_logical_target_parent(bool? globalWithRowProject,bool explicitCheckbox)
+    {
+        const string ns="Example.CheckboxLogicalParent";
+        var catalog=NonRedundantCrossTableGenerationTests.Catalog("checkbox_parent_label","string","int64");
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        targetPage.WhereSql+=" AND country_id=@parentId AND active_flag=1";
+        if(globalWithRowProject is {} rowProject)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            targetPage.WhereSql="country_id=@parentId AND active_flag=1";
+            if(!rowProject)catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="2"&&column.ColumnName=="yz_project_id");
+        }
+        catalog.ConfigColumns.AddRange([
+            new(){Id="281",ConfigTableId="2",ColumnName="alias",LogicalType="string"},
+            new(){Id="282",ConfigTableId="2",ColumnName="active_flag",LogicalType="int32"},
+            new(){Id="91",ConfigTableId="9",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="92",ConfigTableId="9",ColumnName="name",LogicalType="string"},
+            new(){Id="93",ConfigTableId="9",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="94",ConfigTableId="9",ColumnName="owner_country_id",LinkConfigTableId="3",LogicalType="string",ColumnLength="24"},
+            new(){Id="95",ConfigTableId="9",ColumnName="selected_ids",Name="复选",LogicalType="string",ColumnLength="max",
+                ControlKind="MultiCheckBoxDatabase",LinkConfigTableId="2",
+                ControlDetail="""{"tableId":"2","pageId":"201","nameField":"name"}"""},
+            new(){Id="96",ConfigTableId="9",ColumnName="selected_alias",LogicalType="string",ColumnLength="max",
+                Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("selected.alias")}}
+        ]);
+        catalog.ConfigPageColumns.Add(new(){Id="201281",ConfigPageId="201",ConfigColumnId="281",IsShow=1});
+        catalog.ConfigTables.Add(new(){Id="9",TableName="checkbox_parent_label_consumer",IsRongyu=1});
+        foreach(var id in new[]{"901","902"})
+        {
+            var aliasPage=id=="902";
+            var page=new PageMetadata {Id=id,ConfigTableId="9",IsImport=1,IsExport=1,
+                WhereSql="yz_project_id=@current_yz_project_id AND owner_country_id=@parentId"};
+            if(aliasPage)
+            {
+                page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+                page.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+            }
+            catalog.ConfigPages.Add(page);
+            catalog.ConfigPageColumns.Add(new(){Id=id+"92",ConfigPageId=id,ConfigColumnId="92",IsShow=1,IsEdit=1});
+            var setting=new PageColumnMetadata {Id=id+"95",ConfigPageId=id,ConfigColumnId="95",IsShow=1,IsEdit=1,
+                Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}};
+            if(aliasPage)
+            {
+                setting.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"alias"}""");
+                catalog.ConfigPageColumns.Add(new(){Id=id+"96",ConfigPageId=id,ConfigColumnId="96",IsShow=1,IsEdit=1});
+            }
+            catalog.ConfigPageColumns.Add(setting);
+        }
+        if(explicitCheckbox)
+            catalog.ConfigColumns.Single(column=>column.Id=="95").Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
+        Published(catalog);
+
+        var model=GenerationModel.Create(catalog,ns);
+        var owner=model.Tables.Single(table=>table.Source.Id=="9");
+        foreach(var page in owner.Pages)
+        {
+            var relation=owner.Columns.Single(column=>column.Source.Id=="95");
+            var resolution=DatabaseCheckboxCompilation.Resolve(model,owner,page,relation);
+            Assert.True(resolution.Definition is not null,resolution.Reason);
+            Assert.Equal("201",resolution.Definition!.LogicalTargetPage?.Source.Id);
+            Assert.Equal("94",resolution.Definition.SourceParent?.Source.Id);
+        }
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var bindings=RelationPropagationCompilation.Definitions(RelationPropagationCompilation.DerivedBindings(model)
+            .Where(binding=>binding.Foreign.Source.Id=="95").ToArray());
+        Assert.Equal(2,bindings.Length);
+        Assert.All(bindings,binding=>Assert.Equal("201",binding.CheckboxTargetPageId));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-logical-parent-names");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,output,ns);
+            var code=await File.ReadAllTextAsync(Path.Combine(output,"Services/CheckboxParentLabelConsumerService.g.cs"));
+            Assert.Contains("CompileScopedCheckboxLabel",code);
+            Assert.Contains("entity.SelectedAlias=",code);
+            Assert.Contains("entity.SelectedNames=",code);
+            Assert.Contains("names[id].CacheName",code);
+            Assert.Contains("names[id].CacheAlias",code);
+            Assert.Contains("currentRead:locking",code);
+            Assert.Contains(explicitCheckbox?"ApplyJsonArrayHasAnyId":"ApplyJsonArrayHasId",code);
+            var list=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/checkbox_parent_label_consumer-list-902.vue"));
+            var detail=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/checkbox_parent_label_consumer-detail-902.vue"));
+            Assert.Contains("findNameIdSelected95",list);
+            Assert.Contains("findNameIdSelected95",detail);
+            Assert.Contains("selectedAlias",list);
+            Assert.Contains("selectedAlias",detail);
+
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var type=assembly.GetType(ns+".Generated.Services.CheckboxParentLabelConsumerService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+            foreach(var id in new[]{"901","902"})
+            {
+                Assert.NotNull(type.GetMethod("Import"+id+"Async"));
+                Assert.NotNull(type.GetMethod("Export"+id+"Async"));
+            }
+            var candidate=Assert.IsType<NonRedundantReadPlan>(type.GetField("DerivedCheckboxPlan902_95",
+                BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
+            Assert.Equal("string",candidate.OutputTypes["alias"]);
+            Assert.Equal("string",candidate.OutputTypes["name"]);
+            var maintenance=assembly.GetTypes().Single(t=>t.Name=="GeneratedRelationMaintenance")
+                .GetProperty("Catalog")!.GetValue(null)!;
+            var affected=(IReadOnlyList<string>)maintenance.GetType().GetProperty("MixedTargets")!.GetValue(maintenance)!;
+            Assert.Contains("checkbox_parent_label_source",affected);
+            Assert.Contains("checkbox_parent_label_country",affected);
+            Assert.Contains("checkbox_parent_label_area",affected);
+            const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+            var plans=(System.Collections.IDictionary)maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance)!;
+            var plan=plans["9"]!;
+            Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
+            var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+            foreach(var name in new[]{"selected_alias","selected_names"})
+            {
+                var sql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,[name]));
+                Assert.Contains("b.`owner_country_id`",sql);
+                Assert.Contains("multi_value.`active_flag`",sql);
+                Assert.Contains("CASE WHEN",sql);
+            }
+            var package=new ApplicationPackager().Create(catalog,Path.Combine(directory,"application"),ns,NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+
+            var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,bindings);
+            published.ConfigPages.Single(page=>page.Id=="902").WhereSql="yz_project_id=@current_yz_project_id";
+            Assert.Throws<InvalidOperationException>(()=>
+                Metarill.Data.Relations.RelationMaintenanceCatalog.CompileWithDerivedCrossTables(published,[],bindings));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>整数业务名称在原复选中仍输出文本，Excel 与维护使用同一物理字段。</summary>
     [Theory]
     [InlineData(true,false,"int32","list")]

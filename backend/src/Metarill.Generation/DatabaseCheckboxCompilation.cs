@@ -17,6 +17,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal ColumnModel? FunctionParentField { get; init; }
     internal ColumnModel? FormParentField { get; init; }
     internal bool SharedAccountScope { get; init; }
+    internal bool SharedLogicalParentScope { get; init; }
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
@@ -139,6 +140,10 @@ internal static class DatabaseCheckboxCompilation
                 namePage!.Scopes.All(scope=>scope.Source=="project");
             if(sharedAccountScope)
                 _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,namePage!.Source);
+            // 目标级联祖先可能没有落库。各名称必须通过同一个固定层位读取。
+            var sharedLogicalParentScope=sharedNamesPage&&!derived&&target.Source.IsRongyu==0&&exactTarget is null&&
+                !FixedPageConditionCompilation.HasAccountVariables(namePage!)&&namePage!.Scopes.Count(scope=>scope.Source=="parent")==1&&
+                namePage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,namePage,scope.Column));
             // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。
             var compoundTargetParents=!functionForm&&target.Source.IsRongyu==0&&
                 namePage?.Scopes.Count(scope=>scope.Source=="parent")>1;
@@ -301,6 +306,7 @@ internal static class DatabaseCheckboxCompilation
                 FunctionParentField=functionForm?sourceParent:null,
                 FormParentField=formParent,
                 SharedAccountScope=sharedAccountScope,
+                SharedLogicalParentScope=sharedLogicalParentScope,
                 ExactTarget=exactTarget,
                 LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)
                     .DistinctBy(path=>(path.Read.Source.Source.Id,path.Index)).ToArray(),
@@ -318,15 +324,21 @@ internal static class DatabaseCheckboxCompilation
         catch(Exception error)when(error is ArgumentException or InvalidOperationException or JsonException or NotSupportedException){return Gap(error.Message);}
     }
     /// <summary>多份物理名称必须共用同一个保存及维护范围；全局范围直接由实际发布页提供。</summary>
-    private static bool CanSharePhysicalNames(DatabaseCheckboxModel definition) => !definition.DerivedName &&
-        definition.Name.Type=="string?" && definition.ExactTarget is null && definition.Conditions is null &&
-        (definition.Target.IsGlobal
-            ? definition.NameTargetPage is {Scopes.Count:0} globalPage && definition.Scopes.Count==0 &&
+    private static bool CanSharePhysicalNames(DatabaseCheckboxModel definition)
+    {
+        if(definition.Name.Type!="string?"||definition.ExactTarget is not null||definition.Conditions is not null)
+            return false;
+        if(definition.SharedLogicalParentScope)
+            return !definition.LogicalSourceParent&&definition.SourceParent is not null&&definition.SourceScopeColumns.Count==1;
+        if(definition.DerivedName)return false;
+        return definition.Target.IsGlobal
+            ? definition.NameTargetPage is {Scopes.Count:0} globalPage&&definition.Scopes.Count==0&&
                 (globalPage.Condition is null||globalPage.Condition.Syntax.Variables.Count==0||definition.SharedAccountScope)
             : (definition.NameTargetPage?.Condition is null||definition.PhysicalTargetPage?.Condition is {Syntax.Variables.Count:0}||
-                definition.SharedAccountScope) &&
+                definition.SharedAccountScope)&&
                 (definition.Scopes.All(scope=>scope.Source=="project")&&definition.NameTargetPage?.Scopes.Any(scope=>scope.Source=="parent")!=true||
-                    FixedCacheParent(definition) is not null));
+                    FixedCacheParent(definition) is not null);
+    }
 
     /// <summary>来源和目标须各有一个实际物理父字段，所有名称缓存绑定同一个来源行键。</summary>
     private static string? FixedCacheParent(DatabaseCheckboxModel definition)
@@ -341,7 +353,7 @@ internal static class DatabaseCheckboxCompilation
     }
 
     /// <summary>全局固定目录及含物理条件的普通发布页随名称缓存下发。</summary>
-    private static string? FixedCachePage(DatabaseCheckboxModel definition) => definition.Target.IsGlobal
+    private static string? FixedCachePage(DatabaseCheckboxModel definition) => definition.Target.IsGlobal||definition.SharedLogicalParentScope
         ? definition.NameTargetPage?.Source.Id
         : definition.PhysicalTargetPage is {} page&&(page.Condition is not null||FixedCacheParent(definition) is not null)?page.Source.Id:null;
 

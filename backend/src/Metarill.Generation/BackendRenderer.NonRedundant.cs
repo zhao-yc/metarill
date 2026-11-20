@@ -71,13 +71,13 @@ internal static partial class BackendRenderer
         // 功能表的独立父字段只在表单中存在，目标页的固定范围仍需完整下发。
         var functionCheckboxes=model.Tables.Where(table=>table.Source.IsFunctionTable==1)
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page))).ToArray();
-        var exactCheckboxes=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
+        var scopedCheckboxes=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))
-            .Where(checkbox=>checkbox.ExactTarget is not null).ToArray();
-        var checkboxScopes=functionCheckboxes.Concat(exactCheckboxes).Where(checkbox=>checkbox.DerivedName&&
+            .Where(checkbox=>checkbox.ExactTarget is not null||checkbox.SharedLogicalParentScope).ToArray();
+        var checkboxScopes=functionCheckboxes.Concat(scopedCheckboxes).Where(checkbox=>checkbox.DerivedName&&
             (checkbox.LogicalTargetPage is not null||checkbox.ExactTarget is not null)).ToArray();
         // 复选的物理目标页也可能绑定全局父，冻结实际目标及父页条件。
-        foreach(var checkbox in functionCheckboxes.Concat(exactCheckboxes).Where(checkbox=>checkbox.GlobalParentPage is not null))
+        foreach(var checkbox in functionCheckboxes.Concat(scopedCheckboxes).Where(checkbox=>checkbox.GlobalParentPage is not null))
         {
             var targetPage=checkbox.GlobalParentPage!;
             var parent=checkbox.SourceParents.Single();

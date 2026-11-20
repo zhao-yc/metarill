@@ -14,8 +14,10 @@ internal static class DerivedMultipleCacheProof
         var global=GlobalCrossTableTarget.Declared(target);
         if(checkboxTargetPageId is not null)
         {
-            var accountPage=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,source,foreign,target,value,checkboxTargetPageId);
-            _=AccountScopedCrossCache.Compile(catalog,source,target,accountPage);
+            var pageBinding=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,source,foreign,target,value,checkboxTargetPageId);
+            // 后续编译必须使用同一发布页，按实际来源行重新证明账号或逻辑父范围。
+            if(MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign)?.Id!=pageBinding.Id)
+                throw Invalid();
         }
         else if(global&&GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).Name.Id!=value.Id)throw Invalid();
         if(foreign.ControlKind=="MultiCheckBoxDatabase"){RequireCheckbox(catalog,foreign,target,value,cache,checkboxTargetPageId is not null);RequireValue(catalog,source,foreign,target,value,global);return;}
