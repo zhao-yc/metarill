@@ -182,7 +182,7 @@ internal static class RelationConditionsCompilation
     }
     /// <summary>逻辑父级来自已授权的页范围，不能读取稀疏实体的原始父槽。</summary>
     internal static string WriteSourceParent(GenerationModel model,TableModel table,PageModel page,ColumnModel? parent)=>
-        parent is not null&&NonRedundantCrossParentCompilation.Managed(model,table,page,parent)
+        NonRedundantCrossParentCompilation.Enabled(model,table,page)
             ?"logicalRelationParentId":Value(parent);
 
     /// <summary>只有声明表单依赖的候选签名增加私有窄值槽，其他生成产物逐字保持。</summary>

@@ -284,7 +284,7 @@ internal static partial class NonRedundantReadCompilation
         if(relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope=>scope.Source=="parent"))
         {
             var context=ControlRenderer.RelationContext(page,relation,false);
-            parent=context.SameParent?page.Scopes.Single(scope=>scope.Source=="parent").Column:
+            parent=context.SameParent?relation.FixedSourceParent??page.Scopes.Single(scope=>scope.Source=="parent").Column:
                 table.Columns.SingleOrDefault(column=>column.JsonName==context.TargetParentField);
             if(parent is null||(!Physical(model,table,parent)&&
                 !(relation.LogicalSourceParent&&NonRedundantCrossParentCompilation.Managed(model,table,page,parent)))||

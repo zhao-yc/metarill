@@ -71,10 +71,14 @@ onPopSelect{{{id}}}(row) { this.permissionVersion++;if(this.{{{ro}}} || !this._s
     /// <summary>单选目标父沿用同父或唯一声明外键；缺少可读映射必须拒绝，不能空父退全量。</summary>
     private static string TargetParent(OriginalDetailContext c,ColumnModel foreign,TableModel targetTable,PageModel target)
     {
-        // 单选弹层沿用服务端证明的实际父层位，继续传原 parent_id。
-        if(DerivedRelationNamesCompilation.SingleParent(c.Model,targetTable,target) is {} fixedParent)
+        // 非冗余单选复用该关系在当前页已经证明的父层位，不从稀疏字段的表关联猜测。
+        var relation=c.Table.Source.IsRongyu==0
+            ?RelationCompilation.ForPage(c.Model,c.Page,scopeSourceId:foreign.Source.Id).SingleOrDefault()
+            :null;
+        if((relation?.FixedParent??DerivedRelationNamesCompilation.SingleParent(c.Model,targetTable,target)) is {} fixedParent)
         {
-            var sourceKey=fixedParent.SingleSource(c.Model.Catalog,c.Table.Source,foreign.Source).Column;
+            var sourceKey=relation?.FixedSourceParent?.Source??
+                fixedParent.SingleSource(c.Model.Catalog,c.Table.Source,foreign.Source).Column;
             if(c.Page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==sourceKey.Id))return "parent_id";
             var stored=c.Page.Readable.SingleOrDefault(column=>column.Source.Id==sourceKey.Id);
             if(stored is null)

@@ -193,12 +193,13 @@ internal static class RelationCompilation
     {
         if(owner.IsGlobal||target.IsGlobal||owner.Source.IsRongyu!=0||target.Source.IsRongyu!=0||
             targetPage.Scopes.Count(scope=>scope.Source=="parent")!=1)return null;
-        var sourceParents=sourcePage.Scopes.Where(scope=>scope.Source=="parent").Take(2).ToArray();
-        if(sourceParents.Length!=1||NonRedundantCrossParentCompilation.Find(model,owner,sourcePage,sourceParents[0].Column) is not {} path)
+        var sourceParents=sourcePage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
+        if(!sourceParents.Any(column=>NonRedundantCrossParentCompilation.Find(model,owner,sourcePage,column) is not null))
             return null;
         var condition=FixedConditionPlan.Compile(targetPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
         var parent=MultiTargetParentScope.Compile(model.Catalog,target.Source,condition);
-        return parent is {Logical:false,Global:false}&&parent.Parent.Id==path.Read.Levels[path.Index].Target.Source.Id?parent:null;
+        return parent is {Logical:false,Global:false}&&
+            sourceParents.All(column=>Parent(model,column,owner,sourcePage).Source.Id==parent.Parent.Id)?parent:null;
     }
 
     /// <summary>有账号或逻辑范围的下拉即使隐藏，也须复核默认值和最终持久化值。</summary>

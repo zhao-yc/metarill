@@ -861,13 +861,14 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
             if(sourceContext)
             {
-                foreach(var (column,_) in page.Scopes.Where(scope=>scope.Source=="parent"))
-                {
-                    if(NonRedundantCrossParentCompilation.Find(model,owner,page,column) is not {} path||
-                        path.Read.Levels[path.Index].Target.Source.Id!=parent.Source.Id)continue;
+                var paths=page.Scopes.Where(scope=>scope.Source=="parent")
+                    .Select(scope=>NonRedundantCrossParentCompilation.Find(model,owner,page,scope.Column))
+                    .Where(path=>path is {} bound&&bound.Read.Levels[bound.Index].Target.Source.Id==parent.Source.Id)
+                    .Select(path=>path!.Value).DistinctBy(path=>(path.Read.Source.Source.Id,path.Index)).ToArray();
+                // 同一父 ID 在不同路径上可有不同发布条件，必须全部成立。
+                foreach(var path in paths)
                     result.AppendLine($"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,{(current?"locking":"false")},false).PathAsync({path.Index},LogicalParentId{page.Source.Id}(parentId),cancellationToken);");
-                    return;
-                }
+                if(paths.Length>0)return;
             }
             if(sourceContext&&parent.IsGlobal&&MultiGlobalParentCompilation.PhysicalScopeTarget(model,owner,page) is not null)
             {
@@ -911,7 +912,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var fixedWriteExact = !relation.FunctionForm && DerivedRelationNamesCompilation.UsesFixedRead(model,relation) &&
                 ExactDataManageCompilation.Declared(relation.TargetPage) &&
                 (logicalPlan is not null || DerivedRelationNamesCompilation.UsesExactSingle(relation));
-            var lockScope=fixedWriteExact||relation.Conditions is not null||logicalPlan is not null||
+            var lockScope=fixedWriteExact||relation.LogicalSourceParent||relation.Conditions is not null||logicalPlan is not null||
                 relation.Target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
             result.Append(FixedPageConditionCompilation.Declaration(relation.TargetPage,"OptionsPageCondition"+suffix))

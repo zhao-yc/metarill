@@ -1590,7 +1590,108 @@ public sealed class DerivedRelationNamesTests
         catalog.ConfigColumns.Single(column=>column.Id=="28").Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.region.name");
     }
 
-    /// <summary>声明同项目四表：来源订单→非冗余客户→公司名称；原字段和菜单方式均由元数据生成。</summary>
+    /// <summary>原下拉和单选在同一发布父级读取全部实际路径，并复用追加、覆盖和导出接口。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(false,true)]
+    [InlineData(true,false)]
+    [InlineData(true,true)]
+    public async Task Single_relation_preserves_compound_source_parent(bool selection,bool independent)
+    {
+        const string prefix="single_compound";
+        const string ns="Example.CompoundSingle";
+        var catalog=Catalog(prefix,true);
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="15");
+        foreign.ControlKind=selection?"SelectPage":"List";
+        foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="201",nameField="company_name"});
+        if(selection)catalog.ConfigPages.Single(page=>page.Id=="201").Extra["type"]=JsonSerializer.SerializeToElement(1);
+        catalog.ConfigTables.Add(new(){Id="6",TableName=prefix+"_zone",IsRongyu=1});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="61",ConfigTableId="6",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="62",ConfigTableId="6",ColumnName="name",LogicalType="string"},
+            new(){Id="63",ConfigTableId="6",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="64",ConfigTableId="6",ColumnName="group_id",LogicalType="int64",LinkConfigTableId="3"}
+        ]);
+        catalog.ConfigPages.Add(new(){Id="601",ConfigTableId="6",WhereSql="yz_project_id=@current_yz_project_id AND name<>'停用'"});
+        foreach(var field in new[]{"62","64"})
+            catalog.ConfigPageColumns.Add(new(){Id="601"+field,ConfigPageId="601",ConfigColumnId=field,IsShow=1,IsEdit=1});
+        AddPath("120","origin");
+        if(independent)AddPath("121","alternate");
+        foreach(var page in catalog.ConfigPages.Where(item=>item.ConfigTableId=="1"))
+        {
+            // 物理外键在前，仍必须用获授权的逻辑父参数进行写入，不能读取稀疏父槽。
+            page.WhereSql=independent?"origin_group_id=@parent_id AND alternate_group_id=@parent_id":
+                "group_id=@parent_id AND origin_group_id=@parent_id";
+            var id=page.Id;
+            catalog.ConfigPageColumns.Add(new(){Id=id+"120",ConfigPageId=id,ConfigColumnId="120",IsShow=1,IsEdit=1});
+            if(independent)
+                catalog.ConfigPageColumns.Add(new(){Id=id+"121",ConfigPageId=id,ConfigColumnId="121",IsShow=1,IsEdit=1});
+        }
+        catalog.YzAdminTypes.Clear();
+        RedundantMultiNameCacheTests.Published(catalog);
+        var model=GenerationModel.Create(catalog,ns);
+        var owner=model.Tables.Single(table=>table.Source.Id=="1");
+        var source=owner.Pages.Single(page=>page.Source.Id=="101");
+        var relation=RelationCompilation.ForPage(model,source,true).Single(option=>option.SourceColumn.Source.Id=="15");
+        Assert.True(relation.LogicalSourceParent);
+        Assert.Equal("origin_group_id",relation.FixedSourceParent!.Source.ColumnName);
+        Assert.True(ControlRenderer.RelationContext(source,relation,false).SameParent);
+        new FrontendPackager().Validate(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-compound-single-parent");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var text=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/SingleCompoundOrderService.g.cs"));
+            Assert.Contains("CrossReader101_120(actor,false,false).PathAsync(0,LogicalParentId101(parentId)",text);
+            Assert.Contains("CrossReader101_120(actor,locking,false).PathAsync(0,LogicalParentId101(parentId)",text);
+            if(independent)
+            {
+                Assert.Contains("CrossReader101_121(actor,false,false).PathAsync(0,LogicalParentId101(parentId)",text);
+                Assert.Contains("CrossReader101_121(actor,locking,false).PathAsync(0,LogicalParentId101(parentId)",text);
+            }
+            Assert.Contains("OptionsScope101_15Async(logicalRelationParentId, null",text);
+            Assert.Contains("targetParentId!=parentId",text);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.SingleCompoundOrderService",true)!;
+            Assert.NotNull(service.GetMethod("Import101Async"));
+            Assert.NotNull(service.GetMethod("Import103Async"));
+            Assert.NotNull(service.GetMethod("Export101Async"));
+
+            if(selection&&independent)
+            {
+                foreach(var publishedPage in catalog.ConfigPages)
+                    catalog.ConfigMenus.Add(new(){Id="700"+publishedPage.Id,YzProjectId=catalog.YzProjectId,
+                        YzAdminTypeId=publishedPage.YzAdminTypeId,Name="页面"+publishedPage.Id,
+                        Kind="GENERATED_PAGE",ConfigPageId=publishedPage.Id});
+                var output=Path.Combine(directory,"full");
+                new ApplicationPackager().Create(catalog,output,ns,NonRedundantApplicationFixture.Root());
+                foreach(var operation in new[]{"restore","build"})
+                    await NonRedundantApplicationFixture.BuildAsync(output,operation);
+                var detail=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/single_compound_order-detail-101.vue"));
+                Assert.Contains("selectPageDialog15",detail);
+                Assert.Contains(":parent_id=\"parent_id\"",detail);
+            }
+
+            var configured=catalog.ConfigPages.Single(page=>page.Id=="101");
+            configured.WhereSql+=" AND origin_zone_id=@parent_id";
+            Assert.ThrowsAny<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+
+        void AddPath(string id,string role)
+        {
+            catalog.ConfigColumns.Add(new(){Id=id,ConfigTableId="1",ColumnName=role+"_zone_id",LogicalType="int64",
+                ControlKind="CascadeTree",LinkConfigTableId="6",ControlDetail=JsonSerializer.Serialize(new
+                {
+                    sourceMode="crossTable",levels=new object[]{new{table=prefix+"_group",columnPrefix=role+"_group"},
+                        new{table=prefix+"_zone",columnPrefix=role+"_zone",parentField="group_id"}}
+                })});
+        }
+    }
+
+    /// <summary>声明来源订单、非冗余客户、父分组及公司名称的固定元数据。</summary>
     internal static MetadataCatalog Catalog(string prefix,bool parentAndForm)
     {
         var c=NonRedundantGeneratedFixture.Catalog(prefix);c.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
