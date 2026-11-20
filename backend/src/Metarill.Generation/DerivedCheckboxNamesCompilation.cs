@@ -41,7 +41,7 @@ internal static class DerivedCheckboxNamesCompilation
         var field=def.Name.Source.ColumnName;
         if(UsesScopedCheckboxLabel(model,def))
             return NonRedundantReads.CompileScopedCheckboxLabel(model.Catalog,def.Target.Source.Id,def.LogicalTargetPage!.Source.Id,
-                field,outputs,dependencies,def.ExactTarget is not null,ScopedNameTargets(model,def));
+                field,outputs,dependencies,def.ExactTarget is not null,ScopedNameTargets(model,def,outputs));
         if(UsesGlobalExactPage(def))
         {
             var published=def.NameTargetPage!;
@@ -75,7 +75,7 @@ internal static class DerivedCheckboxNamesCompilation
             return "CompileScopedCheckboxLabel("+JsonSerializer.Serialize(def.Target.Source.Id)+","+
                 JsonSerializer.Serialize(def.LogicalTargetPage!.Source.Id)+","+JsonSerializer.Serialize(field)+","+
                 Fields(outputs)+","+Fields(dependencies)+","+(def.ExactTarget is null?"false":"true")+
-                NonRedundantReadCompilation.SingleTargetArgument(ScopedNameTargets(model,def))+")";
+                NonRedundantReadCompilation.SingleTargetArgument(ScopedNameTargets(model,def,outputs))+")";
         if(UsesGlobalExactPage(def))
         {
             var published=def.NameTargetPage!;
@@ -131,9 +131,10 @@ internal static class DerivedCheckboxNamesCompilation
             ?def.LogicalTargetPage??(exact.SelfTree&&def.DerivedName?def.NameTargetPage:null):null;
 
     /// <summary>固定范围和精确字段沿用同一实际目标页的联接。</summary>
-    private static IReadOnlyList<NonRedundantSingleTargetScope> ScopedNameTargets(GenerationModel model,DatabaseCheckboxModel def)=>
+    private static IReadOnlyList<NonRedundantSingleTargetScope> ScopedNameTargets(GenerationModel model,DatabaseCheckboxModel def,
+        IReadOnlyList<string> outputs)=>
         def.ExactTarget is {} exact?ExactNameTargets(model,def,exact):
-            NonRedundantReadCompilation.ProjectPathTargets(model,def.Target,def.LogicalTargetPage!,[def.Name.Source.ColumnName]);
+            NonRedundantReadCompilation.ProjectPathTargets(model,def.Target,def.LogicalTargetPage!,outputs);
 
     /// <summary>授权和名称共用已发布的中间关系，冲突的绑定在生成时拒绝。</summary>
     private static IReadOnlyList<NonRedundantSingleTargetScope> ExactNameTargets(GenerationModel model,

@@ -99,7 +99,21 @@ internal static partial class BackendRenderer
         scopedPages=scopedPages.Concat(exactMultiTargets).Concat(exactTreePages);
         var hasExactCheckboxParent=checkboxScopes.Any(checkbox=>DerivedCheckboxNamesCompilation.HasExactLogicalParent(model,checkbox));
         var hasExactCheckboxMembership=checkboxScopes.Any(checkbox=>DerivedCheckboxNamesCompilation.ExactMembershipPage(model,checkbox) is not null);
-        var nestedTables=RelationPropagationCompilation.PublishedRecursiveTables(model,scopedPages);
+        var nestedTables=RelationPropagationCompilation.PublishedRecursiveTables(model,scopedPages).ToHashSet(StringComparer.Ordinal);
+        if(scopedCheckboxes.Where(checkbox=>checkbox.SharedLogicalParentScope).Any(checkbox=>
+        {
+            if(!NonRedundantReadCompilation.Physical(model,checkbox.Target,checkbox.Name))return true;
+            var baseline=DatabaseCheckboxDefinition.Parse(checkbox.Source.Source.ControlDetail).NameField;
+            return checkbox.Target.Columns.Any(column=>column.Source.ColumnName==baseline&&
+                !NonRedundantReadCompilation.Physical(model,checkbox.Target,column));
+        }))
+        {
+            // 保存同时读取表级和页级名称，两条联接引用的固定页都要保留到生成目录。
+            var checkboxBindings=RelationPropagationCompilation.Definitions(RelationPropagationCompilation.DerivedBindings(model)
+                .Where(binding=>binding.CheckboxTargetPageId is not null).ToArray());
+            var references=Metarill.Data.Relations.DerivedCrossTableCaches.ScopedSingleReferencedTables(model.Catalog,checkboxBindings);
+            nestedTables.UnionWith(model.Tables.Where(table=>references.Contains(table.Source.TableName)).Select(table=>table.Source.Id));
+        }
         var recursiveCandidates=nestedTables.Count>0;
         var selfTreeNamePages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>NonRedundantReadCompilation.SelfTreeNameQueries(model,table,page)))
             .Concat(model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page)))

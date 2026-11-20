@@ -72,20 +72,30 @@ public static class DerivedCrossTableCaches
         }
         if(all.GroupBy(d=>(d.SourceTableId,d.CacheColumnId)).Any(g=>g.Distinct().Count()!=1))throw new InvalidOperationException("同一缓存存在相互冲突的物理／派生绑定。");
     }
-    /// <summary>发布目录按实际维护计划保留多层单值名称涉及的表及页面范围。</summary>
+    /// <summary>按实际维护计划保留固定单值联接涉及的表，包括复选各份名称自身的联接路径。</summary>
     public static IReadOnlySet<string> ScopedSingleReferencedTables(MetadataCatalog catalog,IReadOnlyList<RelationCacheDefinition> definitions)
     {
         var referenced=new HashSet<string>(StringComparer.Ordinal);
-        var byTable=definitions.Where(definition=>definition.ScopedSinglePageId is not null)
+        var byTable=definitions.Where(definition=>definition.ScopedSinglePageId is not null||HasJoinedCheckboxName(definition))
             .GroupBy(definition=>definition.SourceTableId);
         foreach(var group in byTable)
         {
             var bindings=group.ToArray();
-            var outputs=bindings.Select(binding=>catalog.ConfigColumns.Single(column=>column.Id==binding.CacheColumnId).ColumnName).ToArray();
+            var source=catalog.ConfigTables.Single(table=>table.Id==group.Key);
+            var columns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id));
+            var outputs=bindings.Select(binding=>columns.Single(column=>column.Id==binding.CacheColumnId).ColumnName).ToArray();
             var read=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,group.Key,outputs,bindings);
             referenced.UnionWith(read.PhysicalReferences.Select(reference=>reference.Table));
         }
         return referenced;
+
+        bool HasJoinedCheckboxName(RelationCacheDefinition definition)
+        {
+            if(!definition.Multiple||definition.CheckboxTargetPageId is null)return false;
+            var target=catalog.ConfigTables.Single(table=>table.Id==definition.TargetTableId);
+            var label=catalog.ConfigColumns.SingleOrDefault(column=>column.Id==definition.ValueColumnId);
+            return label is not null&&MultiNameStorageColumns.IsDerivedCheckboxText(target,MetadataStoragePolicy.ForTable(catalog,target),label);
+        }
     }
 
     /// <summary>固定单值副本只绑定原表级关系、同类型物理缓存及实际目标页。</summary>

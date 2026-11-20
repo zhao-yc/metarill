@@ -24,7 +24,7 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         return page;
     }
 
-    /// <summary>固定目标页只接受原名称和实际来源页声明且目标页开放的物理文本。</summary>
+    /// <summary>固定目标页只接受原名称和实际来源页声明且目标页开放的文本。</summary>
     internal static PageMetadata RequireSharedCheckboxCachePage(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,
         TableMetadata target,ColumnMetadata value,string pageId)
     {
@@ -34,11 +34,14 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var page=global?.Page??RequireProjectCheckboxPage(catalog,source,relation,target,pageId);
         var original=global?.Name??catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName==baseline.NameField);
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
+        bool PublishedText(ColumnMetadata label)=>label.LogicalType=="string"&&
+            (GlobalPhysicalRelationValue.IsScalar(storage,target,label)||
+             MultiNameStorageColumns.IsDerivedCheckboxText(target,storage,label)&&
+             MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,relation)?.Id==pageId);
         if(relation.ControlKind!="MultiCheckBoxDatabase"||page.Id!=pageId||
             !string.IsNullOrWhiteSpace(baseline.WhereSql)||page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
-            original.LogicalType!="string"||!GlobalPhysicalRelationValue.IsScalar(storage,target,original)||
-            value.LogicalType!="string"||!GlobalPhysicalRelationValue.IsScalar(storage,target,value))
-            throw new InvalidOperationException("复选多名称必须使用固定目标页的物理文本。");
+            !PublishedText(original)||!PublishedText(value))
+            throw new InvalidOperationException("复选多名称必须使用固定目标页的已证明文本。");
         if(value.Id==original.Id)return page;
 
         var sourcePages=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&page.YzProjectId==catalog.YzProjectId)

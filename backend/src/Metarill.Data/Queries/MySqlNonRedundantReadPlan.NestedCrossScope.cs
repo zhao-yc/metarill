@@ -489,7 +489,9 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 var proof=GlobalSingleRelationTarget.Require(catalog,owner,relation,target,sourcePage);
                 page=proof.Page;
-                scoped=proof.RequiresScopedPage||proof.CacheControl is {Terms.Count:>0};
+                // 复选名称的内层全局页即使只有物理常量，也须与缓存回填使用相同的可见性范围。
+                scoped=proof.RequiresScopedPage||proof.CacheControl is {Terms.Count:>0}||
+                    AllowsStoredExactCheckbox&&!string.IsNullOrWhiteSpace(page.WhereSql);
                 parent=proof.Parent;
             }
             else

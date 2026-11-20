@@ -380,8 +380,13 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(null,false,"","","form")]
     [InlineData(false,true,"current_store_id","logical","form")]
     [InlineData(true,false,"current_yz_manager_id","physical","mixed")]
+    [InlineData(null,true,"","","","both")]
+    [InlineData(null,false,"current_yz_manager_id","physical","form","alias")]
+    [InlineData(false,true,"current_store_id","logical","mixed","both")]
+    [InlineData(true,false,"","","","alias")]
+    [InlineData(null,true,"","","","baseline")]
     public async Task Redundant_checkbox_shares_names_under_a_logical_target_parent(bool? globalWithRowProject,bool explicitCheckbox,
-        string accountVariable="",string additionalParent="",string formParentMode="")
+        string accountVariable="",string additionalParent="",string formParentMode="",string joinedNames="")
     {
         const string ns="Example.CheckboxLogicalParent";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("checkbox_parent_label","string","int64");
@@ -447,6 +452,35 @@ public sealed class DatabaseCheckboxGenerationTests
             catalog.ConfigColumns.Add(new(){Id="97",ConfigTableId="9",ColumnName=sourceOwner,LogicalType="string",ColumnLength="24"});
             targetPage.WhereSql+=" AND "+targetOwner+"=@"+accountVariable;
         }
+        var joinedFields=joinedNames switch{"both"=>new[]{"name","alias"},"alias"=>["alias"],"baseline"=>["name"],_=>[]};
+        foreach(var field in joinedFields)
+        {
+            // 两个名称走各自的物理外键和发布页，防止写入复用当前显示列覆盖另一份缓存。
+            var primary=field=="name";
+            var tableId=primary?"10":"11";
+            var pageId=tableId+"01";
+            var table=new TableMetadata{Id=tableId,TableName="checkbox_parent_label_"+field+"_dictionary",IsRongyu=0};
+            if(globalWithRowProject.HasValue)table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigTables.Add(table);
+            catalog.ConfigColumns.AddRange([
+                new(){Id=tableId+"1",ConfigTableId=tableId,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id=tableId+"2",ConfigTableId=tableId,ColumnName="name",LogicalType="string"},
+                new(){Id=tableId+"4",ConfigTableId=tableId,ColumnName="enabled_flag",LogicalType="int32"},
+                new(){Id=primary?"285":"286",ConfigTableId="2",ColumnName=field+"_ref_id",LogicalType="int64",
+                    ControlKind="List",LinkConfigTableId=tableId,
+                    ControlDetail=JsonSerializer.Serialize(new{tableId,pageId,nameField="name"}),
+                    Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement(pageId)}}
+            ]);
+            if(!globalWithRowProject.HasValue)
+                catalog.ConfigColumns.Add(new(){Id=tableId+"3",ConfigTableId=tableId,ColumnName="yz_project_id",LogicalType="int64"});
+            catalog.ConfigPages.Add(new(){Id=pageId,ConfigTableId=tableId,
+                WhereSql=(globalWithRowProject.HasValue?"":"yz_project_id=@current_yz_project_id AND ")+"enabled_flag=1",
+                Extra=new(){["type"]=JsonSerializer.SerializeToElement(2)}});
+            catalog.ConfigPageColumns.Add(new(){Id=pageId+"2",ConfigPageId=pageId,ConfigColumnId=tableId+"2",IsShow=1});
+            var label=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="2"&&column.ColumnName==field);
+            label.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            label.Extra["columnFullName"]=JsonSerializer.SerializeToElement(field+"_ref.name");
+        }
         catalog.ConfigPageColumns.Add(new(){Id="201281",ConfigPageId="201",ConfigColumnId="281",IsShow=1});
         catalog.ConfigTables.Add(new(){Id="9",TableName="checkbox_parent_label_consumer",IsRongyu=1});
         foreach(var id in new[]{"901","902"})
@@ -468,7 +502,7 @@ public sealed class DatabaseCheckboxGenerationTests
             catalog.ConfigPageColumns.Add(new(){Id=id+"92",ConfigPageId=id,ConfigColumnId="92",IsShow=1,IsEdit=1});
             var setting=new PageColumnMetadata {Id=id+"95",ConfigPageId=id,ConfigColumnId="95",IsShow=1,IsEdit=1,
                 Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}};
-            if(aliasPage)
+            if(aliasPage||joinedNames=="baseline")
             {
                 setting.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"alias"}""");
                 catalog.ConfigPageColumns.Add(new(){Id=id+"96",ConfigPageId=id,ConfigColumnId="96",IsShow=1,IsEdit=1});
@@ -541,6 +575,15 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Equal("string",candidate.OutputTypes["alias"]);
             Assert.Equal("string",candidate.OutputTypes["name"]);
             const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+            var candidateSql=candidate.GetType().GetProperty("MySql",hidden)!.GetValue(candidate)!;
+            foreach(var field in joinedFields)
+            {
+                var expression=Assert.IsType<string>(candidateSql.GetType().GetMethod("Expression",hidden)!.Invoke(candidateSql,[field]));
+                var from=Assert.IsType<string>(candidateSql.GetType().GetProperty("From",hidden)!.GetValue(candidateSql));
+                Assert.Contains("checkbox_parent_label_"+field+"_dictionary",from);
+                Assert.Contains("enabled_flag",from+expression);
+                Assert.Contains("/*metarill:nested-current*/",from+expression);
+            }
             Assert.Equal(useAccount,candidate.RequiresAccount);
             if(additionalParent.Length>0)
             {
@@ -576,6 +619,8 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Contains("checkbox_parent_label_source",affected);
             Assert.Contains("checkbox_parent_label_country",affected);
             Assert.Contains("checkbox_parent_label_area",affected);
+            foreach(var field in joinedFields)
+                Assert.Contains("checkbox_parent_label_"+field+"_dictionary",affected);
             var plans=(System.Collections.IDictionary)maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance)!;
             var plan=plans["9"]!;
             Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
@@ -585,6 +630,13 @@ public sealed class DatabaseCheckboxGenerationTests
                 var sql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,[name]));
                 Assert.Contains("b.`owner_country_id`",sql);
                 Assert.Contains("multi_value.`active_flag`",sql);
+                var field=name=="selected_alias"?"alias":"name";
+                if(joinedFields.Contains(field))
+                {
+                    Assert.Contains("checkbox_parent_label_"+field+"_dictionary",sql);
+                    Assert.Contains("multi_value.`"+field+"_ref_id`",sql);
+                    Assert.Contains("enabled_flag",sql);
+                }
                 Assert.Contains("CASE WHEN",sql);
                 if(additionalParent=="logical")Assert.Contains("multi_value.`alternate_area_id`",sql);
                 else if(additionalParent=="physical")Assert.Contains("multi_value.`alternate_country_id`",sql);

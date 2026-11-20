@@ -220,6 +220,8 @@ public static partial class MySqlNonRedundantReadCompiler
             AllowsExactMultiSelection=exactMultiSelection,
             AllowsStoredExactCheckbox=storedExactCheckbox,
             MultiNamePathPage=page,
+            // 保存及导入的当前读也须锁定名称的内层可见性，不能回到事务快照。
+            LockPublishedJoinScopes=storedExactCheckbox,
             AllowLiteralMultiScope=extraFields.Count>0||allowLiteralMultiScope,
             MultiImportFields=extraFields,
             MultiImportCrossFields=crossFields,

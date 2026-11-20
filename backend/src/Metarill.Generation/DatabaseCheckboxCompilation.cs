@@ -118,16 +118,6 @@ internal static class DatabaseCheckboxCompilation
             var explicitPage=definition.PageId.Length>0?definition.PageId:linkedPage;
             var namePage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage);
             if(functionForm&&explicitPage.Length>0&&namePage is null)return Gap("功能表复选的显式目标页未在实际目标表发布。");
-            if(usesNameOverride)
-            {
-                // 实时名称沿用原响应数组，物理缓存则按同一关系的实际名称登记。
-                var baseName=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baseline.NameField);
-                if(functionForm||target.IsGlobal&&table.Source.IsRongyu!=1||baseName is null||
-                    !MultiSelectCompilation.PhysicalTextLabel(model,target,baseName)||
-                    !MultiSelectCompilation.PhysicalTextLabel(model,target,name)||
-                    namePage is not null&&!namePage.Readable.Any(column=>column.Source.Id==name.Source.Id))
-                    return Gap("页级名称须沿用同一物理文本关系，显式目标页必须已开放该字段。");
-            }
             var exactTarget=namePage is null?null:ExactDataManageCompilation.Resolve(model,target,namePage);
             var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
             var sharedNamesPage=table.Source.IsRongyu==1&&!functionForm&&namePage is not null&&namePage.Source.Id==fixedPage&&
@@ -141,8 +131,19 @@ internal static class DatabaseCheckboxCompilation
             if(sharedAccountScope)
                 _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,namePage!.Source);
             // 多个目标父层位仍由同一发布页证明，所有名称共用同一个来源父键。
-            var sharedLogicalParentScope=sharedNamesPage&&!derived&&target.Source.IsRongyu==0&&exactTarget is null&&
+            var sharedLogicalParentScope=sharedNamesPage&&target.Source.IsRongyu==0&&exactTarget is null&&
                 namePage!.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,namePage,scope.Column));
+            if(usesNameOverride)
+            {
+                // 同一固定逻辑父范围也可投影明确的单值联接，候选和维护各自编译其终点。
+                var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
+                bool TextLabel(ColumnModel label)=>MultiSelectCompilation.PhysicalTextLabel(model,target,label)||
+                    sharedLogicalParentScope&&MultiNameStorageColumns.IsDerivedCheckboxText(target.Source,storage,label.Source);
+                var baseName=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baseline.NameField);
+                if(functionForm||target.IsGlobal&&table.Source.IsRongyu!=1||baseName is null||!TextLabel(baseName)||
+                    !TextLabel(name)||namePage is not null&&!namePage.Readable.Any(column=>column.Source.Id==name.Source.Id))
+                    return Gap("页级名称须沿用同一固定文本关系，显式目标页必须已开放该字段。");
+            }
             // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。
             var compoundTargetParents=!functionForm&&target.Source.IsRongyu==0&&
                 namePage?.Scopes.Count(scope=>scope.Source=="parent")>1;

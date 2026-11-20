@@ -41,6 +41,12 @@ public static class MultiNameStorageColumns
         value.ControlKind is ("" or "Text" or "TextArea")&&targetStorage.Kind(value)==MetadataFieldStorage.Join&&Enabled(value,"isJoinColumn")&&
         !Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName);
 
+    /// <summary>仅允许明确的非虚拟文本联接，实际单值终点由候选与维护计划分别重证。</summary>
+    public static bool IsDerivedCheckboxText(TableMetadata target,MetadataStoragePlan storage,ColumnMetadata value)=>
+        target.IsRongyu==0&&value.ConfigTableId==target.Id&&value.LogicalType=="string"&&value.IsVirtualColumn==0&&
+        value.ControlKind is ("" or "Text" or "TextArea")&&storage.Kind(value)==MetadataFieldStorage.Join&&
+        !Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName);
+
     /// <summary>安全关系由原专用协调器管理，不能自动增加角色缓存或改变权限物理结构。</summary>
     private static bool Protected(TableMetadata table)=>table.TableName is "yz_manager" or "yz_role" or "yz_admin_type"||table.Id is "6031906809708544" or "1692532858499969026" or "1696799308939239425";
     /// <summary>只读取根定义的固定标量名称；坏配置留待正式用途门禁拒绝，不退化为猜列。</summary>
