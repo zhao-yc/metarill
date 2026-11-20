@@ -373,7 +373,12 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(null,true,"current_yz_manager_id")]
     [InlineData(false,false,"current_store_id")]
     [InlineData(true,true,"current_yz_manager_id")]
-    public async Task Redundant_checkbox_shares_names_under_a_logical_target_parent(bool? globalWithRowProject,bool explicitCheckbox,string accountVariable="")
+    [InlineData(null,false,"","physical")]
+    [InlineData(null,true,"current_yz_manager_id","logical")]
+    [InlineData(false,false,"current_store_id","logical")]
+    [InlineData(true,true,"current_yz_manager_id","physical")]
+    public async Task Redundant_checkbox_shares_names_under_a_logical_target_parent(bool? globalWithRowProject,bool explicitCheckbox,
+        string accountVariable="",string additionalParent="")
     {
         const string ns="Example.CheckboxLogicalParent";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("checkbox_parent_label","string","int64");
@@ -398,6 +403,26 @@ public sealed class DatabaseCheckboxGenerationTests
             new(){Id="96",ConfigTableId="9",ColumnName="selected_alias",LogicalType="string",ColumnLength="max",
                 Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("selected.alias")}}
         ]);
+        if(additionalParent.Length>0)
+        {
+            targetPage.Extra["type"]=JsonSerializer.SerializeToElement(0);
+            targetPage.WhereSql+=" AND alternate_country_id=@parent_id";
+            if(additionalParent=="physical")
+                catalog.ConfigColumns.Add(new(){Id="284",ConfigTableId="2",ColumnName="alternate_country_id",
+                    LinkConfigTableId="3",LogicalType="string",ColumnLength="24"});
+            else
+            {
+                catalog.ConfigColumns.Add(new(){Id="284",ConfigTableId="2",ColumnName="alternate_area_id",
+                    LinkConfigTableId="4",LogicalType="int64",ControlKind="CascadeTree",
+                    ControlDetail=JsonSerializer.Serialize(new
+                    {
+                        sourceMode="crossTable",
+                        levels=new object[]{new{table="checkbox_parent_label_country",columnPrefix="alternate_country"},
+                            new{table="checkbox_parent_label_area",columnPrefix="alternate_area",parentField="checkbox_parent_label_country_id"}}
+                    })});
+                catalog.ConfigPageColumns.Add(new(){Id="201284",ConfigPageId=targetPage.Id,ConfigColumnId="284",IsEdit=1,IsShow=1});
+            }
+        }
         var useAccount=accountVariable.Length>0;
         var storeScope=accountVariable=="current_store_id";
         var targetOwner=storeScope?"store_id":"dictionary_owner_id";
@@ -445,6 +470,7 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.True(resolution.Definition is not null,resolution.Reason);
             Assert.Equal("201",resolution.Definition!.LogicalTargetPage?.Source.Id);
             Assert.Equal("94",resolution.Definition.SourceParent?.Source.Id);
+            Assert.Equal(additionalParent.Length>0?2:1,resolution.Definition.Scopes.Count(scope=>scope.Source=="parent"));
         }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var bindings=RelationPropagationCompilation.Definitions(RelationPropagationCompilation.DerivedBindings(model)
@@ -487,6 +513,20 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Equal("string",candidate.OutputTypes["name"]);
             const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
             Assert.Equal(useAccount,candidate.RequiresAccount);
+            if(additionalParent.Length>0)
+            {
+                var sqlPlan=candidate.GetType().GetProperty("MySql",hidden)!.GetValue(candidate)!;
+                var scope=Assert.IsType<string>(sqlPlan.GetType().GetProperty("Scope",hidden)!.GetValue(sqlPlan));
+                var alternate=Assert.IsType<string>(sqlPlan.GetType().GetMethod("Expression",hidden)!
+                    .Invoke(sqlPlan,["alternate_country_id"]));
+                Assert.Contains(alternate,scope);
+                if(additionalParent=="logical")
+                {
+                    Assert.StartsWith("CASE WHEN",alternate);
+                    Assert.Contains("b.`alternate_area_id`",alternate);
+                }
+                else Assert.Equal("b.`alternate_country_id`",alternate);
+            }
             if(useAccount)
             {
                 const long accountId=9007199254740993L;
@@ -517,6 +557,8 @@ public sealed class DatabaseCheckboxGenerationTests
                 Assert.Contains("b.`owner_country_id`",sql);
                 Assert.Contains("multi_value.`active_flag`",sql);
                 Assert.Contains("CASE WHEN",sql);
+                if(additionalParent=="logical")Assert.Contains("multi_value.`alternate_area_id`",sql);
+                else if(additionalParent=="physical")Assert.Contains("multi_value.`alternate_country_id`",sql);
                 if(useAccount)
                 {
                     Assert.Contains($"BINARY CAST(b.`{sourceOwner}` AS CHAR)",sql);
@@ -528,6 +570,19 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
 
             var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,bindings);
+            if(additionalParent.Length>0)
+            {
+                // 两个父条件必须绑定同一真实父表，精简目录重新装载时也要拒绝不同角色。
+                var publishedTarget=published.ConfigPages.Single(page=>page.Id=="201");
+                var where=publishedTarget.WhereSql;
+                if(additionalParent=="logical")
+                    publishedTarget.WhereSql=where.Replace("alternate_country_id=@parent_id","alternate_area_id=@parent_id",StringComparison.Ordinal);
+                else published.ConfigColumns.Single(column=>column.Id=="284").LinkConfigTableId="4";
+                Assert.Throws<InvalidOperationException>(()=>
+                    Metarill.Data.Relations.RelationMaintenanceCatalog.CompileWithDerivedCrossTables(published,[],bindings));
+                publishedTarget.WhereSql=where;
+                if(additionalParent=="physical")published.ConfigColumns.Single(column=>column.Id=="284").LinkConfigTableId="3";
+            }
             if(useAccount)
             {
                 var sourcePage=published.ConfigPages.Single(page=>page.Id=="902");
