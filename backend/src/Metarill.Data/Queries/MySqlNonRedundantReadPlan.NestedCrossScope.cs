@@ -81,7 +81,8 @@ public static partial class MySqlNonRedundantReadCompiler
             :null);
         if(accountParentPage&&(!global||page.Extra.GetValueOrDefault("type").ToString()!=accountParentPageType||
             parent is null||(accountParentPageType=="2"
-                ?parent.Logical||!syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported):physicalParent is null)))
+                ?parent.Logical?parent.AdditionalTargets.Count==0:!syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported)
+                :physicalParent is null)))
             throw new NotSupportedException("全局候选必须使用实际发布的条件和物理父键。");
         var additional=parent?.AdditionalTargets.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal);
         var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target,treeNames,additional);
@@ -184,13 +185,18 @@ public static partial class MySqlNonRedundantReadCompiler
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
         var parent=MultiParent(catalog,page);
         if(parent is not{Global:true})throw new NotSupportedException("多值全局父须显式声明全局表关系。");
-        if(!parent.Logical)
-        {
-            var targetPage=PublishedPhysicalMultiParent(catalog,parent);
-            if(parent.AdditionalTargets.Any(scope=>PublishedPhysicalMultiParent(catalog,scope).Id!=targetPage.Id))
-                throw new InvalidOperationException("同一全局父记录的各物理外键必须绑定同一个实际发布父页。");
-            return(parent.Parent,targetPage);
-        }
+        var pages=parent.AdditionalTargets.Prepend(parent)
+            .Select(scope=>scope.Logical?PublishedLogicalMultiParent(catalog,table,page,scope):
+                PublishedPhysicalMultiParent(catalog,scope)).DistinctBy(item=>item.Id).ToArray();
+        if(pages.Length!=1)
+            throw new InvalidOperationException("同一全局父记录的各物理外键和级联层位必须绑定同一个实际发布父页。");
+        return(parent.Parent,pages[0]);
+    }
+
+    /// <summary>沿实际固定级联层位核对全局父页，所有共享支路须指向同一页。</summary>
+    private static PageMetadata PublishedLogicalMultiParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        MultiTargetParentScope parent)
+    {
         var field=parent.Target.ColumnName;
         var bindings=CrossMembershipBindings(catalog,table,page,new HashSet<string>(StringComparer.Ordinal){field});
         var parentPages=bindings.Select(binding=>
@@ -210,7 +216,7 @@ public static partial class MySqlNonRedundantReadCompiler
         if(parentPages.Length!=1)throw new InvalidOperationException("多值全局父缺少唯一固定候选页。");
         var published=catalog.ConfigPages.Single(item=>item.Id==parentPages[0]&&item.ConfigTableId==parent.Parent.Id);
         RequireFixedGlobalParent(catalog,parent.Parent,published);
-        return(parent.Parent,published);
+        return published;
     }
 
     /// <summary>物理外键必须直接绑定父表，控件与附加页面声明冲突时拒绝发布。</summary>
@@ -256,6 +262,12 @@ public static partial class MySqlNonRedundantReadCompiler
             IDictionary<string,string> expressions,IDictionary<string,string> types)
         {
             if(parent.AdditionalTargets.Count==0)return "";
+            if(parent is {Global:true,Logical:true})
+            {
+                // 级联已校验可见路径；混合物理外键还必须与该路径共享同一发布父页。
+                var page=SelectedMultiPage??MultiCandidatePage??throw new InvalidOperationException("缺少同父范围的实际发布页。");
+                _=PublishedMultiGlobalParent(catalog,root.Id,page.Id);
+            }
             var predicates=new List<string>();
             foreach(var scope in parent.AdditionalTargets)
             {

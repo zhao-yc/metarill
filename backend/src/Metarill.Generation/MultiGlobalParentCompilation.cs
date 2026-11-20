@@ -49,10 +49,28 @@ internal static class MultiGlobalParentCompilation
         return MultiTargetParentScope.Compile(model.Catalog,table.Source,condition) is {Global:true,Logical:false} parent?parent:null;
     }
 
+    /// <summary>多个父字段含逻辑级联时，逐个证明同一实际全局父页，再开放该页的父范围。</summary>
+    internal static MultiTargetParentScope? LogicalCompoundTarget(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(!table.IsGlobal||table.Source.IsRongyu!=0||page.Scopes.Count(scope=>scope.Source=="parent")<2||
+            !page.Scopes.Any(scope=>scope.Source=="parent"&&
+                CrossTableStorageColumns.IsLogicalPathField(table.Source,model.Catalog.ConfigColumns,scope.Column.Source.ColumnName)))
+            return null;
+        var checkbox=!SelectionPageRenderer.Enabled(page);
+        if(checkbox&&(page.Source.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1")||
+            !NonRedundantReads.IsScopedMultiTarget(model.Catalog,table.Source,page.Source.Id)))return null;
+        var condition=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
+        if(MultiTargetParentScope.CompileGlobalPage(model.Catalog,table.Source,condition,checkbox)
+            is not {Global:true,Logical:true,AdditionalTargets.Count:>0} parent)return null;
+        _=NonRedundantReads.MultiGlobalParentPageId(model.Catalog,table.Source.Id,page.Source.Id);
+        return parent;
+    }
+
     /// <summary>按目标页证明的实际全局父键，原多值引用保持已有同页校验。</summary>
     internal static PageModel? PhysicalTarget(GenerationModel model,TableModel table,PageModel page)
     {
         if(PhysicalSingleTarget(model,table,page) is not null||PhysicalPageParent(model,table,page) is not null)return page;
+        if(LogicalCompoundTarget(model,table,page) is {} compound&&compound.AdditionalTargets.Any(scope=>!scope.Logical))return page;
         if(!FixedPageConditionCompilation.HasMultiTargetScope(model,table,page))return null;
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
         if(parents.Length!=1)return null;

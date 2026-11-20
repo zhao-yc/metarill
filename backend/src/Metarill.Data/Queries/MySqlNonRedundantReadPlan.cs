@@ -428,7 +428,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var logical=column.IsVirtualColumn==0&&!Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(field)&&
                         (controls.Any(control=>CrossTableStorageColumns.ContainsPathField(control,field))||
                          SelectedMultiPage is not null&&(field==cascadeLabelField||
-                         MultiCandidateParent is {Logical:true}&&field==MultiCandidateParent.Target.ColumnName)&&
+                         IsSelectedLogicalParent(field))&&
                          CrossTableStorageColumns.IsLogicalPathField(root,columns[root.Id].Values.ToArray(),field));
                     if(!logical&&!PublishedGlobalSelfTreeField(column)&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage[root.Id],root,column))
                         throw new NotSupportedException("全局R0读取只接受已证明的标量、单值名称与固定级联字段。");

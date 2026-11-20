@@ -26,7 +26,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public static MultiTargetParentScope? CompileCheckboxPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)=>
         CompilePublishedPage(catalog,table,condition,checkbox:true);
 
-    /// <summary>全局发布页可使用同一真实父表的多个物理父字段，父页由调用方逐项核对。</summary>
+    /// <summary>全局发布页可使用同一真实父表的物理父字段和已声明级联层位，父页由调用方逐项核对。</summary>
     public static MultiTargetParentScope? CompileGlobalPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox=false)=>
         CompilePublishedPage(catalog,table,condition,checkbox,globalTarget:true);
 
@@ -42,8 +42,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
             .DistinctBy(scope=>scope.Target.Id).OrderByDescending(scope=>scope.Logical)
             .ThenBy(scope=>scope.Target.Id,StringComparer.Ordinal).ToArray();
         var parent=scopes[0];
-        if(!globalTarget&&parent.Global||globalTarget&&scopes.Any(scope=>scope.Logical)||
-            scopes.Any(scope=>scope.Parent.Id!=parent.Parent.Id))throw Invalid();
+        if(!globalTarget&&parent.Global||scopes.Any(scope=>scope.Parent.Id!=parent.Parent.Id))throw Invalid();
         return parent with{AdditionalTargets=scopes[1..]};
     }
 

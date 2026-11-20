@@ -276,6 +276,20 @@ public sealed class CascadeMultiLabelGenerationTests
             globalRowProject:hasRowProject,parent:true,globalParent:globalParent,
             parentWithoutProject:globalParent,parentAccount:globalParent,compoundTargetParent:"physical");
 
+    /// <summary>显式全局目标以实际级联层位和物理键或第二条路径限定同一父记录。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage","mixed",true,true,0)]
+    [InlineData("MultiSelectPage","independent",false,true,0)]
+    [InlineData("MultiSelectPage","mixed",false,false,0)]
+    [InlineData("MultiCheckBoxDatabase","independent",true,false,0)]
+    [InlineData("MultiCheckBoxDatabase","mixed",false,true,1)]
+    public Task Global_multivalue_target_compound_cascade_parents_compile_in_original_endpoints(
+        string kind,string targetScope,bool hasRowProject,bool globalParent,int storageMode)=>
+        CompileCascadeLabel(kind,storageMode,selfTree:false,indirect:false,selectedPage:true,
+            globalRowProject:hasRowProject,parent:true,logicalParent:true,globalParent:globalParent,
+            parentWithoutProject:globalParent,parentAccount:globalParent,compoundTargetParent:targetScope,
+            sourceLogicalParent:kind=="MultiSelectPage"&&targetScope=="independent");
+
     /// <summary>显式全局父沿实际级联层页校验，覆盖普通／全局目标及普通／逻辑来源父。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,null,true,false)]
@@ -713,40 +727,52 @@ public sealed class CascadeMultiLabelGenerationTests
                 if(compoundTargetParent=="independent")
                     targetMetadata.WhereSql=previousWhere.Replace("other_country_id=@parentId","other_area_id=@parentId",StringComparison.Ordinal);
                 else linked.LinkConfigTableId="4";
-                var invalid=GenerationModel.Create(catalog,ns);
-                var invalidOwner=invalid.Tables.Single(item=>item.Source.Id=="9");
-                var invalidPage=invalidOwner.Pages.Single(item=>item.Source.Id=="901");
-                var invalidField=invalidOwner.Columns.Single(item=>item.Source.Id=="95");
-                if(checkbox)Assert.Null(DatabaseCheckboxCompilation.Resolve(invalid,invalidOwner,invalidPage,invalidField).Definition);
-                else Assert.Null(MultiSelectCompilation.Resolve(invalid,invalidOwner,invalidPage,invalidField).Definition);
+                if(globalParent&&globalRowProject is not null&&compoundTargetParent!="physical")
+                {
+                    var error=Assert.ThrowsAny<InvalidOperationException>(()=>NonRedundantReads.MultiGlobalParentPageId(catalog,"2","201"));
+                    Assert.Contains("同一真实父表",error.Message);
+                    // 全局目标自身依赖路径证明，异父时在生成模型阶段就拒绝。
+                    Assert.ThrowsAny<InvalidOperationException>(()=>GenerationModel.Create(catalog,ns));
+                }
+                else
+                {
+                    var invalid=GenerationModel.Create(catalog,ns);
+                    var invalidOwner=invalid.Tables.Single(item=>item.Source.Id=="9");
+                    var invalidPage=invalidOwner.Pages.Single(item=>item.Source.Id=="901");
+                    var invalidField=invalidOwner.Columns.Single(item=>item.Source.Id=="95");
+                    if(checkbox)Assert.Null(DatabaseCheckboxCompilation.Resolve(invalid,invalidOwner,invalidPage,invalidField).Definition);
+                    else Assert.Null(MultiSelectCompilation.Resolve(invalid,invalidOwner,invalidPage,invalidField).Definition);
+                }
                 targetMetadata.WhereSql=previousWhere;
                 linked.LinkConfigTableId=previousLink;
 
-                if(globalParent&&globalRowProject is not null)
+                if(globalParent&&globalRowProject is not null&&compoundTargetParent is "physical" or "mixed")
                 {
-                    // 同一父表的不同发布页不能通过两个物理外键混用。
+                    // 同一父表的不同发布页不能由两个物理外键或级联与物理外键混用。
                     var parentTable=catalog.ConfigTables.Single(table=>table.Id==previousLink);
                     var publishedParent=catalog.ConfigPages.Single(page=>page.ConfigTableId==parentTable.Id);
                     var another=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(publishedParent))!;
                     another.Id="319";
                     another.WhereSql+=" AND name<>'另一父页'";
-                    var canonical=catalog.ConfigColumns.Single(column=>column.Id=="214");
-                    canonical.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement(publishedParent.Id);
+                    var canonical=catalog.ConfigColumns.SingleOrDefault(column=>column.Id=="214");
+                    if(canonical is not null)canonical.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement(publishedParent.Id);
                     linked.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement(another.Id);
                     catalog.ConfigPages.Add(another);
                     try
                     {
-                        Assert.ThrowsAny<InvalidOperationException>(()=>NonRedundantReads.MultiGlobalParentPageId(catalog,"2","201"));
+                        var error=Assert.ThrowsAny<InvalidOperationException>(()=>NonRedundantReads.MultiGlobalParentPageId(catalog,"2","201"));
+                        Assert.Contains("同一个实际发布父页",error.Message);
                     }
                     finally
                     {
-                        canonical.Extra.Remove("linkConfigPageId");
+                        canonical?.Extra.Remove("linkConfigPageId");
                         linked.Extra.Remove("linkConfigPageId");
                         catalog.ConfigPages.Remove(another);
                     }
                 }
 
-                if(compoundTargetParent=="physical"&&(globalRowProject is null||kind=="MultiSelectPage"&&globalParent))
+                if(compoundTargetParent=="physical"&&(globalRowProject is null||kind=="MultiSelectPage"&&globalParent)||
+                    compoundTargetParent=="independent"&&globalRowProject==false&&kind=="MultiSelectPage")
                 {
                     // 发布包必须保留原弹窗和多选页真实绑定，恢复后的运行时读取仍可编译。
                     foreach(var configPage in catalog.ConfigPages)
