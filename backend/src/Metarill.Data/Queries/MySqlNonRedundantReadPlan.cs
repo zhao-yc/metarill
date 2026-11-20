@@ -621,7 +621,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(name is "insert_manager_real_name" or "update_manager_real_name")
                     {var relation=Column(table,name.Replace("_real_name","_id",StringComparison.Ordinal));var target=tables.Values.SingleOrDefault(item=>item.TableName=="yz_manager")??throw new InvalidOperationException("缺少固定管理员基础设施元数据。");ValidateTarget(target);var id=Resolve(table,alias,relation.ColumnName);return Resolve(target,Join(alias,relation,target,id.Sql,id.Type),"real_name");}
                 }
-                if(InferredSingleDisplay(table,name) is {} inferred)
+                if(InferredSingleDisplay(table,name,alias) is {} inferred)
                 {
                     var target=Target(inferred.Foreign);
                     var joined=JoinSinglePath(table,alias,inferred.Foreign,target,singleCacheOwner);

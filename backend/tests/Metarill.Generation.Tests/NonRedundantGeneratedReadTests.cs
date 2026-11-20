@@ -23,12 +23,69 @@ public sealed class NonRedundantGeneratedReadTests
         }
         finally{if(Directory.Exists(root))Directory.Delete(root,true);}
     }
+    /// <summary>两个业务页共享原稳定名称属性，分别使用表级名称及本页覆盖的简称。</summary>
+    [Fact]
+    public async Task Page_list_label_override_retains_original_auxiliary_and_excel_contract()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "metarill-list-label-override", Guid.NewGuid().ToString("N"));
+        var catalog = NonRedundantGeneratedFixture.Catalog("mt_page_label");
+        var source = catalog.ConfigPages.Single(page => page.Id == "101");
+        source.IsExport = 1;
+        source.IsImport = 1;
+        source.Extra["importMethod"] = JsonSerializer.SerializeToElement("append");
+        var copy = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(source))!;
+        copy.Id = "104";
+        copy.Extra["exportMethod"] = JsonSerializer.SerializeToElement("edit");
+        copy.Extra["importMethod"] = JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+        catalog.ConfigPages.Add(copy);
+        foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigPageId == source.Id).ToArray())
+        {
+            var second = JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+            second.Id = copy.Id + field.ConfigColumnId;
+            second.ConfigPageId = copy.Id;
+            catalog.ConfigPageColumns.Add(second);
+        }
+        var target = catalog.ConfigColumns.Single(column => column.Id == "25");
+        var alias = JsonSerializer.Deserialize<ColumnMetadata>(JsonSerializer.Serialize(target))!;
+        alias.Id = "28";
+        alias.ColumnName = "short_name";
+        alias.Name = "简称";
+        catalog.ConfigColumns.Add(alias);
+        catalog.ConfigPageColumns.Add(new() { Id = "20128", ConfigPageId = "201", ConfigColumnId = "28", IsShow = 1 });
+        catalog.ConfigPageColumns.Single(field => field.ConfigPageId == copy.Id && field.ConfigColumnId == "15")
+            .Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"nameField":"short_name"}""");
+        NonRedundantGeneratedFixture.EnableImports(catalog);
+        copy.IsImport = 1;
+        try
+        {
+            var generated = Path.Combine(root, "generated");
+            var result = new CSharpGenerator().Generate(catalog, generated, "Example.PageLabel");
+            Assert.NotEmpty(result.GeneratedFiles);
+            var service = await File.ReadAllTextAsync(Path.Combine(generated, "Services/MtPageLabelOrderService.g.cs"));
+            Assert.Contains("DisplayNameColumnId=\"28\"", service);
+            Assert.Contains("entity.ShortName", service);
+            foreach (var pageId in new[] { "101", "104" })
+            {
+                var vo = await File.ReadAllTextAsync(Path.Combine(generated, $"VOs/MtPageLabelOrderPage{pageId}Vo.g.cs"));
+                Assert.Contains("customerName", vo);
+                Assert.DoesNotContain("customerShortName", vo);
+            }
+            var originalDetail = await File.ReadAllTextAsync(Path.Combine(generated, "frontend/pages/yzp/mt_page_label_order-detail-104.vue"));
+            Assert.Contains("this.entity.customerName=item ? item.name", originalDetail);
+            Assert.Contains("readonlyDisplayText(entity.customerName)", originalDetail);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            var serviceType = assembly.GetType("Example.PageLabel.Generated.Services.MtPageLabelOrderService", true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     /// <summary>未接线原功能不能以静默退化方式生成；公开完整包仍保留能力门槛。</summary>
     [Theory]
     [InlineData("customImport")][InlineData("global")][InlineData("select")][InlineData("filterType")][InlineData("conflictingTarget")][InlineData("effectiveOverride")]
     public void Unsupported_usages_still_reject_before_files(string usage)
     {
-        var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_offline");var page=catalog.ConfigPages[0];if(usage=="customImport"){page.IsImport=1;page.Extra["importMethod"]=JsonSerializer.SerializeToElement("custom");}else if(usage=="global")catalog.ConfigTables[0].Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");else if(usage=="select")catalog.ConfigColumns.Single(column=>column.ColumnName=="customer_id").ControlKind="SelectPage";else if(usage=="filterType")catalog.ConfigColumns.Single(column=>column.Id=="14").LogicalType="json";else if(usage=="conflictingTarget")catalog.ConfigColumns.Single(column=>column.ColumnName=="customer_id").LinkConfigTableId="3";else catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="101"&&field.ConfigColumnId=="15").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"nameField\":\"notes\"}");
+        var catalog=NonRedundantGeneratedFixture.Catalog("mt_nrg_offline");var page=catalog.ConfigPages[0];if(usage=="customImport"){page.IsImport=1;page.Extra["importMethod"]=JsonSerializer.SerializeToElement("custom");}else if(usage=="global")catalog.ConfigTables[0].Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");else if(usage=="select")catalog.ConfigColumns.Single(column=>column.ColumnName=="customer_id").ControlKind="SelectPage";else if(usage=="filterType")catalog.ConfigColumns.Single(column=>column.Id=="14").LogicalType="json";else if(usage=="conflictingTarget")catalog.ConfigColumns.Single(column=>column.ColumnName=="customer_id").LinkConfigTableId="3";else catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="101"&&field.ConfigColumnId=="15").Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"nameField\":\"unpublished_label\"}");
         var root=Path.Combine(Path.GetTempPath(),"metarill-nonred-reject",Guid.NewGuid().ToString("N"));Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,root,"Example.NonRedGenerated"));Assert.False(Directory.Exists(root));
     }
     /// <summary>自动名称即使被标为可编辑，也不能成为物理导入列。</summary>

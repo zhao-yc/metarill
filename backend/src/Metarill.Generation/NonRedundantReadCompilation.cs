@@ -203,7 +203,7 @@ internal static partial class NonRedundantReadCompilation
             if(relation.Source.ControlKind is not("List" or "SelectPage"))continue;
             var pageField=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==relation.Source.Id);
             if(relation.Source.ControlKind!="SelectPage"&&pageField?.Extra.TryGetValue("controlDetail",out var detail)==true&&!string.IsNullOrWhiteSpace(detail.ToString())&&HasEffectiveOverride(relation.Source.ControlDetail,detail.ToString())&&!ProvenOptionsOverride(model,page,relation,detail.ToString()))throw new InvalidOperationException("非冗余页级关系控件覆盖尚需接线。");
-            var nameField="name";if(!string.IsNullOrWhiteSpace(relation.Source.ControlDetail)){using var document=JsonDocument.Parse(relation.Source.ControlDetail);if(document.RootElement.TryGetProperty("nameField",out var name))nameField=name.GetString()!;}
+            var nameField=BaselineSingleName(relation);
             if(nameField=="id"||!relation.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal))continue;
             var target=ForeignValidationRenderer.Target(model,relation)??throw new InvalidOperationException("关联目标缺少已接通的固定候选来源。");
             ValidateTargetDeclarations(model,relation,target);
@@ -275,9 +275,44 @@ internal static partial class NonRedundantReadCompilation
         if(table.Source.IsRongyu!=0)return [];
         var direct=RelationCompilation.ForPage(model,page).Concat(RelationCompilation.ForPage(model,page,true))
             .DistinctBy(relation=>relation.SourceColumn.Source.Id)
-            .Where(relation=>(!table.IsGlobal||relation.Target.IsGlobal)&&UsesProjectSingleRead(relation))
-            .Select(relation=>ProjectTarget(model,table,page,relation));
+            .Where(relation=>!table.IsGlobal||relation.Target.IsGlobal)
+            .Select(relation=>PageTarget(model,table,page,relation))
+            .OfType<NonRedundantSingleTargetScope>();
         return MergeProjectTargets(direct.Concat(ProjectPathTargets(model,table,page,fields)));
+    }
+
+    /// <summary>页级名称沿用相同的物理外键和原候选条件。纯名称变化不引入额外范围。</summary>
+    private static NonRedundantSingleTargetScope? PageTarget(GenerationModel model,TableModel table,PageModel page,RelationModel relation)
+    {
+        var name=PageListDisplayOverride(model,table,relation);
+        if(UsesProjectSingleRead(relation))
+            return ProjectTarget(model,table,page,relation) with{DisplayNameColumnId=name?.Source.Id};
+        return name is null?null:new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id)
+            {ApplyPageCondition=false,DisplayNameColumnId=name.Source.Id};
+    }
+
+    /// <summary>只覆盖同一目标的文本显示值。固定全局名称、显式联接列和目标授权不随页级名称改写。</summary>
+    internal static ColumnModel? PageListDisplayOverride(GenerationModel model,TableModel table,RelationModel relation)
+    {
+        var source=relation.SourceColumn;
+        var target=relation.Target;
+        var name=relation.NameColumn;
+        if(source.Source.ControlKind!="List"||table.Source.IsRongyu!=0||table.IsGlobal||target.IsGlobal||
+            source.IsSystem||!Physical(model,table,source)||ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id||
+            name.Type!="string?"||name.IsJsonArray||name.Source.ControlKind=="FileLibrary"||!Physical(model,target,name)||
+            Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(name.Source.ColumnName))
+            return null;
+        var baseline=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==BaselineSingleName(source));
+        return baseline is not null&&baseline!=name&&Physical(model,target,baseline)&&
+            SelectionDisplayFieldCompilation.AutomaticSingle(table,source,baseline) is not null?name:null;
+    }
+
+    /// <summary>原响应属性从表级名称推导，页面覆盖不能改变 JSON 协议。</summary>
+    private static string BaselineSingleName(ColumnModel relation)
+    {
+        if(string.IsNullOrWhiteSpace(relation.Source.ControlDetail))return "name";
+        using var definition=JsonDocument.Parse(relation.Source.ControlDetail);
+        return definition.RootElement.TryGetProperty("nameField",out var name)?name.GetString()??"name":"name";
     }
 
     /// <summary>固定父键从所在页面的同父或独立表单字段证明。</summary>
@@ -363,7 +398,7 @@ internal static partial class NonRedundantReadCompilation
         }
         catch(Exception error)when(error is JsonException or ArgumentException){throw new InvalidOperationException("关系覆盖必须是有效无重复键的JSON对象。",error);}
     }
-    /// <summary>只接受已编译的候选条件和排序覆盖；目标与显示名称仍沿字段定义。</summary>
+    /// <summary>只允许已编译的条件、排序及同一目标的自动显示值覆盖。</summary>
     private static bool ProvenOptionsOverride(GenerationModel model, PageModel page, ColumnModel source, string overlay)
     {
         var original = JsonNode.Parse(string.IsNullOrWhiteSpace(source.Source.ControlDetail) ? "{}" : source.Source.ControlDetail) as JsonObject
@@ -380,13 +415,18 @@ internal static partial class NonRedundantReadCompilation
         effective.Remove("whereSql");
         original.Remove("orderBy");
         effective.Remove("orderBy");
+        var nameChanged = !JsonNode.DeepEquals(original["nameField"], effective["nameField"]);
+        original.Remove("nameField");
+        effective.Remove("nameField");
         if (!JsonNode.DeepEquals(original, effective))
             return false;
 
         var compiled = RelationCompilation.ForPage(model, page)
             .SingleOrDefault(relation => relation.SourceColumn.Source.Id == source.Source.Id);
+        var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
         return compiled is not null &&
             compiled.Target.Source.Id == ForeignValidationRenderer.Target(model, source)?.Source.Id &&
+            (!nameChanged || PageListDisplayOverride(model,owner,compiled) is not null) &&
             (!conditionsChanged || compiled.Conditions is not null) &&
             (!orderChanged || compiled.OptionsOrder is not null);
     }

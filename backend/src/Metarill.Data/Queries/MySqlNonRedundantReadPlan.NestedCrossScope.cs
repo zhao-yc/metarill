@@ -472,8 +472,10 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>按实际来源别名继续读取下一段范围。多值内层沿实际名称页逐段证明。</summary>
         private NonRedundantSingleTargetScope? ProjectSingleBinding(string ownerAlias,ColumnMetadata relation,TableMetadata target)
         {
-            var explicitBinding=(ownerAlias==rootAlias?ProjectSingleTargets:projectAliasTargets.GetValueOrDefault(ownerAlias))
-                ?.GetValueOrDefault(relation.Id);
+            var explicitBinding=ExplicitSingleBinding(ownerAlias,relation);
+            // 只更换显示列时没有新的目标页范围，沿既有项目联接处理。
+            if(explicitBinding is {ApplyPageCondition:false,DisplayNameColumnId:not null,NestedTargets.Count:0})
+                return null;
             if(explicitBinding is not null||cascadeCacheOwner is not null||MultiNameSourcePage(ownerAlias) is not {} sourcePage)
                 return explicitBinding;
             var owner=tables[relation.ConfigTableId];
@@ -674,16 +676,32 @@ public static partial class MySqlNonRedundantReadCompiler
             return ("CASE WHEN "+joined.Visibility+" THEN "+label.Sql+" END",label.Type);
         }
 
-        /// <summary>未声明物理名称列时，沿原控件推导只读显示字段。验证和投影始终使用同一外键角色。</summary>
-        private (ColumnMetadata Foreign,string Display)? InferredSingleDisplay(TableMetadata table,string name)
+        /// <summary>实际联接别名与关系角色共同决定页级绑定，不能从同表的其他角色借用。</summary>
+        private NonRedundantSingleTargetScope? ExplicitSingleBinding(string owner,ColumnMetadata relation)=>
+            (owner==rootAlias?ProjectSingleTargets:projectAliasTargets.GetValueOrDefault(owner))?.GetValueOrDefault(relation.Id);
+
+        /// <summary>稳定的辅助字段名沿表级定义，页级绑定仅决定实际取值列。</summary>
+        private (ColumnMetadata Foreign,string Display)? InferredSingleDisplay(TableMetadata table,string name,string? owner=null)
         {
             foreach(var foreign in columns[table.Id].Values.Where(MetadataStoragePolicy.IsRelationColumn))
             {
                 if(!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal))continue;
                 var display=Value(Definition(foreign),"nameField");
                 if(display.Length==0)display="name";
-                if(display!="id"&&name.Equals(foreign.ColumnName[..^3]+"_"+display,StringComparison.OrdinalIgnoreCase))
-                    return(foreign,display);
+                if(display=="id"||!name.Equals(foreign.ColumnName[..^3]+"_"+display,StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if(owner is not null&&ExplicitSingleBinding(owner,foreign) is {DisplayNameColumnId:{} id} binding)
+                {
+                    var target=Target(foreign);
+                    var column=columns[target.Id].Values.SingleOrDefault(item=>item.Id==id);
+                    if(foreign.ControlKind!="List"||GlobalCrossTableTarget.Declared(table)||GlobalCrossTableTarget.Declared(target)||
+                        column is null||column.LogicalType!="string"||!storage[target.Id].IsPhysical(column)||
+                        Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.ColumnName)||
+                        !catalog.ConfigPages.Any(page=>page.Id==binding.PageId&&page.ConfigTableId==target.Id))
+                        throw new InvalidOperationException("页级下拉名称必须属于同一项目内目标的物理文本列。");
+                    display=column.ColumnName;
+                }
+                return(foreign,display);
             }
             return null;
         }

@@ -83,7 +83,9 @@ internal static partial class NonRedundantReadCompilation
                 scope.SourcePageId!=first.SourcePageId||scope.ControlSourcePageId!=first.ControlSourcePageId||
                 scope.ApplyPageCondition!=first.ApplyPageCondition))
                 throw new InvalidOperationException("同一名称路径不能借用不同页面的固定目标范围。");
-            result.Add(first with{NestedTargets=MergeProjectTargets(group.SelectMany(scope=>scope.NestedTargets))});
+            var display=group.Select(scope=>scope.DisplayNameColumnId).OfType<string>().Distinct(StringComparer.Ordinal).ToArray();
+            if(display.Length>1)throw new InvalidOperationException("同一名称路径不能借用另一页面的显示列。");
+            result.Add(first with{DisplayNameColumnId=display.SingleOrDefault(),NestedTargets=MergeProjectTargets(group.SelectMany(scope=>scope.NestedTargets))});
         }
         return result;
     }
@@ -99,6 +101,7 @@ internal static partial class NonRedundantReadCompilation
         var properties=new List<string>();
         if(scope.SourcePageId is not null)properties.Add("SourcePageId="+JsonSerializer.Serialize(scope.SourcePageId));
         if(scope.ControlSourcePageId is not null)properties.Add("ControlSourcePageId="+JsonSerializer.Serialize(scope.ControlSourcePageId));
+        if(scope.DisplayNameColumnId is not null)properties.Add("DisplayNameColumnId="+JsonSerializer.Serialize(scope.DisplayNameColumnId));
         if(scope.NestedTargets.Count>0)properties.Add("NestedTargets="+SingleTargetArray(scope.NestedTargets));
         if(!scope.ApplyPageCondition)properties.Add("ApplyPageCondition=false");
         return properties.Count==0?literal:literal+"{"+string.Join(",",properties)+"}";

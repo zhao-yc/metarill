@@ -36,6 +36,32 @@ public sealed class NonRedundantReadTests
         Assert.Null(Plan(catalog).AggregateFrom);
     }
 
+    /// <summary>两个外键可联接同表，名称覆盖只改变实际配置页对应角色的稳定输出。</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void List_display_override_uses_only_the_bound_role_and_keeps_project_scope(int targetStorage)
+    {
+        var catalog = Catalog("mt_read_root", "mt_read_party");
+        catalog.ConfigTables[1].IsRongyu = targetStorage;
+        catalog.ConfigPages.Add(new() { Id = "201", ConfigTableId = "2" });
+        catalog.ConfigColumns.Add(Column("27", "2", "short_name"));
+        var baseline = MySqlNonRedundantReadCompiler.Compile(catalog, "1", ["bill_name", "ship_name"]);
+        var binding = new NonRedundantSingleTargetScope("15", "201")
+        {
+            ApplyPageCondition = false,
+            DisplayNameColumnId = "27"
+        };
+        var plan = NonRedundantReads.CompileProjectPage(catalog, "1", ["bill_name", "ship_name"], ["bill_name"], [], [binding]).MySql;
+        Assert.EndsWith(".`short_name`", plan.Expression("bill_name"));
+        Assert.Equal(baseline.Expression("ship_name"), plan.Expression("ship_name"));
+        Assert.Equal(baseline.From, plan.From);
+        Assert.Contains("yz_project_id", plan.From);
+        Assert.Contains("delete_no", plan.From);
+        Assert.Throws<InvalidOperationException>(() => NonRedundantReads.CompileProjectPage(
+            catalog, "1", ["bill_name"], [], [], [binding with { DisplayNameColumnId = "26" }]));
+    }
+
     /// <summary>实际递归字段循环被拒，普通自关联不是循环。</summary>
     [Fact]
     public void Rejects_real_derived_cycle()

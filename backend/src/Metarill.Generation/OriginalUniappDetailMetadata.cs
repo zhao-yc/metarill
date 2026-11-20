@@ -117,6 +117,13 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
         if (FixedOptionCatalogCompilation.Resolve(model, page, column).Definition is { } catalog) return catalog.JsonName;
         if (FixedRoleAdminNameCompilation.Resolve(model,table,page,column).Definition is not null) return FixedRoleAdminNameModel.Alias;
         if (column.Source.ControlKind == "MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null) return FixedRoleCheckboxModel.Alias;
+        // 页级简称使用原辅助名，候选切换和只读回显读取同一返回属性。
+        if (table.Source.IsRongyu == 0 && column.Source.ControlKind == "List" &&
+            RelationCompilation.ForPage(model, page, scopeSourceId: column.Source.Id).SingleOrDefault() is { } relation &&
+            relation.NameColumn.Source.ColumnName == nameField &&
+            NonRedundantReadCompilation.PageListDisplayOverride(model, table, relation) is not null &&
+            SelectionDisplayFieldCompilation.AutomaticSingle(model, table, page, column) is { } published)
+            return published.JsonName;
         var stem = column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? column.Source.ColumnName[..^4] : column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) ? column.Source.ColumnName[..^3] : column.Source.ColumnName;
         var expected = stem + "_" + nameField + (column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? "s" : "");
         return table.Columns.SingleOrDefault(item => item.Source.ColumnName == expected)?.JsonName ??

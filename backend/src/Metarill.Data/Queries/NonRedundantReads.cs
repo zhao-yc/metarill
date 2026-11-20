@@ -32,6 +32,9 @@ public sealed record NonRedundantSingleTargetScope(string ColumnId,string PageId
     /// <summary>下拉附加条件来自生成时固定的实际来源页，表单值从该来源记录求值。</summary>
     public string? ControlSourcePageId { get; init; }
 
+    /// <summary>原下拉页的实际名称列，响应仍沿用表级辅助属性名。</summary>
+    public string? DisplayNameColumnId { get; init; }
+
     /// <summary>子绑定只用于当前目标别名，重复联接同一张表时不能借用其他角色的范围。</summary>
     public IReadOnlyList<NonRedundantSingleTargetScope> NestedTargets { get; init; } = [];
 }
