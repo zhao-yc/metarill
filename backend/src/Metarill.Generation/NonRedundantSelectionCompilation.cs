@@ -36,7 +36,9 @@ internal static class NonRedundantSelectionCompilation
         RelationConditionModel? importCondition=null;
         if(!FixedPageQueryCompilation.TryProveSelection(query,definition,out var reason))
         {
-            if(table.Source.IsRongyu!=0||string.IsNullOrWhiteSpace(definition.WhereSql))throw new InvalidOperationException(reason);
+            // 项目内冗余表也可按已证明的物理外键和同一发布页解析导入条件。
+            if(table.Source.IsRongyu!=0&&(table.IsGlobal||target.IsGlobal)||string.IsNullOrWhiteSpace(definition.WhereSql))
+                throw new InvalidOperationException(reason);
             if(!FixedPageQueryCompilation.TryProveSelection(query,definition with{WhereSql=""},out var orderReason))
                 throw new InvalidOperationException(orderReason);
             // 原弹窗直接使用目标页，只有名称导入叠加来源控件的额外筛选。

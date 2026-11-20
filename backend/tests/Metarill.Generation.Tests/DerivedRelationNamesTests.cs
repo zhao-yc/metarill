@@ -14,10 +14,24 @@ public sealed class DerivedRelationNamesTests
     [InlineData(false,false)]
     [InlineData(true,false)]
     [InlineData(false,true)]
-    public async Task R0_single_excel_applies_control_conditions(bool physical,bool logical)
+    [InlineData(false,false,true)]
+    [InlineData(true,false,true)]
+    [InlineData(false,true,true)]
+    public async Task Single_excel_applies_control_conditions(bool physical,bool logical,bool cached=false)
     {
         const string ns="Example.SingleImportCondition";
         var catalog=Catalog("dr_selection",parentAndForm:true);
+        if(cached)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=1;
+            if(logical)
+            {
+                // 冗余名称副本用实际来源行的门店归属，导入条件再绑定当前账号和工作簿字段。
+                catalog.ConfigColumns.Add(new(){Id="998",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"});
+                foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+                    sourcePage.WhereSql+=" AND store_id=@current_store_id";
+            }
+        }
         var targetTable=catalog.ConfigTables.Single(table=>table.Id=="2");
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
         targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
@@ -53,7 +67,7 @@ public sealed class DerivedRelationNamesTests
         var model=GenerationModel.Create(catalog,ns);
         var source=model.Tables.Single(table=>table.Source.Id=="1");
         var page=source.Pages.Single(item=>item.Source.Id=="101");
-        var relation=Assert.Single(RelationCompilation.ForPage(model,page),item=>item.SourceColumn.Source.Id==foreign.Id);
+        var relation=Assert.Single(RelationCompilation.ForPage(model,page,forExcel:true),item=>item.SourceColumn.Source.Id==foreign.Id);
         Assert.Null(relation.Conditions);
         Assert.Equal("segment",Assert.Single(ImportDependencyCompilation.ForPage(model,source,page).Dependencies[foreign.Id]).Source.ColumnName);
         new FrontendPackager().Validate(catalog);

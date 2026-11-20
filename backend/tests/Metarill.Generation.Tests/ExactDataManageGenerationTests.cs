@@ -294,6 +294,7 @@ public sealed class ExactDataManageGenerationTests
     [InlineData(false, "name", "name", null, true, true, false, false,0)]
     [InlineData(true, "dictionaryName", "dictionary_name", "country_name", true, true, true, false,0)]
     [InlineData(false, "countryName", "country_name", null, true, false, false, false,0,true)]
+    [InlineData(false, "countryName", "country_name", null, true, false, false, false,1,true)]
     public async Task Selection_excel_uses_target_cascade_exact_plan(bool shared, string key, string field,
         string? fixedField = null, bool physicalName = false, bool logicalParent = false, bool independentParent = false,
         bool list=false,int sourceMode=1,bool importCondition=false)
@@ -648,6 +649,8 @@ public sealed class ExactDataManageGenerationTests
     [InlineData(0,1,false,false,false,true)]
     [InlineData(0,0,true,false,false,true,true)]
     [InlineData(0,0,false,false,false,true,true)]
+    [InlineData(1,1,false,false,false,true,true)]
+    [InlineData(1,0,true,false,false,true,true)]
     [InlineData(1,0,true,true,false,true)]
     [InlineData(1,0,false,false,true,true)]
     public async Task Single_exact_scope_uses_physical_or_joined_match(int sourceMode,int targetMode,bool joined,bool parent,bool hidden,

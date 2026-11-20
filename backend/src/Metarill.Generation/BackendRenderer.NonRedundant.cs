@@ -25,7 +25,7 @@ internal static partial class BackendRenderer
                 MultiGlobalParentCompilation.SingleTarget(model,table,page) is not null||
                 MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null).Select(page=>(table,page))));
         var relations=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>RelationCompilation.ForPage(model,page)
-            .Concat(RelationCompilation.ForPage(model,page,true)))).ToArray();
+            .Concat(RelationCompilation.ForPage(model,page,true,forExcel:true)))).ToArray();
         var functionRelations = relations.Where(relation => relation.FunctionForm &&
             DerivedRelationNamesCompilation.UsesFixedRead(model, relation)).ToArray();
         var scopedRelations=relations.Where(relation=>relation.FunctionForm&&relation.Target.IsGlobal||
