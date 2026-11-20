@@ -302,10 +302,11 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         internal bool AllowsExactMultiSelection { get; init; }
+        internal bool AllowsStoredExactCheckbox { get; init; }
 
         /// <summary>固定目标条件用于记录投影与维护。精确权限由发起选择的请求单独叠加。</summary>
         private bool UsesExactMultiSelection(PageMetadata page,string alias) =>
-            AllowsExactMultiSelection&&alias==rootAlias&&page.Id==SelectedMultiPage?.Id&&
+            (AllowsExactMultiSelection||AllowsStoredExactCheckbox)&&alias==rootAlias&&page.Id==SelectedMultiPage?.Id&&
             page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0;
 
         /// <summary>目标页的条件与名称共用当前记录和联接，维护用途按来源行归属绑定。</summary>
@@ -317,7 +318,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var treeNames=PublishedSelfTreeConditionFields(catalog,root,page,columns[root.Id].Values.ToArray());
             var global=GlobalCrossTableTarget.Declared(root);
             var exact=UsesExactMultiSelection(page,rootAlias);
-            if(exact)_=RequireExactMultiSelection(catalog,root,page);
+            if(exact)_=RequireExactMultiSelection(catalog,root,page,storedCheckbox:AllowsStoredExactCheckbox);
             else if(global)
             {
                 if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,allowMultiParent:MultiCandidateParent is not null);

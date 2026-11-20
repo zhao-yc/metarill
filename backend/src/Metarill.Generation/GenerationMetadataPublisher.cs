@@ -88,7 +88,7 @@ public static class GenerationMetadataPublisher
             if((multiProof.ContainsKey(page.Id)||globalR0Pages.Contains(page.Id)||labelPages.Contains(page.Id)||
                 nestedPages.Contains(page.Id))&&page.Extra.TryGetValue("type",out var kind))
                 flags["type"]=kind.Clone();
-            if(nestedPages.Contains(page.Id)&&page.Extra.TryGetValue("exactDataManageMatchField",out var exact))
+            if((nestedPages.Contains(page.Id)||labelPages.Contains(page.Id))&&page.Extra.TryGetValue("exactDataManageMatchField",out var exact))
                 flags["exactDataManageMatchField"]=exact.Clone();
             return flags;
         }

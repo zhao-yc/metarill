@@ -97,15 +97,18 @@ public static partial class MySqlNonRedundantReadCompiler
             var sourceParentSql=logicalSource?LogicalRelationSourceParent(table,owner,sourceBinding!):null;
             if(sourceParent is not null&&!logicalSource){Use(table,sourceParent);Touch(owner,sourceParent.ColumnName);}
             // 已保存名称按实际发布范围读取；用户角色值只在本次选择或写入时应用。
-            var storedGlobalExact=!checkbox&&selectedPage is null&&publishedPage is not null&&
-                GlobalCrossTableTarget.DeclaresExactMulti(target,publishedPage);
+            var candidatePage=physicalGlobalPage??(selectedPage is null?publishedPage:null);
+            var storedGlobalExact=candidatePage is not null&&(checkbox
+                ?GlobalCrossTableTarget.DeclaresExactPage(target,candidatePage)
+                :GlobalCrossTableTarget.DeclaresExactMulti(target,candidatePage));
             var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
-                trackReverse:refreshFields is not null,candidatePage:physicalGlobalPage??(selectedPage is null?publishedPage:null),multiLabel:true,cascadeLabelField:value.ColumnName,
+                trackReverse:refreshFields is not null,candidatePage:candidatePage,multiLabel:true,cascadeLabelField:value.ColumnName,
                 cascadeCacheOwner:refreshFields is null?null:new(table,owner),scopedPhysicalCandidate:physicalScope&&!global,
                 exactSingleCandidate:storedGlobalExact)
             {
                 SelectedMultiPage=selectedPage,
-                AllowsExactMultiSelection=relation.ControlKind=="MultiSelectPage",
+                AllowsExactMultiSelection=!checkbox,
+                AllowsStoredExactCheckbox=checkbox,
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent),
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
                 MultiNamePathPage=namePage,

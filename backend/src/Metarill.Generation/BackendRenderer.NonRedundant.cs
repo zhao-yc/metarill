@@ -71,9 +71,13 @@ internal static partial class BackendRenderer
         // 功能表的独立父字段只在表单中存在，目标页的固定范围仍需完整下发。
         var functionCheckboxes=model.Tables.Where(table=>table.Source.IsFunctionTable==1)
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page))).ToArray();
-        var checkboxScopes=functionCheckboxes.Where(checkbox=>checkbox.DerivedName&&checkbox.LogicalTargetPage is not null).ToArray();
+        var exactCheckboxes=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
+            .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))
+            .Where(checkbox=>checkbox.ExactTarget is not null).ToArray();
+        var checkboxScopes=functionCheckboxes.Concat(exactCheckboxes).Where(checkbox=>checkbox.DerivedName&&
+            (checkbox.LogicalTargetPage is not null||checkbox.ExactTarget is not null)).ToArray();
         // 复选的物理目标页也可能绑定全局父，冻结实际目标及父页条件。
-        foreach(var checkbox in functionCheckboxes.Where(checkbox=>checkbox.GlobalParentPage is not null))
+        foreach(var checkbox in functionCheckboxes.Concat(exactCheckboxes).Where(checkbox=>checkbox.GlobalParentPage is not null))
         {
             var targetPage=checkbox.GlobalParentPage!;
             var parent=checkbox.SourceParents.Single();
@@ -81,8 +85,8 @@ internal static partial class BackendRenderer
                 checkbox.Target.Source.Id,targetPage.Source.Id);
             scopedPages=scopedPages.Concat([(checkbox.Target,targetPage),(parent,parent.Pages.Single(page=>page.Source.Id==parentPageId))]);
         }
-        accountPages.UnionWith(checkboxScopes.Select(checkbox=>checkbox.LogicalTargetPage!.Source.Id));
-        scopedPages=scopedPages.Concat(checkboxScopes.Select(checkbox=>(checkbox.Target,checkbox.LogicalTargetPage!)));
+        accountPages.UnionWith(checkboxScopes.Select(checkbox=>(checkbox.LogicalTargetPage??checkbox.NameTargetPage)!.Source.Id));
+        scopedPages=scopedPages.Concat(checkboxScopes.Select(checkbox=>(checkbox.Target,(checkbox.LogicalTargetPage??checkbox.NameTargetPage)!)));
         var exactMultiTargets=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
             .SelectMany(table=>table.Pages.SelectMany(page=>MultiSelectCompilation.ForService(model,table,page)))
             .Where(multi=>multi.ExactTarget is not null&&(DerivedMultiNamesCompilation.UsesFixedRead(model,multi)||

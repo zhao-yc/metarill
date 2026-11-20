@@ -25,7 +25,11 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(false,false)]
     [InlineData(true,false)]
     [InlineData(false,true)]
-    public async Task Checkbox_endpoints_apply_the_bound_target_page(bool derived,bool global)
+    [InlineData(false,false,"physical")]
+    [InlineData(false,false,"joined")]
+    [InlineData(true,false,"joined")]
+    [InlineData(false,true,"physical")]
+    public async Task Checkbox_endpoints_apply_the_bound_target_page(bool derived,bool global,string exact="")
     {
         const string ns="Example.CheckboxExcelScope";
         var catalog=Catalog("checkbox_excel_scope",false);
@@ -53,10 +57,27 @@ public sealed class DerivedCheckboxNamesTests
         var published=catalog.ConfigPages.Single(page=>page.Id=="301");
         published.WhereSql=global?"sheet_status=41":published.WhereSql+" AND sheet_status=41";
         published.OrderBy="sheet_status desc";
+        if(exact.Length>0)
+        {
+            published.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
+            var match=new ColumnMetadata{Id="3006",ConfigTableId="3",ColumnName="scope_code",LogicalType="string"};
+            if(exact=="joined")
+            {
+                match.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+                match.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.name");
+            }
+            catalog.ConfigColumns.Add(match);
+        }
+        catalog.YzAdminTypes.Clear();
         RedundantMultiNameCacheTests.Published(catalog);
+        catalog.YzAdminTypes.Single().Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
         var model=GenerationModel.Create(catalog,ns);
         var sourceTable=model.Tables.Single(table=>table.Source.Id=="2");
-        var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,sourceTable,sourceTable.Pages.Single(page=>page.Source.Id=="201")));
+        var resolution=DatabaseCheckboxCompilation.Resolve(model,sourceTable,sourceTable.Pages.Single(page=>page.Source.Id=="201"),
+            sourceTable.Columns.Single(column=>column.Source.Id=="25"));
+        Assert.True(resolution.Definition is not null,resolution.Reason);
+        var checkbox=resolution.Definition;
+        if(exact.Length>0)Assert.Equal("scope_code",Assert.IsType<ExactDataManageModel>(checkbox.ExactTarget).Column.Source.ColumnName);
         Assert.Equal("301",checkbox.PhysicalTargetPage!.Source.Id);
         Assert.Equal("sheet_status",checkbox.Order[0].Column.Source.ColumnName);
         Assert.True(checkbox.Order[0].Descending);
@@ -74,6 +95,12 @@ public sealed class DerivedCheckboxNamesTests
             Assert.Contains(read+"201_25Async(entity.ParentId",code);
             Assert.Contains(read+"201_25Async(parentId,actor,",code);
             Assert.Contains("CheckboxTargetCondition201_25.ApplyConstants",code);
+            if(exact.Length>0)
+            {
+                Assert.Contains("""ResolveExactDataManage("301", "list", "real_name")""",code);
+                Assert.Contains("scope_code",code);
+                Assert.Contains(derived?"filters.Add(new(":exact=="joined"?"ExactDataManageSql.ApplyDerived":"ExactDataManageSql.Apply(",code);
+            }
             Assert.Contains(derived
                 ?"condition.And(publishedCondition)"
                 :"query=query.Where(row=>row.ParentId==",code);
@@ -384,7 +411,9 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(1,false)]
     [InlineData(0,false)]
     [InlineData(0,true)]
-    public async Task Redundant_checkbox_global_dictionary_preserves_published_conditions(int targetStorage,bool derivedName)
+    [InlineData(1,false,true)]
+    [InlineData(0,true,true)]
+    public async Task Redundant_checkbox_global_dictionary_preserves_published_conditions(int targetStorage,bool derivedName,bool exact=false)
     {
         const string ns="Example.ReleasedCheckboxCache";
         var catalog=Catalog("released_checkbox_cache",false);
@@ -404,7 +433,13 @@ public sealed class DerivedCheckboxNamesTests
             catalog.ConfigColumns.RemoveAll(column=>column.Id=="37");
             catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="37");
         }
-        catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=38";
+        var dictionary=catalog.ConfigPages.Single(page=>page.Id=="301");
+        dictionary.WhereSql="status=38";
+        if(exact)
+        {
+            dictionary.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("status");
+            catalog.YzAdminTypes.Single().Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        }
         catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail=
             """{"tableId":"3","nameField":"name","whereSql":"segment=@formParameters.segment"}""";
 
@@ -415,8 +450,10 @@ public sealed class DerivedCheckboxNamesTests
         Assert.Equal(derivedName,checkbox.DerivedName);
         Assert.Equal("301",checkbox.GlobalPage?.Source.Id);
         var renderer=DatabaseCheckboxRenderer.Service(model,source,page);
-        Assert.Contains(derivedName?"var publishedCondition=CheckboxTargetCondition201_25":
-            "query=CheckboxGlobalCondition201_25.ApplyConstants",renderer);
+        Assert.Contains(derivedName
+            ?exact?"CompileGlobalExactSingleCandidate":"var publishedCondition=CheckboxTargetCondition201_25"
+            :"query=CheckboxGlobalCondition201_25.ApplyConstants",renderer);
+        if(exact)Assert.Contains("""ResolveExactDataManage("301", "list", "real_name")""",renderer);
         Assert.Contains("CheckboxCondition201_25",renderer);
         Assert.Contains("ValidateCheckbox201_25Async",renderer);
 

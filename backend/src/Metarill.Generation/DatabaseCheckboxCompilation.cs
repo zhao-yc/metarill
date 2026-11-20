@@ -107,7 +107,7 @@ internal static class DatabaseCheckboxCompilation
             var explicitPage=definition.PageId.Length>0?definition.PageId:linkedPage;
             var namePage=target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage);
             if(functionForm&&explicitPage.Length>0&&namePage is null)return Gap("功能表复选的显式目标页未在实际目标表发布。");
-            var exactTarget=functionForm&&namePage is not null?ExactDataManageCompilation.Resolve(model,target,namePage):null;
+            var exactTarget=namePage is null?null:ExactDataManageCompilation.Resolve(model,target,namePage);
             // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。
             var logicalPage=namePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage)&&
                 (!functionForm||FixedPageConditionCompilation.HasLogicalFields(namePage)||namePage.Scopes.Any(scope=>scope.Source=="parent"&&
@@ -120,8 +120,6 @@ internal static class DatabaseCheckboxCompilation
                 (explicitPage!=fixedPage||logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true);
             if(explicitPage!=fixedPage&&!pageRead&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
-            if(!functionForm&&logicalPage is not null&&ExactDataManageCompilation.Declared(logicalPage))
-                return Gap("复选目标范围需要与实际目标页及项目归属一致。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
             var realtimeRead=table.Source.IsRongyu==0&&!functionForm;
             var controlRead=realtimeRead&&(conditions is not null||
@@ -137,11 +135,9 @@ internal static class DatabaseCheckboxCompilation
             var scopeAlreadyBound=logicalPage is not null||globalPage is not null&&
                 (!derived||NonRedundantReadCompilation.HasGlobalRowProject(target));
             // 普通全局派生名称没有行项目列时，固定发布条件由复选查询显式合并。
-            if((realtimeRead||functionForm||globalPage is not null)&&!scopeAlreadyBound&&namePage is not null&&
+            if((realtimeRead||functionForm||globalPage is not null||exactTarget is not null)&&!scopeAlreadyBound&&namePage is not null&&
                 (functionForm||namePage.Condition is not null||namePage.Scopes.Any(scope=>scope.Source=="parent")))
             {
-                if(!functionForm&&ExactDataManageCompilation.Declared(namePage))
-                    return Gap("原复选不能借用精确数据管理页的目标范围。");
                 physicalPage=namePage;
                 scopes=scopes.Concat(physicalPage.Scopes.Where(scope=>scope.Source=="parent"||target.IsGlobal))
                     .DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();

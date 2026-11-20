@@ -290,6 +290,16 @@ public sealed class CascadeMultiLabelGenerationTests
             physical:logicalParent,parent:logicalParent,logicalParent:logicalParent,importLogical:logicalParent,
             globalRowProject:rowProject,exact:true,exactLeaf:selfTree);
 
+    /// <summary>原复选对级联角色匹配沿实际范围绑定名称、缓存与父级。</summary>
+    [Theory]
+    [InlineData(0,false,true,null)]
+    [InlineData(1,true,false,null)]
+    [InlineData(0,false,true,true)]
+    public Task Checkbox_exact_scope_combines_cascade_conditions(int mode,bool selfTree,bool logicalParent,bool? rowProject)=>
+        CompileCascadeLabel("MultiCheckBoxDatabase",mode,selfTree,indirect:false,selectedPage:true,
+            physical:logicalParent,parent:logicalParent,logicalParent:logicalParent,
+            globalRowProject:rowProject,exact:true,exactLeaf:selfTree);
+
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
         bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
         bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false)
@@ -481,11 +491,21 @@ public sealed class CascadeMultiLabelGenerationTests
             if(selectedPage)
             {
                 var code=File.ReadAllText(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
-                Assert.Contains((exact?"CompileExactMultiLabel":"CompileScopedMultiLabel")+"(\"2\",\"201\",\""+display+"\"",code);
-                if(exact)
+                if(exact&&kind=="MultiCheckBoxDatabase")
                 {
-                    Assert.Contains("""multiExactAuthorization.ResolveExactDataManage("201", "list", "real_name")""",code);
-                    Assert.Contains("""multiImportExactAuthorization.ResolveExactDataManage("201", "list", "real_name")""",code);
+                    Assert.Contains(globalRowProject is not null?"CompileGlobalExactSingleCandidate":
+                        logicalParent?"CompileExactCheckboxParentCandidate":"CompileRelationMembership",code);
+                    Assert.Contains("""checkboxExactAuthorization.ResolveExactDataManage("201", "list", "real_name")""",code);
+                    Assert.Contains("condition:condition,currentRead:locking",code);
+                }
+                else
+                {
+                    Assert.Contains((exact?"CompileExactMultiLabel":"CompileScopedMultiLabel")+"(\"2\",\"201\",\""+display+"\"",code);
+                    if(exact)
+                    {
+                        Assert.Contains("""multiExactAuthorization.ResolveExactDataManage("201", "list", "real_name")""",code);
+                        Assert.Contains("""multiImportExactAuthorization.ResolveExactDataManage("201", "list", "real_name")""",code);
+                    }
                 }
                 Assert.Contains(".BindAccount(actor)",code);
                 Assert.DoesNotContain("MultiPageCondition901_95.ApplyConstants",code);

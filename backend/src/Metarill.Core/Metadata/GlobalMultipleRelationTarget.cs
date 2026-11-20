@@ -32,7 +32,8 @@ public static class GlobalMultipleRelationTarget
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
         var scoped=selfTreeScope||target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
-        if(foreign.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.DeclaresExactMulti(target,page))
+        if(foreign.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.DeclaresExactMulti(target,page)||
+            foreign.ControlKind=="MultiCheckBoxDatabase"&&GlobalCrossTableTarget.DeclaresExactPage(target,page))
             _=GlobalCrossTableTarget.ExactPageParent(catalog,target,page);
         else if(selfTreeScope)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page,allowMultiParent:true);
         else if(scoped||target.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported))

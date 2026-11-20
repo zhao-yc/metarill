@@ -269,6 +269,7 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             SelectedMultiPage=selectedPage,
             AllowsExactMultiSelection=relation?.ControlKind=="MultiSelectPage",
+            AllowsStoredExactCheckbox=relation?.ControlKind=="MultiCheckBoxDatabase",
             MultiNamePathPage=relation is null?null:MultiTargetNamePage(catalog,catalog.ConfigTables.Single(table=>table.Id==tableId),relation),
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             MultiParentOwner=cacheOwner is null||selectedPage is null||MultiParent(catalog,selectedPage) is not {} parent?null:

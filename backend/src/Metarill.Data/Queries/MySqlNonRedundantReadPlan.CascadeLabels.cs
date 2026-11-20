@@ -30,7 +30,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 var plan=selected is null?CompileMultiLabel(catalog,target.Id,field,[field],[],cacheOwner:null,relation:relation):
                     CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[],
                         exactMultiSelection:relation.ControlKind=="MultiSelectPage"&&
-                            selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0);
+                            selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0,
+                        storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase");
                 pages.UnionWith(plan.CascadeLabelPages);
                 if(sourcePage is not null&&selected is not null)
                 {
@@ -172,7 +173,7 @@ public static partial class MySqlNonRedundantReadCompiler
     internal static MySqlNonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog catalog,string tableId,string pageId,
         string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,IReadOnlyList<string>? importFields=null,
-        string importPageType="2",bool exactMultiSelection=false)
+        string importPageType="2",bool exactMultiSelection=false,bool storedExactCheckbox=false)
     {
         MetadataValidation.Validate(catalog);
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("多值目标页逻辑条件要求已发布的MySQL读取计划。");
@@ -205,6 +206,7 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             SelectedMultiPage=page,
             AllowsExactMultiSelection=exactMultiSelection,
+            AllowsStoredExactCheckbox=storedExactCheckbox,
             MultiNamePathPage=page,
             AllowLiteralMultiScope=extraFields.Count>0,
             MultiImportFields=extraFields,
@@ -220,12 +222,13 @@ public static partial class MySqlNonRedundantReadCompiler
         return plan;
     }
 
-    /// <summary>精确范围只开放普通项目实际多选页和已声明的标量字段。</summary>
-    private static string RequireExactMultiSelection(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    /// <summary>仅验证实际发布的多选页或已绑定的原复选目标；名称维护沿来源行归属。</summary>
+    private static string RequireExactMultiSelection(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool storedCheckbox=false)
     {
         var field=ExactDataManageValues.Field(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
-        if(field.Length==0||table.IsRongyu!=0||table.IsFunctionTable!=0||table.IsView!=0||
-            page.ConfigTableId!=table.Id||page.Extra.GetValueOrDefault("type").ToString()!="2"||
+        var type=page.Extra.GetValueOrDefault("type").ToString();
+        if(field.Length==0||table.IsRongyu!=0&&!(storedCheckbox&&table.IsRongyu==1)||table.IsFunctionTable!=0||table.IsView!=0||
+            page.ConfigTableId!=table.Id||type!="2"&&!(storedCheckbox&&type is "" or "0" or "1")||
             page.YzProjectId!=catalog.YzProjectId||table.YzProjectId!=catalog.YzProjectId||
             !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
             throw new NotSupportedException("精确多选必须绑定本项目实际发布的非冗余多选页。");

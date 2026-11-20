@@ -33,6 +33,12 @@ internal static class DerivedCheckboxNamesCompilation
     {
         var field=def.Name.Source.ColumnName;
         string[] outputs=["id",field];
+        if(UsesGlobalExactPage(def))
+        {
+            var published=def.NameTargetPage!;
+            return NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,def.Target.Source.Id,published.Source.Id,
+                outputs,dependencies,ExactNameTargets(model,def,def.ExactTarget!),null,[field]);
+        }
         if(def.ExactTarget is not {} exact||!exact.Derived&&def.LogicalTargetPage is null)
             return NonRedundantReadCompilation.CompileMultiLabelPlan(model,def.Target,def.LogicalTargetPage??def.GlobalPage,
                 def.NameTargetPage,field,outputs,dependencies);
@@ -43,7 +49,7 @@ internal static class DerivedCheckboxNamesCompilation
         if(HasExactLogicalParent(model,def))
             return NonRedundantReads.CompileExactCheckboxParentCandidate(model.Catalog,def.Target.Source.Id,page.Source.Id,
                 outputs,dependencies,bindings,targets);
-        if(def.LogicalTargetPage is not null)
+        if(def.LogicalTargetPage is not null||exact.SelfTree)
             return DerivedRelationNamesCompilation.CompileLogicalPage(model,def.Target,page,outputs,dependencies,
                 singleTargets:targets,exact:exact);
         return NonRedundantReadCompilation.CompilePage(model,def.Target,outputs,dependencies,bindings,targets,[]);
@@ -53,10 +59,18 @@ internal static class DerivedCheckboxNamesCompilation
     internal static string PlanCall(GenerationModel model,DatabaseCheckboxModel def,IReadOnlyList<string> dependencies)
     {
         var field=def.Name.Source.ColumnName;
+        static string Fields(IEnumerable<string> names)=>"new string[]{"+string.Join(",",names.Select(name=>JsonSerializer.Serialize(name)))+"}";
+        if(UsesGlobalExactPage(def))
+        {
+            var published=def.NameTargetPage!;
+            return "CompileGlobalExactSingleCandidate("+JsonSerializer.Serialize(def.Target.Source.Id)+","+
+                JsonSerializer.Serialize(published.Source.Id)+","+Fields(["id",field])+","+Fields(dependencies)+
+                NonRedundantReadCompilation.SingleTargetArgument(ExactNameTargets(model,def,def.ExactTarget!),"singleTargets")+
+                ",listFields:"+Fields([field])+")";
+        }
         if(def.ExactTarget is not {} exact||!exact.Derived&&def.LogicalTargetPage is null)
             return NonRedundantReadCompilation.MultiLabelPlanCall(model,def.Target,def.LogicalTargetPage??def.GlobalPage,
                 def.NameTargetPage,def.Name,["id",field],dependencies);
-        static string Fields(IEnumerable<string> names)=>"new string[]{"+string.Join(",",names.Select(name=>JsonSerializer.Serialize(name)))+"}";
         var page=def.NameTargetPage!;
         var targets=ExactNameTargets(model,def,exact);
         var args=Fields(["id",field])+","+Fields(dependencies);
@@ -65,7 +79,7 @@ internal static class DerivedCheckboxNamesCompilation
         if(HasExactLogicalParent(model,def))
             return "CompileExactCheckboxParentCandidate("+JsonSerializer.Serialize(def.Target.Source.Id)+","+
                 JsonSerializer.Serialize(page.Source.Id)+","+args+cross+NonRedundantReadCompilation.SingleTargetArgument(targets)+")";
-        if(def.LogicalTargetPage is not null)
+        if(def.LogicalTargetPage is not null||exact.SelfTree)
             return DerivedRelationNamesCompilation.LogicalPagePlanStart(model,def.Target,page,exact:exact)+","+args+
                 NonRedundantReadCompilation.SingleTargetArgument(targets,"singleTargets")+")";
         if(targets.Count==0&&crossBindings.Length==0)
@@ -75,15 +89,20 @@ internal static class DerivedCheckboxNamesCompilation
             NonRedundantReadCompilation.SingleTargetArgument(targets)+")";
     }
 
+    /// <summary>全局复选只沿明确绑定的精确页编译，角色值仍由请求绑定。</summary>
+    internal static bool UsesGlobalExactPage(DatabaseCheckboxModel def)=>
+        def.ExactTarget is not null&&def.NameTargetPage is {} page&&
+        Metarill.Core.Metadata.GlobalCrossTableTarget.DeclaresExactPage(def.Target.Source,page.Source);
+
     /// <summary>复选独立父字段只对应当前候选页已证明的逻辑层位，不依赖页面属于哪种选择控件。</summary>
     internal static bool HasExactLogicalParent(GenerationModel model,DatabaseCheckboxModel def)=>
-        def.ExactTarget is not null&&def.LogicalTargetPage is {} page&&
+        def.ExactTarget is not null&&!UsesGlobalExactPage(def)&&def.LogicalTargetPage is {} page&&
         def.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,def.Target,page,scope.Column));
 
     /// <summary>固定逻辑成员计划只解析字段，页面字面条件和当前账号在调用时显式附加。</summary>
     internal static PageModel? ExactMembershipPage(GenerationModel model,DatabaseCheckboxModel def)=>
-        def.ExactTarget is not null&&def.LogicalTargetPage is {} page&&
-        !HasExactLogicalParent(model,def)?page:null;
+        def.ExactTarget is {} exact&&!UsesGlobalExactPage(def)&&!HasExactLogicalParent(model,def)
+            ?def.LogicalTargetPage??(exact.SelfTree&&def.DerivedName?def.NameTargetPage:null):null;
 
     /// <summary>授权和名称共用已发布的中间关系，冲突的绑定在生成时拒绝。</summary>
     private static IReadOnlyList<NonRedundantSingleTargetScope> ExactNameTargets(GenerationModel model,

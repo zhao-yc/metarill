@@ -10,7 +10,8 @@ internal static class DerivedCheckboxNamesRenderer
         var suffix=DatabaseCheckboxRenderer.Suffix(page,def);var dependencies=DerivedCheckboxNamesCompilation.Require(model,table,def);
         var scopes=def.Scopes.Select(scope=>"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Value(scope.Column,scope.Source=="project"?"actor.ProjectId":"parentId!")+"));");
         var variables=def.Conditions is{} condition?RelationConditionsCompilation.Variables(condition,"parentId"):"";
-        var pageCondition=(def.PhysicalTargetPage??DerivedCheckboxNamesCompilation.ExactMembershipPage(model,def)) is {Condition:not null} filterPage?
+        var pageCondition=!DerivedCheckboxNamesCompilation.UsesGlobalExactPage(def)&&
+            (def.PhysicalTargetPage??DerivedCheckboxNamesCompilation.ExactMembershipPage(model,def)) is {Condition:not null} filterPage?
             "        var publishedCondition="+FixedPageConditionCompilation.Bound(filterPage,"CheckboxTargetCondition"+suffix)+
             "; condition=condition is null?publishedCondition:condition.And(publishedCondition);":"";
         var call=DerivedCheckboxNamesCompilation.PlanCall(model,def,dependencies);
