@@ -64,6 +64,22 @@ dotnet backend/src/Metarill.Api/bin/Release/net10.0/Metarill.Api.dll
 
 完成上述依赖安装后，申请并配置自己的 DCloud AppID，再使用 HBuilderX 打开前端工程。已有一键入口见 [.vscode/tasks.json](.vscode/tasks.json) 和 [.codex/environments/environment.toml](.codex/environments/environment.toml)。完整前端要求及许可状态见 [前端说明](frontend/metarill_uni_admin/README.md)。
 
+### 一键更新 Server-200 开发环境
+
+在 Windows 仓库根目录运行对应命令。脚本默认部署本地 `HEAD`，可加 `-Commit <提交>` 指定其他本地提交。要发布的修改需先提交到 Git。
+
+```powershell
+pwsh -NoProfile -File scripts/deploy-server200.ps1 frontend  # 仅更新 Web 前端
+pwsh -NoProfile -File scripts/deploy-server200.ps1 backend   # 仅更新 C# 后端
+pwsh -NoProfile -File scripts/deploy-server200.ps1 all       # 前后端一起更新
+```
+
+Windows 需能通过 OpenSSH 免交互以 `root` 连接 `deve-server.yinzon.com`，并已登记该服务器的主机密钥。前端使用 Node.js 和 HBuilderX，默认 CLI 为 `D:/HBuilderX/cli.exe`，可用 `-HBuilderX` 指定。后端使用 `global.json` 指定的 .NET SDK。
+
+首次部署后端前，在 Server-200 按[配置示例](backend/appsettings.Example.json)准备私有配置 `/opt/yinzon/apps/metarill/private/settings.json`，设置开发环境 MySQL 平台库、业务库和 Redis DB0。配置中的地址需从容器访问，建议文件权限为 `0640`、所属组为 `1654`。已有库按[首次安装说明](docs/mysql-first-release-install.md#首次安装)核对，更新脚本只启动服务。加 `-Check` 可先核对 SSH、目标及对应部署前提。
+
+部署成功后从局域网打开 `http://192.168.31.200:18088`。以后端更新为例，脚本上传同一提交的发布物及在线生成资源，重建 API 容器并检查 `/api/runtime/health/check`。前端通过同源网关服务 H5，并核对首页内容。`all` 在两端都构建成功后才上传，先验证 API，再切换前端。更新成功后移除上一版代码，运行数据保存在独立的 `state` 目录。
+
 ## 验证
 
 先执行 `npm ci --prefix frontend/metarill_uni_admin`。随后 `scripts/dev.ps1 test` 核对原工作簿与页面合同所需的前端依赖，再遍历全部后端测试项目。`npm test --prefix frontend/metarill_uni_admin` 验证前端运行时，Agent CLI 另执行 `npm run check --prefix tools/metarill-agent-cli` 和 `npm test --prefix tools/metarill-agent-cli`。
