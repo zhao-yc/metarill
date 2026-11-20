@@ -31,8 +31,18 @@ internal static class SelectionNameFilterCompilation
                 var settings=model.Catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);
                 var definition=SelectionControlDefinition.Resolve(source,settings);var baseline=SelectionControlDefinition.Resolve(source,null);
                 var changedName=definition.NameField!=baseline.NameField;
-                if(changedName&&table.Source.IsRongyu!=0)
+                var multiple=source.Source.ControlKind=="MultiSelectPage";
+                if(changedName&&table.Source.IsRongyu!=0&&!multiple)
                 {Gap("页级nameField改变了稳定辅助列取值，尚未建立同页读取计划。");continue;}
+                if(multiple)
+                {
+                    var resolved=MultiSelectCompilation.Resolve(model,table,page,source);
+                    if(resolved.Definition is not {} multi)
+                    {Gap(resolved.Reason??"多选名称未绑定同一关系。");continue;}
+                    // 冗余多页可以有各自已证明的缓存列；名称筛选复用原列表的实际显示属性。
+                    storage=multi.Names??source;
+                    key=storage.JsonName;
+                }
                 var target=model.Tables.SingleOrDefault(candidate=>candidate.Pages.Any(candidatePage=>candidatePage.Source.Id==definition.PageId));
                 var targetPage=target?.Pages.Single(candidatePage=>candidatePage.Source.Id==definition.PageId);
                 if(target is null||targetPage is null||!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId)&&source.Source.LinkConfigTableId!=target.Source.Id){Gap("目标页不存在或不属于声明目标表。");continue;}
@@ -64,11 +74,9 @@ internal static class SelectionNameFilterCompilation
                 SelectionNameFilterKind kind;
                 if(table.Source.IsRongyu==0)
                 {
-                    if(source.Source.ControlKind=="MultiSelectPage")
+                    if(multiple)
                     {
-                        var known=MultiSelectCompilation.Resolve(model,table,page,source);
-                        if(known.Definition?.Names?.Source.Id!=storage.Source.Id){Gap(known.Reason??"非冗余多选名称未绑定同一关系。");continue;}
-                        // Resolve 已按实际业务页编译名称路径，不能再用表级证明覆盖各页不同的父键。
+                        // 前面已按实际业务页证明名称路径及范围，直接使用元素谓词。
                         kind=SelectionNameFilterKind.JoinedJsonArrayAnyLike;
                     }
                     else
@@ -88,12 +96,8 @@ internal static class SelectionNameFilterCompilation
                             typedStorage ? SelectionNameFilterKind.JoinedTypedLike : SelectionNameFilterKind.JoinedScalarLike;
                     }
                 }
-                else if(source.Source.ControlKind=="MultiSelectPage")
-                {
-                    var known=MultiSelectCompilation.Resolve(model,table,page,source);
-                    if(known.Definition is not {} multi||multi.Names?.Source.Id!=storage.Source.Id){Gap(known.Reason??"多选名称辅助列与稳定显示属性不一致。");continue;}
+                else if(multiple)
                     kind=SelectionNameFilterKind.JsonArrayAnyLike;
-                }
                 else if (typedStorage)
                 {
                     var selection = NonRedundantSelectionCompilation.Resolve(model, table, page, source);

@@ -21,6 +21,51 @@ public sealed class MultiPageNameCacheTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>同表各页的名称输入按本页缓存过滤，原列表和 Excel 共用查询。</summary>
+    [Theory]
+    [InlineData(false,"list")]
+    [InlineData(true,"edit")]
+    public async Task Page_name_filter_uses_its_own_redundant_multi_cache(bool automatic,string mode)
+    {
+        var catalog=RedundantMultiNameCacheTests.Published(Catalog(automatic,false));
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId is "201" or "204"&&field.ConfigColumnId=="25"))
+            field.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        catalog.ConfigPages.Single(page=>page.Id=="204").Extra["exportMethod"]=JsonSerializer.SerializeToElement(mode);
+        const string ns="Example.MultiPageFilter";
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(table=>table.Source.Id=="2");
+        foreach(var (id,key,column) in new[]{("201","targetNames","target_names"),("204","targetTitles","target_titles")})
+        {
+            var page=table.Pages.Single(page=>page.Source.Id==id);
+            var plan=SelectionNameFilterCompilation.ForPage(model,table,page);
+            Assert.Empty(plan.Gaps);
+            var binding=Assert.Single(plan.Bindings);
+            Assert.Equal(key,binding.FilterKey);
+            Assert.Equal(column,binding.StorageColumn.Source.ColumnName);
+            Assert.Equal(SelectionNameFilterKind.JsonArrayAnyLike,binding.Kind);
+        }
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-cached-page-name-filter");
+        var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(root,"generated");
+            new CSharpGenerator().Generate(catalog,output,ns);
+            var list=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/relation_source-list-204.vue"));
+            Assert.Contains("filters.targetTitles",list);
+            Assert.DoesNotContain("filters.targetNames",list);
+            var service=await File.ReadAllTextAsync(Path.Combine(output,"Services/RelationSourceService.g.cs"));
+            Assert.Contains("ApplyJsonArrayAnyLike(session, query, entity => entity.TargetTitles, value)",service);
+            Assert.Contains("Order204(Query204(request, actor), request)",service);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            Assert.NotNull(assembly.GetType(ns+".Generated.Services.RelationSourceService",true)!.GetMethod("Export204Async"));
+            var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
+    }
+
     /// <summary>包内原页面和缓存代码一起构建，更新仍保护手写partial。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Full_package_preserves_original_pages_and_handwritten_rules(bool automatic)
