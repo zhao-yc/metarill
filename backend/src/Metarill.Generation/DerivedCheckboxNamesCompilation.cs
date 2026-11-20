@@ -60,7 +60,7 @@ internal static class DerivedCheckboxNamesCompilation
         }
         if(def.ExactTarget is not {} exact||!exact.Derived&&def.LogicalTargetPage is null)
             return NonRedundantReadCompilation.CompileMultiLabelPlan(model,def.Target,def.LogicalTargetPage??def.GlobalPage,
-                def.NameTargetPage,field,outputs,dependencies);
+                def.NameTargetPage,field,outputs,dependencies,storedCheckbox:true);
 
         var page=def.NameTargetPage!;
         var targets=ExactNameTargets(model,def,exact);
@@ -96,7 +96,7 @@ internal static class DerivedCheckboxNamesCompilation
         }
         if(def.ExactTarget is not {} exact||!exact.Derived&&def.LogicalTargetPage is null)
             return NonRedundantReadCompilation.MultiLabelPlanCall(model,def.Target,def.LogicalTargetPage??def.GlobalPage,
-                def.NameTargetPage,def.Name,["id",field],dependencies);
+                def.NameTargetPage,def.Name,["id",field],dependencies,storedCheckbox:true);
         var page=def.NameTargetPage!;
         var targets=ExactNameTargets(model,def,exact);
         var args=Fields(["id",field])+","+Fields(dependencies);
@@ -148,11 +148,11 @@ internal static class DerivedCheckboxNamesCompilation
     private static IReadOnlyList<NonRedundantSingleTargetScope> ScopedNameTargets(GenerationModel model,DatabaseCheckboxModel def,
         IReadOnlyList<string> outputs)=>
         def.ExactTarget is {} exact?ExactNameTargets(model,def,exact):
-            NonRedundantReadCompilation.ProjectPathTargets(model,def.Target,ScopedCheckboxPage(def),outputs);
+            NonRedundantReadCompilation.ProjectPathTargets(model,def.Target,ScopedCheckboxPage(def),outputs,storedCheckbox:true);
 
     /// <summary>授权和名称共用已发布的中间关系，冲突的绑定在生成时拒绝。</summary>
     private static IReadOnlyList<NonRedundantSingleTargetScope> ExactNameTargets(GenerationModel model,
         DatabaseCheckboxModel def,ExactDataManageModel exact)=>
         NonRedundantReadCompilation.MergeProjectTargets(NonRedundantReadCompilation.ProjectPathTargets(model,def.Target,
-            def.NameTargetPage!,[def.Name.Source.ColumnName]).Concat(exact.SingleTargets));
+            def.NameTargetPage!,[def.Name.Source.ColumnName],storedCheckbox:true).Concat(exact.SingleTargets));
 }

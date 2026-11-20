@@ -730,7 +730,10 @@ public sealed class CascadeMultiLabelGenerationTests
                 }
                 else
                 {
-                    Assert.Contains((exact?"CompileExactMultiLabel":"CompileScopedMultiLabel")+"(\"2\",\"201\",\""+display+"\"",code);
+                    // 非冗余复选的逻辑目标父级由复选计划承接，校验真实目标页和显示列。
+                    var compiler=exact?"CompileExactMultiLabel":
+                        kind=="MultiCheckBoxDatabase"&&mode==0&&logicalParent?"CompileScopedCheckboxLabel":"CompileScopedMultiLabel";
+                    Assert.Contains(compiler+"(\"2\",\"201\",\""+display+"\"",code);
                     if(exact)
                     {
                         Assert.Contains("""multiExactAuthorization.ResolveExactDataManage("201", "list", "real_name")""",code);

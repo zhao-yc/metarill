@@ -68,9 +68,9 @@ public static class ProjectScopedSingleRelationTarget
 
     /// <summary>沿中间记录的实际页面解析下一个目标，即使当前段没有额外范围也继续保留页归属。</summary>
     public static (PageMetadata Page,bool Scoped)? NestedPage(MetadataCatalog catalog,TableMetadata owner,
-        PageMetadata sourcePage,ColumnMetadata foreign,TableMetadata target)
+        PageMetadata sourcePage,ColumnMetadata foreign,TableMetadata target,bool allowStoredTarget=false)
     {
-        if(owner.IsRongyu!=0||sourcePage.ConfigTableId!=owner.Id||!IsProjectRole(owner,foreign,target))return null;
+        if(owner.IsRongyu!=0||sourcePage.ConfigTableId!=owner.Id||!IsProjectRole(owner,foreign,target,allowStoredTarget))return null;
         var pages=TargetPages(catalog,target);
         if(pages.Length==0)return null;
         using var document=Definition(foreign);
@@ -210,8 +210,9 @@ public static class ProjectScopedSingleRelationTarget
     private static PageMetadata[] TargetPages(MetadataCatalog catalog,TableMetadata table)=>
         catalog.ConfigPages.Where(page=>page.ConfigTableId==table.Id).OrderBy(page=>page.Id,StringComparer.Ordinal).ToArray();
 
-    private static bool IsProjectRole(TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>
-        target.IsRongyu==0&&!GlobalCrossTableTarget.Declared(owner)&&!GlobalCrossTableTarget.Declared(target)&&
+    private static bool IsProjectRole(TableMetadata owner,ColumnMetadata foreign,TableMetadata target,bool allowStoredTarget=false)=>
+        (target.IsRongyu==0||allowStoredTarget&&target.IsRongyu==1)&&
+        !GlobalCrossTableTarget.Declared(owner)&&!GlobalCrossTableTarget.Declared(target)&&
         foreign.ControlKind is "List" or "SelectPage";
 
     /// <summary>所有显式表声明须吻合，并且物理外键和项目键都能参与持久化反查。</summary>

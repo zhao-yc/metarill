@@ -479,6 +479,9 @@ public static partial class MySqlNonRedundantReadCompiler
             if(explicitBinding is not null||cascadeCacheOwner is not null||MultiNameSourcePage(ownerAlias) is not {} sourcePage)
                 return explicitBinding;
             var owner=tables[relation.ConfigTableId];
+            if(AllowsStoredExactCheckbox&&target.IsRongyu==1&&ProjectScopedSingleRelationTarget.NestedPage(
+                catalog,owner,sourcePage,relation,target,allowStoredTarget:true) is {Scoped:true} stored)
+                return new(relation.Id,stored.Page.Id){SourcePageId=sourcePage.Id};
             if(target.IsRongyu!=0||owner.IsRongyu!=0||
                 GlobalCrossTableTarget.Declared(owner)&&!GlobalCrossTableTarget.Declared(target))
                 return null;
@@ -520,6 +523,16 @@ public static partial class MySqlNonRedundantReadCompiler
             TableMetadata target,string alias,NonRedundantSingleTargetScope binding)
         {
             var global=GlobalCrossTableTarget.Declared(target);
+            if(!global&&target.IsRongyu==1&&binding.SourcePageId is {} storedSourceId)
+            {
+                var storedSource=catalog.ConfigPages.Single(page=>page.Id==storedSourceId&&page.ConfigTableId==owner.Id);
+                var stored=ProjectScopedSingleRelationTarget.NestedPage(catalog,owner,storedSource,relation,target,allowStoredTarget:true);
+                if(stored is null||stored.Value.Page.Id!=binding.PageId)
+                    throw new InvalidOperationException("复选名称联接必须使用字典的实际目标页。");
+                cascadeLabelPages.Add(storedSource.Id);
+                cascadeLabelPages.Add(stored.Value.Page.Id);
+                return StoredProjectSingleCondition(owner,relation,target,alias,storedSource,stored.Value.Page);
+            }
             if(owner.IsRongyu!=0||target.IsRongyu!=0||!global&&GlobalCrossTableTarget.Declared(owner)||
                 relation.ControlKind is not("List" or "SelectPage")||!storage[owner.Id].IsPhysical(relation))
                 throw new NotSupportedException("单值读取须使用非冗余表的实际物理外键。");
@@ -615,6 +628,25 @@ public static partial class MySqlNonRedundantReadCompiler
             var parentScope=sourceParent is null?"":" AND "+SameSingleParent(
                 plan.Expression(plan.RequiredMultiParent??throw new InvalidOperationException("固定单值目标缺少逻辑父表达式。")),sourceParent);
             return "EXISTS (SELECT 1"+plan.From+" WHERE "+plan.Expression("id")+"="+alias+".`id` AND "+plan.Scope+parentScope+")";
+        }
+
+        /// <summary>冗余字典使用实际页面和下拉的物理常量，项目及删除范围由原外键联接保留。</summary>
+        private string StoredProjectSingleCondition(TableMetadata owner,ColumnMetadata foreign,TableMetadata target,string alias,
+            PageMetadata sourcePage,PageMetadata page)
+        {
+            if(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
+                throw new NotSupportedException("复选联接的冗余字典固定页须使用物理常量条件。");
+            var control=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target,sourcePage);
+            if(control.Terms.Count>0)
+                page=new(){Id=page.Id,ConfigTableId=page.ConfigTableId,WhereSql=string.Join(" AND ",
+                    new[]{page.WhereSql}.Concat(control.Terms.Select(term=>term.ToDefinition()))
+                        .Where(definition=>!string.IsNullOrWhiteSpace(definition)))};
+            var condition=PublishedCondition(target,alias,page,projectParent:true);
+            if(condition is null)return "";
+            var clause=condition.RenderConstants(new MySqlDatabaseProvider(),ConditionParameterPrefix("mt_stored_single_"+alias),
+                field=>alias+"."+Q(field));
+            foreach(var pair in clause.Parameters)crossConstants.Add(pair.Key,pair.Value);
+            return clause.Sql;
         }
 
         /// <summary>单值副本按来源行归属重算，逻辑条件沿目标页的实际级联路径读取。</summary>
@@ -748,8 +780,15 @@ public static partial class MySqlNonRedundantReadCompiler
                 JoinNestedSingleCache(table,owner,foreign,target,source,cacheOwner) is {} globalNested)
                 return(globalNested.Alias,globalNested.Visibility,cacheOwner);
             if(cacheOwner is not null&&singleCachePages.TryGetValue(owner,out var sourcePage)&&
-                ProjectScopedSingleRelationTarget.NestedPage(catalog,table,sourcePage,foreign,target) is {} projectNested)
+                ProjectScopedSingleRelationTarget.NestedPage(catalog,table,sourcePage,foreign,target,
+                    allowStoredTarget:AllowsStoredExactCheckbox) is {} projectNested)
             {
+                if(projectNested.Scoped&&target.IsRongyu==1)
+                {
+                    // 允许追溯变为不可见的字典记录，条件只控制名称是否写回复选副本。
+                    var storedAlias=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true);
+                    return(storedAlias,StoredProjectSingleCondition(table,foreign,target,storedAlias,sourcePage,projectNested.Page),cacheOwner);
+                }
                 if(projectNested.Scoped)
                 {
                     var control=ProjectScopedSingleRelationTarget.ControlScope(catalog,table,foreign,target,sourcePage);

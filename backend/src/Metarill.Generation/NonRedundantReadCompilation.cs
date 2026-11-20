@@ -55,7 +55,7 @@ internal static partial class NonRedundantReadCompilation
 
     /// <summary>多值候选和 Excel 名称匹配从实际发布页沿单值路径收集范围。</summary>
     internal static string MultiLabelPlanCall(GenerationModel model,TableModel table,PageModel? scopePage,PageModel? namePage,
-        ColumnModel name,IEnumerable<string> outputs,IEnumerable<string> dependencies)
+        ColumnModel name,IEnumerable<string> outputs,IEnumerable<string> dependencies,bool storedCheckbox=false)
     {
         static string Fields(IEnumerable<string> values)=>"new string[]{"+string.Join(",",values.Select(value=>JsonSerializer.Serialize(value)))+"}";
         var field=name.Source.ColumnName;
@@ -63,15 +63,15 @@ internal static partial class NonRedundantReadCompilation
             ?"CompileScopedMultiLabel("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(scopePage.Source.Id)+","+JsonSerializer.Serialize(field)
             :table.IsGlobal?RelationPlanStart(table,scopePage):"CompileMultiLabel("+JsonSerializer.Serialize(table.Source.Id)+","+JsonSerializer.Serialize(field);
         return start+","+Fields(outputs)+","+Fields(dependencies)+
-            SingleTargetArgument(MultiLabelTargets(model,table,namePage,field))+")";
+            SingleTargetArgument(MultiLabelTargets(model,table,namePage,field,storedCheckbox))+")";
     }
 
     /// <summary>验证使用与下发代码相同的目标页、显示名称和依赖。</summary>
     internal static NonRedundantReadPlan CompileMultiLabelPlan(GenerationModel model,TableModel table,PageModel? scopePage,
-        PageModel? namePage,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
+        PageModel? namePage,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,bool storedCheckbox=false)
     {
         var id=table.Source.Id;
-        var targets=MultiLabelTargets(model,table,namePage,field);
+        var targets=MultiLabelTargets(model,table,namePage,field,storedCheckbox);
         if(scopePage is not null&&FixedPageConditionCompilation.HasMultiTargetScope(model,table,scopePage))
             return NonRedundantReads.CompileScopedMultiLabel(model.Catalog,id,scopePage.Source.Id,field,outputs,dependencies,targets);
         if(!table.IsGlobal)
@@ -83,7 +83,7 @@ internal static partial class NonRedundantReadCompilation
     }
 
     private static IReadOnlyList<NonRedundantSingleTargetScope> MultiLabelTargets(GenerationModel model,TableModel table,
-        PageModel? page,string field)=>page is null?[]:ProjectPathTargets(model,table,page,[field]);
+        PageModel? page,string field,bool storedCheckbox)=>page is null?[]:ProjectPathTargets(model,table,page,[field],storedCheckbox);
 
     /// <summary>没有派生关系的原纯物理非冗余页继续使用既有强类型路径。</summary>
     internal static bool Requires(GenerationModel model,TableModel table)=>HasGlobalRowProject(table)||

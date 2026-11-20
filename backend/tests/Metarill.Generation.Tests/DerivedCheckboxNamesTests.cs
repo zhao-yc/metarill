@@ -574,8 +574,9 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(true,false,true,false,"physical","physical")]
     [InlineData(true,true,true,false,"","joined")]
     [InlineData(true,false,true,false,"","logical")]
+    [InlineData(true,false,false,false,"","joined","inner-literal")]
     public async Task Checkbox_control_parent_uses_the_actual_source_cascade(bool derived,bool globalParent,bool scopeFromPage,
-        bool overridePage=false,string compound="",string alternateName="")
+        bool overridePage=false,string compound="",string alternateName="",string dictionaryMode="")
     {
         const string ns="Example.CheckboxControlParent";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("checkbox_control_parent","int64","int64");
@@ -677,7 +678,8 @@ public sealed class DerivedCheckboxNamesTests
             {
                 label.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
                 label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("alias_ref.caption");
-                catalog.ConfigTables.Add(new(){Id="10",TableName="checkbox_control_parent_alias_dictionary",IsRongyu=0});
+                catalog.ConfigTables.Add(new(){Id="10",TableName="checkbox_control_parent_alias_dictionary",
+                    IsRongyu=dictionaryMode=="inner-literal"?1:0});
                 catalog.ConfigColumns.AddRange([
                     new(){Id="101",ConfigTableId="10",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
                     new(){Id="102",ConfigTableId="10",ColumnName="caption",LogicalType="string"},

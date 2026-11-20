@@ -76,14 +76,14 @@ internal static partial class BackendRenderer
             .Where(checkbox=>checkbox.ExactTarget is not null||checkbox.SharedLogicalParentScope||checkbox.SharedDerivedPageScope).ToArray();
         var realtimeCheckboxes=model.Tables.Where(table=>table.Source.IsRongyu==0&&table.Source.IsFunctionTable==0)
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))
-            .Where(checkbox=>checkbox.UsesNameOverride&&checkbox.DerivedName&&checkbox.NameTargetPage is not null).ToArray();
+            .Where(checkbox=>checkbox.DerivedName&&checkbox.NameTargetPage is not null).ToArray();
         // 隐藏的联接外键仍可影响已发布的复选名称，候选及业务回显须保留每一段的实际页。
         static IEnumerable<string> NamePages(IEnumerable<Metarill.Data.Queries.NonRedundantSingleTargetScope> targets)=>
             targets.SelectMany(target=>new[]{target.PageId,target.SourcePageId,target.ControlSourcePageId}.OfType<string>()
                 .Concat(NamePages(target.NestedTargets)));
         var checkboxNamePages=realtimeCheckboxes.SelectMany(checkbox=>NamePages(
             NonRedundantReadCompilation.ProjectPathTargets(model,checkbox.Target,checkbox.NameTargetPage!,
-                [checkbox.Name.Source.ColumnName]))).ToHashSet(StringComparer.Ordinal);
+                [checkbox.Name.Source.ColumnName],storedCheckbox:true))).ToHashSet(StringComparer.Ordinal);
         foreach(var checkbox in realtimeCheckboxes.Where(checkbox=>checkbox.GlobalRealtimeNameOverride))
             checkboxNamePages.UnionWith(Metarill.Data.Queries.NonRedundantReads.PublishedGlobalCheckboxNamePages(model.Catalog,
                 checkbox.Target.Source.Id,checkbox.NameTargetPage!.Source.Id,checkbox.Name.Source.ColumnName));

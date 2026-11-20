@@ -119,9 +119,11 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(0, true, true, true, false, false, false, "", "joined-alias", "parent-route")]
     [InlineData(0, true, true, true, true, false, false, "", "joined-both", "parent-form")]
     [InlineData(0, true, false, true, true, false, false, "", "joined-name", "parent-mixed")]
+    [InlineData(0, true, true, false, false, false, false, "", "joined-both", "", "inner-literal")]
+    [InlineData(0, true, true, true, true, false, false, "", "joined-alias", "parent-form", "inner-literal")]
     public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,
         bool fixedParent,bool independentParent,bool global=false,bool globalRowProject=false,string accountVariable="",string joinedNames="",
-        string parentMode="")
+        string parentMode="",string dictionaryMode="")
     {
         var catalog=Published(Catalog(false));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
@@ -157,7 +159,7 @@ public sealed class DatabaseCheckboxGenerationTests
             var tableId=field=="name"?"9100":"9200";
             var pageId=tableId+"01";
             var dictionary=new TableMetadata {Id=tableId,TableName="account_checkbox_"+field+"_dictionary",
-                IsRongyu=0,YzProjectId=catalog.YzProjectId};
+                IsRongyu=dictionaryMode=="inner-literal"?1:0,YzProjectId=catalog.YzProjectId};
             if(global)dictionary.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             catalog.ConfigTables.Add(dictionary);
             catalog.ConfigColumns.AddRange([
