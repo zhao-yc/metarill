@@ -35,7 +35,12 @@ public sealed partial class ProjectSchemaInspectionBusiness
             draft.LogicalMetadata.YzProjectName = catalog.YzProjectName;
             draft.LogicalMetadata.PrimaryColor = catalog.PrimaryColor;
             return Task.FromResult(new ProjectSchemaImportPreview(actor.ProjectId, fingerprint, draft,
-                ["共享物理库的其他项目及已删除元数据归属仍需复核", "触发器可见性及未建模的存储属性仍需复核", "需建立绑定身份、结构和元数据版本的服务端确认计划", "需在原配置事务内保存且避免新建表钩子自动补列；尚未接入保存入口"]));
+                [
+                    "审核前请核对草案中的类型、索引、约束等缺口。",
+                    "调用 /api/admin/sys/database/import/prepare 审核。服务端复核其他项目及已删除配置的归属，并绑定当前身份、物理结构和元数据版本。",
+                    "审核后使用 planId 和 confirmSha256 调用 /api/admin/sys/database/import/apply 确认，仅在平台事务中保存元数据。",
+                    "触发器的可见性与运行副作用仍需另行确认。"
+                ]));
         }, token);
     }
 }

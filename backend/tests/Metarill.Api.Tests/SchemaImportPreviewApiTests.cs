@@ -33,7 +33,12 @@ public sealed partial class ApiAcceptanceTests
             await Execute($"CREATE VIEW `{view}` AS SELECT id FROM `{name}`"); created.Add(view);
             const string route = "/admin/sys/database/import/preview";
             var preview = Data(await Post(client, route, new { tableNames = new[] { name } }));
-            Assert.False(preview.GetProperty("executable").GetBoolean()); Assert.False(preview.GetProperty("canImport").GetBoolean()); Assert.True(preview.GetProperty("pendingChecks").GetArrayLength() >= 4);
+            Assert.False(preview.GetProperty("executable").GetBoolean());
+            Assert.False(preview.GetProperty("canImport").GetBoolean());
+            var checks = preview.GetProperty("pendingChecks").EnumerateArray().Select(check => check.GetString()!).ToArray();
+            Assert.Contains(checks, check => check.Contains("/api/admin/sys/database/import/prepare", StringComparison.Ordinal));
+            Assert.Contains(checks, check => check.Contains("/api/admin/sys/database/import/apply", StringComparison.Ordinal));
+            Assert.Contains(checks, check => check.Contains("触发器", StringComparison.Ordinal));
             var draft = preview.GetProperty("draft"); Assert.True(draft.GetProperty("columnsAndIndexesRepresentable").GetBoolean(), draft.ToString()); Assert.True(draft.GetProperty("usesDraftIdentifiers").GetBoolean());
             var model = draft.GetProperty("logicalMetadata"); Assert.Equal(12, model.GetProperty("configColumns").GetArrayLength()); Assert.Equal(2, model.GetProperty("configIndexes").GetArrayLength()); Assert.Empty(model.GetProperty("configPages").EnumerateArray());
             Assert.DoesNotContain(model.GetProperty("configColumns").EnumerateArray(), column => column.GetProperty("columnName").GetString() == "yz_project_id");
