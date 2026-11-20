@@ -151,6 +151,59 @@ public sealed partial class ConfigurationMaterializedValueTests
         }
     }
 
+    /// <summary>预检和保存共用原行号、字段类型与结构长度校验，坏行阻止整批写入。</summary>
+    [Fact]
+    public async Task Batch_workbench_rejects_metadata_that_would_fail_save_or_structure_sync()
+    {
+        using var f = new Fixture();
+        var workbench = new MetadataWorkbenchBusiness(f.Store, f.Authorization, f.Registry, f.Ids, f.Observer);
+        const string content = """
+            [{"name":"合规","columnName":"ok_value","columnType":"varchar","columnLength":"16000"},
+             {"name":"太长","columnName":"over_length","columnType":"varchar","columnLength":"16001"},
+             {"name":"无效关联","columnName":"target_id","columnType":"varchar","columnLength":"20"},
+             {"name":"无效排序","columnName":"sort_no","columnType":"bigint"},
+             {"name":"非法列名","columnName":"line_end\n","columnType":"int"}]
+            """;
+        var request = JsonSerializer.SerializeToElement(new { config_table_id = "10", content });
+        var before = f.Snapshot();
+        var preview = await workbench.PreviewBatchColumnsAsync(request);
+        Assert.False(preview.Valid);
+        Assert.Equal(4, preview.ErrorCount);
+        Assert.Empty(preview.Rows[0].Errors);
+        Assert.Equal("INVALID_LENGTH", Assert.Single(preview.Rows[1].Errors).Code);
+        Assert.Equal("INVALID_TYPE", Assert.Single(preview.Rows[2].Errors).Code);
+        Assert.Equal("INVALID_TYPE", Assert.Single(preview.Rows[3].Errors).Code);
+        Assert.Equal("INVALID_IDENTIFIER", Assert.Single(preview.Rows[4].Errors).Code);
+        var failure = await Assert.ThrowsAsync<BatchColumnValidationException>(() => workbench.SaveBatchColumnsAsync(request));
+        Assert.Equal(JsonSerializer.Serialize(preview), JsonSerializer.Serialize(failure.Preview));
+        Assert.Equal(before, f.Snapshot());
+    }
+
+    /// <summary>仅排序范围不足时指向第一条排不下的输入，保留全部已有配置。</summary>
+    [Fact]
+    public async Task Batch_workbench_preview_reports_the_first_sort_overflow_before_saving()
+    {
+        using var f = new Fixture();
+        f.Get("config_column", 20)["sort_no"] = int.MaxValue - 10;
+        var workbench = new MetadataWorkbenchBusiness(f.Store, f.Authorization, f.Registry, f.Ids, f.Observer);
+        var request = JsonSerializer.SerializeToElement(new { config_table_id = "10", content = "甲 alpha\n乙 beta\n丙 gamma" });
+        var before = f.Snapshot();
+        var preview = await workbench.PreviewBatchColumnsAsync(request);
+        Assert.False(preview.Valid);
+        Assert.Empty(preview.Rows[0].Errors);
+        Assert.Equal("INVALID_ORDER", Assert.Single(preview.Rows[1].Errors).Code);
+        Assert.Empty(preview.Rows[2].Errors);
+        var failure = await Assert.ThrowsAsync<BatchColumnValidationException>(() => workbench.SaveBatchColumnsAsync(request));
+        Assert.Equal(JsonSerializer.Serialize(preview), JsonSerializer.Serialize(failure.Preview));
+        Assert.Equal(before, f.Snapshot());
+
+        var exactFit = JsonSerializer.SerializeToElement(new { config_table_id = "10", content = "甲 alpha" });
+        Assert.True((await workbench.PreviewBatchColumnsAsync(exactFit)).Valid);
+        await workbench.SaveBatchColumnsAsync(exactFit);
+        var added = Assert.Single(f.Provider.Rows["config_column"], row => SqlRowStore.Text(row, "column_name") == "alpha");
+        Assert.Equal(int.MaxValue, SqlRowStore.Id(added, "sort_no"));
+    }
+
     [Fact]
     public async Task Automatic_new_column_creation_fields_receive_both_values_without_touching_old_fields()
     {

@@ -34,7 +34,7 @@ internal static class BatchColumnParser
 {
     private static readonly HashSet<string> JsonFields=["name","columnName","columnType","columnLength","controlKind","controlDetail","joinTable"];
     /// <summary>保留原始行号；500行和1MB限制与原工作台一致。</summary>
-    internal static List<BatchColumnPreviewRow> Parse(long tableId,string? content)
+    internal static List<BatchColumnPreviewRow> Parse(long tableId, string? content, bool hasPhysicalSchema = true)
     {
         var rows=new List<BatchColumnPreviewRow>();
         BatchColumnPreviewRow Row(int number,string? source)=>new(){RowNumber=number,SourceLine=source,ConfigTableId=tableId.ToString(CultureInfo.InvariantCulture)};
@@ -62,7 +62,7 @@ internal static class BatchColumnParser
                     string Text(string key)=>item.TryGetProperty(key,out var value)&&value.ValueKind==JsonValueKind.String?value.GetString()!:"";
                     row.Name=Text("name");row.ColumnName=Text("columnName");row.ColumnType=Text("columnType");row.ColumnLength=Text("columnLength");row.ControlKind=Text("controlKind");row.JoinTable=Text("joinTable");
                     row.ControlDetail=item.TryGetProperty("controlDetail",out var detail)&&detail.ValueKind==JsonValueKind.Object?detail.GetRawText():Text("controlDetail");
-                    Validate(row);
+                    Validate(row, hasPhysicalSchema);
                 }
             }
         }
@@ -76,7 +76,7 @@ internal static class BatchColumnParser
                 if(rows.Count>500){Error(row,"content","TOO_MANY_ROWS","一次最多创建500个字段");break;}
                 var values=Regex.Split(line.Trim(),@"\s+");
                 if(values.Length!=2){Error(row,"content","INVALID_FORMAT","每行必须填写字段名称和数据库字段名，以空格或制表符分隔");continue;}
-                row.Name=values[0];row.ColumnName=values[1];ApplyTextDefaults(row);Validate(row);
+                row.Name=values[0];row.ColumnName=values[1];ApplyTextDefaults(row);Validate(row, hasPhysicalSchema);
             }
         }
         foreach(var group in rows.Where(row=>row.ColumnName.Length>0).GroupBy(row=>row.ColumnName,StringComparer.OrdinalIgnoreCase).Where(group=>group.Count()>1))
@@ -94,10 +94,12 @@ internal static class BatchColumnParser
         else if(row.ColumnName=="sort_no"||row.ColumnName.EndsWith("count",StringComparison.Ordinal)||row.ColumnName.EndsWith("status",StringComparison.Ordinal)){row.ColumnType="int";row.ColumnLength="";}
     }
     /// <summary>只接受当前C#生成器支持的类型，长度错误在预览中逐行返回。</summary>
-    private static void Validate(BatchColumnPreviewRow row)
+    private static void Validate(BatchColumnPreviewRow row, bool hasPhysicalSchema)
     {
         if(string.IsNullOrWhiteSpace(row.Name)||row.Name.Length>50)Error(row,"name","INVALID_NAME","字段名称不能为空且不能超过50字符");
-        if(!Regex.IsMatch(row.ColumnName,"^[A-Za-z_][A-Za-z0-9_]{0,63}$"))Error(row,"columnName","INVALID_IDENTIFIER","数据库字段名须为不超过64字符的字母、数字、下划线标识符");
+        var validIdentifier = MetadataValidation.IsIdentifier(row.ColumnName);
+        if (!validIdentifier)
+            Error(row, "columnName", "INVALID_IDENTIFIER", "数据库字段名须为不超过64字符的字母、数字、下划线标识符");
         row.LogicalType=row.ColumnType switch{"nvarchar" or "varchar" or "text" or "longtext"=>"string","int"=>"int32","bigint"=>"int64","decimal"=>"decimal","datetime"=>"datetime",_=>""};
         if (row.LogicalType.Length == 0)
         {
@@ -111,27 +113,37 @@ internal static class BatchColumnParser
             };
             if (row.LogicalType.Length == 0)
                 Error(row, "columnType", "INVALID_TYPE", "当前C#生成器不支持此数据类型");
-            else
-                ValidateScalarType(row);
+            else if (row.ControlKind == "List")
+                Error(row, "columnType", "INVALID_TYPE", "下拉关联字段使用整数 ID。");
         }
         if(row.ColumnType=="decimal")
         {
-            var match=Regex.Match(row.ColumnLength,@"^([1-9][0-9]?)(?:,([0-9]{1,2}))?$");
+            var match=Regex.Match(row.ColumnLength,@"\A([1-9][0-9]?)(?:,([0-9]{1,2}))?\z");
             if(!match.Success)Error(row,"columnLength","INVALID_LENGTH","小数长度须为精度或精度,小数位");
             else{row.Precision=int.Parse(match.Groups[1].Value,CultureInfo.InvariantCulture);row.Scale=match.Groups[2].Success?int.Parse(match.Groups[2].Value,CultureInfo.InvariantCulture):0;if(row.Precision>65||row.Scale>30||row.Scale>row.Precision)Error(row,"columnLength","INVALID_LENGTH","小数精度为1至65，小数位为0至30且不大于精度");}
         }
-        else if(row.ColumnType is "nvarchar" or "varchar"&&row.ColumnLength.Length>0&&!row.ColumnLength.Equals("max",StringComparison.OrdinalIgnoreCase)&&(!int.TryParse(row.ColumnLength,NumberStyles.None,CultureInfo.InvariantCulture,out var size)||size is <1 or >65535))Error(row,"columnLength","INVALID_LENGTH","字符长度须为1至65535的整数或max");
-        if(row.JoinTable.Length>0&&!Regex.IsMatch(row.JoinTable,"^[A-Za-z_][A-Za-z0-9_]{0,63}$"))Error(row,"joinTable","INVALID_IDENTIFIER","关联表名称无效");
-        if(row.ControlKind=="List")row.LogicalType="int64";
-    }
-    /// <summary>新增支持的标量使用与单字段和结构同步相同的类型约束。</summary>
-    private static void ValidateScalarType(BatchColumnPreviewRow row)
-    {
-        if (row.ControlKind == "List")
+        else if (row.ColumnType is "nvarchar" or "varchar")
         {
-            Error(row, "columnType", "INVALID_TYPE", "下拉关联字段使用整数 ID。");
-            return;
+            // 受管实体按目标方言长度校验。下拉的旧声明最终归一为 bigint，原形态仍可输入。
+            var maximum = hasPhysicalSchema && row.ControlKind != "List"
+                ? MySqlSchemaPlanner.MaximumVariableColumnLength : 65535;
+            if (row.ColumnLength.Length > 0 && !row.ColumnLength.Equals("max", StringComparison.OrdinalIgnoreCase) &&
+                (!int.TryParse(row.ColumnLength, NumberStyles.None, CultureInfo.InvariantCulture, out var size) ||
+                    size < 1 || size > maximum))
+                Error(row, "columnLength", "INVALID_LENGTH", $"字符长度须为1至{maximum}的整数或max");
         }
+        if (row.JoinTable.Length > 0 && !MetadataValidation.IsIdentifier(row.JoinTable))
+            Error(row, "joinTable", "INVALID_IDENTIFIER", "关联表名称无效");
+        if (validIdentifier && row.LogicalType.Length > 0 && row.Errors.All(error => error.Field != "columnType"))
+        {
+            if (row.ControlKind == "List") row.LogicalType = "int64";
+            ValidateType(row);
+        }
+    }
+
+    /// <summary>兼容旧下拉的类型归一，其他字段复用单字段配置的类型规则。</summary>
+    private static void ValidateType(BatchColumnPreviewRow row)
+    {
 
         try
         {

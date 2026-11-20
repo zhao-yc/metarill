@@ -8,6 +8,8 @@ namespace Metarill.Runtime.Metadata;
 
 public sealed partial class MetadataWorkbenchBusiness
 {
+    private const int BatchColumnSortStep = 10;
+
     /// <summary>只读解析与校验，不能借此执行DDL或生成代码。</summary>
     public Task<BatchColumnPreview> PreviewBatchColumnsAsync(JsonElement request,CancellationToken cancellationToken=default)
     {
@@ -15,7 +17,7 @@ public sealed partial class MetadataWorkbenchBusiness
         return InMetadataTransactionAsync(async()=>
         {
             var scope=await ReadTableScopeAsync(input.TableId,cancellationToken);
-            return await PrepareColumnsAsync(scope,input.Content,cancellationToken);
+            return (await PrepareColumnsAsync(scope, input.Content, cancellationToken)).Preview;
         },cancellationToken);
     }
     /// <summary>专门配置领域入口保留原禁用的普通新增页；锁内重检、配置行与afterAdd整体提交。</summary>
@@ -25,14 +27,13 @@ public sealed partial class MetadataWorkbenchBusiness
         return InMetadataTransactionAsync<object>(async()=>
         {
             var scope=await ReadTableScopeAsync(input.TableId,cancellationToken);
-            var preview=await PrepareColumnsAsync(scope,input.Content,cancellationToken);
-            if(!preview.Valid)throw new BatchColumnValidationException(preview);
-            var maximum=scope.Columns.Count==0?0:scope.Columns.Max(row=>Convert.ToInt32(row.GetValueOrDefault("sort_no")??0,CultureInfo.InvariantCulture));
-            if((long)maximum+10L*preview.Rows.Count>int.MaxValue){BatchColumnParser.Error(preview.Rows[^1],"sortNo","INVALID_ORDER","字段排序号已达到上限，请先调整排序");throw new BatchColumnValidationException(BatchColumnParser.Preview(preview.Rows));}
+            var (preview, maximum) = await PrepareColumnsAsync(scope, input.Content, cancellationToken);
+            if (!preview.Valid) throw new BatchColumnValidationException(preview);
             var actor=authorization.RequireAdministrator();var added=new List<string>();
             foreach(var row in preview.Rows)
             {
-                var id=ids.NextId();maximum+=10;
+                var id = ids.NextId();
+                maximum += BatchColumnSortStep;
                 var values=new Dictionary<string,object?>
                 {
                     ["id"]=id,["config_table_id"]=input.TableId,["config_table_name"]=SqlRowStore.Text(scope.Table,"name"),["yz_project_id"]=long.Parse(actor.ProjectId),
@@ -62,9 +63,12 @@ public sealed partial class MetadataWorkbenchBusiness
     private static (long TableId,string Content) BatchRequest(JsonElement request)
     {MetadataWorkbenchRules.Object(request,"config_table_id","content");return(MetadataWorkbenchRules.Id(request,"config_table_id"),MetadataWorkbenchRules.Text(request,"content"));}
     /// <summary>既有字段与同项目关系在锁内再次读取，预检成功不是免校验保存凭据。</summary>
-    private async Task<BatchColumnPreview> PrepareColumnsAsync(TableScope scope,string content,CancellationToken cancellationToken)
+    private async Task<(BatchColumnPreview Preview, int MaximumSortNo)> PrepareColumnsAsync(
+        TableScope scope, string content, CancellationToken cancellationToken)
     {
-        var rows=BatchColumnParser.Parse(SqlRowStore.Id(scope.Table),content);
+        var hasPhysicalSchema = SqlRowStore.Id(scope.Table, "is_view") == 0 &&
+            SqlRowStore.Id(scope.Table, "is_function_table") == 0;
+        var rows = BatchColumnParser.Parse(SqlRowStore.Id(scope.Table), content, hasPhysicalSchema);
         var names=scope.Columns.Select(row=>SqlRowStore.Text(row,"column_name")).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var actor=authorization.RequireAdministrator();
         var tables=await store.ReadForUpdateAsync("config_table",new Dictionary<string,object?>{{"yz_project_id",long.Parse(actor.ProjectId)}},cancellationToken);
@@ -92,6 +96,12 @@ public sealed partial class MetadataWorkbenchBusiness
                 row.ControlDetail=JsonSerializer.Serialize(new{table=row.JoinTable,tableId=id.ToString(CultureInfo.InvariantCulture),nameField,whereSql=Value("whereSql"),orderBy=Value("orderBy")},JsonDefaults.Options);
             }
         }
-        return BatchColumnParser.Preview(rows);
+        // 保存沿用同一事务中核对的最大排序号，预检为首条超限输入返回行错误。
+        var maximum = scope.Columns.Count == 0 ? 0 :
+            scope.Columns.Max(row => Convert.ToInt32(row.GetValueOrDefault("sort_no") ?? 0, CultureInfo.InvariantCulture));
+        var remaining = (int)(((long)int.MaxValue - maximum) / BatchColumnSortStep);
+        if (rows.All(row => row.Errors.Count == 0) && rows.Count > remaining)
+            BatchColumnParser.Error(rows[remaining], "sortNo", "INVALID_ORDER", "字段排序号已达到上限，请先调整排序");
+        return (BatchColumnParser.Preview(rows), maximum);
     }
 }

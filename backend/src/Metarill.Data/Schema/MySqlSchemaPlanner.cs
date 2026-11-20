@@ -9,6 +9,9 @@ namespace Metarill.Data.Schema;
 /// <summary>结构计划仅由逻辑元数据编译；不接受客户端传入的 SQL 类型或默认表达式。</summary>
 public static class MySqlSchemaPlanner
 {
+    /// <summary>首版受管 MySQL 表单个可变长度列的编译上限。</summary>
+    public const int MaximumVariableColumnLength = 16000;
+
     public static DatabaseSchema Compile(MetadataCatalog catalog, string database)
     {
         MetadataValidation.Validate(catalog);
@@ -179,10 +182,10 @@ public static class MySqlSchemaPlanner
     {
         if (length.Equals("text", StringComparison.OrdinalIgnoreCase)) return "text";
         if (length.Equals("longtext", StringComparison.OrdinalIgnoreCase) || length.Equals("max", StringComparison.OrdinalIgnoreCase)) return "longtext";
-        var size = Length(length, 255, 16000);
+        var size = Length(length, 255, MaximumVariableColumnLength);
         return $"varchar({size})";
     }
-    private static string BinaryType(string length) => string.IsNullOrEmpty(length) ? "longblob" : $"varbinary({Length(length, 255, 16000)})";
+    private static string BinaryType(string length) => string.IsNullOrEmpty(length) ? "longblob" : $"varbinary({Length(length, 255, MaximumVariableColumnLength)})";
     private static int Length(string value, int fallback, int max)
     {
         if (string.IsNullOrWhiteSpace(value)) return fallback;
