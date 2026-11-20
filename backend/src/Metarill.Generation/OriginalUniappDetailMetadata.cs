@@ -120,7 +120,7 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
         if (DatabaseCheckboxCompilation.Generic(table,column) &&
             DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is { } checkbox)
             return checkbox.Names.JsonName;
-        if(nameField=="id"&&NonRedundantSelectionCompilation.DisplaysId(model,page,column))
+        if(RelationCompilation.ListDisplaysId(model,page,column) || nameField=="id"&&NonRedundantSelectionCompilation.DisplaysId(model,page,column))
             return column.JsonName;
         // 页级简称使用原辅助名，候选切换和只读回显读取同一返回属性。
         if (table.Source.IsRongyu == 0 && table.Source.IsFunctionTable == 0 && column.Source.ControlKind is ("List" or "SelectPage") &&

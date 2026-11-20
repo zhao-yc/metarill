@@ -64,6 +64,7 @@ internal static class ForeignValidationRenderer
             .DistinctBy(relation=>relation.SourceColumn.Source.Id)
             .Where(relation=>relation.Conditions is not null||relation.TargetPage.Condition is not null||relation.Target.IsGlobal||
                 RelationCompilation.HasFixedTargetScope(relation.Target,relation.TargetPage)||
+                RelationCompilation.HasFixedListIdParent(relation)||
                 DerivedRelationNamesCompilation.UsesSelfTreeExact(relation)||DerivedRelationNamesCompilation.UsesExactSingle(relation))
             .ToDictionary(relation=>relation.SourceColumn.Source.Id);
         var number = 0;

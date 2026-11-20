@@ -98,7 +98,14 @@ internal static class RelationCompilation
             var name = selection?.Name ?? target.Columns.SingleOrDefault(c => c.Source.ColumnName == Mapped("nameField", "name"));
             if (name is null) continue;
             var typedName = DerivedRelationNamesCompilation.IsTypedName(model, owner, target, name);
-            if (name.Type != "string?" && !typedName && selection?.Name.IsId!=true) continue;
+            // 原普通下拉可以展示真实主键。展示、选项及写入必须绑定同一个项目内外键。
+            var listId = name.IsId && !functionForm && source.Source.ControlKind == "List" &&
+                source.Type == "long?" && source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal) &&
+                !owner.IsGlobal && !target.IsGlobal && name.Type == "long" &&
+                NonRedundantReadCompilation.Physical(model,owner,source) && NonRedundantReadCompilation.Physical(model,target,name) &&
+                ForeignValidationRenderer.Target(model,source)?.Source.Id == target.Source.Id &&
+                (tableName.Length == 0 || tableName == target.Source.TableName);
+            if (name.Type != "string?" && !typedName && selection?.Name.IsId!=true && !listId) continue;
             if (ManagerCredentialCompilation.IsCredential(target,name)) throw new InvalidOperationException("账号凭据不能作为关系名称、候选或导出读取列。");
             var targetPage = selection?.TargetPage ?? (functionPageId.Length > 0
                 ? target.Pages.Single(candidate => candidate.Source.Id == functionPageId)
@@ -116,6 +123,8 @@ internal static class RelationCompilation
                 if(name.Source.Id!=parent.Name.Source.Id)throw new InvalidOperationException("普通父关系页级名称与发布来源不一致。");
             }
             if (targetPage is null) continue;
+            if (listId && Mapped("pageId") is {Length:>0} declaredPage && declaredPage != targetPage.Source.Id)
+                throw new InvalidOperationException("主键下拉的目标页声明与写入关系不一致。");
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
             // 原单选的附加条件已经逐项证明属于目标页，逻辑父和固定条件由同一页面计划执行。
             var fixedParent = functionForm
@@ -192,6 +201,23 @@ internal static class RelationCompilation
         return relations;
     }
 
+    /// <summary>同一关联的列表和详情从原外键展示主键，名称页继续使用表级辅助属性。</summary>
+    internal static bool ListDisplaysId(GenerationModel model, PageModel page, ColumnModel source)
+    {
+        return source.Source.ControlKind == "List" && source.Type == "long?" && ListIdSetting(model,page,source) &&
+            ForPage(model,page,scopeSourceId:source.Source.Id).SingleOrDefault()?.NameColumn.IsId == true;
+    }
+
+    /// <summary>列表和服务范围采用相同覆盖键，空页配置继续继承字段。</summary>
+    private static bool ListIdSetting(GenerationModel model,PageModel page,ColumnModel source)
+    {
+        var field = model.Catalog.ConfigPageColumns.SingleOrDefault(item => item.ConfigPageId == page.Source.Id &&
+            item.ConfigColumnId == source.Source.Id);
+        var selected = Text(Definition(field?.Extra.GetValueOrDefault("controlDetail").ToString() ?? ""), "nameField");
+        if (string.IsNullOrWhiteSpace(selected)) selected = Text(Definition(source.Source.ControlDetail), "nameField");
+        return selected == "id";
+    }
+
     /// <summary>同一业务父表允许中间页从级联取得父键，目标页使用该表的真实物理外键。</summary>
     private static MultiTargetParentScope? PhysicalTargetForLogicalSource(GenerationModel model,TableModel owner,PageModel sourcePage,
         TableModel target,PageModel targetPage)
@@ -212,7 +238,7 @@ internal static class RelationCompilation
     {
         if(source.Source.ControlKind!="List"||ForeignValidationRenderer.Target(model,source) is not {} target||
             ListTargetPage(target,page,source,requireExplicit:false) is not {} targetPage)return false;
-        if(HasFixedTargetScope(target,targetPage)||DerivedRelationNamesCompilation.UsesExactSingleTarget(target,targetPage))return true;
+        if(HasFixedTargetScope(target,targetPage)||DerivedRelationNamesCompilation.UsesExactSingleTarget(target,targetPage)||ListIdSetting(model,page,source))return true;
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var effective=Text(Definition(field?.Extra.GetValueOrDefault("controlDetail").ToString()??""),"whereSql");
         if(string.IsNullOrWhiteSpace(effective))effective=Text(Definition(source.Source.ControlDetail),"whereSql");
@@ -242,6 +268,10 @@ internal static class RelationCompilation
     internal static bool HasProjectTargetScope(TableModel target,PageModel targetPage)=>
         !target.IsGlobal&&target.Source.IsRongyu==0&&
         (targetPage.Condition is not null||targetPage.Scopes.Any(scope=>scope.Source=="parent"));
+
+    /// <summary>主键下拉的目标发布页存在父范围时，写前复核及钩子使用同一条件。</summary>
+    internal static bool HasFixedListIdParent(RelationModel relation) =>
+        relation.SourceColumn.Source.ControlKind == "List" && relation.NameColumn.IsId && relation.TargetParents.Count > 0;
 
     /// <summary>运行时和私有写校验使用同一个原绑定页或原后台的无父目标页。</summary>
     internal static PageModel? ListTargetPage(TableModel target,PageModel page,ColumnModel source,bool requireExplicit=true)

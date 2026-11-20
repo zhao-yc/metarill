@@ -219,7 +219,8 @@ internal static class RelationConditionsCompilation
     {
         var result=new List<ColumnModel>();
         var fixedTargets=RelationCompilation.ForPage(model,page,true)
-            .Where(relation=>RelationCompilation.HasProjectTargetScope(relation.Target,relation.TargetPage));
+            .Where(relation=>RelationCompilation.HasProjectTargetScope(relation.Target,relation.TargetPage)||
+                RelationCompilation.HasFixedListIdParent(relation));
         foreach(var relation in RelationCompilation.ForPage(model,page).Where(relation=>relation.Conditions is not null)
             .Concat(fixedTargets).DistinctBy(relation=>relation.SourceColumn.Source.Id))
         {

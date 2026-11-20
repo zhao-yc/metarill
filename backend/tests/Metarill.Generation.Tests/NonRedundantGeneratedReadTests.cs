@@ -229,6 +229,103 @@ public sealed class NonRedundantGeneratedReadTests
         finally{if(Directory.Exists(root))Directory.Delete(root,true);}
     }
 
+    /// <summary>原普通下拉按真实主键显示，候选、回显、筛选及两种工作簿入口继续走本项目同父范围。</summary>
+    [Theory]
+    [InlineData(0, 0, true)]
+    [InlineData(0, 1, false)]
+    [InlineData(1, 1, true)]
+    [InlineData(1, 0, true)]
+    public async Task List_id_display_preserves_scoped_options_and_workbook(int sourceStorage, int targetStorage, bool pageOverride)
+    {
+        var catalog = NonRedundantGeneratedFixture.Catalog("mt_list_id");
+        NonRedundantGeneratedFixture.EnableSingleSelection(catalog, targetParent: true);
+        NonRedundantGeneratedFixture.EnableImports(catalog);
+        foreach (var item in catalog.ConfigTables) item.YzProjectId = catalog.YzProjectId;
+        foreach (var item in catalog.ConfigPages) item.YzProjectId = catalog.YzProjectId;
+        foreach (var item in catalog.ConfigColumns) item.YzProjectId = catalog.YzProjectId;
+        catalog.ConfigTables.Single(table => table.Id == "1").IsRongyu = sourceStorage;
+        catalog.ConfigTables.Single(table => table.Id == "2").IsRongyu = targetStorage;
+        var source = catalog.ConfigColumns.Single(column => column.Id == "15");
+        source.ControlKind = "List";
+        source.Extra["linkConfigPageId"] = JsonSerializer.SerializeToElement("201");
+        source.ControlDetail = JsonSerializer.Serialize(new
+        {
+            tableId = "2", table = "mt_list_id_party", nameField = pageOverride ? "name" : "id"
+        });
+        catalog.ConfigPages.Single(page => page.Id == "201").Extra.Remove("type");
+        var sourcePage = catalog.ConfigPages.Single(page => page.Id == "101");
+        sourcePage.IsExport = 1;
+        sourcePage.Extra["exportMethod"] = JsonSerializer.SerializeToElement(targetStorage == 0 ? "list" : "edit");
+        var field = catalog.ConfigPageColumns.Single(item => item.ConfigPageId == sourcePage.Id && item.ConfigColumnId == source.Id);
+        field.Extra["isSearch"] = JsonSerializer.SerializeToElement(1);
+        if (pageOverride)
+        {
+            foreach (var setting in catalog.ConfigPageColumns.Where(item => item.ConfigColumnId == source.Id))
+                setting.Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"nameField":"id"}""");
+            var namePage = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(sourcePage))!;
+            namePage.Id = "104";
+            namePage.IsImport = namePage.IsExport = 0;
+            catalog.ConfigPages.Add(namePage);
+            foreach (var setting in catalog.ConfigPageColumns.Where(item => item.ConfigPageId == sourcePage.Id).ToArray())
+            {
+                var clone = JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(setting))!;
+                clone.Id = namePage.Id + clone.ConfigColumnId;
+                clone.ConfigPageId = namePage.Id;
+                clone.Extra.Remove("controlDetail");
+                catalog.ConfigPageColumns.Add(clone);
+            }
+        }
+
+        const string ns = "Example.ListIdDisplay";
+        var model = GenerationModel.Create(catalog, ns);
+        var table = model.Tables.Single(item => item.Source.Id == "1");
+        var pageModel = table.Pages.Single(page => page.Source.Id == "101");
+        var relation = Assert.Single(RelationCompilation.ForPage(model, pageModel),
+            item => item.SourceColumn.Source.Id == source.Id);
+        Assert.True(relation.NameColumn.IsId);
+        Assert.Contains(relation.TargetPage.Scopes, scope => scope.Source == "parent");
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+
+        var root = Path.Combine(Path.GetTempPath(), "metarill-list-id", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated = Path.Combine(root, "generated");
+            new CSharpGenerator().Generate(catalog, generated, ns);
+            var list = await File.ReadAllTextAsync(Path.Combine(generated, "frontend/pages/yzp/mt_list_id_order-list-101.vue"));
+            Assert.Contains("filters.customerId", list);
+            Assert.Contains("relationDisplayText(item.customerId)", list);
+            var detail = await File.ReadAllTextAsync(Path.Combine(generated, "frontend/pages/yzp/mt_list_id_order-detail-101.vue"));
+            Assert.Contains("readonlyDisplayText(entity.customerId)", detail);
+            Assert.Contains("<zxz-uni-data-select", detail);
+            Assert.DoesNotContain("this.entity.customerName=item", detail);
+            if (pageOverride)
+            {
+                var nameList = await File.ReadAllTextAsync(Path.Combine(generated, "frontend/pages/yzp/mt_list_id_order-list-104.vue"));
+                Assert.Contains("relationDisplayText(item.customerName)", nameList);
+            }
+            var service = await File.ReadAllTextAsync(Path.Combine(generated, "Services/MtListIdOrderService.g.cs"));
+            Assert.Contains("ImportRelation101_15Async", service);
+            Assert.Contains("ImportRelation103_15Async", service);
+            Assert.Contains("namesCustomerId", service);
+            Assert.Contains("originalCandidateValues.CustomerId", service);
+            Assert.Contains("filters.Add(new(\"group_id\",FixedReadComparison.Equal", service);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            var serviceType = assembly.GetType(ns + ".Generated.Services.MtListIdOrderService", true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
+            var readOption = serviceType.GetMethod("ReadDerivedOption101_15",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            var option = readOption.Invoke(null, [new Dictionary<string, object?> { ["id"] = 9007199254740993L }]);
+            var jsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            jsonOptions.Converters.Add(new Metarill.Core.Contracts.StringLongJsonConverter());
+            var json = JsonSerializer.SerializeToElement(option, jsonOptions);
+            foreach (var key in new[] { "id", "name", "value", "text" })
+                Assert.Equal("9007199254740993", json.GetProperty(key).GetString());
+            Assert.Equal(ApplicationPackageMode.FullApplication, new ApplicationPackager().Create(catalog,
+                Path.Combine(root, "application"), ns, NonRedundantApplicationFixture.Root()).Mode);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     /// <summary>未接线原功能不能以静默退化方式生成；公开完整包仍保留能力门槛。</summary>
     [Theory]
     [InlineData("customImport")][InlineData("global")][InlineData("select")][InlineData("filterType")][InlineData("conflictingTarget")][InlineData("effectiveOverride")]
