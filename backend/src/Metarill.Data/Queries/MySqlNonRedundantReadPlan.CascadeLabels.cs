@@ -38,11 +38,11 @@ public static partial class MySqlNonRedundantReadCompiler
                             selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0,
                         storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase",allowLiteralMultiScope:compoundPhysical);
                 pages.UnionWith(plan.CascadeLabelPages);
-                if(sourcePage is not null&&selected is not null)
+                if(selected is not null)
                 {
-                    // 冻结覆盖和实际候选页，运行宿主可按原配置重新证明范围。
-                    pages.Add(sourcePage.Id);
+                    // 即使账号条件全在父页，也须冻结已证明的目标页及具体来源覆盖。
                     pages.Add(selected.Id);
+                    if(sourcePage is not null)pages.Add(sourcePage.Id);
                 }
                 if(source is not null&&(plan.RequiresAccount&&source.IsRongyu==1||selected is not null&&plan.RequiredMultiParent is not null))
                     owners.UnionWith(catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&

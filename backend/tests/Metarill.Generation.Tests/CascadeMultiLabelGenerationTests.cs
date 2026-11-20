@@ -396,6 +396,16 @@ public sealed class CascadeMultiLabelGenerationTests
             compoundTargetParent:targetScope,projectTargetGlobalParent:true,
             compoundSourceParent:sourceScope,globalCompoundSource:sourceScope is not null);
 
+    /// <summary>项目内多值页通过单个物理外键绑定实际全局父页，账号条件可只在父页。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,false)]
+    [InlineData("MultiCheckBoxDatabase",0,false)]
+    [InlineData("MultiSelectPage",1,true)]
+    [InlineData("MultiCheckBoxDatabase",1,true)]
+    public Task Project_multivalue_target_preserves_physical_global_parent(string kind,int storageMode,bool exact)=>
+        CompileCascadeLabel(kind,storageMode,selfTree:false,indirect:false,selectedPage:true,physical:true,parent:true,
+            onlyParent:true,globalParent:true,parentWithoutProject:true,parentAccount:true,exact:exact,projectTargetGlobalParent:true);
+
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
         bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
         bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false,string? compoundSourceParent=null,string? compoundTargetParent=null,
@@ -487,7 +497,8 @@ public sealed class CascadeMultiLabelGenerationTests
                     catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId==project.Id);
                 }
             }
-            if(!onlyParent)catalog.ConfigPages.Single(page=>page.Id=="901").WhereSql+=" AND store_id=@current_store_id";
+            if(!onlyParent||projectTargetGlobalParent&&mode==1)
+                catalog.ConfigPages.Single(page=>page.Id=="901").WhereSql+=" AND store_id=@current_store_id";
         }
         var parentField=logicalParent?"country_id":"target_scope_id";
         if(parent)
@@ -506,6 +517,8 @@ public sealed class CascadeMultiLabelGenerationTests
             catalog.ConfigColumns.Add(new(){Id="914",ConfigTableId="9",ColumnName="source_scope_id",Name="所属记录",LogicalType="int64",LinkConfigTableId=parentTable});
             var page=catalog.ConfigPages.Single(page=>page.Id=="201");
             page.WhereSql+=(page.WhereSql.Length==0?"":" AND ")+parentField+"=@parent_id";
+            if(projectTargetGlobalParent&&kind=="MultiCheckBoxDatabase")
+                page.Extra["type"]=JsonSerializer.SerializeToElement(0);
             if(compoundTargetParent is not null)
             {
                 if(compoundTargetParent=="independent")
@@ -534,8 +547,8 @@ public sealed class CascadeMultiLabelGenerationTests
                     catalog.ConfigColumns.Add(new(){Id="3099",ConfigTableId=parentTable,ColumnName="store_id",LogicalType="int64"});
                     globalPage.WhereSql+=" AND store_id=@current_store_id";
                 }
-                if(!sourceLogicalParent&&!(compoundTargetParent is not null&&
-                    (globalRowProject is not null||projectTargetGlobalParent)&&parentAccount))
+                if(!sourceLogicalParent&&!(parentAccount&&(projectTargetGlobalParent||
+                    compoundTargetParent is not null&&globalRowProject is not null)))
                 {
                     var foreign=catalog.ConfigColumns.Single(column=>column.Id=="914");
                     foreign.ControlKind="List";
@@ -710,7 +723,8 @@ public sealed class CascadeMultiLabelGenerationTests
                 {
                     Assert.Contains(compoundTargetParent is not null?"CompileScopedCheckboxLabel":
                         globalRowProject is not null?"CompileGlobalExactSingleCandidate":
-                        logicalParent?"CompileExactCheckboxParentCandidate":"CompileRelationMembership",code);
+                        logicalParent?"CompileExactCheckboxParentCandidate":
+                        projectTargetGlobalParent?"CompileScopedCheckboxLabel":"CompileRelationMembership",code);
                     if(exact)Assert.Contains("""checkboxExactAuthorization.ResolveExactDataManage("201", "list", "real_name")""",code);
                     Assert.Contains("condition:condition,currentRead:locking",code);
                 }
@@ -734,7 +748,7 @@ public sealed class CascadeMultiLabelGenerationTests
                     {
                         var targetCode=File.ReadAllText(Path.Combine(directory,"generated/Services/LabelCrossSourceService.g.cs"));
                         Assert.Contains("CompileMultiGlobalParent(\"2\",\"201\")",targetCode);
-                        if(compoundTargetParent is null||kind=="MultiSelectPage")
+                        if(kind=="MultiSelectPage"||compoundTargetParent is null&&!projectTargetGlobalParent)
                             Assert.Contains("ValidateParents201Async(parentId,actor,cancellationToken,locking:false)",targetCode);
                         else
                             Assert.Contains("PageMultiGlobalParent201.BindAccount(actor)",targetCode);
@@ -760,6 +774,42 @@ public sealed class CascadeMultiLabelGenerationTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var consumer=assembly.GetType(ns+".Generated.Services.LabelConsumerService",true)!;
             RuntimeHelpers.RunClassConstructor(consumer.TypeHandle);
+            if(projectTargetGlobalParent&&compoundTargetParent is null)
+            {
+                var checkbox=kind=="MultiCheckBoxDatabase";
+                const System.Reflection.BindingFlags staticPrivate=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                var plan=Assert.IsType<NonRedundantReadPlan>(consumer.GetField(
+                    checkbox?"DerivedCheckboxPlan901_95":"MultiDerivedPlan901_95",staticPrivate)!.GetValue(null));
+                var sql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+                var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
+                Assert.Contains("`yz_project_id`",scope);
+                Assert.Contains("`target_scope_id`",scope);
+                Assert.Contains("`label_cross_country`",scope);
+                Assert.Contains("`store_id`",scope);
+                Assert.True(plan.RequiresAccount);
+                RuntimeHelpers.RunClassConstructor(assembly.GetType(ns+".Generated.Services.LabelCrossSourceService",true)!.TypeHandle);
+                if(mode==1)
+                {
+                    var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                        assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+                    var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                        maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+                    var read=plans["9"]!.GetType().GetProperty("Read")!.GetValue(plans["9"])!;
+                    var owner=model.Tables.Single(item=>item.Source.Id=="9");
+                    var ownerPage=owner.Pages.Single(item=>item.Source.Id=="901");
+                    var names=checkbox?Assert.Single(DatabaseCheckboxCompilation.ForPage(model,owner,ownerPage)).Names:
+                        Assert.Single(MultiSelectCompilation.ForPage(model,owner,ownerPage)).Names!;
+                    var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,[names.Source.ColumnName]));
+                    Assert.Contains("`target_scope_id`",expression);
+                    Assert.Contains("`store_id`",expression);
+                }
+                var parentKey=catalog.ConfigColumns.Single(item=>item.Id=="214");
+                parentKey.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("201");
+                var error=Assert.ThrowsAny<InvalidOperationException>(()=>NonRedundantReads.MultiGlobalParentPageId(catalog,"2","201"));
+                Assert.Contains("全局物理父键必须绑定唯一发布页",error.Message);
+                parentKey.Extra.Remove("linkConfigPageId");
+            }
             if(compoundTargetParent is not null)
             {
                 var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
