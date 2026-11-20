@@ -10,7 +10,8 @@ namespace Metarill.Generation.Tests;
 internal static class FreshWebHttp
 {
     /// <summary>同时核对HTTP状态和R业务码，错误正文不进入异常消息。</summary>
-    internal static async Task<JsonElement> SendAsync(HttpClient client, HttpMethod method, string route, object? body = null, HttpStatusCode expected = HttpStatusCode.OK)
+    internal static async Task<JsonElement> SendAsync(HttpClient client, HttpMethod method, string route, object? body = null,
+        HttpStatusCode expected = HttpStatusCode.OK, int? expectedCode = null)
     {
         using var request = new HttpRequestMessage(method, route);
         if (body is not null) request.Content = body as HttpContent ?? JsonContent.Create(body);
@@ -19,8 +20,17 @@ internal static class FreshWebHttp
         JsonElement json;
         try { json = await response.Content.ReadFromJsonAsync<JsonElement>(); }
         catch (JsonException) { throw new InvalidOperationException("独立Web响应不是统一JSON，正文不回显。"); }
-        Assert.True(json.ValueKind == JsonValueKind.Object && json.TryGetProperty("code", out var code) && code.TryGetInt32(out var number) && number == (int)expected, "独立Web响应业务码不符，正文与凭据不回显。");
+        Assert.True(json.ValueKind == JsonValueKind.Object && json.TryGetProperty("code", out var code) && code.TryGetInt32(out var number) && number == (expectedCode ?? (int)expected), "独立Web响应业务码不符，正文与凭据不回显。");
         return json;
+    }
+
+    /// <summary>范围外和不存在记录共用原业务响应，不根据记录的真实状态区分。</summary>
+    internal static async Task RequireUnavailableRecordAsync(HttpClient client, HttpMethod method, string route, object body)
+    {
+        var response=await SendAsync(client,method,route,body,expectedCode:500);
+        Assert.True(response.TryGetProperty("msg",out var message)&&message.GetString()=="数据不存在或无权限",
+            "原记录范围提示不符，正文与凭据不回显。");
+        Assert.Equal(JsonValueKind.Null,response.GetProperty("data").ValueKind);
     }
     /// <summary>原form与JSON登录只取可信回执令牌；重复登录替换header，不累计旧会话头。</summary>
     internal static async Task<string> LoginAsync(HttpClient client, string username, string password, bool form = false)

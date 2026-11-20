@@ -31,7 +31,16 @@ public sealed partial class FreshGlobalMultipleMySqlTests
         var tenant=(await p.Send(p.Reader,HttpMethod.Post,"/api/admin/auto/"+Tenant+"/402/page",new PageRequest{PageSize=10})).GetProperty("data");Assert.Equal(1L,tenant.GetProperty("total").GetInt64());
         var bytes=Encoding.UTF8.GetBytes("全局多值原文件");var file=await p.Upload(bytes);var added=await p.Post("add",new{name="全局多值来源",sharedIds=shared,checkedIds,tenantIds=new[]{Id(First+10000)},segment=1,attachments=new[]{file}});p.RecordId=added.GetProperty("id").GetString()!;Check(added);await p.References(file,1);await p.Download(file,bytes);
         var raw=Assert.Single(await p.Store.ReadIncludingDeletedAsync(p.Source,Row("id",long.Parse(p.RecordId,CultureInfo.InvariantCulture))));Assert.Equal(Id(Project),SqlRowStore.Text(raw,"yz_project_id"));Assert.Equal(shared,JsonSerializer.Deserialize<string[]>(SqlRowStore.Text(raw,"shared_ids")));Assert.Equal(new[]{Id(First)},JsonSerializer.Deserialize<string[]>(SqlRowStore.Text(raw,"hidden_ids")));Assert.DoesNotContain(raw.Keys,x=>x is "shared_names" or "checked_names" or "tenant_names");Assert.False(added.TryGetProperty("hiddenIds",out _));var page=await p.Post("page",new PageRequest{PageSize=1});Assert.Equal(1L,page.GetProperty("total").GetInt64());
-        var before=await p.Snapshot();await p.Post("update",new{id=Id(First+900000),name="越界来源"},HttpStatusCode.InternalServerError);Assert.Equal(before,await p.Snapshot());if(p.ParentScope){await p.Post("update?parentId="+Id(Parent+1),new{id=p.RecordId,name="越界父"},HttpStatusCode.InternalServerError);Assert.Equal(before,await p.Snapshot());}
+        var before=await p.Snapshot();
+        await FreshWebHttp.RequireUnavailableRecordAsync(p.Reader,HttpMethod.Post,p.Route+"update"+p.ParentQuery,
+            new{id=Id(First+900000),name="越界来源"});
+        Assert.Equal(before,await p.Snapshot());
+        if(p.ParentScope)
+        {
+            await FreshWebHttp.RequireUnavailableRecordAsync(p.Reader,HttpMethod.Post,p.Route+"update?parentId="+Id(Parent+1),
+                new{id=p.RecordId,name="越界父"});
+            Assert.Equal(before,await p.Snapshot());
+        }
         foreach(var bad in new object[]{new{id=p.RecordId,sharedIds=new[]{Id(First+2)}},new{id=p.RecordId,checkedIds=new[]{Id(First+2)}},new{id=p.RecordId,tenantIds=new[]{Id(First+10001)}},new{id=p.RecordId,segment=2}}){before=await p.Snapshot();await p.Post("update",bad,HttpStatusCode.InternalServerError);Assert.Equal(before,await p.Snapshot());}
         var echo=JsonSerializer.Deserialize<Dictionary<string,JsonElement>>(added.GetRawText())!;echo["sharedNames"]=JsonSerializer.SerializeToElement(new[]{"伪造名称"});echo["checkedNames"]=JsonSerializer.SerializeToElement(new[]{"伪造复选"});Check(await p.Post("update",echo));before=await p.Snapshot();echo["creating"]=JsonSerializer.SerializeToElement(true);await p.Post("update",echo,HttpStatusCode.BadRequest);Assert.Equal(before,await p.Snapshot());
         await p.Store.UpdateAsync(Shared,First,Row("status",0));try{before=await p.Snapshot();await p.Post("add",new{name="隐藏默认拒绝",segment=1,sharedIds=new[]{Id(First+1)},checkedIds=new[]{Id(First+1)}},HttpStatusCode.InternalServerError);Assert.Equal(before,await p.Snapshot());}finally{await p.Store.UpdateAsync(Shared,First,Row("status",1));}

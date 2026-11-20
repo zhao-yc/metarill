@@ -59,10 +59,10 @@ internal static class ExactDataManageMySqlProbe
             await Normal("[\"is_query\"]");await Page(2);Assert.Equal(new[]{nameA},await Export());await File(true);
             stage="mixed-export";await Normal("[\"is_export\"]");await Page(1);Assert.Equal(new[]{nameA,nameB}.Order(StringComparer.Ordinal),(await Export()).Order(StringComparer.Ordinal));
             stage="mixed-update";await Normal("[\"is_update\"]");await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,route+"/update?parentId=71",new{id=Text(b),status=2});Assert.Equal(2,SqlRowStore.Id(Assert.Single(await business.ReadAsync(table,Row("id",b))),"status"));await Detail(b,false);
-            stage="scoped-update-reject";await Normal("[]");await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,route+"/update?parentId=71",new{id=Text(b),status=1},HttpStatusCode.InternalServerError);Assert.Equal(2,SqlRowStore.Id(Assert.Single(await business.ReadAsync(table,Row("id",b))),"status"));
+            stage="scoped-update-reject";await Normal("[]");await FreshWebHttp.RequireUnavailableRecordAsync(ordinary,HttpMethod.Post,route+"/update?parentId=71",new{id=Text(b),status=1});Assert.Equal(2,SqlRowStore.Id(Assert.Single(await business.ReadAsync(table,Row("id",b))),"status"));
             // 范围内修改必须实际成功，防止驱动错误碰巧满足范围外HTTP500断言。
             stage="scoped-update-success";await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,route+"/update?parentId=71",new{id=Text(a),status=1});Assert.Equal(1,SqlRowStore.Id(Assert.Single(await business.ReadAsync(table,Row("id",a))),"status"));
-            stage="copy-delete-reject";await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,route+"/copy/"+b+"?parentId=71",new{},HttpStatusCode.InternalServerError);await FreshWebHttp.SendAsync(ordinary,HttpMethod.Delete,route+"?parentId=71",new{id=Text(b)},HttpStatusCode.InternalServerError);Assert.Single(await business.ReadAsync(table,Row("id",b)));
+            stage="copy-delete-reject";await FreshWebHttp.RequireUnavailableRecordAsync(ordinary,HttpMethod.Post,route+"/copy/"+b+"?parentId=71",new{});await FreshWebHttp.RequireUnavailableRecordAsync(ordinary,HttpMethod.Delete,route+"?parentId=71",new{id=Text(b)});Assert.Single(await business.ReadAsync(table,Row("id",b)));
             stage="import-original-action";await Normal("[\"is_update\"]");
             // 覆盖只匹配import的原Scope；范围外同名按原规则追加，不能借普通update权覆盖原记录。
             await FreshWebHttp.SendAsync(ordinary,HttpMethod.Post,route+"/importDatas101",new{parentId="71",requestJson=new[]{Row("记录名",nameB,"customer_id","A甲","status",1)}});

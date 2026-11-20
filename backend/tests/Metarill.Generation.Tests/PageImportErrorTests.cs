@@ -126,6 +126,53 @@ public partial class CustomerService
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>原修改、删除和复制的空记录统一走显式业务拒绝，读取故障继续送入内部错误边界。</summary>
+    [Fact]
+    public async Task Actual_generated_mutations_report_unavailable_record_as_a_business_failure()
+    {
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-record-write-errors");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        const string ns="Example.RecordWriteErrors";
+        try
+        {
+            var catalog=GeneratorTests.Catalog();
+            catalog.ConfigPages[0].IsDelete=1;
+            catalog.ConfigPages[0].IsCopy=1;
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var probe=new OfflineOrm();
+            using var session=new DatabaseSession(new(),probe.Orm,probe);
+            var type=assembly.GetType(ns+".Generated.Services.CustomerService",true)!;
+            var mapper=Activator.CreateInstance(assembly.GetType(ns+".Generated.Mappers.CustomerMapper",true)!,session);
+            var service=Activator.CreateInstance(type,session,mapper,new SnowflakeIdGenerator(866),
+                Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>())!;
+            const long id=9007199254740993L;
+            var actor=new RuntimeActor(1,"离线记录范围",true,catalog.YzProjectId,"1");
+            var updateRequest=assembly.GetType(ns+".Generated.DTOs.CustomerPage101UpdateRequest",true)!;
+            var update=JsonSerializer.Deserialize("""{"id":"9007199254740993","name":"测试修改"}""",updateRequest,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            Task Call(string operation,object? argument)=>(Task)type.GetMethod(operation+"101Async")!
+                .Invoke(service,[argument,null,actor,CancellationToken.None])!;
+
+            foreach(var (operation,argument) in new (string,object?)[]{("Update",update),("Delete",id),("Copy",id)})
+            {
+                var failure=await Assert.ThrowsAsync<BusinessRuleException>(()=>Call(operation,argument));
+                Assert.Equal("数据不存在或无权限",failure.Message);
+            }
+            Assert.Equal(3,probe.LockedReads);
+            Assert.Equal(3,probe.Rollbacks);
+            Assert.Equal(0,probe.Commits);
+            Assert.Equal(0,probe.Inserts);
+
+            var unexpected=new InvalidOperationException("离线读取内部故障");
+            probe.ReadFailure=unexpected;
+            Assert.Same(unexpected,await Assert.ThrowsAsync<InvalidOperationException>(()=>Call("Update",update)));
+            Assert.Equal(4,probe.Rollbacks);
+            Assert.Equal(0,probe.Commands);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>固定元数据不包含数据库、任意SQL或客户端可选择目标；长数字按原字符串协议解析。</summary>
     internal static MetadataCatalog Catalog()
     {
@@ -142,13 +189,21 @@ public partial class CustomerService
     /// <summary>只返回固定写入计数，不执行SQL；事务/命令计数明确区分模拟与真实数据库行为。</summary>
     private sealed class OfflineOrm : IDatabaseProvider
     {
-        internal int Inserts, Commits, Rollbacks, Commands, Matches; internal Exception? ReadFailure;
+        internal int Inserts, Commits, Rollbacks, Commands, Matches, LockedReads; internal Exception? ReadFailure;
         internal IFreeSql Orm => ProxyFor<IFreeSql>((method, _) => method.Name switch { "Insert" => Insert(method.ReturnType), "Select" => Select(method.ReturnType, method.GetGenericArguments()[0]), _ => throw new NotSupportedException("离线ORM未开放" + method.Name) });
         private object Select(Type type, Type entity)
         {
             object? query = null;
+            var locking=false;
             query = ProxyFor(type, (method, arguments) =>
             {
+                if(method.Name=="ForUpdate")locking=true;
+                if(method.Name=="FirstAsync")
+                {
+                    if(ReadFailure is not null)throw ReadFailure;
+                    if(locking)LockedReads++;
+                    return typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(entity).Invoke(null,[null]);
+                }
                 if (method.Name == "ToListAsync")
                 {
                     if (ReadFailure is not null) throw ReadFailure;
