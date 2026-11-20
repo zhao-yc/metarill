@@ -130,7 +130,9 @@ public static class GlobalSingleRelationTarget
         var scopedCrossTable=allowsLogical&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,expanded,field));
         var scopedAccount=allowsLogical&&target.IsRongyu==0&&!scopedSelfTree&&!scopedCrossTable&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
-        var exactSingle=foreign.ControlKind=="SelectPage"&&GlobalCrossTableTarget.DeclaresExactSingle(target,page);
+        // 原下拉可以引用业务页；弹窗单选继续要求实际发布的 type=1 页面。
+        var exactSingle=GlobalCrossTableTarget.DeclaresExactSingle(target,page)&&
+            (foreign.ControlKind=="List"||page.Extra.GetValueOrDefault("type").ToString()=="1");
         var fixedParent=exactSingle?GlobalCrossTableTarget.ExactSingleParent(catalog,target,page,resolving):
             allowsLogical?GlobalCrossTableTarget.SingleParent(catalog,target,page):null;
         var sourceParent=fixedParent?.SingleSource(catalog,owner,foreign);

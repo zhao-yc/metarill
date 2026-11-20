@@ -14,11 +14,10 @@ internal static class DerivedRelationNamesCompilation
         relation.SourceColumn.Source.ControlKind is "List" or "SelectPage"&&
         NonRedundantReadCompilation.SelfTreeExactColumn(relation.Target,relation.TargetPage) is not null;
 
-    /// <summary>原单值控件按实际项目内目标页执行已声明的精确权限。</summary>
+    /// <summary>原单值控件按实际发布的目标页执行已声明的精确权限。</summary>
     internal static bool UsesExactSingle(RelationModel relation)=>
         relation.SourceColumn.Source.ControlKind is "List" or "SelectPage"&&
-        (UsesExactSingleTarget(relation.Target,relation.TargetPage)||relation.SourceColumn.Source.ControlKind=="SelectPage"&&
-            GlobalCrossTableTarget.DeclaresExactSingle(relation.Target.Source,relation.TargetPage.Source));
+        (UsesExactSingleTarget(relation.Target,relation.TargetPage)||IsGlobalExactSingle(relation));
 
     /// <summary>隐藏单值外键也使用实际目标页范围，供写入登记复用。</summary>
     internal static bool UsesExactSingleTarget(TableModel target,PageModel page)=>
@@ -256,9 +255,11 @@ internal static class DerivedRelationNamesCompilation
             throw new InvalidOperationException("关系名称必须编译为与声明一致的固定标量。");
         return dependencies;
     }
-    /// <summary>只有实际全局单选关系可以使用专门的精确候选计划。</summary>
-    internal static bool IsGlobalExactSingle(RelationModel relation)=>relation.SourceColumn.Source.ControlKind=="SelectPage"&&
-        GlobalCrossTableTarget.DeclaresExactSingle(relation.Target.Source,relation.TargetPage.Source);
+    /// <summary>全局下拉及单选从实际目标页编译精确候选；弹窗仍绑定原单选页。</summary>
+    internal static bool IsGlobalExactSingle(RelationModel relation)=>
+        GlobalCrossTableTarget.DeclaresExactSingle(relation.Target.Source,relation.TargetPage.Source)&&
+        (relation.SourceColumn.Source.ControlKind=="List"||relation.SourceColumn.Source.ControlKind=="SelectPage"&&
+            relation.TargetPage.Source.Extra.GetValueOrDefault("type").ToString()=="1");
 
     /// <summary>原单值候选沿目标列表授权，匹配字段及投影由实际目标页证明。</summary>
     internal static ExactDataManageModel? CandidateExact(GenerationModel model, TableModel owner, RelationModel relation)

@@ -12,12 +12,12 @@ public static class GlobalCrossTableTarget
     public static void Require(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>RequireTarget(catalog,table,page,false);
     /// <summary>单值及其候选根可另证R0实体；级联和文件父范围继续使用原R1入口。</summary>
     public static void RequireSingle(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>RequireTarget(catalog,table,page,true);
-    /// <summary>全局单选只接受实际发布的 type=1 页声明；记录权限仍由请求方校验。</summary>
+    /// <summary>全局单值范围来自实际发布的业务页或单选页；记录权限由调用入口校验。</summary>
     public static bool DeclaresExactSingle(TableMetadata table,PageMetadata page)=>
-        Declared(table)&&page.Extra.GetValueOrDefault("type").ToString()=="1"&&
+        Declared(table)&&page.Extra.GetValueOrDefault("type").ToString() is "" or "0" or "1"&&
         !string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
 
-    /// <summary>证明全局单选匹配字段及发布身份，下发和实际读计划均使用此校验。</summary>
+    /// <summary>证明全局单值匹配字段及发布身份，下发和实际读计划均使用此校验。</summary>
     public static void RequireExactSingleCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
         _=ExactSingleParent(catalog,table,page);
 
@@ -33,7 +33,7 @@ public static class GlobalCrossTableTarget
             !ReferenceEquals(catalog.ConfigTables.SingleOrDefault(item=>item.Id==table.Id),table)||
             !ReferenceEquals(catalog.ConfigPages.SingleOrDefault(item=>item.Id==page.Id),page)||
             !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
-            throw new NotSupportedException("全局精确单选必须属于当前项目发布的单选页及后台。");
+            throw new NotSupportedException("全局单值精确范围必须属于当前项目发布的业务页或单选页及后台。");
         var parent=SingleParent(catalog,table,page,allowLogical:true,allowExactSingle:true);
         if(parent is null)
         {
