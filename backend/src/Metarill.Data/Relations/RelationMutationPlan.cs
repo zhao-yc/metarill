@@ -105,7 +105,7 @@ public sealed class RelationMutationPlan
             foreach(var field in new[]{foreign,value,cache})if(field.YzProjectId.Length>0&&field.YzProjectId!=catalog.YzProjectId)throw new InvalidOperationException("传播字段超出发布项目。");
             var global=GlobalCrossTableTarget.Declared(target);
             MySqlPublishedRelationCondition? publishedCondition=null;
-            if(definition.CheckboxTargetPageId is {} checkboxPage)
+            if(!global&&definition.CheckboxTargetPageId is {} checkboxPage)
             {
                 if(!definition.Multiple)throw new InvalidOperationException("复选固定目标页必须绑定多值缓存。");
                 var page=MySqlPublishedRelationCondition.RequireProjectCheckboxPage(catalog,source,foreign,target,checkboxPage);
@@ -113,7 +113,13 @@ public sealed class RelationMutationPlan
             }
             if(global)
             {
-                if(cross||selfTree)
+                if(definition.CheckboxTargetPageId is {} globalCheckboxPage)
+                {
+                    if(!definition.Multiple||cross||selfTree)throw new InvalidOperationException("全局复选固定页必须绑定普通多值缓存。");
+                    var page=MySqlPublishedRelationCondition.RequireGlobalCheckboxCachePage(catalog,source,foreign,target,value,globalCheckboxPage);
+                    publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,page);
+                }
+                else if(cross||selfTree)
                 {
                     // 级联缓存和维护共用同一全局叶子／层的发布条件，避免目标改名时读到页面外记录。
                     var pageId=definition.SelfTreePageId??(target.IsRongyu==0||MultiValueLabel.IsTyped(value.LogicalType)?definition.CrossTablePageId:null);

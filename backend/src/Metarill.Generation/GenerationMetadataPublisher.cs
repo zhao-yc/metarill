@@ -33,7 +33,8 @@ public static class GenerationMetadataPublisher
 
     /// <summary>关系执行目录先脱敏，再去掉品牌、菜单及布局；纯配置更新不因此强制更新后端生成代码。</summary>
     internal static MetadataCatalog ForRelations(MetadataCatalog catalog,IReadOnlySet<string>? cascadePages=null,
-        IEnumerable<string>? selfTreeNamePages=null,IReadOnlySet<string>? nestedTables=null)
+        IEnumerable<string>? selfTreeNamePages=null,IReadOnlySet<string>? nestedTables=null,
+        IReadOnlySet<(string Page,string Column)>? checkboxProofFields=null)
     {
         // 关系编译维持生成器的定义错误合同；直接发布保留原ArgumentException及原门禁边界。
         MetadataCatalog published;
@@ -64,16 +65,18 @@ public static class GenerationMetadataPublisher
             .Concat(selfTreeNamePages??[]).ToHashSet(StringComparer.Ordinal);
         var nestedPages=published.ConfigPages.Where(page=>nestedTables?.Contains(page.ConfigTableId)==true)
             .Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
-        bool KeepsVisibility(string pageId)=>labelPages.Contains(pageId)||nestedPages.Contains(pageId);
+        // 全局复选多缓存只保留证明所需的来源覆盖及目标列，不携带额外页面配置。
+        bool KeepsCheckboxProof(PageColumnMetadata field)=>checkboxProofFields?.Contains((field.ConfigPageId,field.ConfigColumnId))==true;
+        bool KeepsVisibility(PageColumnMetadata field)=>labelPages.Contains(field.ConfigPageId)||nestedPages.Contains(field.ConfigPageId)||KeepsCheckboxProof(field);
         published.ConfigMenus=[];published.ConfigCustomPages=[];
-        published.ConfigPageColumns=published.ConfigPageColumns.Where(f=>KeepsVisibility(f.ConfigPageId)||
+        published.ConfigPageColumns=published.ConfigPageColumns.Where(f=>KeepsVisibility(f)||
             multiProof.TryGetValue(f.ConfigPageId,out var names)&&names.Contains(f.ConfigColumnId)).Select(f=>new PageColumnMetadata
             {
                 Id=f.Id,ConfigPageId=f.ConfigPageId,ConfigColumnId=f.ConfigColumnId,YzProjectId=f.YzProjectId,
-                IsShow=KeepsVisibility(f.ConfigPageId)?f.IsShow:1,
-                IsEdit=KeepsVisibility(f.ConfigPageId)?f.IsEdit:1,
-                Extra=KeepsVisibility(f.ConfigPageId)?f.Extra.Where(pair=>pair.Key is "isInGrid" or "isInEdit"||
-                    (pair.Key is "controlDetail" or "controlKind")&&(nestedPages.Contains(f.ConfigPageId)||labelPages.Contains(f.ConfigPageId))).ToDictionary():new()
+                IsShow=KeepsVisibility(f)?f.IsShow:1,
+                IsEdit=KeepsVisibility(f)?f.IsEdit:1,
+                Extra=KeepsVisibility(f)?f.Extra.Where(pair=>pair.Key is "isInGrid" or "isInEdit"||
+                    (pair.Key is "controlDetail" or "controlKind")&&(nestedPages.Contains(f.ConfigPageId)||labelPages.Contains(f.ConfigPageId)||KeepsCheckboxProof(f))).ToDictionary():new()
             }).OrderBy(f=>f.Id,StringComparer.Ordinal).ToList();
         published.ConfigChildren=[];published.ConfigIndexes=[];published.ConfigIndexColumns=[];
         // 全局R0页面类型参与多值关系证明，即使名称为物理缓存且来源为R0也不能按界面配置裁掉。

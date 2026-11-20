@@ -664,13 +664,18 @@ public static partial class MySqlNonRedundantReadCompiler
             PageMetadata? publishedPage=null;
             if(global)
             {
-                var proof=table.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target):GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
-                if(proof.Name.ColumnName!=display)throw new NotSupportedException("全局多值显示必须与固定名称声明一致。");
+                if(checkboxPageId is {} sharedPage)
+                    publishedPage=MySqlPublishedRelationCondition.RequireGlobalCheckboxCachePage(catalog,table,relation,target,value,sharedPage);
+                else
+                {
+                    var proof=table.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target):GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
+                    if(proof.Name.ColumnName!=display)throw new NotSupportedException("全局多值显示必须与固定名称声明一致。");
+                    // 名称副本的读取、筛选及回填使用同一发布候选范围。
+                    if(HasGlobalRowProject(target)||typedCache||
+                        relation.ControlKind=="MultiCheckBoxDatabase"&&!string.IsNullOrWhiteSpace(proof.Page.WhereSql))
+                        publishedPage=proof.Page;
+                }
                 if(trackReverse&&target.IsRongyu==0||typedCache)publishedArrayIdentity=true;
-                // 名称副本的读取、筛选及回填使用同一发布候选范围。
-                if(HasGlobalRowProject(target)||typedCache||
-                    relation.ControlKind=="MultiCheckBoxDatabase"&&!string.IsNullOrWhiteSpace(proof.Page.WhereSql))
-                    publishedPage=proof.Page;
             }
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
             var namePage=overridden??MultiTargetNamePage(catalog,target,relation);
@@ -680,13 +685,13 @@ public static partial class MySqlNonRedundantReadCompiler
             var scalarLabel=typedCache||MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id]);
             if(value.LogicalType!="string"&&!scalarLabel)throw new NotSupportedException("多值物理名称类型未支持。");
             Use(table,relation);
-            if(scalarLabel)Use(target,value);
+            if(scalarLabel||global&&checkboxPageId is not null)Use(target,value);
             var label=MySqlMultiValueLabel.Text("multi_value."+Q(display),value.LogicalType);
             var source=owner+"."+Q(relation.ColumnName);
             // JSON_TYPE只在有效JSON分支求值，损坏历史值与非数组按原空集合处理，不能让JSON_TABLE整页失败。
             var array=Array(source);
             // 普通复选维护和传播都应用同一实际发布页，仍按来源行的项目范围读取。
-            var targetScope=checkboxPageId is {} fixedPage
+            var targetScope=!global&&checkboxPageId is {} fixedPage
                 ?PublishedScope(target,"multi_value",MySqlPublishedRelationCondition.RequireProjectCheckboxPage(
                     catalog,table,relation,target,fixedPage),aliasPrefix+"array"+publishedArrayScopeCount++,projectParent:true)
                 :publishedPage is null

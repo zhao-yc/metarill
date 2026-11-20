@@ -120,11 +120,11 @@ internal static class DatabaseCheckboxCompilation
             {
                 // 实时名称沿用原响应数组，物理缓存则按同一关系的实际名称登记。
                 var baseName=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baseline.NameField);
-                if(functionForm||target.IsGlobal||baseName is null||
+                if(functionForm||target.IsGlobal&&table.Source.IsRongyu!=1||baseName is null||
                     !MultiSelectCompilation.PhysicalTextLabel(model,target,baseName)||
                     !MultiSelectCompilation.PhysicalTextLabel(model,target,name)||
                     namePage is not null&&!namePage.Readable.Any(column=>column.Source.Id==name.Source.Id))
-                    return Gap("页级名称须沿用同项目物理文本，显式目标页必须已开放该字段。");
+                    return Gap("页级名称须沿用同一物理文本关系，显式目标页必须已开放该字段。");
             }
             var exactTarget=namePage is null?null:ExactDataManageCompilation.Resolve(model,target,namePage);
             // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。
@@ -303,19 +303,21 @@ internal static class DatabaseCheckboxCompilation
                 DerivedName=derived||logicalPage is not null
             };
             if(independentCache&&!CanSharePhysicalNames(result))
-                return Gap("多个物理名称副本要求同一个普通项目目标范围。");
+                return Gap("多个物理名称副本要求同一固定目标范围。");
             if(result.DerivedName)DerivedCheckboxNamesCompilation.Require(model,table,result);
             return new(result,null);
         }
         catch(Exception error)when(error is ArgumentException or InvalidOperationException or JsonException or NotSupportedException){return Gap(error.Message);}
     }
-    /// <summary>缓存只共享物理标量和同一项目范围，避免按一个页面的附加筛选替其他页面刷新。</summary>
+    /// <summary>多份物理名称必须共用同一个保存及维护范围；全局范围直接由实际发布页提供。</summary>
     private static bool CanSharePhysicalNames(DatabaseCheckboxModel definition) => !definition.DerivedName &&
-        !definition.Target.IsGlobal && definition.Name.Type=="string?" && definition.ExactTarget is null &&
-        definition.Conditions is null &&
-        (definition.NameTargetPage?.Condition is null || definition.PhysicalTargetPage?.Condition is {Syntax.Variables.Count:0}) &&
-        (definition.Scopes.All(scope=>scope.Source=="project")&&definition.NameTargetPage?.Scopes.Any(scope=>scope.Source=="parent")!=true||
-            FixedCacheParent(definition) is not null);
+        definition.Name.Type=="string?" && definition.ExactTarget is null && definition.Conditions is null &&
+        (definition.Target.IsGlobal
+            ? definition.NameTargetPage is {Scopes.Count:0} globalPage && definition.Scopes.Count==0 &&
+                (globalPage.Condition is null||globalPage.Condition.Syntax.Variables.Count==0)
+            : (definition.NameTargetPage?.Condition is null||definition.PhysicalTargetPage?.Condition is {Syntax.Variables.Count:0}) &&
+                (definition.Scopes.All(scope=>scope.Source=="project")&&definition.NameTargetPage?.Scopes.Any(scope=>scope.Source=="parent")!=true||
+                    FixedCacheParent(definition) is not null));
 
     /// <summary>来源和目标须各有一个实际物理父字段，所有名称缓存绑定同一个来源行键。</summary>
     private static string? FixedCacheParent(DatabaseCheckboxModel definition)
@@ -329,9 +331,10 @@ internal static class DatabaseCheckboxCompilation
         return target.Length==1&&target.SequenceEqual(effective,StringComparer.Ordinal)?definition.SourceParent?.Source.Id:null;
     }
 
-    /// <summary>含物理常量或父参数的实际发布页随名称缓存下发。</summary>
-    private static string? FixedCachePage(DatabaseCheckboxModel definition) =>
-        definition.PhysicalTargetPage is {} page&&(page.Condition is not null||FixedCacheParent(definition) is not null)?page.Source.Id:null;
+    /// <summary>全局固定目录及含物理条件的普通发布页随名称缓存下发。</summary>
+    private static string? FixedCachePage(DatabaseCheckboxModel definition) => definition.Target.IsGlobal
+        ? definition.NameTargetPage?.Source.Id
+        : definition.PhysicalTargetPage is {} page&&(page.Condition is not null||FixedCacheParent(definition) is not null)?page.Source.Id:null;
 
     /// <summary>所有写入口以同一事务写齐各页和表级的名称副本。</summary>
     internal static IReadOnlyList<MultiNameWriteBinding> Caches(GenerationModel model,TableModel table)
@@ -351,7 +354,7 @@ internal static class DatabaseCheckboxCompilation
                 if(root is null||actual.Append(root).Any(definition=>!CanSharePhysicalNames(definition)||
                     definition.Target.Source.Id!=root.Target.Source.Id||FixedCachePage(definition)!=FixedCachePage(root)||
                     FixedCacheParent(definition)!=FixedCacheParent(root)))
-                    throw new InvalidOperationException("同一数据库复选的多页名称副本必须采用同一普通项目候选范围。");
+                    throw new InvalidOperationException("同一数据库复选的多页名称副本必须采用同一固定候选范围。");
                 fixedPage=FixedCachePage(root);
                 fixedParent=FixedCacheParent(root);
                 actual.Add(root);

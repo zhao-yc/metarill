@@ -146,6 +146,22 @@ internal static class RelationPropagationCompilation
         }
         return pages;
     }
+    /// <summary>冻结全局复选多缓存的目标可见字段及各来源页的实际名称声明。</summary>
+    internal static IReadOnlySet<(string Page,string Column)> PublishedCheckboxProofFields(GenerationModel model,
+        IEnumerable<RelationCacheDefinition> definitions)
+    {
+        var fields=new HashSet<(string,string)>();
+        foreach(var definition in definitions)
+        {
+            if(definition.CheckboxTargetPageId is not {} targetPage||
+                !model.Tables.Any(table=>table.Source.Id==definition.TargetTableId&&table.IsGlobal))continue;
+            fields.Add((targetPage,definition.ValueColumnId));
+            foreach(var page in model.Tables.Single(table=>table.Source.Id==definition.SourceTableId).Pages)
+                fields.Add((page.Source.Id,definition.ForeignColumnId));
+        }
+        return fields;
+    }
+
     /// <summary>维护和生成读取目录保留实际递归候选涉及的页面、控件和可见性声明。</summary>
     internal static IReadOnlySet<string> PublishedRecursiveTables(GenerationModel model,IEnumerable<(TableModel Table,PageModel Page)> roots)
     {
@@ -194,7 +210,7 @@ internal static class RelationPropagationCompilation
         scopedTables.UnionWith(definitions.Where(definition=>definition.CheckboxSourceParentId is not null)
             .Select(definition=>definition.SourceTableId));
         return GenerationMetadataPublisher.ForRelations(model.Catalog,PublishedCascadePages(model,definitions),
-            selfTreeNamePages:treePages,nestedTables:scopedTables);
+            selfTreeNamePages:treePages,nestedTables:scopedTables,checkboxProofFields:PublishedCheckboxProofFields(model,definitions));
     }
 
     /// <summary>映射按稳定键比较，不把字典引用或插入顺序当作不同权限范围。</summary>

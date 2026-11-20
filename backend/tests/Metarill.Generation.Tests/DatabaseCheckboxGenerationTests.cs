@@ -102,19 +102,32 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(1, false, false, true, false)]
     [InlineData(0, true, true, true, true)]
     [InlineData(1, false, false, true, true)]
-    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,bool fixedParent,bool independentParent)
+    [InlineData(0, true, true, false, false, true, false)]
+    [InlineData(1, true, false, false, false, true, false)]
+    [InlineData(1, false, true, false, false, true, false)]
+    [InlineData(0, true, true, false, false, true, true)]
+    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,bool fixedParent,bool independentParent,bool global=false,bool globalRowProject=false)
     {
         var catalog=Published(Catalog(false));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
         target.IsRongyu=targetStorage;
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
-        targetPage.WhereSql="yz_project_id=@current_yz_project_id";
+        targetPage.WhereSql=global?"":"yz_project_id=@current_yz_project_id";
+        if(global)
+        {
+            target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            if(!globalRowProject)
+            {
+                catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId==target.Id&&column.ColumnName=="yz_project_id");
+                catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="33");
+            }
+        }
         if(fixedParent)targetPage.WhereSql+=" AND parent_id=@parentId";
         if(fixedTarget)
         {
             catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
                 ColumnName="active_flag",LogicalType="int32"});
-            targetPage.WhereSql+=" AND active_flag=1";
+            targetPage.WhereSql+=global?"active_flag=1":" AND active_flag=1";
         }
         var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
         source.ControlDetail="""{"tableId":"3","nameField":"name"}""";
@@ -127,6 +140,14 @@ public sealed class DatabaseCheckboxGenerationTests
         catalog.ConfigColumns.Add(cache);
         var current=catalog.ConfigPages.Single(page=>page.Id=="201");
         current.IsImport=current.IsExport=1;
+        if(global)
+        {
+            current.WhereSql="yz_project_id=@current_yz_project_id";
+            var alias=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="alias");
+            if(!catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==targetPage.Id&&field.ConfigColumnId==alias.Id))
+                catalog.ConfigPageColumns.Add(new(){Id="3099",ConfigPageId=targetPage.Id,ConfigColumnId=alias.Id,
+                    YzProjectId=catalog.YzProjectId,IsShow=1});
+        }
         if(independentParent)
         {
             current.WhereSql="yz_project_id=@current_yz_project_id";
@@ -165,7 +186,7 @@ public sealed class DatabaseCheckboxGenerationTests
         var cacheBindings=fixedParent?RelationPropagationCompilation.DerivedBindings(model):RelationPropagationCompilation.Bindings(model);
         var propagation=cacheBindings.Where(binding=>binding.Foreign.Source.Id==source.Id).ToArray();
         Assert.Equal(new[]{"target_alias","target_names"},propagation.Select(binding=>binding.Cache.Source.ColumnName));
-        if(fixedTarget||fixedParent)
+        if(fixedTarget||fixedParent||global)
             Assert.All(RelationPropagationCompilation.Definitions(propagation),definition=>Assert.Equal("301",definition.CheckboxTargetPageId));
         if(fixedParent)Assert.All(RelationPropagationCompilation.Definitions(propagation),definition=>
             Assert.Equal("26",definition.CheckboxSourceParentId));
@@ -213,7 +234,7 @@ public sealed class DatabaseCheckboxGenerationTests
                 Assert.Contains("selected.Select(id=>",write);
                 if(fixedTarget)
                 {
-                    Assert.Contains("CheckboxTargetCondition"+page.Source.Id+"_25",service);
+                    Assert.Contains((global?"CheckboxGlobalCondition":"CheckboxTargetCondition")+page.Source.Id+"_25",service);
                     Assert.Contains("active_flag",service);
                 }
                 if(fixedParent)
@@ -244,6 +265,24 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Null(maintenancePlan.GetType().GetProperty("Error")!.GetValue(maintenancePlan));
             var read=maintenancePlan.GetType().GetProperty("Read")!.GetValue(maintenancePlan)!;
             Assert.NotNull(read);
+            if(global)
+            {
+                var propagationType=assembly.GetTypes().Single(type=>type.Name=="GeneratedRelationMutation");
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(propagationType.TypeHandle);
+                var expression=read.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)!;
+                foreach(var (cacheName,columnName) in new[]{("target_alias","alias"),("target_names","name")})
+                {
+                    var sql=Assert.IsType<string>(expression.Invoke(read,[cacheName]));
+                    Assert.Contains($"multi_value.`{columnName}`",sql);
+                    Assert.Equal(fixedTarget,sql.Contains("active_flag",StringComparison.Ordinal));
+                    Assert.DoesNotContain("multi_value.`yz_project_id`",sql);
+                }
+                var definitions=RelationPropagationCompilation.Definitions(propagation);
+                var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,definitions);
+                published.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId==targetPage.Id&&
+                    field.ConfigColumnId==checkbox.Name.Source.Id);
+                Assert.Throws<InvalidOperationException>(()=>Metarill.Data.Relations.RelationMaintenanceCatalog.Compile(published,definitions));
+            }
             if(fixedParent)
             {
                 var expression=read.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)!;
@@ -278,7 +317,7 @@ public sealed class DatabaseCheckboxGenerationTests
                 .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"alias","whereSql":"name='固定名称'"}""");
             var mismatch=GenerationModel.Create(catalog,ns);
             Assert.Contains(GenerationCapabilityAudit.Collect(mismatch), gap=>gap.PageId==current.Id&&
-                gap.Reason.Contains("同一个普通项目目标范围",StringComparison.Ordinal));
+                gap.Reason.Contains("同一固定目标范围",StringComparison.Ordinal));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
     }
