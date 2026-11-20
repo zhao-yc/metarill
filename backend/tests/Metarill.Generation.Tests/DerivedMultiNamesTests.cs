@@ -249,6 +249,10 @@ public sealed class DerivedMultiNamesTests
     [InlineData(true,1,true)]
     [InlineData(false,0,false,"stored-dictionary")]
     [InlineData(false,1,false,"stored-dictionary")]
+    [InlineData(false,0,false,"global-stored-dictionary")]
+    [InlineData(false,1,false,"global-stored-dictionary")]
+    [InlineData(true,0,false,"global-stored-dictionary")]
+    [InlineData(true,1,false,"global-stored-dictionary")]
     public async Task Array_label_matching_uses_the_actual_nested_page(bool checkbox,int storage,bool globalAccount,string dictionaryMode="")
     {
         const string ns="Example.DerivedArrayScope";
@@ -256,12 +260,20 @@ public sealed class DerivedMultiNamesTests
         var source=catalog.ConfigTables.Single(table=>table.Id=="2");
         source.IsRongyu=storage;
         var companyTable=catalog.ConfigTables.Single(table=>table.Id=="4");
-        companyTable.IsRongyu=dictionaryMode=="stored-dictionary"?1:0;
+        var globalStored=dictionaryMode=="global-stored-dictionary";
+        var stored=dictionaryMode.Length>0;
+        companyTable.IsRongyu=stored?1:0;
         var company=catalog.ConfigColumns.Single(column=>column.Id=="37");
         company.ControlDetail=JsonSerializer.Serialize(new{tableId="4",pageId="401",nameField="name",whereSql="status=17"});
         var companyPage=catalog.ConfigPages.Single(page=>page.Id=="401");
         companyPage.WhereSql+=" AND status>=1";
         catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",ColumnName="status",LogicalType="int32"});
+        if(globalStored)
+        {
+            companyTable.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="43");
+            companyPage.WhereSql="status>=1";
+        }
         if(globalAccount)
         {
             companyTable.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
@@ -340,7 +352,7 @@ public sealed class DerivedMultiNamesTests
                     .GetProperty("Constants",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(read));
                 Assert.Contains(3,constants.Values);
                 Assert.DoesNotContain(17,constants.Values);
-                if(dictionaryMode=="stored-dictionary")Assert.Contains(1,constants.Values);
+                if(stored)Assert.Contains(1,constants.Values);
                 return constants;
             }
         }

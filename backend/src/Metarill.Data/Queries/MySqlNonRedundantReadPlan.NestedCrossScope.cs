@@ -531,7 +531,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     throw new InvalidOperationException("多值名称联接必须使用字典的实际目标页。");
                 cascadeLabelPages.Add(storedSource.Id);
                 cascadeLabelPages.Add(stored.Value.Page.Id);
-                return StoredProjectSingleCondition(owner,relation,target,alias,storedSource,stored.Value.Page);
+                var storedControl=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,storedSource);
+                return StoredSingleCondition(target,alias,stored.Value.Page,storedControl);
             }
             if(owner.IsRongyu!=0||target.IsRongyu!=0||!global&&GlobalCrossTableTarget.Declared(owner)||
                 relation.ControlKind is not("List" or "SelectPage")||!storage[owner.Id].IsPhysical(relation))
@@ -631,17 +632,15 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         /// <summary>冗余字典使用实际页面和下拉的物理常量，项目及删除范围由原外键联接保留。</summary>
-        private string StoredProjectSingleCondition(TableMetadata owner,ColumnMetadata foreign,TableMetadata target,string alias,
-            PageMetadata sourcePage,PageMetadata page)
+        private string StoredSingleCondition(TableMetadata target,string alias,PageMetadata page,FixedConditionPlan control)
         {
             if(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
                 throw new NotSupportedException("多值名称联接的冗余字典固定页须使用物理常量条件。");
-            var control=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target,sourcePage);
             if(control.Terms.Count>0)
                 page=new(){Id=page.Id,ConfigTableId=page.ConfigTableId,WhereSql=string.Join(" AND ",
                     new[]{page.WhereSql}.Concat(control.Terms.Select(term=>term.ToDefinition()))
                         .Where(definition=>!string.IsNullOrWhiteSpace(definition)))};
-            var condition=PublishedCondition(target,alias,page,projectParent:true);
+            var condition=PublishedCondition(target,alias,page,projectParent:!GlobalCrossTableTarget.Declared(target));
             if(condition is null)return "";
             var clause=condition.RenderConstants(new MySqlDatabaseProvider(),ConditionParameterPrefix("mt_stored_single_"+alias),
                 field=>alias+"."+Q(field));
@@ -776,6 +775,8 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             if(cacheOwner is not null&&owner==rootAlias&&MultiNamePathPage is {} namePage)
                 singleCachePages.TryAdd(owner,namePage);
+            if(multiLabel&&JoinGlobalStoredName(table,owner,foreign,target,source,cacheOwner) is {} globalStored)
+                return(globalStored.Alias,globalStored.Visibility,cacheOwner);
             if(cacheOwner is not null&&GlobalCrossTableTarget.Declared(target)&&
                 JoinNestedSingleCache(table,owner,foreign,target,source,cacheOwner) is {} globalNested)
                 return(globalNested.Alias,globalNested.Visibility,cacheOwner);
@@ -787,7 +788,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     // 允许追溯变为不可见的字典记录，条件只控制名称是否写回多值副本。
                     var storedAlias=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true);
-                    return(storedAlias,StoredProjectSingleCondition(table,foreign,target,storedAlias,sourcePage,projectNested.Page),cacheOwner);
+                    var control=ProjectScopedSingleRelationTarget.ControlScope(catalog,table,foreign,target,sourcePage);
+                    return(storedAlias,StoredSingleCondition(target,storedAlias,projectNested.Page,control),cacheOwner);
                 }
                 if(projectNested.Scoped)
                 {
@@ -813,6 +815,31 @@ public static partial class MySqlNonRedundantReadCompiler
                 return(joined,visibility,cacheOwner);
             }
             return(joined,null,cacheOwner);
+        }
+
+        /// <summary>全局字典先保留物理关系，固定条件再决定多值名称的可见性及维护依赖。</summary>
+        private (string Alias,string Visibility)? JoinGlobalStoredName(TableMetadata table,string owner,ColumnMetadata foreign,
+            TableMetadata target,(string Sql,string Type) source,CascadeCacheOwner? cacheOwner)
+        {
+            if(target.IsRongyu!=1||!GlobalCrossTableTarget.Declared(target))return null;
+            var binding=ExplicitSingleBinding(owner,foreign);
+            var sourcePage=singleCachePages.GetValueOrDefault(owner)??MultiNameSourcePage(owner);
+            if(binding?.SourcePageId is {} sourcePageId)
+            {
+                sourcePage??=catalog.ConfigPages.Single(page=>page.Id==sourcePageId&&page.ConfigTableId==table.Id);
+                if(sourcePage.Id!=sourcePageId)
+                    throw new InvalidOperationException("全局字典的固定范围与实际来源页不一致。");
+            }
+            if(sourcePage is null)return null;
+            var fixedScope=GlobalSingleRelationTarget.StoredMultiName(catalog,table,sourcePage,foreign,target);
+            if(binding?.SourcePageId is not null&&fixedScope?.Page.Id!=binding.PageId)
+                throw new InvalidOperationException("全局字典的固定范围与实际目标页不一致。");
+            if(fixedScope is not {} published)return null;
+            cascadeLabelPages.Add(sourcePage.Id);
+            cascadeLabelPages.Add(published.Page.Id);
+            var alias=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true,validatedCrossGlobal:true,
+                scopedCacheLink:cacheOwner is not null);
+            return(alias,StoredSingleCondition(target,alias,published.Page,published.Control));
         }
 
         /// <summary>名称副本和同外键的其他联接字段共用实际发布页，逐项保留各自的反向依赖。</summary>

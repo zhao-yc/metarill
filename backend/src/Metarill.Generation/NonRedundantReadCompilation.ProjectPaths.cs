@@ -65,11 +65,13 @@ internal static partial class NonRedundantReadCompilation
             if(relation.Target.Source.IsRongyu!=0)
             {
                 // 多值名称按实际物理字典页限定可见性，来源页也须保留供运行时复核。
-                if(!includeStoredTargets||relation.Target.Source.IsRongyu!=1||relation.Target.IsGlobal||
-                    Metarill.Core.Metadata.ProjectScopedSingleRelationTarget.NestedPage(model.Catalog,table.Source,page.Source,
-                        foreign.Source,relation.Target.Source,allowStoredTarget:true) is not {Scoped:true} stored)
-                    return null;
-                return new(foreign.Source.Id,stored.Page.Id){SourcePageId=page.Source.Id};
+                if(!includeStoredTargets||relation.Target.Source.IsRongyu!=1)return null;
+                var storedPage=relation.Target.IsGlobal
+                    ?Metarill.Core.Metadata.GlobalSingleRelationTarget.StoredMultiName(model.Catalog,table.Source,page.Source,
+                        foreign.Source,relation.Target.Source)?.Page
+                    :Metarill.Core.Metadata.ProjectScopedSingleRelationTarget.NestedPage(model.Catalog,table.Source,page.Source,
+                        foreign.Source,relation.Target.Source,allowStoredTarget:true) is {Scoped:true} local?local.Page:null;
+                return storedPage is null?null:new(foreign.Source.Id,storedPage.Id){SourcePageId=page.Source.Id};
             }
             var downstream=ProjectPathTarget(model,relation.Target,relation.TargetPage,tail,active,includeStoredTargets);
             IReadOnlyList<NonRedundantSingleTargetScope> nested=downstream is null?[]:[downstream];

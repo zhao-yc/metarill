@@ -46,6 +46,18 @@ public static class GlobalSingleRelationTarget
         return RequireSource(catalog,owner,foreign,target,false,sourcePage:sourcePage);
     }
 
+    /// <summary>多值名称路径沿实际中间页使用全局冗余字典的固定页条件及 List 覆盖。</summary>
+    public static (PageMetadata Page,FixedConditionPlan Control)? StoredMultiName(MetadataCatalog catalog,
+        TableMetadata owner,PageMetadata sourcePage,ColumnMetadata foreign,TableMetadata target)
+    {
+        if(owner.IsRongyu!=0||target.IsRongyu!=1||!GlobalCrossTableTarget.Declared(target))return null;
+        var proof=Require(catalog,owner,foreign,target,sourcePage);
+        if(proof.Parent is not null||proof.RequiresScopedPage||GlobalCrossTableTarget.DeclaresExactSingle(target,proof.Page))
+            return null;
+        var control=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target,sourcePage);
+        return control.Terms.Count>0||!string.IsNullOrWhiteSpace(proof.Page.WhereSql)?(proof.Page,control):null;
+    }
+
     /// <summary>仅供物理R1消费者的冻结缓存计划使用；普通来源保留行项目范围，全局来源须另证发布目录。</summary>
     public static GlobalSingleRelationPlan RequireCached(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,true);
     /// <summary>带行项目列的自树可以绑定独立项目内父页，关联名称只读取真实父记录。</summary>
