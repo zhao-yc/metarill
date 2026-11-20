@@ -269,6 +269,63 @@ public sealed partial class ConfigurationMaterializedValueTests
         Assert.Equal(oldField,JsonSerializer.Serialize(f.Get("config_page_column",40)));Assert.Single(f.Provider.Rows["config_page_column"],row=>Convert.ToInt64(row["config_page_id"],CultureInfo.InvariantCulture)==30);
     }
 
+    /// <summary>注册视图时仅建立标准ID映射和只读默认页，实际投影字段随后由配置者登记。</summary>
+    [Fact]
+    public async Task OriginalCreation_view_registration_uses_a_readonly_default_page()
+    {
+        using var f = new Fixture();
+        var values = CreationValues("config_table", 11);
+        values["is_view"] = 1;
+        await f.Session.InTransactionAsync(async () =>
+        {
+            await f.Store.InsertAsync("config_table", values);
+            await f.Observer.BeforeCommitAsync(f.Context("config_table", 11, values, true));
+            return true;
+        });
+        var column = Assert.Single(f.Provider.Rows["config_column"], row => SqlRowStore.Id(row, "config_table_id") == 11);
+        Assert.Equal("id", SqlRowStore.Text(column, "column_name"));
+        Assert.Equal("int64", SqlRowStore.Text(column, "logical_type"));
+        var page = Assert.Single(f.Provider.Rows["config_page"], row => SqlRowStore.Id(row, "config_table_id") == 11);
+        AssertReadOnlyViewPage(page, projectScope: false);
+        var field = Assert.Single(f.Provider.Rows["config_page_column"], row => SqlRowStore.Id(row, "config_page_id") == SqlRowStore.Id(page));
+        Assert.Equal(SqlRowStore.Id(column), SqlRowStore.Id(field, "config_column_id"));
+    }
+
+    /// <summary>原从表建页按实际登记列决定视图的项目范围，并保持已有页面配置。</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task OriginalCreation_from_view_uses_only_its_registered_project_column(bool projectColumn, bool virtualColumn)
+    {
+        using var f = new Fixture();
+        f.Get("config_table", 10)["is_view"] = 1;
+        AddCreationColumns(f);
+        if (projectColumn)
+        {
+            var column = CreationValues("config_column", 25);
+            column["column_name"] = "yz_project_id";
+            column["logical_type"] = "int64";
+            column["is_virtual_column"] = virtualColumn ? 1 : 0;
+            f.Add("config_column", column);
+        }
+        var before = JsonSerializer.Serialize(f.Get("config_page", 30));
+        var result = await Actions(f).CreatePageAsync("10");
+        var id = long.Parse(result.PageId, CultureInfo.InvariantCulture);
+        AssertReadOnlyViewPage(f.Get("config_page", id), projectColumn && !virtualColumn);
+        Assert.Equal(before, JsonSerializer.Serialize(f.Get("config_page", 30)));
+    }
+
+    private static void AssertReadOnlyViewPage(IReadOnlyDictionary<string, object?> page, bool projectScope)
+    {
+        foreach (var flag in new[] { "is_new", "is_save", "is_update", "is_delete", "is_copy", "is_import" })
+            Assert.Equal(0L, SqlRowStore.Id(page, flag));
+        Assert.Equal(1L, SqlRowStore.Id(page, "is_edit"));
+        Assert.Equal(1L, SqlRowStore.Id(page, "is_search"));
+        Assert.Equal("", SqlRowStore.Text(page, "import_method"));
+        Assert.Equal(projectScope ? "yz_project_id=@current_yz_project_id" : "", SqlRowStore.Text(page, "where_sql"));
+    }
+
     /// <summary>源新增、默认对象与页面字段必须一起回滚，不能把本次创建变为历史补齐。</summary>
     [Theory]
     [InlineData("config_table")] [InlineData("config_page")] [InlineData("config_column")]

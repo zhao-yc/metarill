@@ -38,15 +38,15 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
         if(context.TableName=="config_table")
         {
             var table=(await store.ReadAsync("config_table",new Dictionary<string,object?>{{"id",context.RecordId}},cancellationToken)).Single();
-            var function = table.GetValueOrDefault("is_function_table") is true || SqlRowStore.Text(table,"is_function_table") == "1";
-            // 新建实体才带系统列。功能表的可编辑字段由业务配置添加。
-            if(context.IsCreate && !function)
+            var view = ConfigurationPageDefaults.IsView(table);
+            // 视图仅保留标准ID映射，避免假设投影含有实体表的其它系统列。
+            if (context.IsCreate && !ConfigurationPageDefaults.IsFunctionTable(table))
             {
                 var existing=await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",context.RecordId}},cancellationToken);
                 var nextSort=existing.Count==0?0:existing.Max(row=>Convert.ToInt32(row.GetValueOrDefault("sort_no")??0));
                 foreach(var (name,label,type) in new[]{("id","标识","int64"),("name","名称","string"),("yz_project_id","项目","int64"),("insert_time","创建时间","datetime"),("update_time","修改时间","datetime"),("insert_manager_id","创建账号","int64"),("update_manager_id","修改账号","int64"),("delete_no","删除时间","datetime")})
                 {
-                    if(existing.Any(c=>SqlRowStore.Text(c,"column_name")==name))continue;
+                    if (view && name != "id" || existing.Any(c => SqlRowStore.Text(c, "column_name") == name)) continue;
                     // 系统字段同样使用已发布元模型的必填默认值，并在已有排序后顺序追加。
                     nextSort=checked(nextSort+10);
                     var values=new Dictionary<string,object?>{{"id",ids.NextId()},{"config_table_id",context.RecordId},{"config_table_name",SqlRowStore.Text(table,"name")},{"column_name",name},{"name",label},{"logical_type",type},{"column_type",type},{"column_length",type=="string"?"255":""},{"is_db_not_null",name=="id"?1:0},{"yz_project_id",project},{"sort_no",nextSort}};
@@ -61,7 +61,14 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
             if(context.IsCreate&&pages.Count==0)
             {
                 var pageId=ids.NextId();var admin=table.GetValueOrDefault("yz_admin_type_id")??(await store.ReadAsync("yz_admin_type",new Dictionary<string,object?>{{"yz_project_id",project}},cancellationToken)).FirstOrDefault()?.GetValueOrDefault("id")??throw new InvalidOperationException("请先为当前项目配置后台类型。");
-                await store.InsertAsync("config_page",new Dictionary<string,object?>{{"id",pageId},{"config_table_id",context.RecordId},{"config_table_table_name",SqlRowStore.Text(table,"table_name")},{"name",SqlRowStore.Text(table,"name")},{"yz_project_id",project},{"yz_admin_type_id",admin},{"page_size",20},{"is_new",function?0:1},{"is_save",1},{"is_update",1},{"is_delete",function?0:1},{"is_search",1},{"is_edit",1},{"where_sql",function?"":"yz_project_id=@current_yz_project_id"}},cancellationToken);
+                var values = new Dictionary<string, object?>
+                {
+                    ["id"] = pageId, ["config_table_id"] = context.RecordId,
+                    ["config_table_table_name"] = SqlRowStore.Text(table, "table_name"), ["name"] = SqlRowStore.Text(table, "name"),
+                    ["yz_project_id"] = project, ["yz_admin_type_id"] = admin, ["page_size"] = 20
+                };
+                ConfigurationPageDefaults.ApplyForTable(values, table);
+                await store.InsertAsync("config_page", values, cancellationToken);
                 initializedPage=pageId;
             }
             await ValidateAndCreatePageFields(context.RecordId,project,false,cancellationToken);

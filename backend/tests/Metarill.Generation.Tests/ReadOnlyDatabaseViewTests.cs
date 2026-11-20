@@ -13,11 +13,21 @@ public sealed class ReadOnlyDatabaseViewTests : IDisposable
     private readonly string output = Path.Combine(Path.GetTempPath(), "metarill-read-only-view", Guid.NewGuid().ToString("N"));
 
     /// <summary>真实 Full 工厂与原列表、详情、授权和导出共用编译结果。独立构建验证引用与包闭包。</summary>
-    [Fact]
-    public async Task Read_only_view_packages_original_pages_and_only_generates_allowed_database_reads()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Read_only_view_packages_original_pages_and_only_generates_allowed_database_reads(bool withProject)
     {
         var catalog = Catalog();
         var page = catalog.ConfigPages.Single();
+        page.WhereSql = "";
+        if (!withProject)
+        {
+            var excluded = catalog.ConfigColumns.Where(column => column.ConfigTableId == page.ConfigTableId &&
+                column.ColumnName is "yz_project_id" or "delete_no").Select(column => column.Id).ToHashSet(StringComparer.Ordinal);
+            catalog.ConfigPageColumns.RemoveAll(field => excluded.Contains(field.ConfigColumnId));
+            catalog.ConfigColumns.RemoveAll(column => excluded.Contains(column.Id));
+        }
         page.IsSave = 1;
         page.Extra["isUpdate"] = JsonSerializer.SerializeToElement(0);
         var source = SourceRoot();
@@ -45,12 +55,12 @@ public sealed class ReadOnlyDatabaseViewTests : IDisposable
 
         var mapper = File.ReadAllText(Path.Combine(backend, "Mappers/CustomerSummaryMapper.g.cs"));
         Assert.Contains("session.Select<", mapper);
-        Assert.Contains("entity.DeleteNo == null", mapper);
+        Assert.Equal(withProject, mapper.Contains("entity.DeleteNo == null", StringComparison.Ordinal));
         Assert.DoesNotContain("InsertAsync", mapper);
         Assert.DoesNotContain("UpdateAsync", mapper);
         Assert.DoesNotContain("DeleteAsync", mapper);
         var service = File.ReadAllText(Path.Combine(backend, "Services/CustomerSummaryService.g.cs"));
-        Assert.Contains("entity.YzProjectId == long.Parse(actor.ProjectId", service);
+        Assert.Equal(withProject, service.Contains("entity.YzProjectId == long.Parse(actor.ProjectId", StringComparison.Ordinal));
         Assert.DoesNotContain("Create101Async(", service);
         Assert.DoesNotContain("Update101Async(", service);
         var desired = MySqlSchemaPlanner.Compile(catalog, "isolated_view_test");

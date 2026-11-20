@@ -239,6 +239,15 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
                     !string.IsNullOrWhiteSpace(page.OrderBy)))
                     throw new InvalidOperationException($"功能表页面必须使用原独立详情入口：{table.TableName}/{page.Id}");
                 var (scopes,condition) = FixedPageConditionCompilation.Compile(catalog,table,columns,isFunction ? "" : page.WhereSql);
+                // 默认页可能早于项目列的登记。普通视图确有该投影时，实际查询始终使用当前登录项目。
+                if (table.IsView == 1 && !GlobalCrossTableTarget.Declared(table) &&
+                    scopes.All(scope => scope.Source != "project") &&
+                    columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id") is { } viewProject)
+                {
+                    if (viewProject.Type is not ("long?" or "string?"))
+                        throw new InvalidOperationException("视图的项目归属列必须是 int64 或字符串。");
+                    scopes = [..scopes, (viewProject, "project")];
+                }
                 ValidateOrderBy(page.OrderBy, columns);
                 var compiledPage = new PageModel(page, Pascal(table.TableName) + "Page" + page.Id, readable, writable, search, sortable, scopes, pageColumns.Where(c => Has(c, InGrid)).ToArray(), pageColumns.Where(c => Has(c, InEdit)).ToArray()){Condition=condition};
                 // 视图的原只读页面可生成。显式写入配置须保留并告知配置者，不能悄悄裁掉已开的操作。
