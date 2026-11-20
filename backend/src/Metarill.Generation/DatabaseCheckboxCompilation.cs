@@ -19,6 +19,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal ColumnModel? FunctionParentField { get; init; }
     internal ColumnModel? FormParentField { get; init; }
     internal bool SharedAccountScope { get; init; }
+    internal bool SharedDerivedAccountScope { get; init; }
     internal bool SharedLogicalParentScope { get; init; }
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
@@ -122,16 +123,22 @@ internal static class DatabaseCheckboxCompilation
             if(functionForm&&explicitPage.Length>0&&namePage is null)return Gap("功能表复选的显式目标页未在实际目标表发布。");
             var exactTarget=namePage is null?null:ExactDataManageCompilation.Resolve(model,target,namePage);
             var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
-            var sharedNamesPage=table.Source.IsRongyu==1&&!functionForm&&namePage is not null&&namePage.Source.Id==fixedPage&&
-                model.Catalog.ConfigPageColumns.Any(setting=>setting.ConfigColumnId==source.Source.Id&&
-                    table.Pages.Any(candidate=>candidate.Source.Id==setting.ConfigPageId)&&
-                    baseline.WithPageOverride(setting.Extra.GetValueOrDefault("controlDetail").ToString()).NameField!=baseline.NameField);
-            // 各名称都是真实列时，当前锁读一次取齐所有值。回填另按持久归属核对同一目标页。
-            var sharedAccountScope=sharedNamesPage&&!derived&&target.Source.IsRongyu==0&&exactTarget is null&&
+            var pageNames=table.Source.IsRongyu==1&&!functionForm&&namePage is not null&&namePage.Source.Id==fixedPage
+                ?model.Catalog.ConfigPageColumns.Where(setting=>setting.ConfigColumnId==source.Source.Id&&
+                    table.Pages.Any(candidate=>candidate.Source.Id==setting.ConfigPageId))
+                    .Select(setting=>baseline.WithPageOverride(setting.Extra.GetValueOrDefault("controlDetail").ToString()).NameField)
+                    .ToHashSet(StringComparer.Ordinal):[];
+            var sharedNamesPage=pageNames.Any(field=>field!=baseline.NameField);
+            // 保存按实际身份读取，维护从每条来源记录的持久归属绑定同一账号范围。
+            var sharedAccountScope=sharedNamesPage&&target.Source.IsRongyu==0&&exactTarget is null&&
                 !FixedPageConditionCompilation.HasLogicalFields(namePage!)&&FixedPageConditionCompilation.HasAccountVariables(namePage!)&&
                 namePage!.Scopes.All(scope=>scope.Source=="project");
             if(sharedAccountScope)
                 _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,namePage!.Source);
+            // 任一副本来自联接时，各页的写入口都必须使用可以一次投影全部名称的计划。
+            var sharedDerivedAccountScope=sharedAccountScope&&target.Columns.Any(label=>
+                (label.Source.ColumnName==baseline.NameField||pageNames.Contains(label.Source.ColumnName))&&
+                !NonRedundantReadCompilation.Physical(model,target,label));
             // 多个目标父层位仍由同一发布页证明，所有名称共用同一个来源父键。
             var sharedLogicalParentScope=sharedNamesPage&&target.Source.IsRongyu==0&&exactTarget is null&&
                 namePage!.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,namePage,scope.Column));
@@ -144,7 +151,8 @@ internal static class DatabaseCheckboxCompilation
                 bool TextLabel(ColumnModel label)=>target.IsGlobal&&realtimeFixedName
                     ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(model.Catalog,target.Source,label.Source)
                     :MultiSelectCompilation.PhysicalTextLabel(model,target,label)||
-                        (sharedLogicalParentScope||realtimeFixedName)&&MultiNameStorageColumns.IsDerivedCheckboxText(target.Source,storage,label.Source);
+                        (sharedLogicalParentScope||sharedDerivedAccountScope||realtimeFixedName)&&
+                        MultiNameStorageColumns.IsDerivedCheckboxText(target.Source,storage,label.Source);
                 var baseName=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baseline.NameField);
                 if(functionForm||target.IsGlobal&&table.Source.IsRongyu!=1&&!realtimeFixedName||baseName is null||!TextLabel(baseName)||
                     !TextLabel(name)||namePage is not null&&!namePage.Readable.Any(column=>column.Source.Id==name.Source.Id))
@@ -320,6 +328,7 @@ internal static class DatabaseCheckboxCompilation
                 FunctionParentField=functionForm?sourceParent:null,
                 FormParentField=formParent,
                 SharedAccountScope=sharedAccountScope,
+                SharedDerivedAccountScope=sharedDerivedAccountScope,
                 SharedLogicalParentScope=sharedLogicalParentScope,
                 GlobalRealtimeNameOverride=globalRealtimeNameOverride,
                 RealtimeLogicalParentScope=realtimeRead&&exactTarget is null&&logicalPage is not null&&
@@ -331,7 +340,7 @@ internal static class DatabaseCheckboxCompilation
                 CompoundSourceDependencies=compoundGlobalSource
                     ?NonRedundantCrossParentCompilation.Dependencies(model,table,page,sourceScopeColumns):[],
                 GlobalParentPage=globalParentPage,
-                DerivedName=derived||logicalPage is not null||globalRealtimeNameOverride
+                DerivedName=derived||logicalPage is not null||globalRealtimeNameOverride||sharedDerivedAccountScope
             };
             if(independentCache&&!CanSharePhysicalNames(result))
                 return Gap("多个物理名称副本要求同一固定目标范围。");
@@ -348,7 +357,7 @@ internal static class DatabaseCheckboxCompilation
         if(definition.SharedLogicalParentScope)
             return !definition.LogicalSourceParent&&definition.SourceParent is not null&&
                 (definition.SourceScopeColumns.Count==1||definition.FormParentField is not null);
-        if(definition.DerivedName)return false;
+        if(definition.DerivedName&&!definition.SharedDerivedAccountScope)return false;
         return definition.Target.IsGlobal
             ? definition.NameTargetPage is {Scopes.Count:0} globalPage&&definition.Scopes.Count==0&&
                 (globalPage.Condition is null||globalPage.Condition.Syntax.Variables.Count==0||definition.SharedAccountScope)

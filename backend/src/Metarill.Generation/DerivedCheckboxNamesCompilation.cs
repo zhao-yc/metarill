@@ -30,7 +30,7 @@ internal static class DerivedCheckboxNamesCompilation
         if(owner.Source.IsRongyu==1&&owner.Source.IsFunctionTable==0)
             Metarill.Data.Relations.DerivedCrossTableCaches.Validate(model.Catalog,
                 [new(owner.Source.Id,def.Source.Source.Id,def.Target.Source.Id,def.Name.Source.Id,def.Names.Source.Id,true)
-                    {CheckboxTargetPageId=def.SharedLogicalParentScope?def.LogicalTargetPage!.Source.Id:null}],[]);
+                    {CheckboxTargetPageId=def.SharedLogicalParentScope||def.SharedDerivedAccountScope?ScopedCheckboxPage(def).Source.Id:null}],[]);
         return dependencies;
     }
 
@@ -122,7 +122,8 @@ internal static class DerivedCheckboxNamesCompilation
 
     /// <summary>实际复选页承担多父条件，也承担单物理全局父叠加精确匹配的范围。</summary>
     internal static bool UsesScopedCheckboxLabel(GenerationModel model,DatabaseCheckboxModel def)=>
-        !UsesGlobalExactPage(def)&&(def.GlobalRealtimeNameOverride||def.SharedLogicalParentScope||def.RealtimeLogicalParentScope||def.CompoundTargetParents||
+        !UsesGlobalExactPage(def)&&(def.GlobalRealtimeNameOverride||def.SharedDerivedAccountScope||def.SharedLogicalParentScope||
+            def.RealtimeLogicalParentScope||def.CompoundTargetParents||
             def.GlobalParent&&def.LogicalTargetPage is not null&&def.ExactTarget is not null&&!HasExactLogicalParent(model,def));
 
     /// <summary>全局常量字典与逻辑范围共用实际发布页，始终从复选定义取页。</summary>

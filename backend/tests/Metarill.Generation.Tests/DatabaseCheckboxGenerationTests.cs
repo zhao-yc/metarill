@@ -109,7 +109,11 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(0, true, true, false, false, false, false, "current_yz_manager_id")]
     [InlineData(0, true, true, false, false, true, false, "current_store_id")]
     [InlineData(0, true, true, false, false, true, true, "current_yz_manager_id")]
-    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,bool fixedParent,bool independentParent,bool global=false,bool globalRowProject=false,string accountVariable="")
+    [InlineData(0, true, true, false, false, false, false, "current_yz_manager_id", "joined-alias")]
+    [InlineData(0, true, true, false, false, true, false, "current_store_id", "joined-both")]
+    [InlineData(0, true, true, false, false, true, true, "current_yz_manager_id", "joined-name")]
+    public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,
+        bool fixedParent,bool independentParent,bool global=false,bool globalRowProject=false,string accountVariable="",string joinedNames="")
     {
         var catalog=Published(Catalog(false));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
@@ -131,6 +135,40 @@ public sealed class DatabaseCheckboxGenerationTests
             catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
                 ColumnName="active_flag",LogicalType="int32"});
             targetPage.WhereSql+=global?"active_flag=1":" AND active_flag=1";
+        }
+        var joinedFields=joinedNames switch
+        {
+            "joined-alias"=>new[]{"alias"},
+            "joined-name"=>["name"],
+            "joined-both"=>["name","alias"],
+            _=>[]
+        };
+        foreach(var field in joinedFields)
+        {
+            // 名称和简称可分别来自不同发布字典，内层可见性和外层账号条件要同时应用。
+            var tableId=field=="name"?"9100":"9200";
+            var pageId=tableId+"01";
+            var dictionary=new TableMetadata {Id=tableId,TableName="account_checkbox_"+field+"_dictionary",
+                IsRongyu=0,YzProjectId=catalog.YzProjectId};
+            if(global)dictionary.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigTables.Add(dictionary);
+            catalog.ConfigColumns.AddRange([
+                new(){Id=tableId+"1",ConfigTableId=tableId,ColumnName="id",LogicalType="int64",IsDbNotNull=1,YzProjectId=catalog.YzProjectId},
+                new(){Id=tableId+"2",ConfigTableId=tableId,ColumnName="name",LogicalType="string",YzProjectId=catalog.YzProjectId},
+                new(){Id=tableId+"4",ConfigTableId=tableId,ColumnName="available_flag",LogicalType="int32",YzProjectId=catalog.YzProjectId},
+                new(){Id=tableId+"8",ConfigTableId="3",ColumnName=field+"_ref_id",LogicalType="int64",YzProjectId=catalog.YzProjectId,
+                    LinkConfigTableId=tableId,ControlKind="List",ControlDetail=JsonSerializer.Serialize(new{tableId,pageId,nameField="name"})}
+            ]);
+            if(!global)catalog.ConfigColumns.Add(new(){Id=tableId+"3",ConfigTableId=tableId,ColumnName="yz_project_id",
+                LogicalType="int64",YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPages.Add(new(){Id=pageId,ConfigTableId=tableId,
+                WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+"available_flag=1",
+                YzProjectId=catalog.YzProjectId,YzAdminTypeId=targetPage.YzAdminTypeId,
+                Extra=new(){["type"]=JsonSerializer.SerializeToElement(2)}});
+            catalog.ConfigPageColumns.Add(new(){Id=pageId+"2",ConfigPageId=pageId,ConfigColumnId=tableId+"2",YzProjectId=catalog.YzProjectId});
+            var label=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName==field);
+            label.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            label.Extra["columnFullName"]=JsonSerializer.SerializeToElement(field+"_ref.name");
         }
         var accountScoped=accountVariable.Length>0;
         var sourceOwner=accountVariable=="current_store_id"?"store_id":"record_owner_id";
@@ -248,12 +286,20 @@ public sealed class DatabaseCheckboxGenerationTests
                 Assert.Contains("entity.TargetAlias=",write);
                 Assert.Contains("entity.TargetNames=",write);
                 Assert.Contains("selected.Select(id=>",write);
-                if(fixedTarget)
+                if(fixedTarget&&joinedFields.Length==0)
                 {
                     Assert.Contains((global?"CheckboxGlobalCondition":"CheckboxTargetCondition")+page.Source.Id+"_25",service);
                     Assert.Contains("active_flag",service);
                 }
-                if(accountScoped)
+                if(joinedFields.Length>0)
+                {
+                    Assert.Contains("DerivedCheckboxRows"+page.Source.Id+"_25Async",write);
+                    Assert.Contains("names[id].CacheName",write);
+                    Assert.Contains("names[id].CacheAlias",write);
+                    Assert.Contains("CompileScopedCheckboxLabel",service);
+                    Assert.Contains("currentRead:locking",service);
+                }
+                else if(accountScoped)
                 {
                     var condition=(global?"CheckboxGlobalCondition":"CheckboxTargetCondition")+page.Source.Id+"_25";
                     Assert.Contains(condition+".BindAccount(actor).ApplyConstants",service);
@@ -274,6 +320,36 @@ public sealed class DatabaseCheckboxGenerationTests
             {
                 Assert.NotNull(serviceType.GetMethod("Import"+page.Source.Id+"Async"));
                 Assert.NotNull(serviceType.GetMethod("Export"+page.Source.Id+"Async"));
+            }
+            if(joinedFields.Length>0)
+            {
+                const BindingFlags hidden=BindingFlags.Instance|BindingFlags.NonPublic;
+                foreach(var page in table.Pages)
+                {
+                    var candidate=Assert.IsType<NonRedundantReadPlan>(serviceType.GetField("DerivedCheckboxPlan"+page.Source.Id+"_25",
+                        BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                    Assert.Equal("string",candidate.OutputTypes["name"]);
+                    Assert.Equal("string",candidate.OutputTypes["alias"]);
+                    Assert.True(candidate.RequiresAccount);
+                    const long accountId=9007199254740993L,storeId=9007199254740994L;
+                    var actor=new RuntimeActor(accountId,"测试账号",false,catalog.YzProjectId,"5"){StoreId=storeId};
+                    var bound=candidate.BindAccount(actor);
+                    Assert.False(bound.RequiresAccount);
+                    var sql=bound.GetType().GetProperty("MySql",hidden)!.GetValue(bound)!;
+                    var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(sql.GetType()
+                        .GetProperty("Constants",hidden)!.GetValue(sql));
+                    Assert.Contains<object?>(accountVariable=="current_store_id"?storeId:accountId,constants.Values);
+                    var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
+                    Assert.Contains(targetOwner,scope);
+                    Assert.Contains("active_flag",scope);
+                    var from=Assert.IsType<string>(sql.GetType().GetProperty("From",hidden)!.GetValue(sql));
+                    foreach(var field in joinedFields)
+                    {
+                        var expression=Assert.IsType<string>(sql.GetType().GetMethod("Expression",hidden)!.Invoke(sql,[field]));
+                        Assert.Contains("account_checkbox_"+field+"_dictionary",from);
+                        Assert.Contains("available_flag",from+expression);
+                    }
+                }
             }
             var request=assembly.GetTypes().Single(type=>type.Name=="RelationSourcePage201CreateRequest");
             Assert.Null(request.GetProperty("TargetAlias"));
@@ -330,9 +406,17 @@ public sealed class DatabaseCheckboxGenerationTests
                     Assert.Contains($"BINARY CAST(b.`{sourceOwner}` AS CHAR)",sql);
                     Assert.Contains($"BINARY CAST(multi_value.`{targetOwner}` AS CHAR)",sql);
                     Assert.Contains("multi_value.`active_flag`",sql);
+                    var field=name=="target_alias"?"alias":"name";
+                    if(joinedFields.Contains(field))
+                    {
+                        Assert.Contains("account_checkbox_"+field+"_dictionary",sql);
+                        Assert.Contains("available_flag",sql);
+                    }
                 }
                 var affected=(IReadOnlyList<string>)maintenance.GetType().GetProperty("MixedTargets")!.GetValue(maintenance)!;
                 Assert.Contains("relation_target",affected);
+                foreach(var field in joinedFields)
+                    Assert.Contains("account_checkbox_"+field+"_dictionary",affected);
                 var definitions=RelationPropagationCompilation.Definitions(propagation);
                 var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,definitions);
                 Assert.Contains("@"+accountVariable,published.ConfigPages.Single(page=>page.Id=="202").WhereSql);
@@ -357,7 +441,8 @@ public sealed class DatabaseCheckboxGenerationTests
 
             // 同一缓存被多个页面读写时，不允许某一页用额外条件改变派生范围。
             catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==current.Id&&field.ConfigColumnId==source.Id)
-                .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"alias","whereSql":"name='固定名称'"}""");
+                .Extra["controlDetail"]=JsonSerializer.SerializeToElement(new{nameField="alias",
+                    whereSql=joinedFields.Length>0?"active_flag=0":"name='固定名称'"});
             var mismatch=GenerationModel.Create(catalog,ns);
             Assert.Contains(GenerationCapabilityAudit.Collect(mismatch), gap=>gap.PageId==current.Id&&
                 gap.Reason.Contains("同一固定目标范围",StringComparison.Ordinal));
