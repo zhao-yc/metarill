@@ -113,7 +113,7 @@ internal static class DatabaseCheckboxCompilation
             if(functionForm&&explicitPage.Length>0&&namePage is null)return Gap("功能表复选的显式目标页未在实际目标表发布。");
             var exactTarget=namePage is null?null:ExactDataManageCompilation.Resolve(model,target,namePage);
             // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。
-            var compoundTargetParents=!functionForm&&target.Source.IsRongyu==0&&!target.IsGlobal&&
+            var compoundTargetParents=!functionForm&&target.Source.IsRongyu==0&&
                 namePage?.Scopes.Count(scope=>scope.Source=="parent")>1;
             var logicalPage=namePage is not null&&(compoundTargetParents||FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage))&&
                 (!functionForm||FixedPageConditionCompilation.HasLogicalFields(namePage)||namePage.Scopes.Any(scope=>scope.Source=="parent"&&
@@ -202,7 +202,9 @@ internal static class DatabaseCheckboxCompilation
             if(!functionForm&&pageHasParent&&logicalPage is {} scopedPage)
             {
                 var syntax=FixedConditionPlan.Compile(scopedPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
-                var binding=MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax)!;
+                var binding=(target.IsGlobal
+                    ?MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax,checkbox:true)
+                    :MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax))!;
                 var owner=pageRead?binding.Source(model.Catalog,table.Source,source.Source,page.Source)
                     :binding.Source(model.Catalog,table.Source,source.Source);
                 if(binding.Global)

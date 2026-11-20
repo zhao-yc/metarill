@@ -20,8 +20,9 @@ internal static class MultiGlobalParentCompilation
     /// <summary>全局候选的父级按其实际发布页验证，普通项目页沿用自身的项目和父级范围。</summary>
     internal static MultiTargetParentScope? SingleTarget(GenerationModel model,TableModel table,PageModel page)
     {
-        // 普通业务页可同时绑定逻辑层位与物理父键。单值目标的识别只处理唯一父字段。
-        if(page.Scopes.Count(scope=>scope.Source=="parent")!=1)return null;
+        // 项目内普通业务页仍按各自层位校验；全局页的物理多范围共用已证明的父页。
+        var parentCount=page.Scopes.Count(scope=>scope.Source=="parent");
+        if(parentCount==0||parentCount>1&&!table.IsGlobal)return null;
         if(NonRedundantReadCompilation.HasGlobalRowProject(table)&&
             !NonRedundantReadCompilation.GlobalSelectionPage(table,page)&&page.Scopes.Any(scope=>scope.Source=="project"))
             return null;
@@ -37,6 +38,8 @@ internal static class MultiGlobalParentCompilation
     {
         if(table.Source.IsView!=0||table.Source.IsFunctionTable!=0||table.IsGlobal&&!SelectionPageRenderer.Enabled(page))return null;
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
+        if(parents.Length>1&&table.IsGlobal)
+            return GlobalCrossTableTarget.PhysicalAccountParent(model.Catalog,table.Source,page.Source) is {Global:true} compound?compound:null;
         if(parents.Length!=1)return null;
         var key=parents[0].Column;
         if(!model.Tables.Any(candidate=>candidate.IsGlobal&&candidate.Source.Id==key.Source.LinkConfigTableId)||

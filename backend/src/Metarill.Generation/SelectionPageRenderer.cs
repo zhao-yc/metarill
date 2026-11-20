@@ -23,6 +23,7 @@ internal static class SelectionPageRenderer
             .AppendLine($"    private async Task ValidateSelectionParents{suffix}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        ValidateActor(actor); await Task.CompletedTask;");
         var number = 0;
+        var checkedGlobalParent=false;
         foreach (var (column, _) in page.Scopes.Where(scope => scope.Source == "parent"))
         {
             var redundantParents=SharedRedundantParentCompilation.ForColumn(model,table,page,column);
@@ -39,7 +40,9 @@ internal static class SelectionPageRenderer
             }
             if(globalParent||GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null)
             {
-                result.AppendLine($"        await ValidateParents{suffix}Async(parentId,actor,cancellationToken,locking:false);");
+                if(!checkedGlobalParent)
+                    result.AppendLine($"        await ValidateParents{suffix}Async(parentId,actor,cancellationToken,locking:false);");
+                checkedGlobalParent=true;
                 continue;
             }
             var parent = model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId)

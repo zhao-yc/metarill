@@ -268,6 +268,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("    {");
         if(sharedRedundant)result.AppendLine("        ValidateActor(actor);").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);");
         else if(multiGlobal is not null)result.AppendLine("        ValidateActor(actor);");
+        var checkedGlobalParent=false;
         var number = 0;
         foreach (var (column, source) in page.Scopes.Where(scope => scope.Source == "parent"))
         {
@@ -279,6 +280,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             }
             if(multiGlobal is not null)
             {
+                if(checkedGlobalParent)continue;
+                checkedGlobalParent=true;
                 result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var multiParentKey)||multiParentKey<=0||parentId!=multiParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");")
                     .AppendLine(MultiGlobalParentCompilation.Check(multiPlan,"multiParentKey",locking));
                 continue;

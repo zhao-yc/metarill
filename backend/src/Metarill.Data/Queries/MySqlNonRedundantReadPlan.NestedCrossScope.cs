@@ -76,7 +76,9 @@ public static partial class MySqlNonRedundantReadCompiler
             projectParent?.AdditionalTargets.Count is not >0&&logical.Count==0&&
             treeNames.Count==0&&listFields is null&&(!global||displayBindings is not{Count:>0}))
             throw new InvalidOperationException("候选页未声明逻辑级联条件或已证明的全局跨表投影。");
-        var parent=physicalParent??projectParent??(hasParentScope||projectSingle?MultiTargetParentScope.Compile(catalog,table,syntax):null);
+        var parent=physicalParent??projectParent??(hasParentScope||projectSingle
+            ?global?MultiTargetParentScope.CompileGlobalPage(catalog,table,syntax):MultiTargetParentScope.Compile(catalog,table,syntax)
+            :null);
         if(accountParentPage&&(!global||page.Extra.GetValueOrDefault("type").ToString()!=accountParentPageType||
             parent is null||(accountParentPageType=="2"
                 ?parent.Logical||!syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported):physicalParent is null)))
@@ -182,7 +184,13 @@ public static partial class MySqlNonRedundantReadCompiler
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
         var parent=MultiParent(catalog,page);
         if(parent is not{Global:true})throw new NotSupportedException("多值全局父须显式声明全局表关系。");
-        if(!parent.Logical)return(parent.Parent,PublishedPhysicalMultiParent(catalog,parent));
+        if(!parent.Logical)
+        {
+            var targetPage=PublishedPhysicalMultiParent(catalog,parent);
+            if(parent.AdditionalTargets.Any(scope=>PublishedPhysicalMultiParent(catalog,scope).Id!=targetPage.Id))
+                throw new InvalidOperationException("同一全局父记录的各物理外键必须绑定同一个实际发布父页。");
+            return(parent.Parent,targetPage);
+        }
         var field=parent.Target.ColumnName;
         var bindings=CrossMembershipBindings(catalog,table,page,new HashSet<string>(StringComparer.Ordinal){field});
         var parentPages=bindings.Select(binding=>

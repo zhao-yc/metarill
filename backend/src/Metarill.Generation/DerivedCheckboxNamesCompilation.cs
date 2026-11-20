@@ -33,7 +33,7 @@ internal static class DerivedCheckboxNamesCompilation
     {
         var field=def.Name.Source.ColumnName;
         string[] outputs=["id",field];
-        if(def.CompoundTargetParents)
+        if(def.CompoundTargetParents&&!UsesGlobalExactPage(def))
             return NonRedundantReads.CompileScopedCheckboxLabel(model.Catalog,def.Target.Source.Id,def.LogicalTargetPage!.Source.Id,
                 field,outputs,dependencies,def.ExactTarget is not null,CompoundNameTargets(model,def));
         if(UsesGlobalExactPage(def))
@@ -63,7 +63,7 @@ internal static class DerivedCheckboxNamesCompilation
     {
         var field=def.Name.Source.ColumnName;
         static string Fields(IEnumerable<string> names)=>"new string[]{"+string.Join(",",names.Select(name=>JsonSerializer.Serialize(name)))+"}";
-        if(def.CompoundTargetParents)
+        if(def.CompoundTargetParents&&!UsesGlobalExactPage(def))
             return "CompileScopedCheckboxLabel("+JsonSerializer.Serialize(def.Target.Source.Id)+","+
                 JsonSerializer.Serialize(def.LogicalTargetPage!.Source.Id)+","+JsonSerializer.Serialize(field)+","+
                 Fields(["id",field])+","+Fields(dependencies)+","+(def.ExactTarget is null?"false":"true")+

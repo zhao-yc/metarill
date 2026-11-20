@@ -120,9 +120,13 @@ internal static class MultiSelectCompilation
             var sourceParents=sourceScopes.Select(column=>SourceParent(column).Source.Id).Distinct().Order().ToArray();
             var compoundLogical=!functionForm&&sourceScopes.Length>1&&sourceParents.Length==1&&
                 sourceScopes.Any(column=>NonRedundantCrossParentCompilation.Managed(model,table,page,column));
-            var scopedParent=(scoped||compoundLogical)&&targetPage.Scopes.Any(scope=>scope.Source=="parent")
-                ?MultiTargetParentScope.CompileSelectionPage(model.Catalog,target.Source,FixedConditionPlan.Compile(targetPage.Source.WhereSql,
-                    target.Columns.Select(column=>column.Source.ColumnName))):null;
+            MultiTargetParentScope? scopedParent=null;
+            if((scoped||compoundLogical)&&targetPage.Scopes.Any(scope=>scope.Source=="parent"))
+            {
+                var syntax=FixedConditionPlan.Compile(targetPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
+                scopedParent=target.IsGlobal?MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax):
+                    MultiTargetParentScope.CompileSelectionPage(model.Catalog,target.Source,syntax);
+            }
             if(functionForm)scopedParent??=MultiGlobalParentCompilation.PhysicalPageParent(model,target,targetPage);
             var targetParents = scopedParent is not null?[model.Tables.Single(parent=>parent.Source.Id==scopedParent.Parent.Id)]:
                 targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();

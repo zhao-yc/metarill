@@ -133,7 +133,7 @@ public static class GlobalCrossTableTarget
         }
         else if(!(allowExactSingle&&DeclaresExactMulti(table,page))&&
             !condition.Variables.Any(AccountConditionVariables.IsSupported))return null;
-        var parent=MultiTargetParentScope.Compile(catalog,table,condition);
+        var parent=MultiTargetParentScope.CompileGlobalPage(catalog,table,condition);
         if(parent is null||parent.Logical&&(!allowLogical||page.Extra.GetValueOrDefault("type").ToString()=="2"&&!allowExactSingle))return null;
         RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:cross||tree,allowMultiParent:true,
             allowSelfTree:tree,allowExactSingle:allowExactSingle);
@@ -156,10 +156,11 @@ public static class GlobalCrossTableTarget
             (condition.Variables.Any(AccountConditionVariables.IsSupported)||allowExactSingle&&DeclaresExactMulti(table,page))||
             condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)||
                 allowSelfTree&&CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field)))
-            ?MultiTargetParentScope.Compile(catalog,table,condition):null;
+            ?MultiTargetParentScope.CompileGlobalPage(catalog,table,condition):null;
         foreach(var term in condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
         {
-            if(multiParent?.Target.ColumnName==term.Field&&term.Values.Count==1&&
+            if((multiParent?.Target.ColumnName==term.Field||multiParent?.AdditionalTargets.Any(scope=>scope.Target.ColumnName==term.Field)==true)&&
+                term.Values.Count==1&&
                 MultiTargetParentScope.IsParameter(term.Values[0].Text))continue;
             if(!allowAccount||term.Field=="yz_project_id"||term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||
                 !AccountConditionVariables.IsPageField(term.Values[0].Text,term.Field))

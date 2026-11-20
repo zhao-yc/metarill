@@ -26,18 +26,24 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public static MultiTargetParentScope? CompileCheckboxPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)=>
         CompilePublishedPage(catalog,table,condition,checkbox:true);
 
-    private static MultiTargetParentScope? CompilePublishedPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox)
+    /// <summary>全局发布页可使用同一真实父表的多个物理父字段，父页由调用方逐项核对。</summary>
+    public static MultiTargetParentScope? CompileGlobalPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox=false)=>
+        CompilePublishedPage(catalog,table,condition,checkbox,globalTarget:true);
+
+    private static MultiTargetParentScope? CompilePublishedPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,
+        bool checkbox,bool globalTarget=false)
     {
         var terms=condition.Terms.Where(ParentTerm).ToArray();
         if(terms.Length<=1)return Compile(catalog,table,condition);
-        if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table))throw Invalid();
+        if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)!=globalTarget)throw Invalid();
         var fields=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
             .Select(column=>column.ColumnName).ToArray();
         var scopes=terms.Select(term=>Compile(catalog,table,FixedConditionPlan.Compile(term.ToDefinition(),fields),checkbox)!)
             .DistinctBy(scope=>scope.Target.Id).OrderByDescending(scope=>scope.Logical)
             .ThenBy(scope=>scope.Target.Id,StringComparer.Ordinal).ToArray();
         var parent=scopes[0];
-        if(parent.Global||scopes.Any(scope=>scope.Parent.Id!=parent.Parent.Id))throw Invalid();
+        if(!globalTarget&&parent.Global||globalTarget&&scopes.Any(scope=>scope.Logical)||
+            scopes.Any(scope=>scope.Parent.Id!=parent.Parent.Id))throw Invalid();
         return parent with{AdditionalTargets=scopes[1..]};
     }
 
