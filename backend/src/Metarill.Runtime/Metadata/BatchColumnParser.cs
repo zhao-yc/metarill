@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Metarill.Core.Metadata;
+using Metarill.Data.Schema;
 
 namespace Metarill.Runtime.Metadata;
 
@@ -97,7 +99,21 @@ internal static class BatchColumnParser
         if(string.IsNullOrWhiteSpace(row.Name)||row.Name.Length>50)Error(row,"name","INVALID_NAME","字段名称不能为空且不能超过50字符");
         if(!Regex.IsMatch(row.ColumnName,"^[A-Za-z_][A-Za-z0-9_]{0,63}$"))Error(row,"columnName","INVALID_IDENTIFIER","数据库字段名须为不超过64字符的字母、数字、下划线标识符");
         row.LogicalType=row.ColumnType switch{"nvarchar" or "varchar" or "text" or "longtext"=>"string","int"=>"int32","bigint"=>"int64","decimal"=>"decimal","datetime"=>"datetime",_=>""};
-        if(row.LogicalType.Length==0)Error(row,"columnType","INVALID_TYPE","当前C#生成器不支持此数据类型");
+        if (row.LogicalType.Length == 0)
+        {
+            row.LogicalType = row.ColumnType switch
+            {
+                "date" or "time" or "double" or "json" => row.ColumnType,
+                "bool" or "boolean" => "bool",
+                "blob" or "binary" => "binary",
+                _ when MetadataColumnTypePolicy.TryTemporalPhysicalType(row.ColumnType, out var temporal, out _) => temporal,
+                _ => ""
+            };
+            if (row.LogicalType.Length == 0)
+                Error(row, "columnType", "INVALID_TYPE", "当前C#生成器不支持此数据类型");
+            else
+                ValidateScalarType(row);
+        }
         if(row.ColumnType=="decimal")
         {
             var match=Regex.Match(row.ColumnLength,@"^([1-9][0-9]?)(?:,([0-9]{1,2}))?$");
@@ -108,6 +124,44 @@ internal static class BatchColumnParser
         if(row.JoinTable.Length>0&&!Regex.IsMatch(row.JoinTable,"^[A-Za-z_][A-Za-z0-9_]{0,63}$"))Error(row,"joinTable","INVALID_IDENTIFIER","关联表名称无效");
         if(row.ControlKind=="List")row.LogicalType="int64";
     }
+    /// <summary>新增支持的标量使用与单字段和结构同步相同的类型约束。</summary>
+    private static void ValidateScalarType(BatchColumnPreviewRow row)
+    {
+        if (row.ControlKind == "List")
+        {
+            Error(row, "columnType", "INVALID_TYPE", "下拉关联字段使用整数 ID。");
+            return;
+        }
+
+        try
+        {
+            MetadataColumnTypePolicy.Resolve(row.ColumnName, row.LogicalType, row.ColumnType,
+                creating: true, logicalSubmitted: true, physicalSubmitted: true);
+        }
+        catch (ArgumentException error)
+        {
+            Error(row, "columnType", "INVALID_TYPE", error.Message);
+            return;
+        }
+
+        if (row.LogicalType != "binary") return;
+        try
+        {
+            // 由同一个 MySQL 编译器核对 VARBINARY 长度和空长度的 LONGBLOB 语义。
+            MySqlSchemaPlanner.CompileColumn(new ColumnMetadata
+            {
+                ColumnName = row.ColumnName,
+                ColumnType = row.ColumnType,
+                ColumnLength = row.ColumnLength,
+                LogicalType = row.LogicalType
+            });
+        }
+        catch (InvalidOperationException error)
+        {
+            Error(row, "columnLength", "INVALID_LENGTH", error.Message);
+        }
+    }
+
     /// <summary>稳定错误码用于原工作台行内定位，重复问题只展示一次。</summary>
     internal static void Error(BatchColumnPreviewRow row,string field,string code,string message)
     {if(!row.Errors.Any(error=>error.Field==field&&error.Message==message))row.Errors.Add(new(field,code,message));}

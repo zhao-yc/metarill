@@ -87,6 +87,70 @@ public sealed partial class ConfigurationMaterializedValueTests
         Assert.Equal("source_column",field["config_column_column_name"]);Assert.Equal(77,Convert.ToInt32(field["config_column_sort_no"],CultureInfo.InvariantCulture));
     }
 
+    /// <summary>原批量预检及事务保存都保留完整类型，回读后可直接交给结构编译器。</summary>
+    [Fact]
+    public async Task Batch_workbench_saves_supported_scalar_and_temporal_types()
+    {
+        using var f = new Fixture();
+        var workbench = new MetadataWorkbenchBusiness(f.Store, f.Authorization, f.Registry, f.Ids, f.Observer);
+        var examples = new[]
+        {
+            (Name: "occurred_on", Physical: "date", Length: "", Logical: "date", Store: "date"),
+            (Name: "elapsed", Physical: "time", Length: "", Logical: "time", Store: "time(6)"),
+            (Name: "ended_at", Physical: "datetime(3)", Length: "", Logical: "datetime", Store: "datetime(3)"),
+            (Name: "offset_time", Physical: "time(0)", Length: "", Logical: "time", Store: "time"),
+            (Name: "score", Physical: "double", Length: "", Logical: "double", Store: "double"),
+            (Name: "is_enabled", Physical: "boolean", Length: "", Logical: "bool", Store: "tinyint(1)"),
+            (Name: "extras", Physical: "json", Length: "", Logical: "json", Store: "json"),
+            (Name: "digest", Physical: "blob", Length: "128", Logical: "binary", Store: "varbinary(128)"),
+            (Name: "raw_data", Physical: "blob", Length: "", Logical: "binary", Store: "longblob")
+        };
+        var content = JsonSerializer.Serialize(examples.Select(row => new
+        {
+            name = row.Name, columnName = row.Name, columnType = row.Physical, columnLength = row.Length
+        }));
+        var request = JsonSerializer.SerializeToElement(new { config_table_id = "10", content });
+        var before = f.Snapshot();
+        var invalidContent = """
+            [{"name":"合法","columnName":"allowed","columnType":"date"},
+             {"name":"时间","columnName":"too_precise","columnType":"time(7)"},
+             {"name":"二进制","columnName":"too_long","columnType":"blob","columnLength":"16001"},
+             {"name":"外键","columnName":"business_id","columnType":"double"},
+             {"name":"候选","columnName":"count","columnType":"json","controlKind":"List"}]
+            """;
+        var invalid = JsonSerializer.SerializeToElement(new { config_table_id = "10", content = invalidContent });
+        var failure = await Assert.ThrowsAsync<BatchColumnValidationException>(() => workbench.SaveBatchColumnsAsync(invalid));
+        Assert.Empty(failure.Preview.Rows[0].Errors);
+        Assert.Equal("INVALID_TYPE", Assert.Single(failure.Preview.Rows[1].Errors).Code);
+        Assert.Equal("INVALID_LENGTH", Assert.Single(failure.Preview.Rows[2].Errors).Code);
+        Assert.Equal("INVALID_TYPE", Assert.Single(failure.Preview.Rows[3].Errors).Code);
+        Assert.Contains(failure.Preview.Rows[4].Errors, error => error.Field == "columnType" && error.Code == "INVALID_TYPE");
+        Assert.Equal(before, f.Snapshot());
+
+        var preview = await workbench.PreviewBatchColumnsAsync(request);
+        Assert.True(preview.Valid, JsonSerializer.Serialize(preview));
+        Assert.Equal(before, f.Snapshot());
+        await workbench.SaveBatchColumnsAsync(request);
+
+        foreach (var example in examples)
+        {
+            var row = Assert.Single(f.Provider.Rows["config_column"], row => SqlRowStore.Text(row, "column_name") == example.Name);
+            Assert.Equal(example.Physical, SqlRowStore.Text(row, "column_type"));
+            Assert.Equal(example.Logical, SqlRowStore.Text(row, "logical_type"));
+            Assert.Equal(example.Length, SqlRowStore.Text(row, "column_length"));
+            var column = new Metarill.Core.Metadata.ColumnMetadata
+            {
+                ColumnName = SqlRowStore.Text(row, "column_name"),
+                ColumnType = SqlRowStore.Text(row, "column_type"),
+                ColumnLength = SqlRowStore.Text(row, "column_length"),
+                LogicalType = SqlRowStore.Text(row, "logical_type")
+            };
+            Assert.Equal(example.Store, Metarill.Data.Schema.MySqlSchemaPlanner.CompileColumn(column).StoreType);
+            Assert.Single(f.Provider.Rows["config_page_column"],
+                field => SqlRowStore.Id(field, "config_column_id") == SqlRowStore.Id(row));
+        }
+    }
+
     [Fact]
     public async Task Automatic_new_column_creation_fields_receive_both_values_without_touching_old_fields()
     {
