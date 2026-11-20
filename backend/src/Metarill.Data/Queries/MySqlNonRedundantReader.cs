@@ -309,9 +309,18 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             var selected = System.Text.Json.JsonSerializer.Serialize(ids.Select(id => id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
             return filter with { Value = selected };
         }
+        var type = plan.Types[filter.Field];
+        // 普通 JSON 文本与关系数组分别处理。精确比较沿用 MySQL 的 JSON 值比较。
+        if (type == "json")
+        {
+            if (filter.Comparison is not (FixedReadComparison.LikePattern or FixedReadComparison.Equal or
+                FixedReadComparison.NotEqual or FixedReadComparison.IsNull or FixedReadComparison.IsNotNull) ||
+                value is not (null or string))
+                throw new InvalidOperationException("JSON 筛选只支持文本模式、精确比较和空值判断。");
+            return filter;
+        }
         if(filter.Comparison==FixedReadComparison.In)
         {if(value is not IReadOnlyList<object?> items||filter.SharedExact&&items.Any(item=>item is null))throw new InvalidOperationException("集合筛选必须使用明确标量列表。");return filter with{Value=Array.AsReadOnly(items.Select(item=>Prepare(plan,new(filter.Field,FixedReadComparison.Equal,item)).Value).ToArray())};}
-        var type=plan.Types[filter.Field];
         if (filter.Comparison == FixedReadComparison.IntegerLabelContains)
         {
             if (type is not ("int32" or "int64") || value is not string)
@@ -373,7 +382,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         }
         // 普通文本保留旧LIKE模式；Contains继续用于已确认的字面名称搜索，不能混用。
         if(filter.Comparison==FixedReadComparison.LikePattern)
-        {if(value is not string||plan.Types[filter.Field]!="string")throw new InvalidOperationException("原LIKE模式仅适用于文本字段。");return expression+" LIKE "+parameter;}
+        {if(value is not string||plan.Types[filter.Field] is not ("string" or "json"))throw new InvalidOperationException("原LIKE模式仅适用于文本或普通JSON字段。");return expression+" LIKE "+parameter;}
         if(filter.Comparison==FixedReadComparison.Contains)
         {if(value is not string||plan.Types[filter.Field]!="string")throw new InvalidOperationException("字面包含仅适用于文本字段。");return expression+" LIKE "+parameter+" ESCAPE '!'";}
         // 仅搜索时按十进制文本比较；排序、投影及精确匹配仍使用原整数。

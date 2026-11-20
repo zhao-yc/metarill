@@ -162,7 +162,11 @@ internal static partial class NonRedundantReadCompilation
                 ? !Physical(model, table, column)
                 : column.Source.ControlKind is not ("MultiSelectPage" or "MultiCheckBoxDatabase") && !column.IsManagedMultiNames)))
             throw new InvalidOperationException("非冗余多值或派生文件读取仍待接线。");
-        if(page.Searchable.Any(column=>column.Source.LogicalType is not("string" or "int64" or "int32" or "decimal" or "double" or "bool" or "datetime" or "date" or "time" or "binary")))throw new InvalidOperationException("非冗余筛选字段类型尚未接线。");
+        if (page.Searchable.Any(column =>
+            column.Source.LogicalType is not ("string" or "int64" or "int32" or "decimal" or "double" or
+                "bool" or "datetime" or "date" or "time" or "binary" or "json") ||
+            column.Source.LogicalType == "json" && (column.IsJsonArray || !Physical(model, table, column))))
+            throw new InvalidOperationException("非冗余筛选字段类型尚未接线。JSON 文本筛选须使用普通物理列。");
         if(page.Scopes.Any(scope=>!Physical(model,table,scope.Column)))throw new InvalidOperationException("非冗余父范围必须绑定物理外键。");
         if(ManagerCredentialCompilation.IsTable(table)||FixedRoleCheckboxCompilation.ForPage(model,table,page) is not null||FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null||FixedOptionCatalogCompilation.ForPage(model,page).Count!=0)throw new InvalidOperationException("非冗余固定安全模块及目录读取尚需独立验收。");
         foreach(var checkbox in table.Columns.Where(column=>column.Source.ControlKind=="MultiCheckBoxDatabase"))

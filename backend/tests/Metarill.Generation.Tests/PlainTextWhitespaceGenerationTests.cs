@@ -11,11 +11,21 @@ namespace Metarill.Generation.Tests;
 public sealed class PlainTextWhitespaceGenerationTests
 {
     /// <summary>不打开数据库；确认Unicode输入是否进入原LIKE，不能用源码包含断言替代实际入口。</summary>
-    [Theory][InlineData(0)][InlineData(1)]
-    public async Task Actual_generated_text_filters_follow_original_java_blank_rules(int redundant)
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(0, true)]
+    [InlineData(1, true)]
+    public async Task Actual_generated_text_filters_follow_original_java_blank_rules(int redundant, bool json)
     {
         var catalog=redundant==0?NonRedundantGeneratedFixture.Catalog("mt_unicode"):GeneratorTests.Catalog();
         catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=redundant;
+        if (json)
+        {
+            var field = catalog.ConfigColumns.Single(column => column.ConfigTableId == "1" && column.ColumnName == "name");
+            field.LogicalType = "json";
+            field.ColumnType = "json";
+        }
         var model=GenerationModel.Create(catalog,"Example.UnicodeFilter");var table=model.Tables.Single(table=>table.Source.Id=="1");var page=table.Pages.First();
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-unicode-filter");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try

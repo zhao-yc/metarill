@@ -29,6 +29,49 @@ public sealed class PlainTextLikeTests
         using var command=new MySqlCommand();typeof(MySqlNonRedundantReader).GetMethod("Bind",BindingFlags.Static|BindingFlags.NonPublic)!.Invoke(null,[command,"17",new[]{filter}]);
         Assert.Equal(pattern?"%x_y%!\\%":"%x!_y!%!!\\%",command.Parameters.Cast<DbParameter>().Single(p=>p.ParameterName.TrimStart('@')=="filter_0").Value);
     }
+    /// <summary>物理 JSON 的原文本筛选和精确匹配沿用普通字段的参数化协议。</summary>
+    [Theory]
+    [InlineData(FixedReadComparison.LikePattern, "x_y%", " LIKE @filter_0", "%x_y%%")]
+    [InlineData(FixedReadComparison.Equal, "{\"key\":1}", "=@filter_0", "{\"key\":1}")]
+    public void Physical_json_filter_keeps_the_original_operator_and_parameter(
+        FixedReadComparison comparison, string input, string expectedSql, string expectedParameter)
+    {
+        var catalog = NonRedundantReadTests.Catalog("mt_json_root", "mt_json_party");
+        var field = catalog.ConfigColumns.Single(column => column.ConfigTableId == "1" && column.ColumnName == "name");
+        field.LogicalType = "json";
+        field.ColumnType = "json";
+        var plan = NonRedundantReadTests.Plan(catalog);
+        const BindingFlags methodFlags = BindingFlags.Static | BindingFlags.NonPublic;
+        var prepare = typeof(MySqlNonRedundantReader).GetMethod("Prepare", methodFlags)!;
+        var filter = Assert.IsType<FixedReadFilter>(prepare.Invoke(null, [plan, new FixedReadFilter("name", comparison, input)]));
+        var sql = Assert.IsType<string>(typeof(MySqlNonRedundantReader).GetMethod("Filter", methodFlags)!
+            .Invoke(null, [plan, filter, 0]));
+        Assert.EndsWith(expectedSql, sql, StringComparison.Ordinal);
+        Assert.DoesNotContain(input, sql, StringComparison.Ordinal);
+        using var command = new MySqlCommand();
+        typeof(MySqlNonRedundantReader).GetMethod("Bind", methodFlags)!.Invoke(null, [command, "17", new[] { filter }]);
+        Assert.Equal(expectedParameter, command.Parameters.Cast<DbParameter>()
+            .Single(parameter => parameter.ParameterName.TrimStart('@') == "filter_0").Value);
+    }
+
+    /// <summary>普通 JSON 字段的文本匹配不能被用作未注册的数组成员或范围筛选。</summary>
+    [Theory]
+    [InlineData(FixedReadComparison.Contains)]
+    [InlineData(FixedReadComparison.In)]
+    [InlineData(FixedReadComparison.Greater)]
+    public async Task Physical_json_filter_rejects_other_operations_before_connecting(FixedReadComparison comparison)
+    {
+        using var session = Session();
+        var catalog = NonRedundantReadTests.Catalog("mt_json_root", "mt_json_party");
+        catalog.ConfigColumns.Single(column => column.ConfigTableId == "1" && column.ColumnName == "name").LogicalType = "json";
+        var plan = NonRedundantReadTests.Plan(catalog);
+        object input = comparison == FixedReadComparison.In ? new object[] { "1" } : "1";
+        var reader = new MySqlNonRedundantReader(session);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            reader.ReadPageAsync(plan, [new("name", comparison, input)], [], 1, 10));
+        Assert.Contains("JSON 筛选只支持", error.Message);
+    }
+
     /// <summary>模式不能借任意表达式／忽略列扩大查询，空值和空白继续由生成过滤入口跳过。</summary>
     [Fact]public void Pattern_rejects_unmapped_expression_and_blank_before_query_mutation()
     {
