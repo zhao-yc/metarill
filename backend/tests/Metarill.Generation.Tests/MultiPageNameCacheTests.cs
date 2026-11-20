@@ -66,6 +66,63 @@ public sealed class MultiPageNameCacheTests
         finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
     }
 
+    /// <summary>原 ID 展示页的输入使用来源 ID 键，两个存储模式复用实际生成查询。</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task Id_display_page_filters_and_exports_using_the_original_ids(int storageMode)
+    {
+        var catalog=RedundantMultiNameCacheTests.Published(Catalog(false,false));
+        catalog.ConfigPages.RemoveAll(page=>page.Id=="204");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="204");
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="28");
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=storageMode;
+        if(storageMode==0)
+        {
+            var cache=catalog.ConfigColumns.Single(column=>column.Id=="27");
+            cache.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            cache.Extra["columnFullName"]=JsonSerializer.SerializeToElement("target.name");
+        }
+        var page=catalog.ConfigPages.Single(page=>page.Id=="203");
+        page.IsImport=1;page.IsExport=1;
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId=="25")
+            .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        const string ns="Example.MultiIdFilter";
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(table=>table.Source.Id=="2");
+        var idPage=table.Pages.Single(page=>page.Source.Id=="203");
+        var relation=Assert.Single(MultiSelectCompilation.ForPage(model,table,idPage));
+        Assert.True(relation.Name.IsId);
+        Assert.Null(relation.Names);
+        Assert.Empty(SelectionNameFilterCompilation.ForPage(model,table,idPage).Gaps);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-id-display-filter");
+        var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(root,"generated");
+            new CSharpGenerator().Generate(catalog,output,ns);
+            var list=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/relation_source-list-203.vue"));
+            Assert.Contains("filters.targetIds",list);
+            Assert.DoesNotContain("filters.targetNames",list);
+            var service=await File.ReadAllTextAsync(Path.Combine(output,"Services/RelationSourceService.g.cs"));
+            Assert.Contains("case \"targetIds\":",service);
+            Assert.Contains(storageMode==0?"FixedReadComparison.LikePattern":
+                "StringNameQuery.ApplyPattern(session,query,entity => entity.TargetIds",service);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            var serviceType=assembly.GetTypes().Single(type=>type.Name=="RelationSourceService");
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
+            Assert.NotNull(serviceType.GetMethod("Export203Async"));
+            Assert.NotNull(serviceType.GetMethod("Import203Async"));
+            var vo=assembly.GetTypes().Single(type=>type.Name=="RelationSourcePage203Vo");
+            Assert.Null(vo.GetProperty("TargetNames"));
+            var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
+    }
+
     /// <summary>包内原页面和缓存代码一起构建，更新仍保护手写partial。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Full_package_preserves_original_pages_and_handwritten_rules(bool automatic)

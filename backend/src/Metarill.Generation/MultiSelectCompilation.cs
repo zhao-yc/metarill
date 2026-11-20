@@ -183,11 +183,15 @@ internal static class MultiSelectCompilation
                 var baselineName=Scalar(root,"nameField");if(string.IsNullOrWhiteSpace(baselineName))baselineName="name";
                 if(ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
                     return Gap("页级目标与实际存储外键不一致。");
-                usesNameOverride=baselineName!=name.Source.ColumnName;
+                var changedName=baselineName!=name.Source.ColumnName;
+                if(changedName&&(table.IsGlobal||target.IsGlobal))
+                    return Gap("全局多选页级名称必须沿用发布的读取合同。");
+                // 以 ID 显示时使用原 ID 数组，不要求页面另有名称列，也不登记名称覆盖。
+                usesNameOverride=changedName&&!name.IsId;
                 if(usesNameOverride)
                 {
                     var baseline=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baselineName);
-                    if(table.IsGlobal||target.IsGlobal||names is null||baseline is null||
+                    if(names is null||baseline is null||
                         !PhysicalTextLabel(model,target,baseline)||!PhysicalTextLabel(model,target,name))
                         return Gap("页级名称必须为同一项目内目标的物理文本，沿用表级名称数组。");
                 }

@@ -139,7 +139,19 @@ internal static class SelectionNameFilterCompilation
     }
     /// <summary>原多选复选筛选优先使用源ID键，即使基础控件为选择页也不提交名称键。</summary>
     internal static bool UsesNameInput(GenerationModel model,PageModel page,ColumnModel column)
-        => !ControlRenderer.HasCheckboxArrayFilter(column)&&EffectiveFilterKind(model,page,column) is "SelectPage" or "MultiSelectPage";
+        => !ControlRenderer.HasCheckboxArrayFilter(column)&&
+            EffectiveFilterKind(model,page,column) is ("SelectPage" or "MultiSelectPage")&&
+            !UsesMultiIdTextInput(model,page,column);
+
+    /// <summary>原纯 ID 显示页的文本框提交物理 ID 数组键，由普通原文筛选合同处理。</summary>
+    internal static bool UsesMultiIdTextInput(GenerationModel model,PageModel page,ColumnModel column)
+    {
+        if(column.Source.ControlKind!="MultiSelectPage"||ControlRenderer.HasCheckboxArrayFilter(column)||
+            EffectiveFilterKind(model,page,column)!="MultiSelectPage")
+            return false;
+        var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
+        return MultiSelectCompilation.Resolve(model,owner,page,column).Definition?.Name.IsId==true;
+    }
     /// <summary>选择页覆盖为原文本筛选时沿用已存在的源ID合同，不开放新的名称入口。</summary>
     internal static bool UsesSourceTextOverride(GenerationModel model,PageModel page,ColumnModel column)
         => !ControlRenderer.HasCheckboxArrayFilter(column)&&column.Source.ControlKind is "SelectPage" or "MultiSelectPage" && EffectiveFilterKind(model,page,column) is "Text" or "TextArea" or "RTF";
