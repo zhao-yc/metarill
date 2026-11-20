@@ -81,15 +81,17 @@ public static partial class MySqlNonRedundantReadCompiler
                 ?parent.Logical||!syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported):physicalParent is null)))
             throw new NotSupportedException("全局候选必须使用实际发布的条件和物理父键。");
         var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target,treeNames);
-        // Excel 专用字段扩充投影。普通全局单选仍只用目标页实际要求的级联范围。
-        var pageScopes=globalExactSingle&&listCrosses.Length>0
+        // 私有匹配和 Excel 条件只扩充投影；不把路径有效性强加给有无限定范围的账号。
+        var match=exactParent||globalExactSingle?Metarill.Core.Security.ExactDataManageValues.Field(exactField):"";
+        var exactCross=globalExactSingle&&CrossTableStorageColumns.IsLogicalPathField(table,columns,match);
+        var pageScopes=globalExactSingle&&(exactCross||listCrosses.Length>0)
             ?logical.Count==0?[]:CrossMembershipBindings(catalog,table,page,logical)
             :null;
         logical.UnionWith(listCrosses);
+        if(exactCross)logical.Add(match);
         var projectionTrees=treeNames.Concat(listTrees).ToHashSet(StringComparer.Ordinal);
-        if(exactSingleParent)
+        if(exactSingleParent||globalExactSingle)
         {
-            var match=Metarill.Core.Security.ExactDataManageValues.Field(exactField);
             // 隐藏的精确叶名也要按实际发布的树求值，并验证页面覆盖。
             projectionTrees.UnionWith(SelfTreeConditionFields(catalog,table,page,columns,[match]));
         }
@@ -111,29 +113,39 @@ public static partial class MySqlNonRedundantReadCompiler
         };
         // 精确范围与父级条件都留在计划中。授权集合由真实读取入口单独绑定。
         return builder.Compile(outputs,dependencies.Concat(syntax.Fields).Concat(listFields??[])
-            .Concat(exactParent||globalExactSingle ? new[] { Metarill.Core.Security.ExactDataManageValues.Field(exactField) } : [])
+            .Concat(exactParent||globalExactSingle ? new[] { match } : [])
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
     }
 
-    /// <summary>写入锁只读取本页的精确匹配联接，目标根的父和页面范围已经由外层查询校验。</summary>
+    /// <summary>写入锁只读取匹配字段的实际联接或级联，目标根的父级和页面范围由外层查询校验。</summary>
     internal static MySqlNonRedundantReadPlan CompileGlobalExactSingleMatch(MetadataCatalog catalog,string tableId,
         string pageId,string field,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)
     {
         MetadataValidation.Validate(catalog);
-        if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("全局精确单选联接要求 MySQL。");
+        if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("全局精确单选派生匹配要求 MySQL。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
         GlobalCrossTableTarget.RequireExactSingleCandidate(catalog,table,page);
         var match=Metarill.Core.Security.ExactDataManageValues.Field(page.Extra["exactDataManageMatchField"].ToString());
-        var column=catalog.ConfigColumns.Single(item=>item.ConfigTableId==tableId&&item.ColumnName==match);
-        if(field!=match||table.IsRongyu!=0||MetadataStoragePolicy.ForTable(catalog,table).Kind(column)!=MetadataFieldStorage.Join)
-            throw new NotSupportedException("全局精确单选联接必须使用实际发布的匹配字段。");
-        return new Builder(catalog,tableId,matching:true)
+        if(field!=match||table.IsRongyu!=0)
+            throw new NotSupportedException("全局精确单选必须使用实际发布的派生匹配字段。");
+        var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(item=>item.ConfigTableId==tableId));
+        var column=columns.Single(item=>item.ColumnName==match);
+        var tree=SelfTreeConditionFields(catalog,table,page,columns,[match]);
+        var cross=CrossTableStorageColumns.IsLogicalPathField(table,columns,match);
+        var joined=MetadataStoragePolicy.ForTable(catalog,table).Kind(column)==MetadataFieldStorage.Join;
+        if(!cross&&tree.Count==0&&!joined)
+            throw new NotSupportedException("全局精确单选派生字段缺少已发布联接或级联。");
+        var paths=cross?CrossMembershipBindings(catalog,table,page,new HashSet<string>(StringComparer.Ordinal){match}):[];
+        var plan=new Builder(catalog,tableId,matching:joined,deferCascadeNames:tree.Count>0,crossTables:paths)
         {
             GlobalCrossCandidate=true,
             MultiNamePathPage=page,
+            SelfTreeCandidateFields=tree,
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
         }.Compile([field],[]);
+        if(cross)_=ExactDataManageSql.CrossExpression(plan,match);
+        return plan;
     }
 
     /// <summary>独立父ID校验取实际全局层的发布页。多个共享分支必须指向同一页，不回退到任意全局候选。</summary>

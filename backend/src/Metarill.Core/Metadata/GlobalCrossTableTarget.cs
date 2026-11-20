@@ -46,13 +46,17 @@ public static class GlobalCrossTableTarget
         }
         var value=page.Extra["exactDataManageMatchField"];
         var field=value.ValueKind==JsonValueKind.String?ExactDataManageValues.Field(value.GetString()):"";
-        var match=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==table.Id&&column.ColumnName==field);
+        var declared=ConditionColumns(catalog,table,allowLogical:true);
+        var match=declared.SingleOrDefault(column=>column.ColumnName==field);
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
-        if(match is null||!GlobalPhysicalRelationValue.IsScalar(storage,table,match)&&
+        var path=CrossTableStorageColumns.IsLogicalPathField(table,declared,field)||
+            CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field);
+        if(match is null||match.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(field)||
+            !path&&!GlobalPhysicalRelationValue.IsScalar(storage,table,match)&&
             !(table.IsRongyu==0&&storage.Kind(match)==MetadataFieldStorage.Join&&
                 GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,table,match,
                     resolving??new HashSet<string>(StringComparer.Ordinal),page,out _)))
-            throw new NotSupportedException("全局精确单选要求非凭据的物理标量或已发布的标量联接。");
+            throw new NotSupportedException("全局精确单选要求非凭据标量、已发布的单值联接或级联路径字段。");
         _=ExactDataManageValues.Unrestricted.ReadLogical(match.LogicalType);
         return parent;
     }

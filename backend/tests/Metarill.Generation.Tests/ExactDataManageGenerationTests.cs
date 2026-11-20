@@ -300,6 +300,9 @@ public sealed class ExactDataManageGenerationTests
     [InlineData(false, "name", "name", "country_name", true, true, false, false,1,false,true,true)]
     [InlineData(false, "name", "name", "country_name", true, true, false, false,1,true,true,true,true)]
     [InlineData(true, "dictionaryName", "dictionary_name", "area_name", true, true, true, false,1,true,true)]
+    [InlineData(false, "countryName", "country_name", null, true, false, false, false,0,true,true)]
+    [InlineData(true, "areaName", "area_name", null, true, false, false, false,1,true,true)]
+    [InlineData(false, "placeId", "place_id", "country_name", true, true, false, false,1,true,true)]
     public async Task Selection_excel_uses_target_cascade_exact_plan(bool shared, string key, string field,
         string? fixedField = null, bool physicalName = false, bool logicalParent = false, bool independentParent = false,
         bool list=false,int sourceMode=1,bool importCondition=false,bool globalTarget=false,bool globalAncestor=false,bool globalSource=false)
@@ -445,6 +448,17 @@ public sealed class ExactDataManageGenerationTests
                 var sql=(string)expression.Invoke(null,[mysql,field])!;
                 Assert.Contains("CASE WHEN",sql,StringComparison.OrdinalIgnoreCase);
                 Assert.NotEqual($"b.\u0060{field}\u0060",sql);
+                if(globalTarget)
+                {
+                    var targetType=assembly.GetType(generatedNamespace+".Generated.Services."+table.Name+"Service",true)!;
+                    var writePlan=Assert.IsType<NonRedundantReadPlan>(targetType.GetField("ExactReadPlan201",
+                        BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
+                    Assert.Equal(new[]{field},writePlan.OutputTypes.Keys);
+                    var write=typeof(NonRedundantReadPlan).GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!
+                        .GetValue(writePlan.BindAccount(actor));
+                    Assert.Contains("CASE WHEN",(string)expression.Invoke(null,[write,field])!);
+                    Assert.Null(write!.GetType().GetProperty("RequiredMultiParent",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(write));
+                }
             }
             else
             {
@@ -463,7 +477,7 @@ public sealed class ExactDataManageGenerationTests
                     if(exact.Derived)
                     {
                         Assert.Contains("ExactReadPlan201.BindAccount(actor)",source);
-                        Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+                        if(exact.CrossPlans is null)Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
                     }
                     if(globalSource)
                     {
@@ -507,6 +521,13 @@ public sealed class ExactDataManageGenerationTests
             object value = exact.Column.Type == "long?" ? number : nameField ? "范围甲" : "9007199254741989";
             Assert.Equal(new object?[] { value }, Assert.IsAssignableFrom<IReadOnlyList<object?>>(filter.Value));
             Assert.True((bool)typeof(FixedReadFilter).GetProperty("SharedExact", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(filter)!);
+            if(globalTarget)
+            {
+                authorization.Value="[]";
+                var empty=await (Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)>)scope.Invoke(service,
+                    [null,null,actor,CancellationToken.None,null,false])!;
+                Assert.Empty(Assert.IsAssignableFrom<IReadOnlyList<object?>>(Assert.Single(empty.Filters,item=>item.Field==field).Value));
+            }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
@@ -549,7 +570,10 @@ public sealed class ExactDataManageGenerationTests
     [InlineData(0,true,true,"List",false)]
     [InlineData(1,false,true,"List",true)]
     [InlineData(1,true,true,"List",true)]
-    public async Task Tree_exact_single_selection_uses_published_page(int storage,bool logicalParent,bool controlCondition,string controlKind,bool cached)
+    [InlineData(0,false,false,"SelectPage",false,true)]
+    [InlineData(1,true,true,"SelectPage",false,true)]
+    public async Task Tree_exact_single_selection_uses_published_page(int storage,bool logicalParent,bool controlCondition,string controlKind,bool cached,
+        bool globalTarget=false)
     {
         const string ns="Example.SingleTreeExact";
         var catalog=RedundantMultiNameCacheTests.Published(
@@ -560,6 +584,11 @@ public sealed class ExactDataManageGenerationTests
         var list=controlKind=="List";
         targetPage.Extra["type"]=JsonSerializer.SerializeToElement(list?0:1);
         targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("tree_name");
+        if(globalTarget)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            targetPage.WhereSql="id > 0";
+        }
         if(logicalParent)targetPage.WhereSql+=" AND country_id=@parent_id";
         catalog.YzAdminTypes.Single(item=>item.Id==admin).Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
 
@@ -607,6 +636,11 @@ public sealed class ExactDataManageGenerationTests
             new(){Id="98113",ConfigPageId="9811",ConfigColumnId="98103",YzProjectId=project}
         ]);
 
+        if(globalTarget)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="980").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigPages.Single(page=>page.Id=="9801").WhereSql="name <> '停用节点'";
+        }
         if(cached)
         {
             // 树节点按账号门店限制时，名称副本必须从持久来源行取得同一门店。
@@ -626,7 +660,7 @@ public sealed class ExactDataManageGenerationTests
             new FrontendPackager().Validate(catalog);
             var servicePath=Path.Combine(directory,"generated/Services/SingleTreeConsumerService.g.cs");
             var source=await File.ReadAllTextAsync(servicePath);
-            Assert.Contains(logicalParent?"CompileExactSingleParentCandidate":"CompileRelationMembership",source);
+            Assert.Contains(globalTarget?"CompileGlobalExactSingleCandidate":logicalParent?"CompileExactSingleParentCandidate":"CompileRelationMembership",source);
             Assert.Contains("Service.ExactReadPlan201",source);
             Assert.Contains("""ResolveExactDataManage("201", "list", "real_name")""",source);
             Assert.Contains("actor, cancellationToken, true, false",source);
@@ -646,13 +680,30 @@ public sealed class ExactDataManageGenerationTests
             const BindingFlags instanceFlags=BindingFlags.NonPublic|BindingFlags.Instance;
             var plan=Assert.IsType<NonRedundantReadPlan>(type.GetField("DerivedOptionsPlan9811_98103",staticFlags)!.GetValue(null));
             var actor=new RuntimeActor(1,"叶名权限测试",false,project,admin){StoreId=9007199254741987};
-            Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with {StoreId=null}));
+            if(!globalTarget)Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with {StoreId=null}));
             Assert.Equal(new[]{"id","name"},plan.OutputTypes.Keys.Order());
             var mysql=typeof(NonRedundantReadPlan).GetProperty("MySql",instanceFlags)!.GetValue(plan.BindAccount(actor))!;
             var expression=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",instanceFlags)!.Invoke(mysql,["tree_name"]));
             Assert.Contains("WITH RECURSIVE",expression);
-            Assert.Contains("`store_id`=@",expression);
+            if(globalTarget)
+            {
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    mysql.GetType().GetProperty("Constants",instanceFlags)!.GetValue(mysql));
+                Assert.Contains("停用节点",constants.Values);
+            }
+            else Assert.Contains("`store_id`=@",expression);
             Assert.Contains("`delete_no` IS NULL",expression);
+            if(globalTarget)
+            {
+                var targetType=assembly.GetTypes().Single(service=>service.Name.EndsWith("Service",StringComparison.Ordinal)&&
+                        service.GetField("ExactReadPlan201",staticFlags) is not null);
+                var write=Assert.IsType<NonRedundantReadPlan>(targetType.GetField("ExactReadPlan201",staticFlags)!.GetValue(null));
+                Assert.Equal(new[]{"tree_name"},write.OutputTypes.Keys);
+                var writeSql=typeof(NonRedundantReadPlan).GetProperty("MySql",instanceFlags)!.GetValue(write.BindAccount(actor))!;
+                var writeConstants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    writeSql.GetType().GetProperty("Constants",instanceFlags)!.GetValue(writeSql));
+                Assert.Contains("停用节点",writeConstants.Values);
+            }
             if(logicalParent)
             {
                 Assert.Equal("country_id",mysql.GetType().GetProperty("RequiredMultiParent",instanceFlags)!.GetValue(mysql));

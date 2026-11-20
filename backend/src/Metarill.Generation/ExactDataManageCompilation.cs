@@ -35,7 +35,7 @@ internal static class ExactDataManageCompilation
         if(shared is not null)
             paths=SharedCrossTableCompilation.ForSource(model,table,page,shared.Branches[0].SourceColumnId)?.Plans
                 ??throw new NotSupportedException("共享级联精确范围没有完整发布计划。");
-        else if(NonRedundantReads.IndependentCrossExact(model.Catalog,table.Source,field) is{} independent)
+        else if(NonRedundantReads.IndependentCrossExact(model.Catalog,table.Source,field,page.Source) is{} independent)
         {
             var source=table.Columns.Single(item=>item.Source.Id==independent.SourceColumnId);
             paths=[CrossTableWriteCompilation.Resolve(model,table,page,source).Definition

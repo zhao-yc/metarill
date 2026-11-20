@@ -122,9 +122,15 @@ public static class NonRedundantReads
             .SingleOrDefault(group=>group.Slots.Any(slot=>slot.ColumnName==field||slot.ColumnName[..^3]+"_name"==field));
 
     /// <summary>识别已声明独立链的逻辑精确字段，避免用原始空祖先或不可见末端授权。</summary>
-    public static CrossTableSparseSelection? IndependentCrossExact(MetadataCatalog metadata,TableMetadata table,string field)
+    public static CrossTableSparseSelection? IndependentCrossExact(MetadataCatalog metadata,TableMetadata table,string field)=>
+        IndependentCrossExact(metadata,table,field,null);
+
+    /// <summary>全局逻辑匹配只开放实际发布的精确单选，附件等原调用保持普通实体边界。</summary>
+    public static CrossTableSparseSelection? IndependentCrossExact(MetadataCatalog metadata,TableMetadata table,string field,PageMetadata? page)
     {
-        if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table))return null;
+        if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)&&
+            (page is null||!GlobalCrossTableTarget.DeclaresExactSingle(table,page)||
+                field!=ExactDataManageValues.Field(page.Extra["exactDataManageMatchField"].ToString())))return null;
         var columns=metadata.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         var members=SharedCrossTableSparseSelection.CompileAll(table,columns).SelectMany(group=>group.Branches)
             .Select(branch=>branch.SourceColumnId).ToHashSet(StringComparer.Ordinal);
@@ -365,7 +371,7 @@ public static class NonRedundantReads
             :new(MySqlNonRedundantReadCompiler.CompileGlobalCandidate(metadata,tableId,pageId,outputs,dependencies,
                 deferCascadeNames:false,singleTargets:singleTargets,exactSingleCandidate:true));
 
-    /// <summary>写入前的关联校验仅锁定实际发布的精确联接，外层继续校验父键和固定页面条件。</summary>
+    /// <summary>写入前的关联校验锁定实际发布的精确联接或级联路径，外层校验父键和页面条件。</summary>
     public static NonRedundantReadPlan CompileGlobalExactSingleMatch(MetadataCatalog metadata,string tableId,string pageId,
         string field,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>
         new(MySqlNonRedundantReadCompiler.CompileGlobalExactSingleMatch(metadata,tableId,pageId,field,singleTargets));
