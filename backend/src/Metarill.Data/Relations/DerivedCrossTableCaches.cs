@@ -16,12 +16,17 @@ public static class DerivedCrossTableCaches
             {
                 if(!d.Multiple||d.CheckboxTargetPageId is null)
                     throw new InvalidOperationException("复选父级缓存缺少实际发布的多值目标页。");
-                // 物理列证明复用原计划，父级条件则由同一维护投影核对并执行。
-                _=RelationMutationPlan.Compile(catalog,[d with{CheckboxTargetPageId=null,CheckboxSourceParentId=null}]);
-                var cacheColumn=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id))
-                    .Single(column=>column.Id==d.CacheColumnId);
-                _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cacheColumn.ColumnName],[d]);
-                continue;
+                var targetValue=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id))
+                    .Single(column=>column.Id==d.ValueColumnId);
+                if(MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(targetValue))
+                {
+                    // 物理副本沿用原列证明，其父范围由维护投影重新读取。
+                    _=RelationMutationPlan.Compile(catalog,[d with{CheckboxTargetPageId=null,CheckboxSourceParentId=null}]);
+                    var cacheColumn=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id))
+                        .Single(column=>column.Id==d.CacheColumnId);
+                    _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cacheColumn.ColumnName],[d]);
+                    continue;
+                }
             }
             if(d.ScopedSinglePageId is not null)
             {
@@ -64,7 +69,11 @@ public static class DerivedCrossTableCaches
                     ??throw new InvalidOperationException("账号过滤名称缓存缺少已发布目标页。");
                 _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(catalog,source,target,page);
             }
-            var self=SelfTreeCache.Require(catalog,source,foreign,target,value,cache,d,cross);if(d.Multiple)DerivedMultipleCacheProof.Require(catalog,source,foreign,target,value,cache,d.CheckboxTargetPageId);else if(!cross&&!self)throw new InvalidOperationException("逻辑缓存缺少跨表层或固定自树证明。");
+            var self=SelfTreeCache.Require(catalog,source,foreign,target,value,cache,d,cross);
+            if(d.Multiple)DerivedMultipleCacheProof.Require(catalog,source,foreign,target,value,cache,d.CheckboxTargetPageId,d.CheckboxSourceParentId);
+            else if(!cross&&!self)throw new InvalidOperationException("逻辑缓存缺少跨表层或固定自树证明。");
+            if(d.CheckboxSourceParentId is not null)
+                _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cache.ColumnName],[d]);
             // 嵌套叶名条件的归属要在整条 SQL 中证明，仅凭外层候选能查到不能发布副本。
             if(self&&SelfTreeCache.HasSelfTreeScopedPage(catalog,d.SelfTreePageId))
                 _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cache.ColumnName],[d]);

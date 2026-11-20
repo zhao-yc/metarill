@@ -116,8 +116,12 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(0, true, true, false, false, true, false, "", "joined-alias")]
     [InlineData(0, true, false, false, false, true, true, "", "joined-name")]
     [InlineData(0, true, false, false, false, false, false, "", "joined-alias")]
+    [InlineData(0, true, true, true, false, false, false, "", "joined-alias", "parent-route")]
+    [InlineData(0, true, true, true, true, false, false, "", "joined-both", "parent-form")]
+    [InlineData(0, true, false, true, true, false, false, "", "joined-name", "parent-mixed")]
     public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,
-        bool fixedParent,bool independentParent,bool global=false,bool globalRowProject=false,string accountVariable="",string joinedNames="")
+        bool fixedParent,bool independentParent,bool global=false,bool globalRowProject=false,string accountVariable="",string joinedNames="",
+        string parentMode="")
     {
         var catalog=Published(Catalog(false));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
@@ -217,6 +221,7 @@ public sealed class DatabaseCheckboxGenerationTests
         {
             var original=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(current))!;
             original.Id="202";
+            if(parentMode=="parent-mixed")original.WhereSql+=" AND parent_id=@parentId";
             original.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
             original.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
             catalog.ConfigPages.Add(original);
@@ -317,7 +322,8 @@ public sealed class DatabaseCheckboxGenerationTests
                 {
                     Assert.Contains(".Where(row=>row.ParentId==",service);
                     Assert.Contains("entity.ParentId",write);
-                    if(independentParent)Assert.Contains("selected.Length==0&&",write);
+                    if(independentParent&&(parentMode!="parent-mixed"||page.Source.Id=="201"))
+                        Assert.Contains("selected.Length==0&&",write);
                 }
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
@@ -349,6 +355,7 @@ public sealed class DatabaseCheckboxGenerationTests
                     var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
                     if(accountScoped)Assert.Contains(targetOwner,scope);
                     Assert.Equal(fixedTarget,scope.Contains("active_flag",StringComparison.Ordinal));
+                    if(fixedParent)Assert.Equal("parent_id",sql.GetType().GetProperty("RequiredMultiParent",hidden)!.GetValue(sql));
                     var from=Assert.IsType<string>(sql.GetType().GetProperty("From",hidden)!.GetValue(sql));
                     foreach(var field in joinedFields)
                     {
@@ -421,6 +428,16 @@ public sealed class DatabaseCheckboxGenerationTests
                 var affected=(IReadOnlyList<string>)maintenance.GetType().GetProperty("MixedTargets")!.GetValue(maintenance)!;
                 Assert.Contains("relation_parent",affected);
                 Assert.Contains("relation_target",affected);
+                if(joinedFields.Length>0)
+                {
+                    // 回填须能在独立装载的目录中重新证明每一页的父外键。
+                    var definitions=RelationPropagationCompilation.Definitions(propagation);
+                    var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,definitions);
+                    published.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="26");
+                    published.ConfigPages.Single(page=>page.Id=="201").WhereSql="yz_project_id=@current_yz_project_id";
+                    Assert.Throws<InvalidOperationException>(()=>
+                        Metarill.Data.Relations.RelationMaintenanceCatalog.CompileWithDerivedCrossTables(published,[],definitions));
+                }
             }
             else if(accountScoped)
             {

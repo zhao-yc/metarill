@@ -26,12 +26,13 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
 
     /// <summary>固定目标页只接受原名称和实际来源页声明且目标页开放的文本。</summary>
     internal static PageMetadata RequireSharedCheckboxCachePage(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,
-        TableMetadata target,ColumnMetadata value,string pageId)
+        TableMetadata target,ColumnMetadata value,string pageId,string? sourceParentId=null)
     {
         var baseline=DatabaseCheckboxDefinition.Parse(relation.ControlDetail);
         var global=GlobalCrossTableTarget.Declared(target)
             ?GlobalMultipleRelationTarget.RequireCached(catalog,source,relation,target):null;
-        var page=global?.Page??RequireProjectCheckboxPage(catalog,source,relation,target,pageId);
+        var page=sourceParentId is null?global?.Page??RequireProjectCheckboxPage(catalog,source,relation,target,pageId):
+            RequireProjectCheckboxParent(catalog,source,relation,target,pageId,sourceParentId).Page;
         var original=global?.Name??catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName==baseline.NameField);
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
         bool PublishedText(ColumnMetadata label)=>label.LogicalType=="string"&&
@@ -41,7 +42,7 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
             !string.IsNullOrWhiteSpace(baseline.WhereSql)||page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
             !PublishedText(original)||!PublishedText(value))
             throw new InvalidOperationException("复选多名称必须使用固定目标页的已证明文本。");
-        if(!storage.IsPhysical(original)||!storage.IsPhysical(value))
+        if(sourceParentId is null&&(!storage.IsPhysical(original)||!storage.IsPhysical(value)))
         {
             // 没有逻辑或账号范围时，必须证明页条件只由物理常量与普通项目归属组成。
             var scoped=MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,relation);

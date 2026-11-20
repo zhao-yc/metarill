@@ -8,12 +8,12 @@ internal static class DerivedMultipleCacheProof
 {
     /// <summary>数据层独立核对生成器声明；派生值仍须由单值匹配编译器取得终点证明。</summary>
     internal static void Require(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,ColumnMetadata cache,
-        string? checkboxTargetPageId)
+        string? checkboxTargetPageId,string? checkboxSourceParentId=null)
     {
         if(foreign.LogicalType!="string"||!foreign.ColumnName.EndsWith("_ids",StringComparison.Ordinal))throw Invalid();
         var global=GlobalCrossTableTarget.Declared(target);
         var sharedPage=checkboxTargetPageId is null?null:
-            MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,source,foreign,target,value,checkboxTargetPageId);
+            MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,source,foreign,target,value,checkboxTargetPageId,checkboxSourceParentId);
         if(sharedPage is null&&global&&GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).Name.Id!=value.Id)
             throw Invalid();
         if(foreign.ControlKind=="MultiCheckBoxDatabase")

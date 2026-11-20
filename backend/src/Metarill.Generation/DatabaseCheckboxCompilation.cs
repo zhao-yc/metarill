@@ -130,14 +130,22 @@ internal static class DatabaseCheckboxCompilation
                     .ToHashSet(StringComparer.Ordinal):[];
             var sharedNamesPage=pageNames.Any(field=>field!=baseline.NameField);
             // 保存按实际身份读取，维护从每条来源记录的持久归属绑定同一账号范围。
-            var sharedScalarPage=sharedNamesPage&&target.Source.IsRongyu==0&&exactTarget is null&&
-                !FixedPageConditionCompilation.HasLogicalFields(namePage!)&&namePage!.Scopes.All(scope=>scope.Source=="project");
+            var sharedFixedR0Page=sharedNamesPage&&target.Source.IsRongyu==0&&exactTarget is null&&
+                !FixedPageConditionCompilation.HasLogicalFields(namePage!);
+            var sharedScalarPage=sharedFixedR0Page&&namePage!.Scopes.All(scope=>scope.Source=="project");
             var sharedAccountScope=sharedScalarPage&&FixedPageConditionCompilation.HasAccountVariables(namePage!);
-            var sharedLiteralScope=sharedScalarPage&&(namePage!.Condition is null||namePage.Condition.Syntax.Variables.Count==0);
+            var literalConditions=sharedFixedR0Page&&(namePage!.Condition is null||namePage.Condition.Syntax.Variables.Count==0);
+            var sharedLiteralScope=sharedScalarPage&&literalConditions;
+            // 普通物理目标父沿用原路由及独立表单的持久外键证明。
+            var sharedPhysicalParentScope=literalConditions&&!target.IsGlobal&&
+                namePage!.Scopes.Count(scope=>scope.Source=="parent")==1&&namePage.Scopes.Any(scope=>
+                    scope.Source=="parent"&&NonRedundantReadCompilation.Physical(model,target,scope.Column)&&
+                    !NonRedundantCrossParentCompilation.Managed(model,target,namePage,scope.Column));
             if(sharedAccountScope)
                 _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,namePage!.Source);
             // 任一副本来自联接时，各页的写入口都必须使用可以一次投影全部名称的计划。
-            var sharedDerivedPageScope=(sharedAccountScope||sharedLiteralScope)&&target.Columns.Any(label=>
+            var sharedDerivedPageScope=(sharedAccountScope||sharedLiteralScope||sharedPhysicalParentScope)&&
+                target.Columns.Any(label=>
                 (label.Source.ColumnName==baseline.NameField||pageNames.Contains(label.Source.ColumnName))&&
                 !NonRedundantReadCompilation.Physical(model,target,label));
             // 多个目标父层位仍由同一发布页证明，所有名称共用同一个来源父键。
@@ -369,7 +377,7 @@ internal static class DatabaseCheckboxCompilation
     }
 
     /// <summary>来源和目标须各有一个实际物理父字段，所有名称缓存绑定同一个来源行键。</summary>
-    private static string? FixedCacheParent(DatabaseCheckboxModel definition)
+    internal static string? FixedCacheParent(DatabaseCheckboxModel definition)
     {
         if(definition.PhysicalTargetPage is null||definition.LogicalSourceParent||definition.GlobalParent||
             definition.SourceScopeColumns.Count!=1&&definition.FormParentField is null||

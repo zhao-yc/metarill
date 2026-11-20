@@ -31,9 +31,13 @@ internal static class DerivedCheckboxNamesCompilation
         {
             var cache=new Metarill.Data.Relations.RelationCacheDefinition(owner.Source.Id,def.Source.Source.Id,
                 def.Target.Source.Id,def.Name.Source.Id,def.Names.Source.Id,true)
-                {CheckboxTargetPageId=def.SharedLogicalParentScope||def.SharedDerivedPageScope?ScopedCheckboxPage(def).Source.Id:null};
-            // 固定常量页里的物理副本仍复用原物理传播；保存可以同时投影物理和联接名称。
-            if(def.SharedDerivedPageScope&&!def.SharedAccountScope&&NonRedundantReadCompilation.Physical(model,def.Target,def.Name))
+            {
+                CheckboxTargetPageId=def.SharedLogicalParentScope||def.SharedDerivedPageScope?ScopedCheckboxPage(def).Source.Id:null,
+                CheckboxSourceParentId=def.SharedDerivedPageScope?DatabaseCheckboxCompilation.FixedCacheParent(def):null
+            };
+            // 无父级的固定常量页沿用原物理传播，具有持久父级的副本统一验证实际父范围。
+            if(def.SharedDerivedPageScope&&!def.SharedAccountScope&&cache.CheckboxSourceParentId is null&&
+                NonRedundantReadCompilation.Physical(model,def.Target,def.Name))
                 _=Metarill.Data.Relations.RelationMutationPlan.Compile(model.Catalog,[cache]);
             else Metarill.Data.Relations.DerivedCrossTableCaches.Validate(model.Catalog,[cache],[]);
         }

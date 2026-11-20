@@ -166,7 +166,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 :GlobalCrossTableTarget.DeclaresExactMulti(target,candidatePage));
             var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:candidatePage,multiLabel:true,cascadeLabelField:value.ColumnName,
-                cascadeCacheOwner:refreshFields is null||fixedParent is not null?null:new(table,owner),scopedPhysicalCandidate:physicalScope&&!global,
+                cascadeCacheOwner:refreshFields is null||fixedParent is not null&&storage[target.Id].IsPhysical(value)?null:new(table,owner),
+                scopedPhysicalCandidate:physicalScope&&!global,
                 exactSingleCandidate:storedGlobalExact)
             {
                 SelectedMultiPage=selectedPage,
