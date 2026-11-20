@@ -15,6 +15,17 @@ public static class GlobalCrossTableTarget
     /// <summary>全局单值范围来自实际发布的业务页或单选页；记录权限由调用入口校验。</summary>
     public static bool DeclaresExactSingle(TableMetadata table,PageMetadata page)=>
         Declared(table)&&page.Extra.GetValueOrDefault("type").ToString() is "" or "0" or "1"&&
+        HasExactMatch(page);
+
+    /// <summary>多选页的发布资格单独识别，单值关系不能借用多选目标页。</summary>
+    public static bool DeclaresExactMulti(TableMetadata table,PageMetadata page)=>
+        Declared(table)&&page.Extra.GetValueOrDefault("type").ToString()=="2"&&HasExactMatch(page);
+
+    /// <summary>页面自身的读取和写前匹配共用两类精确范围的发布证明。</summary>
+    public static bool DeclaresExactPage(TableMetadata table,PageMetadata page)=>
+        DeclaresExactSingle(table,page)||DeclaresExactMulti(table,page);
+
+    private static bool HasExactMatch(PageMetadata page)=>
         !string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
 
     /// <summary>证明全局单值匹配字段及发布身份，下发和实际读计划均使用此校验。</summary>
@@ -29,11 +40,22 @@ public static class GlobalCrossTableTarget
     internal static MultiTargetParentScope? ExactSingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
         ISet<string>? resolving)
     {
-        if(!DeclaresExactSingle(table,page)||
+        if(!DeclaresExactSingle(table,page))
+            throw new NotSupportedException("全局单值范围必须使用发布的业务页或单选页。");
+        return ExactPageParent(catalog,table,page,resolving);
+    }
+
+    /// <summary>直接读写、选档和缓存使用同一页的标量路径及真实父级证明。</summary>
+    public static MultiTargetParentScope? ExactPageParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
+        ExactPageParent(catalog,table,page,null);
+
+    private static MultiTargetParentScope? ExactPageParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ISet<string>? resolving)
+    {
+        if(!DeclaresExactPage(table,page)||
             !ReferenceEquals(catalog.ConfigTables.SingleOrDefault(item=>item.Id==table.Id),table)||
             !ReferenceEquals(catalog.ConfigPages.SingleOrDefault(item=>item.Id==page.Id),page)||
             !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
-            throw new NotSupportedException("全局单值精确范围必须属于当前项目发布的业务页或单选页及后台。");
+            throw new NotSupportedException("全局精确范围必须属于当前项目实际发布的业务页或选择页及后台。");
         var parent=SingleParent(catalog,table,page,allowLogical:true,allowExactSingle:true);
         if(parent is null)
         {
@@ -56,7 +78,7 @@ public static class GlobalCrossTableTarget
             !(table.IsRongyu==0&&storage.Kind(match)==MetadataFieldStorage.Join&&
                 GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,table,match,
                     resolving??new HashSet<string>(StringComparer.Ordinal),page,out _)))
-            throw new NotSupportedException("全局精确单选要求非凭据标量、已发布的单值联接或级联路径字段。");
+            throw new NotSupportedException("全局精确范围要求非凭据标量、已发布的单值联接或级联路径字段。");
         _=ExactDataManageValues.Unrestricted.ReadLogical(match.LogicalType);
         return parent;
     }
@@ -109,9 +131,10 @@ public static class GlobalCrossTableTarget
         {
             if(!allowLogical)return null;
         }
-        else if(!condition.Variables.Any(AccountConditionVariables.IsSupported))return null;
+        else if(!(allowExactSingle&&DeclaresExactMulti(table,page))&&
+            !condition.Variables.Any(AccountConditionVariables.IsSupported))return null;
         var parent=MultiTargetParentScope.Compile(catalog,table,condition);
-        if(parent is null||parent.Logical&&(!allowLogical||page.Extra.GetValueOrDefault("type").ToString()=="2"))return null;
+        if(parent is null||parent.Logical&&(!allowLogical||page.Extra.GetValueOrDefault("type").ToString()=="2"&&!allowExactSingle))return null;
         RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:cross||tree,allowMultiParent:true,
             allowSelfTree:tree,allowExactSingle:allowExactSingle);
         return parent;
@@ -129,7 +152,8 @@ public static class GlobalCrossTableTarget
             LogicalConditionField(table,columns,column,allowLogical,allowSelfTree)).Select(column=>column.ColumnName);
         var condition=FixedConditionPlan.Compile(page.WhereSql,allowed);
         // 只有显式通过父范围证明的用途才解析父参数，同时保留原账号和逻辑字段校验。
-        var multiParent=allowMultiParent&&(table.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported)||
+        var multiParent=allowMultiParent&&(table.IsRongyu==0&&
+            (condition.Variables.Any(AccountConditionVariables.IsSupported)||allowExactSingle&&DeclaresExactMulti(table,page))||
             condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)||
                 allowSelfTree&&CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field)))
             ?MultiTargetParentScope.Compile(catalog,table,condition):null;

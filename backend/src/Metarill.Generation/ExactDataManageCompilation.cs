@@ -25,8 +25,8 @@ internal static class ExactDataManageCompilation
     internal static ExactDataManageModel? Resolve(GenerationModel model,TableModel table,PageModel page)
     {
         if(MatchColumn(table,page) is not{} column)return null;
-        if(GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source))
-            GlobalCrossTableTarget.RequireExactSingleCandidate(model.Catalog,table.Source,page.Source);
+        if(GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source))
+            _=GlobalCrossTableTarget.ExactPageParent(model.Catalog,table.Source,page.Source);
         var admin=model.Catalog.YzAdminTypes.SingleOrDefault(admin=>admin.Id==page.Source.YzAdminTypeId)??throw new InvalidOperationException("精确管理页面必须声明已发布后台。");
         if(column.IsJsonArray||column.Source.LogicalType.ToLowerInvariant()=="json")throw new NotSupportedException("精确管理的数组记录字段尚需固定范围证明。");
         var field=column.Source.ColumnName;
@@ -47,7 +47,7 @@ internal static class ExactDataManageCompilation
         var singleTargets=derived&&paths is null&&!selfTree?NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,[field]):[];
         if(derived)
         {
-            var plan=GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source)
+            var plan=GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source)
                 ?NonRedundantReads.CompileGlobalExactSingleMatch(model.Catalog,table.Source.Id,page.Source.Id,field,singleTargets)
                 :paths is not null
                 ?NonRedundantReads.CompileCrossExactMatch(model.Catalog,table.Source.Id,field,NonRedundantCrossTableCompilation.Bindings(paths))
@@ -69,7 +69,7 @@ internal static class ExactDataManageCompilation
         var tableId=Literal(table.Source.Id);
         var field=Literal(exact.Column.Source.ColumnName);
         var outputs="new string[]{"+field+"}";
-        if(GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source))
+        if(GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source))
             return $"CompileGlobalExactSingleMatch({tableId},{Literal(page.Source.Id)},{field}{NonRedundantReadCompilation.SingleTargetArgument(exact.SingleTargets)})";
         if(exact.CrossPlans is not null)
             return $"CompileCross({tableId},{outputs},Array.Empty<string>(){NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans)})";
@@ -90,7 +90,7 @@ internal static class ExactDataManageCompilation
         var prefixHash=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(page.Source.Id+"|"+definition.Column.Source.ColumnName+"|"+prefix))).ToLowerInvariant()[..12];
         var plan=planReference??"ExactReadPlan"+page.Source.Id;
         var boundPlan=definition.SelfTree||definition.SingleTargets.Count>0||
-            GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source)?plan+".BindAccount("+actor+")":
+            GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source)?plan+".BindAccount("+actor+")":
             NonRedundantCrossTableCompilation.BoundPlan(definition.CrossPlans,plan,actor);
         var call=definition.Derived
             ? $"Metarill.Data.Queries.ExactDataManageSql.ApplyDerived({query}, session, {boundPlan}, {Literal(definition.Column.Source.ColumnName)}, {Literal("mt_e_"+prefixHash)}, {prefix}Scope.ReadLogical({Literal(definition.Column.Source.LogicalType)}), {actor}.ProjectId{(locking is null?"":",locking:"+locking)})"

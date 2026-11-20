@@ -280,6 +280,16 @@ public sealed class CascadeMultiLabelGenerationTests
         CompileCascadeLabel("MultiSelectPage",mode,selfTree,indirect:false,account:true,selectedPage:true,
             physical:logicalParent, parent:logicalParent, logicalParent:logicalParent, importLogical:logicalParent, exact:true, exactLeaf:exactLeaf);
 
+    /// <summary>全局发布页仍按原级联路径、来源父级及当前角色完成读写。</summary>
+    [Theory]
+    [InlineData(false,false,false)]
+    [InlineData(false,true,true)]
+    [InlineData(true,false,true)]
+    public Task Global_multi_exact_scope_combines_cascade_conditions(bool selfTree,bool logicalParent,bool rowProject)=>
+        CompileCascadeLabel("MultiSelectPage",0,selfTree,indirect:false,selectedPage:true,
+            physical:logicalParent,parent:logicalParent,logicalParent:logicalParent,importLogical:logicalParent,
+            globalRowProject:rowProject,exact:true,exactLeaf:selfTree);
+
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
         bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
         bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false)
@@ -355,7 +365,8 @@ public sealed class CascadeMultiLabelGenerationTests
                 {
                     catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
                     var treePage=catalog.ConfigPages.Single(page=>page.Id=="301");
-                    treePage.WhereSql=treePage.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
+                    treePage.WhereSql=exact?"name <> '关闭节点'":
+                        treePage.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
                 }
                 if(!rowProject)
                 {

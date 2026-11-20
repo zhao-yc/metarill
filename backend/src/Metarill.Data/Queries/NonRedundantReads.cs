@@ -129,7 +129,7 @@ public static class NonRedundantReads
     public static CrossTableSparseSelection? IndependentCrossExact(MetadataCatalog metadata,TableMetadata table,string field,PageMetadata? page)
     {
         if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)&&
-            (page is null||!GlobalCrossTableTarget.DeclaresExactSingle(table,page)||
+            (page is null||!GlobalCrossTableTarget.DeclaresExactPage(table,page)||
                 field!=ExactDataManageValues.Field(page.Extra["exactDataManageMatchField"].ToString())))return null;
         var columns=metadata.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         var members=SharedCrossTableSparseSelection.CompileAll(table,columns).SelectMany(group=>group.Branches)
@@ -353,8 +353,12 @@ public static class NonRedundantReads
     public static NonRedundantReadPlan CompileExactMultiLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,
         IReadOnlyList<string>? conditionFields=null)=>
-        new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies,
-            singleTargets,conditionFields,exactMultiSelection:true));
+        GlobalCrossTableTarget.DeclaresExactMulti(metadata.ConfigTables.Single(table=>table.Id==tableId),
+            metadata.ConfigPages.Single(page=>page.Id==pageId&&page.ConfigTableId==tableId))
+            ?CompileGlobalExactSingleCandidate(metadata,tableId,pageId,outputs,dependencies,singleTargets,null,
+                (conditionFields??[]).Append(field).Distinct(StringComparer.Ordinal).ToArray())
+            :new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies,
+                singleTargets,conditionFields,exactMultiSelection:true));
 
     /// <summary>全局单选的结构按实际页面证明，调用端按本次授权追加类型化精确筛选。</summary>
     public static NonRedundantReadPlan CompileGlobalExactSingleCandidate(MetadataCatalog metadata,string tableId,string pageId,

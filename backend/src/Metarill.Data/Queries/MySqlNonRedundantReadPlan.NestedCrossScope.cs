@@ -31,7 +31,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var global=GlobalCrossTableTarget.Declared(table);
         var exactField=page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString();
         var exactParent=exactSingleParent||exactCheckboxParent;
-        var globalExactParent=globalExactSingle?GlobalCrossTableTarget.ExactSingleParent(catalog,table,page):null;
+        var globalExactParent=globalExactSingle?GlobalCrossTableTarget.ExactPageParent(catalog,table,page):null;
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId));
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
         var publishedMatch=(projectSingle||exactSingleParent)?PublishedSingleExactColumn(catalog,table,page,columns):null;
@@ -125,7 +125,7 @@ public static partial class MySqlNonRedundantReadCompiler
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("全局精确单选派生匹配要求 MySQL。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
-        GlobalCrossTableTarget.RequireExactSingleCandidate(catalog,table,page);
+        _=GlobalCrossTableTarget.ExactPageParent(catalog,table,page);
         var match=Metarill.Core.Security.ExactDataManageValues.Field(page.Extra["exactDataManageMatchField"].ToString());
         if(field!=match||table.IsRongyu!=0)
             throw new NotSupportedException("全局精确单选必须使用实际发布的派生匹配字段。");
@@ -133,7 +133,8 @@ public static partial class MySqlNonRedundantReadCompiler
         var column=columns.Single(item=>item.ColumnName==match);
         var tree=SelfTreeConditionFields(catalog,table,page,columns,[match]);
         var cross=CrossTableStorageColumns.IsLogicalPathField(table,columns,match);
-        var joined=MetadataStoragePolicy.ForTable(catalog,table).Kind(column)==MetadataFieldStorage.Join;
+        // 原自树辅助名称也可能标为联接，优先使用已证明的级联表达式。
+        var joined=!cross&&tree.Count==0&&MetadataStoragePolicy.ForTable(catalog,table).Kind(column)==MetadataFieldStorage.Join;
         if(!cross&&tree.Count==0&&!joined)
             throw new NotSupportedException("全局精确单选派生字段缺少已发布联接或级联。");
         var paths=cross?CrossMembershipBindings(catalog,table,page,new HashSet<string>(StringComparer.Ordinal){match}):[];
@@ -315,13 +316,13 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
             var treeNames=PublishedSelfTreeConditionFields(catalog,root,page,columns[root.Id].Values.ToArray());
             var global=GlobalCrossTableTarget.Declared(root);
-            if(global)
+            var exact=UsesExactMultiSelection(page,rootAlias);
+            if(exact)_=RequireExactMultiSelection(catalog,root,page);
+            else if(global)
             {
                 if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,allowMultiParent:MultiCandidateParent is not null);
                 else GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
             }
-            var exact=UsesExactMultiSelection(page,rootAlias);
-            if(exact)_=RequireExactMultiSelection(catalog,root,page);
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
                 multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,separateExactScope:exact);
             if(!condition.Allowed)

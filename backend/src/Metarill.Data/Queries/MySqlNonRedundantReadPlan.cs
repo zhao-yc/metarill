@@ -336,7 +336,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new InvalidOperationException("固定读取要求非冗余实体表或明确发布的物理候选。");
             if (candidatePage is not null)
             {
-                if (exactSingleCandidate) GlobalCrossTableTarget.RequireExactSingleCandidate(catalog,root,candidatePage);
+                if (exactSingleCandidate) _=GlobalCrossTableTarget.ExactPageParent(catalog,root,candidatePage);
                 else if (physicalCandidate&&!accountPhysicalCandidate) GlobalCrossTableTarget.Require(catalog, root, candidatePage);
                 else GlobalCrossTableTarget.RequireAccountCandidate(catalog, root, candidatePage);
             }
@@ -403,9 +403,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==root.Id))
                     {
                         // 这里只证明已发布页面结构，公开请求的精确权限仍由生成服务执行。
-                        if(GlobalCrossTableTarget.DeclaresExactSingle(root,page))
+                        if(GlobalCrossTableTarget.DeclaresExactPage(root,page))
                         {
-                            GlobalCrossTableTarget.RequireExactSingleCandidate(catalog,root,page);
+                            _=GlobalCrossTableTarget.ExactPageParent(catalog,root,page);
                             continue;
                         }
                         // 页面投影由生成服务另外附加自己的父筛选；任意单值读取仍须用无父参数的候选。

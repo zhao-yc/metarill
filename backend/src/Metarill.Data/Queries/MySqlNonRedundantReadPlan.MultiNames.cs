@@ -96,9 +96,13 @@ public static partial class MySqlNonRedundantReadCompiler
             var parentAlias=logicalSource?"mt_parent_input":owner;
             var sourceParentSql=logicalSource?LogicalRelationSourceParent(table,owner,sourceBinding!):null;
             if(sourceParent is not null&&!logicalSource){Use(table,sourceParent);Touch(owner,sourceParent.ColumnName);}
+            // 已保存名称按实际发布范围读取；用户角色值只在本次选择或写入时应用。
+            var storedGlobalExact=!checkbox&&selectedPage is null&&publishedPage is not null&&
+                GlobalCrossTableTarget.DeclaresExactMulti(target,publishedPage);
             var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:physicalGlobalPage??(selectedPage is null?publishedPage:null),multiLabel:true,cascadeLabelField:value.ColumnName,
-                cascadeCacheOwner:refreshFields is null?null:new(table,owner),scopedPhysicalCandidate:physicalScope&&!global)
+                cascadeCacheOwner:refreshFields is null?null:new(table,owner),scopedPhysicalCandidate:physicalScope&&!global,
+                exactSingleCandidate:storedGlobalExact)
             {
                 SelectedMultiPage=selectedPage,
                 AllowsExactMultiSelection=relation.ControlKind=="MultiSelectPage",

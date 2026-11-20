@@ -21,7 +21,13 @@ public sealed class DerivedMultiNamesTests
     [InlineData(1,0,"account-derived-name")]
     [InlineData(0,0,"derived-name-derived-match")]
     [InlineData(1,0,"account-derived-name-derived-match")]
-    public async Task Multi_selection_save_and_import_use_target_exact_scope(int sourceMode,int targetMode,string kind)
+    [InlineData(0,1,"physical",true)]
+    [InlineData(1,1,"physical",true)]
+    [InlineData(0,0,"physical",true)]
+    [InlineData(0,0,"physical-unowned",true)]
+    [InlineData(1,0,"account",true)]
+    [InlineData(0,0,"derived-name-derived-match",true)]
+    public async Task Multi_selection_save_and_import_use_target_exact_scope(int sourceMode,int targetMode,string kind,bool globalTarget=false)
     {
         const string ns="Example.MultiExactRange";
         var catalog=Catalog("multi_exact_range",false);
@@ -33,6 +39,21 @@ public sealed class DerivedMultiNamesTests
         var scoped=account&&targetMode==0;
         var name=catalog.ConfigColumns.Single(item=>item.Id=="32");
         if(!derivedName)name.Extra.Clear();
+        if(globalTarget)
+        {
+            catalog.ConfigTables.Single(item=>item.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            if(targetMode==0)
+            {
+                catalog.ConfigTables.Single(item=>item.Id=="4").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                catalog.ConfigPages.Single(item=>item.Id=="401").WhereSql="";
+            }
+            if(kind=="physical-unowned")
+            {
+                var project=catalog.ConfigColumns.Single(item=>item.ConfigTableId=="3"&&item.ColumnName=="yz_project_id");
+                catalog.ConfigPageColumns.RemoveAll(item=>item.ConfigColumnId==project.Id);
+                catalog.ConfigColumns.Remove(project);
+            }
+        }
         var scopeColumn=new ColumnMetadata{Id="381",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
             ColumnName="scope_code",LogicalType="string"};
         if(derivedMatch)
@@ -83,6 +104,14 @@ public sealed class DerivedMultiNamesTests
             var saveStart=serviceCode.IndexOf("private async Task ValidateMulti201_25Async",StringComparison.Ordinal);
             var importStart=serviceCode.IndexOf("private async Task<JsonElement> ImportMulti201_25Async",StringComparison.Ordinal);
             Assert.True(saveStart>=0&&importStart>=0);
+            if(globalTarget)
+            {
+                var targetCode=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MultiExactRangeTargetService.g.cs"));
+                Assert.Contains("ResolveExactDataManage(\"301\",",targetCode);
+                Assert.Throws<NotSupportedException>(()=>NonRedundantReads.CompileGlobalCandidate(catalog,"3","301",["id"]));
+                Assert.Throws<NotSupportedException>(()=>GlobalCrossTableTarget.RequireExactSingleCandidate(
+                    catalog,catalog.ConfigTables.Single(item=>item.Id=="3"),target));
+            }
             var save=serviceCode[saveStart..];
             var import=serviceCode[importStart..];
             Assert.Contains("""multiExactAuthorization.ResolveExactDataManage("301", "list", "real_name")""",save);

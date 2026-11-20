@@ -75,7 +75,7 @@ internal static class ExportRenderer
             var projection=columns.Where(column=>!column.IsLayoutOnly).Concat(dependencies).Concat(crossDependencies).Concat(CascadeTreeExcelRenderer.ExportPlans(model,table,page,columns).Select(plan=>plan.Source)).Concat(table.Columns.Where(column=>column.IsId)).DistinctBy(column=>column.Source.Id).ToArray();
             var plan=NonRedundantReadCompilation.ForPage(model,table,page);var names=projection.Select(column=>column.Source.ColumnName).Concat(multis.Select(multi=>multi.Names!.Source.ColumnName)).Distinct(StringComparer.Ordinal).ToArray();
             // 实际导出用途另编译窄投影，不能复用整页可读集合读取未导出列。
-            var globalExact=Metarill.Core.Metadata.GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source);
+            var globalExact=Metarill.Core.Metadata.GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source);
             var accountSingle=NonRedundantReadCompilation.GlobalSingleParentPage(table,page);
             var globalCandidate=globalExact||accountSingle;
             var crossScopes=NonRedundantCrossTableCompilation.Bindings(model,table,page);

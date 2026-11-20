@@ -28,7 +28,7 @@ internal static partial class BackendRenderer
         var relations=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>RelationCompilation.ForPage(model,page)
             .Concat(RelationCompilation.ForPage(model,page,true,forExcel:true)))).ToArray();
         var globalExactPages=model.Tables.SelectMany(table=>table.Pages.Where(page=>
-            GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source)).Select(page=>(table,page))).ToArray();
+            GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source)).Select(page=>(table,page))).ToArray();
         scopedPages=scopedPages.Concat(globalExactPages);
         var functionRelations = relations.Where(relation => relation.FunctionForm &&
             DerivedRelationNamesCompilation.UsesFixedRead(model, relation)).ToArray();
@@ -246,7 +246,7 @@ internal static class GeneratedNonRedundantReadCatalog
         var crossCandidate=globalCandidate&&CrossTableWriteCompilation.ForService(model,table,page).Count>0;
         var listPlan=globalCandidate?NonRedundantListReadPlan(model,table,page,plan):readPlan;
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
-        var globalExact=GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source);
+        var globalExact=GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source);
         var detailUsesCandidate=globalExact||NonRedundantReadCompilation.GlobalSingleParentPage(table,page);
         var logicalCondition=FixedPageConditionCompilation.HasLogicalFields(page);
         var lockScope=NonRedundantCrossParentCompilation.Enabled(model,table,page)||logicalCondition;

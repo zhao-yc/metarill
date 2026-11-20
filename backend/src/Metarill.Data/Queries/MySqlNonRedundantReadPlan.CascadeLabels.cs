@@ -224,11 +224,12 @@ public static partial class MySqlNonRedundantReadCompiler
     private static string RequireExactMultiSelection(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
     {
         var field=ExactDataManageValues.Field(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
-        if(field.Length==0||table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||table.IsFunctionTable!=0||table.IsView!=0||
+        if(field.Length==0||table.IsRongyu!=0||table.IsFunctionTable!=0||table.IsView!=0||
             page.ConfigTableId!=table.Id||page.Extra.GetValueOrDefault("type").ToString()!="2"||
             page.YzProjectId!=catalog.YzProjectId||table.YzProjectId!=catalog.YzProjectId||
             !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
             throw new NotSupportedException("精确多选必须绑定本项目实际发布的非冗余多选页。");
+        if(GlobalCrossTableTarget.Declared(table))_=GlobalCrossTableTarget.ExactPageParent(catalog,table,page);
         var match=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
             .SingleOrDefault(column=>column.ColumnName==field);
         if(match is null||match.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(field))

@@ -20,7 +20,7 @@ internal static partial class NonRedundantReadCompilation
     internal static bool GlobalSelectionPage(TableModel table,PageModel page)=>
         HasGlobalRowProject(table)&&page.Source.Extra.GetValueOrDefault("type").ToString() is "1" or "2"||
         GlobalAccountMultiPage(table,page)||GlobalSingleParentPage(table,page)||
-        table.Source.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source);
+        table.Source.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source);
 
     /// <summary>原独立单选在分页和详情中使用已证明的父级以及该页实际的账号或级联条件。</summary>
     internal static bool GlobalSingleParentPage(TableModel table,PageModel page)=>
@@ -84,6 +84,7 @@ internal static partial class NonRedundantReadCompilation
 
     /// <summary>没有派生关系的原纯物理非冗余页继续使用既有强类型路径。</summary>
     internal static bool Requires(GenerationModel model,TableModel table)=>HasGlobalRowProject(table)||
+        table.Source.IsRongyu==0&&table.Pages.Any(page=>GlobalCrossTableTarget.DeclaresExactMulti(table.Source,page.Source))||
         table.Pages.Any(page=>GlobalAccountMultiPage(table,page)||GlobalSingleParentPage(table,page)||
             MultiGlobalParentCompilation.PhysicalSingleTarget(model,table,page) is not null)||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
     /// <summary>所有实体写入复用同一存储计划，不把读取派生属性持久化。</summary>
@@ -129,8 +130,8 @@ internal static partial class NonRedundantReadCompilation
     internal static NonRedundantPagePlan ForPage(GenerationModel model,TableModel table,PageModel page)
     {
         // 固定候选约束实际发布页，普通业务页可使用自己的项目条件。
-        if(GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source))
-            GlobalCrossTableTarget.RequireExactSingleCandidate(model.Catalog,table.Source,page.Source);
+        if(GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source))
+            _=GlobalCrossTableTarget.ExactPageParent(model.Catalog,table.Source,page.Source);
         else if(HasGlobalRowProject(table))GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
         else if(table.IsGlobal&&GlobalCrossTableTarget.SingleParent(model.Catalog,table.Source,page.Source) is null)
         {
@@ -231,7 +232,7 @@ internal static partial class NonRedundantReadCompilation
         var account=compiled.RequiresAccount;
         if(GlobalSelectionPage(table,page))
         {
-            var candidate=GlobalCrossTableTarget.DeclaresExactSingle(table.Source,page.Source)
+            var candidate=GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source)
                 ?NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,table.Source.Id,page.Source.Id,
                     readOutputs,dependencies,singleTargets,crossBindings,null)
                 :GlobalAccountMultiPage(table,page)
