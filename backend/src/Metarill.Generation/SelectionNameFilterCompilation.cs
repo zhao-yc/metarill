@@ -30,7 +30,9 @@ internal static class SelectionNameFilterCompilation
             {
                 var settings=model.Catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);
                 var definition=SelectionControlDefinition.Resolve(source,settings);var baseline=SelectionControlDefinition.Resolve(source,null);
-                if(definition.NameField!=baseline.NameField){Gap("页级nameField改变了稳定辅助列取值，不能按另一物理列静默筛选。");continue;}
+                var changedName=definition.NameField!=baseline.NameField;
+                if(changedName&&(table.Source.IsRongyu!=0||source.Source.ControlKind!="SelectPage"))
+                {Gap("页级nameField改变了稳定辅助列取值，尚未建立同页读取计划。");continue;}
                 var target=model.Tables.SingleOrDefault(candidate=>candidate.Pages.Any(candidatePage=>candidatePage.Source.Id==definition.PageId));
                 var targetPage=target?.Pages.Single(candidatePage=>candidatePage.Source.Id==definition.PageId);
                 if(target is null||targetPage is null||!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId)&&source.Source.LinkConfigTableId!=target.Source.Id){Gap("目标页不存在或不属于声明目标表。");continue;}
@@ -40,12 +42,14 @@ internal static class SelectionNameFilterCompilation
                     !(source.Source.ControlKind=="SelectPage"&&DerivedRelationNamesCompilation.IsTypedName(model,table,target,name))&&
                     !MultiSelectCompilation.SupportsTypedLabel(model,table,source,target,name)||
                     !targetPage.Readable.Any(column=>column.Source.Id==name.Source.Id)){Gap("目标名称字段不是已开放读取的受支持标量。");continue;}
-                var automatic=SelectionDisplayFieldCompilation.AutomaticSingle(table,source,name);
-                if(automatic is not null){storage=automatic;key=storage.JsonName;}
+                var overrideSelection=changedName?NonRedundantSelectionCompilation.Resolve(model,table,page,source):null;
+                var automatic=changedName?null:SelectionDisplayFieldCompilation.AutomaticSingle(table,source,name);
+                if((overrideSelection?.DisplayOverride??automatic) is {} display){storage=display;key=storage.JsonName;}
                 if(storage.Source.Id==source.Source.Id){Gap("没有独立名称列，ID筛选必须使用独立合同。");continue;}
                 var typedStorage=source.Source.ControlKind=="SelectPage"&&DerivedRelationNamesCompilation.IsTypedLabel(storage);
                 var integerStorage=typedStorage&&storage.Source.LogicalType is "int32" or "int64";
-                var implicitNames=automatic is not null||storage.IsManagedMultiNames&&
+                var implicitNames=automatic is not null||overrideSelection is not null&&!table.Columns.Any(column=>column.Source.Id==storage.Source.Id)||
+                    storage.IsManagedMultiNames&&
                     (table.Source.IsRongyu==0&&source.Source.ControlKind=="MultiSelectPage"||
                      table.Source.IsRongyu==1&&MultiNameStorageCompilation.IsImplicit(model,storage));
                 var readable=page.Readable.Any(column=>column.Source.Id==storage.Source.Id)||
@@ -68,10 +72,15 @@ internal static class SelectionNameFilterCompilation
                     }
                     else
                     {
-                        var selection = NonRedundantSelectionCompilation.Resolve(model, table, page, source);
-                        if (!NonRedundantSelectionCompilation.IsDisplay(source, storage, selection.Name))
+                        var selection = overrideSelection??NonRedundantSelectionCompilation.Resolve(model, table, page, source);
+                        if (selection.DisplayOverride?.Source.Id!=storage.Source.Id&&!NonRedundantSelectionCompilation.IsDisplay(source, storage, selection.Name))
                         { Gap("非冗余名称列没有绑定同一单值外键和目标名称。"); continue; }
-                        var read = Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog, table.Source.Id, [storage.Source.ColumnName]);
+                        var field=storage.Source.ColumnName;
+                        // 同一稳定名称键必须使用实际业务页的联接表达式，不能按表级名称验证。
+                        var read=overrideSelection is null
+                            ?Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[field])
+                            :NonRedundantReadCompilation.CompilePage(model,table,[field],[],[],
+                                NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,[field]),[]);
                         if (read.OutputTypes[storage.Source.ColumnName] != DerivedRelationNamesCompilation.NameType(selection.Name))
                         { Gap("非冗余名称筛选路径的终点类型与辅助列不一致。"); continue; }
                         kind = integerStorage ? SelectionNameFilterKind.JoinedIntegerLike :

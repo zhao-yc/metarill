@@ -235,7 +235,11 @@ internal static class ReadProjectionCompilation
             // 原列表的后缀展示分支先于常量分支；页覆盖只影响显示/筛选，不创建详情选择弹层。
             if (purpose != ReadProjectionPurpose.Detail &&
                 (column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) || column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) && kind.Length > 0) && kind != "FileLibrary")
-            { Auxiliary(column, SelectionDisplayFieldCompilation.Resolve(table, column)); return; }
+            {
+                Auxiliary(column,SelectionDisplayFieldCompilation.AutomaticSingle(model,table,page,column)??
+                    SelectionDisplayFieldCompilation.Resolve(table,column));
+                return;
+            }
             if (kind is "ConstList" or "ConstDownList") Constant(column);
             else if (kind == "List")
             {
@@ -389,6 +393,14 @@ internal static class ReadProjectionCompilation
         private void Auxiliary(ColumnModel source, ColumnModel auxiliary)
         {
             if (auxiliary.Source.Id == source.Source.Id) { Reason(source.Source.Id, "原UI明确使用ID回退，不伪造辅助名称"); return; }
+            if(table.Source.IsRongyu==0&&IsPublishedOutput(auxiliary)&&
+                !table.Columns.Any(column=>column.Source.Id==auxiliary.Source.Id)&&
+                page.Readable.Any(column=>column.Source.Id==source.Source.Id))
+            {
+                Reason(auxiliary.Source.Id,"原辅助名称已由本页固定读取计划发布："+source.JsonName);
+                Output(new(auxiliary.JsonName,auxiliary.Property,auxiliary,ReadProjectionOutputKind.NonRedundantValue));
+                return;
+            }
             Add(auxiliary, "关系显示辅助名称：" + source.JsonName, false);
         }
 
@@ -411,6 +423,15 @@ internal static class ReadProjectionCompilation
                 var target = model.Tables.SingleOrDefault(candidate => candidate.Pages.Any(targetPage => targetPage.Source.Id == definition.PageId));
                 var targetPage = target?.Pages.Single(targetPage => targetPage.Source.Id == definition.PageId);
                 var name = target?.Columns.SingleOrDefault(candidate => candidate.Source.ColumnName == definition.NameField || candidate.JsonName == definition.NameField);
+                if(table.Source.IsRongyu==0&&source.Source.ControlKind=="SelectPage"&&
+                    definition.NameField!=SelectionControlDefinition.Resolve(source,null).NameField)
+                {
+                    var selection=NonRedundantSelectionCompilation.Resolve(model,table,page,source);
+                    var relation=RelationCompilation.ForPage(model,page,scopeSourceId:source.Source.Id).Single();
+                    TargetParent(source,ControlRenderer.RelationContext(page,relation,false));
+                    Auxiliary(source,selection.DisplayOverride!);
+                    return;
+                }
                 if(source.Source.ControlKind=="SelectPage"&&target is {Source.IsRongyu:0}&&targetPage is not null&&FixedPageConditionCompilation.HasLogicalFields(targetPage))
                 {
                     // 原确认页由固定R0计划返回名称；冗余消费者只提交外键并读取其原显示缓存。

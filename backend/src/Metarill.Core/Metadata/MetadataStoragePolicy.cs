@@ -74,9 +74,9 @@ public static class MetadataStoragePolicy
     /// <summary>原始业务_id本身不是关系，必须有明确控件、关联表或关联页声明。</summary>
     public static bool IsRelationColumn(ColumnMetadata column)=>RelationKinds.Contains(column.ControlKind)||column.LinkConfigTableId.Length>0||Text(column,"joinTable").Length>0||Text(column,"linkConfigPageId").Length>0;
     /// <summary>显式名称列只能接替同一外键的原辅助属性，不能借页级名称覆盖改写其他联接。</summary>
-    public static bool IsTextListDisplayJoin(ColumnMetadata source,ColumnMetadata display,string baselineName)
+    public static bool IsTextSingleDisplayJoin(ColumnMetadata source,ColumnMetadata display,string baselineName)
     {
-        if(source.ControlKind!="List"||!source.ColumnName.EndsWith("_id",StringComparison.Ordinal)||
+        if(source.ControlKind is not ("List" or "SelectPage")||!source.ColumnName.EndsWith("_id",StringComparison.Ordinal)||
             source.ConfigTableId!=display.ConfigTableId||baselineName=="id"||display.IsVirtualColumn!=0||
             display.LogicalType!="string"||display.ControlKind is not ("" or "Text" or "TextArea")||
             !Enabled(display,"isJoinColumn"))

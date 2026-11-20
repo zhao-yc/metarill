@@ -3,12 +3,12 @@ using Metarill.Core.Metadata;
 namespace Metarill.Generation;
 
 internal sealed record NonRedundantSelectionModel(TableModel Target,PageModel TargetPage,ColumnModel Name,
-    SelectionControlDefinition Definition,RelationConditionModel? ImportCondition);
+    SelectionControlDefinition Definition,RelationConditionModel? ImportCondition,ColumnModel? DisplayOverride);
 
 /// <summary>单值选择页的固定目标、名称和候选范围证明；不解释客户端SQL或改变原弹层。</summary>
 internal static class NonRedundantSelectionCompilation
 {
-    /// <summary>页面覆盖沿原标量合并；显示来源必须保持同表同名称，候选附加条件由目标页承接。</summary>
+    /// <summary>页面覆盖沿原标量合并，物理文本允许同目标表、同响应属性的页级显示值。</summary>
     internal static NonRedundantSelectionModel Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {
         var globalCached=table.IsGlobal&&table.Source.IsRongyu==1&&GlobalCachedSourceCompilation.ForModel(model)
@@ -17,7 +17,7 @@ internal static class NonRedundantSelectionCompilation
         if(table.Source.IsRongyu!=0&&!cached||source.Source.ControlKind!="SelectPage"||source.Source.ConfigTableId!=table.Source.Id||source.Type!="long?"||!source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)||!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(source.Source))throw new InvalidOperationException("非冗余单选必须绑定本表物理int64外键。");
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==source.Source.Id);
         var definition=SelectionControlDefinition.Resolve(source,field);var baseline=SelectionControlDefinition.Resolve(source,null);
-        if(definition.NameField!=baseline.NameField)throw new InvalidOperationException("非冗余单选页级名称覆盖改变了固定显示来源。");
+
         var target=model.Tables.SingleOrDefault(table=>table.Pages.Any(page=>page.Source.Id==definition.PageId))??throw new InvalidOperationException("非冗余单选缺少明确目标页。");
         if(ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)throw new InvalidOperationException("非冗余单选的显示、候选和写入目标不一致。");
         var targetPage=target.Pages.Single(page=>page.Source.Id==definition.PageId);
@@ -26,6 +26,9 @@ internal static class NonRedundantSelectionCompilation
         if (name is null || name.IsJsonArray || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id) ||
             ManagerCredentialCompilation.IsCredential(target, name))
             throw new InvalidOperationException("非冗余单选目标名称必须是已开放的非凭据标量。");
+        var displayOverride=definition.NameField==baseline.NameField?null:
+            NonRedundantReadCompilation.PageSingleDisplayOverride(model,table,source,target,name)??
+            throw new InvalidOperationException("非冗余单选页级名称必须是同一目标的物理文本，且沿用原辅助属性。");
         var typedName = DerivedRelationNamesCompilation.IsTypedName(model, table, target, name);
         if (name.Type != "string?" && !typedName)
             throw new InvalidOperationException("非冗余单选目标名称必须是已证明的单值标量。");
@@ -44,9 +47,9 @@ internal static class NonRedundantSelectionCompilation
             // 原弹窗直接使用目标页，只有名称导入叠加来源控件的额外筛选。
             importCondition=RelationConditionsCompilation.SelectionImport(model,table,page,query,definition.WhereSql);
         }
-        var selection=new NonRedundantSelectionModel(target,targetPage,name,definition,importCondition);
+        var selection=new NonRedundantSelectionModel(target,targetPage,name,definition,importCondition,displayOverride);
         var display=SelectionDisplayFieldCompilation.AutomaticSingle(table,source,name)??SelectionDisplayFieldCompilation.Resolve(table,source);
-        if ((typedName || display.Source.Id != source.Source.Id) && !IsDisplay(source,display,name))
+        if (displayOverride is null && (typedName || display.Source.Id != source.Source.Id) && !IsDisplay(source,display,name))
             throw new InvalidOperationException("非冗余单选辅助名称与真实外键、名称路径或类型不一致。");
         return selection;
     }

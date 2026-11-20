@@ -284,32 +284,30 @@ internal static partial class NonRedundantReadCompilation
     /// <summary>页级名称沿用相同的物理外键和原候选条件。纯名称变化不引入额外范围。</summary>
     private static NonRedundantSingleTargetScope? PageTarget(GenerationModel model,TableModel table,PageModel page,RelationModel relation)
     {
-        var display=PageListDisplayOverride(model,table,relation);
+        var display=PageSingleDisplayOverride(model,table,relation.SourceColumn,relation.Target,relation.NameColumn);
         if(UsesProjectSingleRead(relation))
-            return ProjectTarget(model,table,page,relation) with{DisplayNameColumnId=display?.Name.Source.Id};
+            return ProjectTarget(model,table,page,relation) with{DisplayNameColumnId=display is null?null:relation.NameColumn.Source.Id};
         return display is null?null:new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id)
-            {ApplyPageCondition=false,DisplayNameColumnId=display.Value.Name.Source.Id};
+            {ApplyPageCondition=false,DisplayNameColumnId=relation.NameColumn.Source.Id};
     }
 
     /// <summary>按原稳定辅助属性覆盖同一目标的文本值，显式联接必须指向同一外键和表级名称。</summary>
-    internal static (ColumnModel Name,ColumnModel Output)? PageListDisplayOverride(GenerationModel model,TableModel table,RelationModel relation)
+    internal static ColumnModel? PageSingleDisplayOverride(GenerationModel model,TableModel table,ColumnModel source,TableModel target,ColumnModel name)
     {
-        var source=relation.SourceColumn;
-        var target=relation.Target;
-        var name=relation.NameColumn;
-        if(source.Source.ControlKind!="List"||table.Source.IsRongyu!=0||table.IsGlobal||target.IsGlobal||
+        if(source.Source.ControlKind is not ("List" or "SelectPage")||table.Source.IsRongyu!=0||table.IsGlobal||target.IsGlobal||
             source.IsSystem||!Physical(model,table,source)||ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id||
             name.Type!="string?"||name.IsJsonArray||name.Source.ControlKind=="FileLibrary"||!Physical(model,target,name)||
             Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(name.Source.ColumnName))
             return null;
         var baseline=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==BaselineSingleName(source));
-        if(baseline is null||baseline==name||baseline.Type!="string?"||!Physical(model,target,baseline))return null;
+        if(baseline is null||baseline==name||baseline.Type!="string?"||!Physical(model,target,baseline)||
+            Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(baseline.Source.ColumnName))return null;
         var automatic=SelectionDisplayFieldCompilation.AutomaticSingle(table,source,baseline);
-        if(automatic is not null)return (name,automatic);
+        if(automatic is not null)return automatic;
 
         var declared=SelectionDisplayFieldCompilation.Resolve(table,source);
-        return !declared.IsJsonArray&&MetadataStoragePolicy.IsTextListDisplayJoin(source.Source,declared.Source,baseline.Source.ColumnName)
-            ?(name,declared):null;
+        return !declared.IsJsonArray&&MetadataStoragePolicy.IsTextSingleDisplayJoin(source.Source,declared.Source,baseline.Source.ColumnName)
+            ?declared:null;
     }
 
     /// <summary>原响应属性从表级名称推导，页面覆盖不能改变 JSON 协议。</summary>
@@ -431,7 +429,7 @@ internal static partial class NonRedundantReadCompilation
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
         return compiled is not null &&
             compiled.Target.Source.Id == ForeignValidationRenderer.Target(model, source)?.Source.Id &&
-            (!nameChanged || PageListDisplayOverride(model,owner,compiled) is not null) &&
+            (!nameChanged || PageSingleDisplayOverride(model,owner,source,compiled.Target,compiled.NameColumn) is not null) &&
             (!conditionsChanged || compiled.Conditions is not null) &&
             (!orderChanged || compiled.OptionsOrder is not null);
     }

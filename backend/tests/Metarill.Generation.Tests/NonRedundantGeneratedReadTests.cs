@@ -101,6 +101,69 @@ public sealed class NonRedundantGeneratedReadTests
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
+    /// <summary>原单选按实际页面名称显示、筛选并解析Excel，两个页面使用同一响应属性。</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Select_page_label_override_keeps_the_filter_and_selection_receipt(bool declaredDisplay)
+    {
+        var catalog = NonRedundantApplicationFixture.Catalog("mt_single_page_label");
+        if (!declaredDisplay)
+        {
+            catalog.ConfigColumns.RemoveAll(column => column.Id == "111");
+            catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == "111");
+        }
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "28", ConfigTableId = "2", YzProjectId = catalog.YzProjectId,
+            ColumnName = "short_name", Name = "简称", LogicalType = "string", ColumnLength = "100"
+        });
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id = "20128", ConfigPageId = "201", ConfigColumnId = "28", YzProjectId = catalog.YzProjectId, IsShow = 1
+        });
+        foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigPageId is "104" or "105" && field.ConfigColumnId == "15"))
+            field.Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"nameField":"short_name"}""");
+        catalog.ConfigPages.Single(page => page.Id == "104").Extra["exportMethod"] = JsonSerializer.SerializeToElement("edit");
+        var model = GenerationModel.Create(catalog, "Example.SinglePageLabel");
+        var table = model.Tables.Single(item => item.Source.Id == "1");
+        var page = table.Pages.Single(item => item.Source.Id == "104");
+        var filter = Assert.Single(SelectionNameFilterCompilation.ForPage(model, table, page).Bindings);
+        Assert.Equal("customerName", filter.FilterKey);
+        Assert.Equal(SelectionNameFilterKind.JoinedScalarLike, filter.Kind);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var projection = ReadProjectionCompilation.ForPage(model, table, page);
+        Assert.True(projection.Detail.CanCompile, string.Join(" / ", projection.Detail.Gaps.Select(gap => gap.Reason)));
+        Assert.True(projection.List.CanCompile, string.Join(" / ", projection.List.Gaps.Select(gap => gap.Reason)));
+        Assert.Contains(projection.Detail.OutputFields, field => field.JsonName == "customerName");
+        Assert.Contains(projection.List.OutputFields, field => field.JsonName == "customerName");
+
+        var root = Path.Combine(Path.GetTempPath(), "metarill-single-page-label", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var package = new ApplicationPackager().Create(catalog, Path.Combine(root, "application"),
+                model.Namespace, NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication, package.Mode);
+            Assert.True(package.FrontendIncluded);
+            // 生成项目的编译目录独立于完整包，避免 SDK 的默认递归包含两套源码。
+            var probe = Path.Combine(root, "probe");
+            var generated = Path.Combine(probe, "generated");
+            new CSharpGenerator().Generate(catalog, generated, model.Namespace);
+            var detail = await File.ReadAllTextAsync(Path.Combine(generated, "frontend/pages/yzp/mt_single_page_label_order-detail-104.vue"));
+            Assert.Contains("this.entity.customerName=row.shortName", detail);
+            Assert.Contains("selected-name-field=\"shortName\"", detail);
+            var list = await File.ReadAllTextAsync(Path.Combine(generated, "frontend/pages/yzp/mt_single_page_label_order-list-104.vue"));
+            Assert.Contains("customerName", list);
+            var service = await File.ReadAllTextAsync(Path.Combine(generated, "Services/MtSinglePageLabelOrderService.g.cs"));
+            Assert.Contains("DisplayNameColumnId=\"28\"", service);
+            Assert.Contains("entity.ShortName", service);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(probe);
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
+                assembly.GetType("Example.SinglePageLabel.Generated.Services.MtSinglePageLabelOrderService", true)!.TypeHandle);
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     /// <summary>未接线原功能不能以静默退化方式生成；公开完整包仍保留能力门槛。</summary>
     [Theory]
     [InlineData("customImport")][InlineData("global")][InlineData("select")][InlineData("filterType")][InlineData("conflictingTarget")][InlineData("effectiveOverride")]

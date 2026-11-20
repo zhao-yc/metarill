@@ -38,14 +38,17 @@ public sealed class NonRedundantReadTests
 
     /// <summary>两个外键可联接同表，名称覆盖只改变实际配置页对应角色的稳定输出。</summary>
     [Theory]
-    [InlineData(0, null)]
-    [InlineData(1, null)]
-    [InlineData(0, "bill.name")]
-    [InlineData(1, "bill_id.name")]
-    public void List_display_override_uses_only_the_bound_role_and_keeps_project_scope(int targetStorage, string? displayPath)
+    [InlineData(0, "List", null)]
+    [InlineData(1, "List", null)]
+    [InlineData(0, "List", "bill.name")]
+    [InlineData(1, "List", "bill_id.name")]
+    [InlineData(0, "SelectPage", null)]
+    [InlineData(1, "SelectPage", "bill.name")]
+    public void Single_display_override_uses_only_the_bound_role_and_keeps_project_scope(int targetStorage, string kind, string? displayPath)
     {
         var catalog = Catalog("mt_read_root", "mt_read_party");
         catalog.ConfigTables[1].IsRongyu = targetStorage;
+        catalog.ConfigColumns.Single(column => column.Id == "15").ControlKind = kind;
         if (displayPath is not null)
         {
             var display = Column("111", "1", "bill_name");

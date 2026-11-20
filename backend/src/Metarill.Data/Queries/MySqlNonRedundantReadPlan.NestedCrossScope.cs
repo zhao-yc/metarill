@@ -694,17 +694,17 @@ public static partial class MySqlNonRedundantReadCompiler
                     continue;
                 var binding=owner is null?null:ExplicitSingleBinding(owner,foreign);
                 if(declared is not null&&(binding?.DisplayNameColumnId is null||
-                    !MetadataStoragePolicy.IsTextListDisplayJoin(foreign,declared,display)))
+                    !MetadataStoragePolicy.IsTextSingleDisplayJoin(foreign,declared,display)))
                     continue;
                 if(binding is {DisplayNameColumnId:{} id})
                 {
                     var target=Target(foreign);
                     var column=columns[target.Id].Values.SingleOrDefault(item=>item.Id==id);
-                    if(foreign.ControlKind!="List"||GlobalCrossTableTarget.Declared(table)||GlobalCrossTableTarget.Declared(target)||
+                    if(foreign.ControlKind is not ("List" or "SelectPage")||GlobalCrossTableTarget.Declared(table)||GlobalCrossTableTarget.Declared(target)||
                         column is null||column.LogicalType!="string"||!storage[target.Id].IsPhysical(column)||
                         Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.ColumnName)||
                         !catalog.ConfigPages.Any(page=>page.Id==binding.PageId&&page.ConfigTableId==target.Id))
-                        throw new InvalidOperationException("页级下拉名称必须属于同一项目内目标的物理文本列。");
+                        throw new InvalidOperationException("页级关系名称必须属于同一项目内目标的物理文本列。");
                     display=column.ColumnName;
                 }
                 return(foreign,display);
