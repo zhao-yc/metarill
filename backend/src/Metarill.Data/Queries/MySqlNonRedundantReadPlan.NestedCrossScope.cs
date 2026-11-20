@@ -17,7 +17,7 @@ public static partial class MySqlNonRedundantReadCompiler
         HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null,IReadOnlyList<string>? listFields=null,
         bool projectSingle=false,string? accountParentPageType=null,
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,bool exactSingleParent=false,
-        bool exactCheckboxParent=false,bool projectSelfTreeSingle=false)
+        bool exactCheckboxParent=false,string? projectSingleControlKind=null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -33,15 +33,16 @@ public static partial class MySqlNonRedundantReadCompiler
         var exactParent=exactSingleParent||exactCheckboxParent;
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId));
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
-        var treeExact=(projectSingle&&projectSelfTreeSingle||exactSingleParent)&&
-            HasPublishedSelfTreeExact(catalog,table,page,columns);
-        // 已保存名称由来源记录授权。候选操作由生成入口绑定真实目标页精确授权集合。
-        var storedSingle=projectSingle&&projectSelfTreeSingle&&treeExact&&pageType is "" or "0" or "1";
+        var publishedMatch=(projectSingle||exactSingleParent)?PublishedSingleExactColumn(catalog,table,page,columns):null;
+        // 已保存名称由来源记录授权。候选和写入仍在自己的入口校验目标页精确权限。
+        var storedSingle=projectSingle&&publishedMatch is not null&&pageType is "" or "0" or "1"&&
+            (projectSingleControlKind=="List"||projectSingleControlKind=="SelectPage"&&
+                SelfTreeConditionFields(catalog,table,page,columns,[publishedMatch.ColumnName]).Count==1);
         if(table.IsRongyu!=0||exactField.Length>0&&!exactParent&&!storedSingle||
             page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new NotSupportedException("候选必须属于已发布项目的普通非冗余目标页。");
         if(exactSingleParent&&(global||exactField.Length==0||
-            pageType!="1"&&!(treeExact&&pageType is "" or "0")))
+            pageType!="1"&&!(publishedMatch is not null&&pageType is "" or "0")))
             throw new NotSupportedException("精确单值候选必须使用已发布的项目内单值页面。");
         if(exactCheckboxParent&&(global||exactField.Length==0||
             page.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1" or "2")))
@@ -427,7 +428,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_page");
             var plan=CompileCrossPageCandidate(catalog,target.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
                 activeSelfTreeScopes:ActiveSelfTreeScopes,listFields:control?.Fields.ToArray(),projectSingle:true,
-                projectSelfTreeSingle:relation.ControlKind is "List" or "SelectPage");
+                projectSingleControlKind:relation.ControlKind);
             plan.CopyParametersTo(crossConstants);
             var predicate=plan.Expression("id")+"="+alias+".`id`";
             if(plan.Scope.Length>0)predicate+=" AND "+plan.Scope;
@@ -492,8 +493,8 @@ public static partial class MySqlNonRedundantReadCompiler
             var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields);
             var logical=RequireCrossCondition(table,page,condition,parentField,fields);
             if(GlobalCrossTableTarget.Declared(table))scopedGlobalCrossTarget=true;
-            // 名称副本归属于已保存记录。只有确实发布的叶名可以把精确授权留给候选和写入入口。
-            var storedExact=cacheOwner is not null&&HasPublishedSelfTreeExact(catalog,table,page,members);
+            // 已保存副本沿来源行归属重算。候选及写入使用当前身份的实际精确匹配值。
+            var storedExact=cacheOwner is not null&&PublishedSingleExactColumn(catalog,table,page,members) is not null;
             if(cacheOwner is {} row&&logical.Count==0)
                 return PhysicalAccountCacheCondition(table,alias,page,row,parentField,
                     allowFixedOnly:allowFixedOnly||!GlobalCrossTableTarget.Declared(table),separateExactScope:storedExact);

@@ -14,6 +14,14 @@ internal static class DerivedRelationNamesCompilation
         relation.SourceColumn.Source.ControlKind is "List" or "SelectPage"&&
         NonRedundantReadCompilation.SelfTreeExactColumn(relation.Target,relation.TargetPage) is not null;
 
+    /// <summary>原下拉按实际项目内目标页执行已声明的精确权限。</summary>
+    internal static bool UsesExactList(RelationModel relation)=>
+        relation.SourceColumn.Source.ControlKind=="List"&&UsesExactListTarget(relation.Target,relation.TargetPage);
+
+    /// <summary>隐藏下拉也使用实际目标页范围，供写入登记复用。</summary>
+    internal static bool UsesExactListTarget(TableModel target,PageModel page)=>
+        !target.IsGlobal&&ExactDataManageCompilation.Declared(page);
+
     /// <summary>选档条件只扩充静态依赖，交互候选仍执行原目标页范围。</summary>
     internal static RelationConditionModel? ProjectionCondition(RelationModel relation)=>
         relation.Conditions??(UsesSelfTreeExact(relation)?relation.ImportCondition:null);
@@ -86,7 +94,8 @@ internal static class DerivedRelationNamesCompilation
 
     /// <summary>名称投影和目标逻辑条件共用固定读取，物理名称也执行同样的精确权限。</summary>
     internal static bool UsesFixedRead(GenerationModel model, RelationModel relation) =>
-        UsesSelfTreeExact(relation) || Declared(model, relation) || IsPhysicalTypedName(model, relation.Target, relation.NameColumn) ||
+        UsesExactList(relation) || UsesSelfTreeExact(relation) || Declared(model, relation) ||
+        IsPhysicalTypedName(model, relation.Target, relation.NameColumn) ||
         relation.FunctionForm && (relation.Target.IsGlobal || relation.TargetParents.Count > 0 ||
             ExactDataManageCompilation.Declared(relation.TargetPage) ||
             RelationCompilation.HasFixedTargetScope(relation.Target, relation.TargetPage) || UsesLogicalPage(relation)) ||
@@ -102,7 +111,8 @@ internal static class DerivedRelationNamesCompilation
 
     /// <summary>普通冗余目标的固定候选只能读取物理列及已发布的父范围。</summary>
     internal static bool UsesPhysicalPlan(GenerationModel model, RelationModel relation) =>
-        relation.Target.Source.IsRongyu == 1 && (relation.FunctionForm || IsPhysicalTypedName(model, relation.Target, relation.NameColumn));
+        relation.Target.Source.IsRongyu == 1 && (relation.FunctionForm || UsesExactList(relation) ||
+            IsPhysicalTypedName(model, relation.Target, relation.NameColumn));
 
     /// <summary>物理名称仍使用真实声明类型作为 SQL 投影和精确反查的参数类型。</summary>
     internal static bool IsPhysicalTypedName(GenerationModel model, TableModel target, ColumnModel name) =>
@@ -183,7 +193,8 @@ internal static class DerivedRelationNamesCompilation
             target.Source.IsRongyu!=0&&!UsesPhysicalPlan(model,relation)||target.Source.IsFunctionTable!=0||target.Source.IsView!=0||
             name.Type != "string?" && !typedName || name.IsJsonArray || relation.ParentBinding?.Declared==true||NonRedundantCrossParentCompilation.Enabled(model,target,relation.TargetPage)&&relation.FixedParent is not {Logical:true})
             throw new InvalidOperationException("固定名称关系要求已发布来源、物理标量或已证明的派生目标及候选范围。");
-        if (typedName && !relation.FunctionForm && ForeignValidationRenderer.Target(model, relation.SourceColumn)?.Source.Id != target.Source.Id)
+        if ((typedName||UsesExactList(relation)) && !relation.FunctionForm &&
+            ForeignValidationRenderer.Target(model, relation.SourceColumn)?.Source.Id != target.Source.Id)
             throw new InvalidOperationException("名称候选必须与来源外键使用同一固定目标。");
         if(target.IsGlobal&&!relation.FunctionForm)
         {
@@ -235,11 +246,11 @@ internal static class DerivedRelationNamesCompilation
             throw new InvalidOperationException("关系名称必须编译为与声明一致的固定标量。");
         return dependencies;
     }
-    /// <summary>原单值候选沿目标列表授权，叶名匹配使用目标页已证明的固定读取计划。</summary>
+    /// <summary>原单值候选沿目标列表授权，匹配字段及投影由实际目标页证明。</summary>
     internal static ExactDataManageModel? CandidateExact(GenerationModel model, TableModel owner, RelationModel relation)
     {
         if (!ExactDataManageCompilation.Declared(relation.TargetPage)) return null;
-        var scopedList=relation.SourceColumn.Source.ControlKind=="List"&&!owner.IsGlobal&&UsesSelfTreeExact(relation);
+        var scopedList=!owner.IsGlobal&&UsesExactList(relation);
         if (!(relation.FunctionForm && !relation.Target.IsGlobal) && !scopedList &&
             (relation.SourceColumn.Source.ControlKind != "SelectPage" || !SupportsExactSelectionTarget(owner,relation.Target,relation.TargetPage)))
             throw new NotSupportedException("当前派生名称目标的精确范围缺少固定候选证明。");
