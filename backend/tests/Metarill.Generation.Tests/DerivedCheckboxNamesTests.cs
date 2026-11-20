@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
 using Xunit;
 namespace Metarill.Generation.Tests;
@@ -486,7 +487,12 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(false,false,true)]
     [InlineData(true,true,true)]
     [InlineData(true,true,true,true)]
-    public async Task Checkbox_control_parent_uses_the_actual_source_cascade(bool derived,bool globalParent,bool scopeFromPage,bool overridePage=false)
+    [InlineData(false,false,false,false,"physical")]
+    [InlineData(true,false,false,false,"independent")]
+    [InlineData(true,false,true,false,"physical")]
+    [InlineData(true,true,true,false,"independent")]
+    public async Task Checkbox_control_parent_uses_the_actual_source_cascade(bool derived,bool globalParent,bool scopeFromPage,
+        bool overridePage=false,string compound="")
     {
         const string ns="Example.CheckboxControlParent";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("checkbox_control_parent","int64","int64");
@@ -496,6 +502,24 @@ public sealed class DerivedCheckboxNamesTests
         sourcePage.WhereSql+=" AND country_id=@parentId";
         if(derived)sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
         var parent=catalog.ConfigTables.Single(table=>table.Id=="3");
+        if(compound=="physical")
+        {
+            catalog.ConfigColumns.Add(new(){Id="980",ConfigTableId="2",ColumnName="owner_country_id",
+                LinkConfigTableId=parent.Id,LogicalType="int64"});
+            sourcePage.WhereSql+=" AND owner_country_id=@parentId";
+        }
+        else if(compound=="independent")
+        {
+            var first=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="2"&&column.ControlKind=="CascadeTree");
+            var path=JsonNode.Parse(first.ControlDetail)!;
+            foreach(var level in path["levels"]!.AsArray())
+                level!["columnPrefix"]="alternate_"+level["columnPrefix"]!.GetValue<string>();
+            catalog.ConfigColumns.Add(new(){Id="980",ConfigTableId="2",LinkConfigTableId=first.LinkConfigTableId,
+                ColumnName="alternate_place_id",LogicalType=first.LogicalType,
+                ControlKind="CascadeTree",ControlDetail=path.ToJsonString()});
+            catalog.ConfigPageColumns.Add(new(){Id="201980",ConfigPageId=sourcePage.Id,ConfigColumnId="980",IsShow=1,IsEdit=1});
+            sourcePage.WhereSql+=" AND alternate_country_id=@parentId";
+        }
         if(globalParent)
         {
             parent.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
@@ -573,6 +597,10 @@ public sealed class DerivedCheckboxNamesTests
             var generated=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/CheckboxControlParentSourceService.g.cs"));
             Assert.Contains("LogicalParentId201(parentId)",generated);
             Assert.Contains("logicalRelationParentId: parentId",generated);
+            if(compound=="independent")
+                Assert.Contains("CrossReader201_980(actor,locking,false).PathAsync(0,",generated);
+            if(compound=="physical")
+                Assert.Contains("submitted.Contains(\"owner_country_id\")",generated);
             if(overridePage)Assert.Contains("CompileMultiGlobalParent(\"9\",\"902\")",generated);
             Assert.Contains("CountryId=Metarill.Data.Queries.NonRedundantReads.Value<long?>(row,\"country_id\")",generated);
             Assert.Contains(derived?"new(\"target_scope_id\",FixedReadComparison.Equal,parentId!)"
@@ -588,7 +616,41 @@ public sealed class DerivedCheckboxNamesTests
             var parentExpression=Assert.IsType<string>(sqlPlan.GetType().GetMethod("Expression",hidden)!.Invoke(sqlPlan,["country_id"]));
             Assert.StartsWith("CASE WHEN",parentExpression);
             Assert.Contains(" THEN ",parentExpression);
+            if(compound=="independent")
+            {
+                var alternate=Assert.IsType<string>(sqlPlan.GetType().GetMethod("Expression",hidden)!
+                    .Invoke(sqlPlan,["alternate_country_id"]));
+                Assert.StartsWith("CASE WHEN",alternate);
+            }
 
+            if(compound.Length>0)
+            {
+                var term=compound=="physical"?"owner_country_id=@parentId":"alternate_country_id=@parentId";
+                var prior=sourcePage.WhereSql;
+                sourcePage.WhereSql=prior.Replace(term,"area_id=@parentId",StringComparison.Ordinal);
+                var invalid=GenerationModel.Create(catalog,ns);
+                var owner=invalid.Tables.Single(item=>item.Source.Id=="2");
+                var bad=DatabaseCheckboxCompilation.Resolve(invalid,owner,owner.Pages.Single(item=>item.Source.Id=="201"),
+                    owner.Columns.Single(column=>column.Source.Id=="28"));
+                Assert.Null(bad.Definition);
+                sourcePage.WhereSql=prior;
+            }
+
+            if(compound=="independent"&&!globalParent)
+            {
+                // 完整包必须继续生成原复选控件、原候选端点和全部后端依赖。
+                foreach(var publishedPage in catalog.ConfigPages)
+                    catalog.ConfigMenus.Add(new(){Id="700"+publishedPage.Id,YzProjectId=catalog.YzProjectId,
+                        YzAdminTypeId=publishedPage.YzAdminTypeId,Name="页面"+publishedPage.Id,
+                        Kind="GENERATED_PAGE",ConfigPageId=publishedPage.Id});
+                var output=Path.Combine(directory,"full");
+                new ApplicationPackager().Create(catalog,output,ns,NonRedundantApplicationFixture.Root());
+                foreach(var operation in new[]{"restore","build"})
+                    await NonRedundantApplicationFixture.BuildAsync(output,operation);
+                var detail=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/checkbox_control_parent_source-detail-201.vue"));
+                Assert.Contains("<uni-data-checkbox multiple",detail);
+                Assert.Contains("findNameIdSelected28",detail);
+            }
             targetParent.LinkConfigTableId="4";
             model=GenerationModel.Create(catalog,ns);
             table=model.Tables.Single(item=>item.Source.Id=="2");

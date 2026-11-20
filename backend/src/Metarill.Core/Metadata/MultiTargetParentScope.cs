@@ -119,6 +119,16 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
                     if(binding?.Parent.Id==Parent.Id)return (Column:(ColumnMetadata?)binding.Target,Page:(PageMetadata?)page);
                 }
             }
+            if(scoped.Length>1&&relation.ControlKind=="MultiCheckBoxDatabase")
+            {
+                // 已发布的复选目标用同一个父 ID，需要先证明每个来源条件指向同一实体。
+                var parents=scoped.Select(term=>CompileCheckboxParent(catalog,source,
+                    FixedConditionPlan.Compile(term.ToDefinition(),fields))).OfType<MultiTargetParentScope>().ToArray();
+                if(parents.Length!=scoped.Length||parents.Any(parent=>parent.Parent.Id!=Parent.Id||parent.Logical&&!allowLogical))
+                    throw Invalid();
+                var representative=parents.FirstOrDefault(parent=>parent.Logical)??parents[0];
+                return (Column:(ColumnMetadata?)representative.Target,Page:representative.Logical?page:null);
+            }
             return (Column:(relation.ControlKind=="MultiSelectPage"||single&&relation.ControlKind is ("List" or "SelectPage"))&&
                 explicitKeys.Length==1?explicitKeys[0]:null,Page:(PageMetadata?)null);
         }).ToArray();

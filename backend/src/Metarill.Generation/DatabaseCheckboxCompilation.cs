@@ -14,13 +14,16 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool UsesControlRead { get; init; }
     internal ColumnModel? FunctionParentField { get; init; }
     internal ExactDataManageModel? ExactTarget { get; init; }
-    internal bool LogicalSourceParent { get; init; }
+    internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
+    internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
+    internal IReadOnlyList<ColumnModel> SourceScopeColumns { get; init; } = [];
     internal PageModel? GlobalParentPage { get; init; }
     internal bool GlobalParent => GlobalParentPage is not null;
     internal bool IntegerLabel => Name.Type is ("int?" or "long?");
     internal bool TypedLabel => Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
     internal string Endpoint=>"findNameId"+GenerationModel.Pascal(Source.Source.ColumnName[..^4])+Source.Source.Id;
-    internal IEnumerable<ColumnModel> Dependencies=>(Conditions?.Forms.Select(binding=>binding.Column)??[]).Concat(SourceParent is null?[]:[SourceParent]).DistinctBy(column=>column.Source.Id);
+    internal IEnumerable<ColumnModel> Dependencies=>(Conditions?.Forms.Select(binding=>binding.Column)??[])
+        .Concat(SourceScopeColumns).Concat(SourceParent is null?[]:[SourceParent]).DistinctBy(column=>column.Source.Id);
 }
 internal sealed record DatabaseCheckboxResult(DatabaseCheckboxModel? Definition,string? Reason);
 
@@ -149,15 +152,21 @@ internal static class DatabaseCheckboxCompilation
                 NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,column);
             if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)&&!FunctionLogicalParent(scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量。");
             TableModel Parent(ColumnModel column)=>model.Tables.SingleOrDefault(parent=>column.Source.LinkConfigTableId.Length>0?parent.Source.Id==column.Source.LinkConfigTableId:parent.Source.TableName+"_id"==column.Source.ColumnName)??throw new InvalidOperationException("复选父范围缺少明确真实父表。");
-            var parentScopes=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();if(parentScopes.Length>1)return Gap("多个来源父范围尚待完整协议证明。");
-            var sourceParent=parentScopes.FirstOrDefault().Column;
-            var logicalSource=sourceParent is not null?NonRedundantCrossParentCompilation.Find(model,table,page,sourceParent):null;
-            if(sourceParent is not null&&(!NonRedundantReadCompilation.Physical(model,table,sourceParent)||sourceParent.IsJsonArray||sourceParent.Type is not("long?" or "string?")))return Gap("来源父必须为固定标量ID。");
+            var sourceScopeColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
+            if(sourceScopeColumns.Any(column=>!NonRedundantReadCompilation.Physical(model,table,column)||column.IsJsonArray||
+                column.Type is not("long?" or "string?")))return Gap("来源父必须为固定标量ID。");
+            var sourceBindings=sourceScopeColumns.Select(column=>(Column:column,Path:NonRedundantCrossParentCompilation.Find(model,table,page,column))).ToArray();
+            var parents=sourceBindings.Select(binding=>binding.Path is {} path?path.Read.Levels[path.Index].Target:Parent(binding.Column))
+                .DistinctBy(parent=>parent.Source.Id).ToArray();
+            if(parents.Length>1)return Gap("多个来源范围必须绑定同一真实父表。");
+            // 目标只有一个 parentId；用可还原的逻辑键作为来源代表，其他同父范围仍逐条验证。
+            var logicalBindings=sourceBindings.Where(binding=>binding.Path is not null).ToArray();
+            var logicalSource=logicalBindings.Length>0;
+            var sourceParent=logicalBindings.FirstOrDefault().Column??sourceScopeColumns.FirstOrDefault();
             var physicalParents=scopes.Where(scope=>scope.Source=="parent").ToArray();
             var pageHasParent=logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true;
-            if(logicalSource is not null&&physicalParents.Length==0&&!pageHasParent)
+            if(logicalSource&&physicalParents.Length==0&&!pageHasParent)
                 return Gap("来源逻辑父键须对应明确的控件或目标页父范围。");
-            var parents=logicalSource is {} path?new[]{path.Read.Levels[path.Index].Target}:parentScopes.Select(scope=>Parent(scope.Column)).ToArray();
             PageModel? globalParentPage=null;
             if(functionForm&&physicalParents.Length>0)
             {
@@ -198,12 +207,12 @@ internal static class DatabaseCheckboxCompilation
                     _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,scopedPage.Source.Id);
                     globalParentPage=scopedPage;
                 }
-                if(sourceParent?.Source.Id!=owner.Column.Id||(owner.LogicalPages.Count>0)!=(logicalSource is not null))
+                if(sourceParent?.Source.Id!=owner.Column.Id||(owner.LogicalPages.Count>0)!=logicalSource)
                     return Gap("复选目标页父参数缺少同一来源父记录。");
                 scopes=scopes.Concat(scopedPage.Scopes.Where(scope=>scope.Source=="parent")).DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
             }
             // 只有显式关联了实际级联祖先时，原复选可直接沿来源的全局层位校验。
-            var explicitGlobalPath=logicalSource is not null&&physicalParents.Length>0&&parents[0].IsGlobal&&
+            var explicitGlobalPath=logicalSource&&physicalParents.Length>0&&parents[0].IsGlobal&&
                 physicalParents.All(scope=>scope.Column.Source.LinkConfigTableId==parents[0].Source.Id);
             if(parents.Any(parent=>Protected(parent)||!(parent.IsGlobal&&(globalParentPage is not null||explicitGlobalPath))&&!HasIdentity(model,parent)))
                 return Gap("来源父须具有普通业务项目归属或实际全局层位证明。");
@@ -227,7 +236,9 @@ internal static class DatabaseCheckboxCompilation
                 UsesControlRead=controlRead,
                 FunctionParentField=functionForm?sourceParent:null,
                 ExactTarget=exactTarget,
-                LogicalSourceParent=logicalSource is not null,
+                LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)
+                    .DistinctBy(path=>(path.Read.Source.Source.Id,path.Index)).ToArray(),
+                SourceScopeColumns=sourceScopeColumns,
                 GlobalParentPage=globalParentPage,
                 DerivedName=derived||logicalPage is not null
             };
