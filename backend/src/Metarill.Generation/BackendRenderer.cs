@@ -488,7 +488,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(AccountScopeDefaults(table,page));
             var validateRelations=$"await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", authorizationOperation":"")}{SharedCrossTableSparseRenderer.Argument(model,table,page)}{(GlobalCachedParentCompilation.HasCombinedCandidate(model,table,page)?", lockedParentId: parentId":"")}{(mergeParent is not null?", parentRecheck: parentRecheck, mergedCandidate: mergedCandidate":"")}{NonRedundantCrossParentCompilation.RelationParentArgument(model,table,page)}";
             result.Append(SharedCrossTableSparseRenderer.Capture(model,table,page)).Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"true","false")).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(ManagerCredentialCompilation.DigestCall(table,true)).Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine("        "+validateRelations+(deferParent?", deferParentCandidate: deferredParent is not null":"")+");").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false)).Append(RequiredValidation(model, table, page, false))
-                .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(AccountScopeCheck(table,page)).Append(KeepManagedGlobalProject(table)).Append(KeepGlobalTreeParent(model,table,page)).Append(WriteCall(page, "Create", "null"));
+                .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(AccountScopeCheck(table,page)).Append(KeepManagedGlobalProject(table)).Append(KeepFixedGlobalParent(model,table,page)).Append(WriteCall(page, "Create", "null"));
             if(deferParent)result.Replace("\n        ","\n            ",entityBodyStart,result.Length-entityBodyStart);
             result.Append(deferParent?"""
         }
@@ -586,7 +586,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine($"        entity.{column.Property} = source.{column.Property}; submitted.Add({Literal(column.Source.ColumnName)});");
         result.Append(Audit(table, true)).Append(SharedCrossTableSparseRenderer.Capture(model,table,page)).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken{SharedCrossTableSparseRenderer.Argument(model,table,page)}{NonRedundantCrossParentCompilation.RelationParentArgument(model,table,page)});").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false))
             .Append(RequiredValidation(model, table, page, false))
-            .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(AccountScopeCheck(table,page)).Append(KeepManagedGlobalProject(table)).Append(KeepGlobalTreeParent(model,table,page)).Append(WriteCall(page, "Copy", "originalScopeValues"))
+            .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(AccountScopeCheck(table,page)).Append(KeepManagedGlobalProject(table)).Append(KeepFixedGlobalParent(model,table,page)).Append(WriteCall(page, "Copy", "originalScopeValues"))
             .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"复制失败。\");").Append(TimeFieldCompilation.AfterWrite(model,table)).Append(CrossTableWriteRenderer.After(model,table,page,true)).Append(CascadeTreeTopologyRenderer.After(model,table,page,true)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,true))
             .Append(NonRedundantCrossParentCompilation.VerifyCall(model,table,page)).Append(SharedRedundantParentCompilation.VerifyCall(model,table,page)).AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation.Copy":"")});")
             .AppendLine($"        return {RoleResult(model,table,page,"copy")};").AppendLine("    }, cancellationToken);");
@@ -598,11 +598,18 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             ?$"        if(entity.{project.Property}!={ScopeValue(project,"actor.ProjectId")})throw new InvalidOperationException(\"不能修改来源记录项目归属。\");\n"
             :"";
 
-    /// <summary>新增和复制在手写规则完成后保持已锁定的独立父范围。</summary>
-    private static string KeepGlobalTreeParent(GenerationModel model,TableModel table,PageModel page)=>
-        GlobalCachedParentCompilation.ForSelfTree(model,table,page) is {} parent
-            ?$"        if(entity.{parent.Foreign.Property}!={ScopeValue(parent.Foreign,"parentId!")})throw new InvalidOperationException(\"不能修改页面归属字段。\");\n"
-            :"";
+    /// <summary>手写规则处理后复核全局物理父字段，混合级联继续使用原存储范围复核。</summary>
+    private static string KeepFixedGlobalParent(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(GlobalCachedParentCompilation.ForSelfTree(model,table,page) is {} parent)
+            return Check(parent.Foreign);
+        if(NonRedundantCrossParentCompilation.Enabled(model,table,page)||
+            MultiGlobalParentCompilation.CompoundSingleSourceTarget(model,table,page) is null)return "";
+        return string.Concat(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>Check(scope.Column)));
+
+        static string Check(ColumnModel column)=>
+            $"        if(entity.{column.Property}!={ScopeValue(column,"parentId!")})throw new InvalidOperationException(\"不能修改页面归属字段。\");\n";
+    }
 
     /// <summary>只有真实物理文件列需要保留导入/复制的原授权动作。</summary>
     internal static bool HasPhysicalFileColumns(GenerationModel model, TableModel table) => table.Columns.Any(column =>

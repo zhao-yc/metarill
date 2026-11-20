@@ -94,6 +94,7 @@ internal static class MultiGlobalParentCompilation
     internal static PageModel? PhysicalSourceTarget(GenerationModel model,TableModel table,PageModel page)
     {
         var scopes=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
+        if(scopes.Length>1)return CompoundSingleSourceTarget(model,table,page);
         if(scopes.Length!=1||NonRedundantCrossParentCompilation.Enabled(model,table,page))return null;
         var source=scopes[0].Column;
         var targets=MultiSelectCompilation.ForService(model,table,page).Where(multi=>multi.GlobalParent&&multi.SameParent)
@@ -102,6 +103,20 @@ internal static class MultiGlobalParentCompilation
             .Concat(SingleParentTargets(model,table,page,source).Select(binding=>binding.Target))
             .DistinctBy(target=>NonRedundantReads.MultiGlobalParentPageId(model.Catalog,
                 target.Source.ConfigTableId,target.Source.Id),StringComparer.Ordinal).ToArray();
+        if(targets.Length>1)throw new NotSupportedException("同一来源页的全局父范围须绑定同一个实际父页面。");
+        return targets.SingleOrDefault();
+    }
+
+    /// <summary>来源页有多个同父条件时，物理字段通过实际单值目标及全部来源条件证明。</summary>
+    internal static PageModel? CompoundSingleSourceTarget(GenerationModel model,TableModel table,PageModel page)
+    {
+        var scopes=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
+        if(scopes.Length<2)return null;
+        var physical=scopes.Where(column=>!CrossTableStorageColumns.IsLogicalPathField(
+            table.Source,model.Catalog.ConfigColumns,column.Source.ColumnName)).ToArray();
+        var targets=physical.SelectMany(column=>SingleParentTargets(model,table,page,column,compoundOnly:true))
+            .Select(binding=>binding.Target).DistinctBy(target=>NonRedundantReads.MultiGlobalParentPageId(
+                model.Catalog,target.Source.ConfigTableId,target.Source.Id),StringComparer.Ordinal).ToArray();
         if(targets.Length>1)throw new NotSupportedException("同一来源页的全局父范围须绑定同一个实际父页面。");
         return targets.SingleOrDefault();
     }
@@ -117,7 +132,8 @@ internal static class MultiGlobalParentCompilation
     }
 
     /// <summary>直接从当前页的单值配置取得持久父键，生成关系时无需递归调用候选编译。</summary>
-    private static IEnumerable<(ColumnModel Foreign,PageModel Target)> SingleParentTargets(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
+    private static IEnumerable<(ColumnModel Foreign,PageModel Target)> SingleParentTargets(GenerationModel model,TableModel table,PageModel page,
+        ColumnModel source,bool compoundOnly=false)
     {
         if(ForeignValidationRenderer.Target(model,source) is not {IsGlobal:true} parentTable)yield break;
         foreach(var foreign in table.Columns.Where(column=>column.Source.ControlKind is "List" or "SelectPage"&&column.Source.Id!=source.Source.Id))
@@ -130,12 +146,21 @@ internal static class MultiGlobalParentCompilation
                 var proof=table.Source.IsRongyu==1
                     ?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source)
                     :GlobalSingleRelationTarget.Require(model.Catalog,table.Source,foreign.Source,target.Source);
-                if(proof.Parent is {Global:true}&&proof.SourceParent is {LogicalPages.Count:0} fixedSource&&
-                    fixedSource.Column.Id==source.Source.Id)
-                    yield return (foreign,target.Pages.Single(candidate=>candidate.Source.Id==proof.Page.Id));
+                if(proof.Parent is {Global:true}&&proof.SourceParent is {} fixedSource)
+                {
+                    var direct=fixedSource.LogicalPages.Count==0&&fixedSource.Column.Id==source.Source.Id;
+                    if(fixedSource.AdditionalColumns.Count>0&&
+                        (direct||fixedSource.AdditionalColumns.Any(column=>column.Id==source.Source.Id)))
+                    {
+                        NonRedundantReads.RequireCompoundGlobalSingleSource(model.Catalog,target.Source.Id,proof.Page.Id,fixedSource);
+                        yield return (foreign,target.Pages.Single(candidate=>candidate.Source.Id==proof.Page.Id));
+                    }
+                    else if(!compoundOnly&&direct)
+                        yield return (foreign,target.Pages.Single(candidate=>candidate.Source.Id==proof.Page.Id));
+                }
                 continue;
             }
-            if(table.IsGlobal||target.Source.IsRongyu!=0)continue;
+            if(compoundOnly||table.IsGlobal||target.Source.IsRongyu!=0)continue;
             var targetPage=ProjectSinglePage(model,page,foreign,target);
             if(targetPage is null||SingleTarget(model,target,targetPage) is not {Logical:true} parent||
                 parent.Parent.Id!=parentTable.Source.Id)continue;

@@ -762,7 +762,10 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             var ownerTable=tables[relation.ConfigTableId];
             // 来源路径须先加入联接；后续目标别名的 ON 才能引用已经声明的祖先。
-            var sourceParent=parentBinding is not null&&(accountParent?.Logical==true||parentBinding.LogicalPages.Count>0)
+            if(accountParent is {Global:true}&&parentBinding is {AdditionalColumns.Count:>0})
+                RequireCompoundGlobalSingleSource(catalog,target.Id,publishedPage!.Id,parentBinding);
+            var sourceParent=parentBinding is not null&&(accountParent?.Logical==true||
+                parentBinding.LogicalPages.Count>0||parentBinding.AdditionalColumns.Count>0)
                 ?SingleSourceParentValue(ownerTable,ownerAlias,parentBinding):null;
             var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global){globalSingleAliases.Add(alias);if(target.IsRongyu==0)globalDerivedAliases.Add(alias);}var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=publishedPage is null?Scope(target,alias,projectScoped:!global):PublishedScope(target,alias,publishedPage,alias,allowAccount:scopedAccount,projectParent:projectParent,scopedSingle:scopedSingle,scopedCrossTable:scopedCrossTable,accountParent:accountParent,sourceParent:accountParent?.Logical==true?sourceParent:null);
             if(accountParent is {Logical:false})

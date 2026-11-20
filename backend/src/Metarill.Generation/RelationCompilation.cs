@@ -1,4 +1,5 @@
 using Metarill.Core.Metadata;
+using Metarill.Data.Queries;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -11,6 +12,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
 {
     internal RelationConditionModel? ImportCondition { get; init; }
     internal bool ExcelOnly { get; init; }
+    internal bool CompoundGlobalSource { get; init; }
     internal bool FunctionForm { get; init; }
     internal bool ExcelTargetExact { get; init; }
     internal string ExcelScopeArgument => ExcelTargetExact ? ", excelScope: true" : "";
@@ -166,6 +168,8 @@ internal static class RelationCompilation
                 !owner.IsGlobal&&!target.IsGlobal&&owner.Source.IsRongyu==0
                     ?fixedParent.SingleSource(model.Catalog,owner.Source,source.Source,page.Source)
                     :fixedParent.SingleSource(model.Catalog,owner.Source,source.Source);
+            if(fixedParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0})
+                NonRedundantReads.RequireCompoundGlobalSingleSource(model.Catalog,target.Source.Id,targetPage.Source.Id,sourceBinding);
             if (functionForm && targetParents.Length > 1)
                 throw new InvalidOperationException("功能表下拉必须绑定唯一目标父范围。");
             var fixedSourceParent = functionForm && targetParents.Length == 1
@@ -177,6 +181,7 @@ internal static class RelationCompilation
                 FunctionForm = functionForm,
                 ImportCondition = selection?.ImportCondition,
                 ExcelOnly = excelOnly,
+                CompoundGlobalSource = fixedParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0},
                 ExcelTargetExact = excelSelection && ExactDataManageCompilation.Declared(targetPage)
             };
             // 中间页的目标绑定只复用关系定义；外层计划随后编译完整的名称，避免孙级名称校验反复进入同一页。

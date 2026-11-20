@@ -51,6 +51,7 @@ internal static class NonRedundantSelfTreeSubset
             {
                 var compound=MultiGlobalParentCompilation.LogicalCompoundTarget(model,table,page);
                 if(compound?.HasTarget(column.Source.Id)!=true&&MultiGlobalParentCompilation.PhysicalTarget(model,table,page) is null&&
+                    (cross is not null||MultiGlobalParentCompilation.CompoundSingleSourceTarget(model,table,page) is null)&&
                     SharedGlobalParentCompilation.ForColumn(model,table,page,column).Count==0)
                     throw new NotSupportedException("全局父表缺少R0固定层位证明。");
                 parents.Add(parent);continue;

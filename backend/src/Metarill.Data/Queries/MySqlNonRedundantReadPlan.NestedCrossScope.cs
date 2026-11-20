@@ -193,6 +193,24 @@ public static partial class MySqlNonRedundantReadCompiler
         return(parent.Parent,pages[0]);
     }
 
+    /// <summary>每条来源路径及物理外键复用目标的实际发布父页；等值字段不能借另一页权限。</summary>
+    internal static void RequireCompoundGlobalSingleSource(MetadataCatalog catalog,string tableId,string pageId,MultiSourceParent source)
+    {
+        if(source.AdditionalColumns.Count==0)return;
+        var (parent,published)=PublishedMultiGlobalParent(catalog,tableId,pageId);
+        var owner=catalog.ConfigTables.Single(table=>table.Id==source.Column.ConfigTableId);
+        foreach(var column in source.AdditionalColumns.Prepend(source.Column))
+        {
+            var logical=CrossTableStorageColumns.IsLogicalPathField(owner,catalog.ConfigColumns,column.ColumnName);
+            var scope=new MultiTargetParentScope(parent,column,logical);
+            var actual=logical
+                ?source.LogicalPages.Select(page=>PublishedLogicalMultiParent(catalog,owner,page,scope)).ToArray()
+                :[PublishedPhysicalMultiParent(catalog,scope)];
+            if(actual.Length==0||actual.Any(page=>page.Id!=published.Id))
+                throw new InvalidOperationException("同一全局父记录的来源字段与目标字段必须绑定同一个实际发布父页。");
+        }
+    }
+
     /// <summary>沿实际固定级联层位核对全局父页，所有共享支路须指向同一页。</summary>
     private static PageMetadata PublishedLogicalMultiParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
         MultiTargetParentScope parent)
@@ -758,7 +776,9 @@ public static partial class MySqlNonRedundantReadCompiler
             TableMetadata target,(string Sql,string Type) source,PageMetadata page,CascadeCacheOwner cacheOwner,
             MultiTargetParentScope? parent,MultiSourceParent? binding,FixedConditionPlan? control=null)
         {
-            var sourceParent=binding is not null&&(parent?.Logical==true||binding.LogicalPages.Count>0)
+            if(parent is {Global:true}&&binding is {AdditionalColumns.Count:>0})
+                RequireCompoundGlobalSingleSource(catalog,target.Id,page.Id,binding);
+            var sourceParent=binding is not null&&(parent?.Logical==true||binding.LogicalPages.Count>0||binding.AdditionalColumns.Count>0)
                 ?SingleSourceParentValue(table,owner,binding,cacheOwner):null;
             // 反查需要从最终写回的根表出发，保存中间记录及逻辑父表达式引用的祖先别名。
             var sourceFrom=owner==rootAlias&&sourceParent is null?null:" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);
@@ -783,11 +803,17 @@ public static partial class MySqlNonRedundantReadCompiler
         private string SingleSourceParentValue(TableMetadata source,string owner,MultiSourceParent parent,CascadeCacheOwner? cacheOwner=null)
         {
             if(parent.LogicalPages.Count>0)return LogicalRelationSourceParent(source,owner,parent,cacheOwner);
-            var binding=parent.Column;
-            Use(source,binding);
-            Touch(owner,binding.ColumnName);
-            if(trackReverse)cascadeCacheOwnerFields.Add(binding.ColumnName);
-            return owner+"."+Q(binding.ColumnName);
+            string Key(ColumnMetadata column)
+            {
+                Use(source,column);
+                Touch(owner,column.ColumnName);
+                if(trackReverse)cascadeCacheOwnerFields.Add(column.ColumnName);
+                return owner+"."+Q(column.ColumnName);
+            }
+            var value=Key(parent.Column);
+            if(parent.AdditionalColumns.Count==0)return value;
+            var conditions=parent.AdditionalColumns.Select(column=>SameSingleParent(Key(column),value));
+            return "CASE WHEN "+string.Join(" AND ",conditions)+" THEN "+value+" END";
         }
 
         private static string SameSingleParent(string target,string source)=>
