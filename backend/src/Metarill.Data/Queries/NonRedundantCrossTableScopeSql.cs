@@ -114,7 +114,7 @@ public static class NonRedundantCrossTableScopeSql
         // 查询可能在事务开始前创建，锁定时显式接入当前事务，不能只检查AsyncLocal后依赖旧绑定。
         if(locking)
         {
-            sql=MySqlNonRedundantReadCompiler.LockSelfTreeReads(sql);
+            sql=MySqlNonRedundantReadCompiler.LockNestedReads(sql);
             query=query.WithTransaction(session.CurrentTransaction);
         }
         return query.As("a").Where(sql,parameters);

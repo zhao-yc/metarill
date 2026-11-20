@@ -50,6 +50,59 @@ public sealed class FileSharedCrossParentScopeTests
         Assert.Equal(derived,exact.Shared);
     }
 
+    /// <summary>共享父级叠加普通联接或按来源页绑定的联接，只发布附件和真实父级存储。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Shared_file_parent_supports_a_published_joined_exact_field(bool scoped)
+    {
+        var catalog=Catalog("int64","int64");
+        var page=catalog.ConfigPages.Single(item=>item.Id=="102");
+        catalog.YzAdminTypes.Add(new(){Id="900",YzProjectId=catalog.YzProjectId});
+        page.YzAdminTypeId="900";
+        page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("branchName");
+        catalog.ConfigTables.Add(new(){Id="6",YzProjectId="1",TableName="file_shared_branch",IsRongyu=scoped?0:1});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="61",YzProjectId="1",ConfigTableId="6",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="62",YzProjectId="1",ConfigTableId="6",ColumnName="name",LogicalType="string"},
+            new(){Id="63",YzProjectId="1",ConfigTableId="6",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="64",YzProjectId="1",ConfigTableId="6",ColumnName="store_id",LogicalType="int64"},
+            new(){Id="65",YzProjectId="1",ConfigTableId="6",ColumnName="delete_no",LogicalType="datetime"},
+            new(){Id="19",YzProjectId="1",ConfigTableId="1",ColumnName="branch_id",LogicalType="int64",
+                LinkConfigTableId="6",ControlKind=scoped?"List":"",
+                ControlDetail=scoped?"""{"tableId":"6","nameField":"name"}""":""},
+            new(){Id="20",YzProjectId="1",ConfigTableId="1",ColumnName="branch_name",LogicalType="string",
+                Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("branch.name")}}
+        ]);
+        if(scoped)
+        {
+            catalog.ConfigPages.Add(new(){Id="601",YzProjectId="1",ConfigTableId="6",
+                WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"});
+            catalog.ConfigPageColumns.Add(new(){Id="60162",YzProjectId="1",ConfigPageId="601",ConfigColumnId="62",IsShow=1});
+            catalog.ConfigPageColumns.Add(new(){Id="10219",YzProjectId="1",ConfigPageId="102",ConfigColumnId="19",IsEdit=1});
+        }
+
+        var context=new FileMetadataContext([catalog]);
+        var frozen=Assert.Single(context.Catalogs);
+        var source=frozen.ConfigPages.Single(item=>item.Id==page.Id);
+        var parent=Assert.Single(context.PageScope(frozen,source).Crosses);
+        Assert.True(parent.IsShared);
+        var exact=context.ExactField(frozen,source);
+        Assert.True(exact.Derived);
+        Assert.False(exact.Shared);
+        var plan=Assert.IsType<NonRedundantReadPlan>(context.DerivedExactPlan(frozen,source,
+            frozen.ConfigColumns.Single(item=>item.ColumnName=="attachments")));
+        Assert.All(parent.StorageNames,name=>Assert.Contains(name,plan.OutputTypes.Keys));
+        Assert.DoesNotContain("branch_name",plan.OutputTypes.Keys);
+        Assert.Equal(scoped,plan.RequiresAccount);
+        if(scoped)
+        {
+            var actor=new Metarill.Core.Security.RuntimeActor(12,"测试",false,"1","900");
+            Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor));
+            Assert.NotSame(plan,plan.BindAccount(actor with{StoreId=5}));
+        }
+    }
+
     /// <summary>共享逻辑父与独立级联或自树的精确匹配各自核验，并保留真实稀疏存储槽。</summary>
     [Theory]
     [InlineData("isolatedCountryName","string",false)]

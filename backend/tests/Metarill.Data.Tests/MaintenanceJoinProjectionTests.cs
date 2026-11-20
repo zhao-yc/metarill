@@ -16,6 +16,51 @@ public sealed partial class MaintenanceReadProjectionTests
         var (provider,sql)=await ReadJoined(field,textId:textId);Assert.Equal(count,Regex.Matches(sql," LEFT JOIN ").Count);Assert.Equal(field=="short_name",!sql.Contains("`maintenance_target`",StringComparison.Ordinal));Assert.Contains("b.`yz_project_id`=@project_scope_number",sql);Assert.Contains("b.`delete_no` IS NULL",sql);Assert.EndsWith(" FOR SHARE",sql);Assert.DoesNotContain("COUNT(",sql);
         foreach(Match match in Regex.Matches(sql,@" LEFT JOIN `[^`]+` (r[0-9]+) ON ")){var alias=match.Groups[1].Value;Assert.Contains(alias+".`yz_project_id`=@project_scope_number",sql);Assert.Contains(alias+".`delete_no` IS NULL",sql);}if(textId&&field=="target_name")Assert.Contains("BINARY CAST(",sql);Assert.Equal(1,provider.Commits);
     }
+    /// <summary>附件联接的条件子查询只在业务事务当前读加锁，匹配列始终不对外投影。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Published_join_exact_matches_lock_target_scope_in_current_reads(bool locking)
+    {
+        var catalog=RelationMaintenanceCatalogTests.Catalog();
+        var project=catalog.YzProjectId;
+        var source=catalog.ConfigTables.Single(table=>table.Id=="source");
+        source.IsRongyu=0;
+        foreach(var table in catalog.ConfigTables)table.YzProjectId=project;
+        foreach(var column in catalog.ConfigColumns)column.YzProjectId=project;
+        var target=catalog.ConfigColumns.Single(column=>column.Id=="foreign");
+        target.ControlKind="List";
+        target.ControlDetail="""{"tableId":"target","nameField":"name","whereSql":"name<>'停用'"}""";
+        var from=new PageMetadata{Id="101",YzProjectId=project,ConfigTableId="source",
+            Extra=new(){["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("targetName")}};
+        catalog.ConfigPages.AddRange([from,new(){Id="201",YzProjectId=project,ConfigTableId="target",
+            WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"}]);
+        catalog.ConfigColumns.Add(new(){Id="target_store",YzProjectId=project,ConfigTableId="target",ColumnName="store_id",LogicalType="int64"});
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="1011",YzProjectId=project,ConfigPageId="101",ConfigColumnId="foreign",IsShow=1},
+            new(){Id="2011",YzProjectId=project,ConfigPageId="201",ConfigColumnId="target_name",IsShow=1}
+        ]);
+        var plan=MySqlNonRedundantReadCompiler.CompilePublishedJoinRecord(catalog,source.Id,from.Id,
+            ["id"],["id"],[],["target_name"]);
+        var actor=new Metarill.Core.Security.RuntimeActor(12,"测试",false,project,"900") with{StoreId=5};
+        var provider=new RecordingProvider(false,lockSuffix:locking?" FOR SHARE":"",idOnly:true);
+        using var session=new DatabaseSession(Options,null,provider);
+        var reader=new MySqlNonRedundantReader(session);
+        var filters=new[]{new FixedReadFilter("target_name",FixedReadComparison.In,new object?[]{"业务名"})};
+        var bound=plan.BindAccount(actor);
+        if(locking)
+            await session.InTransactionAsync(()=>reader.ReadCurrentRowsAsync(bound,filters,[],1,projectId:project));
+        else
+            await session.InReadSnapshotAsync(()=>reader.ReadRowsAsync(bound,filters,[],1,projectId:project));
+        var sql=Assert.Single(provider.Commands);
+        Assert.Contains("EXISTS (SELECT 1",sql);
+        Assert.Contains(".`store_id`",sql);
+        Assert.Contains(".`name`<>",sql);
+        Assert.DoesNotContain(" AS `target_name`",sql);
+        Assert.Equal(locking,sql.Contains(" FOR SHARE)",StringComparison.Ordinal));
+        Assert.Equal(locking,sql.EndsWith(" FOR SHARE",StringComparison.Ordinal));
+    }
+
     /// <summary>非响应字段用于筛选、排序或固定条件时仍保留其联接；大小写沿现有表达式合同。</summary>
     [Theory][InlineData("filter")][InlineData("order")][InlineData("condition")][InlineData("upperFilter")]
     public async Task Hidden_query_dependency_keeps_its_join_and_ancestors(string usage)

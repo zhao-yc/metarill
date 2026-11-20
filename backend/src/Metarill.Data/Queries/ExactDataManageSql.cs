@@ -56,7 +56,7 @@ public static class ExactDataManageSql
             ?provider.ParameterPlaceholder(name):match.Value,RegexOptions.CultureInvariant);
         if(locking)
         {
-            sql=MySqlNonRedundantReadCompiler.LockSelfTreeReads(sql);
+            sql=MySqlNonRedundantReadCompiler.LockNestedReads(sql);
             query=query.WithTransaction(session.CurrentTransaction);
         }
         return query.As(outer).Where(sql,parameters);

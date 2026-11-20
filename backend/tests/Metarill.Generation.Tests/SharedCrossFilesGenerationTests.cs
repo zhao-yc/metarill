@@ -55,6 +55,42 @@ public sealed class SharedCrossFilesGenerationTests
         sourcePage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(match);
         catalog.YzAdminTypes.Single(item=>item.Id=="5").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
 
+        await AssertFullSharedFileExactPlan(catalog,sourcePage.Id,
+            selfTree?"tree_name":"isolated_country_name",false);
+    }
+
+    /// <summary>完整应用的附件和原 CRUD 都按当前页发布联接条件与共享父级。</summary>
+    [Fact]
+    public async Task Full_shared_file_joined_exact_path_builds()
+    {
+        var catalog=Catalog("shared_parent","int64","int64");
+        var project=catalog.YzProjectId;
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="202");
+        catalog.ConfigTables.Add(new(){Id="950",YzProjectId=project,TableName="shared_parent_branch",IsRongyu=0});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="951",YzProjectId=project,ConfigTableId="950",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="952",YzProjectId=project,ConfigTableId="950",ColumnName="name",LogicalType="string"},
+            new(){Id="953",YzProjectId=project,ConfigTableId="950",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="954",YzProjectId=project,ConfigTableId="950",ColumnName="store_id",LogicalType="int64"},
+            new(){Id="955",YzProjectId=project,ConfigTableId="2",ColumnName="branch_id",LogicalType="int64",
+                LinkConfigTableId="950",ControlKind="List",ControlDetail="""{"tableId":"950","nameField":"name"}"""},
+            new(){Id="956",YzProjectId=project,ConfigTableId="2",ColumnName="branch_name",LogicalType="string",
+                Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("branch.name")}}
+        ]);
+        catalog.ConfigPages.Add(new(){Id="959",YzProjectId=project,ConfigTableId="950",YzAdminTypeId="5",
+            WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id"});
+        catalog.ConfigPageColumns.Add(new(){Id="959952",YzProjectId=project,ConfigPageId="959",ConfigColumnId="952",IsShow=1});
+        catalog.ConfigPageColumns.Add(new(){Id="202955",YzProjectId=project,ConfigPageId="202",ConfigColumnId="955",IsShow=1,IsEdit=1});
+        catalog.ConfigMenus.Add(new(){Id="700959",YzProjectId=project,YzAdminTypeId="5",Name="分组",
+            Kind="GENERATED_PAGE",ConfigPageId="959"});
+        sourcePage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("branchName");
+        catalog.YzAdminTypes.Single(item=>item.Id=="5").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
+        await AssertFullSharedFileExactPlan(catalog,sourcePage.Id,"branch_name",true);
+    }
+
+    /// <summary>从正式源码包的发布目录查询窄投影，避免以生成前元数据冒充完整包权限。</summary>
+    private static async Task AssertFullSharedFileExactPlan(MetadataCatalog catalog,string sourcePageId,string matchColumn,bool requiresAccount)
+    {
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-files-exact");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -66,14 +102,15 @@ public sealed class SharedCrossFilesGenerationTests
             var published=JsonSerializer.Deserialize<MetadataCatalog>(metadata,new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
             var context=new FileMetadataContext([published]);
             var frozen=Assert.Single(context.Catalogs);
-            var page=frozen.ConfigPages.Single(item=>item.Id==sourcePage.Id);
+            var page=frozen.ConfigPages.Single(item=>item.Id==sourcePageId);
             var attachment=frozen.ConfigColumns.Single(item=>item.Id=="9001");
             var compiled=typeof(FileMetadataContext).GetMethod("DerivedExactPlan",BindingFlags.Instance|BindingFlags.NonPublic);
             Assert.NotNull(compiled);
             var plan=Assert.IsType<NonRedundantReadPlan>(compiled.Invoke(context,[frozen,page,attachment]));
             Assert.Contains("country_id",plan.OutputTypes.Keys);
             Assert.Contains("attachments",plan.OutputTypes.Keys);
-            Assert.DoesNotContain(selfTree?"tree_name":"isolated_country_name",plan.OutputTypes.Keys);
+            Assert.DoesNotContain(matchColumn,plan.OutputTypes.Keys);
+            Assert.Equal(requiresAccount,plan.RequiresAccount);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }

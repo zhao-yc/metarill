@@ -18,6 +18,29 @@ public static partial class MySqlNonRedundantReadCompiler
         // 与普通编译使用同一根别名和字段来源；适配器内生成标识符，不向Service泄漏方言。
         return new Builder(catalog,tableId,deferCascadeNames:deferCascadeNames,crossTables:crossTables).RecordStorage(plan,storageOutputs,logicalOutputs??[]);
     }
+    /// <summary>先证明精确联接为非凭据标量，再冻结同页目标范围和附件所需的真实存储。</summary>
+    internal static MySqlNonRedundantReadPlan CompilePublishedJoinRecord(MetadataCatalog catalog,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
+        IReadOnlyList<string> dependencies)
+    {
+        MetadataValidation.Validate(catalog);
+        var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
+        var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
+        var field=Metarill.Core.Security.ExactDataManageValues.Field(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
+        var storage=MetadataStoragePolicy.ForTable(catalog,table);
+        var column=catalog.ConfigColumns.Single(item=>item.ConfigTableId==tableId&&item.ColumnName==field);
+        if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||storage.Kind(column)!=MetadataFieldStorage.Join||
+            !dependencies.Contains(field,StringComparer.Ordinal))
+            throw new NotSupportedException("附件精确联接必须使用已发布的项目内单值字段。");
+
+        // 精确终点按匹配模式验证。根记录另用普通模式读取共享槽，其逻辑值依旧由已发布路径解析。
+        var match=new Builder(catalog,tableId,matching:true){MultiNamePathPage=page}.Compile([field],[]);
+        if(match.Types[field]!=column.LogicalType)throw new NotSupportedException("附件精确联接的实际类型不一致。");
+        var builder=new Builder(catalog,tableId,crossTables:crossTables){MultiNamePathPage=page,LockPublishedJoinScopes=true};
+        var plan=builder.Compile(outputs,dependencies);
+        return builder.RecordStorage(plan,storageOutputs,[]);
+    }
+
     private sealed partial class Builder
     {
         /// <summary>必须是本计划输出中的真实根物理列；虚拟、派生、重名和未知字段均拒绝。</summary>

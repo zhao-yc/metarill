@@ -173,6 +173,14 @@ public static class NonRedundantReads
             _=>throw new NotSupportedException("该数据库尚未完成规则记录读取适配。")
         };
     }
+    /// <summary>附件精确联接取实际发布页的目标范围，投影仍保留根记录的真实稀疏存储。</summary>
+    public static NonRedundantReadPlan CompilePublishedJoinRecord(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
+        IReadOnlyList<string> dependencies)=>
+        metadata.DatabaseProvider=="mysql"?new(MySqlNonRedundantReadCompiler.CompilePublishedJoinRecord(
+            metadata,tableId,pageId,outputs,storageOutputs,crossTables,dependencies)):
+            throw new NotSupportedException("该数据库尚未完成发布联接记录读取。");
+
     /// <summary>跨表逻辑读取须显式传入冻结目标页范围；保留原Compile签名及无绑定门禁。</summary>
     public static NonRedundantReadPlan CompileWithCrossTables(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false)
     {

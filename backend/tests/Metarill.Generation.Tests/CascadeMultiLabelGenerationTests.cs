@@ -567,7 +567,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 Assert.Contains("WITH RECURSIVE",expression);
                 Assert.Contains("`delete_no` IS NULL",expression);
                 var locking=typeof(MySqlNonRedundantReadPlan).Assembly.GetType("Metarill.Data.Queries.MySqlNonRedundantReadCompiler",true)!
-                    .GetMethod("LockSelfTreeReads",planFlags)!;
+                    .GetMethod("LockNestedReads",planFlags)!;
                 var current=Assert.IsType<string>(locking.Invoke(null,[expression]));
                 Assert.Contains("FOR SHARE) UNION ALL (SELECT ",current);
                 Assert.Contains("FOR SHARE)) SELECT",current);

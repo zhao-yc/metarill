@@ -113,6 +113,8 @@ public sealed class FileMetadataContext
             exactKinds.Add((catalog.YzProjectId,page.Id),(column,derived,cross,selfTree));
             if(!derived)return;
             var scope=PageScope(catalog,page);
+            var joinedSharedParent=!cross&&!selfTree&&scope.Crosses.Any(parent=>parent.IsShared)&&
+                MetadataStoragePolicy.ForTable(catalog,table).Kind(column)==MetadataFieldStorage.Join;
             var raw=scope.Crosses.SelectMany(cross=>cross.StorageNames).Distinct(StringComparer.Ordinal).ToArray();
             IReadOnlyList<NonRedundantCrossTableScope> bindings=SharedExactBindings(catalog,table,page,group,raw);
             if(independent is not null)
@@ -129,7 +131,9 @@ public sealed class FileMetadataContext
                     .Concat(scope.Parents.Select(parent=>parent.Source.ColumnName)).Concat(scope.GlobalParents.Select(parent=>parent.ColumnName))
                     .Concat(raw).Distinct(StringComparer.Ordinal).ToArray();
                 // 逻辑权限走同一条件；后续父链检查仍消费实际稀疏存储位。
-                var plan=raw.Length==0?NonRedundantReads.CompileWithCrossTables(catalog,table.Id,names,bindings,dependencies,deferCascadeNames:selfTree):
+                var plan=joinedSharedParent?
+                    NonRedundantReads.CompilePublishedJoinRecord(catalog,table.Id,page.Id,names,raw,bindings,dependencies):
+                    raw.Length==0?NonRedundantReads.CompileWithCrossTables(catalog,table.Id,names,bindings,dependencies,deferCascadeNames:selfTree):
                     NonRedundantReads.CompileRuleRecord(catalog,table.Id,names,raw,bindings,dependencies,deferCascadeNames:selfTree);
                 derivedExactPlans.Add((catalog.YzProjectId,page.Id,file.Id),plan);
             }

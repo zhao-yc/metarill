@@ -27,7 +27,7 @@ internal sealed class FileSharedCrossParentScope
         foreach(var branch in selection.Branches){var source=catalog.ConfigColumns.Single(c=>c.ConfigTableId==table.Id&&c.Id==branch.SourceColumnId);var compiled=FileCrossParentScope.CompileBranch(catalog,table,page,source,selection.BranchSelection(source.Id),0,allowExactSource:allowExact);branches.Add(source.Id,compiled.Scope);scopes.Add(compiled.Binding);}
         _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],scopes,selection.Slots.Select(s=>s.ColumnName).ToArray());var plan=new FileSharedCrossParentScope(selection,branches);var index=plan.StorageNames.ToList().IndexOf(column.ColumnName);if(index<0)throw new InvalidOperationException("文件父字段不属于固定共享组。");return new FileCrossParentScope(selection.Branches[0].SourceColumnId,index,plan);
     }
-    /// <summary>逻辑父范围可与同一发布页面的物理或共享逻辑标量叠加；未知列和无发布后台的声明仍拒绝。</summary>
+    /// <summary>逻辑父范围可与同页已证明的物理、联接或级联标量叠加；无发布后台的声明仍拒绝。</summary>
     private static bool AllowsExactSource(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
     {
         if(!page.Extra.TryGetValue("exactDataManageMatchField",out var exact)||exact.ValueKind!=JsonValueKind.String||
@@ -50,7 +50,10 @@ internal sealed class FileSharedCrossParentScope
             var match=NonRedundantReads.CompileSelfTreeExactMatch(catalog,table.Id,page.Id);
             return match.OutputTypes[column.ColumnName]==column.LogicalType;
         }
-        return MetadataStoragePolicy.ForTable(catalog,table).IsPhysical(column);
+        var storage=MetadataStoragePolicy.ForTable(catalog,table);
+        if(storage.Kind(column)==MetadataFieldStorage.Join)
+            return NonRedundantReads.CompileMatch(catalog,table.Id,column.ColumnName).OutputTypes[column.ColumnName]==column.LogicalType;
+        return storage.IsPhysical(column);
     }
 
     /// <summary>在同一读快照／写事务内检查全部已存末端，拒绝实际祖先冲突；共同物理位只读取一次。</summary>

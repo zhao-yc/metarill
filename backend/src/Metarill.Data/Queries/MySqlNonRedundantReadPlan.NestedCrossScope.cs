@@ -425,6 +425,9 @@ public static partial class MySqlNonRedundantReadCompiler
             };
         }
 
+        internal bool LockPublishedJoinScopes{get;init;}
+        private string PublishedJoinLock=>LockPublishedJoinScopes?NestedReadLockMarker:"";
+
         /// <summary>业务页的单值联接只显示其固定候选范围内的名称。目标条件在相关子查询内独立编译。</summary>
         private string ProjectSingleReadCondition(TableMetadata owner,string ownerAlias,ColumnMetadata relation,
             TableMetadata target,string alias,NonRedundantSingleTargetScope binding)
@@ -506,7 +509,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     throw new InvalidOperationException("项目内单值读取父键与目标发布页不一致。");
                 predicate+=" AND "+SinglePhysicalParentCondition(owner,ownerAlias,prefix,parent,field);
             }
-            return "EXISTS (SELECT 1"+plan.From+" WHERE "+predicate+")";
+            // 根记录锁不会传递到目标页的条件子查询，附件在事务里也要核对当前目标范围。
+            return "EXISTS (SELECT 1"+plan.From+" WHERE "+predicate+PublishedJoinLock+")";
         }
 
         /// <summary>关联目标先按物理键联接。用固定候选子查询隔离跨表层，避免引用后声明的别名。</summary>
@@ -752,7 +756,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 customReverse.Add(new(parent.Parent.TableName,ownerFrom,sourceKey,binding.LogicalType,
                     new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,dependencies}}));
             return "EXISTS (SELECT 1"+parentFrom+" WHERE "+primary+">0 AND "+sameSource+" AND "+sameTarget+
-                (parentScope.Length==0?"":" AND "+parentScope)+")";
+                (parentScope.Length==0?"":" AND "+parentScope)+PublishedJoinLock+")";
         }
 
         /// <summary>缓存通过已发布候选页求值，目标与内层依赖都进入原传播队列。</summary>
