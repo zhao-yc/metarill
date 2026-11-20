@@ -113,12 +113,10 @@ public sealed class FileMetadataContext
             exactKinds.Add((catalog.YzProjectId,page.Id),(column,derived,cross,selfTree));
             if(!derived)return;
             var scope=PageScope(catalog,page);
-            var joinedSharedParent=!cross&&!selfTree&&scope.Crosses.Any(parent=>parent.IsShared)&&
-                MetadataStoragePolicy.ForTable(catalog,table).Kind(column)==MetadataFieldStorage.Join;
-            var raw=scope.Crosses.SelectMany(cross=>cross.StorageNames).Distinct(StringComparer.Ordinal).ToArray();
-            IReadOnlyList<NonRedundantCrossTableScope> bindings=SharedExactBindings(catalog,table,page,group,raw);
-            if(independent is not null)
-                bindings=[..bindings,CompileIndependentExactBinding(catalog,table,page,independent)];
+            var joinedLogicalParent=!cross&&!selfTree&&scope.Crosses.Any(parent=>parent.ReadBindings.Count>0)&&
+                !GlobalCrossTableTarget.Declared(table)&&MetadataStoragePolicy.ForTable(catalog,table).Kind(column)==MetadataFieldStorage.Join;
+            var raw=scope.Crosses.SelectMany(parent=>parent.StorageNames).Distinct(StringComparer.Ordinal).ToArray();
+            var bindings=ExactReadBindings(catalog,table,page,scope,group,independent);
             var match=cross?NonRedundantReads.CompileCrossExactMatch(catalog,table.Id,column.ColumnName,bindings):
                 selfTree?NonRedundantReads.CompileSelfTreeExactMatch(catalog,table.Id,page.Id):
                     NonRedundantReads.CompileMatch(catalog,table.Id,column.ColumnName);
@@ -131,7 +129,7 @@ public sealed class FileMetadataContext
                     .Concat(scope.Parents.Select(parent=>parent.Source.ColumnName)).Concat(scope.GlobalParents.Select(parent=>parent.ColumnName))
                     .Concat(raw).Distinct(StringComparer.Ordinal).ToArray();
                 // 逻辑权限走同一条件；后续父链检查仍消费实际稀疏存储位。
-                var plan=joinedSharedParent?
+                var plan=joinedLogicalParent?
                     NonRedundantReads.CompilePublishedJoinRecord(catalog,table.Id,page.Id,names,raw,bindings,dependencies):
                     raw.Length==0?NonRedundantReads.CompileWithCrossTables(catalog,table.Id,names,bindings,dependencies,deferCascadeNames:selfTree):
                     NonRedundantReads.CompileRuleRecord(catalog,table.Id,names,raw,bindings,dependencies,deferCascadeNames:selfTree);
@@ -141,24 +139,27 @@ public sealed class FileMetadataContext
         catch(Exception invalid)when(invalid is NotSupportedException or InvalidOperationException or ArgumentException or JsonException){/* 当前来源缺少可执行证明，读取时明确拒权，不能降级为物理列或无限制。 */}
     }
 
-    /// <summary>独立匹配链与共享父范围共用原发布页的完整目标证明。</summary>
-    internal static NonRedundantCrossTableScope CompileIndependentExactBinding(MetadataCatalog catalog,TableMetadata table,
+    /// <summary>精确匹配的每条独立或共享分支都使用当前发布页面的目标证明。</summary>
+    internal static NonRedundantCrossTableScope CompileExactBranchBinding(MetadataCatalog catalog,TableMetadata table,
         PageMetadata page,CrossTableSparseSelection selection)
     {
         var control=catalog.ConfigColumns.Single(field=>field.Id==selection.SourceColumnId);
         return FileCrossParentScope.CompileBranch(catalog,table,page,control,selection,0,allowExactSource:true).Binding;
     }
 
-    /// <summary>同时冻结匹配组与父级原始槽所属组，让读取实际存储值时保留所有共享同伴。</summary>
-    private static IReadOnlyList<NonRedundantCrossTableScope> SharedExactBindings(MetadataCatalog catalog,TableMetadata table,
-        PageMetadata page,SharedCrossTableSparseSelection? exact,IReadOnlyList<string> raw)
+    /// <summary>从每条实际父路径保留读绑定，再补齐只参与匹配的分支。重复层级共用同一固定定义。</summary>
+    private static IReadOnlyList<NonRedundantCrossTableScope> ExactReadBindings(MetadataCatalog catalog,TableMetadata table,
+        PageMetadata page,FilePageScope scope,SharedCrossTableSparseSelection? group,CrossTableSparseSelection? independent)
     {
-        if(exact is null&&raw.Count==0)return [];
-        var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
-        var groups=SharedCrossTableSparseSelection.CompileAll(table,columns)
-            .Where(group=>group.Branches[0].SourceColumnId==exact?.Branches[0].SourceColumnId||
-                group.Slots.Any(slot=>raw.Contains(slot.ColumnName,StringComparer.Ordinal)));
-        return groups.SelectMany(group=>group.Branches.Select(branch=>FileCrossParentScope.CompileBranch(catalog,table,page,
-            columns.Single(column=>column.Id==branch.SourceColumnId),group.BranchSelection(branch.SourceColumnId),0,allowExactSource:true).Binding)).ToArray();
+        var bindings=scope.Crosses.SelectMany(parent=>parent.ReadBindings)
+            .DistinctBy(binding=>binding.SourceColumnId,StringComparer.Ordinal).ToList();
+        if(group is not null)
+        {
+            foreach(var branch in group.Branches.Where(branch=>bindings.All(binding=>binding.SourceColumnId!=branch.SourceColumnId)))
+                bindings.Add(CompileExactBranchBinding(catalog,table,page,group.BranchSelection(branch.SourceColumnId)));
+        }
+        if(independent is not null&&bindings.All(binding=>binding.SourceColumnId!=independent.SourceColumnId))
+            bindings.Add(CompileExactBranchBinding(catalog,table,page,independent));
+        return bindings;
     }
 }

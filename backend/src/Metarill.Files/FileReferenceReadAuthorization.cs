@@ -133,7 +133,7 @@ internal static class FileReferenceReadAuthorization
                 FixedReadFilter.ForCrossExact(exact.Column.ColumnName,exact.Values):new(exact.Column.ColumnName,FixedReadComparison.In,exact.Values)};
             var logicalReader=new NonRedundantReader(store.Session);var projectId=project.ToString(CultureInfo.InvariantCulture);
             // 写事务必须看当前授权路径，不能用旧快照中的目标或名称继续授权文件。
-            var rows=currentRead&&(forceCurrent||exact.Shared||exact.SelfTree||scope.Crosses.Any(parent=>parent.IsShared)||scope.LogicalConditionPlan is not null)?
+            var rows=currentRead&&(forceCurrent||exact.Shared||exact.SelfTree||scope.Crosses.Count>0||scope.LogicalConditionPlan is not null)?
                 await logicalReader.CurrentRowsAsync(derivedPlan,filters,[],1,token,projectId,condition):
                 await logicalReader.RowsAsync(derivedPlan,filters,[],1,token,projectId,condition);
             return rows.Count==0?null:rows[0].ToDictionary(pair=>pair.Key,pair=>pair.Value,StringComparer.Ordinal);

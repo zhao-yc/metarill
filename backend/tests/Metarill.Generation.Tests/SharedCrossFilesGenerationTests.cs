@@ -60,8 +60,10 @@ public sealed class SharedCrossFilesGenerationTests
     }
 
     /// <summary>完整应用的附件和原 CRUD 都按当前页发布联接条件与共享父级。</summary>
-    [Fact]
-    public async Task Full_shared_file_joined_exact_path_builds()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Full_shared_file_joined_exact_path_builds(bool compoundParent)
     {
         var catalog=Catalog("shared_parent","int64","int64");
         var project=catalog.YzProjectId;
@@ -85,11 +87,24 @@ public sealed class SharedCrossFilesGenerationTests
             Kind="GENERATED_PAGE",ConfigPageId="959"});
         sourcePage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("branchName");
         catalog.YzAdminTypes.Single(item=>item.Id=="5").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
-        await AssertFullSharedFileExactPlan(catalog,sourcePage.Id,"branch_name",true);
+        if(compoundParent)
+        {
+            var shared=catalog.ConfigColumns.Single(column=>column.Id=="25");
+            var path=JsonNode.Parse(shared.ControlDetail)!;
+            foreach(var level in path["levels"]!.AsArray())
+                level!["columnPrefix"]="parent_"+level["columnPrefix"]!.GetValue<string>();
+            catalog.ConfigColumns.Add(new(){Id="957",YzProjectId=project,ConfigTableId="2",ColumnName="parent_place_id",
+                LogicalType="int64",LinkConfigTableId=shared.LinkConfigTableId,ControlKind="CascadeTree",ControlDetail=path.ToJsonString()});
+            catalog.ConfigPageColumns.Add(new(){Id="202957",YzProjectId=project,ConfigPageId=sourcePage.Id,
+                ConfigColumnId="957",IsShow=1,IsEdit=1});
+            sourcePage.WhereSql+=" AND parent_country_id=@parent_id";
+        }
+        await AssertFullSharedFileExactPlan(catalog,sourcePage.Id,"branch_name",true,
+            compoundParent?["parent_country_id","parent_area_id","parent_place_id"]:[]);
     }
 
     /// <summary>从正式源码包的发布目录查询窄投影，避免以生成前元数据冒充完整包权限。</summary>
-    private static async Task AssertFullSharedFileExactPlan(MetadataCatalog catalog,string sourcePageId,string matchColumn,bool requiresAccount)
+    private static async Task AssertFullSharedFileExactPlan(MetadataCatalog catalog,string sourcePageId,string matchColumn,bool requiresAccount,params string[] additionalStorage)
     {
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-files-exact");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -108,6 +123,7 @@ public sealed class SharedCrossFilesGenerationTests
             Assert.NotNull(compiled);
             var plan=Assert.IsType<NonRedundantReadPlan>(compiled.Invoke(context,[frozen,page,attachment]));
             Assert.Contains("country_id",plan.OutputTypes.Keys);
+            Assert.All(additionalStorage,column=>Assert.Contains(column,plan.OutputTypes.Keys));
             Assert.Contains("attachments",plan.OutputTypes.Keys);
             Assert.DoesNotContain(matchColumn,plan.OutputTypes.Keys);
             Assert.Equal(requiresAccount,plan.RequiresAccount);

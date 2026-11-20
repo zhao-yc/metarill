@@ -18,15 +18,25 @@ internal sealed class FileCrossParentScope
     internal string SourceId{get;}
     internal int Level{get;}
     internal bool IsShared=>shared is not null;
+    /// <summary>文件精确读取复用当前父级已发布的绑定，R1 只读取物理父键。</summary>
+    internal IReadOnlyList<NonRedundantCrossTableScope> ReadBindings{get;}=[];
     internal IReadOnlyList<string> StorageNames=>redundant is not null?new[]{redundant.ColumnName}:shared?.StorageNames??selection!.Slots.Select(slot=>slot.ColumnName).ToArray();
     /// <summary>仅共享路径可为同页物理全局父提供等值证明；目标页和名称均须完全相同。</summary>
     internal bool CoversGlobalParent(string table,string page,string name)=>shared is not null&&shared.CoversTarget(StorageNames[Level],table,page,name);
     /// <summary>共享编译器只读取已冻结的分支目标身份，不重新解释目录。</summary>
     internal bool CoversTargetAt(int level,string table,string page,string name)=>level>=0&&level<targets.Length&&targets[level].Table==table&&targets[level].PageId==page&&targets[level].NameId==name;
     /// <summary>路径字段、目标与常量在发布时冻结；构造器不暴露任意SQL或在线替换入口。</summary>
-    private FileCrossParentScope(string sourceId,int level,CrossTableSparseSelection selection,Target[] targets){SourceId=sourceId;Level=level;this.selection=selection;this.targets=targets;}
+    private FileCrossParentScope(string sourceId,int level,CrossTableSparseSelection selection,Target[] targets,
+        NonRedundantCrossTableScope binding)
+    {
+        SourceId=sourceId;Level=level;this.selection=selection;this.targets=targets;ReadBindings=[binding];
+    }
     /// <summary>共享包装器使用同一组身份与全局槽位，不能冒充某一条分支。</summary>
-    internal FileCrossParentScope(string sourceId,int level,FileSharedCrossParentScope shared){SourceId=sourceId;Level=level;this.shared=shared;targets=[];}
+    internal FileCrossParentScope(string sourceId,int level,FileSharedCrossParentScope shared,
+        IReadOnlyList<NonRedundantCrossTableScope> bindings)
+    {
+        SourceId=sourceId;Level=level;this.shared=shared;targets=[];ReadBindings=bindings;
+    }
     /// <summary>R1只读取实际物理父键，目标路径在发布时冻结，不重新编码来源祖先。</summary>
     internal FileCrossParentScope(RedundantSharedParentPlan plan)
     {
@@ -81,7 +91,8 @@ internal sealed class FileCrossParentScope
             targets.Add(new(target.TableName,chosen.Page.Id,display.Id,project?.LogicalType,
                 columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan,logical));
         }
-        return(new FileCrossParentScope(source.Id,levelIndex,selection,targets.ToArray()),new NonRedundantCrossTableScope(source.Id,bindings));
+        var binding=new NonRedundantCrossTableScope(source.Id,bindings.AsReadOnly());
+        return(new FileCrossParentScope(source.Id,levelIndex,selection,targets.ToArray(),binding),binding);
     }
     /// <summary>原页面显式显示／编辑标志优先，与文件可读列及生成目标页规则保持同一语义。</summary>
     private static bool Readable(PageColumnMetadata field)=>Flag(field,"isInGrid",field.IsShow==1)||Flag(field,"isInEdit",field.IsEdit==1);

@@ -52,15 +52,19 @@ public sealed class FileSharedCrossParentScopeTests
 
     /// <summary>共享父级叠加普通联接或按来源页绑定的联接，只发布附件和真实父级存储。</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void Shared_file_parent_supports_a_published_joined_exact_field(bool scoped)
+    [InlineData(false,"shared")]
+    [InlineData(true,"shared")]
+    [InlineData(false,"independent")]
+    [InlineData(true,"independent")]
+    [InlineData(true,"mixed")]
+    public void File_parents_support_a_published_joined_exact_field(bool scoped,string parents)
     {
         var catalog=Catalog("int64","int64");
         var page=catalog.ConfigPages.Single(item=>item.Id=="102");
         catalog.YzAdminTypes.Add(new(){Id="900",YzProjectId=catalog.YzProjectId});
         page.YzAdminTypeId="900";
         page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("branchName");
+        if(parents!="shared")AddIndependentParent(catalog,page,parents=="mixed");
         catalog.ConfigTables.Add(new(){Id="6",YzProjectId="1",TableName="file_shared_branch",IsRongyu=scoped?0:1});
         catalog.ConfigColumns.AddRange([
             new(){Id="61",YzProjectId="1",ConfigTableId="6",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
@@ -85,14 +89,15 @@ public sealed class FileSharedCrossParentScopeTests
         var context=new FileMetadataContext([catalog]);
         var frozen=Assert.Single(context.Catalogs);
         var source=frozen.ConfigPages.Single(item=>item.Id==page.Id);
-        var parent=Assert.Single(context.PageScope(frozen,source).Crosses);
-        Assert.True(parent.IsShared);
+        var scopes=context.PageScope(frozen,source).Crosses;
+        Assert.Equal(parents=="mixed"?2:1,scopes.Count);
+        Assert.Equal(parents!="independent",scopes.Any(parent=>parent.IsShared));
         var exact=context.ExactField(frozen,source);
         Assert.True(exact.Derived);
         Assert.False(exact.Shared);
         var plan=Assert.IsType<NonRedundantReadPlan>(context.DerivedExactPlan(frozen,source,
             frozen.ConfigColumns.Single(item=>item.ColumnName=="attachments")));
-        Assert.All(parent.StorageNames,name=>Assert.Contains(name,plan.OutputTypes.Keys));
+        Assert.All(scopes.SelectMany(parent=>parent.StorageNames),name=>Assert.Contains(name,plan.OutputTypes.Keys));
         Assert.DoesNotContain("branch_name",plan.OutputTypes.Keys);
         Assert.Equal(scoped,plan.RequiresAccount);
         if(scoped)
@@ -105,18 +110,23 @@ public sealed class FileSharedCrossParentScopeTests
 
     /// <summary>共享逻辑父与独立级联或自树的精确匹配各自核验，并保留真实稀疏存储槽。</summary>
     [Theory]
-    [InlineData("isolatedCountryName","string",false)]
-    [InlineData("isolatedPlaceId","int64",false)]
-    [InlineData("treeName","string",false)]
-    [InlineData("isolatedCountryName","string",true)]
-    [InlineData("treeName","string",true)]
-    public void Shared_file_parent_supports_another_published_exact_path(string field,string type,bool changedShape)
+    [InlineData("isolatedCountryName","string",false,false)]
+    [InlineData("isolatedPlaceId","int64",false,false)]
+    [InlineData("treeName","string",false,false)]
+    [InlineData("isolatedCountryName","string",true,false)]
+    [InlineData("treeName","string",true,false)]
+    [InlineData("isolatedCountryName","string",false,true)]
+    [InlineData("isolatedPlaceId","int64",false,true)]
+    [InlineData("treeName","string",false,true)]
+    [InlineData("treeName","string",true,true)]
+    public void Shared_file_parent_supports_another_published_exact_path(string field,string type,bool changedShape,bool compound)
     {
         var catalog=Catalog(type,"int64");
         var page=catalog.ConfigPages.Single(item=>item.Id=="102");
         catalog.YzAdminTypes.Add(new(){Id="900",YzProjectId=catalog.YzProjectId});
         foreach(var item in catalog.ConfigPages)item.YzAdminTypeId="900";
         page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(field);
+        if(compound)AddIndependentParent(catalog,page,true);
         var selfTree=field=="treeName";
         JsonNode definition;
         if(selfTree)
@@ -150,8 +160,9 @@ public sealed class FileSharedCrossParentScopeTests
             Assert.Throws<NotSupportedException>(()=>context.PageScope(frozen,source));
             return;
         }
-        var parent=Assert.Single(context.PageScope(frozen,source).Crosses);
-        Assert.True(parent.IsShared);
+        var scopes=context.PageScope(frozen,source).Crosses;
+        Assert.Equal(compound?2:1,scopes.Count);
+        Assert.Single(scopes,parent=>parent.IsShared);
         var exact=context.ExactField(frozen,source);
         Assert.True(exact.Derived);
         Assert.Equal(!selfTree,exact.Shared);
@@ -159,7 +170,7 @@ public sealed class FileSharedCrossParentScopeTests
         var plan=Assert.IsType<NonRedundantReadPlan>(context.DerivedExactPlan(frozen,source,
             frozen.ConfigColumns.Single(item=>item.ColumnName=="attachments")));
         Assert.Contains("attachments",plan.OutputTypes.Keys);
-        Assert.All(parent.StorageNames,name=>Assert.Contains(name,plan.OutputTypes.Keys));
+        Assert.All(scopes.SelectMany(parent=>parent.StorageNames),name=>Assert.Contains(name,plan.OutputTypes.Keys));
         Assert.DoesNotContain(exact.Column.ColumnName,plan.OutputTypes.Keys);
     }
 
@@ -218,6 +229,21 @@ public sealed class FileSharedCrossParentScopeTests
     {
         var c=Catalog("string","int64");var scope=FileReferenceScope.CompilePage(c,c.ConfigTables[0],c.ConfigPages[0]);var row=new Dictionary<string,object?>{{"country_id",null},{"area_id",null},{"place_id",null},{"warehouse_id",null}};if(kind=="ancestor"){row["country_id"]="1";row["warehouse_id"]="4";}if(kind=="missing")row.Remove("area_id");if(kind=="format")row["warehouse_id"]="04";if(kind=="type")row["warehouse_id"]=4L;using var session=new DatabaseSession(new(){ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"});await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>FileCrossParentScope.ValuesAsync(scope.Crosses,new SqlRowStore(session,c),row,new Metarill.Core.Security.RuntimeActor(12,"测试",false,"1","3"),false,default));
     }
+    /// <summary>用同一地区表建立另一条完全独立的路径，两条范围引用同一个 parentId。</summary>
+    private static void AddIndependentParent(MetadataCatalog catalog,PageMetadata page,bool keepShared)
+    {
+        var source=catalog.ConfigColumns.Single(column=>column.Id=="15");
+        var definition=JsonNode.Parse(source.ControlDetail)!;
+        foreach(var level in definition["levels"]!.AsArray())
+            level!["columnPrefix"]="parent_"+level["columnPrefix"]!.GetValue<string>();
+        catalog.ConfigColumns.Add(new(){Id="950",YzProjectId=catalog.YzProjectId,ConfigTableId=page.ConfigTableId,ControlKind="CascadeTree",
+            ColumnName="parent_place_id",LinkConfigTableId=source.LinkConfigTableId,LogicalType=source.LogicalType,ControlDetail=definition.ToJsonString()});
+        catalog.ConfigPageColumns.Add(new(){Id=page.Id+"950",YzProjectId=catalog.YzProjectId,
+            ConfigPageId=page.Id,ConfigColumnId="950",IsShow=1,IsEdit=1});
+        const string condition="parent_area_id=@parentId";
+        page.WhereSql=keepShared?page.WhereSql+" AND "+condition:page.WhereSql.Replace("area_id=@parentId",condition,StringComparison.Ordinal);
+    }
+
     /// <summary>在原固定文件模型中只增加共享仓库和物理国家归属；全部范围来自元数据。</summary>
     internal static MetadataCatalog Catalog(string type,string parent,bool shorter=false,bool derived=false)
     {

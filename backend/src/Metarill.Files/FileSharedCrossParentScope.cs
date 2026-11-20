@@ -25,7 +25,7 @@ internal sealed class FileSharedCrossParentScope
         if(GlobalCrossTableTarget.Declared(table))throw new NotSupportedException("共享文件父范围要求普通项目来源。");var branches=new Dictionary<string,FileCrossParentScope>(StringComparer.Ordinal);var scopes=new List<NonRedundantCrossTableScope>();
         var allowExact=AllowsExactSource(catalog,table,page);
         foreach(var branch in selection.Branches){var source=catalog.ConfigColumns.Single(c=>c.ConfigTableId==table.Id&&c.Id==branch.SourceColumnId);var compiled=FileCrossParentScope.CompileBranch(catalog,table,page,source,selection.BranchSelection(source.Id),0,allowExactSource:allowExact);branches.Add(source.Id,compiled.Scope);scopes.Add(compiled.Binding);}
-        _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],scopes,selection.Slots.Select(s=>s.ColumnName).ToArray());var plan=new FileSharedCrossParentScope(selection,branches);var index=plan.StorageNames.ToList().IndexOf(column.ColumnName);if(index<0)throw new InvalidOperationException("文件父字段不属于固定共享组。");return new FileCrossParentScope(selection.Branches[0].SourceColumnId,index,plan);
+        _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],scopes,selection.Slots.Select(s=>s.ColumnName).ToArray());var plan=new FileSharedCrossParentScope(selection,branches);var index=plan.StorageNames.ToList().IndexOf(column.ColumnName);if(index<0)throw new InvalidOperationException("文件父字段不属于固定共享组。");return new FileCrossParentScope(selection.Branches[0].SourceColumnId,index,plan,scopes.AsReadOnly());
     }
     /// <summary>逻辑父范围可与同页已证明的物理、联接或级联标量叠加；无发布后台的声明仍拒绝。</summary>
     private static bool AllowsExactSource(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
@@ -40,7 +40,7 @@ internal sealed class FileSharedCrossParentScope
         if(NonRedundantReads.SharedExactGroup(catalog,table,column.ColumnName) is not null)return true;
         if(NonRedundantReads.IndependentCrossExact(catalog,table,column.ColumnName) is {} independent)
         {
-            var binding=FileMetadataContext.CompileIndependentExactBinding(catalog,table,page,independent);
+            var binding=FileMetadataContext.CompileExactBranchBinding(catalog,table,page,independent);
             var match=NonRedundantReads.CompileCrossExactMatch(catalog,table.Id,column.ColumnName,[binding]);
             return match.OutputTypes[column.ColumnName]==column.LogicalType;
         }
