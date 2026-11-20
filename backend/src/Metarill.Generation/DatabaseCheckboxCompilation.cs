@@ -140,9 +140,9 @@ internal static class DatabaseCheckboxCompilation
                 namePage!.Scopes.All(scope=>scope.Source=="project");
             if(sharedAccountScope)
                 _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,namePage!.Source);
-            // 目标级联祖先可能没有落库。各名称必须通过同一个固定层位读取。
+            // 同一逻辑父级供各名称共用。目标账号条件由候选绑定，维护从来源行重新证明归属。
             var sharedLogicalParentScope=sharedNamesPage&&!derived&&target.Source.IsRongyu==0&&exactTarget is null&&
-                !FixedPageConditionCompilation.HasAccountVariables(namePage!)&&namePage!.Scopes.Count(scope=>scope.Source=="parent")==1&&
+                namePage!.Scopes.Count(scope=>scope.Source=="parent")==1&&
                 namePage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,namePage,scope.Column));
             // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。
             var compoundTargetParents=!functionForm&&target.Source.IsRongyu==0&&

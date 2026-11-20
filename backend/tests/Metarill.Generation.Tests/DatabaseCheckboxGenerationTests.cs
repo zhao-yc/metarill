@@ -370,7 +370,10 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(null,false)]
     [InlineData(false,true)]
     [InlineData(true,false)]
-    public async Task Redundant_checkbox_shares_names_under_a_logical_target_parent(bool? globalWithRowProject,bool explicitCheckbox)
+    [InlineData(null,true,"current_yz_manager_id")]
+    [InlineData(false,false,"current_store_id")]
+    [InlineData(true,true,"current_yz_manager_id")]
+    public async Task Redundant_checkbox_shares_names_under_a_logical_target_parent(bool? globalWithRowProject,bool explicitCheckbox,string accountVariable="")
     {
         const string ns="Example.CheckboxLogicalParent";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("checkbox_parent_label","string","int64");
@@ -395,6 +398,16 @@ public sealed class DatabaseCheckboxGenerationTests
             new(){Id="96",ConfigTableId="9",ColumnName="selected_alias",LogicalType="string",ColumnLength="max",
                 Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("selected.alias")}}
         ]);
+        var useAccount=accountVariable.Length>0;
+        var storeScope=accountVariable=="current_store_id";
+        var targetOwner=storeScope?"store_id":"dictionary_owner_id";
+        var sourceOwner=storeScope?"store_id":"record_owner_id";
+        if(useAccount)
+        {
+            catalog.ConfigColumns.Add(new(){Id="283",ConfigTableId="2",ColumnName=targetOwner,LogicalType="int64"});
+            catalog.ConfigColumns.Add(new(){Id="97",ConfigTableId="9",ColumnName=sourceOwner,LogicalType="string",ColumnLength="24"});
+            targetPage.WhereSql+=" AND "+targetOwner+"=@"+accountVariable;
+        }
         catalog.ConfigPageColumns.Add(new(){Id="201281",ConfigPageId="201",ConfigColumnId="281",IsShow=1});
         catalog.ConfigTables.Add(new(){Id="9",TableName="checkbox_parent_label_consumer",IsRongyu=1});
         foreach(var id in new[]{"901","902"})
@@ -402,6 +415,7 @@ public sealed class DatabaseCheckboxGenerationTests
             var aliasPage=id=="902";
             var page=new PageMetadata {Id=id,ConfigTableId="9",IsImport=1,IsExport=1,
                 WhereSql="yz_project_id=@current_yz_project_id AND owner_country_id=@parentId"};
+            if(useAccount)page.WhereSql+=" AND "+sourceOwner+"=@"+accountVariable;
             if(aliasPage)
             {
                 page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
@@ -471,13 +485,28 @@ public sealed class DatabaseCheckboxGenerationTests
                 BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
             Assert.Equal("string",candidate.OutputTypes["alias"]);
             Assert.Equal("string",candidate.OutputTypes["name"]);
+            const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+            Assert.Equal(useAccount,candidate.RequiresAccount);
+            if(useAccount)
+            {
+                const long accountId=9007199254740993L;
+                const long storeId=9007199254740994L;
+                var actor=new RuntimeActor(accountId,"账号",false,catalog.YzProjectId,"5"){StoreId=storeId};
+                var bound=candidate.BindAccount(actor);
+                Assert.False(bound.RequiresAccount);
+                var sqlPlan=bound.GetType().GetProperty("MySql",hidden)!.GetValue(bound)!;
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(sqlPlan.GetType()
+                    .GetProperty("Constants",hidden)!.GetValue(sqlPlan));
+                Assert.Contains<object?>(storeScope?storeId:accountId,constants.Values);
+                Assert.DoesNotContain<object?>(storeScope?accountId:storeId,constants.Values);
+                if(storeScope)Assert.Throws<UnauthorizedAccessException>(()=>candidate.BindAccount(actor with{StoreId=null}));
+            }
             var maintenance=assembly.GetTypes().Single(t=>t.Name=="GeneratedRelationMaintenance")
                 .GetProperty("Catalog")!.GetValue(null)!;
             var affected=(IReadOnlyList<string>)maintenance.GetType().GetProperty("MixedTargets")!.GetValue(maintenance)!;
             Assert.Contains("checkbox_parent_label_source",affected);
             Assert.Contains("checkbox_parent_label_country",affected);
             Assert.Contains("checkbox_parent_label_area",affected);
-            const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
             var plans=(System.Collections.IDictionary)maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance)!;
             var plan=plans["9"]!;
             Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
@@ -488,11 +517,27 @@ public sealed class DatabaseCheckboxGenerationTests
                 Assert.Contains("b.`owner_country_id`",sql);
                 Assert.Contains("multi_value.`active_flag`",sql);
                 Assert.Contains("CASE WHEN",sql);
+                if(useAccount)
+                {
+                    Assert.Contains($"BINARY CAST(b.`{sourceOwner}` AS CHAR)",sql);
+                    Assert.Contains($"BINARY CAST(multi_value.`{targetOwner}` AS CHAR)",sql);
+                }
             }
+            Assert.False(Assert.IsType<bool>(read.GetType().GetProperty("RequiresAccount",hidden)!.GetValue(read)));
             var package=new ApplicationPackager().Create(catalog,Path.Combine(directory,"application"),ns,NonRedundantApplicationFixture.Root());
             Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
 
             var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,bindings);
+            if(useAccount)
+            {
+                var sourcePage=published.ConfigPages.Single(page=>page.Id=="902");
+                var publishedScope=sourcePage.WhereSql;
+                sourcePage.WhereSql=publishedScope.Replace(" AND "+sourceOwner+"=@"+accountVariable,"",StringComparison.Ordinal);
+                Assert.NotEqual(publishedScope,sourcePage.WhereSql);
+                Assert.Throws<InvalidOperationException>(()=>
+                    Metarill.Data.Relations.RelationMaintenanceCatalog.CompileWithDerivedCrossTables(published,[],bindings));
+                sourcePage.WhereSql=publishedScope;
+            }
             published.ConfigPages.Single(page=>page.Id=="902").WhereSql="yz_project_id=@current_yz_project_id";
             Assert.Throws<InvalidOperationException>(()=>
                 Metarill.Data.Relations.RelationMaintenanceCatalog.CompileWithDerivedCrossTables(published,[],bindings));
