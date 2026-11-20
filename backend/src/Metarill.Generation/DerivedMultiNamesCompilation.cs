@@ -36,7 +36,7 @@ internal static class DerivedMultiNamesCompilation
         var field=name.Source.ColumnName;
         _=exact is null
             ?NonRedundantReads.CompileMultiImportLabel(model.Catalog,target.Source.Id,page.Source.Id,field,
-                condition.Syntax.Fields,ImportTargets(model,target,page,name,condition))
+                condition.Syntax.Fields,NameTargets(model,target,page,name,condition))
             :NonRedundantReads.CompileExactMultiLabel(model.Catalog,target.Source.Id,page.Source.Id,field,
                 name.IsId?["id"]:["id",field],[],ExactTargets(model,target,page,name,exact,condition),condition.Syntax.Fields);
     }
@@ -50,19 +50,20 @@ internal static class DerivedMultiNamesCompilation
         var ids=string.Join(",",new[]{multi.Target.Source.Id,multi.TargetPage.Source.Id,multi.Name.Source.ColumnName}
             .Select(value=>JsonSerializer.Serialize(value)));
         var fields="new string[]{"+string.Join(",",condition.Syntax.Fields.Select(field=>JsonSerializer.Serialize(field)))+"}";
-        var targets=NonRedundantReadCompilation.SingleTargetArgument(ImportTargets(model,multi.Target,multi.TargetPage,multi.Name,condition));
+        var targets=NonRedundantReadCompilation.SingleTargetArgument(NameTargets(model,multi.Target,multi.TargetPage,multi.Name,condition));
         return $"    private static readonly NonRedundantReadPlan MultiImportReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileMultiImportLabel({ids},{fields}{targets});\n";
     }
 
-    private static IReadOnlyList<NonRedundantSingleTargetScope> ImportTargets(GenerationModel model,TableModel target,PageModel page,
-        ColumnModel name,RelationConditionModel condition)=>
-        NonRedundantReadCompilation.ProjectPathTargets(model,target,page,condition.Syntax.Fields.Append(name.Source.ColumnName));
+    /// <summary>名称及原导入依赖共用实际页面的物理字典范围，发布目录据此保留对应路径。</summary>
+    internal static IReadOnlyList<NonRedundantSingleTargetScope> NameTargets(GenerationModel model,TableModel target,PageModel page,
+        ColumnModel name,RelationConditionModel? condition=null)=>
+        NonRedundantReadCompilation.ProjectPathTargets(model,target,page,
+            (condition?.Syntax.Fields??[]).Append(name.Source.ColumnName),includeStoredTargets:true);
 
     /// <summary>名称、精确匹配和导入附加条件共享实际页的联接绑定。</summary>
     private static IReadOnlyList<NonRedundantSingleTargetScope> ExactTargets(GenerationModel model,TableModel target,
         PageModel page,ColumnModel name,ExactDataManageModel exact,RelationConditionModel? condition=null)=>
-        NonRedundantReadCompilation.MergeProjectTargets(NonRedundantReadCompilation.ProjectPathTargets(model,target,page,
-            (condition?.Syntax.Fields??[]).Append(name.Source.ColumnName)).Concat(exact.SingleTargets));
+        NonRedundantReadCompilation.MergeProjectTargets(NameTargets(model,target,page,name,condition).Concat(exact.SingleTargets));
 
     /// <summary>生成端只固定目标页和投影字段，权限集合由真实当前请求提供。</summary>
     internal static string ExactPlanCall(GenerationModel model,MultiSelectModel multi,ColumnModel name,

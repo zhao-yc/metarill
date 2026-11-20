@@ -77,17 +77,24 @@ internal static partial class BackendRenderer
         var realtimeCheckboxes=model.Tables.Where(table=>table.Source.IsRongyu==0&&table.Source.IsFunctionTable==0)
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))
             .Where(checkbox=>checkbox.DerivedName&&checkbox.NameTargetPage is not null).ToArray();
-        // 隐藏的联接外键仍可影响已发布的复选名称，候选及业务回显须保留每一段的实际页。
+        // 隐藏的联接外键仍可影响已发布的多值名称，保留候选、业务回显及导入使用的实际页。
         static IEnumerable<string> NamePages(IEnumerable<Metarill.Data.Queries.NonRedundantSingleTargetScope> targets)=>
             targets.SelectMany(target=>new[]{target.PageId,target.SourcePageId,target.ControlSourcePageId}.OfType<string>()
                 .Concat(NamePages(target.NestedTargets)));
-        var checkboxNamePages=realtimeCheckboxes.SelectMany(checkbox=>NamePages(
+        var multiSelections=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
+            .SelectMany(table=>table.Pages.SelectMany(page=>MultiSelectCompilation.ForService(model,table,page))).ToArray();
+        var multiNamePages=realtimeCheckboxes.SelectMany(checkbox=>NamePages(
             NonRedundantReadCompilation.ProjectPathTargets(model,checkbox.Target,checkbox.NameTargetPage!,
-                [checkbox.Name.Source.ColumnName],storedCheckbox:true))).ToHashSet(StringComparer.Ordinal);
+                [checkbox.Name.Source.ColumnName],includeStoredTargets:true)))
+            .Concat(multiSelections.SelectMany(multi=>NamePages(DerivedMultiNamesCompilation.NameTargets(
+                model,multi.Target,multi.TargetPage,multi.Name))))
+            .Concat(logicalMultiImports.SelectMany(multi=>NamePages(DerivedMultiNamesCompilation.NameTargets(
+                model,multi.Target,multi.TargetPage,multi.Name,multi.ImportCondition))))
+            .ToHashSet(StringComparer.Ordinal);
         foreach(var checkbox in realtimeCheckboxes.Where(checkbox=>checkbox.GlobalRealtimeNameOverride))
-            checkboxNamePages.UnionWith(Metarill.Data.Queries.NonRedundantReads.PublishedGlobalCheckboxNamePages(model.Catalog,
+            multiNamePages.UnionWith(Metarill.Data.Queries.NonRedundantReads.PublishedGlobalCheckboxNamePages(model.Catalog,
                 checkbox.Target.Source.Id,checkbox.NameTargetPage!.Source.Id,checkbox.Name.Source.ColumnName));
-        scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>checkboxNamePages.Contains(page.Source.Id))
+        scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>multiNamePages.Contains(page.Source.Id))
             .Select(page=>(table,page))));
         var publishedCheckboxes=functionCheckboxes.Concat(scopedCheckboxes).Concat(realtimeCheckboxes);
         var checkboxScopes=publishedCheckboxes.Where(checkbox=>checkbox.DerivedName&&
@@ -104,8 +111,7 @@ internal static partial class BackendRenderer
         }
         accountPages.UnionWith(checkboxScopes.Select(checkbox=>(checkbox.LogicalTargetPage??checkbox.NameTargetPage)!.Source.Id));
         scopedPages=scopedPages.Concat(checkboxScopes.Select(checkbox=>(checkbox.Target,(checkbox.LogicalTargetPage??checkbox.NameTargetPage)!)));
-        var exactMultiTargets=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
-            .SelectMany(table=>table.Pages.SelectMany(page=>MultiSelectCompilation.ForService(model,table,page)))
+        var exactMultiTargets=multiSelections
             .Where(multi=>multi.ExactTarget is not null&&(DerivedMultiNamesCompilation.UsesFixedRead(model,multi)||
                 multi.ImportCondition?.HasLogicalFields==true))
             .Select(multi=>(multi.Target,multi.TargetPage)).DistinctBy(item=>item.TargetPage.Source.Id).ToArray();

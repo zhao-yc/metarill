@@ -479,7 +479,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(explicitBinding is not null||cascadeCacheOwner is not null||MultiNameSourcePage(ownerAlias) is not {} sourcePage)
                 return explicitBinding;
             var owner=tables[relation.ConfigTableId];
-            if(AllowsStoredExactCheckbox&&target.IsRongyu==1&&ProjectScopedSingleRelationTarget.NestedPage(
+            if(multiLabel&&target.IsRongyu==1&&ProjectScopedSingleRelationTarget.NestedPage(
                 catalog,owner,sourcePage,relation,target,allowStoredTarget:true) is {Scoped:true} stored)
                 return new(relation.Id,stored.Page.Id){SourcePageId=sourcePage.Id};
             if(target.IsRongyu!=0||owner.IsRongyu!=0||
@@ -528,7 +528,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var storedSource=catalog.ConfigPages.Single(page=>page.Id==storedSourceId&&page.ConfigTableId==owner.Id);
                 var stored=ProjectScopedSingleRelationTarget.NestedPage(catalog,owner,storedSource,relation,target,allowStoredTarget:true);
                 if(stored is null||stored.Value.Page.Id!=binding.PageId)
-                    throw new InvalidOperationException("复选名称联接必须使用字典的实际目标页。");
+                    throw new InvalidOperationException("多值名称联接必须使用字典的实际目标页。");
                 cascadeLabelPages.Add(storedSource.Id);
                 cascadeLabelPages.Add(stored.Value.Page.Id);
                 return StoredProjectSingleCondition(owner,relation,target,alias,storedSource,stored.Value.Page);
@@ -635,7 +635,7 @@ public static partial class MySqlNonRedundantReadCompiler
             PageMetadata sourcePage,PageMetadata page)
         {
             if(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
-                throw new NotSupportedException("复选联接的冗余字典固定页须使用物理常量条件。");
+                throw new NotSupportedException("多值名称联接的冗余字典固定页须使用物理常量条件。");
             var control=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target,sourcePage);
             if(control.Terms.Count>0)
                 page=new(){Id=page.Id,ConfigTableId=page.ConfigTableId,WhereSql=string.Join(" AND ",
@@ -781,11 +781,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 return(globalNested.Alias,globalNested.Visibility,cacheOwner);
             if(cacheOwner is not null&&singleCachePages.TryGetValue(owner,out var sourcePage)&&
                 ProjectScopedSingleRelationTarget.NestedPage(catalog,table,sourcePage,foreign,target,
-                    allowStoredTarget:AllowsStoredExactCheckbox) is {} projectNested)
+                    allowStoredTarget:multiLabel) is {} projectNested)
             {
                 if(projectNested.Scoped&&target.IsRongyu==1)
                 {
-                    // 允许追溯变为不可见的字典记录，条件只控制名称是否写回复选副本。
+                    // 允许追溯变为不可见的字典记录，条件只控制名称是否写回多值副本。
                     var storedAlias=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true);
                     return(storedAlias,StoredProjectSingleCondition(table,foreign,target,storedAlias,sourcePage,projectNested.Page),cacheOwner);
                 }

@@ -7,17 +7,17 @@ internal static partial class NonRedundantReadCompilation
 {
     /// <summary>从实际投影或查询依赖收集项目内名称路径。没有固定条件的中间段只传递下一页的绑定。</summary>
     internal static IReadOnlyList<NonRedundantSingleTargetScope> ProjectPathTargets(GenerationModel model,TableModel table,
-        PageModel page,IEnumerable<string> fields,bool storedCheckbox=false)
+        PageModel page,IEnumerable<string> fields,bool includeStoredTargets=false)
     {
         if(table.Source.IsRongyu!=0)return [];
         var active=new HashSet<(string Table,string Field)>();
         return MergeProjectTargets(fields.Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(field=>ProjectPathTarget(model,table,page,[field],active,storedCheckbox)).OfType<NonRedundantSingleTargetScope>());
+            .Select(field=>ProjectPathTarget(model,table,page,[field],active,includeStoredTargets)).OfType<NonRedundantSingleTargetScope>());
     }
 
     /// <summary>显式联接和原自动名称使用与 SQL 相同的物理关系字段及表级显示名。</summary>
     private static NonRedundantSingleTargetScope? ProjectPathTarget(GenerationModel model,TableModel table,PageModel page,
-        string[] path,HashSet<(string Table,string Field)> active,bool storedCheckbox)
+        string[] path,HashSet<(string Table,string Field)> active,bool includeStoredTargets)
     {
         if(path[0].Length==0)return null;
         var field=path[0];
@@ -33,7 +33,7 @@ internal static partial class NonRedundantReadCompilation
             try
             {
                 var declared=column.Source.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
-                return declared.Length<2?null:ProjectPathTarget(model,table,page,declared,active,storedCheckbox);
+                return declared.Length<2?null:ProjectPathTarget(model,table,page,declared,active,includeStoredTargets);
             }
             finally{active.Remove((table.Source.Id,column.Source.Id));}
         }
@@ -64,14 +64,14 @@ internal static partial class NonRedundantReadCompilation
                 return null;
             if(relation.Target.Source.IsRongyu!=0)
             {
-                // 复选的物理字典页也影响派生名称，连同实际来源页一起保留供运行时复核。
-                if(!storedCheckbox||relation.Target.Source.IsRongyu!=1||relation.Target.IsGlobal||
+                // 多值名称按实际物理字典页限定可见性，来源页也须保留供运行时复核。
+                if(!includeStoredTargets||relation.Target.Source.IsRongyu!=1||relation.Target.IsGlobal||
                     Metarill.Core.Metadata.ProjectScopedSingleRelationTarget.NestedPage(model.Catalog,table.Source,page.Source,
                         foreign.Source,relation.Target.Source,allowStoredTarget:true) is not {Scoped:true} stored)
                     return null;
                 return new(foreign.Source.Id,stored.Page.Id){SourcePageId=page.Source.Id};
             }
-            var downstream=ProjectPathTarget(model,relation.Target,relation.TargetPage,tail,active,storedCheckbox);
+            var downstream=ProjectPathTarget(model,relation.Target,relation.TargetPage,tail,active,includeStoredTargets);
             IReadOnlyList<NonRedundantSingleTargetScope> nested=downstream is null?[]:[downstream];
             if(UsesProjectSingleRead(relation))
                 return ProjectTarget(model,table,page,relation) with{NestedTargets=nested};

@@ -247,14 +247,16 @@ public sealed class DerivedMultiNamesTests
     [InlineData(true,0,true)]
     [InlineData(false,1,true)]
     [InlineData(true,1,true)]
-    public async Task Array_label_matching_uses_the_actual_nested_page(bool checkbox,int storage,bool globalAccount)
+    [InlineData(false,0,false,"stored-dictionary")]
+    [InlineData(false,1,false,"stored-dictionary")]
+    public async Task Array_label_matching_uses_the_actual_nested_page(bool checkbox,int storage,bool globalAccount,string dictionaryMode="")
     {
         const string ns="Example.DerivedArrayScope";
         var catalog=Catalog("derived_array_scope",false);
         var source=catalog.ConfigTables.Single(table=>table.Id=="2");
         source.IsRongyu=storage;
         var companyTable=catalog.ConfigTables.Single(table=>table.Id=="4");
-        companyTable.IsRongyu=0;
+        companyTable.IsRongyu=dictionaryMode=="stored-dictionary"?1:0;
         var company=catalog.ConfigColumns.Single(column=>column.Id=="37");
         company.ControlDetail=JsonSerializer.Serialize(new{tableId="4",pageId="401",nameField="name",whereSql="status=17"});
         var companyPage=catalog.ConfigPages.Single(page=>page.Id=="401");
@@ -332,12 +334,13 @@ public sealed class DerivedMultiNamesTests
                 return read;
             }
 
-            static IReadOnlyDictionary<string,object?> AssertConstants(object read)
+            IReadOnlyDictionary<string,object?> AssertConstants(object read)
             {
                 var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(read.GetType()
                     .GetProperty("Constants",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(read));
                 Assert.Contains(3,constants.Values);
                 Assert.DoesNotContain(17,constants.Values);
+                if(dictionaryMode=="stored-dictionary")Assert.Contains(1,constants.Values);
                 return constants;
             }
         }
@@ -457,12 +460,14 @@ public sealed class DerivedMultiNamesTests
     [InlineData(true,true,true)]
     [InlineData(false,true,false,true)]
     [InlineData(true,true,false,true)]
+    [InlineData(false,false,false,false,"stored-dictionary")]
     public async Task R0_array_page_override_uses_the_actual_target(bool checkbox,bool account,bool overlayOnlyAccount=false,
-        bool differentSourceParents=false)
+        bool differentSourceParents=false,string dictionaryMode="")
     {
         const string ns="Example.ArrayPageOverride";
         var catalog=Catalog("array_page_override",false);
-        catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=0;
+        catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=dictionaryMode=="stored-dictionary"?1:0;
+        if(dictionaryMode=="stored-dictionary")catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql+=" AND status>=18";
         catalog.ConfigColumns.Single(column=>column.Id=="37").ControlDetail=
             "{\"tableId\":\"4\",\"pageId\":\"401\",\"nameField\":\"name\",\"whereSql\":\"status=17\"}";
         catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",ColumnName="status",LogicalType="int32"});
@@ -582,6 +587,12 @@ public sealed class DerivedMultiNamesTests
                 Assert.Contains(condition,Parameters(match));
                 Assert.DoesNotContain(otherCondition,Parameters(match));
                 if(!checkbox)Assert.Contains(condition,Parameters(Read("ExportReadPlan"+page)));
+                if(dictionaryMode=="stored-dictionary")
+                {
+                    Assert.Contains(18,values);
+                    Assert.Contains(18,Parameters(match));
+                    Assert.Contains(18,Parameters(Read("ExportReadPlan"+page)));
+                }
                 Assert.NotNull(service.GetMethod("Import"+page+"Async"));
                 Assert.NotNull(service.GetMethod("Export"+page+"Async"));
             }
