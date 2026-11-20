@@ -56,12 +56,16 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
                 (definition.Table.Length==0||definition.Table==target.TableName)&&
                 (definition.PageId.Length==0||definition.PageId==pageId);
         }
-        if(!catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==pageId&&field.ConfigColumnId==value.Id&&
-                (PublishedFlag(field,"isInGrid",field.IsShow)||PublishedFlag(field,"isInEdit",field.IsEdit)))||
+        if(!CheckboxLabelPublished(catalog,pageId,value.Id)||
             !catalog.ConfigPageColumns.Any(field=>field.ConfigColumnId==relation.Id&&sourcePages.Contains(field.ConfigPageId)&&PublishedOverride(field)))
             throw new InvalidOperationException("复选名称副本缺少已发布的来源覆盖或目标显示字段。");
         return page;
     }
+
+    /// <summary>页级名称只能读取目标页已发布的表格或详情字段。</summary>
+    internal static bool CheckboxLabelPublished(MetadataCatalog catalog,string pageId,string columnId)=>
+        catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==pageId&&field.ConfigColumnId==columnId&&
+            (PublishedFlag(field,"isInGrid",field.IsShow)||PublishedFlag(field,"isInEdit",field.IsEdit)));
 
     /// <summary>读取与生成模板一致的原表格和详情发布标记。</summary>
     private static bool PublishedFlag(PageColumnMetadata field,string key,int fallback)=>

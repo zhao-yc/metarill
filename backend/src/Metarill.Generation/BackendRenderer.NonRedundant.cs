@@ -74,10 +74,23 @@ internal static partial class BackendRenderer
         var scopedCheckboxes=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))
             .Where(checkbox=>checkbox.ExactTarget is not null||checkbox.SharedLogicalParentScope).ToArray();
-        var checkboxScopes=functionCheckboxes.Concat(scopedCheckboxes).Where(checkbox=>checkbox.DerivedName&&
+        var realtimeCheckboxes=model.Tables.Where(table=>table.Source.IsRongyu==0&&table.Source.IsFunctionTable==0)
+            .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))
+            .Where(checkbox=>checkbox.UsesNameOverride&&checkbox.DerivedName&&checkbox.NameTargetPage is not null).ToArray();
+        // 隐藏的联接外键仍可影响已发布的复选名称，候选及业务回显须保留每一段的实际页。
+        static IEnumerable<string> NamePages(IEnumerable<Metarill.Data.Queries.NonRedundantSingleTargetScope> targets)=>
+            targets.SelectMany(target=>new[]{target.PageId,target.SourcePageId,target.ControlSourcePageId}.OfType<string>()
+                .Concat(NamePages(target.NestedTargets)));
+        var checkboxNamePages=realtimeCheckboxes.SelectMany(checkbox=>NamePages(
+            NonRedundantReadCompilation.ProjectPathTargets(model,checkbox.Target,checkbox.NameTargetPage!,
+                [checkbox.Name.Source.ColumnName]))).ToHashSet(StringComparer.Ordinal);
+        scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>checkboxNamePages.Contains(page.Source.Id))
+            .Select(page=>(table,page))));
+        var publishedCheckboxes=functionCheckboxes.Concat(scopedCheckboxes).Concat(realtimeCheckboxes);
+        var checkboxScopes=publishedCheckboxes.Where(checkbox=>checkbox.DerivedName&&
             (checkbox.LogicalTargetPage is not null||checkbox.ExactTarget is not null)).ToArray();
         // 复选的物理目标页也可能绑定全局父，冻结实际目标及父页条件。
-        foreach(var checkbox in functionCheckboxes.Concat(scopedCheckboxes).Where(checkbox=>checkbox.GlobalParentPage is not null))
+        foreach(var checkbox in publishedCheckboxes.Where(checkbox=>checkbox.GlobalParentPage is not null))
         {
             var targetPage=checkbox.GlobalParentPage!;
             var parent=checkbox.SourceParents.Single();

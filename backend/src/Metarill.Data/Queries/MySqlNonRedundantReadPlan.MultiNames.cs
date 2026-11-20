@@ -36,7 +36,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var baseline=DatabaseCheckboxDefinition.Parse(relation.ControlDetail);
                 var definition=baseline.WithPageOverride(overlay);
                 pageId=definition.PageId;
-                name=PageMultiNameOverride(target,baseline.NameField,definition.NameField);
+                name=CheckboxPageNameOverride(table,relation,target,selected,baseline,definition);
                 if(binding.ApplyControlScope)
                 {
                     control=FixedConditionPlan.Compile(definition.WhereSql,columns[target.Id].Keys);
@@ -80,6 +80,27 @@ public static partial class MySqlNonRedundantReadCompiler
                 selected is not null&&selected.YzProjectId.Length>0&&selected.YzProjectId!=catalog.YzProjectId)
                 throw new InvalidOperationException("多值名称目标与当前页的发布配置不一致。");
             return(source,selected,binding.ApplyPageScope,control,name);
+        }
+
+        /// <summary>原非冗余复选允许从同一个发布页读取已明确声明的派生文本。</summary>
+        private string? CheckboxPageNameOverride(TableMetadata table,ColumnMetadata relation,TableMetadata target,
+            PageMetadata? selected,DatabaseCheckboxDefinition baseline,DatabaseCheckboxDefinition definition)
+        {
+            if(definition.NameField==baseline.NameField)return null;
+            var original=Column(target,baseline.NameField);
+            var label=Column(target,definition.NameField);
+            if(!GlobalCrossTableTarget.Declared(target)&&PhysicalTextMultiLabel(target,original)&&PhysicalTextMultiLabel(target,label))
+                return label.ColumnName;
+            var fixedPage=baseline.PageId.Length>0?baseline.PageId:Text(relation,"linkConfigPageId");
+            bool TextLabel(ColumnMetadata column)=>PhysicalTextMultiLabel(target,column)||
+                MultiNameStorageColumns.IsDerivedCheckboxText(target,storage[target.Id],column);
+            if(table.IsRongyu!=0||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(target)||selected is null||
+                selected.Id!=fixedPage||selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
+                definition.TableId.Length>0&&definition.TableId!=target.Id||
+                definition.Table.Length>0&&definition.Table!=target.TableName||
+                !TextLabel(original)||!TextLabel(label)||!MySqlPublishedRelationCondition.CheckboxLabelPublished(catalog,selected.Id,label.Id))
+                throw new InvalidOperationException("复选页级文本必须沿用实际固定目标页和已发布的单值名称。");
+            return label.ColumnName;
         }
 
         /// <summary>只解释固定来源页中已发布的名称，原辅助数组、范围和ID顺序保持。</summary>

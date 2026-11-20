@@ -7,6 +7,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
 {
     internal PageModel? LogicalTargetPage { get; init; }
     internal bool CompoundTargetParents { get; init; }
+    internal bool RealtimeLogicalParentScope { get; init; }
     // 没有逻辑候选条件的显式目标页仍决定名称路径内每个关系角色。
     internal PageModel? NameTargetPage { get; init; }
     // 普通目标页的物理条件参与原候选、保存和 Excel。
@@ -135,10 +136,12 @@ internal static class DatabaseCheckboxCompilation
                 namePage!.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,namePage,scope.Column));
             if(usesNameOverride)
             {
-                // 同一固定逻辑父范围也可投影明确的单值联接，候选和维护各自编译其终点。
+                // 非冗余页仍通过原数组实时投影；冗余名称副本沿发布范围独立证明。
+                var realtimeFixedName=table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!target.IsGlobal&&
+                    exactTarget is null&&namePage is not null&&namePage.Source.Id==fixedPage;
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
                 bool TextLabel(ColumnModel label)=>MultiSelectCompilation.PhysicalTextLabel(model,target,label)||
-                    sharedLogicalParentScope&&MultiNameStorageColumns.IsDerivedCheckboxText(target.Source,storage,label.Source);
+                    (sharedLogicalParentScope||realtimeFixedName)&&MultiNameStorageColumns.IsDerivedCheckboxText(target.Source,storage,label.Source);
                 var baseName=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baseline.NameField);
                 if(functionForm||target.IsGlobal&&table.Source.IsRongyu!=1||baseName is null||!TextLabel(baseName)||
                     !TextLabel(name)||namePage is not null&&!namePage.Readable.Any(column=>column.Source.Id==name.Source.Id))
@@ -314,6 +317,8 @@ internal static class DatabaseCheckboxCompilation
                 FormParentField=formParent,
                 SharedAccountScope=sharedAccountScope,
                 SharedLogicalParentScope=sharedLogicalParentScope,
+                RealtimeLogicalParentScope=realtimeRead&&usesNameOverride&&logicalPage is not null&&
+                    logicalPage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column)),
                 ExactTarget=exactTarget,
                 LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)
                     .DistinctBy(path=>(path.Read.Source.Source.Id,path.Index)).ToArray(),

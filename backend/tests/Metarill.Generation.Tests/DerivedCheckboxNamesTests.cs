@@ -491,8 +491,12 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(true,false,false,false,"independent")]
     [InlineData(true,false,true,false,"physical")]
     [InlineData(true,true,true,false,"independent")]
+    [InlineData(true,false,false,false,"","joined")]
+    [InlineData(true,false,true,false,"physical","physical")]
+    [InlineData(true,true,true,false,"","joined")]
+    [InlineData(true,false,true,false,"","logical")]
     public async Task Checkbox_control_parent_uses_the_actual_source_cascade(bool derived,bool globalParent,bool scopeFromPage,
-        bool overridePage=false,string compound="")
+        bool overridePage=false,string compound="",string alternateName="")
     {
         const string ns="Example.CheckboxControlParent";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("checkbox_control_parent","int64","int64");
@@ -568,6 +572,52 @@ public sealed class DerivedCheckboxNamesTests
         if(overridePage)
             catalog.ConfigPageColumns.Single(field=>field.Id=="20128").Extra["controlDetail"]=
                 JsonSerializer.SerializeToElement("{\"pageId\":902}");
+        var logicalTarget=alternateName=="logical";
+        var joinedName=alternateName is "joined" or "logical";
+        if(alternateName.Length>0)
+        {
+            // 原辅助数组保留表级名称的字段；本页按自己的文本名称回显和筛选。
+            var candidate=catalog.ConfigPages.Single(page=>page.Id==candidateId);
+            candidate.Extra["type"]=JsonSerializer.SerializeToElement(2);
+            if(logicalTarget)
+            {
+                candidate.WhereSql=candidate.WhereSql.Replace("target_scope_id=@parentId","target_country_id=@parentId",StringComparison.Ordinal);
+                var path=JsonNode.Parse(catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail)!;
+                foreach(var level in path["levels"]!.AsArray())
+                    level!["columnPrefix"]="target_"+level["columnPrefix"]!.GetValue<string>();
+                catalog.ConfigColumns.Add(new(){Id="990",ConfigTableId="9",ColumnName="target_place_id",LogicalType="int64",
+                    ControlKind="CascadeTree",LinkConfigTableId="5",ControlDetail=path.ToJsonString()});
+                catalog.ConfigPageColumns.Add(new(){Id=candidateId+"990",ConfigPageId=candidateId,ConfigColumnId="990",IsShow=1,IsEdit=1});
+            }
+            catalog.ConfigPageColumns.Single(field=>field.Id=="20128").Extra["controlDetail"]=
+                JsonSerializer.SerializeToElement("""{"nameField":"short_label"}""");
+            var label=new ColumnMetadata {Id="98",ConfigTableId="9",ColumnName="short_label",LogicalType="string"};
+            catalog.ConfigColumns.Add(label);
+            catalog.ConfigPageColumns.Add(new(){Id=candidateId+"98",ConfigPageId=candidateId,ConfigColumnId="98",IsShow=1});
+            if(joinedName)
+            {
+                label.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+                label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("alias_ref.caption");
+                catalog.ConfigTables.Add(new(){Id="10",TableName="checkbox_control_parent_alias_dictionary",IsRongyu=0});
+                catalog.ConfigColumns.AddRange([
+                    new(){Id="101",ConfigTableId="10",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                    new(){Id="102",ConfigTableId="10",ColumnName="caption",LogicalType="string"},
+                    new(){Id="103",ConfigTableId="10",ColumnName="yz_project_id",LogicalType="int64"},
+                    new(){Id="104",ConfigTableId="10",ColumnName="enabled_flag",LogicalType="int32"},
+                    new(){Id="99",ConfigTableId="9",ColumnName="alias_ref_id",LogicalType="int64",ControlKind="List",
+                        LinkConfigTableId="10",ControlDetail="""{"tableId":"10","pageId":"1001","nameField":"caption"}"""}
+                ]);
+                catalog.ConfigPages.Add(new(){Id="1001",ConfigTableId="10",WhereSql="yz_project_id=@current_yz_project_id AND enabled_flag=1",
+                    Extra=new(){["type"]=JsonSerializer.SerializeToElement(2)}});
+                catalog.ConfigPageColumns.Add(new(){Id="100102",ConfigPageId="1001",ConfigColumnId="102",IsShow=1});
+            }
+            catalog.ConfigColumns.Add(new(){Id="29",ConfigTableId="2",ColumnName="selected_names",LogicalType="string",
+                Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("selected.name")}});
+            catalog.ConfigPageColumns.Add(new(){Id="20129",ConfigPageId="201",ConfigColumnId="29",IsShow=1,
+                Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
+            if(scopeFromPage)sourcePage.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+            else sourcePage.Extra.Remove("exportMethod");
+        }
         RedundantMultiNameCacheTests.Published(catalog);
         if(overridePage)
         {
@@ -582,12 +632,18 @@ public sealed class DerivedCheckboxNamesTests
         Assert.True(resolution.Definition is not null,resolution.Reason);
         var checkbox=resolution.Definition!;
         Assert.True(checkbox.LogicalSourceParent);
-        if(globalParent&&scopeFromPage)
+        if(alternateName.Length>0)
+        {
+            Assert.Equal("short_label",checkbox.Name.Source.ColumnName);
+            Assert.Equal("selected_names",checkbox.Names.Source.ColumnName);
+        }
+        if(globalParent&&scopeFromPage||logicalTarget)
             Assert.Equal(candidateId,checkbox.LogicalTargetPage!.Source.Id);
         else
             Assert.Null(checkbox.LogicalTargetPage);
         Assert.Equal(parent.Id,Assert.Single(checkbox.SourceParents).Source.Id);
-        Assert.Contains(checkbox.Scopes,scope=>scope.Source=="parent"&&scope.Column.Source.Id==targetParent.Id);
+        Assert.Contains(checkbox.Scopes,scope=>scope.Source=="parent"&&
+            (logicalTarget?scope.Column.Source.ColumnName=="target_country_id":scope.Column.Source.Id==targetParent.Id));
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-control-logical-parent");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -603,8 +659,20 @@ public sealed class DerivedCheckboxNamesTests
                 Assert.Contains("submitted.Contains(\"owner_country_id\")",generated);
             if(overridePage)Assert.Contains("CompileMultiGlobalParent(\"9\",\"902\")",generated);
             Assert.Contains("CountryId=Metarill.Data.Queries.NonRedundantReads.Value<long?>(row,\"country_id\")",generated);
-            Assert.Contains(derived?"new(\"target_scope_id\",FixedReadComparison.Equal,parentId!)"
-                :"row.TargetScopeId==long.Parse(parentId!",generated);
+            if(logicalTarget)
+            {
+                Assert.Contains("CompileScopedCheckboxLabel",generated);
+                Assert.Contains("new(\"target_country_id\",FixedReadComparison.Equal,long.Parse(parentId!",generated);
+            }
+            else Assert.Contains(checkbox.DerivedName?"new(\"target_scope_id\",FixedReadComparison.Equal,parentId!)":
+                derived?"row.TargetScopeId==parentId!":"row.TargetScopeId==long.Parse(parentId!",generated);
+            if(alternateName.Length>0)
+            {
+                Assert.Contains("SelectedNames",generated);
+                Assert.Contains("FixedReadComparison.JsonArrayAnyContains",generated);
+                Assert.Contains("logicalRelationParentId: parentId",generated);
+                Assert.DoesNotContain("entity.SelectedNames=",generated);
+            }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service=assembly.GetType(ns+".Generated.Services.CheckboxControlParentSourceService",true)!;
             Assert.NotNull(service.GetMethod("Import201Async"));
@@ -613,6 +681,24 @@ public sealed class DerivedCheckboxNamesTests
             var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service
                 .GetField("ExportReadPlan201",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
             var sqlPlan=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+            if(alternateName.Length>0)
+            {
+                var readPlan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service
+                    .GetField("ReadPlan201",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
+                var readSql=readPlan.GetType().GetProperty("MySql",hidden)!.GetValue(readPlan)!;
+                var projections=(System.Collections.IDictionary)readSql.GetType().GetProperty("MultiProjections",hidden)!.GetValue(readSql)!;
+                Assert.True(projections.Contains("selected_names"));
+                var projection=projections["selected_names"];
+                Assert.NotNull(projection);
+                string Part(string key)=>Assert.IsType<string>(projection.GetType().GetProperty(key)!.GetValue(projection));
+                Assert.Contains(logicalTarget?"target_place_id":"target_scope_id",Part("TargetScope")+Part("NameExpression")+Part("Joins"));
+                if(joinedName)
+                {
+                    Assert.Contains("alias_dictionary",Part("Joins"));
+                    Assert.Contains("enabled_flag",Part("NameExpression")+Part("Joins"));
+                }
+                else Assert.Contains("short_label",Part("NameExpression"));
+            }
             var parentExpression=Assert.IsType<string>(sqlPlan.GetType().GetMethod("Expression",hidden)!.Invoke(sqlPlan,["country_id"]));
             Assert.StartsWith("CASE WHEN",parentExpression);
             Assert.Contains(" THEN ",parentExpression);
@@ -651,7 +737,20 @@ public sealed class DerivedCheckboxNamesTests
                 Assert.Contains("<uni-data-checkbox multiple",detail);
                 Assert.Contains("findNameIdSelected28",detail);
             }
-            targetParent.LinkConfigTableId="4";
+            if(alternateName.Length>0)
+            {
+                var label=catalog.ConfigPageColumns.Single(field=>field.Id==candidateId+"98");
+                label.IsShow=label.IsEdit=0;
+                var blocked=GenerationModel.Create(catalog,ns);
+                var source=blocked.Tables.Single(item=>item.Source.Id=="2");
+                Assert.Null(DatabaseCheckboxCompilation.Resolve(blocked,source,source.Pages.Single(),
+                    source.Columns.Single(column=>column.Source.Id=="28")).Definition);
+                label.IsShow=label.IsEdit=1;
+            }
+            if(logicalTarget)
+                catalog.ConfigPages.Single(item=>item.Id==candidateId).WhereSql=
+                    "yz_project_id=@current_yz_project_id AND target_area_id=@parentId";
+            else targetParent.LinkConfigTableId="4";
             model=GenerationModel.Create(catalog,ns);
             table=model.Tables.Single(item=>item.Source.Id=="2");
             page=table.Pages.Single(item=>item.Source.Id=="201");

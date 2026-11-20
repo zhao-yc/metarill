@@ -13,7 +13,7 @@ internal static class DerivedCheckboxNamesCompilation
         if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0||def.Target.Source.IsView!=0||def.Target.Source.IsFunctionTable!=0||def.Name.Type!="string?"&&!Metarill.Core.Contracts.MultiValueLabel.IsTyped(def.Name.Source.LogicalType)||def.Name.IsJsonArray)throw new InvalidOperationException("派生复选名称要求已证明来源与普通R0目标的固定单值名称。");
         var fields=def.Scopes.Select(scope=>scope.Column).Concat(def.Conditions?.Syntax.Fields.Select(field=>def.Target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();
         if(fields.Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,def.Target,column)&&
-            (!def.SharedLogicalParentScope&&!def.CompoundTargetParents&&def.FunctionParentField is null||def.LogicalTargetPage is null||
+            (!def.SharedLogicalParentScope&&!def.RealtimeLogicalParentScope&&!def.CompoundTargetParents&&def.FunctionParentField is null||def.LogicalTargetPage is null||
              !NonRedundantCrossParentCompilation.Managed(model,def.Target,def.LogicalTargetPage,column))))throw new InvalidOperationException("派生复选的身份、父及附加条件必须为物理标量。");
         var pageFields=def.PhysicalTargetPage?.Condition?.Syntax.Fields??[];
         var outputs=OutputFields(def,cachedLabels);
@@ -122,7 +122,7 @@ internal static class DerivedCheckboxNamesCompilation
 
     /// <summary>实际复选页承担多父条件，也承担单物理全局父叠加精确匹配的范围。</summary>
     internal static bool UsesScopedCheckboxLabel(GenerationModel model,DatabaseCheckboxModel def)=>
-        !UsesGlobalExactPage(def)&&(def.SharedLogicalParentScope||def.CompoundTargetParents||
+        !UsesGlobalExactPage(def)&&(def.SharedLogicalParentScope||def.RealtimeLogicalParentScope||def.CompoundTargetParents||
             def.GlobalParent&&def.LogicalTargetPage is not null&&def.ExactTarget is not null&&!HasExactLogicalParent(model,def));
 
     /// <summary>固定逻辑成员计划只解析字段，页面字面条件和当前账号在调用时显式附加。</summary>
