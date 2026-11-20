@@ -202,11 +202,40 @@ public sealed class DescendingIndexSchemaTests
         Assert.All(inspection.Issues,issue=>Assert.Equal(physical,issue.Table));
         Assert.Equal(1,provider.Commits);Assert.Equal(0,provider.Rollbacks);
     }
+    /// <summary>视图只从目录读取投影；实体审核按同一对象名拒绝且不执行源 SQL。</summary>
+    [Fact]
+    public async Task Import_preview_reads_view_columns_without_probing_rows_and_prepare_rejects_it()
+    {
+        var provider = new RecordingProvider { ViewExists = true, CaseMode = 2, PhysicalName = "Customer_View" };
+        using var session = Session(provider);
+        var service = new SchemaService(session);
+
+        var inspection = await service.WithImportPreviewAsync(["customer_view"],
+            (value, _) => Task.FromResult(value));
+        var view = Assert.Single(inspection.Snapshot.Schema.Tables);
+        Assert.Equal("Customer_View", view.Name);
+        Assert.Equal(view.Name, Assert.Single(inspection.Views));
+        Assert.Equal(["id", "caption"], view.Columns.Select(column => column.Name));
+        Assert.Null(view.SnapshotDefinition);
+        Assert.Null(view.Indexes);
+        Assert.Equal(1, provider.ViewReads);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.InspectForImportAsync(["customer_view"]));
+        Assert.Equal(1, provider.ViewReads);
+        Assert.Equal(0, provider.TableProbeReads);
+        Assert.Equal(0, provider.IndexReads);
+        Assert.Equal(0, provider.Ddl);
+        Assert.Equal(1, provider.Commits);
+        Assert.Equal(1, provider.Rollbacks);
+    }
+
     private sealed class RecordingProvider:IDatabaseProvider
     {
         internal string Uuid {get;set;}="offline-instance";
         internal int CaseMode;internal string PhysicalName="record";
         internal string Version="8.0.43";internal bool TableExists;internal string?[] Directions=["D","A"];internal int Ddl,IndexReads,Locks,FactoryCommands,CreatedCommands,Begins,Commits,Rollbacks;internal bool ObserveCommands;internal Exception? BeginFailure,CommitFailure,RollbackFailure;internal CancellationToken RollbackToken;internal IsolationLevel BeginLevel;
+        internal bool ViewExists;
+        internal int ViewReads, TableProbeReads;
         internal bool SingleIndexColumn;
         internal bool HasVisibilityColumn = true;
         internal int? PrefixLength;
@@ -236,13 +265,27 @@ public sealed class DescendingIndexSchemaTests
         public override object? ExecuteScalar()
         {
             if(CommandText=="SELECT @@lower_case_table_names")return provider.CaseMode;if(CommandText=="SELECT DATABASE()")return "direction_offline";if(CommandText=="SELECT @@server_uuid")return provider.Uuid;
-            if(CommandText.StartsWith("SELECT TABLE_TYPE",StringComparison.Ordinal))return provider.TableExists?"BASE TABLE":null;if(CommandText.StartsWith("SELECT ENGINE",StringComparison.Ordinal))return "InnoDB";
+            if(CommandText.StartsWith("SELECT TABLE_TYPE",StringComparison.Ordinal))return provider.ViewExists ? "VIEW" : provider.TableExists ? "BASE TABLE" : null;if(CommandText.StartsWith("SELECT ENGINE",StringComparison.Ordinal))return "InnoDB";
             if(CommandText.Contains("GET_LOCK",StringComparison.Ordinal)){provider.Locks++;return 1;}if(CommandText.Contains("RELEASE_LOCK",StringComparison.Ordinal))return 1;throw new InvalidOperationException("未声明离线SQL。");
         }
         protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
         {
             var table=new DataTable();void Columns(params string[] names){foreach(var name in names)table.Columns.Add(name,typeof(object));}
-            if(CommandText.StartsWith("SELECT 1 FROM ",StringComparison.Ordinal)){Assert.EndsWith(" LIMIT 0",CommandText);Columns("constant");}
+            if(CommandText.StartsWith("SELECT 1 FROM ",StringComparison.Ordinal))
+            {
+                provider.TableProbeReads++;
+                Assert.EndsWith(" LIMIT 0",CommandText);
+                Columns("constant");
+            }
+            else if(CommandText.StartsWith("SELECT objects.TABLE_TYPE", StringComparison.Ordinal))
+            {
+                provider.ViewReads++;
+                Assert.NotNull(DbTransaction);
+                Assert.Equal("customer_view", DbParameterCollection["@view"].Value);
+                Columns("kind", "name", "type", "nullable", "physical");
+                table.Rows.Add("VIEW", "id", "bigint", "NO", provider.PhysicalName);
+                table.Rows.Add("VIEW", "caption", "varchar(64)", "YES", provider.PhysicalName);
+            }
             else if(CommandText.StartsWith("SELECT TABLE_NAME,COUNT(*) FROM information_schema.COLUMNS",StringComparison.Ordinal))
             {
                 Assert.NotNull(DbTransaction);Assert.Single(DbParameterCollection.Cast<DbParameter>());

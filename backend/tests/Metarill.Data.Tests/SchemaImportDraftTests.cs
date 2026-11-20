@@ -42,6 +42,40 @@ public sealed class SchemaImportDraftTests
         Assert.Equal(before, System.Text.Json.JsonSerializer.Serialize(input));
     }
 
+    /// <summary>只读视图草案保留逻辑显示字段和实际物理列，也明确报告无法由结构证明的 ID 约束。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void View_drafts_keep_physical_columns_and_require_separate_registration(bool nullableId)
+    {
+        var input = new SchemaImportInspection(
+            new("mysql", new("schema_import_test",
+            [
+                new("customer_summary", [new("id", "bigint", nullableId), new("name", "varchar(64)", true)]),
+                new("source_record", [new("id", "bigint", false, true)])
+            ]), "fingerprint"), [])
+        {
+            Views = new HashSet<string>(StringComparer.Ordinal) { "customer_summary" }
+        };
+
+        var draft = SchemaImportDraftCompiler.Compile(input, "123");
+
+        Assert.False(draft.ColumnsAndIndexesRepresentable);
+        var view = Assert.Single(draft.LogicalMetadata.ConfigTables, table => table.IsView == 1);
+        Assert.Equal("customer_summary", view.TableName);
+        Assert.Single(draft.LogicalMetadata.ConfigTables, table => table.IsView == 0 && table.TableName == "source_record");
+        Assert.Contains(draft.LogicalMetadata.ConfigColumns, column =>
+            column.ConfigTableId == view.Id && column.ColumnName == "name" && column.LogicalType == "string");
+        var id = Assert.Single(draft.LogicalMetadata.ConfigColumns, column =>
+            column.ConfigTableId == view.Id && column.ColumnName == "id" && column.LogicalType == "int64");
+        Assert.Equal(nullableId ? 0 : 1, id.IsDbNotNull);
+        Assert.False(draft.Source.Snapshot.Schema.Tables[0].Columns[0].PrimaryKey);
+        Assert.Contains(draft.Issues, issue =>
+            issue.Table == view.TableName && issue.Code == (nullableId ? "VIEW_ID_UNSUPPORTED" : "VIEW_ID_UNVERIFIED"));
+        Assert.Empty(draft.LogicalMetadata.ConfigIndexes);
+        Assert.Empty(draft.LogicalMetadata.ConfigPages);
+    }
+
     /// <summary>未知类型、表达式、自动列和不能表示的空默认值均报告缺口，不能静默改变源结构。</summary>
     [Theory]
     [InlineData("float", null, false)]

@@ -28,21 +28,31 @@ public static class SchemaImportDraftCompiler
             var tableId = "draft_table_" + position.ToString(CultureInfo.InvariantCulture);
             try { MetadataValidation.RequireIdentifier(table.Name); }
             catch (InvalidOperationException) { issues.Add(new(table.Name, null, "IDENTIFIER_UNSUPPORTED", "源表名不符合平台标识符规则。")); continue; }
-            catalog.ConfigTables.Add(new() { Id = tableId, YzProjectId = projectId, TableName = table.Name, Name = table.Name });
-            if (table.Columns.Count(column => column.PrimaryKey) != 1 || !table.Columns.Any(column => column.Name == "id" && column.PrimaryKey && column.StoreType == "bigint" && !column.Nullable))
+            var view = source.Views.Contains(table.Name);
+            catalog.ConfigTables.Add(new() { Id = tableId, YzProjectId = projectId, TableName = table.Name, Name = table.Name, IsView = view ? 1 : 0 });
+            if (view)
+            {
+                if (table.Columns.Any(column => column.Name == "id" && column.StoreType == "bigint" && !column.Nullable))
+                    issues.Add(new(table.Name, "id", "VIEW_ID_UNVERIFIED", "列投影不能证明视图 id 唯一或稳定。视图草案不可提交审核保存。"));
+                else
+                    issues.Add(new(table.Name, "id", "VIEW_ID_UNSUPPORTED", "只读页面要求视图提供稳定、非空的有符号 bigint id。"));
+            }
+            else if (table.Columns.Count(column => column.PrimaryKey) != 1 || !table.Columns.Any(column => column.Name == "id" && column.PrimaryKey && column.StoreType == "bigint" && !column.Nullable))
                 issues.Add(new(table.Name, "id", "PRIMARY_KEY_UNSUPPORTED", "实体必须有唯一的非空有符号bigint主键id；不推断或改造源主键。"));
             var columns = new Dictionary<string, ColumnMetadata>(StringComparer.Ordinal);
             foreach (var (physical, index) in table.Columns.Select((column, index) => (column, index)))
             {
                 try
                 {
-                    var column = Column(physical);
+                    // 用生成器要求的逻辑 ID 核对映射，不把视图投影标记为实体主键。
+                    var column = Column(view && physical.Name == "id" ? physical with { PrimaryKey = true } : physical);
                     column.Id = tableId + "_column_" + index.ToString(CultureInfo.InvariantCulture); column.ConfigTableId = tableId; column.YzProjectId = projectId; column.SortNo = (index + 1) * 10;
                     catalog.ConfigColumns.Add(column); columns.Add(column.ColumnName, column);
                 }
                 catch (Exception error) when (error is InvalidOperationException or ArgumentException or NotSupportedException)
                 { issues.Add(new(table.Name, physical.Name, "COLUMN_UNREPRESENTABLE", error.Message)); }
             }
+            if (view) continue;
             foreach (var (index, number) in (table.Indexes ?? []).Select((index, number) => (index, number)))
             {
                 try

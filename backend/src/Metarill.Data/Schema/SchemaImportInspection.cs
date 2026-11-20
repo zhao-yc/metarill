@@ -6,7 +6,11 @@ namespace Metarill.Data.Schema;
 
 /// <summary>位置和原因均来自适配器；不会将未表达的结构特征静默转换为普通列或索引。</summary>
 public sealed record SchemaImportIssue(string Table, string? Member, string Code, string Message);
-public sealed record SchemaImportInspection(SchemaInspectionSnapshot Snapshot, IReadOnlyList<SchemaImportIssue> Issues, bool CaseSensitiveNames = true, DatabaseTargetIdentity? Target = null);
+public sealed record SchemaImportInspection(SchemaInspectionSnapshot Snapshot, IReadOnlyList<SchemaImportIssue> Issues, bool CaseSensitiveNames = true, DatabaseTargetIdentity? Target = null)
+{
+    /// <summary>只读预览中按实际物理名称记录的视图，不能作为可保存实体使用。</summary>
+    public IReadOnlySet<string> Views { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+}
 
 public sealed partial class SchemaService
 {
@@ -15,7 +19,15 @@ public sealed partial class SchemaService
         WithImportInspectionAsync(names, (inspection, _) => Task.FromResult(inspection), token);
 
     /// <summary>同一事务持有每张源表的元数据锁，检查及调用者复核结束前不释放；回调不获得数据库连接。</summary>
-    public async Task<T> WithImportInspectionAsync<T>(IReadOnlyList<string> names, Func<SchemaImportInspection, CancellationToken, Task<T>> inspect, CancellationToken token = default)
+    public Task<T> WithImportInspectionAsync<T>(IReadOnlyList<string> names, Func<SchemaImportInspection, CancellationToken, Task<T>> inspect, CancellationToken token = default) =>
+        WithImportInspectionCoreAsync(names, inspect, allowViewPreview: false, token);
+
+    /// <summary>反向逻辑草案可预览视图列；审核与保存仍复用实体专用入口。</summary>
+    public Task<T> WithImportPreviewAsync<T>(IReadOnlyList<string> names, Func<SchemaImportInspection, CancellationToken, Task<T>> inspect, CancellationToken token = default) =>
+        WithImportInspectionCoreAsync(names, inspect, allowViewPreview: true, token);
+
+    private async Task<T> WithImportInspectionCoreAsync<T>(IReadOnlyList<string> names,
+        Func<SchemaImportInspection, CancellationToken, Task<T>> inspect, bool allowViewPreview, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(names); ArgumentNullException.ThrowIfNull(inspect);
         if (names.Count is < 1 or > 16 || names.Distinct(StringComparer.OrdinalIgnoreCase).Count() != names.Count)
@@ -37,12 +49,24 @@ public sealed partial class SchemaService
             if (caseMode is < 0 or > 2) throw new InvalidOperationException("无法核实数据库名称比较规则。");
             var comparison = caseMode == 0 ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
             var physicalNames = new List<string>(names.Count);
+            var views = new List<TableSchema>();
             var total = 0L;
             foreach (var name in names.Order(StringComparer.Ordinal))
             {
                 var kind = Convert.ToString(await ScalarInTransactionAsync(connection, transaction,
                     "SELECT TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=@table", token, ("@table", name)));
-                if (kind != "BASE TABLE") throw new InvalidOperationException("反向草案只检查存在的实体表，不执行视图定义。");
+                if (allowViewPreview && kind == "VIEW")
+                {
+                    // 视图预览只使用目录结果，不执行 LIMIT 0，以免展开视图或依赖其运行权限。
+                    var view = await ReadViewFromCatalogAsync(connection, transaction, name, token)
+                        ?? throw new InvalidOperationException("源视图在检查期间缺失。");
+                    MetadataValidation.RequireIdentifier(view.Name);
+                    views.Add(view);
+                    total += view.Columns.Count;
+                    if (total > 4096) throw new InvalidOperationException("源结构超过本轮4096列预算，未返回截断模型。");
+                    continue;
+                }
+                if (kind != "BASE TABLE") throw new InvalidOperationException("反向审核和保存只接受存在的实体表，视图只能预览列投影。");
                 // SHOW CREATE的MDL只保留到语句结束；固定LIMIT 0查询不读取业务行，显式事务持有表级MDL。
                 await using var command = session.Provider.CreateCommand(connection); command.Transaction = transaction; command.CommandTimeout = 15;
                 command.CommandText = "SELECT 1 FROM " + MySqlSchemaPlanner.Quote(name) + " LIMIT 0";
@@ -61,13 +85,22 @@ public sealed partial class SchemaService
                 total += count;
                 if (count is < 1 or > 512 || total > 4096) throw new InvalidOperationException("源结构超过每表512列或本轮4096列预算，未返回截断模型。");
             }
-            var schema = await ReadSchemaAsync(connection, physicalNames, token, transaction);
-            if (schema.Tables.Count != names.Count) throw new InvalidOperationException("源表在检查期间缺失。");
+            var schema = physicalNames.Count == 0
+                ? new DatabaseSchema(session.Options.ExpectedDatabase, [])
+                : await ReadSchemaAsync(connection, physicalNames, token, transaction);
+            if (schema.Tables.Count != physicalNames.Count) throw new InvalidOperationException("源表在检查期间缺失。");
+            if (views.Count > 0)
+                schema = schema with { Tables = schema.Tables.Concat(views).OrderBy(table => table.Name, StringComparer.Ordinal).ToArray() };
             if (schema.Tables.Sum(table => (long)(table.SnapshotDefinition?.Length ?? 0)) > 2 * 1024 * 1024)
                 throw new InvalidOperationException("源DDL快照超过2 MiB预算，未生成截断模型。");
             var issues = new List<SchemaImportIssue>();
             foreach (var name in physicalNames.Order(StringComparer.Ordinal)) await ReadImportFeaturesAsync(connection, transaction, name, issues, token);
-            var result = await inspect(new(new(session.Provider.Name, schema, MySqlSchemaPlanner.Fingerprint(schema)), issues.Distinct().ToArray(), caseMode == 0, TargetIdentity(identity, caseMode)), token);
+            var inspection = new SchemaImportInspection(new(session.Provider.Name, schema, MySqlSchemaPlanner.Fingerprint(schema)),
+                issues.Distinct().ToArray(), caseMode == 0, TargetIdentity(identity, caseMode))
+            {
+                Views = views.Select(view => view.Name).ToHashSet(StringComparer.Ordinal)
+            };
+            var result = await inspect(inspection, token);
             var commitObservation=DatabaseCommandObservation.StartTransaction(connection,transaction,DatabaseTransactionOperation.Commit);
             try{await transaction.CommitAsync(token);commitObservation?.Complete(transaction,null);}
             catch(Exception error){commitObservation?.Complete(transaction,error);throw;}

@@ -45,7 +45,20 @@ public sealed partial class ApiAcceptanceTests
             Assert.DoesNotContain("private-business-row", preview.GetRawText()); Assert.False(preview.TryGetProperty("planId", out _));
             var rejected = Data(await Post(client, route, new { tableNames = new[] { bad } })); var issues = rejected.GetProperty("draft").GetProperty("issues").EnumerateArray().ToArray();
             Assert.False(rejected.GetProperty("draft").GetProperty("columnsAndIndexesRepresentable").GetBoolean()); Assert.Contains(issues, issue => issue.GetProperty("code").GetString() == "COLUMN_UNREPRESENTABLE"); Assert.Contains(issues, issue => issue.GetProperty("code").GetString() == "INDEX_FEATURE_UNSUPPORTED"); Assert.Contains(issues, issue => issue.GetProperty("code").GetString() == "CONSTRAINT_UNSUPPORTED");
-            foreach (var invalid in new object[] { new { tableNames = new[] { view } }, new { tableNames = new[] { "demo_customer" } }, new { tableNames = new[] { name }, confirmed = true }, new { tableNames = new[] { name }, projectId = Project }, new { tableNames = new[] { "other_db.table" } }, new { tableNames = (string[]?)null } }) Assert.Equal(500, (await Post(client, route, invalid)).GetProperty("code").GetInt32());
+            var viewPreview = Data(await Post(client, route, new { tableNames = new[] { view } }));
+            Assert.False(viewPreview.GetProperty("canImport").GetBoolean());
+            Assert.False(viewPreview.GetProperty("executable").GetBoolean());
+            Assert.False(viewPreview.TryGetProperty("planId", out _));
+            var viewDraft = viewPreview.GetProperty("draft");
+            Assert.False(viewDraft.GetProperty("columnsAndIndexesRepresentable").GetBoolean());
+            var viewModel = viewDraft.GetProperty("logicalMetadata");
+            Assert.Equal(1, Assert.Single(viewModel.GetProperty("configTables").EnumerateArray()).GetProperty("isView").GetInt32());
+            Assert.Empty(viewModel.GetProperty("configIndexes").EnumerateArray());
+            Assert.DoesNotContain("CREATE VIEW", viewPreview.GetRawText(), StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("private-business-row", viewPreview.GetRawText(), StringComparison.Ordinal);
+            Assert.Equal(500, (await Post(client, "/admin/sys/database/import/prepare",
+                new { tableNames = new[] { view } })).GetProperty("code").GetInt32());
+            foreach (var invalid in new object[] { new { tableNames = new[] { "demo_customer" } }, new { tableNames = new[] { name }, confirmed = true }, new { tableNames = new[] { name }, projectId = Project }, new { tableNames = new[] { "other_db.table" } }, new { tableNames = (string[]?)null } }) Assert.Equal(500, (await Post(client, route, invalid)).GetProperty("code").GetInt32());
             using var anonymous = factory.CreateClient(); Assert.Equal(500, (await Body(await anonymous.PostAsJsonAsync("/api" + route, new { tableNames = new[] { name } }))).GetProperty("code").GetInt32());
             var address = Assert.Single(factory.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses); var session = Assert.Single(client.DefaultRequestHeaders.GetValues("loginStateId"));
             var cli = await RunPlatformSchemaCli(address, "import-preview", Project, session, "--tables", name); Assert.True(cli.Code == 0, cli.Error); Assert.Equal(draft.GetProperty("source").GetProperty("snapshot").GetProperty("fingerprint").GetString(), Json(cli.Output).GetProperty("draft").GetProperty("source").GetProperty("snapshot").GetProperty("fingerprint").GetString());
