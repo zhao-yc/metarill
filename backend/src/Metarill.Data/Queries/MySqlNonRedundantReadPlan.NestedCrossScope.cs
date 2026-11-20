@@ -239,6 +239,38 @@ public static partial class MySqlNonRedundantReadCompiler
         internal MultiTargetParentScope? MultiCandidateParent{get;set;}
         internal PageMetadata? MultiCandidatePage{get;init;}
         private string? selectedMultiParentSql;
+        private readonly Dictionary<string,string> additionalMultiParentSql=new(StringComparer.Ordinal);
+
+        /// <summary>补全其它实际父字段的逻辑投影，并以同一规范父键同时限定所有层位。</summary>
+        private string ApplyAdditionalMultiParents(MultiTargetParentScope parent,string canonical,
+            IDictionary<string,string> expressions,IDictionary<string,string> types)
+        {
+            if(parent.AdditionalTargets.Count==0)return "";
+            var predicates=new List<string>();
+            foreach(var scope in parent.AdditionalTargets)
+            {
+                var field=scope.Target.ColumnName;
+                var value=scope.Logical
+                    ?additionalMultiParentSql[field]:rootAlias+"."+Q(field);
+                if(scope.Logical)
+                {
+                    expressions[field]=value;
+                    types[field]=scope.Target.LogicalType;
+                }
+                else
+                {
+                    Use(root,scope.Target);
+                    Touch(rootAlias,field);
+                }
+                predicates.Add(SameSingleParent(value,canonical));
+            }
+            return string.Concat(predicates.Select(predicate=>" AND "+predicate));
+        }
+
+        /// <summary>仅选中页的逻辑父级交由真实路径恢复。</summary>
+        private bool IsSelectedLogicalParent(string field)=>SelectedMultiPage is not null&&
+            MultiCandidateParent is {} parent&&(parent.Logical&&parent.Target.ColumnName==field||
+                parent.AdditionalTargets.Any(scope=>scope.Logical&&scope.Target.ColumnName==field));
         internal (CascadeCacheOwner Owner,ColumnMetadata Column)? MultiParentOwner{get;init;}
 
         /// <summary>普通父表沿用实际项目范围。全局逻辑父由已验证的完整级联表达式确定可见性。</summary>
@@ -324,13 +356,16 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,allowMultiParent:MultiCandidateParent is not null);
                 else GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
             }
+            var additional=MultiCandidateParent is {AdditionalTargets.Count:>0} compound
+                ?compound.AdditionalTargets.Select(parent=>parent.Target.ColumnName).ToHashSet(StringComparer.Ordinal):null;
+            if(additional is not null)cascadeLabelPages.Add(page.Id);
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
-                multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,separateExactScope:exact);
+                multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,separateExactScope:exact,additionalParents:additional);
             if(!condition.Allowed)
                 throw new NotSupportedException("多值目标页包含未接通的范围。");
             if(!condition.HasLogical)
             {
-                if(!AllowLiteralMultiScope&&MultiCandidateParent is not {Global:true,Logical:false}&&
+                if(!AllowLiteralMultiScope&&MultiCandidateParent is not {Global:true,Logical:false}&&additional?.Count is not >0&&
                     condition.Plan is not {Variables.Count:>0})
                     throw new NotSupportedException("多值目标页缺少固定的级联或账号范围。");
                 if(condition.Plan is not {} account)return scope;
@@ -338,7 +373,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(cascadeCacheOwner is {} owner)
                 {
                     var predicate=PhysicalAccountCacheCondition(root,rootAlias,page,owner,MultiCandidateParent?.Target,
-                        separateExactScope:exact);
+                        separateExactScope:exact,additionalParents:additional);
                     return scope.Length==0?predicate:scope+" AND "+predicate;
                 }
                 // 项目和父参数已由实际范围负责，账号条件只追加已证明的物理字段。
@@ -348,10 +383,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 return scope.Length==0?clause.Sql:scope+" AND "+clause.Sql;
             }
             var plan=condition.Plan;
-            var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target,treeNames);
+            var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target,treeNames,additional);
             output=cascadeLabelField!;
             var level=new CrossLevel(root,Column(root,cascadeLabelField!),null,new(page.Id,plan),page,fields);
-            var selected=NestedCrossCondition(level,rootAlias,multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames);
+            var selected=NestedCrossCondition(level,rootAlias,multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,
+                additionalParents:additional);
             return scope.Length==0?selected:scope+" AND "+selected;
         }
         internal bool GlobalCrossCandidate{get;init;}
@@ -551,10 +587,11 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>物理账号条件按来源行归属计算，并记录源字段和目标筛选列的反向依赖。</summary>
         private string PhysicalAccountCacheCondition(TableMetadata table,string alias,PageMetadata page,
-            CascadeCacheOwner owner,ColumnMetadata? parentField=null,bool allowFixedOnly=false,bool separateExactScope=false)
+            CascadeCacheOwner owner,ColumnMetadata? parentField=null,bool allowFixedOnly=false,bool separateExactScope=false,
+            IReadOnlySet<string>? additionalParents=null)
         {
             var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,
-                parentField,owner.GlobalSingleSource,allowFixedOnly,separateExactScope);
+                parentField,owner.GlobalSingleSource,allowFixedOnly,separateExactScope,additionalParents);
             cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
             return AccountCacheScope(ownership,table,alias,owner.Alias,render:true,owner.Table);
         }
@@ -776,7 +813,8 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>同一条查询展开所需祖先，写入沿同一事务锁定全部联接。候选内部的存储校验不进入外层 VO。</summary>
         private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null,ColumnMetadata? multiParent=null,
-            IReadOnlySet<string>? selfTreeFields=null,string? sourceParent=null,bool storedSingleExact=false)
+            IReadOnlySet<string>? selfTreeFields=null,string? sourceParent=null,bool storedSingleExact=false,
+            IReadOnlySet<string>? additionalParents=null)
         {
             var table=level.Table;
             cacheOwner??=cascadeCacheOwner;
@@ -821,11 +859,15 @@ public static partial class MySqlNonRedundantReadCompiler
                 // 同一可见路径既负责页面条件，也负责恢复可能没有实际落库的逻辑父键。
                 if(sourceParent is null&&multiParent is not null&&level.LogicalFields.Contains(multiParent.ColumnName))
                     selectedMultiParentSql=Projection(multiParent.ColumnName);
+                if(additionalParents is not null)
+                    foreach(var field in additionalParents.Where(level.LogicalFields.Contains))
+                        additionalMultiParentSql[field]=Projection(field);
                 string predicate;
                 if(cacheOwner is {} row)
                 {
                     var proof=AccountScopedCrossCache.CompileRecursive(catalog,row.Table,table,level.Page,multiParent,
-                        row.GlobalTreeSource,selfTreeFields,row.GlobalSingleSource,storedSingleExact||UsesExactMultiSelection(level.Page,owner));
+                        row.GlobalTreeSource,selfTreeFields,row.GlobalSingleSource,storedSingleExact||UsesExactMultiSelection(level.Page,owner),
+                        additionalParents:additionalParents);
                     cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                     predicate=AccountCacheScope(proof,table,owner,row.Alias,render:true,row.Table,parameterPrefix,Projection);
                 }

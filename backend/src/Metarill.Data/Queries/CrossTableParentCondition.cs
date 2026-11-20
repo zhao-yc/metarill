@@ -34,7 +34,7 @@ public static class CrossTableParentCondition
     /// <summary>自树副本维护传入已经过控件和页面核对的逻辑叶名，其余用途维持原跨表范围。</summary>
     internal static (bool Allowed,FixedConditionSqlPlan? Plan,bool HasLogical) Compile(MetadataCatalog catalog,TableMetadata table,
         PageMetadata page,MetadataStoragePlan storage,bool allowLogical,ColumnMetadata? multiParent,
-        IReadOnlySet<string>? selfTreeFields,bool separateExactScope=false)
+        IReadOnlySet<string>? selfTreeFields,bool separateExactScope=false,IReadOnlySet<string>? additionalParents=null)
     {
         // 调用方须证明固定页面条件与请求精确权限分别在各自入口执行。
         if(!separateExactScope&&page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&
@@ -58,7 +58,8 @@ public static class CrossTableParentCondition
             if(variables.Length==0){conditions.Add(term);continue;}
             if(variables.Any(value=>MultiTargetParentScope.IsParameter(value.Text)))
             {
-                if(multiParent?.ColumnName==term.Field&&term.Comparison==FixedConditionComparison.Equal&&term.Values.Count==1)continue;
+                if((multiParent?.ColumnName==term.Field||additionalParents?.Contains(term.Field)==true)&&
+                    term.Comparison==FixedConditionComparison.Equal&&term.Values.Count==1)continue;
                 return(false,null,false);
             }
             if(term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||variables.Length!=1)

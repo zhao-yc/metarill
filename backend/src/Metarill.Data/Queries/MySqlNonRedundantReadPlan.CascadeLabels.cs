@@ -158,6 +158,8 @@ public static partial class MySqlNonRedundantReadCompiler
         var declared=RelationStorageColumns.Expand(table,members);
         var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
         return syntax.Variables.Any(AccountConditionVariables.IsSupported)||
+            page.Extra.GetValueOrDefault("type").ToString()=="2"&&syntax.Terms.Count(term=>term.Values.Any(value=>
+                value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text)))>1||
             syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,members,field)||
                 CascadeTreeStorageColumns.IsLogicalNameField(table,declared,field))||
             syntax.Terms.Any(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
@@ -250,7 +252,10 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         var table=catalog.ConfigTables.Single(item=>item.Id==page.ConfigTableId);
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
-        return MultiTargetParentScope.Compile(catalog,table,FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName)));
+        var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+        return page.Extra.GetValueOrDefault("type").ToString()=="2"
+            ?MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax)
+            :MultiTargetParentScope.Compile(catalog,table,syntax);
     }
 
     /// <summary>范围只冻结实际依赖的控件和共享同伴，页面覆盖必须保留相同路径定义。</summary>

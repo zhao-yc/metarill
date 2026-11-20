@@ -239,6 +239,17 @@ public sealed class CascadeMultiLabelGenerationTests
             physical:!logicalTarget,globalRowProject:globalTarget,parent:true,logicalParent:logicalTarget,
             sourceLogicalParent:true,compoundSourceParent:sourceScope,onlyParent:onlyParent);
 
+    /// <summary>原多选目标页的各父字段同时匹配同一真实父记录。</summary>
+    [Theory]
+    [InlineData("physical",0)]
+    [InlineData("mixed",0)]
+    [InlineData("mixed",1)]
+    [InlineData("independent",0)]
+    public Task Selected_page_compound_target_parent_conditions_compile_in_original_endpoints(string targetScope,int storageMode)=>
+        CompileCascadeLabel("MultiSelectPage",storageMode,selfTree:false,indirect:false,selectedPage:true,
+            physical:targetScope=="physical",parent:true,logicalParent:targetScope!="physical",
+            sourceLogicalParent:targetScope=="independent",onlyParent:targetScope=="physical",compoundTargetParent:targetScope);
+
     /// <summary>显式全局父沿实际级联层页校验，覆盖普通／全局目标及普通／逻辑来源父。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,null,true,false)]
@@ -314,7 +325,7 @@ public sealed class CascadeMultiLabelGenerationTests
 
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
         bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
-        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false,string? compoundSourceParent=null)
+        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false,string? compoundSourceParent=null,string? compoundTargetParent=null)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -416,6 +427,21 @@ public sealed class CascadeMultiLabelGenerationTests
             catalog.ConfigColumns.Add(new(){Id="914",ConfigTableId="9",ColumnName="source_scope_id",Name="所属记录",LogicalType="int64",LinkConfigTableId=parentTable});
             var page=catalog.ConfigPages.Single(page=>page.Id=="201");
             page.WhereSql+=(page.WhereSql.Length==0?"":" AND ")+parentField+"=@parent_id";
+            if(compoundTargetParent is not null)
+            {
+                if(compoundTargetParent=="independent")
+                {
+                    catalog.ConfigColumns.Add(new(){Id="217",ConfigTableId="2",ColumnName="other_area_id",LogicalType="int64",
+                        LinkConfigTableId="4",ControlKind="CascadeTree",ControlDetail=JsonSerializer.Serialize(new
+                        {
+                            sourceMode="crossTable",levels=new object[]{new{table="label_cross_country",columnPrefix="other_country"},
+                                new{table="label_cross_area",columnPrefix="other_area",parentField="label_cross_country_id"}}
+                        })});
+                    catalog.ConfigPageColumns.Add(new(){Id="201217",ConfigPageId="201",ConfigColumnId="217",IsEdit=1,IsShow=1});
+                }
+                else catalog.ConfigColumns.Add(new(){Id="217",ConfigTableId="2",ColumnName="other_country_id",LogicalType="int64",LinkConfigTableId=parentTable});
+                page.WhereSql+=" AND other_country_id=@parentId";
+            }
             if(globalParent)
             {
                 var globalDefinition=catalog.ConfigTables.Single(item=>item.Id==parentTable);
@@ -490,6 +516,14 @@ public sealed class CascadeMultiLabelGenerationTests
         }
 
         var model=GenerationModel.Create(catalog,ns);
+        if(compoundTargetParent is not null)
+        {
+            var owner=model.Tables.Single(item=>item.Source.Id=="9");
+            var child=owner.Pages.Single(item=>item.Source.Id=="901");
+            var resolved=MultiSelectCompilation.Resolve(model,owner,child,owner.Columns.Single(item=>item.Source.Id=="95"));
+            Assert.True(resolved.Definition is not null,resolved.Reason);
+            Assert.True(resolved.Definition!.SameParent);
+        }
         if(compoundSourceParent is not null)
         {
             var owner=model.Tables.Single(item=>item.Source.Id=="9");
@@ -608,6 +642,49 @@ public sealed class CascadeMultiLabelGenerationTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var consumer=assembly.GetType(ns+".Generated.Services.LabelConsumerService",true)!;
             RuntimeHelpers.RunClassConstructor(consumer.TypeHandle);
+            if(compoundTargetParent is not null)
+            {
+                var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
+                Assert.Contains("new(\"other_country_id\",FixedReadComparison.Equal,",code);
+                var targetCode=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LabelCrossSourceService.g.cs"));
+                Assert.Contains("SelectionSelected201Async",targetCode);
+                const System.Reflection.BindingFlags staticPrivate=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                var plan=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("MultiDerivedPlan901_95",staticPrivate)!.GetValue(null));
+                var sql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+                var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
+                Assert.Contains("BINARY CAST(",scope);
+                Assert.Contains(compoundTargetParent=="independent"?"`other_area_id`":"`other_country_id`",scope);
+
+                var targetMetadata=catalog.ConfigPages.Single(item=>item.Id=="201");
+                var previousWhere=targetMetadata.WhereSql;
+                var linked=catalog.ConfigColumns.Single(item=>item.Id=="217");
+                var previousLink=linked.LinkConfigTableId;
+                if(compoundTargetParent=="independent")
+                    targetMetadata.WhereSql=previousWhere.Replace("other_country_id=@parentId","other_area_id=@parentId",StringComparison.Ordinal);
+                else linked.LinkConfigTableId="4";
+                var invalid=GenerationModel.Create(catalog,ns);
+                var invalidOwner=invalid.Tables.Single(item=>item.Source.Id=="9");
+                Assert.Null(MultiSelectCompilation.Resolve(invalid,invalidOwner,invalidOwner.Pages.Single(item=>item.Source.Id=="901"),
+                    invalidOwner.Columns.Single(item=>item.Source.Id=="95")).Definition);
+                targetMetadata.WhereSql=previousWhere;
+                linked.LinkConfigTableId=previousLink;
+
+                if(compoundTargetParent=="physical")
+                {
+                    // 发布包必须保留原弹窗和多选页真实绑定，恢复后的运行时读取仍可编译。
+                    foreach(var configPage in catalog.ConfigPages)
+                        catalog.ConfigMenus.Add(new(){Id="700"+configPage.Id,YzProjectId=catalog.YzProjectId,
+                            YzAdminTypeId=configPage.YzAdminTypeId,Name="页面"+configPage.Id,Kind="GENERATED_PAGE",ConfigPageId=configPage.Id});
+                    var full=Path.Combine(directory,"full");
+                    new ApplicationPackager().Create(catalog,full,ns,NonRedundantApplicationFixture.Root());
+                    foreach(var operation in new[]{"restore","build"})
+                        await NonRedundantApplicationFixture.BuildAsync(full,operation);
+                    var detail=await File.ReadAllTextAsync(Path.Combine(full,"frontend/pages/yzp/label_consumer-detail-901.vue"));
+                    Assert.Contains("selectPageDialog95",detail);
+                    Assert.Contains(":parent_id=\"multiTargetParent('selectedIds')\"",detail);
+                }
+            }
             if(compoundSourceParent is not null)
             {
                 var owner=model.Tables.Single(item=>item.Source.Id=="9");

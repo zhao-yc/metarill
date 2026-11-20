@@ -11,6 +11,27 @@ public sealed record MultiSourceParent(ColumnMetadata Column,IReadOnlyList<PageM
 public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata Target,bool Logical)
 {
     public bool Global=>GlobalCrossTableTarget.Declared(Parent);
+    public IReadOnlyList<MultiTargetParentScope> AdditionalTargets { get; init; } = [];
+
+    /// <summary>原多选目标页可以用多个已证明的字段匹配同一业务父记录。</summary>
+    public static MultiTargetParentScope? CompileSelectionPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)
+    {
+        var terms=condition.Terms.Where(ParentTerm).ToArray();
+        if(terms.Length<=1)return Compile(catalog,table,condition);
+        if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table))throw Invalid();
+        var fields=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
+            .Select(column=>column.ColumnName).ToArray();
+        var scopes=terms.Select(term=>Compile(catalog,table,FixedConditionPlan.Compile(term.ToDefinition(),fields))!)
+            .DistinctBy(scope=>scope.Target.Id).OrderByDescending(scope=>scope.Logical)
+            .ThenBy(scope=>scope.Target.Id,StringComparer.Ordinal).ToArray();
+        var parent=scopes[0];
+        if(parent.Global||scopes.Any(scope=>scope.Parent.Id!=parent.Parent.Id))throw Invalid();
+        return parent with{AdditionalTargets=scopes[1..]};
+    }
+
+    /// <summary>只从已编译的元数据识别父参数，值由实际入口绑定。</summary>
+    private static bool ParentTerm(FixedConditionTerm term)=>term.Values.Any(value=>
+        value.Kind==FixedConditionValueKind.Variable&&IsParameter(value.Text));
 
     public static bool IsParameter(string variable)=>variable.Equals("parent_id",StringComparison.OrdinalIgnoreCase)||
         variable.Equals("parentId",StringComparison.OrdinalIgnoreCase);
@@ -25,8 +46,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
 
     private static MultiTargetParentScope? Compile(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox)
     {
-        var terms=condition.Terms.Where(term=>term.Values.Any(value=>
-            value.Kind==FixedConditionValueKind.Variable&&IsParameter(value.Text))).ToArray();
+        var terms=condition.Terms.Where(ParentTerm).ToArray();
         if(terms.Length==0)return null;
         if(terms.Length!=1||terms[0].Comparison!=FixedConditionComparison.Equal||terms[0].Values.Count!=1)
             throw Invalid();

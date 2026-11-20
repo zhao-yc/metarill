@@ -121,7 +121,7 @@ internal static class MultiSelectCompilation
             var compoundLogical=!functionForm&&sourceScopes.Length>1&&sourceParents.Length==1&&
                 sourceScopes.Any(column=>NonRedundantCrossParentCompilation.Managed(model,table,page,column));
             var scopedParent=(scoped||compoundLogical)&&targetPage.Scopes.Any(scope=>scope.Source=="parent")
-                ?MultiTargetParentScope.Compile(model.Catalog,target.Source,FixedConditionPlan.Compile(targetPage.Source.WhereSql,
+                ?MultiTargetParentScope.CompileSelectionPage(model.Catalog,target.Source,FixedConditionPlan.Compile(targetPage.Source.WhereSql,
                     target.Columns.Select(column=>column.Source.ColumnName))):null;
             if(functionForm)scopedParent??=MultiGlobalParentCompilation.PhysicalPageParent(model,target,targetPage);
             var targetParents = scopedParent is not null?[model.Tables.Single(parent=>parent.Source.Id==scopedParent.Parent.Id)]:

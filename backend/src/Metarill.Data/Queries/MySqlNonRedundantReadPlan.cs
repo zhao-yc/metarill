@@ -445,7 +445,7 @@ public static partial class MySqlNonRedundantReadCompiler
             foreach(var name in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 output=name;origin=null;physicalOriginAlias=null;
-                if(SelectedMultiPage is not null&&MultiCandidateParent is {Logical:true}&&name==MultiCandidateParent.Target.ColumnName)
+                if(IsSelectedLogicalParent(name))
                     continue; // 父层位由选中页的完整可见路径解析，不能回退到稀疏原始列。
                 var nameCacheOwner=MultiNamePathPage is not null?cascadeCacheOwner:null;
                 var resolved=Resolve(root,rootAlias,name,nameCacheOwner);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);if(origin is not null)origins[name]=origin;
@@ -469,7 +469,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 var field=multiParent.Target.ColumnName;
                 var parentSql=multiParent.Logical?selectedMultiParentSql??expressions[field]:rootAlias+"."+Q(field);
                 if(selectedMultiParentSql is not null){expressions[field]=parentSql;types[field]=multiParent.Target.LogicalType;}
-                scope+=(scope.Length==0?"":" AND ")+MultiParentPredicate(multiParent,parentSql);
+                scope+=(scope.Length==0?"":" AND ")+MultiParentPredicate(multiParent,parentSql)+
+                    ApplyAdditionalMultiParents(multiParent,parentSql,expressions,types);
             }
             var reversePlans=reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,
                 new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))

@@ -119,7 +119,8 @@ internal static class FixedPageConditionCompilation
     internal static bool HasLogicalFields(PageModel page)=>HasCrossFields(page)||HasSelfTreeFields(page);
     /// <summary>多值限定页包含账号、逻辑条件或由实际发布关系证明的全局物理父键。</summary>
     internal static bool HasMultiTargetScope(GenerationModel model,TableModel table,PageModel page)=>HasLogicalFields(page)||
-        table.Source.IsRongyu==0&&HasAccountVariables(page)||page.Scopes.Any(scope=>
+        table.Source.IsRongyu==0&&(HasAccountVariables(page)||SelectionPageRenderer.Enabled(page)&&
+            page.Scopes.Count(scope=>scope.Source=="parent")>1)||page.Scopes.Any(scope=>
         scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName))||
         table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent"&&
             model.Tables.Any(parent=>parent.IsGlobal&&parent.Source.Id==scope.Column.Source.LinkConfigTableId))&&
