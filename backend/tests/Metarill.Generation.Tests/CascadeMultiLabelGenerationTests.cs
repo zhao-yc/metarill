@@ -227,6 +227,18 @@ public sealed class CascadeMultiLabelGenerationTests
         CompileCascadeLabel(kind,0,selfTree:false,indirect:false,selectedPage:true,physical:onlyParent,globalRowProject:rowProject,
             parent:true,logicalParent:logicalTarget,onlyParent:onlyParent,sourceLogicalParent:true);
 
+    /// <summary>多选沿业务子页的同一父记录绑定独立级联或额外物理父键。</summary>
+    [Theory]
+    [InlineData("physical",false,null,false)]
+    [InlineData("physical",false,null,true)]
+    [InlineData("independent",true,null,false)]
+    [InlineData("independent",false,true,false)]
+    public Task Selected_page_compound_source_parent_conditions_compile_in_original_endpoints(string sourceScope,bool logicalTarget,
+        bool? globalTarget,bool onlyParent)=>
+        CompileCascadeLabel("MultiSelectPage",0,selfTree:false,indirect:false,selectedPage:true,
+            physical:!logicalTarget,globalRowProject:globalTarget,parent:true,logicalParent:logicalTarget,
+            sourceLogicalParent:true,compoundSourceParent:sourceScope,onlyParent:onlyParent);
+
     /// <summary>显式全局父沿实际级联层页校验，覆盖普通／全局目标及普通／逻辑来源父。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,null,true,false)]
@@ -302,7 +314,7 @@ public sealed class CascadeMultiLabelGenerationTests
 
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
         bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
-        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false)
+        bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false,string? compoundSourceParent=null)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -434,6 +446,27 @@ public sealed class CascadeMultiLabelGenerationTests
             }
             if(formParent)catalog.ConfigPageColumns.Add(new(){Id="901914",ConfigColumnId="914",ConfigPageId="901",IsEdit=1,IsShow=1});
             else catalog.ConfigPages.Single(page=>page.Id=="901").WhereSql+=" AND source_scope_id=@parentId";
+            if(compoundSourceParent is not null)
+            {
+                // 物理父条件放在前面；固定缓存和渲染依然必须使用实际逻辑父级。
+                var owner=catalog.ConfigPages.Single(page=>page.Id=="901");
+                if(compoundSourceParent=="physical")
+                {
+                    catalog.ConfigColumns.Add(new(){Id="916",ConfigTableId="9",ColumnName="other_country_id",LogicalType="int64",LinkConfigTableId="3"});
+                    owner.WhereSql="other_country_id=@parentId AND "+owner.WhereSql;
+                }
+                else
+                {
+                    catalog.ConfigColumns.Add(new(){Id="916",ConfigTableId="9",ColumnName="other_area_id",LogicalType="int64",
+                        LinkConfigTableId="4",ControlKind="CascadeTree",ControlDetail=JsonSerializer.Serialize(new
+                        {
+                            sourceMode="crossTable",levels=new object[]{new{table="label_cross_country",columnPrefix="other_country"},
+                                new{table="label_cross_area",columnPrefix="other_area",parentField="label_cross_country_id"}}
+                        })});
+                    catalog.ConfigPageColumns.Add(new(){Id="901916",ConfigPageId="901",ConfigColumnId="916",IsEdit=1,IsShow=1});
+                    owner.WhereSql+=" AND other_country_id=@parentId";
+                }
+            }
         }
         if(importLogical)
         {
@@ -457,6 +490,38 @@ public sealed class CascadeMultiLabelGenerationTests
         }
 
         var model=GenerationModel.Create(catalog,ns);
+        if(compoundSourceParent is not null)
+        {
+            var owner=model.Tables.Single(item=>item.Source.Id=="9");
+            var ownerPage=owner.Pages.Single(item=>item.Source.Id=="901");
+            var field=owner.Columns.Single(item=>item.Source.Id=="95");
+            var resolution=MultiSelectCompilation.Resolve(model,owner,ownerPage,field);
+            Assert.True(resolution.Definition is not null,resolution.Reason);
+            Assert.True(resolution.Definition!.SameParent);
+            Assert.True(resolution.Definition.LogicalSourceParent);
+            Assert.Null(resolution.Definition.TargetParentField);
+            if(compoundSourceParent=="independent")
+            {
+                // 全局目标的表级名称读取需要在两个有效来源页得到等价的同一父键证明。
+                var reordered=new PageMetadata{Id="902",ConfigTableId=owner.Source.Id,YzProjectId=catalog.YzProjectId,
+                    WhereSql=ownerPage.Source.WhereSql.Replace("source_scope_id=@parentId AND other_country_id=@parentId",
+                        "other_country_id=@parentId AND source_scope_id=@parentId",StringComparison.Ordinal)};
+                Assert.NotEqual(ownerPage.Source.WhereSql,reordered.WhereSql);
+                var target=resolution.Definition.Target;
+                var boundPage=resolution.Definition.TargetPage;
+                var syntax=FixedConditionPlan.Compile(boundPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
+                var binding=MultiTargetParentScope.Compile(catalog,target.Source,syntax)!;
+                var actual=binding.Source(catalog,owner.Source,field.Source,ownerPage.Source);
+                catalog.ConfigPages.Add(reordered);
+                try
+                {
+                    var published=binding.Source(catalog,owner.Source,field.Source);
+                    Assert.Equal(actual.Column.Id,published.Column.Id);
+                    Assert.Equal(Assert.Single(actual.AdditionalColumns).Id,Assert.Single(published.AdditionalColumns).Id);
+                }
+                finally{catalog.ConfigPages.Remove(reordered);}
+            }
+        }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
         if(recursive)
@@ -491,7 +556,9 @@ public sealed class CascadeMultiLabelGenerationTests
             if(selectedPage)
             {
                 var code=File.ReadAllText(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
-                if(exact&&kind=="MultiCheckBoxDatabase")
+                if(compoundSourceParent is not null&&onlyParent)
+                    Assert.Contains("var targetParentId = logicalRelationParentId;",code);
+                else if(exact&&kind=="MultiCheckBoxDatabase")
                 {
                     Assert.Contains(globalRowProject is not null?"CompileGlobalExactSingleCandidate":
                         logicalParent?"CompileExactCheckboxParentCandidate":"CompileRelationMembership",code);
@@ -507,7 +574,7 @@ public sealed class CascadeMultiLabelGenerationTests
                         Assert.Contains("""multiImportExactAuthorization.ResolveExactDataManage("201", "list", "real_name")""",code);
                     }
                 }
-                Assert.Contains(".BindAccount(actor)",code);
+                if(compoundSourceParent is null||!onlyParent)Assert.Contains(".BindAccount(actor)",code);
                 Assert.DoesNotContain("MultiPageCondition901_95.ApplyConstants",code);
                 if(globalParent)
                 {
@@ -525,7 +592,9 @@ public sealed class CascadeMultiLabelGenerationTests
                 }
                 if(parent)
                 {
-                    Assert.Contains("new(\""+parentField+"\",FixedReadComparison.Equal,",code);
+                    if(compoundSourceParent is not null&&onlyParent)
+                        Assert.Contains("row.TargetScopeId == targetParentId!",code);
+                    else Assert.Contains("new(\""+parentField+"\",FixedReadComparison.Equal,",code);
                     if(sourceLogicalParent)
                     {
                         Assert.Contains("logicalRelationParentId: parentId",code);
@@ -539,6 +608,49 @@ public sealed class CascadeMultiLabelGenerationTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var consumer=assembly.GetType(ns+".Generated.Services.LabelConsumerService",true)!;
             RuntimeHelpers.RunClassConstructor(consumer.TypeHandle);
+            if(compoundSourceParent is not null)
+            {
+                var owner=model.Tables.Single(item=>item.Source.Id=="9");
+                var ownerPage=owner.Pages.Single(item=>item.Source.Id=="901");
+                var def=Assert.Single(MultiSelectCompilation.ForPage(model,owner,ownerPage));
+                var dependency=compoundSourceParent=="physical"?"other_country_id":"other_area_id";
+                Assert.Contains(def.CompoundSourceDependencies,field=>field.Source.ColumnName==dependency);
+                var service=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
+                Assert.Contains("submitted.Contains("+JsonSerializer.Serialize(dependency)+")",service);
+                Assert.Contains("var targetParentId = logicalRelationParentId;",service);
+                const System.Reflection.BindingFlags staticPrivate=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                var export=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("ExportReadPlan901",staticPrivate)!.GetValue(null));
+                var sql=export.GetType().GetProperty("MySql",hidden)!.GetValue(export)!;
+                var expression=Assert.IsType<string>(sql.GetType().GetMethod("Expression",hidden)!.Invoke(sql,[def.Names!.Source.ColumnName]));
+                Assert.Contains("BINARY CAST(",expression);
+                Assert.Contains("`"+dependency+"`",expression);
+
+                var published=catalog.ConfigPages.Single(item=>item.Id=="901");
+                var originalWhere=published.WhereSql;
+                published.WhereSql=originalWhere.Replace("other_country_id=@parentId","source_area_id=@parentId",StringComparison.Ordinal);
+                var invalid=GenerationModel.Create(catalog,ns);
+                var invalidOwner=invalid.Tables.Single(item=>item.Source.Id=="9");
+                var input=invalidOwner.Columns.Single(item=>item.Source.Id=="95");
+                Assert.Null(MultiSelectCompilation.Resolve(invalid,invalidOwner,invalidOwner.Pages.Single(item=>item.Source.Id=="901"),input).Definition);
+                published.WhereSql=originalWhere;
+
+                if(compoundSourceParent=="physical"&&!onlyParent)
+                {
+                    // 完整包仍使用原弹窗并把业务子页的父参数带入目标组件。
+                    foreach(var configPage in catalog.ConfigPages)
+                        catalog.ConfigMenus.Add(new(){Id="700"+configPage.Id,YzProjectId=catalog.YzProjectId,
+                            YzAdminTypeId=configPage.YzAdminTypeId,Name="页面"+configPage.Id,Kind="GENERATED_PAGE",ConfigPageId=configPage.Id});
+                    var full=Path.Combine(directory,"full");
+                    new ApplicationPackager().Create(catalog,full,ns,NonRedundantApplicationFixture.Root());
+                    foreach(var operation in new[]{"restore","build"})
+                        await NonRedundantApplicationFixture.BuildAsync(full,operation);
+                    var detail=await File.ReadAllTextAsync(Path.Combine(full,"frontend/pages/yzp/label_consumer-detail-901.vue"));
+                    Assert.Contains("selectPageDialog95",detail);
+                    Assert.Contains(":parent_id=\"multiTargetParent('selectedIds')\"",detail);
+                    Assert.Contains("\"sameParent\":true",detail);
+                }
+            }
             if(importLogical)
             {
                 const System.Reflection.BindingFlags staticPrivate=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;

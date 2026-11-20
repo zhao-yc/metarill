@@ -106,7 +106,9 @@ internal static class ForeignValidationRenderer
                 if (multi.Definition is { } definition)
                 {
                     var dependency = definition.TargetParentField is null ? null : table.Columns.Single(field => field.JsonName == definition.TargetParentField).Source.ColumnName;
-                    var trigger = dependency is null ? "" : " || submitted.Contains(" + Literal(dependency) + ")";
+                    var sources=definition.CompoundSourceDependencies.Select(field=>field.Source.ColumnName)
+                        .Concat(dependency is null?[]:[dependency]).Distinct(StringComparer.Ordinal);
+                    var trigger=string.Concat(sources.Select(field=>" || submitted.Contains("+Literal(field)+")"));
                     var cacheTrigger=string.Concat(MultiNameWriteCompilation.ForSource(model,table,definition).Select(binding=>" || submitted.Contains("+Literal(binding.Cache.Source.ColumnName)+")"));trigger+=cacheTrigger;
                     result.AppendLine($"        if (creating || submitted.Contains({Literal(column.Source.ColumnName)}){trigger}) await ValidateMulti{page.Source.Id}_{column.Source.Id}Async(entity, actor, submitted, creating || submitted.Contains({Literal(column.Source.ColumnName)}){cacheTrigger}, cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", cascadeOperation":"")}{(definition.LogicalSourceParent?", logicalRelationParentId: logicalRelationParentId":"")});");
                 }

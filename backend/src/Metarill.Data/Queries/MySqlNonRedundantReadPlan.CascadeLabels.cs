@@ -25,13 +25,17 @@ public static partial class MySqlNonRedundantReadCompiler
                     .SingleOrDefault(item=>item.ColumnName==field);
                 if(column is null)continue;
                 var selected=ScopedMultiTargetPage(catalog,target,namePage);
+                // 普通物理父页如果被同父多路径引用，精简目录也必须保留实际目标和来源页。
+                var compoundPhysical=selected is null&&namePage is not null&&source is not null&&sourcePage is not null&&
+                    HasCompoundMultiSelectSource(catalog,source,sourcePage,relation,namePage);
+                if(compoundPhysical)selected=namePage;
                 if(selected is null&&(sourcePage is not null||storage.IsPhysical(column)||column.LogicalType!="string"&&
                     !MultiNameStorageColumns.IsDerivedScalarLabel(target,column,storage)))continue;
                 var plan=selected is null?CompileMultiLabel(catalog,target.Id,field,[field],[],cacheOwner:null,relation:relation):
                     CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[],
                         exactMultiSelection:relation.ControlKind=="MultiSelectPage"&&
                             selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0,
-                        storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase");
+                        storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase",allowLiteralMultiScope:compoundPhysical);
                 pages.UnionWith(plan.CascadeLabelPages);
                 if(sourcePage is not null&&selected is not null)
                 {
@@ -47,7 +51,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var sourceParent=sourcePage is null?parent.Source(catalog,source,relation):parent.Source(catalog,source,relation,sourcePage);
                     foreach(var logicalPage in sourceParent.LogicalPages)
                     {
-                        var fields=new HashSet<string>(StringComparer.Ordinal){sourceParent.Column.ColumnName};
+                        var fields=LogicalSourceParentFields(catalog,source,sourceParent);
                         pages.Add(logicalPage.Id);
                         pages.UnionWith(CrossMembershipBindings(catalog,source,logicalPage,fields).SelectMany(binding=>binding.Levels.Select(level=>level.PageId)));
                     }
@@ -173,7 +177,7 @@ public static partial class MySqlNonRedundantReadCompiler
     internal static MySqlNonRedundantReadPlan CompileScopedMultiLabel(MetadataCatalog catalog,string tableId,string pageId,
         string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,IReadOnlyList<string>? importFields=null,
-        string importPageType="2",bool exactMultiSelection=false,bool storedExactCheckbox=false)
+        string importPageType="2",bool exactMultiSelection=false,bool storedExactCheckbox=false,bool allowLiteralMultiScope=false)
     {
         MetadataValidation.Validate(catalog);
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("多值目标页逻辑条件要求已发布的MySQL读取计划。");
@@ -208,7 +212,7 @@ public static partial class MySqlNonRedundantReadCompiler
             AllowsExactMultiSelection=exactMultiSelection,
             AllowsStoredExactCheckbox=storedExactCheckbox,
             MultiNamePathPage=page,
-            AllowLiteralMultiScope=extraFields.Count>0,
+            AllowLiteralMultiScope=extraFields.Count>0||allowLiteralMultiScope,
             MultiImportFields=extraFields,
             MultiImportCrossFields=crossFields,
             ScopedRootControls=crossBindings.Select(binding=>binding.SourceColumnId).ToHashSet(StringComparer.Ordinal),
@@ -310,10 +314,26 @@ public static partial class MySqlNonRedundantReadCompiler
             foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id&&
                 (page.YzProjectId.Length==0||page.YzProjectId==catalog.YzProjectId)))
             {
-                var selected=DeclaredMultiPageOverride(catalog,table,name,column,sourcePage);
-                if(selected is not null&&selected.Id!=defaultPage?.Id)
+                var selected=DeclaredMultiPageOverride(catalog,table,name,column,sourcePage)??defaultPage;
+                if(selected is not null&&(selected.Id!=defaultPage?.Id||
+                    HasCompoundMultiSelectSource(catalog,owner,sourcePage,column,selected)))
                     yield return (owner,table,name,column,sourcePage,selected);
             }
+        }
+    }
+
+    /// <summary>只保留由普通非冗余来源页证明的多选父范围，无效配置仍由发布门禁报告。</summary>
+    private static bool HasCompoundMultiSelectSource(MetadataCatalog catalog,TableMetadata owner,PageMetadata sourcePage,
+        ColumnMetadata relation,PageMetadata targetPage)
+    {
+        if(relation.ControlKind!="MultiSelectPage"||owner.IsRongyu!=0)return false;
+        try
+        {
+            return MultiParent(catalog,targetPage)?.Source(catalog,owner,relation,sourcePage).AdditionalColumns.Count>0;
+        }
+        catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException or JsonException)
+        {
+            return false;
         }
     }
 

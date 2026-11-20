@@ -8,6 +8,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
     bool SameParent, string? TargetParentField, IReadOnlyList<TableModel> TargetParents, string ButtonText)
 {
     internal bool LogicalSourceParent { get; init; }
+    internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal bool UsesPageRead { get; init; }
     internal bool GlobalParent { get; init; }
     internal RelationConditionModel? ImportCondition { get; init; }
@@ -115,8 +116,11 @@ internal static class MultiSelectCompilation
                 NonRedundantCrossParentCompilation.Find(model, table, page, column) is { } path
                     ? path.Read.Levels[path.Index].Target
                     : Parent(column);
-            var sourceParents = page.Scopes.Where(scope => scope.Source == "parent").Select(scope => SourceParent(scope.Column).Source.Id).Distinct().Order().ToArray();
-            var scopedParent=scoped&&targetPage.Scopes.Any(scope=>scope.Source=="parent")
+            var sourceScopes=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
+            var sourceParents=sourceScopes.Select(column=>SourceParent(column).Source.Id).Distinct().Order().ToArray();
+            var compoundLogical=!functionForm&&sourceScopes.Length>1&&sourceParents.Length==1&&
+                sourceScopes.Any(column=>NonRedundantCrossParentCompilation.Managed(model,table,page,column));
+            var scopedParent=(scoped||compoundLogical)&&targetPage.Scopes.Any(scope=>scope.Source=="parent")
                 ?MultiTargetParentScope.Compile(model.Catalog,target.Source,FixedConditionPlan.Compile(targetPage.Source.WhereSql,
                     target.Columns.Select(column=>column.Source.ColumnName))):null;
             if(functionForm)scopedParent??=MultiGlobalParentCompilation.PhysicalPageParent(model,target,targetPage);
@@ -137,14 +141,25 @@ internal static class MultiSelectCompilation
             // 普通非冗余来源按实际页面校验父键，全局关系及冗余缓存继续按其固定范围证明。
             var usesPageRead=pageRead&&(pageOverride||targetParents.Length>0||!scoped&&targetPage.Condition is not null);
             var logicalSourceParent=false;
+            ColumnModel[] compoundSourceDependencies=[];
             if(scopedParent is not null && !functionForm)
             {
                 var owner=usesPageRead?scopedParent.Source(model.Catalog,table.Source,source.Source,page.Source)
                     :scopedParent.Source(model.Catalog,table.Source,source.Source);
-                var actual=same?page.Scopes.Single(item=>item.Source=="parent").Column:table.Columns.Single(column=>column.JsonName==targetField);
+                var actual=same?sourceScopes.SingleOrDefault(column=>column.Source.Id==owner.Column.Id):
+                    table.Columns.Single(column=>column.JsonName==targetField);
                 logicalSourceParent=owner.LogicalPages.Count>0;
-                if(actual.Source.Id!=owner.Column.Id||logicalSourceParent&&(!same||!NonRedundantCrossParentCompilation.Managed(model,table,page,actual)))
+                if(actual?.Source.Id!=owner.Column.Id||logicalSourceParent&&(!same||!NonRedundantCrossParentCompilation.Managed(model,table,page,actual)))
                     return Gap("目标页父字段须与来源记录的固定父键一致。");
+                if(owner.AdditionalColumns.Count>0)
+                {
+                    // 修改任何父路径或其实际持久层位都重新确认已有的选中记录。
+                    var paths=sourceScopes.Select(column=>NonRedundantCrossParentCompilation.Find(model,table,page,column))
+                        .OfType<(CrossTableReadModel Read,int Index)>().Select(path=>path.Read.Source.Source.Id).ToHashSet(StringComparer.Ordinal);
+                    compoundSourceDependencies=sourceScopes.Concat(CrossTableWriteCompilation.ForService(model,table,page)
+                        .Where(plan=>paths.Contains(plan.Read.Source.Source.Id)).SelectMany(plan=>plan.Levels.Select(level=>level.Id)))
+                        .DistinctBy(column=>column.Source.Id).ToArray();
+                }
             }
             if (functionForm)
                 return new(new(source, target, targetPage, name, name.IsId ? null : SelectionDisplayFieldCompilation.FunctionFormNames(table, source, name), same,
@@ -182,6 +197,7 @@ internal static class MultiSelectCompilation
             return new(new(source, target, targetPage, name, names, same, targetField, targetParents, Value("buttonText", "选择"))
                 {
                     LogicalSourceParent=logicalSourceParent,
+                    CompoundSourceDependencies=compoundSourceDependencies,
                     GlobalParent=scopedParent?.Global==true,
                     UsesPageRead=usesPageRead,
                     ImportCondition=importCondition,

@@ -4,6 +4,15 @@ namespace Metarill.Data.Queries;
 
 public static partial class MySqlNonRedundantReadCompiler
 {
+    /// <summary>所有逻辑父范围都保留自己的目标页证明，物理父键由实际来源行读取。</summary>
+    private static HashSet<string> LogicalSourceParentFields(MetadataCatalog catalog,TableMetadata table,MultiSourceParent source)
+    {
+        var fields=new HashSet<string>(StringComparer.Ordinal){source.Column.ColumnName};
+        fields.UnionWith(source.AdditionalColumns.Where(column=>CrossTableStorageColumns.IsLogicalPathField(table,
+            catalog.ConfigColumns,column.ColumnName)).Select(column=>column.ColumnName));
+        return fields;
+    }
+
     private sealed partial class Builder
     {
         internal IReadOnlyDictionary<string,NonRedundantMultiTargetScope> ProjectMultiTargets { get; init; }=
@@ -241,6 +250,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
 
+
         /// <summary>从来源行的固定可见级联还原父键，所有同伴的冲突及不可见路径都必须拒绝。</summary>
         private string LogicalRelationSourceParent(TableMetadata table,string owner,MultiSourceParent source,CascadeCacheOwner? cacheOwner=null)
         {
@@ -248,16 +258,10 @@ public static partial class MySqlNonRedundantReadCompiler
             if(table.IsRongyu!=0||cacheOwner is null&&(refreshFields is not null||nested&&trackReverse))
                 throw new NotSupportedException("逻辑来源父要求非冗余来源，维护用途须证明实际缓存行归属。");
             var field=source.Column.ColumnName;
-            var fields=new HashSet<string>(StringComparer.Ordinal){field};
+            var fields=LogicalSourceParentFields(catalog,table,source);
             var bindings=source.LogicalPages.SelectMany(page=>CrossMembershipBindings(catalog,table,page,fields))
                 .DistinctBy(binding=>binding.SourceColumnId,StringComparer.Ordinal).ToArray();
-            string value;
-            if(nested)
-            {
-                // 先联接中间来源的实际祖先，再用其父键限制后续目标。外层记录不承担中间路径的存储有效性。
-                value=ScopedCrossField(table,owner,bindings.ToDictionary(binding=>binding.SourceColumnId,StringComparer.Ordinal),field,cacheOwner);
-            }
-            else
+            if(!nested)
             {
                 foreach(var binding in bindings)
                 {
@@ -267,10 +271,20 @@ public static partial class MySqlNonRedundantReadCompiler
                         throw new InvalidOperationException("关系来源父键的级联范围与当前读取页不一致。");
                     crossTables[binding.SourceColumnId]=binding;
                 }
-                value=Resolve(table,owner,field).Sql;
             }
-            var visible=ValidScopedPaths(ScopedCrossPaths(owner,bindings.Select(binding=>binding.SourceColumnId)));
-            return "CASE WHEN "+string.Join(" AND ",visible)+" THEN "+value+" END";
+            // 先还原全部逻辑层位。对内层来源保留独立别名，外层记录不承担其路径存储校验。
+            var scopedBindings=nested?bindings.ToDictionary(binding=>binding.SourceColumnId,StringComparer.Ordinal):null;
+            var keys=fields.ToDictionary(name=>name,name=>scopedBindings is null?Resolve(table,owner,name).Sql:
+                ScopedCrossField(table,owner,scopedBindings,name,cacheOwner),StringComparer.Ordinal);
+            var value=keys[field];
+            var sameParent=source.AdditionalColumns.Select(column=>
+            {
+                if(keys.TryGetValue(column.ColumnName,out var logical))return SameSingleParent(logical,value);
+                Use(table,column);Touch(owner,column.ColumnName);
+                return SameSingleParent(owner+"."+Q(column.ColumnName),value);
+            });
+            return "CASE WHEN "+string.Join(" AND ",sameParent.Concat(
+                ValidScopedPaths(ScopedCrossPaths(owner,bindings.Select(binding=>binding.SourceColumnId)))))+" THEN "+value+" END";
         }
     }
 }
