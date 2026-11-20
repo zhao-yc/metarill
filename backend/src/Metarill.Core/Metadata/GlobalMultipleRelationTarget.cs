@@ -11,6 +11,16 @@ public static class GlobalMultipleRelationTarget
     public static GlobalMultipleRelationPlan Require(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,false);
     /// <summary>仅供物理R1消费者的冻结缓存计划使用，来源仍要求真实项目范围；不开放全局来源。</summary>
     public static GlobalMultipleRelationPlan RequireCached(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,true);
+    /// <summary>全局复选的页级文本必须属于该非冗余字典，联接逐段证明发布目录和同类型终点。</summary>
+    public static bool IsPublishedCheckboxText(MetadataCatalog catalog,TableMetadata target,ColumnMetadata value)
+    {
+        if(value.LogicalType!="string"||target.IsRongyu!=0||!GlobalCrossTableTarget.Declared(target))return false;
+        var storage=MetadataStoragePolicy.ForTable(catalog,target);
+        return GlobalPhysicalRelationValue.IsScalar(storage,target,value)||
+            MultiNameStorageColumns.IsDerivedCheckboxText(target,storage,value)&&
+            GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,target,value);
+    }
+
     /// <summary>实时派生与缓存维护分别验证来源存储模式，其余发布和终点约束完全相同。</summary>
     private static GlobalMultipleRelationPlan RequireSource(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,bool cached)
     {

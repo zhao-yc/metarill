@@ -8,6 +8,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal PageModel? LogicalTargetPage { get; init; }
     internal bool CompoundTargetParents { get; init; }
     internal bool RealtimeLogicalParentScope { get; init; }
+    internal bool GlobalRealtimeNameOverride { get; init; }
     // 没有逻辑候选条件的显式目标页仍决定名称路径内每个关系角色。
     internal PageModel? NameTargetPage { get; init; }
     // 普通目标页的物理条件参与原候选、保存和 Excel。
@@ -137,13 +138,15 @@ internal static class DatabaseCheckboxCompilation
             if(usesNameOverride)
             {
                 // 非冗余页仍通过原数组实时投影；冗余名称副本沿发布范围独立证明。
-                var realtimeFixedName=table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!target.IsGlobal&&
+                var realtimeFixedName=table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&
                     exactTarget is null&&namePage is not null&&namePage.Source.Id==fixedPage;
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
-                bool TextLabel(ColumnModel label)=>MultiSelectCompilation.PhysicalTextLabel(model,target,label)||
-                    (sharedLogicalParentScope||realtimeFixedName)&&MultiNameStorageColumns.IsDerivedCheckboxText(target.Source,storage,label.Source);
+                bool TextLabel(ColumnModel label)=>target.IsGlobal&&realtimeFixedName
+                    ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(model.Catalog,target.Source,label.Source)
+                    :MultiSelectCompilation.PhysicalTextLabel(model,target,label)||
+                        (sharedLogicalParentScope||realtimeFixedName)&&MultiNameStorageColumns.IsDerivedCheckboxText(target.Source,storage,label.Source);
                 var baseName=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baseline.NameField);
-                if(functionForm||target.IsGlobal&&table.Source.IsRongyu!=1||baseName is null||!TextLabel(baseName)||
+                if(functionForm||target.IsGlobal&&table.Source.IsRongyu!=1&&!realtimeFixedName||baseName is null||!TextLabel(baseName)||
                     !TextLabel(name)||namePage is not null&&!namePage.Readable.Any(column=>column.Source.Id==name.Source.Id))
                     return Gap("页级名称须沿用同一固定文本关系，显式目标页必须已开放该字段。");
             }
@@ -162,6 +165,7 @@ internal static class DatabaseCheckboxCompilation
                 return Gap("复选不能用页覆盖替换表级固定范围。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
             var realtimeRead=table.Source.IsRongyu==0&&!functionForm;
+            var globalRealtimeNameOverride=realtimeRead&&target.IsGlobal&&usesNameOverride;
             var controlRead=realtimeRead&&(conditions is not null||
                 scopes.Any(scope=>scope.Source=="parent"||target.IsGlobal&&scope.Source=="project"));
             // 旧复选允许只绑定表。具有物理行项目归属的全局目录仍按真实身份限定。
@@ -317,7 +321,8 @@ internal static class DatabaseCheckboxCompilation
                 FormParentField=formParent,
                 SharedAccountScope=sharedAccountScope,
                 SharedLogicalParentScope=sharedLogicalParentScope,
-                RealtimeLogicalParentScope=realtimeRead&&usesNameOverride&&logicalPage is not null&&
+                GlobalRealtimeNameOverride=globalRealtimeNameOverride,
+                RealtimeLogicalParentScope=realtimeRead&&exactTarget is null&&logicalPage is not null&&
                     logicalPage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column)),
                 ExactTarget=exactTarget,
                 LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)
@@ -326,7 +331,7 @@ internal static class DatabaseCheckboxCompilation
                 CompoundSourceDependencies=compoundGlobalSource
                     ?NonRedundantCrossParentCompilation.Dependencies(model,table,page,sourceScopeColumns):[],
                 GlobalParentPage=globalParentPage,
-                DerivedName=derived||logicalPage is not null
+                DerivedName=derived||logicalPage is not null||globalRealtimeNameOverride
             };
             if(independentCache&&!CanSharePhysicalNames(result))
                 return Gap("多个物理名称副本要求同一固定目标范围。");

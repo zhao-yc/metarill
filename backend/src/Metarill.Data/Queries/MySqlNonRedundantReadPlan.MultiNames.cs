@@ -36,7 +36,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var baseline=DatabaseCheckboxDefinition.Parse(relation.ControlDetail);
                 var definition=baseline.WithPageOverride(overlay);
                 pageId=definition.PageId;
-                name=CheckboxPageNameOverride(table,relation,target,selected,baseline,definition);
+                string? globalPageId=null;
                 if(binding.ApplyControlScope)
                 {
                     control=FixedConditionPlan.Compile(definition.WhereSql,columns[target.Id].Keys);
@@ -50,8 +50,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     var published=GlobalMultipleRelationTarget.Require(catalog,table,relation,target).Page;
                     if(pageId.Length>0&&pageId!=published.Id||selected?.Id!=published.Id||!binding.ApplyPageScope)
                         throw new InvalidOperationException("全局复选名称与已发布目标页不一致。");
-                    pageId=published.Id;
+                    pageId=globalPageId=published.Id;
                 }
+                name=CheckboxPageNameOverride(table,relation,target,selected,baseline,definition,globalPageId);
             }
             else
             {
@@ -84,17 +85,18 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>原非冗余复选允许从同一个发布页读取已明确声明的派生文本。</summary>
         private string? CheckboxPageNameOverride(TableMetadata table,ColumnMetadata relation,TableMetadata target,
-            PageMetadata? selected,DatabaseCheckboxDefinition baseline,DatabaseCheckboxDefinition definition)
+            PageMetadata? selected,DatabaseCheckboxDefinition baseline,DatabaseCheckboxDefinition definition,string? globalPageId)
         {
             if(definition.NameField==baseline.NameField)return null;
             var original=Column(target,baseline.NameField);
             var label=Column(target,definition.NameField);
             if(!GlobalCrossTableTarget.Declared(target)&&PhysicalTextMultiLabel(target,original)&&PhysicalTextMultiLabel(target,label))
                 return label.ColumnName;
-            var fixedPage=baseline.PageId.Length>0?baseline.PageId:Text(relation,"linkConfigPageId");
-            bool TextLabel(ColumnMetadata column)=>PhysicalTextMultiLabel(target,column)||
-                MultiNameStorageColumns.IsDerivedCheckboxText(target,storage[target.Id],column);
-            if(table.IsRongyu!=0||target.IsRongyu!=0||GlobalCrossTableTarget.Declared(target)||selected is null||
+            var fixedPage=globalPageId??(baseline.PageId.Length>0?baseline.PageId:Text(relation,"linkConfigPageId"));
+            bool TextLabel(ColumnMetadata column)=>globalPageId is not null
+                ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(catalog,target,column)
+                :PhysicalTextMultiLabel(target,column)||MultiNameStorageColumns.IsDerivedCheckboxText(target,storage[target.Id],column);
+            if(table.IsRongyu!=0||target.IsRongyu!=0||selected is null||
                 selected.Id!=fixedPage||selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
                 definition.TableId.Length>0&&definition.TableId!=target.Id||
                 definition.Table.Length>0&&definition.Table!=target.TableName||

@@ -363,7 +363,12 @@ public static class NonRedundantReads
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,bool exact,
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>
         new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies,
-            singleTargets,exactMultiSelection:exact,storedExactCheckbox:true));
+            singleTargets,exactMultiSelection:exact,storedExactCheckbox:true,allowLiteralMultiScope:
+                metadata.ConfigTables.Any(table=>table.Id==tableId&&GlobalCrossTableTarget.Declared(table))));
+
+    /// <summary>保留全局复选名称的实际内层页，精简目录据此重建相同候选与回显范围。</summary>
+    public static IReadOnlySet<string> PublishedGlobalCheckboxNamePages(MetadataCatalog metadata,string tableId,string pageId,string field)=>
+        CompileScopedCheckboxLabel(metadata,tableId,pageId,field,["id",field],[],false).MySql.CascadeLabelPages;
 
     /// <summary>Excel 附加条件以宿主发布的逻辑表达式匹配，绑定值仍由真实导入上下文提供。</summary>
     public static NonRedundantReadPlan CompileMultiImportLabel(MetadataCatalog metadata,string tableId,string pageId,string field,

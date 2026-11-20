@@ -299,8 +299,12 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(0, false, "form", true, false)]
     [InlineData(0, false, "form", true, true)]
     [InlineData(0, false, "account-form", true, true)]
+    [InlineData(0, false, "none", false, false, "joined")]
+    [InlineData(0, true, "project", true, true, "physical")]
+    [InlineData(0, false, "account-form", true, false, "joined")]
+    [InlineData(0, true, "form", true, false, "joined")]
     public async Task Checkbox_global_business_names_follow_the_released_dictionary(
-        int storageMode,bool rowProject,string condition,bool explicitPage,bool derived)
+        int storageMode,bool rowProject,string condition,bool explicitPage,bool derived,string alternateName="")
     {
         const string ns="Example.GlobalCheckboxRead";
         var catalog=Catalog("checkbox_global_read",false);
@@ -314,12 +318,26 @@ public sealed class DerivedCheckboxNamesTests
             name.Extra.Remove("isJoinColumn");
             name.Extra.Remove("columnFullName");
         }
-        else
+        if(derived||alternateName=="joined")
         {
             var company=catalog.ConfigTables.Single(table=>table.Id=="4");
             company.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId==company.Id&&column.ColumnName=="yz_project_id");
-            catalog.ConfigPages.Single(page=>page.ConfigTableId==company.Id).WhereSql="";
+            var companyPage=catalog.ConfigPages.Single(page=>page.ConfigTableId==company.Id);
+            companyPage.WhereSql="";
+            if(alternateName=="joined")
+            {
+                if(condition=="account-form")
+                {
+                    company.IsRongyu=0;
+                    companyPage.Extra["type"]=JsonSerializer.SerializeToElement(2);
+                }
+                catalog.ConfigColumns.AddRange([
+                    new(){Id="4051",ConfigTableId=company.Id,ColumnName="caption",LogicalType="string",YzProjectId=catalog.YzProjectId},
+                    new(){Id="4052",ConfigTableId=company.Id,ColumnName="label_enabled",LogicalType="int32",YzProjectId=catalog.YzProjectId}
+                ]);
+                companyPage.WhereSql="label_enabled=7";
+            }
         }
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
         var account=condition=="account-form";
@@ -339,11 +357,31 @@ public sealed class DerivedCheckboxNamesTests
             _=>""
         };
         field.ControlDetail=JsonSerializer.Serialize(new{tableId="3",nameField="name",pageId=explicitPage?"301":null,whereSql=where});
+        PageColumnMetadata? labelSetting=null;
+        if(alternateName.Length>0)
+        {
+            // 发布页原条件照常执行，简称可使用已发布的另一条物理列或联接。
+            var label=new ColumnMetadata
+            {
+                Id="3053",ConfigTableId="3",ColumnName="short_label",LogicalType="string",YzProjectId=catalog.YzProjectId
+            };
+            if(alternateName=="joined")
+            {
+                label.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+                label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.caption");
+            }
+            catalog.ConfigColumns.Add(label);
+            labelSetting=new(){Id="3013053",ConfigPageId="301",ConfigColumnId=label.Id,YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=0};
+            catalog.ConfigPageColumns.Add(labelSetting);
+            catalog.ConfigPageColumns.Single(setting=>setting.ConfigPageId=="201"&&setting.ConfigColumnId==field.Id)
+                .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"short_label"}""");
+        }
         var model=GenerationModel.Create(catalog,ns);
         var source=model.Tables.Single(table=>table.Source.Id=="2");
         var page=source.Pages.Single(page=>page.Source.Id=="201");
         var definition=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,source,page));
         Assert.Equal("301",definition.NameTargetPage?.Source.Id);
+        Assert.Equal(alternateName.Length>0?"short_label":"name",definition.Name.Source.ColumnName);
         var view=NonRedundantReadCompilation.ForPage(model,source,page);
         var binding=Assert.Single(view.MultiTargets);
         Assert.True(binding.ApplyPageScope);
@@ -376,12 +414,21 @@ public sealed class DerivedCheckboxNamesTests
                 Assert.Contains(Assert.Single(constants,pair=>Equals(pair.Value,manager)).Key,command);
             }
         }
-        if(derived)Assert.Contains("checkbox_global_read_company",output);
+        if(alternateName=="joined")
+        {
+            Assert.Contains("checkbox_global_read_company",output);
+            Assert.Contains("label_enabled",output);
+            Assert.Contains("label_enabled",predicate);
+            Assert.Contains("caption",output);
+        }
+        else if(alternateName=="physical")Assert.Contains("multi_value.`short_label`",output);
+        else if(derived)Assert.Contains("checkbox_global_read_company",output);
         var generated=DatabaseCheckboxRenderer.Service(model,source,page);
         Assert.Contains("CheckboxOptions201_25Async",generated);
         Assert.Contains("ValidateCheckbox201_25Async",generated);
         Assert.Contains("ExportCheckbox201_25Async",ExportRenderer.Service(model,source,page));
-        if(account)
+        if(alternateName.Length>0)Assert.Contains("CompileScopedCheckboxLabel",generated);
+        if(account||alternateName.Length>0)
         {
             var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-checkbox-compiled");
             var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -392,9 +439,41 @@ public sealed class DerivedCheckboxNamesTests
                 var service=assembly.GetType(ns+".Generated.Services.CheckboxGlobalReadSourceService",true)!;
                 var information=service.GetField("ReadPlan201",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static);
                 Assert.NotNull(information);
-                Assert.True(Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(information.GetValue(null)).RequiresAccount);
+                var installed=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(information.GetValue(null));
+                Assert.Equal(account,installed.RequiresAccount);
+                if(alternateName.Length>0)
+                {
+                    // 精简发布目录也应保留常量字典限制，候选及回显选择同一名称。
+                    var installedSql=installed.GetType().GetProperty("MySql",hidden)!.GetValue(installed)!;
+                    var expressions=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(installedSql.GetType()
+                        .GetProperty("Expressions",hidden)!.GetValue(installedSql));
+                    Assert.Contains("multi_value.`status`",expressions[names]);
+                    var candidate=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service
+                        .GetField("DerivedCheckboxPlan201_25",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
+                    Assert.Contains("short_label",candidate.OutputTypes.Keys);
+                    if(alternateName=="joined")
+                    {
+                        Assert.Contains("label_enabled",expressions[names]);
+                        var candidateSql=candidate.GetType().GetProperty("MySql",hidden)!.GetValue(candidate)!;
+                        var candidateOutputs=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(candidateSql.GetType()
+                            .GetProperty("Expressions",hidden)!.GetValue(candidateSql));
+                        var candidateFrom=Assert.IsType<string>(candidateSql.GetType().GetProperty("From",hidden)!.GetValue(candidateSql));
+                        Assert.Contains("label_enabled",candidateOutputs["short_label"]+candidateFrom);
+                    }
+                }
             }
             finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+        }
+        if(labelSetting is not null)
+        {
+            labelSetting.IsShow=0;
+            var hiddenLabel=GenerationModel.Create(catalog,ns);
+            var hiddenTable=hiddenLabel.Tables.Single(table=>table.Source.Id=="2");
+            Assert.Null(DatabaseCheckboxCompilation.Resolve(hiddenLabel,hiddenTable,hiddenTable.Pages.Single(page=>page.Source.Id=="201"),
+                hiddenTable.Columns.Single(column=>column.Source.Id==field.Id)).Definition);
+            Assert.Throws<InvalidOperationException>(()=>NonRedundantReadCompilation.CompilePage(model,source,
+                ["id",names],[names],[],view.SingleTargets,view.MultiTargets));
+            labelSetting.IsShow=1;
         }
         if(storageMode==1&&condition=="project"&&explicitPage)
         {

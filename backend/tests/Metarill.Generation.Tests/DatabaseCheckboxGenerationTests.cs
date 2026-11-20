@@ -385,8 +385,10 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(false,true,"current_store_id","logical","mixed","both")]
     [InlineData(true,false,"","","","alias")]
     [InlineData(null,true,"","","","baseline")]
+    [InlineData(false,true,"current_store_id","logical","","both",true)]
+    [InlineData(true,false,"","physical","","alias",true)]
     public async Task Redundant_checkbox_shares_names_under_a_logical_target_parent(bool? globalWithRowProject,bool explicitCheckbox,
-        string accountVariable="",string additionalParent="",string formParentMode="",string joinedNames="")
+        string accountVariable="",string additionalParent="",string formParentMode="",string joinedNames="",bool realtimeSource=false)
     {
         const string ns="Example.CheckboxLogicalParent";
         var catalog=NonRedundantCrossTableGenerationTests.Catalog("checkbox_parent_label","string","int64");
@@ -482,7 +484,7 @@ public sealed class DatabaseCheckboxGenerationTests
             label.Extra["columnFullName"]=JsonSerializer.SerializeToElement(field+"_ref.name");
         }
         catalog.ConfigPageColumns.Add(new(){Id="201281",ConfigPageId="201",ConfigColumnId="281",IsShow=1});
-        catalog.ConfigTables.Add(new(){Id="9",TableName="checkbox_parent_label_consumer",IsRongyu=1});
+        catalog.ConfigTables.Add(new(){Id="9",TableName="checkbox_parent_label_consumer",IsRongyu=realtimeSource?0:1});
         foreach(var id in new[]{"901","902"})
         {
             var aliasPage=id=="902";
@@ -505,7 +507,7 @@ public sealed class DatabaseCheckboxGenerationTests
             if(aliasPage||joinedNames=="baseline")
             {
                 setting.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"alias"}""");
-                catalog.ConfigPageColumns.Add(new(){Id=id+"96",ConfigPageId=id,ConfigColumnId="96",IsShow=1,IsEdit=1});
+                if(!realtimeSource)catalog.ConfigPageColumns.Add(new(){Id=id+"96",ConfigPageId=id,ConfigColumnId="96",IsShow=1,IsEdit=1});
             }
             catalog.ConfigPageColumns.Add(setting);
         }
@@ -527,6 +529,34 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Equal(additionalParent.Length>0?2:1,resolution.Definition.Scopes.Count(scope=>scope.Source=="parent"));
         }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        if(realtimeSource)
+        {
+            // 表级名和简称分别读取，复用实际全局目标页的多条同父条件及账号范围。
+            Assert.Empty(DatabaseCheckboxCompilation.Caches(model,owner));
+            foreach(var page in owner.Pages)
+            {
+                var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,owner,page));
+                var view=NonRedundantReadCompilation.ForPage(model,owner,page);
+                var names=checkbox.Names.Source.ColumnName;
+                var read=NonRedundantReadCompilation.CompilePage(model,owner,["id",names],[names],[],
+                    view.SingleTargets,view.MultiTargets);
+                Assert.Equal(useAccount,read.RequiresAccount);
+                const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+                var sql=read.GetType().GetProperty("MySql",hidden)!.GetValue(read)!;
+                var expressions=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(sql.GetType()
+                    .GetProperty("Expressions",hidden)!.GetValue(sql));
+                Assert.Contains("active_flag",expressions[names]);
+                Assert.Contains("owner_country_id",expressions[names]);
+                Assert.Contains(additionalParent=="logical"?"alternate_area_id":"alternate_country_id",expressions[names]);
+                var field=page.Source.Id=="902"?"alias":"name";
+                if(joinedFields.Contains(field))
+                    Assert.Contains("checkbox_parent_label_"+field+"_dictionary",expressions[names]);
+                var generated=DatabaseCheckboxRenderer.Service(model,owner,page);
+                Assert.Contains("CompileScopedCheckboxLabel",generated);
+                Assert.DoesNotContain("entity.SelectedNames=",generated);
+            }
+            return;
+        }
         var bindings=RelationPropagationCompilation.Definitions(RelationPropagationCompilation.DerivedBindings(model)
             .Where(binding=>binding.Foreign.Source.Id=="95").ToArray());
         Assert.Equal(2,bindings.Length);

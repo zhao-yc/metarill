@@ -84,11 +84,14 @@ internal static partial class BackendRenderer
         var checkboxNamePages=realtimeCheckboxes.SelectMany(checkbox=>NamePages(
             NonRedundantReadCompilation.ProjectPathTargets(model,checkbox.Target,checkbox.NameTargetPage!,
                 [checkbox.Name.Source.ColumnName]))).ToHashSet(StringComparer.Ordinal);
+        foreach(var checkbox in realtimeCheckboxes.Where(checkbox=>checkbox.GlobalRealtimeNameOverride))
+            checkboxNamePages.UnionWith(Metarill.Data.Queries.NonRedundantReads.PublishedGlobalCheckboxNamePages(model.Catalog,
+                checkbox.Target.Source.Id,checkbox.NameTargetPage!.Source.Id,checkbox.Name.Source.ColumnName));
         scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>checkboxNamePages.Contains(page.Source.Id))
             .Select(page=>(table,page))));
         var publishedCheckboxes=functionCheckboxes.Concat(scopedCheckboxes).Concat(realtimeCheckboxes);
         var checkboxScopes=publishedCheckboxes.Where(checkbox=>checkbox.DerivedName&&
-            (checkbox.LogicalTargetPage is not null||checkbox.ExactTarget is not null)).ToArray();
+            (checkbox.GlobalRealtimeNameOverride||checkbox.LogicalTargetPage is not null||checkbox.ExactTarget is not null)).ToArray();
         // 复选的物理目标页也可能绑定全局父，冻结实际目标及父页条件。
         foreach(var checkbox in publishedCheckboxes.Where(checkbox=>checkbox.GlobalParentPage is not null))
         {

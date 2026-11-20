@@ -40,7 +40,7 @@ internal static class DerivedCheckboxNamesCompilation
     {
         var field=def.Name.Source.ColumnName;
         if(UsesScopedCheckboxLabel(model,def))
-            return NonRedundantReads.CompileScopedCheckboxLabel(model.Catalog,def.Target.Source.Id,def.LogicalTargetPage!.Source.Id,
+            return NonRedundantReads.CompileScopedCheckboxLabel(model.Catalog,def.Target.Source.Id,ScopedCheckboxPage(def).Source.Id,
                 field,outputs,dependencies,def.ExactTarget is not null,ScopedNameTargets(model,def,outputs));
         if(UsesGlobalExactPage(def))
         {
@@ -73,7 +73,7 @@ internal static class DerivedCheckboxNamesCompilation
         static string Fields(IEnumerable<string> names)=>"new string[]{"+string.Join(",",names.Select(name=>JsonSerializer.Serialize(name)))+"}";
         if(UsesScopedCheckboxLabel(model,def))
             return "CompileScopedCheckboxLabel("+JsonSerializer.Serialize(def.Target.Source.Id)+","+
-                JsonSerializer.Serialize(def.LogicalTargetPage!.Source.Id)+","+JsonSerializer.Serialize(field)+","+
+                JsonSerializer.Serialize(ScopedCheckboxPage(def).Source.Id)+","+JsonSerializer.Serialize(field)+","+
                 Fields(outputs)+","+Fields(dependencies)+","+(def.ExactTarget is null?"false":"true")+
                 NonRedundantReadCompilation.SingleTargetArgument(ScopedNameTargets(model,def,outputs))+")";
         if(UsesGlobalExactPage(def))
@@ -122,8 +122,11 @@ internal static class DerivedCheckboxNamesCompilation
 
     /// <summary>实际复选页承担多父条件，也承担单物理全局父叠加精确匹配的范围。</summary>
     internal static bool UsesScopedCheckboxLabel(GenerationModel model,DatabaseCheckboxModel def)=>
-        !UsesGlobalExactPage(def)&&(def.SharedLogicalParentScope||def.RealtimeLogicalParentScope||def.CompoundTargetParents||
+        !UsesGlobalExactPage(def)&&(def.GlobalRealtimeNameOverride||def.SharedLogicalParentScope||def.RealtimeLogicalParentScope||def.CompoundTargetParents||
             def.GlobalParent&&def.LogicalTargetPage is not null&&def.ExactTarget is not null&&!HasExactLogicalParent(model,def));
+
+    /// <summary>全局常量字典与逻辑范围共用实际发布页，始终从复选定义取页。</summary>
+    private static PageModel ScopedCheckboxPage(DatabaseCheckboxModel def)=>def.LogicalTargetPage??def.NameTargetPage!;
 
     /// <summary>固定逻辑成员计划只解析字段，页面字面条件和当前账号在调用时显式附加。</summary>
     internal static PageModel? ExactMembershipPage(GenerationModel model,DatabaseCheckboxModel def)=>
@@ -134,7 +137,7 @@ internal static class DerivedCheckboxNamesCompilation
     private static IReadOnlyList<NonRedundantSingleTargetScope> ScopedNameTargets(GenerationModel model,DatabaseCheckboxModel def,
         IReadOnlyList<string> outputs)=>
         def.ExactTarget is {} exact?ExactNameTargets(model,def,exact):
-            NonRedundantReadCompilation.ProjectPathTargets(model,def.Target,def.LogicalTargetPage!,outputs);
+            NonRedundantReadCompilation.ProjectPathTargets(model,def.Target,ScopedCheckboxPage(def),outputs);
 
     /// <summary>授权和名称共用已发布的中间关系，冲突的绑定在生成时拒绝。</summary>
     private static IReadOnlyList<NonRedundantSingleTargetScope> ExactNameTargets(GenerationModel model,

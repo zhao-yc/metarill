@@ -675,7 +675,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 else
                 {
                     var proof=table.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target):GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
-                    if(proof.Name.ColumnName!=display)throw new NotSupportedException("全局多值显示必须与固定名称声明一致。");
+                    // 只有当前来源页已按同一发布目标重新证明的复选名称，才可覆盖表级名称。
+                    if(proof.Name.ColumnName!=display&&nameOverride is null)
+                        throw new NotSupportedException("全局多值显示必须与固定名称声明一致。");
                     // 名称副本的读取、筛选及回填使用同一发布候选范围。
                     if(HasGlobalRowProject(target)||typedCache||
                         relation.ControlKind=="MultiCheckBoxDatabase"&&!string.IsNullOrWhiteSpace(proof.Page.WhereSql))
@@ -764,8 +766,9 @@ public static partial class MySqlNonRedundantReadCompiler
             if(global&&!validatedCrossGlobal)
             {
                 var owner=tables[relation.ConfigTableId];
+                var actualPage=MultiNameSourcePage(ownerAlias);
                 var proof=owner.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,owner,relation,target):
-                    MultiNameSourcePage(ownerAlias) is {} actualPage?GlobalSingleRelationTarget.Require(catalog,owner,relation,target,actualPage):
+                    actualPage is not null?GlobalSingleRelationTarget.Require(catalog,owner,relation,target,actualPage):
                     GlobalSingleRelationTarget.Require(catalog,owner,relation,target);
                 scopedSingle=proof.ScopedLogicalPage;
                 scopedCrossTable=proof.ScopedCrossTable;
@@ -776,6 +779,12 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(scopedAccount)scopedGlobalCrossTarget=true;
                 if(proof.RequiresScopedPage||HasGlobalRowProject(target)||owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&
                     columns[owner.Id].ContainsKey("yz_project_id"))publishedPage=proof.Page;
+                // 冗余字典不走非冗余子计划，物理常量直接留在这段联接的可见性条件中。
+                if(AllowsStoredExactCheckbox&&actualPage is not null&&target.IsRongyu==1&&!string.IsNullOrWhiteSpace(proof.Page.WhereSql))
+                {
+                    publishedPage=proof.Page;
+                    cascadeLabelPages.Add(proof.Page.Id);
+                }
             }
             // 混合文本或浮点键可能发生近似比较，同一源值可能匹配多个大整数主键。
             aggregateJoinsPreserveCardinality &= sourceType is "int64" or "int32";
