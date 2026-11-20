@@ -30,7 +30,14 @@ public sealed partial class ProjectSchemaInspectionBusiness(MetadataRepository m
         {
             var id = MetadataWorkbenchRules.Id(request, "tableId").ToString(CultureInfo.InvariantCulture);
             var selected = catalog.ConfigTables.SingleOrDefault(table => table.Id == id) ?? throw new UnauthorizedAccessException("受管表不存在或不属于当前项目。");
-            if (selected.IsFunctionTable != 0 || selected.IsView != 0) throw new NotSupportedException("当前受管实体结构反查不支持功能表或视图。");
+            if (selected.IsFunctionTable != 0) throw new NotSupportedException("结构反查不支持功能表。");
+            if (selected.IsView != 0)
+            {
+                // 视图由数据库维护，按当前已授权配置单独反查列投影。
+                var view = await schemas.Resolve(actor.ProjectId).InspectViewSnapshotAsync(selected, token);
+                return new(actor.ProjectId, view, [selected.TableName],
+                    view.Schema.Tables.Count == 0 ? [selected.TableName] : [], []);
+            }
             catalog.ConfigTables = catalog.ConfigTables.Where(table => table.Id == id).ToList();
             catalog.ConfigColumns = catalog.ConfigColumns.Where(column => column.ConfigTableId == id).ToList();
             var indexes = catalog.ConfigIndexes.Where(index => index.TryGetProperty("configTableId", out var table) && table.ToString() == id).ToList();
@@ -39,9 +46,9 @@ public sealed partial class ProjectSchemaInspectionBusiness(MetadataRepository m
             catalog.ConfigIndexColumns = catalog.ConfigIndexColumns.Where(column => column.TryGetProperty("configIndexId", out var index) && indexIds.Contains(index.ToString())).ToList();
             catalog.ConfigPages = []; catalog.ConfigPageColumns = []; catalog.ConfigChildren = []; catalog.ConfigButtons = []; catalog.ConfigMenus = [];
         }
-        // 适配器只反查普通实体表，功能表/视图明确排除，不能误报成缺失物理表。
+        // 整项目快照仍对应可同步实体表。视图投影由单个配置ID选择，功能表没有物理结构。
         var excluded = catalog.ConfigTables.Where(table => table.IsFunctionTable != 0 || table.IsView != 0)
-            .OrderBy(table => table.TableName, StringComparer.Ordinal).Select(table => new SchemaInspectionExclusion(table.Id, table.TableName, table.IsView != 0 ? "视图反查尚未接入" : "功能表不属于实体结构反查范围")).ToArray();
+            .OrderBy(table => table.TableName, StringComparer.Ordinal).Select(table => new SchemaInspectionExclusion(table.Id, table.TableName, table.IsView != 0 ? "数据库视图可通过配置ID单独反查列投影" : "功能表不属于实体结构反查范围")).ToArray();
         var managed = catalog.ConfigTables.Where(table => table.IsFunctionTable == 0 && table.IsView == 0).Select(table => table.TableName).Order(StringComparer.Ordinal).ToArray();
         var snapshot = await schemas.Resolve(actor.ProjectId).InspectSnapshotAsync(catalog, token);
         var present = snapshot.Schema.Tables.Select(table => table.Name).ToHashSet(StringComparer.Ordinal);

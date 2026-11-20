@@ -32,7 +32,7 @@ public sealed class PlatformTools
         var physical=physicalModels.Compose(await metadata.LoadProjectAsync(actor.ProjectId,token));
         return await schemas.Resolve(actor.ProjectId).PreviewAsync(physical,token);
     }
-    [McpServerTool(Name="inspect_database_schema", ReadOnly=true), Description("只读反查当前授权项目的受管表结构与指纹，响应executable=false；不执行DDL或反向导入元数据。")]
+    [McpServerTool(Name="inspect_database_schema", ReadOnly=true), Description("只读反查当前授权项目的受管表结构与指纹。指定已登记视图的tableId可读取列投影。响应executable=false。")]
     public static Task<ProjectSchemaInspection> Inspect(JsonElement data, ProjectSchemaInspectionBusiness inspection, CancellationToken token) =>
         inspection.InspectAsync(data, token);
 

@@ -37,12 +37,15 @@ public sealed partial class ApiAcceptanceTests
         Assert.Equal(historyBefore, schemas.Resolve(Project).History.Count);
         Assert.Equal(snapshot.GetProperty("fingerprint").GetString(), Data(await Post(client, path, new { })).GetProperty("snapshot").GetProperty("fingerprint").GetString());
     }
-    /// <summary>合法功能表/视图定义明确标记排除，不能因适配器未检查而误报物理缺失。</summary>
+    /// <summary>全项目排除视图和功能表。按配置ID单独反查已登记视图的真实列投影。</summary>
     [MySqlApiFact]
     public async Task Non_physical_definitions_are_excluded_instead_of_reported_as_missing_tables()
     {
         var (factory, client) = await Login(); await using var host = factory; using var http = client;
         var ids = new List<string>(); const string tableRoute = "/admin/auto/config_table/6191083005411328";
+        var business = factory.Services.GetRequiredService<TargetDatabaseSessions>().Business;
+        await using var connection = business.Provider.CreateConnection(business.Options);
+        await connection.OpenAsync();
         try
         {
             foreach (var (function, view) in new[] { (1, 0), (0, 1) })
@@ -54,8 +57,47 @@ public sealed partial class ApiAcceptanceTests
                 Assert.DoesNotContain(full.GetProperty("managedTables").EnumerateArray(), entry => entry.GetString() == name);
                 Assert.DoesNotContain(full.GetProperty("missingTables").EnumerateArray(), entry => entry.GetString() == name);
                 Assert.Contains(full.GetProperty("excludedTables").EnumerateArray(), entry => entry.GetProperty("tableId").GetString() == id && entry.GetProperty("tableName").GetString() == name);
-                var denied = await Post(client, "/admin/sys/database/inspect", new { tableId = id });
-                Assert.Equal(500, denied.GetProperty("code").GetInt32()); Assert.Contains("不支持", denied.GetProperty("msg").GetString());
+                var single = await Post(client, "/admin/sys/database/inspect", new { tableId = id });
+                if (function == 1)
+                {
+                    Assert.Equal(500, single.GetProperty("code").GetInt32());
+                    Assert.Contains("不支持", single.GetProperty("msg").GetString());
+                    continue;
+                }
+                Assert.Equal(name, Assert.Single(Data(single).GetProperty("missingTables").EnumerateArray()).GetString());
+
+                // 仅建本轮随机命名的视图，投影使用合成常量。
+                await using var command = connection.CreateCommand();
+                command.CommandText = $"CREATE VIEW `{name}` AS SELECT CAST(1 AS SIGNED) AS id, CAST('metadata_fixture' AS CHAR(32)) AS caption";
+                await command.ExecuteNonQueryAsync();
+                try
+                {
+                    var found = Data(await Post(client, "/admin/sys/database/inspect", new { tableId = id }));
+                    Assert.False(found.GetProperty("executable").GetBoolean());
+                    Assert.Empty(found.GetProperty("missingTables").EnumerateArray());
+                    var snapshot = found.GetProperty("snapshot");
+                    var projection = Assert.Single(snapshot.GetProperty("schema").GetProperty("tables").EnumerateArray());
+                    Assert.Equal(name, projection.GetProperty("name").GetString());
+                    Assert.Equal(new[] { "id", "caption" }, projection.GetProperty("columns").EnumerateArray()
+                        .Select(column => column.GetProperty("name").GetString()));
+                    Assert.True(!projection.TryGetProperty("snapshotDefinition", out var definition) || definition.GetString() is null);
+                    Assert.DoesNotContain("metadata_fixture", found.GetRawText());
+                    Assert.Matches("^[a-f0-9]{64}$", snapshot.GetProperty("fingerprint").GetString());
+                }
+                finally
+                {
+                    command.CommandText = $"DROP VIEW `{name}`";
+                    await command.ExecuteNonQueryAsync();
+                    await using var verificationConnection = business.Provider.CreateConnection(business.Options);
+                    await verificationConnection.OpenAsync();
+                    await using var verification = verificationConnection.CreateCommand();
+                    verification.CommandText = "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = @view";
+                    var nameParameter = verification.CreateParameter();
+                    nameParameter.ParameterName = "@view";
+                    nameParameter.Value = name;
+                    verification.Parameters.Add(nameParameter);
+                    Assert.Equal(0L, Convert.ToInt64(await verification.ExecuteScalarAsync()));
+                }
             }
         }
         finally
