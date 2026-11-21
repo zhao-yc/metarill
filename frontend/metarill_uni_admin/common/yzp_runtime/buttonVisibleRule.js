@@ -56,6 +56,9 @@ function createEmptyRule() {
 	}
 }
 
+// 旧配置会直接保存 JSON 数字。仅引用 JSON 值位置的数字词元，使 JSON.parse 不先舍入。
+const ruleNumberToken = /"(?:[^"\\]|\\[\s\S])*"|([:\[,]\s*)(-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)(?=\s*[,}\]])/g
+
 function normalizeRule(ruleLike) {
 	if (utils.isBlank(ruleLike)) {
 		return createEmptyRule()
@@ -63,7 +66,8 @@ function normalizeRule(ruleLike) {
 	let rule = ruleLike
 	if (typeof ruleLike === 'string') {
 		try {
-			rule = JSON.parse(ruleLike)
+			rule = JSON.parse(ruleLike.replace(ruleNumberToken, (token, separator, number) =>
+				separator === undefined ? token : separator + JSON.stringify(number)))
 		} catch (error) {
 			return createEmptyRule()
 		}
@@ -238,17 +242,37 @@ function compareValues(actualValue, expectedValue) {
 	if (isBlankValue(expectedValue)) {
 		return 1
 	}
-	if (isNumeric(actualValue) && isNumeric(expectedValue)) {
-		return Number(actualValue) - Number(expectedValue)
-	}
+	const actual = readRuleDecimal(actualValue)
+	const expected = readRuleDecimal(expectedValue)
+	if (actual && expected) return compareRuleDecimals(actual, expected)
 	return String(actualValue).trim().localeCompare(String(expectedValue).trim())
 }
 
-function isNumeric(value) {
-	if (utils.isBlank(value)) {
-		return false
+// 原判定按有效数字与数量级比较。指数只用来计算位数，不能展开成大量尾零。
+function readRuleDecimal(value) {
+	const text = String(value).replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '')
+	const match = /^([+-]?)([0-9]*)(?:\.([0-9]*))?(?:[eE]([+-]?[0-9]+))?$/.exec(text)
+	if (!match) return null
+	const [, sign, whole, fraction = '', exponentText = '0'] = match
+	if (!whole.length && !fraction.length) return null
+	const exponent = Number(exponentText)
+	const scale = fraction.length - exponent
+	if (!Number.isSafeInteger(exponent) || scale < -2147483648 || scale > 2147483647) return null
+	const significant = (whole + fraction).replace(/^0+/, '')
+	if (!significant) return { sign: 0, order: 0, digits: '' }
+	return { sign: sign === '-' ? -1 : 1, order: significant.length - scale, digits: significant.replace(/0+$/, '') }
+}
+
+function compareRuleDecimals(left, right) {
+	if (left.sign !== right.sign) return left.sign - right.sign
+	if (!left.sign) return 0
+	if (left.order !== right.order) return left.sign * (left.order - right.order)
+	for (let index = 0; index < Math.max(left.digits.length, right.digits.length); index++) {
+		const a = left.digits[index] || '0'
+		const b = right.digits[index] || '0'
+		if (a !== b) return left.sign * (a < b ? -1 : 1)
 	}
-	return !Number.isNaN(Number(String(value).trim()))
+	return 0
 }
 
 function isBlankValue(value) {

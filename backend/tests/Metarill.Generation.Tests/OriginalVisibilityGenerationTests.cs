@@ -4,8 +4,8 @@ using Xunit;
 
 namespace Metarill.Generation.Tests;
 
-/// <summary>字段、分组及行按钮应按相同布尔值规则渲染原界面。</summary>
-public sealed class BooleanVisibilityGenerationTests
+/// <summary>字段、分组及行按钮共用同一套原可见规则。</summary>
+public sealed class OriginalVisibilityGenerationTests
 {
     [Theory]
     [InlineData("CheckBox")]
@@ -41,14 +41,52 @@ public sealed class BooleanVisibilityGenerationTests
         Assert.True(column.Matches(new Dictionary<string, object?> { ["approval_flag"] = true }));
         Assert.False(button.Matches(new Dictionary<string, object?> { ["approvalFlag"] = false }));
 
-        var boundary = Path.Combine(Path.GetTempPath(), "metarill-boolean-visibility");
+        await Probe(catalog, "boolean");
+    }
+
+    /// <summary>同时核对字符串记录 ID 及规则 JSON 数字字面量的精度。</summary>
+    [Fact]
+    public async Task Original_visibility_distinguishes_adjacent_ids_and_exact_numeric_rules()
+    {
+        const long lower = 9007199254740992;
+        const long expected = 9007199254740993;
+        var catalog = GeneratorTests.Catalog();
+        var page = catalog.ConfigPages.Single();
+        catalog.ConfigColumns.Add(new() { Id = "16", ConfigTableId = "1", ColumnName = "owner_id", LogicalType = "int64", Name = "归属 ID" });
+        catalog.ConfigPageColumns.Add(new() { Id = "116", ConfigPageId = page.Id, ConfigColumnId = "16", IsShow = 1, IsEdit = 1 });
+        const string columnRule = """{"conditions":[{"field":"ownerId","operator":"eq","value":9007199254740993}]}""";
+        const string buttonRule = """{"groups":[{"logic":"AND","conditions":[{"field":"ownerId","operator":"in","valueList":[9007199254740993,9007199254740996]}]}]}""";
+        catalog.ConfigColumns.Single(column => column.ColumnName == "remark").Extra["visibleCondition"] =
+            JsonSerializer.SerializeToElement(columnRule);
+        catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "13").Extra["detailGroupKey"] = JsonSerializer.SerializeToElement("review");
+        page.Extra["detailLayout"] = JsonSerializer.SerializeToElement(
+            """{"version":1,"mode":"tabs","groups":[{"key":"review","name":"审批备注"}]}""");
+        catalog.ConfigButtons.Add(JsonSerializer.SerializeToElement(new
+        {
+            id = "900", name = "审批动作", configPageId = page.Id, place = "EditAndGrid",
+            visibleScheme = "Normal", visibleRuleJson = buttonRule, actionType = 1, saveOption = "NotSave"
+        }));
+        foreach (var text in new[] { columnRule, buttonRule })
+        {
+            var rule = ButtonVisibilityRule.Compile(text);
+            Assert.False(rule.Matches(new Dictionary<string, object?> { ["ownerId"] = lower }));
+            Assert.True(rule.Matches(new Dictionary<string, object?> { ["ownerId"] = expected }));
+        }
+        await Probe(catalog, "numeric");
+    }
+
+    /// <summary>实际挂载生成的列表及详情，以独立原运行时执行规则。</summary>
+    private static async Task Probe(MetadataCatalog catalog, string scenario)
+    {
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-original-visibility");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try
         {
-            new CSharpGenerator().Generate(catalog, directory, "Example.BooleanVisibility");
+            new CSharpGenerator().Generate(catalog, directory, "Example.OriginalVisibility");
             var start = NonRedundantApplicationFixture.Start("node", directory);
-            start.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(), "BooleanVisibilityProbe.mjs"));
+            start.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(), "OriginalVisibilityProbe.mjs"));
             start.ArgumentList.Add(directory);
+            start.ArgumentList.Add(scenario);
             using var process = System.Diagnostics.Process.Start(start)!;
             var stdout = process.StandardOutput.ReadToEndAsync();
             var stderr = process.StandardError.ReadToEndAsync();

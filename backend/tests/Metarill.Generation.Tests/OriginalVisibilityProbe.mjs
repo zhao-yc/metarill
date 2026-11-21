@@ -22,6 +22,41 @@ for (const fixture of [detail, list]) {
   fixture.yzp.isButtonVisible = real.isButtonVisible
 }
 const hasRemark = node => node.props.id === 'yzp-detail-field-remark' || node.children.some(hasRemark)
+if (process.argv[3] === 'numeric') {
+  try {
+    await detail.flush()
+    detail.respond(detail.requests.find(item => item.options.url.includes('/detail/7')),
+      { id: '7', name: '记录', remark: '审批后显示', ownerId: '9007199254740992' })
+    await new Promise(resolve => setTimeout(resolve, 320))
+    await detail.flush()
+    assert.equal(detail.state.loadEntitySuccess, true)
+    assert.equal(detail.state.customerButtonShow900, false, '相邻雪花 ID 不可匹配目标编号')
+    assert.equal(hasRemark(detail.tree), false)
+    assert.equal(detail.state.visibleDetailGroups.length, 0)
+    assert.equal(list.state.customerButtonShow900({ id: '7', ownerId: '9007199254740992' }), false)
+    detail.state.entity.ownerId = '9007199254740993'
+    await detail.flush()
+    assert.equal(detail.state.customerButtonShow900, true)
+    assert.equal(hasRemark(detail.tree), true)
+    assert.deepEqual(detail.state.visibleDetailGroups.map(group => group.key), ['review'])
+    assert.equal(list.state.customerButtonShow900({ id: '7', ownerId: '9007199254740993' }), true)
+    assert.equal(detail.state.entity.ownerId, '9007199254740993')
+
+    const compare = (actual, operator, expected) =>
+      evaluate(JSON.stringify({ conditions: [{ field: 'value', operator, value: expected }] }), { value: actual })
+    assert.equal(compare('0.10000000000000000000002', 'gt', '1.0000000000000000000001e-1'), true)
+    assert.equal(compare('-0.10000000000000000000002', 'lt', '-1.0000000000000000000001e-1'), true)
+    assert.equal(compare('0002.000', 'eq', '+2e0'), true)
+    assert.equal(compare('1e2147483648', 'gt', '9e2147483647'), true)
+    assert.equal(compare('-0e-2147483647', 'eq', '0'), true)
+    assert.equal(compare('包含,1]的原文本', 'eq', '包含,1]的原文本'), true)
+    assert.equal(compare('表单空值', 'eq', ''), false)
+  } finally {
+    detail.app.unmount()
+    list.app.unmount()
+  }
+  process.exit(0)
+}
 try {
   await detail.flush()
   detail.respond(detail.requests.find(item => item.options.url.includes('/detail/7')),
