@@ -207,9 +207,7 @@ internal static class MultiGlobalParentCompilation
             {
                 if(!target.Pages.Any(candidate=>SingleTarget(model,target,candidate)?.Parent.Id==parentTable.Source.Id))
                     continue;
-                var proof=table.Source.IsRongyu==1
-                    ?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source)
-                    :GlobalSingleRelationTarget.Require(model.Catalog,table.Source,foreign.Source,target.Source);
+                var proof=RelationCompilation.GlobalTargetForPage(model,table,page,foreign,target);
                 if(proof.Parent is {Global:true}&&proof.SourceParent is {} fixedSource)
                 {
                     var direct=fixedSource.LogicalPages.Count==0&&fixedSource.Column.Id==source.Source.Id;

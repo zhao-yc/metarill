@@ -36,7 +36,7 @@ internal static partial class BackendRenderer
                 DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
                 DerivedRelationNamesCompilation.UsesExactSingle(relation)||
                 DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)||
-                relation.Target.IsGlobal&&relation.ListPageOverride||
+                NonRedundantReadCompilation.UsesPageBoundGlobalList(relation)||
                 NonRedundantReadCompilation.UsesProjectSingleRead(relation)).ToArray();
         scopedPages=scopedPages.Concat(scopedRelations.Select(relation=>(relation.Target,relation.TargetPage)));
         // 固定单值读取在宿主重新装载时，从实际来源页重新验证物理或逻辑父键。
@@ -163,7 +163,8 @@ internal static partial class BackendRenderer
         var cross=model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>CrossTableWriteCompilation.ForService(model,table,page).Count>0));
         var helpers=cross?"    /// <summary>目标条件与页面一起冻结，静态初始化不读取后声明字段。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileCross(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[] bindings)=>Metarill.Data.Queries.NonRedundantReads.CompileWithCrossTables(Snapshot,tableId,outputs,bindings,dependencies,deferCascadeNames:true);\n    /// <summary>与统一物理结构共用稀疏选择编码器。</summary>\n    internal static Metarill.Core.Metadata.CrossTableSparseSelection CompileSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.CrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n":"";
         if(model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0)))helpers+="    /// <summary>共享R0由整组编译，成员不能分别打包覆盖。</summary>\n    internal static Metarill.Core.Metadata.SharedCrossTableSparseSelection CompileSharedSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.SharedCrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n";
-        if(scopedRelations.Any(NonRedundantReadCompilation.UsesProjectSingleRead)||multiPageIds.Count>0||
+        if(scopedRelations.Any(relation=>NonRedundantReadCompilation.UsesProjectSingleRead(relation)||
+            NonRedundantReadCompilation.UsesPageBoundGlobalList(relation))||multiPageIds.Count>0||
             relations.Any(relation=>NonRedundantReadCompilation.PageSingleDisplayOverride(model,
                 model.Tables.Single(table=>table.Source.Id==relation.SourceColumn.Source.ConfigTableId),
                 relation.SourceColumn,relation.Target,relation.NameColumn) is not null)||

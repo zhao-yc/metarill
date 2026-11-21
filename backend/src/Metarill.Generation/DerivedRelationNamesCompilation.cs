@@ -207,7 +207,7 @@ internal static class DerivedRelationNamesCompilation
             throw new InvalidOperationException("名称候选必须与来源外键使用同一固定目标。");
         if(target.IsGlobal&&!relation.FunctionForm)
         {
-            var proof=owner.Source.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(model.Catalog,owner.Source,relation.SourceColumn.Source,target.Source):GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,relation.SourceColumn.Source,target.Source);
+            var proof=RelationCompilation.GlobalTargetForPage(model,owner,page,relation.SourceColumn,target);
             if(proof.Page.Id!=relation.TargetPage.Source.Id||proof.Name.Id!=name.Source.Id)throw new InvalidOperationException("全局派生候选与固定名称或目标页不一致。");
         }
         if(!relation.FunctionForm&&owner.Source.IsRongyu==1&&(!NonRedundantReadCompilation.Physical(model,owner,relation.SourceColumn)||GenerationModel.Enabled(relation.SourceColumn.Source.Extra,"isJoinColumn")||relation.SourceColumn.Source.IsVirtualColumn!=0||relation.SourceColumn.Source.LogicalType is not("int64" or "string")))throw new InvalidOperationException("R1派生候选必须使用本表真实单值外键。");

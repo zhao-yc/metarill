@@ -122,9 +122,7 @@ internal static class RelationCompilation
             var alternateGlobalListPage = false;
             if(!functionForm&&target.IsGlobal&&(owner.Source.IsRongyu==0||!source.IsSystem))
             {
-                var global=owner.Source.IsRongyu==1
-                    ?GlobalSingleRelationTarget.RequireCached(model.Catalog,owner.Source,source.Source,target.Source)
-                    :GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source);
+                var global=GlobalTargetForPage(model,owner,page,source,target);
                 targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);
                 alternateGlobalListPage=global.AlternateListPage;
                 if(name.Source.Id!=global.Name.Id)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
@@ -206,7 +204,7 @@ internal static class RelationCompilation
                 }
             }
             var sourceBinding=fixedParent is null||functionForm?null:
-                !owner.IsGlobal&&!target.IsGlobal&&owner.Source.IsRongyu==0
+                owner.Source.IsRongyu==0&&(alternateGlobalListPage||!owner.IsGlobal&&!target.IsGlobal)
                     ?fixedParent.SingleSource(model.Catalog,owner.Source,source.Source,page.Source)
                     :fixedParent.SingleSource(model.Catalog,owner.Source,source.Source);
             if(fixedParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0})
@@ -271,6 +269,17 @@ internal static class RelationCompilation
         var parent=MultiTargetParentScope.Compile(model.Catalog,target.Source,condition);
         return parent is {Logical:false,Global:false}&&
             sourceParents.All(column=>Parent(model,column,owner,sourcePage).Source.Id==parent.Parent.Id)?parent:null;
+    }
+
+    /// <summary>实时下拉按实际使用页证明目标；冗余副本保持全表唯一绑定。</summary>
+    internal static GlobalSingleRelationPlan GlobalTargetForPage(GenerationModel model,TableModel owner,PageModel page,
+        ColumnModel source,TableModel target)
+    {
+        if(owner.Source.IsRongyu==1)
+            return GlobalSingleRelationTarget.RequireCached(model.Catalog,owner.Source,source.Source,target.Source);
+        return source.Source.ControlKind=="List"
+            ? GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source,page.Source)
+            : GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source);
     }
 
     /// <summary>有账号或逻辑范围的下拉即使隐藏，也须复核默认值和最终持久化值。</summary>

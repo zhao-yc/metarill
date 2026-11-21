@@ -515,6 +515,17 @@ public static partial class MySqlNonRedundantReadCompiler
             };
         }
 
+        /// <summary>全局下拉使用生成计划中的来源页，与多值名称的实际中间页同时存在时必须一致。</summary>
+        private PageMetadata? GlobalSingleSourcePage(string alias,TableMetadata source,ColumnMetadata relation)
+        {
+            var actual=MultiNameSourcePage(alias);
+            if(relation.ControlKind!="List"||ExplicitSingleBinding(alias,relation) is not {} binding||
+                (binding.SourcePageId??binding.ControlSourcePageId) is not {} pageId)return actual;
+            if(actual is not null&&actual.Id!=pageId||binding.ControlSourcePageId is {} controlPage&&controlPage!=pageId)
+                throw new InvalidOperationException("全局下拉的读取范围必须来自同一实际来源页。");
+            return catalog.ConfigPages.Single(page=>page.Id==pageId&&page.ConfigTableId==source.Id);
+        }
+
         internal bool LockPublishedJoinScopes{get;init;}
         private string PublishedJoinLock=>LockPublishedJoinScopes?NestedReadLockMarker:"";
 
@@ -524,7 +535,7 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             var global=GlobalCrossTableTarget.Declared(target);
             if(target.IsRongyu==1&&binding.SourcePageId is {} storedSourceId&&
-                (!global||binding.ControlSourcePageId==storedSourceId))
+                (!global||binding.ControlSourcePageId==storedSourceId||!binding.ApplyPageCondition))
             {
                 var storedSource=catalog.ConfigPages.Single(page=>page.Id==storedSourceId&&page.ConfigTableId==owner.Id);
                 var stored=global
@@ -533,6 +544,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     : ProjectScopedSingleRelationTarget.NestedPage(catalog,owner,storedSource,relation,target,allowStoredTarget:true)?.Page;
                 if(stored is null||stored.Id!=binding.PageId)
                     throw new InvalidOperationException("名称联接必须使用冗余字典的实际目标页。");
+                if(!binding.ApplyPageCondition)return "";
                 cascadeLabelPages.Add(storedSource.Id);
                 cascadeLabelPages.Add(stored.Id);
                 var storedControl=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,storedSource);
@@ -551,8 +563,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(multiPage.Id!=nameSourceId)
                     throw new InvalidOperationException("多值名称的全局目标范围与实际来源页不一致。");
             }
-            var proof=global?(multiPage is null?GlobalSingleRelationTarget.Require(catalog,owner,relation,target):
-                GlobalSingleRelationTarget.Require(catalog,owner,relation,target,multiPage)):null;
+            var sourcePage=global?GlobalSingleSourcePage(ownerAlias,owner,relation)??multiPage:null;
+            var proof=global?(sourcePage is null?GlobalSingleRelationTarget.Require(catalog,owner,relation,target):
+                GlobalSingleRelationTarget.Require(catalog,owner,relation,target,sourcePage)):null;
             if(multiPage is not null)
             {
                 multiNamePathAliases[alias]=page;
@@ -764,7 +777,10 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             if(InferredSingleDisplay(table,field) is not {} inferred)
                 throw new InvalidOperationException("缺少字段："+field);
-            var proof=GlobalSingleRelationTarget.Require(catalog,table,inferred.Foreign,Target(inferred.Foreign));
+            var target=Target(inferred.Foreign);
+            var sourcePage=GlobalSingleSourcePage(rootAlias,table,inferred.Foreign);
+            var proof=sourcePage is null?GlobalSingleRelationTarget.Require(catalog,table,inferred.Foreign,target):
+                GlobalSingleRelationTarget.Require(catalog,table,inferred.Foreign,target,sourcePage);
             if(proof.Name.ColumnName!=inferred.Display)
                 throw new NotSupportedException("全局R0的自动名称必须使用已发布的单值显示字段。");
         }
@@ -814,14 +830,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 singleCachePages[alias]=projectNested.Page;
                 return(alias,null,cacheOwner);
             }
-            // 普通全局联接沿统一发布证明使用实际目标页，保留原逻辑删除和真实父级约束。
-            var alternate=GlobalCrossTableTarget.Declared(target)&&foreign.ControlKind=="List"&&
-                ProjectScopedSingleRelationTarget.UsesFixedListCandidates(catalog)
-                ?(table.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,table,foreign,target):
-                    GlobalSingleRelationTarget.Require(catalog,table,foreign,target))
-                :null;
-            var joined=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true,
-                cachePage:alternate is {AlternateListPage:true}?alternate.Page:null);
+            var joined=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true);
             if(refreshFields is null&&GlobalCrossTableTarget.Declared(target)&&ProjectSingleBinding(owner,foreign,target) is {} binding)
             {
                 // 全局联接继续使用原发布范围。附加条件随当前别名的输出一起计算，零匹配显示为空。

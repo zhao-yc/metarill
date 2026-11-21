@@ -193,7 +193,7 @@ internal static partial class NonRedundantReadCompilation
             if(target.IsGlobal&&relation.Source.ControlKind is not("List" or "SelectPage")&&
                 MultiGlobalParentCompilation.SingleParentBinding(model,table,page,relation) is not null)
                 continue;
-            if(target.IsGlobal){if(relation.Source.ControlKind=="MultiSelectPage")_=GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);else _=GlobalSingleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);}
+            if(target.IsGlobal){if(relation.Source.ControlKind=="MultiSelectPage")_=GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);else _=RelationCompilation.GlobalTargetForPage(model,table,page,relation,target);}
         }
         foreach(var selection in table.Columns.Where(column=>column.Source.ControlKind=="SelectPage"))NonRedundantSelectionCompilation.Resolve(model,table,page,selection);
         var outputs=page.Readable.Select(column=>new NonRedundantOutput(column.Source.ColumnName,column.Property,column.JsonName,column.Type,column.IsJsonArray)).ToList();
@@ -214,7 +214,7 @@ internal static partial class NonRedundantReadCompilation
             if(NonRedundantSelectionCompilation.DisplaysId(model,page,relation)||RelationCompilation.ListDisplaysId(model,page,relation))continue;
             var display=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==nameField);
             if(display is null)throw new InvalidOperationException("未知名称候选仍待完整接线。");
-            if(target.IsGlobal)_=GlobalSingleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);
+            if(target.IsGlobal)_=RelationCompilation.GlobalTargetForPage(model,table,page,relation,target);
             if(!Physical(model,target,display))
             {
                 var candidate=RelationCompilation.ForPage(model,page).SingleOrDefault(candidate=>candidate.SourceColumn.Source.Id==relation.Source.Id)??throw new InvalidOperationException("派生名称缺少固定候选关系。");
@@ -267,6 +267,9 @@ internal static partial class NonRedundantReadCompilation
             relation.Target.Source.IsRongyu==0 && (UsesProjectControlRead(relation)||!relation.Target.IsGlobal&&
                 (relation.TargetPage.Condition is not null||relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"))));
 
+    /// <summary>即使没有附加筛选，发布后的 SQL 也须沿实际来源页验证全局目标。</summary>
+    internal static bool UsesPageBoundGlobalList(RelationModel relation)=>relation.Target.IsGlobal&&relation.ListPageOverride;
+
     /// <summary>原下拉可以仅在控件中限定目标，读取名称时也要保留该范围。</summary>
     internal static bool UsesProjectControlRead(RelationModel relation)=>
         relation.SourceColumn.Source.ControlKind=="List"&&
@@ -290,8 +293,10 @@ internal static partial class NonRedundantReadCompilation
     private static NonRedundantSingleTargetScope? PageTarget(GenerationModel model,TableModel table,PageModel page,RelationModel relation)
     {
         var display=PageSingleDisplayOverride(model,table,relation.SourceColumn,relation.Target,relation.NameColumn);
-        if(UsesProjectSingleRead(relation))
-            return ProjectTarget(model,table,page,relation) with{DisplayNameColumnId=display is null?null:relation.NameColumn.Source.Id};
+        var scoped=UsesProjectSingleRead(relation);
+        if(scoped||UsesPageBoundGlobalList(relation))
+            return ProjectTarget(model,table,page,relation) with
+                {ApplyPageCondition=scoped,DisplayNameColumnId=display is null?null:relation.NameColumn.Source.Id};
         return display is null?null:new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id)
             {ApplyPageCondition=false,DisplayNameColumnId=relation.NameColumn.Source.Id};
     }
@@ -339,7 +344,7 @@ internal static partial class NonRedundantReadCompilation
         }
         return new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id,parent?.Source.Id)
         {
-            SourcePageId=relation.ScopedStoredList||relation.FixedParent is not null||relation.Target.IsGlobal&&parent is not null?page.Source.Id:null,
+            SourcePageId=relation.ScopedStoredList||UsesPageBoundGlobalList(relation)||relation.FixedParent is not null||relation.Target.IsGlobal&&parent is not null?page.Source.Id:null,
             ControlSourcePageId=relation.ScopedStoredList||UsesProjectControlRead(relation)?page.Source.Id:null
         };
     }

@@ -31,7 +31,7 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
     public bool RequiresScopedCache=>RequiresScopedPage||NestedCacheScope||CacheControl is {Terms.Count:>0}||
         AlternateListPage&&!string.IsNullOrWhiteSpace(Page.WhereSql);
 
-    /// <summary>全局固定下拉显式选择另一张同实体页面，读取和副本都采用其条件。</summary>
+    /// <summary>全局下拉有同实体的替代页面绑定，读取和副本均须使用实际页。</summary>
     public bool AlternateListPage { get; internal init; }
 }
 
@@ -145,20 +145,23 @@ public static class GlobalSingleRelationTarget
         var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id).ToArray();
         var baseline=declaredPage.Length>0?declaredPage:linkedPage;
         var pageId=baseline;
+        var independentPages=false;
         if(fixedList)
         {
-            // 页面设置可以更换同一全局实体的候选页。共享全局目标与物理副本必须能从各入口证明同一页。
+            // 非冗余读取可使用实际来源页；没有实际页的读取与持久副本需要唯一固定目标。
             if(new[]{declaredPage,linkedPage}.Any(id=>id.Length>0&&!pages.Any(page=>page.Id==id)))
                 throw new InvalidOperationException("下拉的原关联页及配置页必须属于同一全局目标表。");
             var selected=catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id)
                 .Select(page=>ProjectScopedSingleRelationTarget.ListPageId(catalog,page,foreign))
                 .Distinct(StringComparer.Ordinal).ToArray();
-            if(selected.Length>1)
-                throw new InvalidOperationException("全局下拉的各来源页必须能证明同一已发布目标页。");
-            pageId=selected.SingleOrDefault()??baseline;
+            independentPages=selected.Length>1;
+            if(independentPages&&(cacheControl||owner.IsRongyu!=0||sourcePage is null))
+                throw new InvalidOperationException("不同来源页的全局下拉需要实际非冗余来源页；物理名称副本必须使用同一目标页。");
+            pageId=independentPages?ProjectScopedSingleRelationTarget.ListPageId(catalog,sourcePage!,foreign):
+                selected.SingleOrDefault()??baseline;
         }
-        var alternateListPage=fixedList&&pageId.Length>0&&(pageId!=baseline||
-            declaredPage.Length>0&&linkedPage.Length>0&&declaredPage!=linkedPage);
+        var alternateListPage=fixedList&&(independentPages||pageId.Length>0&&(pageId!=baseline||
+            declaredPage.Length>0&&linkedPage.Length>0&&declaredPage!=linkedPage));
         pages=pages.Where(page=>pageId.Length==0||page.Id==pageId).ToArray();
         if(pages.Length!=1)
             throw new InvalidOperationException("全局单值关系必须指定真实目标页，省略时目标页必须唯一。");
@@ -178,7 +181,9 @@ public static class GlobalSingleRelationTarget
             (foreign.ControlKind=="List"||page.Extra.GetValueOrDefault("type").ToString()=="1");
         var fixedParent=exactSingle?GlobalCrossTableTarget.ExactSingleParent(catalog,target,page,resolving):
             allowsLogical?GlobalCrossTableTarget.SingleParent(catalog,target,page):null;
-        var sourceParent=fixedParent?.SingleSource(catalog,owner,foreign);
+        var sourceParent=sourcePage is not null&&alternateListPage
+            ?fixedParent?.SingleSource(catalog,owner,foreign,sourcePage)
+            :fixedParent?.SingleSource(catalog,owner,foreign);
         if(projectParent)RequireProjectParentPage(catalog,target,page);
         else if(!exactSingle&&fixedParent is null)
         {
@@ -214,8 +219,8 @@ public static class GlobalSingleRelationTarget
         var control=foreign.ControlKind!="List"||target.IsRongyu!=0&&!alternateListPage?null:
             sourcePage is not null?ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target,sourcePage):
             hasNameCache?ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target):null;
-        // 实时名称和回填使用同一张发布页，禁止任何来源页覆盖表、名称或父键所属的目标页。
-        var allSourcePages=alternateListPage||fixedParent is not null||sourcePage is null&&(nestedScope||control is {Terms.Count:>0});
+        // 实时按实际页证明表和名称。冻结的物理副本仍需跨所有入口使用同一范围。
+        var allSourcePages=!independentPages&&(alternateListPage||fixedParent is not null||sourcePage is null&&(nestedScope||control is {Terms.Count:>0}));
         if(allSourcePages||sourcePage is not null)
         {
             foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==foreign.Id&&

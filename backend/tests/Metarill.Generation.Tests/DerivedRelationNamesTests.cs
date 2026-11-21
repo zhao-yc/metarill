@@ -1201,8 +1201,15 @@ public sealed class DerivedRelationNamesTests
     [InlineData(0, 0, true, true)]
     [InlineData(0, 1, false, true)]
     [InlineData(1, 1, true, true)]
+    [InlineData(0, 0, true, false, true)]
+    [InlineData(0, 1, true, false, true)]
+    [InlineData(0, 0, true, true, true)]
+    [InlineData(0, 1, true, true, true)]
+    [InlineData(0, 0, true, false, true, true)]
+    [InlineData(0, 0, true, false, true, true, true)]
     public async Task Fixed_list_uses_the_chosen_published_global_dictionary_page(
-        int sourceStorage,int targetStorage,bool overlay,bool controlCondition=false)
+        int sourceStorage,int targetStorage,bool overlay,bool controlCondition=false,bool perPage=false,bool account=false,
+        bool parent=false)
     {
         const string ns = "Example.GlobalListPage";
         var catalog = Catalog("dr_names", false);
@@ -1232,6 +1239,18 @@ public sealed class DerivedRelationNamesTests
         alternate.Id = "202";
         alternate.WhereSql = "status=83";
         alternate.OrderBy = "id desc";
+        if (account)
+        {
+            catalog.ConfigColumns.Add(new() { Id = "21200", ConfigTableId = "2", YzProjectId = catalog.YzProjectId,
+                ColumnName = "store_id", LogicalType = "int64" });
+            alternate.WhereSql += " AND store_id=@current_store_id";
+        }
+        if (parent)
+        {
+            catalog.ConfigColumns.Add(new() { Id = "21202", ConfigTableId = "2", YzProjectId = catalog.YzProjectId,
+                ColumnName = "group_id", LogicalType = "int64", LinkConfigTableId = "3" });
+            alternate.WhereSql += " AND group_id=@parent_id";
+        }
         catalog.ConfigPages.Add(alternate);
         foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigPageId == original.Id).ToArray())
         {
@@ -1240,7 +1259,13 @@ public sealed class DerivedRelationNamesTests
             copy.ConfigPageId = alternate.Id;
             catalog.ConfigPageColumns.Add(copy);
         }
-        if (overlay)
+        if (perPage)
+        {
+            var field=catalog.ConfigPageColumns.Single(item=>item.ConfigPageId=="101"&&item.ConfigColumnId==foreign.Id);
+            field.Extra["controlDetail"] = JsonSerializer.SerializeToElement(controlCondition
+                ? """{"pageId":"202","whereSql":"status<>93"}""" : """{"pageId":"202"}""");
+        }
+        else if (overlay)
         {
             // 隐藏来源页也有默认外键，通过该页实际的控件配置证明相同发布范围。
             catalog.ConfigPageColumns.Add(new() { Id = "10415", ConfigPageId = "104", ConfigColumnId = foreign.Id,
@@ -1256,6 +1281,24 @@ public sealed class DerivedRelationNamesTests
             item => item.SourceColumn.Source.Id == foreign.Id);
         Assert.Equal(alternate.Id, options.TargetPage.Source.Id);
         Assert.True(Assert.Single(options.OptionsOrder!).Descending);
+        if (perPage)
+        {
+            var second = owner.Pages.Single(item=>item.Source.Id=="103");
+            var originalOptions = Assert.Single(RelationCompilation.ForPage(model,second,forExcel:true),
+                item=>item.SourceColumn.Source.Id==foreign.Id);
+            Assert.Equal(original.Id,originalOptions.TargetPage.Source.Id);
+            Assert.Equal(controlCondition?"status<>93":null,options.Conditions?.Definition);
+            Assert.Equal(controlCondition?"status<>72":null,originalOptions.Conditions?.Definition);
+            Assert.Throws<InvalidOperationException>(()=>GlobalSingleRelationTarget.Require(catalog,source,foreign,target));
+            source.IsRongyu=1;
+            try
+            {
+                var conflict=Assert.Throws<InvalidOperationException>(()=>
+                    GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target));
+                Assert.Contains("物理名称副本必须使用同一目标页",conflict.Message);
+            }
+            finally { source.IsRongyu=sourceStorage; }
+        }
 
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-list-page");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
@@ -1265,20 +1308,60 @@ public sealed class DerivedRelationNamesTests
             new CSharpGenerator().Generate(catalog, output, ns);
             var code = await File.ReadAllTextAsync(Path.Combine(output, "Services", "DrNamesOrderService.g.cs"));
             Assert.Contains("status=83", code.Replace(" ", "", StringComparison.Ordinal));
+            if (perPage) Assert.Contains("status=12",code.Replace(" ","",StringComparison.Ordinal));
             Assert.Contains("OptionsScope101_15Async", code);
             Assert.Contains("ImportRelation101_15Async", code);
             Assert.Contains("ImportRelation103_15Async", code);
             Assert.Contains("Export101Async", code);
+            if (perPage)
+            {
+                await VerifyGate("101","202","201");
+                await VerifyGate("103","201","202");
+            }
+            if (parent) Assert.Contains("targetParentId",code);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+
+            async Task VerifyGate(string sourceId,string targetId,string otherId)
+            {
+                var pageName=owner.Pages.Single(item=>item.Source.Id==sourceId).Name;
+                var controller=await File.ReadAllTextAsync(Path.Combine(output,"Controllers",pageName+"Controller.g.cs"));
+                Assert.Contains($"RequirePagePermission(\"{targetId}\", \"list\")",controller);
+                Assert.DoesNotContain($"RequirePagePermission(\"{otherId}\", \"list\")",controller);
+            }
             var service = assembly.GetType(ns + ".Generated.Services.DrNamesOrderService", true)!;
             RuntimeHelpers.RunClassConstructor(service.TypeHandle);
             const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
             object plan;
             if (sourceStorage == 0)
             {
-                var read = Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan101",
-                    BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
-                plan = read.GetType().GetProperty("MySql", hidden)!.GetValue(read)!;
+                var read = ReadPage("ReadPlan101");
+                if (account)
+                {
+                    Assert.True(read.RequiresAccount);
+                    var actor=new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5")
+                        { StoreId = 9007199254740993L };
+                    read=read.BindAccount(actor);
+                    Assert.Contains(9007199254740993L,Constants(MySql(read)).Values);
+                }
+                plan = MySql(read);
+                if (parent)
+                {
+                    var from=Assert.IsType<string>(plan.GetType().GetProperty("From",hidden)!.GetValue(plan));
+                    Assert.Contains(".\u0060group_id\u0060",from);
+                }
+                if (perPage)
+                {
+                    foreach (var member in new[]{"ReadPlan103","ReadPlan104"})
+                    {
+                        var other=ReadPage(member);
+                        Assert.False(other.RequiresAccount);
+                        var otherValues=Constants(MySql(other)).Values;
+                        Assert.Contains(12,otherValues);
+                        Assert.DoesNotContain(83,otherValues);
+                        Assert.DoesNotContain(93,otherValues);
+                        Assert.Equal(controlCondition,otherValues.Contains(72));
+                    }
+                }
             }
             else
             {
@@ -1292,11 +1375,17 @@ public sealed class DerivedRelationNamesTests
                     maintenance.GetType().GetProperty("Plans", hidden)!.GetValue(maintenance));
                 plan = plans[source.Id]!.GetType().GetProperty("Read")!.GetValue(plans[source.Id])!;
             }
-            var values = Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
-                plan.GetType().GetProperty("Constants", hidden)!.GetValue(plan));
-            Assert.Contains(values.Values, value => value is int number && number == 83);
-            Assert.DoesNotContain(values.Values, value => value is int number && number == 12);
-            Assert.Equal(controlCondition,values.Values.Any(value => value is int number && number == 72));
+            var values = Constants(plan).Values;
+            Assert.Contains(83,values);
+            Assert.DoesNotContain(12,values);
+            Assert.Equal(controlCondition,values.Contains(perPage?93:72));
+            if(perPage) Assert.DoesNotContain(72,values);
+
+            NonRedundantReadPlan ReadPage(string name)=>Assert.IsType<NonRedundantReadPlan>(
+                service.GetField(name,BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+            static object MySql(NonRedundantReadPlan read)=>read.GetType().GetProperty("MySql",hidden)!.GetValue(read)!;
+            static IReadOnlyDictionary<string,object?> Constants(object read)=>Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                read.GetType().GetProperty("Constants",hidden)!.GetValue(read));
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
 

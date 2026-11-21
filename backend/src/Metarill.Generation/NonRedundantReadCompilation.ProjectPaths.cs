@@ -67,6 +67,8 @@ internal static partial class NonRedundantReadCompilation
             if(relation.Target.Source.IsRongyu!=0)
             {
                 // 多值名称按实际物理字典页限定可见性，来源页也须保留供运行时复核。
+                if(UsesPageBoundGlobalList(relation))
+                    return ProjectTarget(model,table,page,relation) with{ApplyPageCondition=false};
                 if(!multiValuePath||relation.Target.Source.IsRongyu!=1)return null;
                 var storedPage=relation.Target.IsGlobal
                     ?Metarill.Core.Metadata.GlobalSingleRelationTarget.StoredMultiName(model.Catalog,table.Source,page.Source,
@@ -80,10 +82,11 @@ internal static partial class NonRedundantReadCompilation
             // 即使原 List 未声明附加条件，名称依旧受实际全局页的物理常量限制。
             var globalLiteralScope=multiValuePath&&relation.Target.IsGlobal&&relation.TargetPage.Scopes.Count==0&&
                 relation.TargetPage.Condition is {Syntax.Variables.Count:0,CrossFields.Count:0,SelfTreeFields.Count:0};
-            if(UsesProjectSingleRead(relation)||globalLiteralScope)
+            var scoped=UsesProjectSingleRead(relation)||globalLiteralScope;
+            if(scoped||UsesPageBoundGlobalList(relation))
             {
                 var scope=ProjectTarget(model,table,page,relation);
-                return scope with{NestedTargets=nested,SourcePageId=globalLiteralScope?page.Source.Id:scope.SourcePageId};
+                return scope with{ApplyPageCondition=scoped,NestedTargets=nested,SourcePageId=globalLiteralScope?page.Source.Id:scope.SourcePageId};
             }
             return downstream is null?null:new(foreign.Source.Id,relation.TargetPage.Source.Id)
                 {ApplyPageCondition=false,NestedTargets=nested};
