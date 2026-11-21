@@ -191,7 +191,7 @@ public sealed class FixedCustomControlReadTests
         var extra = catalog.ConfigColumns.Single(column => column.Id == "97"); extra.ControlKind = "MultiCheckBoxDatabase";
         catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "97").IsEdit = 1;
         var (model, table, page, _) = Model(catalog); var plan = ReadProjectionCompilation.ForPage(model, table, page);
-        Assert.Contains(plan.Detail.Gaps, gap => gap.ColumnId == "97" && gap.Reason.Contains("MultiCheckBoxDatabase", StringComparison.Ordinal));
+        Assert.Contains(plan.Detail.Gaps, gap => gap.ColumnId == "97" && gap.Reason.Contains("数据库复选尚未支持", StringComparison.Ordinal) && gap.Reason.Contains("_ids", StringComparison.Ordinal));
         extra.ControlKind = ""; extra.Extra["isJoinColumn"] = JsonSerializer.SerializeToElement(1);
         (model, table, page, _) = Model(catalog);
         Assert.Contains(ReadProjectionCompilation.ForPage(model, table, page).Detail.Gaps, gap => gap.ColumnId == "97" && gap.Reason.Contains("联接", StringComparison.Ordinal));

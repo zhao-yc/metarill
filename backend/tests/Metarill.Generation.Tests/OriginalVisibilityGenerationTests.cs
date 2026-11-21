@@ -126,6 +126,13 @@ public sealed class OriginalVisibilityGenerationTests
         await Probe(catalog, "text");
     }
 
+    /// <summary>修改原编辑器的一行不得覆盖其它操作数、嵌套分组或数字字面量。</summary>
+    [Theory]
+    [InlineData("button")]
+    [InlineData("column")]
+    public Task Original_editor_preserves_unedited_rule_values(string editor) =>
+        Probe(GeneratorTests.Catalog(), "editor-" + editor);
+
     /// <summary>实际挂载生成的列表及详情，以独立原运行时执行规则。</summary>
     private static async Task Probe(MetadataCatalog catalog, string scenario)
     {

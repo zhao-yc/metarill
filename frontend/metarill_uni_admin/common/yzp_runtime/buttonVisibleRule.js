@@ -136,6 +136,69 @@ function serializeRule(ruleLike) {
 	return JSON.stringify(rule)
 }
 
+// 原编辑器只编辑首层。已有候选边界及分组保留为 JSON，避免仅修改一行时重写其它条件。
+function readEditorRule(ruleLike) {
+	let source, exact
+	try {
+		const text = typeof ruleLike === 'string' ? ruleLike : JSON.stringify(ruleLike)
+		source = JSON.parse(text)
+		if (!source || typeof source !== 'object' || Array.isArray(source)) return createEmptyRule()
+		exact = parseJsonWithExactNumbers(text)
+	} catch {
+		return createEmptyRule()
+	}
+	return {
+		logic: normalizeLogic(source.logic),
+		groupsJson: Array.isArray(source.groups) ? stringifyExactJson(source.groups, exact.groups) : '[]',
+		conditions: normalizeConditions(exact.conditions).map((condition, index) => {
+			const raw = source.conditions[index]
+			const original = exact.conditions[index]
+			const value = usesCandidateList(condition.operator) ? condition.valueList.join('\n') : condition.value
+			const draft = { field: condition.field, operator: condition.operator, value }
+			const operands = ['value', 'valueList']
+				.filter((key) => raw && Object.prototype.hasOwnProperty.call(raw, key))
+				.map((key) => JSON.stringify(key) + ':' + stringifyExactJson(raw[key], original[key]))
+			return { ...draft, saved: { ...draft, json: stringifyExactJson(raw, original), operands } }
+		})
+	}
+}
+
+// 用原解析结果区分字符串和数字，用保留精度的解析结果写出数字，不经 JavaScript 舍入。
+function stringifyExactJson(source, exact) {
+	if (typeof source === 'number') return exact
+	if (Array.isArray(source)) {
+		return '[' + source.map((item, index) => stringifyExactJson(item, exact[index])).join(',') + ']'
+	}
+	if (source !== null && typeof source === 'object') {
+		return '{' + Object.keys(source).map((key) =>
+			JSON.stringify(key) + ':' + stringifyExactJson(source[key], exact[key])).join(',') + '}'
+	}
+	return JSON.stringify(source)
+}
+
+function usesCandidateList(operator) {
+	return operator === 'in' || operator === 'notIn'
+}
+
+function serializeEditorRule(rule) {
+	const groups = rule.groupsJson || '[]'
+	const conditions = rule.conditions.map(serializeEditorCondition)
+	if (!conditions.length && groups === '[]') return ''
+	return '{"logic":' + JSON.stringify(normalizeLogic(rule.logic)) +
+		',"conditions":[' + conditions.join(',') + '],"groups":' + groups + '}'
+}
+
+function serializeEditorCondition({ field, operator, value, saved }) {
+	if (saved && saved.value === value) {
+		if (saved.field === field && saved.operator === operator) return saved.json
+		if (saved.operator === operator || usesCandidateList(saved.operator) && usesCandidateList(operator)) {
+			const keys = ['"field":' + JSON.stringify(field), '"operator":' + JSON.stringify(operator)]
+			return '{' + keys.concat(saved.operands).join(',') + '}'
+		}
+	}
+	return JSON.stringify(normalizeConditions([{ field, operator, value }])[0])
+}
+
 const invalidBooleanOption = Symbol('invalidBooleanOption')
 
 function evaluateRule(ruleLike, entity, jsonObjectFields = [], booleanOptionFields = {}) {
@@ -311,5 +374,7 @@ export {
 	createEmptyRule,
 	normalizeRule,
 	serializeRule,
+	readEditorRule,
+	serializeEditorRule,
 	evaluateRule
 }

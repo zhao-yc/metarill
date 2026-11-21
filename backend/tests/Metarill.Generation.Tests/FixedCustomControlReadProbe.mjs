@@ -14,7 +14,7 @@ function module(name,exports,imports={}) {
  const text=readFileSync(path.join(runtime,name),'utf8').replace(/^import .*$/gm,'').replace(/export\s*\{[\s\S]*?\}\s*$/,'').replace(/export function /g,'function ')
  return new Function(...Object.keys(imports),text+';return {'+exports.join(',')+'};')(...Object.values(imports))
 }
-const rule=module('buttonVisibleRule.js',['LOGIC_OPTIONS','OPERATOR_OPTIONS','createEmptyCondition','createEmptyRule','normalizeRule','serializeRule'],{utils:{isBlank:value=>value==null||typeof value==='string'&&!value.trim()}})
+const rule=module('buttonVisibleRule.js',['LOGIC_OPTIONS','OPERATOR_OPTIONS','createEmptyCondition','createEmptyRule','normalizeRule','serializeRule','readEditorRule','serializeEditorRule'],{utils:{isBlank:value=>value==null||typeof value==='string'&&!value.trim()}})
 const storage=module('tableStorageMode.js',['tableStorageMode','isTableStorageModeLocked','changeTableStorageMode'])
 const source=readFileSync(path.join(root,'frontend/metarill_uni_admin/components',tag,tag+'.vue'),'utf8')
 const {descriptor,errors}=parse(source);assert.deepEqual(errors,[])

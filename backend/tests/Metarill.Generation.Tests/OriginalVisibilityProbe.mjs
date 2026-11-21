@@ -14,6 +14,77 @@ const end = yzpSource.indexOf('\tshowUploadSuccess:', start)
 assert(start >= 0 && end > start)
 const real = new Function('utils', 'evaluateButtonVisibleRuleCore',
   'return ({' + yzpSource.slice(start, end) + '})')(utils, evaluate)
+if (process.argv[3].startsWith('editor-')) {
+  const kind = process.argv[3].slice('editor-'.length)
+  const key = kind === 'button' ? 'visibleRuleJson' : 'visibleCondition'
+  const component = 'yzp-' + kind + '-visible-rule-editor'
+  const url = new URL('../../../frontend/metarill_uni_admin/components/' + component + '/' + component + '.vue', import.meta.url)
+  const runtimeScript = rule.replace(/^import .*$/m, "import utils from '@/common/utils';")
+    .replace(/^export\s*\{[\s\S]*?\}\s*$/m, '')
+  const editorSource = (await readFile(url, 'utf8'))
+    .replace(/import\s+\{[^}]+\}\s+from\s+'@\/common\/yzp_runtime\/buttonVisibleRule'/, () => runtimeScript)
+  const stored = '{"logic":"AND","conditions":[{"field":"state","operator":"eq","value":"待,审"},'
+    + '{"field":"label","operator":"in","valueList":["a,b","两行\\n其二",null,9007199254740993]},'
+    + '{"field":"owner","operator":"eq","value":9007199254740993}],'
+    + '"groups":[{"logic":"OR","conditions":[{"field":"branch","operator":"eq","value":"乙"}],'
+    + '"groups":[{"conditions":[{"field":"ticket","operator":"eq","value":9007199254740995}]}]}]}'
+  const emitted = []
+  const editor = mountGenerated(editorSource, {
+    entity: { id: '7', caption: '原记录', [key]: stored },
+    onReceive(entity) {
+      emitted.push(entity)
+      editor.setProps({ entity })
+    }
+  })
+  try {
+    await editor.flush()
+    assert.equal(emitted.length, 0, '加载配置不回写')
+    assert.equal(editor.state.rule.conditions[0].value, '待,审', '等于条件的逗号属于普通文字')
+    assert.equal(editor.state.rule.conditions[2].value, '9007199254740993')
+    editor.state.rule.conditions[0].value = '已审'
+    await editor.flush()
+    assert.equal(emitted.length, 1)
+    let saved = emitted[0][key]
+    let parsed = JSON.parse(saved)
+    assert.equal(emitted[0].caption, '原记录')
+    assert.equal(parsed.conditions[0].value, '已审')
+    assert.equal(parsed.groups?.[0]?.logic, 'OR', kind + ' 应保留原嵌套分组')
+    assert.deepEqual(parsed.conditions[1].valueList.slice(0, 3), ['a,b', '两行\n其二', null], kind + ' 应保留原候选分隔符和空值')
+    assert.match(saved, /"owner","operator":"eq","value":9007199254740993/)
+    assert.match(saved, /"ticket","operator":"eq","value":9007199254740995/)
+
+    editor.state.rule.conditions[1].operator = 'notIn'
+    await editor.flush()
+    saved = emitted.at(-1)[key]
+    parsed = JSON.parse(saved)
+    assert.equal(parsed.conditions[1].operator, 'notIn')
+    assert.deepEqual(parsed.conditions[1].valueList.slice(0, 3), ['a,b', '两行\n其二', null])
+
+    editor.setProps({ entity: { id: '8', [key]: saved.replace('"value":"乙"', '"value":"丙"') } })
+    await editor.flush()
+    assert.equal(emitted.length, 2, '换记录只回显')
+    assert.equal(JSON.parse(editor.state.serializedRule).groups[0].conditions[0].value, '丙')
+    const previousLabels = editor.state.rule.conditions[1].value
+    editor.state.rule.conditions[1].value = '甲,丁'
+    await editor.flush()
+    const otherRecordRule = emitted.at(-1)[key]
+    assert.deepEqual(JSON.parse(otherRecordRule).conditions[1].valueList, ['甲', '丁'])
+    editor.setProps({ entity: { id: '9', [key]: otherRecordRule } })
+    await editor.flush()
+    editor.state.rule.conditions[1].value = previousLabels
+    await editor.flush()
+    assert.deepEqual(JSON.parse(emitted.at(-1)[key]).conditions[1].valueList,
+      ['a', 'b', '两行', '其二', '9007199254740993'], '切换同规则文本的记录不能沿用上一记录的候选原值')
+
+    editor.state.rule.conditions.splice(0)
+    await editor.flush()
+    assert.deepEqual(JSON.parse(emitted.at(-1)[key]).conditions, [])
+    assert.equal(JSON.parse(emitted.at(-1)[key]).groups[0].conditions[0].value, '丙')
+  } finally {
+    editor.app.unmount()
+  }
+  process.exit(0)
+}
 const pages = join(process.argv[2], 'frontend/pages/yzp')
 const detail = mountGenerated(await readFile(join(pages, 'customer-detail-101.vue'), 'utf8'), {}, { id: '7' })
 const list = mountGenerated(await readFile(join(pages, 'customer-list-101.vue'), 'utf8'))

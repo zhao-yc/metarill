@@ -67,8 +67,8 @@ import {
 	OPERATOR_OPTIONS,
 	createEmptyCondition,
 	createEmptyRule,
-	normalizeRule,
-	serializeRule
+	readEditorRule,
+	serializeEditorRule
 } from '@/common/yzp_runtime/buttonVisibleRule'
 
 export default {
@@ -88,10 +88,13 @@ export default {
 	},
 	computed: {
 		serializedRule() {
-			return serializeRule(this.buildSerializableRule())
+			return serializeEditorRule(this.rule)
 		}
 	},
 	watch: {
+		'entity.id'() {
+			this.syncFromEntity(true)
+		},
 		'entity.visibleRuleJson': {
 			immediate: true,
 			handler() {
@@ -109,44 +112,19 @@ export default {
 		}
 	},
 	methods: {
-		syncFromEntity() {
-			const normalized = normalizeRule(this.entity && this.entity.visibleRuleJson)
-			const nextRule = {
-				logic: normalized.logic,
-				conditions: (normalized.conditions || []).map((condition) => ({
-					field: condition.field || '',
-					operator: condition.operator || 'eq',
-					value: condition.valueList && condition.valueList.length ? condition.valueList.join('\n') : (condition.value || '')
-				})),
-				groups: normalized.groups || []
-			}
-			const nextSerialized = serializeRule({
-				logic: nextRule.logic,
-				conditions: nextRule.conditions
-			})
-			const currentSerialized = serializeRule(this.buildSerializableRule())
-			if (nextSerialized === currentSerialized) {
-				return
-			}
+		// 同步父表单中的已保存规则；接收自己的回执时避免打断正在输入的内容。
+		syncFromEntity(recordChanged = false) {
+			const nextRule = readEditorRule(this.entity && this.entity.visibleRuleJson)
+			if (!recordChanged && serializeEditorRule(nextRule) === this.serializedRule) return
 			this.isSyncing = true
 			this.rule = nextRule
 			this.$nextTick(() => {
 				this.isSyncing = false
 			})
 		},
-		buildSerializableRule() {
-			return {
-				logic: this.rule.logic,
-				conditions: (this.rule.conditions || []).map((condition) => ({
-					field: condition.field,
-					operator: condition.operator,
-					value: condition.value
-				}))
-			}
-		},
 		emitEntity() {
 			const newEntity = JSON.parse(JSON.stringify(this.entity || {}))
-			newEntity.visibleRuleJson = serializeRule(this.buildSerializableRule())
+			newEntity.visibleRuleJson = this.serializedRule
 			this.$emit('receive', newEntity)
 		},
 		addCondition() {
