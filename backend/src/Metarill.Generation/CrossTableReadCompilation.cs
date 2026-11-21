@@ -2,7 +2,7 @@ using System.Text.Json;
 using Metarill.Core.Contracts;
 namespace Metarill.Generation;
 
-internal sealed record CrossTableLevelModel(string Key,string Prefix,TableModel Target,PageModel Page,ColumnModel Name,ColumnModel? Parent,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool DerivedName=false,IReadOnlyList<string>? NameDependencies=null);
+internal sealed record CrossTableLevelModel(string Key,string Prefix,TableModel Target,PageModel Page,ColumnModel Name,ColumnModel? Parent,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool DerivedName=false,IReadOnlyList<string>? NameDependencies=null,bool DerivedOrder=false);
 internal sealed record CrossTableReadModel(ColumnModel Source,IReadOnlyList<CrossTableLevelModel> Levels,string Joiner);
 internal sealed record CrossTableReadResult(CrossTableReadModel? Definition,string? Reason);
 
@@ -50,7 +50,17 @@ internal static class CrossTableReadCompilation
                     _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,pages[0].Source);
                 if(target.IsGlobal)
                     NonRedundantCrossTargetsCompilation.RequireGlobal(model,target,pages[0],name);
-                var order=GenerationModel.ValidateOrderBy(Text(entry,"orderBy",name.Source.ColumnName+" asc"),target.Columns).ToList();if(order.Any(item=>!Physical(item.Column)&&!((derived||globalName)&&item.Column.Source.Id==name.Source.Id)))return Gap("排序必须是物理标量。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));result.Add(new(key,prefix,target,pages[0],name,parent,order,derived,derived&&target.Source.Id==table.Source.Id?Metarill.Data.Queries.NonRedundantReads.CompileSourceDependencies(model.Catalog,target.Source.Id,name.Source.ColumnName):null));
+                var order = GenerationModel.ValidateOrderBy(Text(entry,"orderBy",name.Source.ColumnName+" asc"),target.Columns).ToList();
+                // 只允许本级目标已开放的固定单值联接，不能把任意派生字段当作物理排序。
+                var joinedOrder = order.Select(item => item.Column).Where(column => !Physical(column) &&
+                    !((derived || globalName) && column.Source.Id == name.Source.Id)).ToArray();
+                if (joinedOrder.Any(column => !CascadeTargetOrderCompilation.CanUseJoin(model, target, pages[0], column)))
+                    return Gap("排序须为物理标量或本级开放的固定单值联接。");
+                if (!order.Any(item => item.Column.IsId)) order.Add((target.Columns.Single(column => column.IsId), false));
+                var nameDependencies = derived && target.Source.Id == table.Source.Id
+                    ? Metarill.Data.Queries.NonRedundantReads.CompileSourceDependencies(model.Catalog, target.Source.Id, name.Source.ColumnName)
+                    : null;
+                result.Add(new(key, prefix, target, pages[0], name, parent, order, derived, nameDependencies, joinedOrder.Length > 0));
             }
             if(result[^1].Prefix+"_id"!=source.Source.ColumnName)return Gap("末级前缀与来源叶子字段不一致。");
             if(!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId)&&source.Source.LinkConfigTableId!=result[^1].Target.Source.Id)return Gap("叶子关联表与末级不一致。");

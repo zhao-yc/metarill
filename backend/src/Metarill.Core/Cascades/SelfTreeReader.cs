@@ -3,7 +3,29 @@ using System.Globalization;
 namespace Metarill.Core.Cascades;
 
 /// <summary>固定SQL的最小内部投影；父键只在路径算法中使用。</summary>
-public sealed record CascadeTreeNode(long Id,string? Name,string? ParentId);
+public sealed record CascadeTreeNode(long Id,string? Name,string? ParentId)
+{
+    /// <summary>同一快照的排序只提供顺序，必须逐个匹配已读取的原节点才能返回候选。</summary>
+    public static IReadOnlyList<CascadeTreeNode> OrderCandidates(IReadOnlyList<CascadeTreeNode> nodes, IReadOnlyList<long> orderedIds)
+    {
+        if (nodes.Count != orderedIds.Count)
+            throw new InvalidOperationException("级联排序与原候选范围不一致。");
+
+        var byId = new Dictionary<long, CascadeTreeNode>(nodes.Count);
+        foreach (var node in nodes)
+            if (!byId.TryAdd(node.Id, node))
+                throw new InvalidOperationException("级联原候选存在重复节点。");
+
+        var result = new CascadeTreeNode[nodes.Count];
+        for (var index = 0; index < orderedIds.Count; index++)
+        {
+            if (!byId.Remove(orderedIds[index], out var node))
+                throw new InvalidOperationException("级联排序出现未知或重复节点。");
+            result[index] = node;
+        }
+        return result;
+    }
+}
 /// <summary>保留原组件五字段响应与字符串ID。</summary>
 public sealed record CascadeTreeOption(string Id,string? Name,string Value,string? Text,bool HasChildren);
 /// <summary>原路径每层只返回ID和名称。</summary>
@@ -44,26 +66,9 @@ public sealed class SelfTreeReader(
         return rows.Select(row=>new CascadeTreeOption(Text(row.Id),row.Name??"",Text(row.Id),row.Name??"",hasChildren.Contains(row.Id))).ToArray();
     }
 
-    /// <summary>同一快照的排序只提供顺序，必须逐个匹配已读取的原节点才能返回候选。</summary>
-    public static IReadOnlyList<CascadeTreeNode> OrderCandidates(IReadOnlyList<CascadeTreeNode> nodes, IReadOnlyList<long> orderedIds)
-    {
-        if (nodes.Count != orderedIds.Count)
-            throw new InvalidOperationException("自树排序与原候选范围不一致。");
-
-        var byId = new Dictionary<long, CascadeTreeNode>(nodes.Count);
-        foreach (var node in nodes)
-            if (!byId.TryAdd(node.Id, node))
-                throw new InvalidOperationException("自树原候选存在重复节点。");
-
-        var result = new CascadeTreeNode[nodes.Count];
-        for (var index = 0; index < orderedIds.Count; index++)
-        {
-            if (!byId.Remove(orderedIds[index], out var node))
-                throw new InvalidOperationException("自树排序出现未知或重复节点。");
-            result[index] = node;
-        }
-        return result;
-    }
+    /// <summary>已有自树工程继续使用同一候选范围校验。</summary>
+    public static IReadOnlyList<CascadeTreeNode> OrderCandidates(IReadOnlyList<CascadeTreeNode> nodes, IReadOnlyList<long> orderedIds) =>
+        CascadeTreeNode.OrderCandidates(nodes, orderedIds);
 
     /// <summary>循环、断链和超过64层均整体拒绝，路径不得静默截断。</summary>
     public async Task<CascadeTreePath> PathAsync(long? leafId,CancellationToken cancellationToken=default)

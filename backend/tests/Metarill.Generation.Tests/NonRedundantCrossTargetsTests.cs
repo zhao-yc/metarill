@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Text.Json;
+using Metarill.Data.Queries;
 using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
 using Xunit;
@@ -19,6 +21,113 @@ public sealed class NonRedundantCrossTargetsTests
         try{new CSharpGenerator().Generate(c,Path.Combine(directory,"generated"),"Example.CrossTarget");await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);Assert.Equal(before,JsonSerializer.Serialize(c));Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(c,"Example.CrossTarget")));foreach(var target in c.ConfigTables.Where(x=>x.Id!="2"&&x.IsRongyu==0)){var storage=MetadataStoragePolicy.ForTable(c,target);Assert.Equal(scenario=="physical",storage.PhysicalColumns.Any(x=>x.ColumnName=="name"));}}
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>各层可按独立联接排序，共用字典条件时原路径与缓存仍从原名称计划读取。</summary>
+    [Theory]
+    [InlineData(0, false, false, 1)]
+    [InlineData(1, false, true, 1)]
+    [InlineData(0, true, true, 1)]
+    [InlineData(1, true, true, 1)]
+    [InlineData(0, true, true, 0)]
+    [InlineData(1, true, false, 1)]
+    public async Task Cross_level_sorts_by_an_independent_published_join(int storage, bool derivedName, bool scopedDictionary, int level)
+    {
+        const string ns = "Example.CrossOrder";
+        var catalog = Catalog("sort_cross", "string", storage == 0 ? "string" : "int64", level == 0 ? "derived" : "mixed");
+        catalog.ConfigTables.Single(table => table.Id == "2").IsRongyu = storage;
+        var targetId = (level + 3).ToString();
+        var pageId = targetId + "01";
+        if (!derivedName)
+        {
+            var name = catalog.ConfigColumns.Single(column => column.ConfigTableId == targetId && column.ColumnName == "name");
+            name.Extra.Remove("isJoinColumn");
+            name.Extra.Remove("columnFullName");
+        }
+        catalog.ConfigColumns.Add(new() { Id = "65", ConfigTableId = "6", ColumnName = "priority", LogicalType = "int32" });
+        catalog.ConfigPageColumns.Add(new() { Id = "60165", ConfigPageId = "601", ConfigColumnId = "65", IsShow = 1 });
+        if (scopedDictionary)
+            catalog.ConfigPages.Single(page => page.Id == "601").WhereSql += " AND priority>=10";
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "sortAlias", ConfigTableId = targetId, ColumnName = "sort_alias", LogicalType = "int32",
+            Extra = new()
+            {
+                ["isJoinColumn"] = JsonSerializer.SerializeToElement(1),
+                ["columnFullName"] = JsonSerializer.SerializeToElement("company.priority")
+            }
+        });
+        catalog.ConfigPageColumns.Add(new() { Id = "sortAliasPage", ConfigPageId = pageId, ConfigColumnId = "sortAlias", IsShow = 1 });
+        var control = catalog.ConfigColumns.Single(column => column.Id == "25");
+        var settings = JsonNode.Parse(control.ControlDetail)!;
+        settings["levels"]![level]!["orderBy"] = "sort_alias desc, id asc";
+        control.ControlDetail = settings.ToJsonString();
+        var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
+        sourcePage.IsExport = sourcePage.IsImport = 1;
+        catalog = RedundantMultiNameCacheTests.Published(catalog);
+        var model = GenerationModel.Create(catalog, ns);
+        var owner = model.Tables.Single(table => table.Source.Id == "2");
+        var page = Assert.Single(owner.Pages);
+        var resolved = CrossTableReadCompilation.Resolve(model, owner, page, owner.Columns.Single(column => column.Source.Id == "25"));
+        Assert.True(resolved.Definition is not null, resolved.Reason);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        if (storage == 1)
+        {
+            var cache = Assert.Single(RelationPropagationCompilation.Bindings(model)
+                .Concat(RelationPropagationCompilation.DerivedBindings(model)), binding =>
+                    binding.Source.Source.Id == owner.Source.Id && binding.CrossTableColumnId == "25" &&
+                    binding.Target.Source.Id == targetId);
+            Assert.Equal("name", cache.Value.Source.ColumnName);
+        }
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-cross-order");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.SortCrossSourceService", true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            const BindingFlags staticField = BindingFlags.Static | BindingFlags.NonPublic;
+            const BindingFlags instanceField = BindingFlags.Instance | BindingFlags.NonPublic;
+            var suffix = "201_25_" + level;
+            var order = Assert.IsType<FixedReadOrder[]>(service.GetField("CrossTargetOrder" + suffix, staticField)!.GetValue(null));
+            Assert.Equal(new[] { new FixedReadOrder("sort_alias", true), new("id", false) }, order);
+            var labels = Plan("CrossTargetPlan");
+            var separateOrder = derivedName && scopedDictionary;
+            var ranking = separateOrder ? Plan("CrossTargetSortPlan") : labels;
+            Assert.DoesNotContain("sort_alias", ranking.OutputTypes.Keys);
+            Assert.Equal("string", labels.OutputTypes["name"]);
+            Assert.Contains(".\u0060priority\u0060", Expressions(ranking)["sort_alias"]);
+            if (scopedDictionary) Assert.Matches(@"priority\x60?\s*>=\s*@", From(ranking));
+            if (separateOrder)
+            {
+                Assert.DoesNotMatch(@"priority\x60?\s*>=\s*@", From(labels));
+                Assert.DoesNotContain("sort_alias", Expressions(labels).Keys);
+                Assert.Equal(new[] { "id" }, ranking.OutputTypes.Keys);
+            }
+            Assert.NotNull(service.GetMethod("CrossOptions201_25Async"));
+            Assert.NotNull(service.GetMethod("CrossPath201_25Async"));
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+
+            NonRedundantReadPlan Plan(string prefix) =>
+                Assert.IsType<NonRedundantReadPlan>(service.GetField(prefix + suffix, staticField)!.GetValue(null));
+            object Sql(NonRedundantReadPlan plan) => plan.GetType().GetProperty("MySql", instanceField)!.GetValue(plan)!;
+            IReadOnlyDictionary<string, string> Expressions(NonRedundantReadPlan plan)
+            {
+                var sql = Sql(plan);
+                return Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(sql.GetType().GetProperty("Expressions", instanceField)!.GetValue(sql));
+            }
+            string From(NonRedundantReadPlan plan)
+            {
+                var sql = Sql(plan);
+                return Assert.IsType<string>(sql.GetType().GetProperty("From", instanceField)!.GetValue(sql));
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>账号范围的固定投影进入生成的查询、回执和导出，不能留到读取端才发现缺少账号。</summary>
     [Fact]
     public async Task Account_scoped_cross_target_generates_bound_projection_and_frozen_metadata()

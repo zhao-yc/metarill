@@ -85,12 +85,7 @@ internal static class CascadeTreeReadCompilation
             // 独立联接排序只使用目标页已开放的单值列。排序依赖留在固定读取计划内。
             var joinedOrder = ordering.Select(item => item.Column).Where(column => !Physical(column) &&
                 !((derived || typedCache) && column.Source.Id == name.Source.Id)).ToArray();
-            if (joinedOrder.Any(column => target.Source.IsRongyu != 0 || NonRedundantReadCompilation.Physical(model, target, column) ||
-                column.Source.IsVirtualColumn != 0 || !GenerationModel.Enabled(column.Source.Extra, "isJoinColumn") ||
-                column.IsJsonArray || Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.Source.ColumnName) ||
-                ManagerCredentialCompilation.IsCredential(target, column) ||
-                column.Source.LogicalType != "string" && !MultiValueLabel.IsTyped(column.Source.LogicalType) ||
-                !targetPage.Readable.Any(read => read.Source.Id == column.Source.Id)))
+            if (joinedOrder.Any(column => !CascadeTargetOrderCompilation.CanUseJoin(model, target, targetPage, column)))
                 return Gap("排序字段须为物理标量或目标页已开放的固定单值联接。");
             if(!ordering.Any(item=>item.Column.IsId))ordering.Add((target.Columns.Single(column=>column.IsId),false));
             var joiner=Text(root,"displayJoiner","/");if(joiner.Length>32)return Gap("路径分隔符过长。");

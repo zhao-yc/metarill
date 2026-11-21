@@ -21,52 +21,11 @@ internal static class DerivedCascadeNamesCompilation
             throw new InvalidOperationException("自树的身份和条件必须为物理标量或固定级联路径。");
         // 全局目标名称由固定发布页证明，普通目标继续要求单值匹配计划。
         if(!target.IsGlobal)_=NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,plan.Name.Source.ColumnName);
-        var targets = OrderTargets(model, plan);
-        var labelTargets = plan.DerivedName && targets.Count > 0
-            ? NonRedundantReadCompilation.ProjectPathTargets(model, target, plan.TargetPage,
-                [plan.Name.Source.ColumnName], multiValuePath: true)
-            : [];
-        // 同一联接的独立排序条件只用于排序；原名称继续供回显、路径、Excel 和缓存使用。
-        var separateOrder = targets.Any(order => labelTargets.Any(label => label.ColumnId == order.ColumnId));
-        var identityFields = fields.Select(column => column.Source.ColumnName).Append("id");
-        var name = plan.Name.Source.ColumnName;
-        var labelOutputs = new[] { "id", name, plan.Parent.Source.ColumnName };
-        var labelDependencies = identityFields.Append(name).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var orderDependencies = (separateOrder ? identityFields : labelDependencies)
-            .Concat(plan.Order.Select(item => item.Column.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var orderFields = JoinedOrderFields(model, plan);
-        // 生成前验证包括依赖列的类型，运行时排序计划只返回必要字段。
-        var orderOutputs = (separateOrder ? new[] { "id" } : labelOutputs)
-            .Concat(orderFields.Select(column => column.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var ordered = Compile(orderOutputs, orderDependencies, targets);
-        var labels = separateOrder ? Compile(labelOutputs, labelDependencies, []) : ordered;
-        if (labels.OutputTypes["id"] != "int64" || labels.OutputTypes[name] != plan.Name.Source.LogicalType)
-            throw new InvalidOperationException("自树名称未落到同类型的固定单值列。");
-        if (orderFields.Any(column => ordered.OutputTypes[column.Source.ColumnName] != column.Source.LogicalType))
-            throw new InvalidOperationException("自树排序列未落到同类型的固定单值列。");
-
-        return separateOrder ? (labelDependencies, orderDependencies, targets) : (orderDependencies, [], targets);
-
-        NonRedundantReadPlan Compile(string[] outputs, string[] dependencies, IReadOnlyList<NonRedundantSingleTargetScope> scopes)
-        {
-            if (plan.ScopedCondition)
-                return NonRedundantReads.CompileCrossPageCandidate(model.Catalog, target.Source.Id, plan.TargetPage.Source.Id,
-                    outputs, dependencies, null, scopes);
-            if (NonRedundantReadCompilation.HasGlobalRowProject(target))
-                return NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, plan.TargetPage.Source.Id,
-                    outputs, dependencies, scopes);
-            return scopes.Count > 0
-                ? NonRedundantReads.CompileProjectRelation(model.Catalog, target.Source.Id, outputs, dependencies, scopes)
-                : NonRedundantReads.Compile(model.Catalog, target.Source.Id, outputs, dependencies);
-        }
+        return CascadeTargetOrderCompilation.Require(model, target, plan.TargetPage, plan.Name, plan.Parent,
+            plan.DerivedName, plan.DerivedOrder, plan.Order, fields);
     }
 
-    /// <summary>复用实际目标页的单值联接范围；不从用户排序或名称猜测另一个页面。</summary>
+    /// <summary>保留生成服务排序所需的实际范围页。</summary>
     internal static IReadOnlyList<NonRedundantSingleTargetScope> OrderTargets(GenerationModel model, CascadeTreeReadModel plan) =>
-        NonRedundantReadCompilation.ProjectPathTargets(model, plan.Target, plan.TargetPage,
-            JoinedOrderFields(model, plan).Select(column => column.Source.ColumnName), multiValuePath: true);
-
-    private static ColumnModel[] JoinedOrderFields(GenerationModel model, CascadeTreeReadModel plan) =>
-        !plan.DerivedOrder ? [] : plan.Order.Select(item => item.Column)
-            .Where(column => column.Source.Id != plan.Name.Source.Id && !NonRedundantReadCompilation.Physical(model, plan.Target, column)).ToArray();
+        CascadeTargetOrderCompilation.OrderTargets(model, plan.Target, plan.TargetPage, plan.Name, plan.Order, plan.DerivedOrder);
 }

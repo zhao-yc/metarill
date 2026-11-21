@@ -94,6 +94,9 @@ internal static partial class BackendRenderer
         // 排序单值联接也需要固定中间页和字典条件，发布目录按实际依赖保留。
         var treeOrderPages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page)))
             .Where(tree=>tree.DerivedOrder).SelectMany(tree=>NamePages(DerivedCascadeNamesCompilation.OrderTargets(model,tree)))
+            .Concat(model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CrossTableReadCompilation.ForService(model,table,page)))
+                .SelectMany(plan=>plan.Levels).Where(level=>level.DerivedOrder).SelectMany(level=>NamePages(
+                    CascadeTargetOrderCompilation.OrderTargets(model,level.Target,level.Page,level.Name,level.Order,level.DerivedOrder))))
             .ToHashSet(StringComparer.Ordinal);
         scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>treeOrderPages.Contains(page.Source.Id))
             .Select(page=>(table,page))));
