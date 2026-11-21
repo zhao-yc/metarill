@@ -26,7 +26,7 @@ internal static class NonRedundantSelectionCompilation
         if (name is null || name.IsJsonArray || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id) ||
             ManagerCredentialCompilation.IsCredential(target, name))
             throw new InvalidOperationException("非冗余单选目标名称必须是已开放的非凭据标量。");
-        var idLabel=name.IsId&&name.Type=="long"&&!table.IsGlobal&&!target.IsGlobal;
+        var idLabel=name.IsId&&name.Type=="long"&&!table.IsGlobal&&NonRedundantReadCompilation.Physical(model,target,name);
         // 主键展示沿来源外键协议；即使覆盖表级名称也无需新的辅助名称列。
         var displayOverride=idLabel||definition.NameField==baseline.NameField?null:
             NonRedundantReadCompilation.PageSingleDisplayOverride(model,table,source,target,name)??
@@ -35,7 +35,12 @@ internal static class NonRedundantSelectionCompilation
         if (name.Type != "string?" && !typedName && !idLabel)
             throw new InvalidOperationException("非冗余单选目标名称必须是已证明的单值标量。");
         if(!NonRedundantReadCompilation.Physical(model,target,name))DerivedRelationNamesCompilation.RequireSelection(model,table,target,targetPage,name);
-        if(target.IsGlobal){var proof=cached?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalSingleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)throw new InvalidOperationException("全局单选页面和名称来源不一致。");}
+        if(target.IsGlobal)
+        {
+            var proof=RelationCompilation.GlobalTargetForPage(model,table,page,source,target);
+            if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id&&!idLabel)
+                throw new InvalidOperationException("全局单选页面和名称来源不一致。");
+        }
         if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))throw new InvalidOperationException("非冗余单选目标缺少项目归属。");
         var query=FixedPageQueryCompilation.For(target,targetPage);
         RelationConditionModel? importCondition=null;

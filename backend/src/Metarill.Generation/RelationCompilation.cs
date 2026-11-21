@@ -126,7 +126,8 @@ internal static class RelationCompilation
                 var global=GlobalTargetForPage(model,owner,page,source,target);
                 targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);
                 globalListPageScope=global.UsesListPageScope;
-                if(name.Source.Id!=global.Name.Id&&!listId)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
+                if(name.Source.Id!=global.Name.Id&&!listId&&selection?.Name.IsId!=true)
+                    throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
             }
             if(owner.IsGlobal&&!target.IsGlobal&&GlobalCachedSourceCompilation.ForModel(model)
                 .SingleOrDefault(binding=>binding.Source.Source.Id==owner.Source.Id&&binding.Foreign.Source.Id==source.Source.Id) is {} parent)
