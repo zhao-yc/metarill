@@ -97,15 +97,17 @@ public static partial class MySqlNonRedundantReadCompiler
             var terms=pageCondition.Terms.Concat(control.Terms).ToArray();
             if (terms.Any(term=>!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,term.Field))))
                 throw new InvalidOperationException("冗余字典范围只可使用真实的非凭据物理列。");
-            // 项目由原物理联接固定，父条件另行核对同一实际记录，其余条件保留原空值与类型比较。
+            // 普通字典已由物理联接限定项目。全局字典只有声明了项目谓词才按当前身份限定。
+            static bool Project(FixedConditionTerm term)=>term.Field=="yz_project_id"&&term.Comparison==FixedConditionComparison.Equal&&
+                term.Values is [{Kind:FixedConditionValueKind.Variable,Text:var variable}]&&
+                variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase);
             var scoped=terms.Where(term=>!term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
-                MultiTargetParentScope.IsParameter(value.Text))&&
-                !(term.Field=="yz_project_id"&&term.Comparison==FixedConditionComparison.Equal&&term.Values is
-                    [{Kind:FixedConditionValueKind.Variable,Text:var variable}]&&
-                    variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)));
+                MultiTargetParentScope.IsParameter(value.Text))&&!Project(term));
             var syntax=FixedConditionPlan.Compile(string.Join(" AND ",scoped.Select(term=>term.ToDefinition())),members.Keys);
             var plan=FixedConditionSqlPlan.Compile(syntax,syntax.Fields.ToDictionary(field=>field,field=>Column(target,field).LogicalType));
             var validity=new HashSet<string>(StringComparer.Ordinal);
+            if(GlobalCrossTableTarget.Declared(target)&&terms.Any(Project))
+                validity.Add(Scope(target,targetAlias,includeDeleted:true));
             var clause=plan.RenderRowProjection(ConditionParameterPrefix("mt_stored_list_"+targetAlias),
                 field=>targetAlias+"."+Q(field),(variable,type)=>AccountConditionVariables.IsSupported(variable)
                     ?null:SingleControlFormColumn(source,owner,validity,variable,type),deferAccount:true);

@@ -36,6 +36,7 @@ internal static partial class BackendRenderer
                 DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
                 DerivedRelationNamesCompilation.UsesExactSingle(relation)||
                 DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)||
+                relation.Target.IsGlobal&&relation.ListPageOverride||
                 NonRedundantReadCompilation.UsesProjectSingleRead(relation)).ToArray();
         scopedPages=scopedPages.Concat(scopedRelations.Select(relation=>(relation.Target,relation.TargetPage)));
         // 固定单值读取在宿主重新装载时，从实际来源页重新验证物理或逻辑父键。

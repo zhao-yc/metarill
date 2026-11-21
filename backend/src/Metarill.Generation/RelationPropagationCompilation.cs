@@ -65,14 +65,14 @@ internal static class RelationPropagationCompilation
         foreach(var foreign in table.Columns.Where(column=>!column.IsSystem&&column.Source.ControlKind is "List" or "SelectPage"))
         {
             var target=ForeignValidationRenderer.Target(model,foreign);
-            if(target is null||target.IsGlobal&&target.Source.IsRongyu!=0)continue;
+            if(target is null)continue;
             var cache=SelectionDisplayFieldCompilation.Resolve(table,foreign);
             if(cache.Source.Id==foreign.Source.Id)continue;
             (PageMetadata Page,ColumnMetadata Name) proof;
             if(target.IsGlobal)
             {
                 var global=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source);
-                if(!global.RequiresScopedCache)continue;
+                if(!global.RequiresScopedCache||target.Source.IsRongyu!=0&&!global.AlternateListPage)continue;
                 proof=(global.Page,global.Name);
             }
             else if(ProjectScopedSingleRelationTarget.Resolve(model.Catalog,table.Source,foreign.Source,target.Source) is {} project)
@@ -211,7 +211,8 @@ internal static class RelationPropagationCompilation
         var scalarReferences=DerivedCrossTableCaches.ScopedSingleReferencedTables(model.Catalog,definitions);
         scopedTables.UnionWith(model.Tables.Where(table=>scalarReferences.Contains(table.Source.TableName)).Select(table=>table.Source.Id));
         scopedTables.UnionWith(definitions.Where(definition=>definition.ScopedSinglePageId is not null&&
-            model.Tables.Any(table=>table.Source.Id==definition.TargetTableId&&!table.IsGlobal))
+            (model.Tables.Any(table=>table.Source.Id==definition.TargetTableId&&!table.IsGlobal)||
+                model.Catalog.ConfigColumns.Any(column=>column.Id==definition.ForeignColumnId&&column.ControlKind=="List")))
             .Select(definition=>definition.SourceTableId));
         scopedTables.UnionWith(definitions.Where(definition=>definition.CheckboxSourceParentId is not null)
             .Select(definition=>definition.SourceTableId));

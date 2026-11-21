@@ -119,9 +119,15 @@ internal static class RelationCompilation
                 : ListTargetPage(model, target, page, source));
             if (functionForm && target.IsGlobal && functionPageId.Length == 0)
                 throw new InvalidOperationException("功能表下拉的全局目标需要显式发布页面。");
+            var alternateGlobalListPage = false;
             if(!functionForm&&target.IsGlobal&&(owner.Source.IsRongyu==0||!source.IsSystem))
             {
-                var global=owner.Source.IsRongyu==1?Metarill.Core.Metadata.GlobalSingleRelationTarget.RequireCached(model.Catalog,owner.Source,source.Source,target.Source):Metarill.Core.Metadata.GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source);targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);if(name.Source.Id!=global.Name.Id)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
+                var global=owner.Source.IsRongyu==1
+                    ?GlobalSingleRelationTarget.RequireCached(model.Catalog,owner.Source,source.Source,target.Source)
+                    :GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source);
+                targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);
+                alternateGlobalListPage=global.AlternateListPage;
+                if(name.Source.Id!=global.Name.Id)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
             }
             if(owner.IsGlobal&&!target.IsGlobal&&GlobalCachedSourceCompilation.ForModel(model)
                 .SingleOrDefault(binding=>binding.Source.Source.Id==owner.Source.Id&&binding.Foreign.Source.Id==source.Source.Id) is {} parent)
@@ -131,7 +137,7 @@ internal static class RelationCompilation
             }
             if (targetPage is null) continue;
             var projectListPage = !functionForm && UsesProjectListPage(model,target,page,source);
-            var listPageOverride = projectListPage && overlay.ContainsKey("pageId");
+            var listPageOverride = alternateGlobalListPage || projectListPage && overlay.ContainsKey("pageId");
             if (listId && Mapped("pageId") is {Length:>0} declaredPage && declaredPage != targetPage.Source.Id)
                 throw new InvalidOperationException("主键下拉的目标页声明与写入关系不一致。");
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
@@ -214,8 +220,9 @@ internal static class RelationCompilation
                 fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0)
             {
                 ListPageOverride = listPageOverride,
-                ScopedStoredList = projectListPage && target.Source.IsRongyu==1 &&
-                    ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)==targetPage.Source.Id &&
+                ScopedStoredList = target.Source.IsRongyu==1 &&
+                    (alternateGlobalListPage || projectListPage &&
+                        ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)==targetPage.Source.Id) &&
                     (HasStoredListRange(targetPage) || conditions is not null || scopes.Any(scope=>scope.Source=="parent")),
                 IndependentOrder = independentOrder,
                 FunctionForm = functionForm,

@@ -28,7 +28,11 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
     internal bool NestedCacheScope { get; init; }
 
     /// <summary>页面或控件条件决定副本可见性，由统一维护计划重算。</summary>
-    public bool RequiresScopedCache=>RequiresScopedPage||NestedCacheScope||CacheControl is {Terms.Count:>0};
+    public bool RequiresScopedCache=>RequiresScopedPage||NestedCacheScope||CacheControl is {Terms.Count:>0}||
+        AlternateListPage&&!string.IsNullOrWhiteSpace(Page.WhereSql);
+
+    /// <summary>全局固定下拉显式选择另一张同实体页面，读取和副本都采用其条件。</summary>
+    public bool AlternateListPage { get; internal init; }
 }
 
 /// <summary>普通单值全局关系的静态证明，目标和页面必须来自同一明确发布目录。</summary>
@@ -129,9 +133,36 @@ public static class GlobalSingleRelationTarget
                 throw new InvalidOperationException("全局关系标识必须是固定标量。");
         string Value(string key)=>ReadValue(definition,key);
         string Extra(string key)=>foreign.Extra.TryGetValue(key,out var value)&&value.ValueKind!=JsonValueKind.Null?value.ToString():"";
-        var tableId=Value("tableId");var tableName=Value("table");var declaredPage=Value("pageId");var linkedPage=Extra("linkConfigPageId");
-        if(tableId.Length>0&&tableId!=target.Id||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id||tableName.Length>0&&tableName!=target.TableName||Extra("joinTable") is {Length:>0} joined&&joined!=target.TableName||declaredPage.Length>0&&linkedPage.Length>0&&declaredPage!=linkedPage)throw new InvalidOperationException("全局关系的表、页面或显示来源声明相互冲突。");
-        var pageId=declaredPage.Length>0?declaredPage:linkedPage;var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id&&(pageId.Length==0||page.Id==pageId)).ToArray();if(pages.Length!=1)throw new InvalidOperationException("全局单值关系必须指定真实目标页，省略时目标页必须唯一。");var page=pages[0];
+        var tableId=Value("tableId");
+        var tableName=Value("table");
+        var declaredPage=Value("pageId");
+        var linkedPage=Extra("linkConfigPageId");
+        var fixedList=!projectParent&&foreign.ControlKind=="List"&&ProjectScopedSingleRelationTarget.UsesFixedListCandidates(catalog);
+        if(tableId.Length>0&&tableId!=target.Id||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id||
+            tableName.Length>0&&tableName!=target.TableName||Extra("joinTable") is {Length:>0} joined&&joined!=target.TableName||
+            !fixedList&&declaredPage.Length>0&&linkedPage.Length>0&&declaredPage!=linkedPage)
+            throw new InvalidOperationException("全局关系的表、页面或显示来源声明相互冲突。");
+        var pages=catalog.ConfigPages.Where(page=>page.ConfigTableId==target.Id).ToArray();
+        var baseline=declaredPage.Length>0?declaredPage:linkedPage;
+        var pageId=baseline;
+        if(fixedList)
+        {
+            // 页面设置可以更换同一全局实体的候选页。共享全局目标与物理副本必须能从各入口证明同一页。
+            if(new[]{declaredPage,linkedPage}.Any(id=>id.Length>0&&!pages.Any(page=>page.Id==id)))
+                throw new InvalidOperationException("下拉的原关联页及配置页必须属于同一全局目标表。");
+            var selected=catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id)
+                .Select(page=>ProjectScopedSingleRelationTarget.ListPageId(catalog,page,foreign))
+                .Distinct(StringComparer.Ordinal).ToArray();
+            if(selected.Length>1)
+                throw new InvalidOperationException("全局下拉的各来源页必须能证明同一已发布目标页。");
+            pageId=selected.SingleOrDefault()??baseline;
+        }
+        var alternateListPage=fixedList&&pageId.Length>0&&(pageId!=baseline||
+            declaredPage.Length>0&&linkedPage.Length>0&&declaredPage!=linkedPage);
+        pages=pages.Where(page=>pageId.Length==0||page.Id==pageId).ToArray();
+        if(pages.Length!=1)
+            throw new InvalidOperationException("全局单值关系必须指定真实目标页，省略时目标页必须唯一。");
+        var page=pages[0];
         var targetColumns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
         var expanded=RelationStorageColumns.Expand(target,targetColumns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
@@ -161,7 +192,7 @@ public static class GlobalSingleRelationTarget
         // 普通与显式全局来源使用同一终点证明；来源的存储模式和发布身份已由各入口核验。
         var typedName = name is not null && name.ColumnName != "id" && MultiValueLabel.IsTyped(name.LogicalType) &&
             owner.IsRongyu is 0 or 1;
-        var hasNameCache=cacheControl&&target.IsRongyu==0&&name is not null&&
+        var hasNameCache=cacheControl&&(target.IsRongyu==0||alternateListPage)&&name is not null&&
             catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName==foreign.ColumnName[..^3]+"_"+name.ColumnName);
         var nestedScope=false;
         if (name is null || name.LogicalType != "string" && (!typedName||projectParent) ||
@@ -180,11 +211,11 @@ public static class GlobalSingleRelationTarget
             throw new NotSupportedException("目标条件必须使用已证明的非凭据标量或逻辑级联字段。");
         }
         // 只有明确声明了物理名称副本时，才要求所有业务入口的附加条件等价。
-        var control=foreign.ControlKind!="List"||target.IsRongyu!=0?null:
+        var control=foreign.ControlKind!="List"||target.IsRongyu!=0&&!alternateListPage?null:
             sourcePage is not null?ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target,sourcePage):
             hasNameCache?ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target):null;
         // 实时名称和回填使用同一张发布页，禁止任何来源页覆盖表、名称或父键所属的目标页。
-        var allSourcePages=fixedParent is not null||sourcePage is null&&(nestedScope||control is {Terms.Count:>0});
+        var allSourcePages=alternateListPage||fixedParent is not null||sourcePage is null&&(nestedScope||control is {Terms.Count:>0});
         if(allSourcePages||sourcePage is not null)
         {
             foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==foreign.Id&&
@@ -203,7 +234,7 @@ public static class GlobalSingleRelationTarget
             }
         }
         var plan=new GlobalSingleRelationPlan(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,
-            ScopedAccount=scopedAccount,Parent=fixedParent,SourceParent=sourceParent,CacheControl=control,NestedCacheScope=nestedScope};
+            ScopedAccount=scopedAccount,Parent=fixedParent,SourceParent=sourceParent,CacheControl=control,NestedCacheScope=nestedScope,AlternateListPage=alternateListPage};
         if(owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&foreign.ControlKind=="SelectPage"&&
             (!plan.RequiresScopedCache||page.Extra.GetValueOrDefault("type").ToString()!="1"))
             throw new NotSupportedException("全局冗余单选要求有固定数据范围的已发布type=1目标页。");
