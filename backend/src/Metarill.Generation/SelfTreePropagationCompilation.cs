@@ -26,7 +26,7 @@ internal static class SelfTreePropagationCompilation
             try
             {
                 var proof=SelfTreeCache.Compile(model.Catalog,table.Source.Id,source.Source.Id,PageId(table,plan.Read));if(proof.TargetTableId!=plan.Read.Target.Source.Id||proof.ValueColumnId!=plan.Read.Name.Source.Id||proof.CacheColumnId!=plan.Name.Source.Id)continue;
-                if(plan.Read.UsesFixedRead||table.IsGlobal)DerivedCrossTableCaches.Validate(model.Catalog,[proof],[]);else _=RelationMutationPlan.Compile(model.Catalog,[proof]);result.Add(new(table,source,plan.Read.Target,plan.Read.Name,plan.Name,false){SelfTreePageId=proof.SelfTreePageId});
+                if(plan.Read.DerivedName||plan.Read.ScopedCondition||table.IsGlobal)DerivedCrossTableCaches.Validate(model.Catalog,[proof],[]);else _=RelationMutationPlan.Compile(model.Catalog,[proof]);result.Add(new(table,source,plan.Read.Target,plan.Read.Name,plan.Name,false){SelfTreePageId=proof.SelfTreePageId});
             }
             catch(Exception unsupported)when(unsupported is InvalidOperationException or NotSupportedException or ArgumentException or JsonException){/* 完整用途审计仍会报告此字段，不生成未经证明的缓存。 */}
         }

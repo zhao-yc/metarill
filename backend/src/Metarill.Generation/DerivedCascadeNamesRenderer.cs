@@ -7,18 +7,19 @@ internal static class DerivedCascadeNamesRenderer
     /// <summary>编译一次目标名称／父结构，普通及当前读不执行COUNT，不接受外部字段或SQL。</summary>
     internal static string Reader(GenerationModel model,TableModel table,PageModel page,CascadeTreeReadModel plan)
     {
-        var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var dependencies=DerivedCascadeNamesCompilation.Require(model,table,plan);var scopes=plan.TargetPage.Scopes.Select(scope=>"        bound.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+(scope.Column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")+"));");
+        var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var (dependencies,targets)=DerivedCascadeNamesCompilation.Require(model,table,plan);var scopes=plan.TargetPage.Scopes.Select(scope=>"        bound.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+(scope.Column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")+"));");
         var parent=plan.Parent;var nodeParent=parent.Type=="string?"?"NonRedundantReads.Value<string?>(row,"+Literal(parent.Source.ColumnName)+")":"NonRedundantReads.Value<long?>(row,"+Literal(parent.Source.ColumnName)+")?.ToString(CultureInfo.InvariantCulture)";
         var childParent=parent.Type=="string?"?"parentId.Value.ToString(CultureInfo.InvariantCulture)":"(object)parentId.Value";var root=Root(plan);
         var condition=plan.ScopedCondition?"null":FixedPageConditionCompilation.Bound(plan.TargetPage,"CascadeCondition"+suffix);
-        var readPlan="DerivedCascadePlan"+suffix+(plan.ScopedCondition?".BindAccount(actor)":"");
+        var readPlan="DerivedCascadePlan"+suffix+(plan.ScopedCondition||targets.Count>0?".BindAccount(actor)":"");
+        var bindings=NonRedundantReadCompilation.SingleTargetArgument(targets, "singleTargets");
         var start=plan.ScopedCondition?$"CompileCrossPageCandidate({Literal(plan.Target.Source.Id)},{Literal(plan.TargetPage.Source.Id)}":
             NonRedundantReadCompilation.RelationPlanStart(plan.Target,plan.TargetPage);
         var label=MultiSelectExcelRenderer.LabelText(plan.Name,$"NonRedundantReads.Value<{plan.Name.Type}>(row,{Literal(plan.Name.Source.ColumnName)})");
         var parents=parent.Type=="string?"?"var keys=ids.Select(id=>id.ToString(CultureInfo.InvariantCulture)).ToArray();var rows=await CascadeScope"+suffix+"(actor).Where(row=>keys.Contains(row."+parent.Property+"!)).Distinct().ToListAsync(row=>row."+parent.Property+",ct);return rows.Select(text=>long.Parse(text!,CultureInfo.InvariantCulture)).ToHashSet();":"var keys=ids.ToArray();var rows=await CascadeScope"+suffix+"(actor).Where(row=>row."+parent.Property+"!=null&&keys.Contains(row."+parent.Property+".Value)).Distinct().ToListAsync(row=>row."+parent.Property+",ct);return rows.Select(value=>value!.Value).ToHashSet();";
         return $$"""
     /// <summary>目标三列与依赖只从发布定义编译，不读取忽略持久化的实体名称。</summary>
-    private static readonly NonRedundantReadPlan DerivedCascadePlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{start}},new string[]{"id",{{Literal(plan.Name.Source.ColumnName)}},{{Literal(parent.Source.ColumnName)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} });
+    private static readonly NonRedundantReadPlan DerivedCascadePlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{start}},new string[]{"id",{{Literal(plan.Name.Source.ColumnName)}},{{Literal(parent.Source.ColumnName)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} }{{bindings}});
     private static readonly FixedReadOrder[] DerivedCascadeOrder{{suffix}}=[{{Orders(plan)}}];
     /// <summary>授权与固定条件沿原树范围；当前读要求真实事务并锁住根及名称联接。</summary>
     private async Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeNode>> DerivedCascadeRows{{suffix}}Async(RuntimeActor actor,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int? limit,bool locking,CancellationToken ct,bool requireSourceList=false,bool requireTargetList=false)

@@ -3,10 +3,10 @@ using Metarill.Core.Contracts;
 
 namespace Metarill.Generation;
 
-internal sealed record CascadeTreeReadModel(ColumnModel Source,TableModel Target,PageModel TargetPage,ColumnModel Name,ColumnModel Parent,string Joiner,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool Exact,bool DerivedName=false)
+internal sealed record CascadeTreeReadModel(ColumnModel Source,TableModel Target,PageModel TargetPage,ColumnModel Name,ColumnModel Parent,string Joiner,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool Exact,bool DerivedName=false,bool DerivedOrder=false)
 {
     internal bool ScopedCondition=>FixedPageConditionCompilation.HasLogicalFields(TargetPage);
-    internal bool UsesFixedRead=>DerivedName||ScopedCondition;
+    internal bool UsesFixedRead=>DerivedName||ScopedCondition||DerivedOrder;
 }
 internal sealed record CascadeTreeReadResult(CascadeTreeReadModel? Definition,string? Reason);
 
@@ -82,10 +82,19 @@ internal static class CascadeTreeReadCompilation
                     targetPage.Condition?.SelfTreeFields.Contains(column.Source.ColumnName)!=true)))
                 return Gap("目标范围必须由已证明的物理列或固定级联路径执行。");
             var ordering=GenerationModel.ValidateOrderBy(Text(tree,"orderBy",name.Source.ColumnName+" asc"),target.Columns).ToList();
-            if(ordering.Any(item=>!Physical(item.Column)&&!((derived||typedCache)&&item.Column.Source.Id==name.Source.Id)))return Gap("排序字段不是可排序物理标量。");
+            // 独立联接排序只使用目标页已开放的单值列。排序依赖留在固定读取计划内。
+            var joinedOrder = ordering.Select(item => item.Column).Where(column => !Physical(column) &&
+                !((derived || typedCache) && column.Source.Id == name.Source.Id)).ToArray();
+            if (joinedOrder.Any(column => target.Source.IsRongyu != 0 || NonRedundantReadCompilation.Physical(model, target, column) ||
+                column.Source.IsVirtualColumn != 0 || !GenerationModel.Enabled(column.Source.Extra, "isJoinColumn") ||
+                column.IsJsonArray || Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.Source.ColumnName) ||
+                ManagerCredentialCompilation.IsCredential(target, column) ||
+                column.Source.LogicalType != "string" && !MultiValueLabel.IsTyped(column.Source.LogicalType) ||
+                !targetPage.Readable.Any(read => read.Source.Id == column.Source.Id)))
+                return Gap("排序字段须为物理标量或目标页已开放的固定单值联接。");
             if(!ordering.Any(item=>item.Column.IsId))ordering.Add((target.Columns.Single(column=>column.IsId),false));
             var joiner=Text(root,"displayJoiner","/");if(joiner.Length>32)return Gap("路径分隔符过长。");
-            var plan=new CascadeTreeReadModel(source,target,candidates[0],name,parent,joiner,ordering,Text(tree,"filterMatchMode","selfAndDescendants")=="exact",derived);if(plan.UsesFixedRead)DerivedCascadeNamesCompilation.Require(model,table,plan);return new(plan,null);
+            var plan=new CascadeTreeReadModel(source,target,candidates[0],name,parent,joiner,ordering,Text(tree,"filterMatchMode","selfAndDescendants")=="exact",derived,joinedOrder.Length>0);if(plan.UsesFixedRead)DerivedCascadeNamesCompilation.Require(model,table,plan);return new(plan,null);
         }
         catch(Exception error)when(error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException){return Gap("定义无法安全编译："+error.Message);}
     }

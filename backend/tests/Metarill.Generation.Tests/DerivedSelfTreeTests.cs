@@ -128,6 +128,96 @@ public sealed class DerivedSelfTreeTests
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Full_package_and_original_vue_preserve_the_existing_interaction(bool automatic)
     {await NonRedundantSelfTreeTests.ExerciseFull(automatic,true);await NonRedundantSelfTreeTests.ExerciseOriginalVue(automatic,true);}
+    /// <summary>独立排序联接进入候选 SQL 依赖，原路径、名称和 Excel 不返回排序字段。</summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    [InlineData(0, false, true)]
+    [InlineData(1, false, true)]
+    [InlineData(0, true, true)]
+    [InlineData(1, true, true)]
+    public async Task Self_tree_uses_a_published_scalar_join_for_candidate_order(int storage, bool derivedName, bool scopedDictionary = false)
+    {
+        const string ns = "Example.SortedSelfTree";
+        var catalog = Catalog("sort_tree", "string", "int64", true);
+        catalog.ConfigTables.Single(table => table.Id == "2").IsRongyu = storage;
+        if (!derivedName)
+        {
+            var name = catalog.ConfigColumns.Single(column => column.Id == "32");
+            name.Extra.Remove("isJoinColumn");
+            name.Extra.Remove("columnFullName");
+        }
+        catalog.ConfigColumns.Add(new() { Id = "45", ConfigTableId = "4", ColumnName = "priority", LogicalType = "int32" });
+        catalog.ConfigPageColumns.Add(new() { Id = "40145", ConfigPageId = "401", ConfigColumnId = "45", IsShow = 1 });
+        if (scopedDictionary)
+            catalog.ConfigPages.Single(item => item.Id == "401").WhereSql = "yz_project_id=@current_yz_project_id AND priority>=10";
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "39", ConfigTableId = "3", ColumnName = "other_label", LogicalType = "int32",
+            Extra = new()
+            {
+                ["isJoinColumn"] = JsonSerializer.SerializeToElement(1),
+                ["columnFullName"] = JsonSerializer.SerializeToElement("company.priority")
+            }
+        });
+        catalog.ConfigPageColumns.Add(new() { Id = "30139", ConfigPageId = "301", ConfigColumnId = "39", IsShow = 1 });
+        var control = catalog.ConfigColumns.Single(column => column.Id == "25");
+        var settings = System.Text.Json.Nodes.JsonNode.Parse(control.ControlDetail)!;
+        settings["selfTree"]!["orderBy"] = "other_label desc, id asc";
+        control.ControlDetail = settings.ToJsonString();
+        catalog = RedundantMultiNameCacheTests.Published(catalog);
+        var model = GenerationModel.Create(catalog, ns);
+        var source = model.Tables.Single(table => table.Source.Id == "2");
+        var page = Assert.Single(source.Pages);
+        var result = CascadeTreeReadCompilation.Resolve(model, source, page, source.Columns.Single(column => column.Source.Id == "25"));
+        if (derivedName && scopedDictionary)
+        {
+            Assert.Null(result.Definition);
+            Assert.Contains("不能改变树的显示名称范围", result.Reason);
+            return;
+        }
+        Assert.True(result.Definition is not null, result.Reason);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        if (storage == 1)
+            Assert.Contains(SelfTreePropagationCompilation.ForTable(model, source), binding => binding.Foreign.Source.Id == "25");
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-self-tree-order");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.SortTreeSourceService", true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            const BindingFlags hiddenStatic = BindingFlags.NonPublic | BindingFlags.Static;
+            var order = Assert.IsType<Metarill.Data.Queries.FixedReadOrder[]>(
+                service.GetField("DerivedCascadeOrder201_25", hiddenStatic)!.GetValue(null));
+            Assert.Equal(new[] { new Metarill.Data.Queries.FixedReadOrder("other_label", true), new("id", false) }, order);
+            var plan = Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                service.GetField("DerivedCascadePlan201_25", hiddenStatic)!.GetValue(null));
+            Assert.DoesNotContain("other_label", plan.OutputTypes.Keys);
+            const BindingFlags hiddenInstance = BindingFlags.NonPublic | BindingFlags.Instance;
+            var sql = plan.GetType().GetProperty("MySql", hiddenInstance)!.GetValue(plan)!;
+            var fields = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(
+                sql.GetType().GetProperty("Expressions", hiddenInstance)!.GetValue(sql));
+            Assert.Contains(".`priority`", fields["other_label"]);
+            if (scopedDictionary)
+            {
+                var from = Assert.IsType<string>(sql.GetType().GetProperty("From", hiddenInstance)!.GetValue(sql));
+                Assert.Matches(@"priority\x60?\s*>=\s*@", from);
+            }
+            Assert.NotNull(service.GetMethod("CascadeOptions201_25Async"));
+            Assert.NotNull(service.GetMethod("CascadePath201_25Async"));
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>未证明的终点、拓扑或范围均拒绝；名称联接不能放开数组、凭据和缓存。</summary>
     [Theory][InlineData("sourceR1BadCache")][InlineData("global")][InlineData("array")][InlineData("credential")][InlineData("wrongPath")][InlineData("derivedParent")][InlineData("derivedCondition")][InlineData("derivedProject")][InlineData("derivedSort")]
     public void Unproven_derived_tree_is_rejected(string scenario)
