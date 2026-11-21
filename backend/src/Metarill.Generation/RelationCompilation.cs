@@ -11,6 +11,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     RelationConditionModel? Conditions = null, ColumnModel? FixedSourceParent = null, MultiTargetParentScope? FixedParent = null, bool LogicalSourceParent = false)
 {
     internal bool ListPageOverride { get; init; }
+    internal bool ScopedStoredList { get; init; }
     internal IReadOnlyList<ColumnModel> IndependentOrder { get; init; } = [];
     internal RelationConditionModel? ImportCondition { get; init; }
     internal bool ExcelOnly { get; init; }
@@ -129,7 +130,8 @@ internal static class RelationCompilation
                 if(name.Source.Id!=parent.Name.Source.Id)throw new InvalidOperationException("普通父关系页级名称与发布来源不一致。");
             }
             if (targetPage is null) continue;
-            var listPageOverride = !functionForm && UsesProjectListPage(model,target,page,source) && overlay.ContainsKey("pageId");
+            var projectListPage = !functionForm && UsesProjectListPage(model,target,page,source);
+            var listPageOverride = projectListPage && overlay.ContainsKey("pageId");
             if (listId && Mapped("pageId") is {Length:>0} declaredPage && declaredPage != targetPage.Source.Id)
                 throw new InvalidOperationException("主键下拉的目标页声明与写入关系不一致。");
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
@@ -209,6 +211,9 @@ internal static class RelationCompilation
                 fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0)
             {
                 ListPageOverride = listPageOverride,
+                ScopedStoredList = projectListPage && target.Source.IsRongyu==1 &&
+                    ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)==targetPage.Source.Id &&
+                    (HasStoredListRange(targetPage) || conditions is not null || scopes.Any(scope=>scope.Source=="parent")),
                 IndependentOrder = independentOrder,
                 FunctionForm = functionForm,
                 ImportCondition = selection?.ImportCondition,
@@ -269,7 +274,10 @@ internal static class RelationCompilation
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var effective=Text(Definition(field?.Extra.GetValueOrDefault("controlDetail").ToString()??""),"whereSql");
         if(string.IsNullOrWhiteSpace(effective))effective=Text(Definition(source.Source.ControlDetail),"whereSql");
-        return RelationConditionsCompilation.HasLogicalListFields(target,effective);
+        return target.Source.IsRongyu==1 && UsesProjectListPage(model,target,page,source) &&
+                ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)==targetPage.Source.Id &&
+                (HasStoredListRange(targetPage) || !string.IsNullOrWhiteSpace(effective)) ||
+            RelationConditionsCompilation.HasLogicalListFields(target,effective);
     }
 
     /// <summary>隐藏的单选必须沿实际固定目标页复核默认和提交值。</summary>
@@ -318,9 +326,14 @@ internal static class RelationCompilation
                 ??target.Pages.FirstOrDefault(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent"));
     }
 
-    /// <summary>项目内非冗余实体已有按页读取及维护证明，系统固定归属和全局关系沿原专用入口。</summary>
+    /// <summary>固定冗余字典可使用页面常量、账号和父参数，原纯冗余项目不进入此范围。</summary>
+    private static bool HasStoredListRange(PageModel page) =>
+        page.Condition is not null || page.Scopes.Any(scope=>scope.Source=="parent");
+
+    /// <summary>项目内固定下拉采用已发布页面，系统固定归属和全局关系沿原专用入口。</summary>
     private static bool UsesProjectListPage(GenerationModel model,TableModel target,PageModel page,ColumnModel source) =>
-        source.Source.ControlKind=="List" && target.Source.IsRongyu==0 && !target.IsGlobal &&
+        source.Source.ControlKind=="List" && !target.IsGlobal && target.Source.IsView==0 && target.Source.IsFunctionTable==0 &&
+        (target.Source.IsRongyu==0 || target.Source.IsRongyu==1 && ProjectScopedSingleRelationTarget.UsesFixedListCandidates(model.Catalog)) &&
         !FixedParentRelationCompilation.HasDeclaration(source) &&
         model.Tables.Any(owner=>owner.Source.Id==page.Source.ConfigTableId && !owner.IsGlobal && owner.Source.IsFunctionTable==0);
 

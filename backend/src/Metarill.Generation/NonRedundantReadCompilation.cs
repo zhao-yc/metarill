@@ -263,9 +263,9 @@ internal static partial class NonRedundantReadCompilation
 
     /// <summary>业务页单值读取使用实际项目内非冗余目标以及已证明的父范围。</summary>
     internal static bool UsesProjectSingleRead(RelationModel relation)=>
-        relation.Target.Source.IsRongyu==0&&relation.ParentBinding?.Declared!=true&&
-        (UsesProjectControlRead(relation)||!relation.Target.IsGlobal&&
-            (relation.TargetPage.Condition is not null||relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent")));
+        relation.ParentBinding?.Declared!=true && (relation.ScopedStoredList ||
+            relation.Target.Source.IsRongyu==0 && (UsesProjectControlRead(relation)||!relation.Target.IsGlobal&&
+                (relation.TargetPage.Condition is not null||relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"))));
 
     /// <summary>原下拉可以仅在控件中限定目标，读取名称时也要保留该范围。</summary>
     internal static bool UsesProjectControlRead(RelationModel relation)=>
@@ -339,8 +339,8 @@ internal static partial class NonRedundantReadCompilation
         }
         return new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id,parent?.Source.Id)
         {
-            SourcePageId=relation.FixedParent is not null||relation.Target.IsGlobal&&parent is not null?page.Source.Id:null,
-            ControlSourcePageId=UsesProjectControlRead(relation)?page.Source.Id:null
+            SourcePageId=relation.ScopedStoredList||relation.FixedParent is not null||relation.Target.IsGlobal&&parent is not null?page.Source.Id:null,
+            ControlSourcePageId=relation.ScopedStoredList||UsesProjectControlRead(relation)?page.Source.Id:null
         };
     }
 

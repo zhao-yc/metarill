@@ -62,6 +62,8 @@ internal static partial class NonRedundantReadCompilation
             var relation=RelationCompilation.ForPage(model,page,scopeSourceId:foreign.Source.Id).SingleOrDefault();
             if(relation is null||table.IsGlobal&&!relation.Target.IsGlobal||relation.ParentBinding?.Declared==true)
                 return null;
+            if(relation.ScopedStoredList)
+                return ProjectTarget(model,table,page,relation);
             if(relation.Target.Source.IsRongyu!=0)
             {
                 // 多值名称按实际物理字典页限定可见性，来源页也须保留供运行时复核。

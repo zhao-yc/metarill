@@ -1077,6 +1077,117 @@ public sealed class DerivedRelationNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>冗余字典的物理筛选与实际页面一同进入候选、来源名称读取、写入和 Excel。</summary>
+    [Theory]
+    [InlineData(0, "constant")]
+    [InlineData(0, "parent")]
+    [InlineData(0, "account")]
+    [InlineData(1, "constant")]
+    [InlineData(1, "parent")]
+    [InlineData(1, "account")]
+    public async Task List_uses_the_selected_page_of_a_stored_dictionary(int sourceStorage, string scope)
+    {
+        const string ns = "Example.StoredListPage";
+        var catalog = Catalog("dr_names", scope == "parent");
+        var ownerTable = catalog.ConfigTables.Single(table => table.Id == "1");
+        var targetTable = catalog.ConfigTables.Single(table => table.Id == "2");
+        ownerTable.IsRongyu = sourceStorage;
+        targetTable.IsRongyu = 1;
+        // 混合项目使用原 V8 固定候选。同项目的非冗余实体用于确定模式。
+        catalog.ConfigTables.Single(table => table.Id == "3").IsRongyu = 0;
+        var obsolete = catalog.ConfigColumns.Where(column => column.Id is "27" or "28").Select(column => column.Id).ToHashSet();
+        catalog.ConfigColumns.RemoveAll(column => obsolete.Contains(column.Id));
+        catalog.ConfigPageColumns.RemoveAll(column => obsolete.Contains(column.ConfigColumnId));
+        var cache = catalog.ConfigColumns.Single(column => column.Id == "113");
+        cache.ColumnName = "customer_name";
+        cache.Extra["columnFullName"] = JsonSerializer.SerializeToElement("customer.name");
+        var foreign = catalog.ConfigColumns.Single(column => column.Id == "15");
+        foreign.ControlDetail = """{"tableId":"2","nameField":"name","pageId":"202"}""";
+        var target = catalog.ConfigPages.Single(page => page.Id == "201");
+        var alternate = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(target))!;
+        alternate.Id = "202";
+        alternate.WhereSql = "yz_project_id=@current_yz_project_id AND status=87" +
+            (scope == "parent" ? " AND group_id=@parent_id" : "");
+        alternate.OrderBy = "id desc";
+        if (scope == "account")
+        {
+            catalog.ConfigColumns.Add(new() { Id = "11201", ConfigTableId = "1", YzProjectId = catalog.YzProjectId,
+                ColumnName = "store_id", LogicalType = "int64" });
+            catalog.ConfigColumns.Add(new() { Id = "21201", ConfigTableId = "2", YzProjectId = catalog.YzProjectId,
+                ColumnName = "store_id", LogicalType = "int64" });
+            foreach (var page in catalog.ConfigPages.Where(page => page.ConfigTableId == "1"))
+                page.WhereSql += " AND store_id=@current_store_id";
+            alternate.WhereSql += " AND store_id=@current_store_id";
+        }
+        catalog.ConfigPages.Add(alternate);
+        foreach (var column in catalog.ConfigPageColumns.Where(field => field.ConfigPageId == "201").ToArray())
+        {
+            var copy = JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(column))!;
+            copy.Id = "202" + copy.Id;
+            copy.ConfigPageId = alternate.Id;
+            catalog.ConfigPageColumns.Add(copy);
+        }
+        if (sourceStorage == 0)
+        {
+            // 仅来源 101 改页，其它来源页继续沿用默认绑定。
+            foreign.ControlDetail = """{"tableId":"2","nameField":"name"}""";
+            catalog.ConfigPageColumns.Single(field => field.ConfigPageId == "101" && field.ConfigColumnId == foreign.Id)
+                .Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"pageId":"202"}""");
+        }
+
+        var model = GenerationModel.Create(catalog, ns);
+        var owner = model.Tables.Single(table => table.Source.Id == "1");
+        var relation = Assert.Single(RelationCompilation.ForPage(model,owner.Pages.Single(page => page.Source.Id == "101")),
+            relation => relation.SourceColumn.Source.Id == foreign.Id);
+        Assert.Equal("202", relation.TargetPage.Source.Id);
+        Assert.True(Assert.Single(relation.OptionsOrder!).Descending);
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-stored-list-page");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ns);
+            var code = await File.ReadAllTextAsync(Path.Combine(output, "Services", "DrNamesOrderService.g.cs"));
+            Assert.Contains("status=87", code.Replace(" ", "", StringComparison.Ordinal));
+            Assert.Contains("ImportRelation101_15Async", code);
+            Assert.Contains("OptionsScope101_15Async", code);
+            Assert.Contains(".ForUpdate().ToListAsync(row => new { row.Id }", code);
+            if (scope == "parent") Assert.Contains("if (locking) { if ((await", code);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.DrNamesOrderService", true)!;
+            RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+
+            if (sourceStorage == 1)
+            {
+                var binding = Assert.Single(RelationPropagationCompilation.DerivedBindings(model),
+                    item => item.Foreign.Source.Id == foreign.Id);
+                Assert.Equal("202", binding.ScopedSinglePageId);
+                var maintenance = Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    assembly.GetType(ns + ".Generated.GeneratedRelationMaintenance", true)!.GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains("customer_name", maintenance.MixedSourceColumns["dr_names_order"]);
+                Assert.Contains("dr_names_party", maintenance.MixedTargets);
+                if (scope == "parent") Assert.Contains("dr_names_group", maintenance.MixedTargets);
+            }
+            else
+            {
+                var plan = Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan101", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+                var mysql = plan.GetType().GetProperty("MySql", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(plan)!;
+                var from = Assert.IsType<string>(mysql.GetType().GetProperty("From", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(mysql));
+                Assert.Contains(".\u0060status\u0060", from);
+                if (scope == "parent") Assert.Contains(".\u0060group_id\u0060", from);
+                if (scope == "account") Assert.Contains(".\u0060store_id\u0060", from);
+                var actor = new Metarill.Core.Security.RuntimeActor(7, "合成账号", false, catalog.YzProjectId, "5") { StoreId = 9007199254740993L };
+                var bound = plan.BindAccount(actor);
+                var boundSql = mysql.GetType().GetProperty("Constants", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var constants = Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(boundSql.GetValue(
+                    bound.GetType().GetProperty("MySql", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(bound)));
+                Assert.Contains(constants.Values, value => value is int number && number == 87);
+                if (scope == "account") Assert.Contains(9007199254740993L, constants.Values);
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>同一实体的实际目标页约束候选、来源回显、写校验和 Excel，冗余副本绑定同一页。</summary>
     [Theory]
     [InlineData(false, "column")]

@@ -532,7 +532,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 cascadeLabelPages.Add(storedSource.Id);
                 cascadeLabelPages.Add(stored.Value.Page.Id);
                 var storedControl=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,storedSource);
-                return StoredSingleCondition(target,alias,stored.Value.Page,storedControl);
+                return binding.ControlSourcePageId==storedSource.Id
+                    ? ProjectStoredListCondition(owner,ownerAlias,relation,target,alias,storedSource,stored.Value.Page,binding,storedControl)
+                    : StoredSingleCondition(target,alias,stored.Value.Page,storedControl);
             }
             if(owner.IsRongyu!=0||target.IsRongyu!=0||!global&&GlobalCrossTableTarget.Declared(owner)||
                 relation.ControlKind is not("List" or "SelectPage")||!storage[owner.Id].IsPhysical(relation))

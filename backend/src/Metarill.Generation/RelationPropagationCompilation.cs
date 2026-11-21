@@ -65,7 +65,7 @@ internal static class RelationPropagationCompilation
         foreach(var foreign in table.Columns.Where(column=>!column.IsSystem&&column.Source.ControlKind is "List" or "SelectPage"))
         {
             var target=ForeignValidationRenderer.Target(model,foreign);
-            if(target is null||target.Source.IsRongyu!=0)continue;
+            if(target is null||target.IsGlobal&&target.Source.IsRongyu!=0)continue;
             var cache=SelectionDisplayFieldCompilation.Resolve(table,foreign);
             if(cache.Source.Id==foreign.Source.Id)continue;
             (PageMetadata Page,ColumnMetadata Name) proof;

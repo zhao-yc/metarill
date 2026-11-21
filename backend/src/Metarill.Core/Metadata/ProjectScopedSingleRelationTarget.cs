@@ -51,7 +51,10 @@ public static class ProjectScopedSingleRelationTarget
     public static (PageMetadata Page, ColumnMetadata Name)? Resolve(
         MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)
     {
-        if(owner.IsRongyu!=1||!IsProjectRole(owner,foreign,target))return null;
+        var storedList = target.IsRongyu==1 && foreign.ControlKind=="List" && UsesFixedListCandidates(catalog);
+        if(owner.IsRongyu!=1||!IsProjectRole(owner,foreign,target,allowStoredTarget:storedList))return null;
+        var sourcePages=catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id).ToArray();
+        if(storedList && !sourcePages.Any(page=>ListPageId(catalog,page,foreign).Length>0))return null;
         var pages=TargetPages(catalog,target);
         if(pages.Length==0)return null;
         using var document=Definition(foreign);
@@ -65,7 +68,7 @@ public static class ProjectScopedSingleRelationTarget
         // 生成器的原主键下拉仅绑定整数外键；字符串键保留原有名称一致性检查。
         var integerListId=foreign.ControlKind=="List"&&foreign.LogicalType=="int64"&&
             columns.Any(column=>column.ColumnName=="id"&&column.LogicalType=="int64");
-        var matches=catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id)
+        var matches=sourcePages
             .Select(page=>TargetFor(catalog,page,foreign,definition,selected,nameField,pages,names,integerListId,fixedList)).ToArray();
         var hasNameCache=foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
             catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName==foreign.ColumnName[..^3]+"_"+nameField);
@@ -98,7 +101,7 @@ public static class ProjectScopedSingleRelationTarget
         var definition=document.RootElement;
         var members=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id))
             .Select(column=>column.ColumnName).ToArray();
-        var fixedList = foreign.ControlKind=="List" && target.IsRongyu==0 && UsesFixedListCandidates(catalog);
+        var fixedList = foreign.ControlKind=="List" && UsesFixedListCandidates(catalog);
         var (page,_)=TargetFor(catalog,sourcePage,foreign,definition,SelectedPage(foreign,definition,fixedList),
             NameField(definition),pages,members,fixedList:fixedList);
         if(page is null)return null;
