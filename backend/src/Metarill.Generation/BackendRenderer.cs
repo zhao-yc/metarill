@@ -147,13 +147,13 @@ internal static partial class BackendRenderer
         if (role is not null) result.AppendLine("        YzRoleNames = roleNames,");
         if (roleAdmin is not null) result.AppendLine("        YzAdminTypeName = roleAdminName,");
         foreach (var catalog in catalogs) result.AppendLine($"        {catalog.Property} = Metarill.Core.Metadata.TemplateVersionCatalog.DisplayName(entity.{catalog.Source.Property}),");
-        foreach (var column in constants) result.AppendLine($"        {column.Property}Show = {ConstantDisplayExpression(column)},");
+        foreach (var column in constants) result.AppendLine($"        {column.Property}Show = {ConstantDisplayExpression(column, "entity." + column.Property)},");
         return result.AppendLine("    };").AppendLine("}").ToString();
     }
     /// <summary>只对已发布CheckBox布尔字段使用原0/1协议，其他bool API不改变。</summary>
     private static bool Checkbox(ColumnModel column) => column.Type == "bool?" && column.Source.ControlKind == "CheckBox";
     /// <summary>把常量标签预编译为类型匹配的 switch，未知值保留原文、空值保持为空。</summary>
-    private static string ConstantDisplayExpression(ColumnModel column)
+    internal static string ConstantDisplayExpression(ColumnModel column, string valueExpression)
     {
         var choices = new List<(string Pattern, string Text)>();
         foreach (var token in column.Source.ControlDetail.Split(',', StringSplitOptions.RemoveEmptyEntries))
@@ -162,12 +162,13 @@ internal static partial class BackendRenderer
             var raw = parts.Length == 2 ? parts[1] : parts[0];
             // 数字控件的空选项表示未选中，不用提示文字替代空数据。
             if (raw.Length == 0 && column.Type != "string?") continue;
+            var number = ConstantNumberText(column, raw);
             var pattern = column.Type switch
             {
                 "string?" => Literal(raw),
-                "int?" => int.Parse(raw, System.Globalization.CultureInfo.InvariantCulture).ToString(System.Globalization.CultureInfo.InvariantCulture),
-                "long" or "long?" => long.Parse(raw, System.Globalization.CultureInfo.InvariantCulture).ToString(System.Globalization.CultureInfo.InvariantCulture) + "L",
-                "decimal?" => decimal.Parse(raw, System.Globalization.CultureInfo.InvariantCulture).ToString("G29", System.Globalization.CultureInfo.InvariantCulture) + "M",
+                "int?" => number!,
+                "long" or "long?" => number + "L",
+                "decimal?" => number + "M",
                 _ => throw new InvalidOperationException("常量控件不支持该字段类型：" + column.Source.ColumnName)
             };
             if (!choices.Any(choice => choice.Pattern == pattern)) choices.Add((pattern, parts[0]));
@@ -175,7 +176,20 @@ internal static partial class BackendRenderer
         var arms = choices.Select(choice => choice.Pattern + " => " + Literal(choice.Text)).ToList();
         if (column.Type != "long") arms.Insert(0, "null => null");
         arms.Add("var raw => Convert.ToString(raw, CultureInfo.InvariantCulture)");
-        return "entity." + column.Property + " switch { " + string.Join(", ", arms) + " }";
+        return valueExpression + " switch { " + string.Join(", ", arms) + " }";
+    }
+
+    /// <summary>页面标签和 Excel 导入共用精确的数值常量文本。长整数不经过浮点转换。</summary>
+    internal static string? ConstantNumberText(ColumnModel column, string raw)
+    {
+        if (raw.Length == 0) return null;
+        return column.Type switch
+        {
+            "int?" => int.Parse(raw, System.Globalization.CultureInfo.InvariantCulture).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "long" or "long?" => long.Parse(raw, System.Globalization.CultureInfo.InvariantCulture).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "decimal?" => decimal.Parse(raw, System.Globalization.CultureInfo.InvariantCulture).ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+            _ => null
+        };
     }
     /// <summary>生成加入当前事务的强类型数据库操作。</summary>
     private static string Mapper(GenerationModel model, TableModel table)

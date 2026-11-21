@@ -193,14 +193,13 @@ internal static class ExportRenderer
             return relation.NameColumn.Type == "string?" ? lookup + $" ?? Convert.ToString({access}, CultureInfo.InvariantCulture)" : lookup;
         }
         if(column.Type=="TimeSpan?")return access+" is {} clock"+column.Property+"?"+TimeFieldCompilation.Value(column)+(TimeFieldCompilation.IsClock(column)?".FormatExport(clock":".Format(clock")+column.Property+"):null";
+        // 常量列表沿原导出标签；长整型常量下拉沿用原编码文本。
+        if (column.Source.ControlDetail.Contains('|') &&
+            (column.Source.ControlKind == "ConstList" ||
+             column.Source.ControlKind == "ConstDownList" && column.Type is not ("long" or "long?")))
+            return BackendRenderer.ConstantDisplayExpression(column, access);
         if (column.Type == "long") return access + ".ToString(CultureInfo.InvariantCulture)";
         if (column.Type == "long?") return access + "?.ToString(CultureInfo.InvariantCulture)";
-        if (column.Source.ControlKind is "ConstList" or "ConstDownList")
-        {
-            var choices = column.Source.ControlDetail.Split(',').Select(value => value.Split('|', 2)).Where(pair => pair.Length == 2).GroupBy(pair => pair[1], StringComparer.Ordinal).Select(group => group.First()).ToArray();
-            if (choices.Length == 0) return access;
-            return access + " is null ? null : Convert.ToString(" + access + ", CultureInfo.InvariantCulture) switch { " + string.Join(", ", choices.Select(pair => Literal(pair[1]) + " => " + Literal(pair[0]))) + ", var raw => raw }";
-        }
         return access;
     }
     /// <summary>关联ID以数据库原整数读取，不经过JavaScript浮点数或任意SQL转换。</summary>

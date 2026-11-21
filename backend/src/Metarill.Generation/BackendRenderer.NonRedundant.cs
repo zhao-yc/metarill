@@ -259,7 +259,11 @@ internal static class GeneratedNonRedundantReadCatalog
             result.AppendLine($"        {output.Property}={value},");
         }
         result.Append(NonRedundantCrossTableCompilation.VoAssignments(model,table,page));
-        foreach(var column in constants)result.AppendLine($"        {column.Property}Show={ConstantDisplayExpression(column).Replace("entity."+column.Property,$"NonRedundantReads.Value<{column.Type}>(row,{Literal(column.Source.ColumnName)})",StringComparison.Ordinal)},");
+        foreach (var column in constants)
+        {
+            var value = $"NonRedundantReads.Value<{column.Type}>(row,{Literal(column.Source.ColumnName)})";
+            result.AppendLine($"        {column.Property}Show={ConstantDisplayExpression(column, value)},");
+        }
         result.AppendLine("    };");
         if(plan.Outputs.Any(output=>output.IsJsonArray))result.AppendLine("    /// <summary>沿原VO恢复数据库JSON文本，null保持空值，避免二次编码文件ID数组。</summary>")
             .AppendLine("    private static JsonElement? ReadFileValue(IReadOnlyDictionary<string,object?> row,string storage)")

@@ -438,7 +438,14 @@ public sealed partial class {{page.Name}}ImportRequest
         {
             var choices = column.Source.ControlDetail.Split(',').Select(token => token.Split('|', 2)).Where(pair => pair.Length == 2).ToArray();
             if (choices.Length == 0) throw new InvalidOperationException("常量导入选项未配置：" + column.Source.Name);
-            var cases = choices.SelectMany(pair => new[] { pair[0], pair[1] }.Distinct().Select(label => (label, value: pair[1]))).GroupBy(pair => pair.label, StringComparer.Ordinal).Select(group => group.First());
+            // 保留已声明的标签与原始值的优先级，再兼容工作簿对数值的规范化。
+            var options = choices.Select(pair => (Text: pair[0], Raw: pair[1],
+                Number: BackendRenderer.ConstantNumberText(column, pair[1]))).ToArray();
+            var declared = options.SelectMany(option => new[] { option.Text, option.Raw }
+                .Select(label => (label, value: option.Number ?? option.Raw)));
+            var normalized = options.Where(option => option.Number is not null)
+                .Select(option => (label: option.Number!, value: option.Number!));
+            var cases = declared.Concat(normalized).DistinctBy(pair => pair.label, StringComparer.Ordinal);
             return "cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.ToString() switch { "
                 + string.Join(", ", cases.Select(pair => Literal(pair.label) + " => " + (column.Type == "string?" ? "JsonSerializer.SerializeToElement(" + Literal(pair.value) + ")" : "JsonSerializer.SerializeToElement(JsonSerializer.Deserialize<" + column.Type + ">(" + Literal(JsonSerializer.Serialize(pair.value)) + ", JsonOptions))")))
                 + ", _ => throw PageImportException.Input(PageImportError.Constant) }";
