@@ -80,6 +80,66 @@ public sealed class RelationOptionsContractTests
         Assert.Contains($"selected.Contains(entity.Id)){expectedOrder}.Limit(200)", service);
     }
 
+    /// <summary>V8 固定读取继承实际绑定的目标排序，字段与页级声明各自保持优先级。</summary>
+    [Theory]
+    [InlineData("redundant", "missing", false, "name asc,id asc")]
+    [InlineData("redundant", "blank", false, "id desc")]
+    [InlineData("source", "missing", false, "alias desc,id asc")]
+    [InlineData("mixed", "missing", false, "alias desc,id asc")]
+    [InlineData("mixed", "blank", false, "alias desc,id asc")]
+    [InlineData("mixed", "null", false, "alias desc,id asc")]
+    [InlineData("mixed", "missing", true, "name asc,id asc")]
+    [InlineData("mixed", "override", false, "name desc,id asc")]
+    [InlineData("mixed", "explicit", false, "id desc")]
+    [InlineData("mixed", "noTargetOrder", false, "name asc,id asc")]
+    [InlineData("source", "blankUnordered", false, "name asc,id asc")]
+    [InlineData("mixed", "jsonBound", false, "alias desc,id asc")]
+    public void List_uses_the_bound_target_default_order(string mode, string option, bool automaticTarget, string expected)
+    {
+        var catalog = Catalog();
+        if (mode != "redundant")
+            catalog.ConfigTables.Single(table => table.Id == (mode == "source" ? "2" : "1")).IsRongyu = 0;
+        var column = catalog.ConfigColumns.Single(column => column.Id == "25");
+        var target = catalog.ConfigPages.Single(page => page.Id == "301");
+        target.OrderBy = option is "noTargetOrder" or "blankUnordered" ? "" : "alias desc";
+        column.ControlDetail = option is "blank" or "null" or "explicit" or "override" or "blankUnordered"
+            ? """{"tableId":"3","whereSql":"parent_id=@parentId","nameField":"name","orderBy":"id desc"}"""
+            : """{"tableId":"3","whereSql":"parent_id=@parentId","nameField":"name"}""";
+        if (automaticTarget)
+        {
+            column.Extra.Remove("linkConfigPageId");
+            target.WhereSql = "yz_project_id=@current_yz_project_id";
+        }
+        if (option == "jsonBound")
+        {
+            column.Extra.Remove("linkConfigPageId");
+            target.WhereSql = "yz_project_id=@current_yz_project_id";
+            column.ControlDetail = """{"tableId":"3","pageId":"301","whereSql":"parent_id=@parentId","nameField":"name"}""";
+        }
+        if (option is "blank" or "null" or "override" or "blankUnordered")
+        {
+            catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == column.Id).Extra["controlDetail"] =
+                JsonSerializer.SerializeToElement(option switch
+                {
+                    "blank" or "blankUnordered" => """{"orderBy":"  "}""",
+                    "null" => """{"orderBy":null}""",
+                    _ => """{"orderBy":"name desc"}"""
+                });
+        }
+        var model = GenerationModel.Create(catalog, "Example.InheritedOrder");
+        var page = model.Tables.Single(table => table.Source.Id == "2").Pages.Single();
+        var actual = Assert.Single(RelationCompilation.ForPage(model, page));
+        var fields = actual.OptionsOrder ?? new[] { (actual.NameColumn, false), (actual.Target.Columns.Single(item => item.IsId), false) };
+        Assert.Equal(expected, string.Join(",", fields.Select(item =>
+            item.Column.Source.ColumnName + (item.Descending ? " desc" : " asc"))));
+        var code = Compile(catalog);
+        var order = string.Concat(fields.Select(item =>
+            $".{(item.Descending ? "OrderByDescending" : "OrderBy")}(entity => entity.{item.Column.Property})"));
+        Assert.Contains($"query{order}.Limit(5001)", code);
+        Assert.Contains($"query{order}.Page(request.PageNo", code);
+        Assert.Contains($"selected.Contains(entity.Id)){order}.Limit(200)", code);
+    }
+
     /// <summary>配置只可引用目标表中实际存在的列，不能在生成候选 SQL 时解释任意表达式。</summary>
     [Theory]
     [InlineData("RAND()")]

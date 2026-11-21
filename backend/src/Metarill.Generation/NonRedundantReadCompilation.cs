@@ -419,6 +419,10 @@ internal static partial class NonRedundantReadCompilation
 
         var conditionsChanged = !JsonNode.DeepEquals(original["whereSql"], effective["whereSql"]);
         var orderChanged = !JsonNode.DeepEquals(original["orderBy"], effective["orderBy"]);
+        // 合法的空覆盖可以由实际目标页继承，目标页也未设置时继续使用固定默认次序。
+        var clearedListOrder = source.Source.ControlKind == "List" &&
+            (effective["orderBy"] is null || effective["orderBy"] is JsonValue value &&
+                value.TryGetValue<string>(out var orderText) && string.IsNullOrWhiteSpace(orderText));
         original.Remove("whereSql");
         effective.Remove("whereSql");
         original.Remove("orderBy");
@@ -436,7 +440,7 @@ internal static partial class NonRedundantReadCompilation
             compiled.Target.Source.Id == ForeignValidationRenderer.Target(model, source)?.Source.Id &&
             (!nameChanged || compiled.NameColumn.IsId || PageSingleDisplayOverride(model,owner,source,compiled.Target,compiled.NameColumn) is not null) &&
             (!conditionsChanged || compiled.Conditions is not null) &&
-            (!orderChanged || compiled.OptionsOrder is not null);
+            (!orderChanged || compiled.OptionsOrder is not null || clearedListOrder);
     }
     /// <summary>没有页面的依赖表仍必须先验证物理结构；本入口不写任何生成文件。</summary>
     internal static void Validate(GenerationModel model,TableModel table)

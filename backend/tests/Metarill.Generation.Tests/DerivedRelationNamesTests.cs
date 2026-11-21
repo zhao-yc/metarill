@@ -1083,7 +1083,9 @@ public sealed class DerivedRelationNamesTests
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public async Task List_candidates_use_independent_join_order(bool redundant, bool physicalName)
+    [InlineData(false, false, true)]
+    [InlineData(true, true, true)]
+    public async Task List_candidates_use_independent_join_order(bool redundant, bool physicalName, bool inherit = false)
     {
         const string ns = "Example.IndependentListOrder";
         var catalog = Catalog("dr_names", false);
@@ -1100,7 +1102,11 @@ public sealed class DerivedRelationNamesTests
             catalog.ConfigColumns.Single(column => column.Id == "113").Extra["columnFullName"] =
                 JsonSerializer.SerializeToElement("customer.name");
         }
-        settings["orderBy"] = $"sort_alias desc, {settings["nameField"]} asc";
+        var orderBy = $"sort_alias desc, {settings["nameField"]} asc";
+        if (inherit)
+            catalog.ConfigPages.Single(page => page.Id == "201").OrderBy = orderBy;
+        else
+            settings["orderBy"] = orderBy;
         field.ControlDetail = JsonSerializer.Serialize(settings);
         var dictionary = catalog.ConfigPages.Single(page => page.Id == "401");
         dictionary.WhereSql += " AND priority>=10";

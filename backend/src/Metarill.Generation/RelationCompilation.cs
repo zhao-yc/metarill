@@ -38,6 +38,8 @@ internal static class RelationCompilation
         string? scopeSourceId = null, bool forExcel = false)
     {
         var relations = new List<RelationModel>();
+        // Java V8 在项目含非冗余实体时使用固定候选计划，纯冗余项目沿用旧实体查询。
+        var fixedCandidateQuery = model.Tables.Any(table => table.Source is { IsRongyu: 0, IsView: 0, IsFunctionTable: 0 });
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
         var functionForm = owner.Source.IsFunctionTable == 1;
         // 普通冗余单选的弹窗直达目标页，Excel 仅生成私有名称范围，不增加候选路由。
@@ -148,7 +150,18 @@ internal static class RelationCompilation
             var binding = FixedParentRelationCompilation.Resolve(model, page, source, sourceParents, targetParents, targetPage.Scopes.Concat(scopes).ToArray());
             IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
             ColumnModel[] independentOrder = [];
-            var orderBy = Mapped("orderBy");
+            var usesFixedListOrder = fixedCandidateQuery && source.Source.ControlKind == "List";
+            // 固定计划逐键合并。页面显式留空时回到目标页，不重新采用表级字段排序。
+            var orderBy = usesFixedListOrder ? Text(overlay.ContainsKey("orderBy") ? overlay : root, "orderBy") : Mapped("orderBy");
+            if (usesFixedListOrder && string.IsNullOrWhiteSpace(orderBy))
+            {
+                var linkedPage = Text(overlay.ContainsKey("pageId") ? overlay : root, "pageId");
+                if (string.IsNullOrWhiteSpace(linkedPage))
+                    linkedPage = source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+                // 自动寻找的目标页供权限和名称使用，只有原声明绑定的实际页面才能提供默认排序。
+                if (linkedPage == targetPage.Source.Id)
+                    orderBy = targetPage.Source.OrderBy;
+            }
             // 单选弹层和辅助回读采用同一目标排序，包括稳定的主键次序。
             if (typedName && selection is not null)
                 ordering = FixedPageQueryCompilation.For(target, targetPage).DefaultOrder;
