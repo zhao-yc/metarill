@@ -539,7 +539,7 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 var storedSource=catalog.ConfigPages.Single(page=>page.Id==storedSourceId&&page.ConfigTableId==owner.Id);
                 var stored=global
-                    ? GlobalSingleRelationTarget.Require(catalog,owner,relation,target,storedSource) is {AlternateListPage:true} storedProof
+                    ? GlobalSingleRelationTarget.Require(catalog,owner,relation,target,storedSource) is {UsesListPageScope:true} storedProof
                         ?storedProof.Page:null
                     : ProjectScopedSingleRelationTarget.NestedPage(catalog,owner,storedSource,relation,target,allowStoredTarget:true)?.Page;
                 if(stored is null||stored.Id!=binding.PageId)

@@ -72,7 +72,7 @@ internal static class RelationPropagationCompilation
             if(target.IsGlobal)
             {
                 var global=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source);
-                if(!global.RequiresScopedCache||target.Source.IsRongyu!=0&&!global.AlternateListPage)continue;
+                if(!global.RequiresScopedCache||target.Source.IsRongyu!=0&&!global.UsesListPageScope)continue;
                 proof=(global.Page,global.Name);
             }
             else if(ProjectScopedSingleRelationTarget.Resolve(model.Catalog,table.Source,foreign.Source,target.Source) is {} project)

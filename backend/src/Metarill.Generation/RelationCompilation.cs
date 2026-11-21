@@ -91,10 +91,11 @@ internal static class RelationCompilation
             }
             else if (source.Source.ControlKind == "List" && tableId.Length == 0 && tableName.Length == 0)
             {
-                // 仅靠页定位时也沿实体外键证明目标；纯冗余的旧控件仍使用原关联表声明。
+                // 固定候选可通过表级的已发布页面证明实际实体，仍由项目内或全局绑定各自核验。
                 var linkedTarget = ForeignValidationRenderer.Target(model, source);
                 if (Mapped("pageId").Length == 0 ||
-                    linkedTarget is not null && UsesProjectListPage(model,linkedTarget,page,source))
+                    linkedTarget is not null && (UsesProjectListPage(model,linkedTarget,page,source) ||
+                        linkedTarget.IsGlobal && fixedCandidateQuery))
                     target = linkedTarget;
             }
             if (target is null) continue; // 保留尚未移植的外部关系配置，能力清单明确列出未接入字段。
@@ -119,12 +120,12 @@ internal static class RelationCompilation
                 : ListTargetPage(model, target, page, source));
             if (functionForm && target.IsGlobal && functionPageId.Length == 0)
                 throw new InvalidOperationException("功能表下拉的全局目标需要显式发布页面。");
-            var alternateGlobalListPage = false;
+            var globalListPageScope = false;
             if(!functionForm&&target.IsGlobal&&(owner.Source.IsRongyu==0||!source.IsSystem))
             {
                 var global=GlobalTargetForPage(model,owner,page,source,target);
                 targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);
-                alternateGlobalListPage=global.AlternateListPage;
+                globalListPageScope=global.UsesListPageScope;
                 if(name.Source.Id!=global.Name.Id)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
             }
             if(owner.IsGlobal&&!target.IsGlobal&&GlobalCachedSourceCompilation.ForModel(model)
@@ -135,7 +136,7 @@ internal static class RelationCompilation
             }
             if (targetPage is null) continue;
             var projectListPage = !functionForm && UsesProjectListPage(model,target,page,source);
-            var listPageOverride = alternateGlobalListPage || projectListPage && overlay.ContainsKey("pageId");
+            var listPageOverride = globalListPageScope || projectListPage && overlay.ContainsKey("pageId");
             if (listId && Mapped("pageId") is {Length:>0} declaredPage && declaredPage != targetPage.Source.Id)
                 throw new InvalidOperationException("主键下拉的目标页声明与写入关系不一致。");
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
@@ -204,7 +205,7 @@ internal static class RelationCompilation
                 }
             }
             var sourceBinding=fixedParent is null||functionForm?null:
-                owner.Source.IsRongyu==0&&(alternateGlobalListPage||!owner.IsGlobal&&!target.IsGlobal)
+                owner.Source.IsRongyu==0&&(globalListPageScope||!owner.IsGlobal&&!target.IsGlobal)
                     ?fixedParent.SingleSource(model.Catalog,owner.Source,source.Source,page.Source)
                     :fixedParent.SingleSource(model.Catalog,owner.Source,source.Source);
             if(fixedParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0})
@@ -219,7 +220,7 @@ internal static class RelationCompilation
             {
                 ListPageOverride = listPageOverride,
                 ScopedStoredList = target.Source.IsRongyu==1 &&
-                    (alternateGlobalListPage || projectListPage &&
+                    (globalListPageScope || projectListPage &&
                         ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)==targetPage.Source.Id) &&
                     (HasStoredListRange(targetPage) || conditions is not null || scopes.Any(scope=>scope.Source=="parent")),
                 IndependentOrder = independentOrder,

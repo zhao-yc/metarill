@@ -782,7 +782,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 parentBinding=proof.SourceParent;
                 // 账号条件是已发布目标的实际范围，目标有无项目列都须绑定发布身份。
                 if(scopedAccount)scopedGlobalCrossTarget=true;
-                if(proof.AlternateListPage||proof.RequiresScopedPage||HasGlobalRowProject(target)||owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&
+                if(proof.UsesListPageScope||proof.RequiresScopedPage||HasGlobalRowProject(target)||owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&
                     columns[owner.Id].ContainsKey("yz_project_id"))publishedPage=proof.Page;
                 // 冗余字典不走非冗余子计划，物理常量直接留在这段联接的可见性条件中。
                 if(AllowsStoredExactCheckbox&&actualPage is not null&&target.IsRongyu==1&&!string.IsNullOrWhiteSpace(proof.Page.WhereSql))

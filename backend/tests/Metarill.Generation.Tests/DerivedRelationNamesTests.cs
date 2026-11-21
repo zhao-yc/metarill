@@ -1207,9 +1207,16 @@ public sealed class DerivedRelationNamesTests
     [InlineData(0, 1, true, true, true)]
     [InlineData(0, 0, true, false, true, true)]
     [InlineData(0, 0, true, false, true, true, true)]
+    [InlineData(0, 0, false, false, false, false, false, "field")]
+    [InlineData(0, 1, false, false, false, false, false, "field")]
+    [InlineData(1, 0, false, false, false, false, false, "field")]
+    [InlineData(1, 1, false, false, false, false, false, "field")]
+    [InlineData(0, 0, true, true, true, false, false, "field")]
+    [InlineData(0, 1, false, false, false, false, false, "linked")]
+    [InlineData(1, 0, false, false, false, false, false, "linked")]
     public async Task Fixed_list_uses_the_chosen_published_global_dictionary_page(
         int sourceStorage,int targetStorage,bool overlay,bool controlCondition=false,bool perPage=false,bool account=false,
-        bool parent=false)
+        bool parent=false,string? pageBinding=null)
     {
         const string ns = "Example.GlobalListPage";
         var catalog = Catalog("dr_names", false);
@@ -1227,6 +1234,22 @@ public sealed class DerivedRelationNamesTests
         var foreign = catalog.ConfigColumns.Single(column => column.Id == "15");
         foreign.ControlDetail = overlay ? """{"tableId":"2","nameField":"name","pageId":"201"}"""
             : """{"tableId":"2","nameField":"name","pageId":"202"}""";
+        if (pageBinding is not null)
+        {
+            // 使用自定义外键名且缺少表 ID 和表名，从已保存页面识别实际字典。
+            foreign.LinkConfigTableId = "";
+            foreign.Extra.Remove("joinTable");
+            if (pageBinding == "field")
+            {
+                foreign.Extra.Remove("linkConfigPageId");
+                foreign.ControlDetail = overlay ? """{"pageId":"201"}""" : """{"pageId":"202"}""";
+            }
+            else
+            {
+                foreign.ControlDetail = "";
+                foreign.Extra["linkConfigPageId"] = JsonSerializer.SerializeToElement("202");
+            }
+        }
         if (controlCondition)
         {
             var definition=JsonSerializer.Deserialize<Dictionary<string,string>>(foreign.ControlDetail)!;
@@ -1313,11 +1336,8 @@ public sealed class DerivedRelationNamesTests
             Assert.Contains("ImportRelation101_15Async", code);
             Assert.Contains("ImportRelation103_15Async", code);
             Assert.Contains("Export101Async", code);
-            if (perPage)
-            {
-                await VerifyGate("101","202","201");
-                await VerifyGate("103","201","202");
-            }
+            if (perPage || pageBinding is not null) await VerifyGate("101","202","201");
+            if (perPage) await VerifyGate("103","201","202");
             if (parent) Assert.Contains("targetParentId",code);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
 
@@ -1390,9 +1410,16 @@ public sealed class DerivedRelationNamesTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
 
         foreign.Extra["linkConfigPageId"] = JsonSerializer.SerializeToElement("301");
-        Assert.Throws<InvalidOperationException>(() =>
-            _=sourceStorage==1?GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target):
-                GlobalSingleRelationTarget.Require(catalog,source,foreign,target));
+        Assert.Throws<InvalidOperationException>(ReadDeclaredTarget);
+        if (pageBinding is not null)
+        {
+            foreign.Extra.Remove("linkConfigPageId");
+            foreign.ControlDetail = """{"pageId":"99999999"}""";
+            Assert.Throws<InvalidOperationException>(ReadDeclaredTarget);
+        }
+
+        void ReadDeclaredTarget()=>_=sourceStorage==1?GlobalSingleRelationTarget.RequireCached(catalog,source,foreign,target):
+            GlobalSingleRelationTarget.Require(catalog,source,foreign,target);
     }
 
     /// <summary>纯冗余项目的旧实体候选仍使用原非空覆盖规则。</summary>
