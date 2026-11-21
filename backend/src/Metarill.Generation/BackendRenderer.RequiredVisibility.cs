@@ -31,7 +31,7 @@ internal static partial class BackendRenderer
             if(segments.Any(part=>part.Length==0||part is "__proto__" or "constructor" or "prototype"))
                 throw new InvalidOperationException("必填显示条件包含无效的字段路径。");
             var root=segments[0];
-            var field=page.Readable.SingleOrDefault(item=>item.JsonName==root);
+            var field=OriginalVisibilityCompilation.ResolveField(page,root);
             if(field is null||field.IsJsonArray||field.IsManagedCascadeName||field.Source.IsVirtualColumn!=0||
                 !NonRedundantReadCompilation.Physical(model,table,field)||GenerationModel.Enabled(field.Source.Extra,"isJoinColumn")||
                 ManagerCredentialCompilation.IsCredential(table,field)||ExactDataManageValues.IsSensitiveField(field.Source.ColumnName)||

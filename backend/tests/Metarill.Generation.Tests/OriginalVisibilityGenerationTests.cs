@@ -46,9 +46,11 @@ public sealed class OriginalVisibilityGenerationTests
 
     /// <summary>核对字符串 ID、JSON 子字段及规则数值常量的精度。</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Original_visibility_distinguishes_adjacent_ids_and_exact_numeric_rules(bool jsonMember)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task Original_visibility_distinguishes_adjacent_ids_and_exact_numeric_rules(bool jsonMember, bool physicalName)
     {
         const long lower = 9007199254740992;
         const long expected = 9007199254740993;
@@ -56,18 +58,22 @@ public sealed class OriginalVisibilityGenerationTests
         var page = catalog.ConfigPages.Single();
         catalog.ConfigColumns.Add(new() { Id = "16", ConfigTableId = "1", ColumnName = "owner_id", LogicalType = "int64", Name = "归属 ID" });
         catalog.ConfigPageColumns.Add(new() { Id = "116", ConfigPageId = page.Id, ConfigColumnId = "16", IsShow = 1, IsEdit = 1 });
-        var columnRule = """{"conditions":[{"field":"ownerId","operator":"eq","value":9007199254740993}]}""";
+        var owner = physicalName ? "owner_id" : "ownerId";
+        var payload = physicalName ? "approval_payload" : "approvalPayload";
+        var columnRule = """{"conditions":[{"field":"ownerId","operator":"eq","value":9007199254740993}]}"""
+            .Replace("ownerId", owner, StringComparison.Ordinal);
         if (jsonMember)
         {
             catalog.ConfigColumns.Add(new()
             {
-                Id = "17", ConfigTableId = "1", ColumnName = "payload", LogicalType = "json", Name = "审批参数", ControlKind = "TextArea",
+                Id = "17", ConfigTableId = "1", ColumnName = "approval_payload", LogicalType = "json", Name = "审批参数", ControlKind = "TextArea",
                 ColumnLength = "max"
             });
             catalog.ConfigPageColumns.Add(new() { Id = "117", ConfigPageId = page.Id, ConfigColumnId = "17", IsShow = 1, IsEdit = 1 });
-            columnRule = columnRule.Replace("ownerId", "payload.review.owner", StringComparison.Ordinal);
+            columnRule = columnRule.Replace(owner, payload + ".review.owner", StringComparison.Ordinal);
         }
-        const string buttonRule = """{"groups":[{"logic":"AND","conditions":[{"field":"ownerId","operator":"in","valueList":[9007199254740993,9007199254740996]}]}]}""";
+        var buttonRule = """{"groups":[{"logic":"AND","conditions":[{"field":"ownerId","operator":"in","valueList":[9007199254740993,9007199254740996]}]}]}"""
+            .Replace("ownerId", owner, StringComparison.Ordinal);
         catalog.ConfigColumns.Single(column => column.ColumnName == "remark").Extra["visibleCondition"] =
             JsonSerializer.SerializeToElement(columnRule);
         catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "13").Extra["detailGroupKey"] = JsonSerializer.SerializeToElement("review");
@@ -84,11 +90,19 @@ public sealed class OriginalVisibilityGenerationTests
             Assert.False(rule.Matches(Record(lower)));
             Assert.True(rule.Matches(Record(expected)));
         }
+        var model = GenerationModel.Create(catalog, "Example.RuleFieldNames");
+        var table = model.Tables.Single();
+        var plan = ReadProjectionCompilation.ForPage(model, table, table.Pages.Single());
+        Assert.True(plan.List.CanCompile, string.Join("；", plan.List.Gaps.Select(gap => gap.Reason)));
+        Assert.True(plan.Detail.CanCompile, string.Join("；", plan.Detail.Gaps.Select(gap => gap.Reason)));
+        Assert.Contains(plan.List.Dependencies, dependency => dependency.ColumnId == "16");
+        if (jsonMember)
+            Assert.Contains(plan.Detail.Dependencies, dependency => dependency.ColumnId == "17");
         await Probe(catalog, jsonMember ? "json-numeric" : "numeric");
 
         Dictionary<string, object?> Record(long id) => new()
         {
-            ["ownerId"] = id, ["payload"] = JsonSerializer.SerializeToElement(new { review = new { owner = id } })
+            [owner] = id, [payload] = JsonSerializer.SerializeToElement(new { review = new { owner = id } })
         };
     }
 

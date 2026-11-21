@@ -8,18 +8,20 @@ namespace Metarill.Generation.Tests;
 public sealed class PageConditionalRequiredTests
 {
     /// <summary>显示条件读取最终实体的真实字段，JSON文本与对象一致，数据库非空仍独立约束。</summary>
-    [Fact]
-    public async Task Required_field_uses_original_visibility_rule_without_discarding_column_nullability()
+    [Theory]
+    [InlineData("approvalPayload")]
+    [InlineData("approval_payload")]
+    public async Task Required_field_uses_original_visibility_rule_without_discarding_column_nullability(string fieldName)
     {
         var catalog=GeneratorTests.Catalog();
-        catalog.ConfigColumns.Add(new(){Id="17",ConfigTableId="1",ColumnName="payload",LogicalType="json"});
+        catalog.ConfigColumns.Add(new(){Id="17",ConfigTableId="1",ColumnName="approval_payload",LogicalType="json"});
         catalog.ConfigPageColumns.Add(new(){Id="117",ConfigPageId="101",ConfigColumnId="17",IsEdit=1});
         var remark=catalog.ConfigColumns.Single(column=>column.Id=="13");
         remark.IsDbNotNull=1;
         catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="13").IsRequired=1;
         remark.Extra["visibleCondition"]=JsonSerializer.SerializeToElement("""
-{"logic":"AND","conditions":[{"field":"payload.flags.enabled","operator":"eq","value":true}]}
-""");
+{"logic":"AND","conditions":[{"field":"FIELD.flags.enabled","operator":"eq","value":true}]}
+""".Replace("FIELD",fieldName,StringComparison.Ordinal));
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-visible-required");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -32,7 +34,7 @@ public sealed class PageConditionalRequiredTests
             var serviceType=assembly.GetType("Example.RequiredVisibility.Generated.Services.CustomerService",true)!;
             var visible=serviceType.GetMethod("RequiresVisible101_13",BindingFlags.Static|BindingFlags.NonPublic)!;
             var entity=Activator.CreateInstance(entityType)!;
-            var payload=entityType.GetProperty("Payload")!;
+            var payload=entityType.GetProperty("ApprovalPayload")!;
             payload.SetValue(entity,JsonSerializer.Serialize(new{flags=new{enabled=true}}));
             Assert.True((bool)visible.Invoke(null,[entity])!);
             payload.SetValue(entity,"{\"flags\":{\"enabled\":false}}");

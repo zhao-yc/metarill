@@ -50,8 +50,9 @@ internal static class ReadProjectionCompilation
         if (segments.Length is < 2 or > 17 || path.Length > 512 ||
             segments.Any(segment => string.IsNullOrWhiteSpace(segment) || segment is "__proto__" or "prototype" or "constructor"))
             return null;
-        return page.Readable.SingleOrDefault(column => column.JsonName == segments[0] &&
-            column.Source.LogicalType.Equals("json", StringComparison.OrdinalIgnoreCase) && !column.IsJsonArray);
+        var column = OriginalVisibilityCompilation.ResolveField(page, segments[0]);
+        return column is not null && column.Source.LogicalType.Equals("json", StringComparison.OrdinalIgnoreCase) &&
+            !column.IsJsonArray ? column : null;
     }
 
     /// <summary>按稳定字段ID收集去重依赖，未知来源只留缺口，不能扩成全表或全Readable。</summary>
@@ -583,7 +584,7 @@ internal static class ReadProjectionCompilation
                                 Add(root, reason, false);
                                 continue;
                             }
-                            var column = page.Readable.SingleOrDefault(column => column.JsonName == key);
+                            var column = OriginalVisibilityCompilation.ResolveField(page, key);
                             if (column is not null) { Add(column, reason, false); continue; }
                             var constant = page.Readable.SingleOrDefault(column => column.JsonName + "Show" == key && Kind(column) is "ConstList" or "ConstDownList");
                             if (constant is not null) { Add(constant, reason); continue; }

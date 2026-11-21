@@ -108,11 +108,9 @@ internal static class OriginalUniappDetailRenderer
             var layoutFields = c.FieldsMetadata.Select(field =>
             {
                 var rule = Text(field.Column.Source.Extra, "visibleCondition");
-                var jsonFields = c.VisibilityJsonFields(rule);
                 var options = new Dictionary<string, object> { ["name"] = field.Column.JsonName, ["groupKey"] = field.GroupKey, ["visibleCondition"] = rule };
-                if (jsonFields.Length > 0) options.Add("jsonObjectFields", jsonFields);
-                var booleanOptions = OriginalVisibilityCompilation.BooleanOptions(page, rule);
-                if (booleanOptions.Count > 0) options.Add("booleanOptionFields", booleanOptions);
+                foreach (var (key, value) in OriginalVisibilityCompilation.Options(page, rule, includeJsonPaths: true))
+                    options.Add(key, value);
                 return options;
             });
             c.Mixins.Insert(0, "createDetailLayoutMixin(" + layout.GetRawText() + "," + Js(layoutFields) + ")");

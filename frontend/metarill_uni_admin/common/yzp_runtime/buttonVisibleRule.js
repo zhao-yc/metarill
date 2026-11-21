@@ -201,21 +201,21 @@ function serializeEditorCondition({ field, operator, value, saved }) {
 
 const invalidBooleanOption = Symbol('invalidBooleanOption')
 
-function evaluateRule(ruleLike, entity, jsonObjectFields = [], booleanOptionFields = {}) {
+function evaluateRule(ruleLike, entity, jsonObjectFields = [], booleanOptionFields = {}, fieldAliases = {}) {
 	const rule = normalizeRule(ruleLike)
 	if (!rule.conditions.length && !(rule.groups && rule.groups.length)) {
 		return true
 	}
-	return evaluateGroup(rule, entity || {}, jsonObjectFields, booleanOptionFields)
+	return evaluateGroup(rule, entity || {}, jsonObjectFields, booleanOptionFields, fieldAliases)
 }
 
-function evaluateGroup(group, entity, jsonObjectFields, booleanOptionFields) {
+function evaluateGroup(group, entity, jsonObjectFields, booleanOptionFields, fieldAliases) {
 	const results = []
 	;(group.conditions || []).forEach((condition) => {
-		results.push(evaluateCondition(condition, entity, jsonObjectFields, booleanOptionFields))
+		results.push(evaluateCondition(condition, entity, jsonObjectFields, booleanOptionFields, fieldAliases))
 	})
 	;(group.groups || []).forEach((childGroup) => {
-		results.push(evaluateGroup(childGroup, entity, jsonObjectFields, booleanOptionFields))
+		results.push(evaluateGroup(childGroup, entity, jsonObjectFields, booleanOptionFields, fieldAliases))
 	})
 	if (!results.length) {
 		return true
@@ -226,9 +226,9 @@ function evaluateGroup(group, entity, jsonObjectFields, booleanOptionFields) {
 	return results.every(Boolean)
 }
 
-function evaluateCondition(condition, entity, jsonObjectFields, booleanOptionFields) {
+function evaluateCondition(condition, entity, jsonObjectFields, booleanOptionFields, fieldAliases) {
 	const operator = condition.operator || 'eq'
-	const actualValue = readFieldValue(entity, condition.field, jsonObjectFields, booleanOptionFields)
+	const actualValue = readFieldValue(entity, condition.field, jsonObjectFields, booleanOptionFields, fieldAliases)
 	if (actualValue === invalidBooleanOption) return false
 	switch (operator) {
 		case 'eq':
@@ -256,7 +256,7 @@ function evaluateCondition(condition, entity, jsonObjectFields, booleanOptionFie
 	}
 }
 
-function readFieldValue(entity, field, jsonObjectFields, booleanOptionFields) {
+function readFieldValue(entity, field, jsonObjectFields, booleanOptionFields, fieldAliases) {
 	if (!entity || isBlankValue(field)) {
 		return null
 	}
@@ -270,6 +270,10 @@ function readFieldValue(entity, field, jsonObjectFields, booleanOptionFields) {
 		return invalidBooleanOption
 	}
 	const segments = String(field).split('.')
+	// 别名由生成页面按已开放的字段声明，不能从实体内容反推字段。
+	if (fieldAliases && Object.prototype.hasOwnProperty.call(fieldAliases, segments[0])) {
+		segments[0] = fieldAliases[segments[0]]
+	}
 	if (segments.length > 1 && Array.isArray(jsonObjectFields) && jsonObjectFields.includes(segments[0])) {
 		return readDeclaredJsonMember(entity[segments[0]], segments.slice(1))
 	}

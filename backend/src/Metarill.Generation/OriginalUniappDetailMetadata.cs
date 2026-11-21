@@ -51,19 +51,6 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
         var readOnly = derived || (originalJoinInput ? Enabled(settings.Extra, "isReadOnly") : !Page.Writable.Any(item => item.Source.Id == column.Source.Id));
         return new(column, settings, detail, @default, readOnly, !derived && (settings.IsRequired == 1 || Enabled(settings.Extra, "isMust")), Text(settings.Extra, "detailGroupKey"), span,derived);
     }
-    /// <summary>只为实际点路径标记已验证的 JSON 根字段，让字段和分组选项使用相同解释。</summary>
-    internal string[] VisibilityJsonFields(string rule)
-    {
-        if (!rule.Contains('.')) return [];
-        try
-        {
-            return ButtonVisibilityRule.Compile(rule).Fields
-                .Select(path => ReadProjectionCompilation.DetailVisibilityJsonRoot(Page, path)?.JsonName)
-                .OfType<string>().Distinct(StringComparer.Ordinal).ToArray();
-        }
-        catch (ArgumentException) { return []; }
-    }
-
     /// <summary>移植原非冗余字段展示归属；联接、审计名称、布局及级联祖先不生成输入/校验/自动保存。</summary>
     private bool Derived(ColumnModel column)
     {
