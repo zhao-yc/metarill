@@ -7,7 +7,8 @@ namespace Metarill.Generation;
 internal static class DerivedCascadeNamesCompilation
 {
     /// <summary>生成候选、图和Excel共用目标读取计划，不能借名称联接放开拓扑或缓存维护。</summary>
-    internal static (IReadOnlyList<string> Dependencies, IReadOnlyList<NonRedundantSingleTargetScope> Targets) Require(
+    internal static (IReadOnlyList<string> Dependencies, IReadOnlyList<string> SortDependencies,
+        IReadOnlyList<NonRedundantSingleTargetScope> Targets) Require(
         GenerationModel model,TableModel owner,CascadeTreeReadModel plan)
     {
         var target=plan.Target;if(owner.Source.IsRongyu is not(0 or 1)||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||plan.Name.Source.LogicalType!="string"&&!MultiValueLabel.IsTyped(plan.Name.Source.LogicalType)||plan.Name.IsJsonArray)throw new InvalidOperationException("派生自树名称要求已证明来源与普通R0目标的单值标量。");
@@ -20,31 +21,44 @@ internal static class DerivedCascadeNamesCompilation
             throw new InvalidOperationException("自树的身份和条件必须为物理标量或固定级联路径。");
         // 全局目标名称由固定发布页证明，普通目标继续要求单值匹配计划。
         if(!target.IsGlobal)_=NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,plan.Name.Source.ColumnName);
-        var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(plan.Order.Select(item=>item.Column.Source.ColumnName)).Concat(new[]{"id",plan.Name.Source.ColumnName}).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var orderFields = JoinedOrderFields(model, plan);
-        // 校验时证明排序列的实际类型，发布计划仍仅返回 ID、显示名称和父键。
-        var outputs = new[]{ "id", plan.Name.Source.ColumnName, plan.Parent.Source.ColumnName }
-            .Concat(orderFields.Select(column => column.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var targets = OrderTargets(model, plan);
-        if (plan.DerivedName && targets.Count > 0)
-        {
-            // 同一联接不能把新排序页的条件带入既有显示列，否则候选名称会和持久副本分叉。
-            var labelTargets = NonRedundantReadCompilation.ProjectPathTargets(model, target, plan.TargetPage,
-                [plan.Name.Source.ColumnName], multiValuePath: true);
-            if (targets.Any(order => labelTargets.Any(label => label.ColumnId == order.ColumnId)))
-                throw new NotSupportedException("带独立页面条件的排序联接不能改变树的显示名称范围。");
-        }
-        var read=plan.ScopedCondition
-            ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,plan.TargetPage.Source.Id,outputs,dependencies,null,targets)
-            :NonRedundantReadCompilation.HasGlobalRowProject(target)
-            ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,plan.TargetPage.Source.Id,outputs,dependencies,targets)
-            :targets.Count>0?NonRedundantReads.CompileProjectRelation(model.Catalog,target.Source.Id,outputs,dependencies,targets)
-            :NonRedundantReads.Compile(model.Catalog,target.Source.Id,outputs,dependencies);
-        if(read.OutputTypes["id"]!="int64"||read.OutputTypes[plan.Name.Source.ColumnName]!=plan.Name.Source.LogicalType)
+        var labelTargets = plan.DerivedName && targets.Count > 0
+            ? NonRedundantReadCompilation.ProjectPathTargets(model, target, plan.TargetPage,
+                [plan.Name.Source.ColumnName], multiValuePath: true)
+            : [];
+        // 同一联接的独立排序条件只用于排序；原名称继续供回显、路径、Excel 和缓存使用。
+        var separateOrder = targets.Any(order => labelTargets.Any(label => label.ColumnId == order.ColumnId));
+        var identityFields = fields.Select(column => column.Source.ColumnName).Append("id");
+        var name = plan.Name.Source.ColumnName;
+        var labelOutputs = new[] { "id", name, plan.Parent.Source.ColumnName };
+        var labelDependencies = identityFields.Append(name).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var orderDependencies = (separateOrder ? identityFields : labelDependencies)
+            .Concat(plan.Order.Select(item => item.Column.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var orderFields = JoinedOrderFields(model, plan);
+        // 生成前验证包括依赖列的类型，运行时排序计划只返回必要字段。
+        var orderOutputs = (separateOrder ? new[] { "id" } : labelOutputs)
+            .Concat(orderFields.Select(column => column.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var ordered = Compile(orderOutputs, orderDependencies, targets);
+        var labels = separateOrder ? Compile(labelOutputs, labelDependencies, []) : ordered;
+        if (labels.OutputTypes["id"] != "int64" || labels.OutputTypes[name] != plan.Name.Source.LogicalType)
             throw new InvalidOperationException("自树名称未落到同类型的固定单值列。");
-        if(orderFields.Any(column=>read.OutputTypes[column.Source.ColumnName]!=column.Source.LogicalType))
+        if (orderFields.Any(column => ordered.OutputTypes[column.Source.ColumnName] != column.Source.LogicalType))
             throw new InvalidOperationException("自树排序列未落到同类型的固定单值列。");
-        return (dependencies, targets);
+
+        return separateOrder ? (labelDependencies, orderDependencies, targets) : (orderDependencies, [], targets);
+
+        NonRedundantReadPlan Compile(string[] outputs, string[] dependencies, IReadOnlyList<NonRedundantSingleTargetScope> scopes)
+        {
+            if (plan.ScopedCondition)
+                return NonRedundantReads.CompileCrossPageCandidate(model.Catalog, target.Source.Id, plan.TargetPage.Source.Id,
+                    outputs, dependencies, null, scopes);
+            if (NonRedundantReadCompilation.HasGlobalRowProject(target))
+                return NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, plan.TargetPage.Source.Id,
+                    outputs, dependencies, scopes);
+            return scopes.Count > 0
+                ? NonRedundantReads.CompileProjectRelation(model.Catalog, target.Source.Id, outputs, dependencies, scopes)
+                : NonRedundantReads.Compile(model.Catalog, target.Source.Id, outputs, dependencies);
+        }
     }
 
     /// <summary>复用实际目标页的单值联接范围；不从用户排序或名称猜测另一个页面。</summary>

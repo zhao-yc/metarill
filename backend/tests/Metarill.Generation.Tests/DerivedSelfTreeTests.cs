@@ -172,12 +172,7 @@ public sealed class DerivedSelfTreeTests
         var source = model.Tables.Single(table => table.Source.Id == "2");
         var page = Assert.Single(source.Pages);
         var result = CascadeTreeReadCompilation.Resolve(model, source, page, source.Columns.Single(column => column.Source.Id == "25"));
-        if (derivedName && scopedDictionary)
-        {
-            Assert.Null(result.Definition);
-            Assert.Contains("不能改变树的显示名称范围", result.Reason);
-            return;
-        }
+
         Assert.True(result.Definition is not null, result.Reason);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
@@ -197,8 +192,11 @@ public sealed class DerivedSelfTreeTests
             var order = Assert.IsType<Metarill.Data.Queries.FixedReadOrder[]>(
                 service.GetField("DerivedCascadeOrder201_25", hiddenStatic)!.GetValue(null));
             Assert.Equal(new[] { new Metarill.Data.Queries.FixedReadOrder("other_label", true), new("id", false) }, order);
-            var plan = Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+            var labels = Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
                 service.GetField("DerivedCascadePlan201_25", hiddenStatic)!.GetValue(null));
+            var separateOrder = derivedName && scopedDictionary;
+            var plan = separateOrder ? Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                service.GetField("DerivedCascadeSortPlan201_25", hiddenStatic)!.GetValue(null)) : labels;
             Assert.DoesNotContain("other_label", plan.OutputTypes.Keys);
             const BindingFlags hiddenInstance = BindingFlags.NonPublic | BindingFlags.Instance;
             var sql = plan.GetType().GetProperty("MySql", hiddenInstance)!.GetValue(plan)!;
@@ -209,6 +207,22 @@ public sealed class DerivedSelfTreeTests
             {
                 var from = Assert.IsType<string>(sql.GetType().GetProperty("From", hiddenInstance)!.GetValue(sql));
                 Assert.Matches(@"priority\x60?\s*>=\s*@", from);
+            }
+            if (separateOrder)
+            {
+                var labelSql = labels.GetType().GetProperty("MySql", hiddenInstance)!.GetValue(labels)!;
+                var labelFields = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(
+                    labelSql.GetType().GetProperty("Expressions", hiddenInstance)!.GetValue(labelSql));
+                Assert.DoesNotContain("other_label", labelFields.Keys);
+                var labelFrom = Assert.IsType<string>(labelSql.GetType().GetProperty("From", hiddenInstance)!.GetValue(labelSql));
+                Assert.DoesNotMatch(@"priority\x60?\s*>=\s*@", labelFrom);
+                Assert.Equal("string", labels.OutputTypes["name"]);
+                Assert.DoesNotContain("name", plan.OutputTypes.Keys);
+                var code = await File.ReadAllTextAsync(Path.Combine(output, "Services/SortTreeSourceService.g.cs"));
+                Assert.Contains("SelfTreeReader.OrderCandidates", code);
+                var actor = new Metarill.Core.Security.RuntimeActor(9, "自树排序", false, catalog.YzProjectId, page.Source.YzAdminTypeId);
+                await AccountParentCandidateProbe.VerifySelfTreeOrderAsync(service,
+                    assembly.GetType(ns + ".Generated.Mappers.SortTreeSourceMapper", true)!, actor);
             }
             Assert.NotNull(service.GetMethod("CascadeOptions201_25Async"));
             Assert.NotNull(service.GetMethod("CascadePath201_25Async"));

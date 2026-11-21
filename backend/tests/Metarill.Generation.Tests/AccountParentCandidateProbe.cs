@@ -1,6 +1,9 @@
 using System.Data;
 using System.Data.Common;
+using System.Reflection;
 using FreeSql;
+using Metarill.Core.Cascades;
+using Metarill.Core.Persistence;
 using Metarill.Core.Security;
 using Metarill.Data;
 using Metarill.Data.Queries;
@@ -109,10 +112,76 @@ internal static class AccountParentCandidateProbe
         }
     }
 
+    /// <summary>实际生成的候选方法必须在同一读快照发送两条固定查询，并按排序 ID 返回原名称。</summary>
+    internal static async Task VerifySelfTreeOrderAsync(Type serviceType, Type mapperType, RuntimeActor actor)
+    {
+        const long first = 9007199254742001;
+        const long second = 9007199254742002;
+        const long parent = 9007199254740993;
+        var provider = new CaptureProvider(0, first, command =>
+        {
+            var table = new DataTable();
+            table.Columns.Add("id", typeof(long));
+            if (command.CommandText.Contains(" AS \u0060name\u0060", StringComparison.Ordinal))
+            {
+                table.Columns.Add("name", typeof(string));
+                table.Columns.Add("parent_sort_tree_tree_id", typeof(long));
+                table.Rows.Add(first, "全名甲", parent);
+                table.Rows.Add(second, "全名乙", parent);
+            }
+            else
+            {
+                table.Rows.Add(second);
+                table.Rows.Add(first);
+            }
+            return table;
+        });
+        using var session = new DatabaseSession(new()
+        {
+            ExpectedDatabase = "offline",
+            ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
+        }, null, provider);
+        // 此探针只执行实际的固定 SQL，两次 ORM 调用只允许创建过滤器，禁止执行。
+        session.Orm.Aop.CurdBefore += (_, _) => throw new InvalidOperationException("自树排序探针禁止执行 ORM 命令。");
+        var mapper = Activator.CreateInstance(mapperType, session)!;
+        var authorization = new TreeAuthorization(actor);
+        var service = Activator.CreateInstance(serviceType, [session, mapper, new SnowflakeIdGenerator(945),
+            Array.Empty<IRecordMutationObserver>(), Array.Empty<IRecordMutationGuard>(), authorization])!;
+        var method = serviceType.GetMethod("OrderedCascadeChildren201_25Async", BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        await session.InReadSnapshotAsync(async () =>
+        {
+            var results = await (Task<IReadOnlyList<CascadeTreeNode>>)method.Invoke(service, [parent, actor, true, true, CancellationToken.None])!;
+            Assert.Equal(new[] { second, first }, results.Select(row => row.Id));
+            Assert.Equal(new[] { "全名乙", "全名甲" }, results.Select(row => row.Name));
+            Assert.Equal(2, provider.Commands.Count);
+            Assert.All(provider.Commands, command => Assert.Same(session.CurrentTransaction, command.Transaction));
+            return true;
+        });
+        Assert.Equal(new[] { "201", "301" }, authorization.Pages);
+        Assert.DoesNotMatch(@"priority\s*>=\s*@", provider.Commands[0].Sql);
+        Assert.Contains(" AS name", provider.Commands[0].Sql);
+        Assert.DoesNotContain(" AS name", provider.Commands[1].Sql);
+        Assert.Matches(@"priority\s*>=\s*@", provider.Commands[1].Sql);
+        Assert.Matches(@" ORDER BY [^.]+\.\s*priority DESC,\s*b\.id ASC", provider.Commands[1].Sql);
+        Assert.All(provider.Commands, command => Assert.Contains(parent, command.Values.Values));
+    }
+
+    private sealed class TreeAuthorization(RuntimeActor actor) : IRuntimeAuthorization
+    {
+        internal List<string> Pages { get; } = [];
+        public RuntimeActor RequireActor() => actor;
+        public void RequirePagePermission(string pageId, string operation)
+        {
+            Assert.Equal("list", operation);
+            Pages.Add(pageId);
+        }
+    }
+
     private sealed record Captured(string Sql,IReadOnlyDictionary<string,object?> Values,DbTransaction? Transaction);
 
     /// <summary>仅记录驱动输入并返回声明的合成行，任何数据库写入或实际联网均拒绝。</summary>
-    private sealed class CaptureProvider(object code,long recordId):IDatabaseProvider
+    private sealed class CaptureProvider(object code,long recordId,Func<DbCommand,DataTable>? rows=null):IDatabaseProvider
     {
         private readonly MySqlDatabaseProvider dialect=new();
         internal object Code=>code;
@@ -125,10 +194,14 @@ internal static class AccountParentCandidateProbe
         public string QuoteIdentifier(string name)=>dialect.QuoteIdentifier(name);
         public string ParameterPlaceholder(string name)=>dialect.ParameterPlaceholder(name);
         public string BuildSelectForUpdate(string sql)=>dialect.BuildSelectForUpdate(sql);
-        public IFreeSql CreateOrm(DatabaseOptions options)=>throw new InvalidOperationException("固定候选测试不通过 ORM 读取。");
+        public IFreeSql CreateOrm(DatabaseOptions options)=>rows is null
+            ? throw new InvalidOperationException("固定候选测试不通过 ORM 读取。")
+            : dialect.CreateOrm(options);
         public DbConnection CreateConnection(DatabaseOptions options)=>new Connection(this);
         public ValueTask<DbTransaction> BeginReadSnapshotAsync(DbConnection connection,CancellationToken token=default)=>
             connection.BeginTransactionAsync(IsolationLevel.RepeatableRead,token);
+
+        private DataTable? Rows(DbCommand command) => rows?.Invoke(command);
 
         private void Capture(DbCommand command)=>Commands.Add(new(command.CommandText.Replace("\u0060","",StringComparison.Ordinal),
             command.Parameters.Cast<DbParameter>().ToDictionary(parameter=>parameter.ParameterName,parameter=>(object?)parameter.Value),
@@ -176,6 +249,7 @@ internal static class AccountParentCandidateProbe
             protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
             {
                 provider.Capture(this);
+                if (provider.Rows(this) is { } fixedRows) return fixedRows.CreateDataReader();
                 var table=new DataTable();
                 table.Columns.Add("id",typeof(long));
                 table.Columns.Add("code",provider.Code.GetType());

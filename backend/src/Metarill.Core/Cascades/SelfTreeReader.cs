@@ -44,6 +44,27 @@ public sealed class SelfTreeReader(
         return rows.Select(row=>new CascadeTreeOption(Text(row.Id),row.Name??"",Text(row.Id),row.Name??"",hasChildren.Contains(row.Id))).ToArray();
     }
 
+    /// <summary>同一快照的排序只提供顺序，必须逐个匹配已读取的原节点才能返回候选。</summary>
+    public static IReadOnlyList<CascadeTreeNode> OrderCandidates(IReadOnlyList<CascadeTreeNode> nodes, IReadOnlyList<long> orderedIds)
+    {
+        if (nodes.Count != orderedIds.Count)
+            throw new InvalidOperationException("自树排序与原候选范围不一致。");
+
+        var byId = new Dictionary<long, CascadeTreeNode>(nodes.Count);
+        foreach (var node in nodes)
+            if (!byId.TryAdd(node.Id, node))
+                throw new InvalidOperationException("自树原候选存在重复节点。");
+
+        var result = new CascadeTreeNode[nodes.Count];
+        for (var index = 0; index < orderedIds.Count; index++)
+        {
+            if (!byId.Remove(orderedIds[index], out var node))
+                throw new InvalidOperationException("自树排序出现未知或重复节点。");
+            result[index] = node;
+        }
+        return result;
+    }
+
     /// <summary>循环、断链和超过64层均整体拒绝，路径不得静默截断。</summary>
     public async Task<CascadeTreePath> PathAsync(long? leafId,CancellationToken cancellationToken=default)
     {

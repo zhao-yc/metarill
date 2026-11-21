@@ -39,6 +39,22 @@ public sealed class CascadeTreeReadTests
         Assert.Empty((await reader.PathAsync(null)).Path);
     }
 
+    /// <summary>排序只改变已授权原节点的次序，范围漂移和重复均不能返回候选。</summary>
+    [Fact]
+    public void Independent_order_uses_original_names_and_requires_exact_candidate_membership()
+    {
+        const long first = 9007199254740993;
+        var firstNode = new CascadeTreeNode(first, "原名甲", "7");
+        var secondNode = new CascadeTreeNode(first + 1, "原名乙", "7");
+        CascadeTreeNode[] labels = [firstNode, secondNode];
+        Assert.Equal(new[] { secondNode, firstNode }, SelfTreeReader.OrderCandidates(labels, [secondNode.Id, firstNode.Id]));
+        Assert.Empty(SelfTreeReader.OrderCandidates([], []));
+        Assert.Throws<InvalidOperationException>(() => SelfTreeReader.OrderCandidates(labels, [first]));
+        Assert.Throws<InvalidOperationException>(() => SelfTreeReader.OrderCandidates(labels, [first, first]));
+        Assert.Throws<InvalidOperationException>(() => SelfTreeReader.OrderCandidates(labels, [first, first + 2]));
+        Assert.Throws<InvalidOperationException>(() => SelfTreeReader.OrderCandidates([firstNode, firstNode], [first, first + 1]));
+    }
+
     /// <summary>显示文案跳过空白名称，内部路径保留空值供持久化及 Excel 校验。</summary>
     [Fact]
     public async Task Empty_names_are_skipped_only_in_display_text()
