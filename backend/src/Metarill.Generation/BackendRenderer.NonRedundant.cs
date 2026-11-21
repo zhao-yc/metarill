@@ -92,13 +92,15 @@ internal static partial class BackendRenderer
                 model,multi.Target,multi.TargetPage,multi.Name,multi.ImportCondition))))
             .ToHashSet(StringComparer.Ordinal);
         // 排序单值联接也需要固定中间页和字典条件，发布目录按实际依赖保留。
-        var treeOrderPages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page)))
+        var checkboxOrders=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForPage(model,table,page)))
+            .Select(checkbox=>checkbox.CandidateOrderTargets).OfType<IReadOnlyList<Metarill.Data.Queries.NonRedundantSingleTargetScope>>().ToArray();
+        var candidateOrderPages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page)))
             .Where(tree=>tree.DerivedOrder).SelectMany(tree=>NamePages(DerivedCascadeNamesCompilation.OrderTargets(model,tree)))
             .Concat(model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CrossTableReadCompilation.ForService(model,table,page)))
                 .SelectMany(plan=>plan.Levels).Where(level=>level.DerivedOrder).SelectMany(level=>NamePages(
                     CascadeTargetOrderCompilation.OrderTargets(model,level.Target,level.Page,level.Name,level.Order,level.DerivedOrder))))
-            .ToHashSet(StringComparer.Ordinal);
-        scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>treeOrderPages.Contains(page.Source.Id))
+            .Concat(checkboxOrders.SelectMany(NamePages)).ToHashSet(StringComparer.Ordinal);
+        scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>candidateOrderPages.Contains(page.Source.Id))
             .Select(page=>(table,page))));
         foreach(var checkbox in realtimeCheckboxes.Where(checkbox=>checkbox.GlobalRealtimeNameOverride))
             multiNamePages.UnionWith(Metarill.Data.Queries.NonRedundantReads.PublishedGlobalCheckboxNamePages(model.Catalog,
@@ -219,7 +221,7 @@ internal static partial class BackendRenderer
             helpers+="    /// <summary>Excel 名称匹配的附加逻辑字段沿实际候选页编译。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileMultiImportLabel(string tableId,string pageId,string field,string[] fields,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileMultiImportLabel(Snapshot,tableId,pageId,field,fields,singleTargets);\n";
         if(fixedSingleImports.Length>0)
             helpers+="    /// <summary>单选 Excel 匹配复用实际发布页和固定字段计划。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileSingleImportLabel(string tableId,string pageId,string field,string[] fields,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileSingleImportLabel(Snapshot,tableId,pageId,field,fields,singleTargets);\n";
-        var derivedHelper=(relations.Any(relation=>DerivedRelationNamesCompilation.UsesFixedRead(model,relation))||model.Tables.Any(table=>table.Pages.Any(page=>MultiSelectCompilation.ForService(model,table,page).Any(multi=>DerivedMultiNamesCompilation.Declared(model,multi.Target,multi.Name))||DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.DerivedName)||CascadeTreeReadCompilation.ForService(model,table,page).Any(def=>def.UsesFixedRead)||CrossTableReadCompilation.ForService(model,table,page).Any(def=>def.Levels.Any(level=>level.Target.Source.IsRongyu==0)))))?"    /// <summary>派生候选不延迟级联名称，完整标量路径在发布时固定。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileRelation(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>singleTargets is null?Metarill.Data.Queries.NonRedundantReads.Compile(Snapshot,tableId,outputs,dependencies):Metarill.Data.Queries.NonRedundantReads.CompileProjectRelation(Snapshot,tableId,outputs,dependencies,singleTargets);\n":"";
+        var derivedHelper=(checkboxOrders.Length>0||relations.Any(relation=>DerivedRelationNamesCompilation.UsesFixedRead(model,relation))||model.Tables.Any(table=>table.Pages.Any(page=>MultiSelectCompilation.ForService(model,table,page).Any(multi=>DerivedMultiNamesCompilation.Declared(model,multi.Target,multi.Name))||DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.DerivedName)||CascadeTreeReadCompilation.ForService(model,table,page).Any(def=>def.UsesFixedRead)||CrossTableReadCompilation.ForService(model,table,page).Any(def=>def.Levels.Any(level=>level.Target.Source.IsRongyu==0)))))?"    /// <summary>派生候选不延迟级联名称，完整标量路径在发布时固定。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileRelation(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>singleTargets is null?Metarill.Data.Queries.NonRedundantReads.Compile(Snapshot,tableId,outputs,dependencies):Metarill.Data.Queries.NonRedundantReads.CompileProjectRelation(Snapshot,tableId,outputs,dependencies,singleTargets);\n":"";
         return $$"""
 
 /// <summary>生成来源的私有只读快照，不提供外部取出或在线改写入口。</summary>

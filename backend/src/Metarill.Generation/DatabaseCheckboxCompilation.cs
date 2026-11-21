@@ -1,10 +1,13 @@
 using System.Text.Json;
 using Metarill.Core.Metadata;
+using Metarill.Data.Queries;
 
 namespace Metarill.Generation;
 
 internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Target,ColumnModel Name,ColumnModel Names,IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,IReadOnlyList<TableModel> SourceParents,ColumnModel? SourceParent,bool DerivedName=false,PageModel? GlobalPage=null)
 {
+    // null 表示沿用原物理排序；空集合仍可以是已证明的固定联接。
+    internal IReadOnlyList<NonRedundantSingleTargetScope>? CandidateOrderTargets { get; init; }
     internal PageModel? LogicalTargetPage { get; init; }
     internal bool CompoundTargetParents { get; init; }
     internal bool RealtimeLogicalParentScope { get; init; }
@@ -315,7 +318,14 @@ internal static class DatabaseCheckboxCompilation
             if(string.IsNullOrWhiteSpace(orderBy)&&table.Source.IsRongyu==0)
                 orderBy=namePage?.Source.OrderBy??"";
             var order=GenerationModel.ValidateOrderBy(string.IsNullOrWhiteSpace(orderBy)?definition.NameField+" asc":orderBy,target.Columns).ToList();
-            if(order.Any(item=>(!NonRedundantReadCompilation.Physical(model,target,item.Column)&&!(derived&&item.Column.Source.Id==name.Source.Id))||item.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,item.Column)))return Gap("候选排序必须为非凭据物理字段。");if(!order.Any(item=>item.Column.IsId))order.Add((target.Columns.Single(column=>column.IsId),false));
+            if (order.Any(item => item.Column.IsJsonArray || ManagerCredentialCompilation.IsCredential(target, item.Column)))
+                return Gap("候选排序须为非凭据标量。");
+            var joinedOrder = order.Select(item => item.Column).Where(column =>
+                !NonRedundantReadCompilation.Physical(model, target, column) && !(derived && column.Source.Id == name.Source.Id)).ToArray();
+            if (joinedOrder.Length > 0 && (namePage is null || joinedOrder.Any(column =>
+                    !CascadeTargetOrderCompilation.CanUseJoin(model, target, namePage, column))))
+                return Gap("候选排序须为物理标量或实际目标页开放的固定单值联接。");
+            if (!order.Any(item => item.Column.IsId)) order.Add((target.Columns.Single(column => column.IsId), false));
             var independentCache=table.Source.IsRongyu==1&&usesNameOverride;
             var names=functionForm?SelectionDisplayFieldCompilation.FunctionFormNames(table,source,name):
                 independentCache?MultiNameStorageCompilation.FindPhysicalName(table,source,name):SelectionDisplayFieldCompilation.Resolve(table,source);
@@ -325,6 +335,7 @@ internal static class DatabaseCheckboxCompilation
             if(!functionForm&&table.Source.IsRongyu==0&&(!GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")||names.Source.IsVirtualColumn!=0))return Gap("非冗余名称必须是明确只读联接或自动投影。");
             var result=new DatabaseCheckboxModel(source,target,name,names,scopes,conditions,order,parents,sourceParent,derived,globalPage)
             {
+                CandidateOrderTargets=joinedOrder.Length==0?null:RequireOrderTargets(model,target,namePage!,order),
                 LogicalTargetPage=logicalPage,
                 CompoundTargetParents=compoundTargetParents,
                 NameTargetPage=namePage,
@@ -358,6 +369,21 @@ internal static class DatabaseCheckboxCompilation
         }
         catch(Exception error)when(error is ArgumentException or InvalidOperationException or JsonException or NotSupportedException){return Gap(error.Message);}
     }
+    /// <summary>只为排序解析实际字典页和中间联接，类型须与已开放的目标字段一致。</summary>
+    private static IReadOnlyList<NonRedundantSingleTargetScope> RequireOrderTargets(GenerationModel model,
+        TableModel target, PageModel page, IReadOnlyList<(ColumnModel Column, bool Descending)> order)
+    {
+        var joined = order.Select(item => item.Column).Where(column =>
+            !NonRedundantReadCompilation.Physical(model, target, column)).DistinctBy(column => column.Source.Id).ToArray();
+        var outputs = new[] { "id" }.Concat(joined.Select(column => column.Source.ColumnName)).ToArray();
+        var dependencies = order.Select(item => item.Column.Source.ColumnName).ToArray();
+        var targets = NonRedundantReadCompilation.ProjectPathTargets(model, target, page, outputs, multiValuePath: true);
+        var plan = NonRedundantReads.CompileProjectRelation(model.Catalog, target.Source.Id, outputs, dependencies, targets);
+        if (plan.OutputTypes["id"] != "int64" || joined.Any(column => plan.OutputTypes[column.Source.ColumnName] != column.Source.LogicalType))
+            throw new InvalidOperationException("复选排序必须落到同类型的固定单值列。");
+        return targets;
+    }
+
     /// <summary>多份物理名称必须共用同一个保存及维护范围；全局范围直接由实际发布页提供。</summary>
     private static bool CanSharePhysicalNames(DatabaseCheckboxModel definition)
     {

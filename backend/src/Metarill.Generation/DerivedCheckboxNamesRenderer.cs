@@ -20,6 +20,8 @@ internal static class DerivedCheckboxNamesRenderer
             "        var publishedCondition="+FixedPageConditionCompilation.Bound(filterPage,"CheckboxTargetCondition"+suffix)+
             "; condition=condition is null?publishedCondition:condition.And(publishedCondition);":"";
         var call=DerivedCheckboxNamesCompilation.PlanCall(model,def,dependencies,cachedLabels);
+        // 排序专用联接不能进入原名称、导入匹配及当前写入读。
+        var order = def.CandidateOrderTargets is null ? DatabaseCheckboxRenderer.FixedOrder(def) : "[new(\"id\")]";
         var exact=def.ExactTarget is {} scope?ExactDataManageCompilation.ReadFilter(def.NameTargetPage!,scope,
             Literal("list"),"checkboxExact","filters"):"";
         return $$"""
@@ -37,7 +39,7 @@ internal static class DerivedCheckboxNamesRenderer
         if(matchName)filters.Add(new({{Literal(def.Name.Source.ColumnName)}},FixedReadComparison.Equal,name));
         var condition={{(def.Conditions is null?"(FixedConditionSqlPlan?)null":"CheckboxCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"})")}};
 {{pageCondition}}
-        var rows=await new NonRedundantReader(session).PageAsync(DerivedCheckboxPlan{{suffix}}.BindAccount(actor),filters,[{{string.Join(",",def.Order.Select(item=>"new("+Literal(item.Column.Source.ColumnName)+","+(item.Descending?"true":"false")+")"))}}],1,limit,cancellationToken,projectId:actor.ProjectId,condition:condition,currentRead:locking);
+        var rows=await new NonRedundantReader(session).PageAsync(DerivedCheckboxPlan{{suffix}}.BindAccount(actor),filters,{{order}},1,limit,cancellationToken,projectId:actor.ProjectId,condition:condition,currentRead:locking);
         return rows.Records.Select(row=>new DerivedCheckboxRow{{suffix}}(NonRedundantReads.Value<long>(row,"id"),NonRedundantReads.Value<{{def.Name.Type}}>(row,{{Literal(def.Name.Source.ColumnName)}}){{labelValues}})).ToArray();
     }
 

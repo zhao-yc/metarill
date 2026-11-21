@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Reflection;
+using Metarill.Data.Queries;
 using Metarill.Core.Metadata;
 using Xunit;
 namespace Metarill.Generation.Tests;
@@ -21,6 +23,106 @@ public sealed class DerivedCheckboxNamesTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>联接排序只能改变原复选候选的顺序，不能改变已选名称、保存或 Excel 的实际范围。</summary>
+    [Theory]
+    [InlineData(0, true, "legacy")]
+    [InlineData(0, false, "target")]
+    [InlineData(1, true, "override")]
+    [InlineData(1, false, "legacy")]
+    public async Task Checkbox_uses_an_open_join_for_candidate_order(int storage, bool derived, string orderSource)
+    {
+        const string ns = "Example.CheckboxJoinOrder";
+        var catalog = storage == 1 ? RedundantDerivedCheckboxTests.Catalog("relation", false, "int64") : Catalog("relation", false);
+        var source = catalog.ConfigColumns.Single(column => column.Id == "25");
+        var name = catalog.ConfigColumns.Single(column => column.Id == "32");
+        if (!derived)
+        {
+            name.Extra.Remove("isJoinColumn");
+            name.Extra.Remove("columnFullName");
+        }
+
+        var dictionary = catalog.ConfigPages.Single(page => page.Id == "401");
+        dictionary.WhereSql += " AND priority>=10";
+        catalog.ConfigColumns.Add(new() { Id = "4101", YzProjectId = catalog.YzProjectId, ConfigTableId = "4", ColumnName = "priority", LogicalType = "int32" });
+        catalog.ConfigPageColumns.Add(new() { Id = "4014101", YzProjectId = catalog.YzProjectId, ConfigPageId = "401", ConfigColumnId = "4101", IsShow = 1 });
+        var sort = new ColumnMetadata { Id = "3101", YzProjectId = catalog.YzProjectId, ConfigTableId = "3", ColumnName = "sort_alias", LogicalType = "int32" };
+        sort.Extra["isJoinColumn"] = JsonSerializer.SerializeToElement(1);
+        sort.Extra["columnFullName"] = JsonSerializer.SerializeToElement("company.priority");
+        catalog.ConfigColumns.Add(sort);
+        var sortField = new PageColumnMetadata { Id = "3013101", YzProjectId = catalog.YzProjectId, ConfigPageId = "301", ConfigColumnId = "3101", IsShow = 1 };
+        catalog.ConfigPageColumns.Add(sortField);
+        const string order = "sort_alias desc, id asc";
+        const string condition = "parent_id=@parentId AND segment=@formParameters.segment AND status=1";
+        source.ControlDetail = orderSource == "legacy" ? $"甲;乙;{condition};{order}" :
+            JsonSerializer.Serialize(new { tableId = "3", pageId = "301", whereSql = condition });
+        if (orderSource == "target")
+            catalog.ConfigPages.Single(page => page.Id == "301").OrderBy = order;
+        if (orderSource == "override")
+            catalog.ConfigPageColumns.Single(field => field.ConfigPageId == "201" && field.ConfigColumnId == source.Id)
+                .Extra["controlDetail"] = JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new { orderBy = order }));
+        catalog = RedundantMultiNameCacheTests.Published(catalog);
+        var model = GenerationModel.Create(catalog, ns);
+        var owner = model.Tables.Single(table => table.Source.Id == "2");
+        var page = owner.Pages.Single(item => item.Source.Id == "201");
+        var control = owner.Columns.Single(column => column.Source.Id == source.Id);
+        var definition = DatabaseCheckboxCompilation.Resolve(model, owner, page, control);
+        Assert.True(definition.Definition is not null, definition.Reason);
+        Assert.Equal(derived, definition.Definition.DerivedName);
+        Assert.NotNull(definition.Definition.Conditions);
+        Assert.NotNull(definition.Definition.SourceParent);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        if (storage == 1)
+        {
+            var cache = Assert.Single(DatabaseCheckboxCompilation.Caches(model, owner));
+            Assert.Equal("name", cache.Value.Source.ColumnName);
+        }
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-checkbox-join-order");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.RelationSourceService", true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            const BindingFlags planField = BindingFlags.Static | BindingFlags.NonPublic;
+            const BindingFlags instanceField = BindingFlags.Instance | BindingFlags.NonPublic;
+            var ranking = Assert.IsType<NonRedundantReadPlan>(service.GetField("CheckboxSortPlan201_25", planField)!.GetValue(null));
+            Assert.Equal(new[] { "id" }, ranking.OutputTypes.Keys);
+            var orderFields = Assert.IsType<FixedReadOrder[]>(service.GetField("CheckboxSortOrder201_25", planField)!.GetValue(null));
+            Assert.Equal(new[] { new FixedReadOrder("sort_alias", true), new("id", false) }, orderFields);
+            Assert.Matches(@"priority\x60?\s*>=\s*@", From(ranking));
+            var serviceSource = await File.ReadAllTextAsync(Path.Combine(output, "Services", "RelationSourceService.g.cs"));
+            Assert.Contains("InReadSnapshotAsync<IReadOnlyList<DatabaseCheckboxOption>>", serviceSource);
+            Assert.Contains("rows.Select(row=> (object?)row.Id)", serviceSource);
+            Assert.Contains("if(rows.Count>DatabaseCheckboxValue.MaximumItems)", serviceSource);
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+            if (derived)
+            {
+                var labels = Assert.IsType<NonRedundantReadPlan>(service.GetField("DerivedCheckboxPlan201_25", planField)!.GetValue(null));
+                Assert.Equal("string", labels.OutputTypes["name"]);
+                var expressions = Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(MySql(labels).GetType()
+                    .GetProperty("Expressions", instanceField)!.GetValue(MySql(labels)));
+                Assert.DoesNotContain("sort_alias", expressions.Keys);
+            }
+
+            object MySql(NonRedundantReadPlan plan) => plan.GetType().GetProperty("MySql", instanceField)!.GetValue(plan)!;
+            string From(NonRedundantReadPlan plan) =>
+                Assert.IsType<string>(MySql(plan).GetType().GetProperty("From", instanceField)!.GetValue(MySql(plan)));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+
+        catalog.ConfigPageColumns.RemoveAll(field => field.Id == sortField.Id);
+        model = GenerationModel.Create(catalog, ns);
+        owner = model.Tables.Single(table => table.Source.Id == "2");
+        page = owner.Pages.Single(item => item.Source.Id == "201");
+        control = owner.Columns.Single(column => column.Source.Id == source.Id);
+        Assert.Null(DatabaseCheckboxCompilation.Resolve(model, owner, page, control).Definition);
+    }
+
     /// <summary>候选、已选校验和 Excel 使用控件条件与实际目标页的同一交集。</summary>
     [Theory]
     [InlineData(false,false)]

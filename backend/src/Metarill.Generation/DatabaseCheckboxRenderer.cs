@@ -89,6 +89,11 @@ internal static class DatabaseCheckboxRenderer
             result.AppendLine("        return locking?query.ForUpdate():query;").AppendLine("    }");
             if(exposed.Contains(def.Source.Source.Id))
             {
+                if (def.CandidateOrderTargets is not null)
+                    result.Append(CandidateSortPlan(model, def, suffix));
+                var order = def.CandidateOrderTargets is null
+                    ? string.Concat(def.Order.Select(item=>$".{(item.Descending?"OrderByDescending":"OrderBy")}(row=>row.{item.Column.Property})"))
+                    : ".OrderBy(row=>row.Id)";
                 result.AppendLine("    /// <summary>全选不得截断；父验证和候选在同一读快照，权限在服务入口再次核对。</summary>")
                     .AppendLine($"    public Task<IReadOnlyList<DatabaseCheckboxOption>> CheckboxOptions{suffix}Async(DatabaseCheckboxOptionsRequest request,RuntimeActor actor,CancellationToken cancellationToken)")
                     .AppendLine("    {")
@@ -100,9 +105,11 @@ internal static class DatabaseCheckboxRenderer
                     .AppendLine("        {")
                     .Append(def.DerivedName?"":$"            var query=await CheckboxScope{suffix}Async(request.ParentId,actor,form,false,cancellationToken);\n")
                     .Append(def.DerivedName?"":"            if(request.Selected is {} selected){if(selected.Length==0)return [];query=query.Where(row=>selected.Contains(row.Id));}\n")
-                    .AppendLine(def.DerivedName?$"            var rows=await DerivedCheckboxRows{suffix}Async(request.ParentId,actor,form,request.Selected,null,false,5001,false,cancellationToken);":$"            var rows=await query{string.Concat(def.Order.Select(item=>$".{(item.Descending?"OrderByDescending":"OrderBy")}(row=>row.{item.Column.Property})"))}.Limit(5001).ToListAsync(row=>new {{row.Id,Name=row.{def.Name.Property}}},cancellationToken);")
+                    .AppendLine(def.DerivedName?$"            var rows=await DerivedCheckboxRows{suffix}Async(request.ParentId,actor,form,request.Selected,null,false,5001,false,cancellationToken);":$"            var rows=await query{order}.Limit(5001).ToListAsync(row=>new {{row.Id,Name=row.{def.Name.Property}}},cancellationToken);")
                     .AppendLine("            if(rows.Count>DatabaseCheckboxValue.MaximumItems)throw new InvalidOperationException(\"复选候选超过5000项，全选不能使用截断结果。\");")
-                    .AppendLine($"            return rows.Select(row=>{{var id=row.Id.ToString(CultureInfo.InvariantCulture);var label={LabelText(def,"row.Name")};return new DatabaseCheckboxOption(id,label,id,label);}}).ToArray();")
+                    .AppendLine(def.CandidateOrderTargets is null
+                        ? $"            return rows.Select(row=>{{var id=row.Id.ToString(CultureInfo.InvariantCulture);var label={LabelText(def,"row.Name")};return new DatabaseCheckboxOption(id,label,id,label);}}).ToArray();"
+                        : RankedOptions(def, suffix))
                     .AppendLine("        },cancellationToken);").AppendLine("    }");
             }
             if(table.Source.IsFunctionTable==1)continue;
@@ -165,6 +172,44 @@ internal static class DatabaseCheckboxRenderer
     private static string Reader(DatabaseCheckboxModel def,string suffix)=>$"    private static IReadOnlyDictionary<string,object?> ReadCheckboxForm{suffix}(JsonElement? formParameters)=>new Dictionary<string,object?>{{"+string.Join(",",(def.Conditions?.Forms??[]).Select(binding=>"["+Literal(binding.Variable)+"]=Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(Metarill.Core.Contracts.FixedConditionFormValue.Read(formParameters,new string[]{"+string.Join(",",binding.Path.Select(Literal))+"},new string[]{"+string.Join(",",binding.FallbackPath.Select(Literal))+"}),"+Literal(binding.Column.Source.LogicalType)+")"))+"};\n";
     internal static string EntityForm(DatabaseCheckboxModel def,string entity)=>"new Dictionary<string,object?>{"+string.Join(",",(def.Conditions?.Forms??[]).Select(binding=>"["+Literal(binding.Variable)+"]="+entity+"."+binding.Column.Property))+"}";
     internal static string ParentValue(DatabaseCheckboxModel def,string entity)=>def.SourceParent is null?"null":def.SourceParent.Type=="string?"?entity+"."+def.SourceParent.Property:entity+"."+def.SourceParent.Property+"?.ToString(CultureInfo.InvariantCulture)";
+    /// <summary>生成为固定标识与方向，请求不能扩展排序字段。</summary>
+    internal static string FixedOrder(DatabaseCheckboxModel definition) =>
+        "[" + string.Join(",", definition.Order.Select(item =>
+            "new(" + Literal(item.Column.Source.ColumnName) + "," + Bool(item.Descending) + ")")) + "]";
+
+    /// <summary>固定排序只投影 ID，范围来自原候选查询的授权结果。</summary>
+    private static string CandidateSortPlan(GenerationModel model, DatabaseCheckboxModel definition, string suffix) => $$"""
+    private static readonly NonRedundantReadPlan CheckboxSortPlan{{suffix}}=
+        global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.CompileRelation(
+            {{Literal(definition.Target.Source.Id)}},["id"],[{{string.Join(",", definition.Order.Select(item => Literal(item.Column.Source.ColumnName)))}}]
+            {{NonRedundantReadCompilation.SingleTargetArgument(definition.CandidateOrderTargets!, "singleTargets")}});
+    private static readonly FixedReadOrder[] CheckboxSortOrder{{suffix}}={{FixedOrder(definition)}};
+
+""";
+
+    /// <summary>使用同一快照中的原候选 ID 限定排序，逐项匹配后才返回原名称。</summary>
+    private static string RankedOptions(DatabaseCheckboxModel definition, string suffix) => $$"""
+            DatabaseCheckboxOption Option(long key, {{definition.Name.Type}} name)
+            {
+                var id = key.ToString(CultureInfo.InvariantCulture);
+                var label = {{LabelText(definition, "name")}};
+                return new(id,label,id,label);
+            }
+
+            if (rows.Count < 2) return rows.Select(row=>Option(row.Id,row.Name)).ToArray();
+            var ids = rows.Select(row=> (object?)row.Id).ToArray();
+            var ranked = await new NonRedundantReader(session).RowsAsync(CheckboxSortPlan{{suffix}}.BindAccount(actor),
+                [new("id",FixedReadComparison.In,ids)],CheckboxSortOrder{{suffix}},rows.Count,cancellationToken,actor.ProjectId);
+            if (ranked.Count != rows.Count) throw new InvalidOperationException("复选排序与原候选范围不一致。");
+            var remaining = rows.ToDictionary(row=>row.Id);
+            return ranked.Select(item=>
+            {
+                var id = NonRedundantReads.Value<long>(item,"id");
+                if (!remaining.Remove(id,out var row)) throw new InvalidOperationException("复选排序出现未知或重复候选。");
+                return Option(id,row.Name);
+            }).ToArray();
+""";
+
     internal static string Suffix(PageModel page,DatabaseCheckboxModel def)=>page.Source.Id+"_"+def.Source.Source.Id;
     private static string Scope(ColumnModel column,string value)=>column.Type switch{"string?"=>value,"int?"=>$"int.Parse({value},CultureInfo.InvariantCulture)",_=>$"long.Parse({value},CultureInfo.InvariantCulture)"};
     private static string Bool(bool value)=>value?"true":"false";

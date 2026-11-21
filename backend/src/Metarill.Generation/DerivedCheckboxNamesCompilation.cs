@@ -18,7 +18,7 @@ internal static class DerivedCheckboxNamesCompilation
         var pageFields=def.PhysicalTargetPage?.Condition?.Syntax.Fields??[];
         var outputs=OutputFields(def,cachedLabels);
         var dependencies=fields.Select(column=>column.Source.ColumnName)
-            .Concat(def.Order.Select(item=>item.Column.Source.ColumnName)).Concat(pageFields)
+            .Concat(def.CandidateOrderTargets is null?def.Order.Select(item=>item.Column.Source.ColumnName):[]).Concat(pageFields)
             .Concat(outputs)
             .Concat(def.ExactTarget is {} exact?[exact.Column.Source.ColumnName]:[])
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
