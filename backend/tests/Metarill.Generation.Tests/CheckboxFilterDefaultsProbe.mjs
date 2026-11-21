@@ -18,6 +18,11 @@ try {
   await page.flush()
   assert.deepEqual(plain(page.state.targetIdsRange), [], '关系配置明细不能变成候选标签')
   assert.deepEqual(plain(page.state.isActiveRange).map(option => option.value), [0, 1])
+  assert.deepEqual(plain(page.state.isArchivedRange).map(option => option.value), [1, 0])
+  assert.deepEqual(plain(page.state.enabledFlagRange).map(option => option.value), ['0', '1'])
+  assert.deepEqual(plain(page.state.constantPriorityRange).map(option => option.value), [2, 1])
+  assert(source.includes("v-model='filters.verifiedFlag' :localdata='$checkboxRange'"))
+  assert(source.includes("v-model='filters.approvedFlag' :localdata='$checkboxRange'"))
   const sourcePages = () => page.requests.filter(request => request.options.url.endsWith("/relation_source/201/page"))
   const initial = sourcePages().at(-1)
   const selected = {
@@ -26,7 +31,13 @@ try {
     eventTime: ['2026-10-20 09:30:00', '2026-10-20 17:15:00'],
     priority: [2],
     referenceNo: ['9007199254740993'],
-    isActive: [process.argv[3] === 'nonredundant' ? 1 : 0]
+    isActive: [process.argv[3] === 'nonredundant' ? 1 : 0],
+    isArchived: 0,
+    enabledFlag: '0',
+    verifiedFlag: process.argv[3] === 'nonredundant' ? 1 : 0,
+    approvedFlag: 1,
+    constantPriority: 2,
+    constantReference: '9007199254740993'
   }
   assert.deepEqual(plain(page.state.filters), selected)
   assert.deepEqual(plain(initial.options.data.filters), selected)

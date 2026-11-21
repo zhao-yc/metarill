@@ -103,11 +103,21 @@ internal static partial class OriginalUniappListRenderer
             }
             markup.AppendLine("</uni-forms-item>");
             if (kind is "ConstList" or "ConstDownList")
-                data.Append(key).Append("Range:").Append(ConstantRange(column, detail)).Append(',');
+                data.Append(key).Append("Range:").Append(ConstantRange(column, detail, scalar: true)).Append(',');
             if (value.Length == 0 || kind == "CascadeTree") continue;
             if (kind is "Month" or "month") defaults.Append($"this.{key}MonthFilterChange({{detail:{{value:{(value == "today" ? "(function(){var now=new Date();return now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');})()" : J(value))}}}}});");
             else if (kind is "DateTime" or "Date" or "date_time" or "date") { if (value == "today") defaults.Append($"this.filters.{key}=utils.getTodayDateAry();"); }
-            else defaults.Append("this.filters.").Append(inputKey).Append('=').Append(column.Type is "int?" or "decimal?" && decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out _) ? value : J(value)).Append(';');
+            else
+            {
+                // 默认值与实际候选使用同一编码。单值控件的 v-model 接受字符串或数字。
+                var literal = kind switch
+                {
+                    "ConstList" or "ConstDownList" => J(ConstantValue(column, value, scalar: true)),
+                    "CheckBox" when column.Type == "bool?" => J(StandardCheckboxValue(ConstantValue(column, value))),
+                    _ => column.Type is "int?" or "decimal?" && decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out _) ? value : J(value)
+                };
+                defaults.Append("this.filters.").Append(inputKey).Append('=').Append(literal).Append(';');
+            }
         }
         return new(markup.ToString(), data.ToString(), defaults.ToString(), methods.ToString(), requests.ToString(), reset.ToString(), page.Searchable.Count, optionFields.Distinct(StringComparer.Ordinal).ToArray(), remoteOptions, checkboxOptions);
     }
@@ -220,18 +230,18 @@ internal static partial class OriginalUniappListRenderer
         }
 
         var selected = ConstantValue(column, value);
-        if (standardBoolean)
-        {
-            selected = selected switch
-            {
-                bool boolean => boolean ? 1 : 0,
-                "0" => 0,
-                "1" => 1,
-                _ => selected
-            };
-        }
+        if (standardBoolean) selected = StandardCheckboxValue(selected);
         return $"this.filters.{key}={J(new[] { selected })};";
     }
+
+    /// <summary>原全局“否／是”候选使用数字 0 和 1，恢复默认值时沿用该编码。</summary>
+    private static object StandardCheckboxValue(object value) => value switch
+    {
+        bool boolean => boolean ? 1 : 0,
+        "0" => 0,
+        "1" => 1,
+        _ => value
+    };
 
     /// <summary>旧选项路径按来源列生成；空POST不改成候选分页协议。</summary>
     private static string OriginalOptionsRequest(GenerationModel model, TableModel table, PageModel page, ColumnModel column, string name)
@@ -252,16 +262,16 @@ internal static partial class OriginalUniappListRenderer
         return "that."+name+"_list=[];(()=>{"+request+"})();";
     }
     /// <summary>常量保留原text/value，长整数字符串不经过浮点转换。</summary>
-    private static string ConstantRange(ColumnModel column, string detail) => J(detail.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(option =>
+    private static string ConstantRange(ColumnModel column, string detail, bool scalar = false) => J(detail.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(option =>
     {
         var parts = option.Split('|', 2); var value = parts.Length > 1 ? parts[1] : "";
-        return new { text = parts[0], value = ConstantValue(column, value) };
+        return new { text = parts[0], value = ConstantValue(column, value, scalar) };
     }));
 
     /// <summary>候选和默认值采用相同原始类型，避免复选框因数字与字符串不同而漏回显。</summary>
-    private static object ConstantValue(ColumnModel column, string value) => column.Type switch
+    private static object ConstantValue(ColumnModel column, string value, bool scalar = false) => column.Type switch
     {
-        "bool?" when bool.TryParse(value, out var boolean) => boolean,
+        "bool?" when bool.TryParse(value, out var boolean) => scalar ? (object)(boolean ? 1 : 0) : boolean,
         "int?" when int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) => number,
         "decimal?" when decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number) => number,
         "long?" or "long" when long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) => number.ToString(CultureInfo.InvariantCulture),

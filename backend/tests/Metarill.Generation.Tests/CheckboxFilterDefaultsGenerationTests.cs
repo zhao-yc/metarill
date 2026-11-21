@@ -25,6 +25,12 @@ public sealed class CheckboxFilterDefaultsGenerationTests
         Add("53", "priority", "int32", "ConstList", "高|2,低|1", "2");
         Add("54", "reference_no", "int64", "ConstList", "甲|9007199254740993,乙|9007199254740994", "9007199254740993");
         Add("55", "is_active", "bool", "CheckBox", "", nonRedundant ? "true" : "0");
+        Add("56", "is_archived", "bool", "Text", "已归档|true,未归档|false", "false", multiple: false, pageControl: "ConstList");
+        Add("57", "enabled_flag", "bool", "Text", "停用|0,启用|1", "0", multiple: false, pageControl: "ConstDownList");
+        Add("58", "verified_flag", "bool", "CheckBox", "", nonRedundant ? "true" : "0", multiple: false);
+        Add("59", "approved_flag", "bool", "Text", "", "1", multiple: false, pageControl: "CheckBox");
+        Add("60", "constant_priority", "int32", "ConstDownList", "高|02,低|1", "02", multiple: false);
+        Add("61", "constant_reference", "int64", "ConstList", "甲|9007199254740993,乙|9007199254740994", "9007199254740993", multiple: false);
 
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-checkbox-filter-defaults");
         var output = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
@@ -36,15 +42,17 @@ public sealed class CheckboxFilterDefaultsGenerationTests
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
 
-        void Add(string id, string name, string type, string kind, string detail, string value)
+        void Add(string id, string name, string type, string kind, string detail, string value,
+            bool multiple = true, string? pageControl = null)
         {
-            catalog.ConfigColumns.Add(new()
+            var column = new Metarill.Core.Metadata.ColumnMetadata
             {
                 Id = id, ConfigTableId = "2", YzProjectId = catalog.YzProjectId,
-                ColumnName = name, Name = name, LogicalType = type, ControlKind = kind, ControlDetail = detail,
-                Extra = new() { ["filterControlKind"] = JsonSerializer.SerializeToElement("CheckBox") }
-            });
-            catalog.ConfigPageColumns.Add(new()
+                ColumnName = name, Name = name, LogicalType = type, ControlKind = kind, ControlDetail = pageControl is null ? detail : ""
+            };
+            if (multiple) column.Extra["filterControlKind"] = JsonSerializer.SerializeToElement("CheckBox");
+            catalog.ConfigColumns.Add(column);
+            var field = new Metarill.Core.Metadata.PageColumnMetadata
             {
                 Id = "10" + id, ConfigPageId = "201", ConfigColumnId = id, YzProjectId = catalog.YzProjectId, IsShow = 1,
                 Extra = new()
@@ -52,7 +60,13 @@ public sealed class CheckboxFilterDefaultsGenerationTests
                     ["isSearch"] = JsonSerializer.SerializeToElement(1),
                     ["queryDefaultValue"] = JsonSerializer.SerializeToElement(value)
                 }
-            });
+            };
+            if (pageControl is not null)
+            {
+                field.Extra["controlKind"] = JsonSerializer.SerializeToElement(pageControl);
+                field.Extra["controlDetail"] = JsonSerializer.SerializeToElement(detail);
+            }
+            catalog.ConfigPageColumns.Add(field);
         }
     }
 

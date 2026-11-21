@@ -380,9 +380,9 @@ internal static class GeneratedNonRedundantReadCatalog
                 {
                     "TimeSpan?" => $"{TimeFieldCompilation.Value(column)}.Parse(filter.Value)",
                     "int?" when !Checkbox(column) => "filter.Value.ValueKind==JsonValueKind.String?int.Parse(filter.Value.GetString()!,NumberStyles.Integer,CultureInfo.InvariantCulture):filter.Value.GetInt32()",
-                    _ => CheckboxFilterBoolean(column) ? "CheckboxBooleanJsonConverter.Parse(filter.Value)" : $"JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(),JsonOptions)"
+                    _ => CheckboxFilterBoolean(model, page, column) ? "CheckboxBooleanJsonConverter.Parse(filter.Value)" : $"JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(),JsonOptions)"
                 };
-                var parseArray=column.Type=="TimeSpan?"?$"filter.Value.EnumerateArray().Select({TimeFieldCompilation.Value(column)}.Parse).Cast<object?>().ToArray()":CheckboxFilterBoolean(column)?"filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).Cast<object?>().ToArray()":$"JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(),JsonOptions)!.Cast<object?>().ToArray()";
+                var parseArray=column.Type=="TimeSpan?"?$"filter.Value.EnumerateArray().Select({TimeFieldCompilation.Value(column)}.Parse).Cast<object?>().ToArray()":CheckboxFilterBoolean(model, page, column)?"filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).Cast<object?>().ToArray()":$"JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(),JsonOptions)!.Cast<object?>().ToArray()";
                 result.AppendLine($"                    if(filter.Value.ValueKind==JsonValueKind.Array){{result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.In,{parseArray}));break;}}")
                     .AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.{(like?"LikePattern":"Equal")},{parse}));break;");
             }

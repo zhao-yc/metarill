@@ -21,9 +21,10 @@ internal static partial class BackendRenderer
     private const string CheckboxDateValues =
         "filter.Value.EnumerateArray().Select(item => (DateTime?)DateTime.Parse(item.GetString()!, CultureInfo.InvariantCulture))";
 
-    /// <summary>复选筛选的布尔常量可沿用原 0/1 编码，普通布尔仍遵从原字段协议。</summary>
-    private static bool CheckboxFilterBoolean(ColumnModel column) =>
-        column.Type == "bool?" && (Checkbox(column) || ControlRenderer.HasCheckboxArrayFilter(column));
+    /// <summary>按实际筛选控件接收原布尔 0/1 编码，保留直接绑定复选字段的旧筛选合同。</summary>
+    private static bool CheckboxFilterBoolean(GenerationModel model, PageModel page, ColumnModel column) =>
+        column.Type == "bool?" && (Checkbox(column) || ControlRenderer.HasCheckboxArrayFilter(column) ||
+            SelectionNameFilterCompilation.EffectiveFilterKind(model, page, column) is "CheckBox" or "ConstList" or "ConstDownList");
 
     /// <summary>生成安全的 C# 字面量。</summary>
     private static string Literal(string value) => JsonSerializer.Serialize(value);
@@ -399,10 +400,10 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             else
             {
                 result.AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Array)").AppendLine("                    {")
-                    .AppendLine(CheckboxFilterBoolean(column) ? "                        var values = filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).ToArray();" : $"                        var values = JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(), JsonOptions)!;")
+                    .AppendLine(CheckboxFilterBoolean(model, page, column) ? "                        var values = filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).ToArray();" : $"                        var values = JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(), JsonOptions)!;")
                     .AppendLine($"                        query = query.Where(entity => values.Contains(entity.{column.Property}));")
                     .AppendLine("                        break;").AppendLine("                    }")
-                    .AppendLine(CheckboxFilterBoolean(column) ? "                    var value = CheckboxBooleanJsonConverter.Parse(filter.Value);" : $"                    var value = JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(), JsonOptions);");
+                    .AppendLine(CheckboxFilterBoolean(model, page, column) ? "                    var value = CheckboxBooleanJsonConverter.Parse(filter.Value);" : $"                    var value = JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(), JsonOptions);");
                 // 已管理的名称数组也可能直接开放为原文本筛选；按JSON成员查询，兼容中文转义并保留原范围。
                 if(like&&table.Source.IsRongyu==1&&column.IsManagedMultiNames)result.AppendLine($"                    if (!string.IsNullOrWhiteSpace(value)) {{ query = Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayAnyLike(session, query, entity => entity.{column.Property}, value); break; }}");
                 result.AppendLine(like ? $"                    query = Metarill.Data.Queries.StringNameQuery.ApplyPattern(session,query,entity => entity.{column.Property},value!);" : $"                    query = query.Where(entity => entity.{column.Property} == value);");

@@ -29,6 +29,12 @@ public sealed class ScalarCheckboxFilterGenerationTests
         Add("53", "batch_code", "string", "ConstList", "甲|a%,乙|b", true);
         Add("54", "reference_no", "int64", "ConstList", "奇数|9007199254740993,偶数|9007199254740994", true);
         Add("55", "is_active", "bool", "CheckBox", "有效|1,无效|0", true);
+        Add("56", "archived", "bool", "Text", "", false);
+        Add("57", "enabled_flag", "bool", "Text", "", false);
+        Add("58", "approved_flag", "bool", "Text", "", false);
+        SetPageControl("56", "ConstList", "已归档|true,未归档|false");
+        SetPageControl("57", "ConstDownList", "停用|0,启用|1");
+        SetPageControl("58", "CheckBox", "");
         if (storage == 1) RedundantMultiNameCacheTests.Published(catalog);
         else
             foreach (var record in catalog.ConfigTables.Cast<Metarill.Core.Metadata.MetadataRecord>()
@@ -64,7 +70,10 @@ public sealed class ScalarCheckboxFilterGenerationTests
                     ["eventRange"] = JsonSerializer.SerializeToElement(new[] { "2024-02-01", "2024-02-29" }),
                     ["batchCode"] = JsonSerializer.SerializeToElement("a%"),
                     ["referenceNo"] = JsonSerializer.SerializeToElement(new[] { "9007199254740993", "9007199254740994" }),
-                    ["isActive"] = JsonSerializer.SerializeToElement(new[] { "1" })
+                    ["isActive"] = JsonSerializer.SerializeToElement(new[] { "1" }),
+                    ["archived"] = JsonSerializer.SerializeToElement(0),
+                    ["enabledFlag"] = JsonSerializer.SerializeToElement("0"),
+                    ["approvedFlag"] = JsonSerializer.SerializeToElement(1)
                 }
             };
 
@@ -76,6 +85,9 @@ public sealed class ScalarCheckboxFilterGenerationTests
                 Assert.Equal(FixedReadComparison.In, events.Comparison);
                 Assert.Equal(new DateTime(2024, 2, 3, 10, 30, 0), Assert.IsType<DateTime>(Assert.IsType<object[]>(events.Value)[1]));
                 Assert.Equal(FixedReadComparison.Equal, Assert.Single(filters, filter => filter.Field == "batch_code").Comparison);
+                Assert.False(Assert.IsType<bool>(Assert.Single(filters, filter => filter.Field == "archived").Value));
+                Assert.False(Assert.IsType<bool>(Assert.Single(filters, filter => filter.Field == "enabled_flag").Value));
+                Assert.True(Assert.IsType<bool>(Assert.Single(filters, filter => filter.Field == "approved_flag").Value));
                 var active = Assert.Single(filters, filter => filter.Field == "is_active");
                 Assert.Equal(FixedReadComparison.In, active.Comparison);
                 Assert.True(Assert.IsType<bool>(Assert.Single(Assert.IsType<object[]>(active.Value))));
@@ -106,11 +118,21 @@ public sealed class ScalarCheckboxFilterGenerationTests
                 Assert.Contains("`event_range` >=", sql);
                 Assert.Contains("`event_range` <", sql);
                 Assert.Contains("`batch_code` =", sql);
+                Assert.Contains("`archived` =", sql);
+                Assert.Contains("`enabled_flag` =", sql);
+                Assert.Contains("`approved_flag` =", sql);
                 Assert.Matches(@"(?i)`reference_no`\s*\)*\s*IN\s*\(", sql);
                 Assert.Contains("9007199254740993", sql);
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+
+        void SetPageControl(string id, string kind, string options)
+        {
+            var field = catalog.ConfigPageColumns.Single(item => item.ConfigColumnId == id);
+            field.Extra["controlKind"] = JsonSerializer.SerializeToElement(kind);
+            field.Extra["controlDetail"] = JsonSerializer.SerializeToElement(options);
+        }
 
         void Add(string id, string name, string type, string kind, string choices, bool checkbox)
         {
