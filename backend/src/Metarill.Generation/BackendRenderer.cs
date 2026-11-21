@@ -151,7 +151,7 @@ internal static partial class BackendRenderer
         return result.AppendLine("    };").AppendLine("}").ToString();
     }
     /// <summary>原复选和常量选择的布尔字段使用数字 0／1 协议。</summary>
-    private static bool UsesBooleanOptionWireFormat(ColumnModel column) =>
+    internal static bool UsesBooleanOptionWireFormat(ColumnModel column) =>
         column.IsBooleanConstant || column.Type == "bool?" && column.Source.ControlKind == "CheckBox";
     /// <summary>把常量标签预编译为类型匹配的 switch，未知值保留原文、空值保持为空。</summary>
     internal static string ConstantDisplayExpression(ColumnModel column, string valueExpression)

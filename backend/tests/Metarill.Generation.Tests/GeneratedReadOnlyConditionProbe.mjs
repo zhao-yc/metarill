@@ -3,6 +3,29 @@ import {readFile} from 'node:fs/promises'
 import {join} from 'node:path'
 import {mountGenerated} from './GeneratedOriginalVueHarness.mjs'
 const source=await readFile(join(process.argv[2],'frontend/pages/yzp/customer-detail-101.vue'),'utf8')
+if (process.argv[3] === 'boolean-choice') {
+ const fixture=mountGenerated(source,{}, {id:'7'})
+ try {
+  await fixture.flush()
+  fixture.respond(fixture.requests.find(request=>request.options.url.includes('/detail/7')),
+    {id:'7',name:'记录',locked:1,approvalState:'待审'})
+  await fixture.flush()
+  assert.equal(fixture.state.readOnlyCondition,true,'回显数字 1 仍按布尔真求值')
+  fixture.state.saveEntity()
+  await fixture.flush()
+  assert.equal(fixture.writes().length,0)
+  for (const [value,readOnly] of [[0,false],['1',true],['0',false],[true,true],[false,false],[null,false],[2,true],[undefined,true]]) {
+   fixture.state.entity.locked=value
+   await fixture.flush()
+   assert.equal(fixture.state.readOnlyCondition,readOnly)
+  }
+  fixture.state.entity.locked=null
+  fixture.state.entity.approvalState='停用'
+  await fixture.flush()
+  assert.equal(fixture.state.readOnlyCondition,true)
+ } finally {fixture.app.unmount()}
+ process.exit(0)
+}
 if (process.argv[3] === 'int64') {
  const fixture=mountGenerated(source,{}, {id:'7'})
  try {

@@ -58,6 +58,24 @@ internal static class OriginalUniappDetailRenderer
         default: throw new Error('只读比较未发布');
       }
     },
+""";
+    private const string ReadOnlyBooleanOption = """
+    // 原布尔选择可回显 0／1，条件只使用底层布尔值及明确的空值。
+    originalReadOnlyBoolean(value) {
+      if (value === true || value === 1 || value === '1') return true;
+      if (value === false || value === 0 || value === '0') return false;
+      if (value === null) return null;
+      if (!this.id) {
+        // 原新增页可用空字符串及文本配置值初始化表单。
+        if (value === undefined || value === '') return null;
+        if (value === 'true') return true;
+        if (value === 'false') return false;
+      }
+      throw new Error('只读条件的布尔字段无效');
+    },
+""";
+    private const string ReadOnlyEvaluationGuard = """
+    // 已装载字段不能按原类型求值时，保持详情只读。
     originalCheckedReadOnly(check) {
       try { return Boolean(check()); } catch { return true; }
     },
@@ -101,6 +119,9 @@ internal static class OriginalUniappDetailRenderer
         var readOnly=PageReadOnlyCompilation.Compile(page);
         if(readOnly?.UsesObjectPaths==true)c.Methods.AppendLine(ReadOnlyObjectPath);
         if(readOnly?.UsesIntegerComparisons==true)c.Methods.AppendLine(ReadOnlyIntegerComparison);
+        if (readOnly?.UsesBooleanOptions == true) c.Methods.AppendLine(ReadOnlyBooleanOption);
+        if (readOnly is { UsesIntegerComparisons: true } or { UsesBooleanOptions: true })
+            c.Methods.AppendLine(ReadOnlyEvaluationGuard);
         c.Computed.AppendLine($$"""
 parentId() { return this.parent_id || ''; },
 originalChildrenReady() { return this.recordReady && this.permissionsReady && Boolean(this.id) && originalRecordId(this.entity.id)===this.id; },

@@ -88,6 +88,41 @@ public sealed class GeneratedReadOnlyConditionTests
         finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
 
+    /// <summary>原布尔控件回显 0／1，详情只读规则仍按其声明的布尔类型求值。</summary>
+    [Theory]
+    [InlineData("CheckBox")]
+    [InlineData("ConstList")]
+    [InlineData("ConstDownList")]
+    public async Task Boolean_option_conditions_use_the_declared_type_in_original_detail(string control)
+    {
+        var catalog = Catalog();
+        var field = catalog.ConfigColumns.Single(column => column.ColumnName == "locked");
+        field.ControlKind = control;
+        if (control != "CheckBox") field.ControlDetail = "已锁定|1,未锁定|0";
+        const string expression = "locked === true || (approvalState === '停用' && locked === null)";
+        catalog.ConfigPages.Single().Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement(expression);
+        var serverRule = Metarill.Core.Metadata.ReadOnlyConditionRule.Compile(expression);
+        var values = new Dictionary<string, object?> { ["locked"] = true, ["approvalState"] = "待审" };
+        Assert.True(serverRule.IsReadOnly(values));
+        values["locked"] = false;
+        Assert.False(serverRule.IsReadOnly(values));
+        values["locked"] = null;
+        values["approvalState"] = "停用";
+        Assert.True(serverRule.IsReadOnly(values));
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-boolean-readonly");
+        var output = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, output, "Example.BooleanReadonly");
+            await Probe(output, "boolean-choice");
+        }
+        finally
+        {
+            if (Directory.Exists(output)) await TestDirectoryCleanup.DeleteAsync(output, boundary);
+        }
+    }
+
     /// <summary>两个条件字段只在详情可读，列表没有该两列；不扩大现有页面读取上限。</summary>
     private static Metarill.Core.Metadata.MetadataCatalog Catalog()
     {
