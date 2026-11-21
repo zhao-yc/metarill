@@ -129,21 +129,23 @@ function serializeRule(ruleLike) {
 	return JSON.stringify(rule)
 }
 
-function evaluateRule(ruleLike, entity, jsonObjectFields = []) {
+const invalidBooleanOption = Symbol('invalidBooleanOption')
+
+function evaluateRule(ruleLike, entity, jsonObjectFields = [], booleanOptionFields = {}) {
 	const rule = normalizeRule(ruleLike)
 	if (!rule.conditions.length && !(rule.groups && rule.groups.length)) {
 		return true
 	}
-	return evaluateGroup(rule, entity || {}, jsonObjectFields)
+	return evaluateGroup(rule, entity || {}, jsonObjectFields, booleanOptionFields)
 }
 
-function evaluateGroup(group, entity, jsonObjectFields) {
+function evaluateGroup(group, entity, jsonObjectFields, booleanOptionFields) {
 	const results = []
 	;(group.conditions || []).forEach((condition) => {
-		results.push(evaluateCondition(condition, entity, jsonObjectFields))
+		results.push(evaluateCondition(condition, entity, jsonObjectFields, booleanOptionFields))
 	})
 	;(group.groups || []).forEach((childGroup) => {
-		results.push(evaluateGroup(childGroup, entity, jsonObjectFields))
+		results.push(evaluateGroup(childGroup, entity, jsonObjectFields, booleanOptionFields))
 	})
 	if (!results.length) {
 		return true
@@ -154,9 +156,10 @@ function evaluateGroup(group, entity, jsonObjectFields) {
 	return results.every(Boolean)
 }
 
-function evaluateCondition(condition, entity, jsonObjectFields) {
+function evaluateCondition(condition, entity, jsonObjectFields, booleanOptionFields) {
 	const operator = condition.operator || 'eq'
-	const actualValue = readFieldValue(entity, condition.field, jsonObjectFields)
+	const actualValue = readFieldValue(entity, condition.field, jsonObjectFields, booleanOptionFields)
+	if (actualValue === invalidBooleanOption) return false
 	switch (operator) {
 		case 'eq':
 			return compareValues(actualValue, condition.value) === 0
@@ -183,9 +186,18 @@ function evaluateCondition(condition, entity, jsonObjectFields) {
 	}
 }
 
-function readFieldValue(entity, field, jsonObjectFields) {
+function readFieldValue(entity, field, jsonObjectFields, booleanOptionFields) {
 	if (!entity || utils.isBlank(field)) {
 		return null
+	}
+	if (booleanOptionFields && Object.prototype.hasOwnProperty.call(booleanOptionFields, field)) {
+		// 仅还原生成页面已证明的布尔选项，表单和请求继续使用原数字。
+		const value = entity[booleanOptionFields[field]]
+		if (value === true || value === 1 || value === '1') return true
+		if (value === false || value === 0 || value === '0') return false
+		if (value == null || value === '') return null
+		if (utils.isBlank(entity.id) && (value === 'true' || value === 'false')) return value === 'true'
+		return invalidBooleanOption
 	}
 	const segments = String(field).split('.')
 	if (segments.length > 1 && Array.isArray(jsonObjectFields) && jsonObjectFields.includes(segments[0])) {

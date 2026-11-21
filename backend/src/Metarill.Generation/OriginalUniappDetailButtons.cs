@@ -22,7 +22,8 @@ internal static class OriginalUniappDetailButtons
             if(action is <1 or >3)throw new InvalidOperationException("原GenerateDetail没有该按钮动作的实现，不能输出无效按钮："+id+"/"+action);
             if(save is not ("Save" or "NotSave"))throw new InvalidOperationException("原详情按钮保存选项无效。");
             var style=button.TryGetProperty("type",out var t)?Integer(t,0):0;if(style is <0 or >2)throw new InvalidOperationException("原详情按钮样式无效。");
-            var config=new {buttonId=id,visibleScheme=Property(button,"visibleScheme","Normal"),visibleRuleJson=Property(button,"visibleRuleJson")};
+            var config = OriginalVisibilityCompilation.Button(c.Page, id,
+                Property(button, "visibleScheme", "Normal"), Property(button, "visibleRuleJson"));
             c.Computed.AppendLine($"customerButtonShow{id}() {{ this.permissionVersion;return yzp.isButtonVisible({Js(config)},this.entity,this.readOnlyCondition); }},");
             output.AppendLine($"<button size='mini' type='{(style==1?"primary":style==2?"warn":"default")}' v-if='customerButtonShow{id}' @click='customerButtonHandler{id}'>{Html(name)}</button>");
             c.Methods.AppendLine($"customerButtonHandler{id}() {{ this.runOriginalButton({Js(id)}); }},");

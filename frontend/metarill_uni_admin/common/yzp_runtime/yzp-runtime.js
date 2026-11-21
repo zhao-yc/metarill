@@ -521,11 +521,11 @@ var yzp = {
 				return false;
 			}
 		}
-		return evaluateButtonVisibleRuleCore(currentConfig.visibleRuleJson, entity || {});
+		return evaluateButtonVisibleRuleCore(currentConfig.visibleRuleJson, entity || {}, undefined, currentConfig.booleanOptionFields);
 	},
 	isColumnVisible(config, entity) {
 		const currentConfig = config || {};
-		return evaluateButtonVisibleRuleCore(currentConfig.visibleCondition, entity || {}, currentConfig.jsonObjectFields);
+		return evaluateButtonVisibleRuleCore(currentConfig.visibleCondition, entity || {}, currentConfig.jsonObjectFields, currentConfig.booleanOptionFields);
 	},
 	showUploadSuccess: function () {
 		uni.hideLoading();

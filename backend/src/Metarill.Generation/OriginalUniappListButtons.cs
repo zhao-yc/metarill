@@ -31,7 +31,8 @@ internal static partial class OriginalUniappListRenderer
         foreach (var button in grid)
         {
             var id=ButtonId(button); var handler="customerButtonHandler"+id; var visible="customerButtonShow"+id;
-            var config=J(new {buttonId=id,visibleScheme=ObjText(button,"visibleScheme","Normal"),visibleRuleJson=ObjText(button,"visibleRuleJson")});
+            var config = J(OriginalVisibilityCompilation.Button(page, id,
+                ObjText(button, "visibleScheme", "Normal"), ObjText(button, "visibleRuleJson")));
             cells.Append('\n').Append(Link(ObjText(button,"name"),visible+"(item)",handler+"(item)",ButtonType(button)));
             methods.Append(visible).Append("(item){this.permissionVersion;return yzp.isButtonVisible(").Append(config).Append(",item,this.readOnlyCondition);},");
             methods.Append(handler).Append("(item){var that=this;this.clicked_id=item.id;").Append(ConfirmStart(button));
