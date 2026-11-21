@@ -66,8 +66,14 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(plan.HasMaintenanceJoinProjection||plan.ImportMatchLock is null)throw new InvalidOperationException("覆盖匹配要求完整联接计划。");
         return (await ReadAsync(plan,filters,[],1,2,cancellationToken,false,projectId,false,condition,true,plan.ImportMatchLock)).Records;
     }
+    /// <summary>独立排序只用于快照候选，事务当前读沿用原查询及锁范围。</summary>
+    internal Task<FixedReadPage> ReadOrderedAsync(MySqlNonRedundantReadPlan plan, MySqlNonRedundantReadPlan sortPlan,
+        IReadOnlyList<FixedReadFilter> filters, IReadOnlyList<FixedReadOrder> order, int page, int pageSize,
+        CancellationToken token, string? projectId, bool includeTotal, FixedConditionSqlPlan? condition) =>
+        ReadAsync(plan,filters,order,page,pageSize,token,false,projectId,includeTotal,condition,sortPlan:sortPlan);
+
     private async Task<FixedReadPage> ReadAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
-        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal,FixedConditionSqlPlan? condition,bool currentRead=false,string? rowLock=null,bool validateAllCrosses=false)
+        IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken cancellationToken,bool unpaged,string? projectId,bool includeTotal,FixedConditionSqlPlan? condition,bool currentRead=false,string? rowLock=null,bool validateAllCrosses=false,MySqlNonRedundantReadPlan? sortPlan=null)
     {
         if(currentRead&&session.CurrentTransaction is null)throw new InvalidOperationException("当前读必须加入真实业务事务。");
         if(session.Provider.Name!="mysql")throw new NotSupportedException("固定读取计划与数据库方言不一致。");
@@ -79,13 +85,19 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         RequireMultiParentFilter(plan,filters);
         var clauses=filters.Select((filter,index)=>Filter(plan,filter,index)).ToArray();
         var parentClause = CandidateParentClause(plan,projectId,currentRead);
-        var orders=order.Select(item=>plan.Expression(item.Field)+(item.Descending?" DESC":" ASC")).ToList();
+        const string sortAlias = "metarill_candidate_order";
+        var sortFields = sortPlan?.Outputs.Where(field => !field.Equals("id",StringComparison.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var sortJoin = sortPlan is null ? null : CandidateSortJoin(plan,sortPlan,sortAlias,projectId);
+        var orders=order.Select(item=>(sortFields?.Contains(item.Field)==true
+            ? Q(sortAlias)+"."+Q(item.Field)
+            : plan.Expression(item.Field))+(item.Descending?" DESC":" ASC")).ToList();
         if(!order.Any(item=>item.Field.Equals("id",StringComparison.OrdinalIgnoreCase)))orders.Add(plan.Expression("id")+" DESC");
         // 联接依赖同时包含响应、筛选、排序和固定条件；条件不能因未显示而丢失目标范围。
         // 普通快照读沿用聚合的单行联接证明。当前读仍按原计划取得锁。
         var readJoins = currentRead ? null : plan.AggregateFrom;
         var required = plan.HasMaintenanceJoinProjection || readJoins is not null
-            ? plan.Outputs.Concat(filters.Select(filter => filter.Field)).Concat(order.Select(item => item.Field))
+            ? plan.Outputs.Concat(filters.Select(filter => filter.Field)).Concat(order.Where(item => sortFields?.Contains(item.Field)!=true).Select(item => item.Field))
                 .Append("id").ToHashSet(StringComparer.OrdinalIgnoreCase)
             : null;
         var aggregateFields = includeTotal && readJoins is not null
@@ -99,15 +111,16 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         });
         var where=string.Join(" AND ",new[]{plan.Scope,conditionClause?.Sql??"",parentClause?.Sql??""}.Concat(clauses).Where(part=>part.Length>0));
         var whereSql = where.Length == 0 ? "" : " WHERE " + where;
-        var from = (required is null ? plan.From : readJoins?.Render(required) ?? plan.FromForFields(required)) + whereSql;
-        // 计数只使用筛选与固定条件，明细还保留实际输出和排序联接。
-        var countFrom = aggregateFields is null ? from : readJoins!.Render(aggregateFields) + whereSql;
+        var baseFrom = required is null ? plan.From : readJoins?.Render(required) ?? plan.FromForFields(required);
+        var from = baseFrom + sortJoin?.Sql + whereSql;
+        // 排序单值通过主键左联接，只影响明细的顺序，原计数沿既有条件和投影。
+        var countFrom = (aggregateFields is null ? baseFrom : readJoins!.Render(aggregateFields)) + whereSql;
         var offset=checked(((long)page-1)*pageSize);
         return await OnConnection(async connection=>
         {
             var total=0L;
             if(includeTotal){await using var count=Command(connection);Bind(count,projectId,filters);BindCross(count,plan);BindCondition(count,conditionClause);BindCondition(count,parentClause);count.CommandText=LockNestedReads("SELECT COUNT(*)"+(plan.Crosses.Count==0?"":","+CrossValidity(plan))+countFrom+(currentRead?" FOR SHARE":""),currentRead);if(plan.Crosses.Count==0)total=Convert.ToInt64(await count.ExecuteScalarAsync(cancellationToken),System.Globalization.CultureInfo.InvariantCulture);else{await using var counted=await count.ExecuteReaderAsync(cancellationToken);if(!await counted.ReadAsync(cancellationToken))throw new InvalidOperationException("跨表计数未返回结果。");RequireValidCross(counted,1);total=counted.GetInt64(0);}}
-            await using var read=Command(connection);Bind(read,projectId,filters);BindCross(read,plan);BindCondition(read,conditionClause);BindCondition(read,parentClause);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
+            await using var read=Command(connection);Bind(read,projectId,filters);BindCross(read,plan);BindCondition(read,conditionClause);BindCondition(read,parentClause);BindCondition(read,sortJoin);if(!unpaged){Add(read,"page_limit",pageSize);Add(read,"page_offset",offset);}
             // 普通投影分页后批量补名；只有筛选/排序名称数组时使用预编译表达式，不按每行展开根查询。
             var multis=plan.Outputs.Where(name=>!plan.StorageOutputs.ContainsKey(name)&&plan.MultiProjections.ContainsKey(name)).ToArray();
             var hidden=new Dictionary<string,(string Source,string[] Owners)>(StringComparer.Ordinal);
@@ -163,6 +176,29 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             return new FixedReadPage(total,records.Select(row=>(IReadOnlyDictionary<string,object?>)new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(row)).ToArray());
         },cancellationToken);
     }
+    /// <summary>独立字典按同一候选主键左联接，参数另用命名空间，排序为空时原候选仍保留。</summary>
+    private static FixedConditionSqlPlan.Clause CandidateSortJoin(MySqlNonRedundantReadPlan plan,
+        MySqlNonRedundantReadPlan sortPlan,string alias,string projectId)
+    {
+        _=RequirePlanProject(sortPlan,projectId);
+        if (!sortPlan.Outputs.Contains("id",StringComparer.OrdinalIgnoreCase) ||
+            !plan.Origins.TryGetValue("id",out var origin) || sortPlan.Origins.GetValueOrDefault("id") != origin ||
+            sortPlan.RequiredMultiParent is not null || sortPlan.CandidateParents.Count > 0)
+            throw new InvalidOperationException("候选排序必须使用同一物理主键和固定单值联接。");
+
+        var columns = string.Join(",",sortPlan.Outputs.Select(field => sortPlan.Expression(field)+" AS "+Q(field)));
+        var where = sortPlan.Scope.Length == 0 ? "" : " WHERE "+sortPlan.Scope;
+        var sql = " LEFT JOIN (SELECT "+columns+sortPlan.From+where+") AS "+Q(alias)+
+            " ON "+Q(alias)+".id="+plan.Expression("id");
+        const string prefix = "candidate_order_";
+        var constants = sortPlan.Constants;
+        // 编译器生成的常量全部参数化。一次替换完整参数名，项目参数沿原读命令绑定。
+        sql = System.Text.RegularExpressions.Regex.Replace(sql,@"@([A-Za-z_][A-Za-z0-9_]*)",match =>
+            constants.ContainsKey(match.Groups[1].Value) ? "@"+prefix+match.Groups[1].Value : match.Value,
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        return new(sql,constants.ToDictionary(pair => prefix+pair.Key,pair => pair.Value,StringComparer.Ordinal));
+    }
+
     /// <summary>每个关系按页合并ID、分批主键读取名称；写回执使用目标当前锁读，不能被旧RR快照覆盖。</summary>
     private async Task PopulateMultiAsync(DbConnection connection,MySqlNonRedundantReadPlan plan,MySqlMultiProjection projection,
         string output,string hidden,string[] ownerColumns,IReadOnlyList<Dictionary<string,object?>> rows,

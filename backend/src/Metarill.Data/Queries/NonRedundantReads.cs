@@ -458,6 +458,19 @@ public sealed class NonRedundantReader(DatabaseSession session)
     private readonly MySqlNonRedundantReader mysql=new(session);
     /// <summary>复用适配层完整范围和参数绑定，不扩展页面输出权限。</summary>
     public Task<FixedReadPage> PageAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int page,int pageSize,CancellationToken token=default,bool unpaged=false,string? projectId=null,FixedConditionSqlPlan? condition=null,bool currentRead=false)=>mysql.ReadPageAsync(plan.MySql,filters,order,page,pageSize,token,unpaged,projectId,condition,currentRead);
+    /// <summary>独立标量排序只参与候选的分页明细，计数仍使用原范围。</summary>
+    public Task<FixedReadPage> OrderedPageAsync(NonRedundantReadPlan plan, NonRedundantReadPlan sortPlan,
+        IReadOnlyList<FixedReadFilter> filters, IReadOnlyList<FixedReadOrder> order, int page, int pageSize,
+        CancellationToken token=default, string? projectId=null, FixedConditionSqlPlan? condition=null) =>
+        mysql.ReadOrderedAsync(plan.MySql,sortPlan.MySql,filters,order,page,pageSize,token,projectId,true,condition);
+
+    /// <summary>原数组及已选回读复用相同的固定排序，名称与范围继续使用原读计划。</summary>
+    public async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> OrderedRowsAsync(
+        NonRedundantReadPlan plan, NonRedundantReadPlan sortPlan, IReadOnlyList<FixedReadFilter> filters,
+        IReadOnlyList<FixedReadOrder> order, int limit, CancellationToken token=default, string? projectId=null,
+        FixedConditionSqlPlan? condition=null) =>
+        (await mysql.ReadOrderedAsync(plan.MySql,sortPlan.MySql,filters,order,1,limit,token,projectId,false,condition)).Records;
+
     /// <summary>按固定主键集合回读，保留原范围、跨表校验与当前读事务约束。</summary>
     public Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> KeyRowsAsync(NonRedundantReadPlan plan,
         IReadOnlyList<FixedReadFilter> filters, IReadOnlyList<long> keys, CancellationToken token=default,

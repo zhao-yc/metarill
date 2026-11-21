@@ -231,7 +231,9 @@ internal static class DerivedRelationNamesCompilation
                 ?conditions.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field)):[]).DistinctBy(column=>column.Source.Id).ToArray();
         if(fields.Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,target,column)&&
             relation.FixedParent?.HasTarget(column.Source.Id,logicalOnly:true)!=true))throw new InvalidOperationException("派生名称候选的身份、父及附加范围必须为已发布物理标量。");
-        var orderFields = relation.OptionsOrder?.Select(item => item.Column.Source.ColumnName) ?? [];
+        // 只有原物理及名称排序进入原候选范围，额外字典使用独立的标量计划。
+        var orderFields = relation.OptionsOrder?.Where(item => !relation.IndependentOrder.Contains(item.Column))
+            .Select(item => item.Column.Source.ColumnName) ?? [];
         var dependencies = fields.Select(column => column.Source.ColumnName).Concat(orderFields)
             .Concat(UsesExactSingle(relation)?relation.ImportCondition?.Syntax.Fields??[]:[])
             .Concat(["id", name.Source.ColumnName]).Concat(exact is null ? [] : new[] { exact.Column.Source.ColumnName })
@@ -273,6 +275,22 @@ internal static class DerivedRelationNamesCompilation
             throw new NotSupportedException("当前派生名称目标的精确范围缺少固定候选证明。");
 
         return ExactDataManageCompilation.Resolve(model, relation.Target, relation.TargetPage);
+    }
+
+    /// <summary>按实际发布页冻结排序路径，名称仍使用各自的联接和范围。</summary>
+    internal static IReadOnlyList<NonRedundantSingleTargetScope> CandidateOrderTargets(GenerationModel model, RelationModel relation) =>
+        NonRedundantReadCompilation.ProjectPathTargets(model, relation.Target, relation.TargetPage,
+            relation.IndependentOrder.Select(column => column.Source.ColumnName), multiValuePath: true);
+
+    /// <summary>只允许编译能落到预期类型的单值排序投影。</summary>
+    internal static void RequireCandidateOrder(GenerationModel model, RelationModel relation)
+    {
+        var outputs = new[] { "id" }.Concat(relation.IndependentOrder.Select(column => column.Source.ColumnName)).ToArray();
+        var ranking = NonRedundantReads.CompileProjectRelation(model.Catalog, relation.Target.Source.Id, outputs, [],
+            CandidateOrderTargets(model, relation));
+        if (ranking.OutputTypes["id"] != "int64" || relation.IndependentOrder.Any(column =>
+            ranking.OutputTypes[column.Source.ColumnName] != column.Source.LogicalType))
+            throw new InvalidOperationException("下拉排序必须落到同类型的固定单值列。");
     }
 
     /// <summary>名称和权限匹配字段使用同一份固定中间页，避免借用名称相同的其他目标。</summary>

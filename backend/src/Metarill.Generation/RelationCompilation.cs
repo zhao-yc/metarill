@@ -10,6 +10,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     FixedParentRelationResult? ParentBinding = null, IReadOnlyList<(ColumnModel Column, bool Descending)>? OptionsOrder = null,
     RelationConditionModel? Conditions = null, ColumnModel? FixedSourceParent = null, MultiTargetParentScope? FixedParent = null, bool LogicalSourceParent = false)
 {
+    internal IReadOnlyList<ColumnModel> IndependentOrder { get; init; } = [];
     internal RelationConditionModel? ImportCondition { get; init; }
     internal bool ExcelOnly { get; init; }
     internal bool CompoundGlobalSource { get; init; }
@@ -146,6 +147,7 @@ internal static class RelationCompilation
                 .DistinctBy(parent => parent.Source.Id).ToArray();
             var binding = FixedParentRelationCompilation.Resolve(model, page, source, sourceParents, targetParents, targetPage.Scopes.Concat(scopes).ToArray());
             IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
+            ColumnModel[] independentOrder = [];
             var orderBy = Mapped("orderBy");
             // 单选弹层和辅助回读采用同一目标排序，包括稳定的主键次序。
             if (typedName && selection is not null)
@@ -154,14 +156,16 @@ internal static class RelationCompilation
             {
                 try
                 {
-                    // 已开放的当前显示名使用原固定投影排序，避免派生文本丢弃控件或页级配置。
                     var order = GenerationModel.ValidateOrderBy(orderBy, target.Columns).ToList();
-                    if (order.Any(item => item.Column.IsJsonArray ||
-                        item.Column.Source.ControlKind is "Title" or "Tab" ||
-                        ManagerCredentialCompilation.IsCredential(target, item.Column) ||
-                        !NonRedundantReadCompilation.Physical(model, target, item.Column) &&
-                            !(target.Source.IsRongyu == 0 && item.Column.Source.Id == name.Source.Id)))
-                        throw new InvalidOperationException("候选排序只支持目标表的非凭据物理标量列及已证明的标量名称。");
+                    var joined = order.Select(item => item.Column).Where(column =>
+                        !NonRedundantReadCompilation.Physical(model, target, column) &&
+                        !(target.Source.IsRongyu == 0 && column.Source.Id == name.Source.Id)).DistinctBy(column => column.Source.Id).ToArray();
+                    if (order.Any(item => item.Column.IsJsonArray || item.Column.Source.ControlKind is "Title" or "Tab" ||
+                            ManagerCredentialCompilation.IsCredential(target, item.Column)) ||
+                        joined.Length > 0 && (source.Source.ControlKind != "List" || binding.Declared ||
+                            joined.Any(column => !CascadeTargetOrderCompilation.CanUseJoin(model, target, targetPage, column))))
+                        throw new InvalidOperationException("候选排序须引用物理标量、当前显示名或目标页开放的固定单值联接。");
+                    independentOrder = joined;
 
                     // 原排序不含主键时补稳定次序，避免同值候选在两页之间换位。
                     if (!order.Any(item => item.Column.IsId))
@@ -187,6 +191,7 @@ internal static class RelationCompilation
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,
                 fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0)
             {
+                IndependentOrder = independentOrder,
                 FunctionForm = functionForm,
                 ImportCondition = selection?.ImportCondition,
                 ExcelOnly = excelOnly,
@@ -194,7 +199,9 @@ internal static class RelationCompilation
                 ExcelTargetExact = excelSelection && ExactDataManageCompilation.Declared(targetPage)
             };
             // 中间页的目标绑定只复用关系定义；外层计划随后编译完整的名称，避免孙级名称校验反复进入同一页。
-            if(scopeSourceId is null&&DerivedRelationNamesCompilation.UsesFixedRead(model,relation))
+            if (scopeSourceId is null && relation.IndependentOrder.Count > 0)
+                DerivedRelationNamesCompilation.RequireCandidateOrder(model, relation);
+            if(scopeSourceId is null&&(DerivedRelationNamesCompilation.UsesFixedRead(model,relation)||relation.IndependentOrder.Count>0))
                 _=DerivedRelationNamesCompilation.Require(model,owner,page,relation);
             relations.Add(relation);
         }

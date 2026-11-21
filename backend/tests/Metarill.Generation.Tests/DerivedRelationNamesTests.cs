@@ -1077,6 +1077,74 @@ public sealed class DerivedRelationNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>独立字典排序覆盖原数组、分页搜索与已选回读，并保持名称及 Excel 的原投影。</summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task List_candidates_use_independent_join_order(bool redundant, bool physicalName)
+    {
+        const string ns = "Example.IndependentListOrder";
+        var catalog = Catalog("dr_names", false);
+        foreach (var sourcePage in catalog.ConfigPages.Where(page => page.ConfigTableId == "1"))
+            sourcePage.WhereSql = "yz_project_id=@current_yz_project_id";
+        catalog.ConfigTables.Single(table => table.Id == "1").IsRongyu = redundant ? 1 : 0;
+        var field = catalog.ConfigColumns.Single(column => column.Id == "15");
+        var settings = JsonSerializer.Deserialize<Dictionary<string, string>>(field.ControlDetail)!;
+        if (physicalName)
+        {
+            // 物理字段仍沿现有写入与 Excel，只有候选查询使用额外的联接排序。
+            settings["nameField"] = "name";
+            catalog.ConfigColumns.Single(column => column.Id == "113").ColumnName = "customer_name";
+            catalog.ConfigColumns.Single(column => column.Id == "113").Extra["columnFullName"] =
+                JsonSerializer.SerializeToElement("customer.name");
+        }
+        settings["orderBy"] = $"sort_alias desc, {settings["nameField"]} asc";
+        field.ControlDetail = JsonSerializer.Serialize(settings);
+        var dictionary = catalog.ConfigPages.Single(page => page.Id == "401");
+        dictionary.WhereSql += " AND priority>=10";
+        catalog.ConfigColumns.Add(new() { Id = "4701", YzProjectId = catalog.YzProjectId, ConfigTableId = "4", ColumnName = "priority", LogicalType = "int32" });
+        catalog.ConfigPageColumns.Add(new() { Id = "4014701", YzProjectId = catalog.YzProjectId, ConfigPageId = "401", ConfigColumnId = "4701", IsShow = 1 });
+        var sort = new ColumnMetadata { Id = "2101", YzProjectId = catalog.YzProjectId, ConfigTableId = "2", ColumnName = "sort_alias", LogicalType = "int32" };
+        sort.Extra["isJoinColumn"] = JsonSerializer.SerializeToElement(1);
+        sort.Extra["columnFullName"] = JsonSerializer.SerializeToElement("company.priority");
+        catalog.ConfigColumns.Add(sort);
+        var sortField = new PageColumnMetadata { Id = "2012101", YzProjectId = catalog.YzProjectId, ConfigPageId = "201", ConfigColumnId = "2101", IsShow = 1 };
+        catalog.ConfigPageColumns.Add(sortField);
+        var model = GenerationModel.Create(catalog, ns);
+        var page = model.Tables.Single(table => table.Source.Id == "1").Pages.Single(item => item.Source.Id == "101");
+        var relation = Assert.Single(RelationCompilation.ForPage(model, page), item => item.SourceColumn.Source.Id == field.Id);
+        Assert.Equal(new[] { ("sort_alias", true), (settings["nameField"], false), ("id", false) },
+            relation.OptionsOrder!.Select(item => (item.Column.Source.ColumnName, item.Descending)));
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-list-independent-order");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.DrNamesOrderService", true)!;
+            var mapper = assembly.GetType(ns + ".Generated.Mappers.DrNamesOrderMapper", true)!;
+            RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            const BindingFlags hidden = BindingFlags.Static | BindingFlags.NonPublic;
+            var order = Assert.IsType<NonRedundantReadPlan>(service.GetField("OptionsSortPlan101_15", hidden)!.GetValue(null));
+            var labels = Assert.IsType<NonRedundantReadPlan>(service.GetField("DerivedOptionsPlan101_15", hidden)!.GetValue(null));
+            Assert.Equal("int32", order.OutputTypes["sort_alias"]);
+            Assert.DoesNotContain("sort_alias", labels.OutputTypes.Keys);
+            Assert.NotNull(service.GetMethod("Import101Async"));
+            Assert.NotNull(service.GetMethod("Export101Async"));
+            await AccountParentCandidateProbe.VerifyListOrderAsync(service, mapper, catalog.YzProjectId, settings["nameField"]);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+
+        catalog.ConfigPageColumns.RemoveAll(column => column.Id == sortField.Id);
+        model = GenerationModel.Create(catalog, ns);
+        page = model.Tables.Single(table => table.Source.Id == "1").Pages.Single(item => item.Source.Id == "101");
+        Assert.Throws<InvalidOperationException>(() => RelationCompilation.ForPage(model, page));
+    }
+
     /// <summary>原下拉的联接文本与物理字段共用实际候选范围，并按显式排序和主键稳定分页。</summary>
     [Theory]
     [InlineData(false, false, false)]

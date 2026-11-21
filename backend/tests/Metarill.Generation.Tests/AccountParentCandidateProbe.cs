@@ -3,6 +3,7 @@ using System.Data.Common;
 using System.Reflection;
 using FreeSql;
 using Metarill.Core.Cascades;
+using Metarill.Core.Contracts;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
 using Metarill.Data;
@@ -165,6 +166,74 @@ internal static class AccountParentCandidateProbe
         Assert.Matches(@"priority\s*>=\s*@", provider.Commands[1].Sql);
         Assert.Matches(@" ORDER BY [^.]+\.\s*priority DESC,\s*b\.id ASC", provider.Commands[1].Sql);
         Assert.All(provider.Commands, command => Assert.Contains(parent, command.Values.Values));
+    }
+
+    /// <summary>经过实际生成入口检查计数、分页 SQL、已选范围和原名称响应。</summary>
+    internal static async Task VerifyListOrderAsync(Type serviceType, Type mapperType, string projectId, string labelField)
+    {
+        const long id = 9007199254742002;
+        var actor = new RuntimeActor(1, "候选测试", false, projectId, "5");
+        var provider = new CaptureProvider(0, id, _ =>
+        {
+            var rows = new DataTable();
+            rows.Columns.Add("id", typeof(long));
+            rows.Columns.Add(labelField, typeof(string));
+            rows.Rows.Add(id, "原名称");
+            return rows;
+        });
+        using var session = new DatabaseSession(new()
+        {
+            ExpectedDatabase = "offline",
+            ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
+        }, null, provider);
+        session.Orm.Aop.CurdBefore += (_, _) => throw new InvalidOperationException("下拉排序探针禁止执行 ORM 命令。");
+        var service = Activator.CreateInstance(serviceType, [session, Activator.CreateInstance(mapperType, session)!,
+            new SnowflakeIdGenerator(945), Array.Empty<IRecordMutationObserver>(),
+            Array.Empty<IRecordMutationGuard>(), new TreeAuthorization(actor)])!;
+
+        var page = await Invoke("OptionsPage101_15Async", new RelationOptionsPageRequest { Keyword = "原%_", PageNo = 2, PageSize = 1 });
+        Assert.Equal(1L, page.GetType().GetProperty("Total")!.GetValue(page));
+        CheckName(page.GetType().GetProperty("Records")!.GetValue(page)!);
+        CheckName(await Invoke("OptionsSelected101_15Async", new RelationOptionsSelectedRequest { SelectedIds = [id.ToString()] }));
+        CheckName(await Invoke("Options101_15Async", new PageRequest(), true));
+
+        Assert.Equal(4, provider.Commands.Count);
+        var count = provider.Commands[0];
+        var pageRead = provider.Commands[1];
+        Assert.StartsWith("SELECT COUNT(*)", count.Sql);
+        Assert.DoesNotContain("metarill_candidate_order", count.Sql);
+        Assert.DoesNotContain("priority", count.Sql);
+        Assert.Equal("%原!%!_%", count.Values["filter_1"]);
+        Assert.Equal(count.Values["filter_1"], pageRead.Values["filter_1"]);
+        Assert.Equal(1L, Convert.ToInt64(pageRead.Values["page_offset"]));
+        Assert.Same(count.Transaction, pageRead.Transaction);
+        Assert.NotNull(pageRead.Transaction);
+        foreach (var read in provider.Commands.Skip(1))
+        {
+            Assert.Contains("LEFT JOIN (SELECT", read.Sql);
+            Assert.Contains("metarill_candidate_order.sort_alias DESC", read.Sql);
+            Assert.Contains("b.id ASC", read.Sql);
+            Assert.Matches(@"priority\s*>=\s*@candidate_order_", read.Sql);
+            Assert.Contains(read.Values, pair => pair.Key.StartsWith("candidate_order_", StringComparison.Ordinal) && Convert.ToInt64(pair.Value) == 10);
+            Assert.DoesNotContain("sort_alias", read.Sql[..read.Sql.IndexOf(" FROM ", StringComparison.Ordinal)]);
+        }
+        Assert.DoesNotContain(" LIKE ", provider.Commands[2].Sql);
+        Assert.Contains(id, provider.Commands[2].Values.Values);
+        Assert.Equal(5001, provider.Commands[3].Values["page_limit"]);
+
+        async Task<object> Invoke(string name, object request, bool legacy = false)
+        {
+            object?[] args = legacy ? [request, actor, CancellationToken.None, null] : [request, actor, CancellationToken.None];
+            var task = (Task)serviceType.GetMethod(name)!.Invoke(service, args)!;
+            await task;
+            return task.GetType().GetProperty("Result")!.GetValue(task)!;
+        }
+
+        static void CheckName(object options)
+        {
+            var option = Assert.Single(((System.Collections.IEnumerable)options).Cast<object>());
+            Assert.Equal("原名称", option.GetType().GetProperty("Name")!.GetValue(option));
+        }
     }
 
     private sealed class TreeAuthorization(RuntimeActor actor) : IRuntimeAuthorization

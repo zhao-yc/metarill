@@ -61,13 +61,27 @@ internal static class DerivedRelationNamesRenderer
         var order = relation.OptionsOrder is { } ordering
             ? string.Join(", ", ordering.Select(item => $"new({Literal(item.Column.Source.ColumnName)}, {(item.Descending ? "true" : "false")})"))
             : relation.NameColumn.IsId?"new(\"id\")":$"new({Literal(name)}), new(\"id\")";
+        var hasIndependentOrder = relation.IndependentOrder.Count > 0;
+        var independentOrder = visible && hasIndependentOrder;
+        var originalOrder = hasIndependentOrder
+            ? string.Join(", ", relation.OptionsOrder!.Where(item => !relation.IndependentOrder.Contains(item.Column))
+                .Select(item => $"new({Literal(item.Column.Source.ColumnName)}, {(item.Descending ? "true" : "false")})"))
+            : order;
+        var sortArgument = independentOrder ? $"OptionsSortPlan{suffix}.BindAccount(actor)," : "";
+        var sortDeclaration = independentOrder ? CandidateOrderDeclaration(model, relation, suffix) : "";
+        var rowRead = independentOrder ? $$"""
+            var reader=new NonRedundantReader(session);
+            var rows=orderCandidates
+                ?await reader.OrderedRowsAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},{{sortArgument}}filters,[{{order}}],200,cancellationToken,actor.ProjectId,scope.Condition)
+                :await reader.RowsAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},filters,[{{originalOrder}}],200,cancellationToken,actor.ProjectId,scope.Condition);
+""" : $"            var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{suffix}{bindParent},filters,[{originalOrder}],200,cancellationToken,actor.ProjectId,scope.Condition);";
         var filters=string.Join("\n",relation.TargetPage.Scopes.Concat(relation.Scopes).DistinctBy(scope=>scope.Column.Source.Id).Select(scope=>"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+ScopeValue(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));"));
         var same=ControlRenderer.RelationContext(page,relation,false).SameParent;
         var variables=relation.Conditions is not{} condition?"":RelationConditionsCompilation.Variables(condition,"targetParentId");
         var bind=relation.Conditions is null?"":"        var bound=OptionsCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"});condition=condition is null?bound:condition.And(bound);";
         var result=new StringBuilder($$"""
     /// <summary>生成和静态装载时编译，普通请求不解析元数据；名称联接与物理身份一同固定。</summary>
-    private static readonly NonRedundantReadPlan DerivedOptionsPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{plan}};
+    private static readonly NonRedundantReadPlan DerivedOptionsPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{plan}};{{(independentOrder?"\n"+sortDeclaration.TrimEnd():"")}}
     /// <summary>先复用原真实父检查，再把同一页面及控件条件AND绑定到固定SQL读取。</summary>
     private async Task<(List<FixedReadFilter> Filters,FixedConditionSqlPlan? Condition)> DerivedOptionsScope{{suffix}}Async(string? parentId,string? targetParentId,RuntimeActor actor,CancellationToken cancellationToken,IReadOnlyDictionary<string,object?>? formValues=null{{(validateCurrent?",bool locking=false":"")}})
     {
@@ -87,13 +101,13 @@ internal static class DerivedRelationNamesRenderer
         return new(id, label, id, label);
     }
     /// <summary>已选和导出按有限批次读取，缓存键仍由调用方的真实父与表单依赖隔离。</summary>
-    private async Task<IReadOnlyList<GeneratedOption>> DerivedOptionsRows{{suffix}}Async(string? parentId,string? targetParentId,RuntimeActor actor,IReadOnlyList<long> ids,CancellationToken cancellationToken,IReadOnlyDictionary<string,object?>? formValues=null)
+    private async Task<IReadOnlyList<GeneratedOption>> DerivedOptionsRows{{suffix}}Async(string? parentId,string? targetParentId,RuntimeActor actor,IReadOnlyList<long> ids,CancellationToken cancellationToken,IReadOnlyDictionary<string,object?>? formValues=null{{(independentOrder?",bool orderCandidates=false":"")}})
     {
         var scope=await DerivedOptionsScope{{suffix}}Async(parentId,targetParentId,actor,cancellationToken,formValues);var result=new List<GeneratedOption>();
         foreach(var batch in ids.Distinct().Chunk(200))
         {
             var filters=scope.Filters.Append(new FixedReadFilter("id",FixedReadComparison.In,batch.Select(id=>(object?)id).ToArray())).ToArray();
-            var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},filters,[{{order}}],200,cancellationToken,actor.ProjectId,scope.Condition);
+{{rowRead}}
             result.AddRange(rows.Select(ReadDerivedOption{{suffix}}));
         }
         return result;
@@ -107,7 +121,7 @@ internal static class DerivedRelationNamesRenderer
     public Task<IReadOnlyList<GeneratedOption>> Options{{suffix}}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken,string? targetParentId=null)=>{{GlobalCachedSourceCompilation.ReadSession(model)}}.InReadSnapshotAsync<IReadOnlyList<GeneratedOption>>(async()=>
     {
         ArgumentNullException.ThrowIfNull(request);var scope=await DerivedOptionsScope{{suffix}}Async(request.ParentId,targetParentId,actor,cancellationToken,{{form}});
-        var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},scope.Filters,[{{order}}],5001,cancellationToken,actor.ProjectId,scope.Condition);
+        var rows=await new NonRedundantReader(session).{{(independentOrder?"OrderedRowsAsync":"RowsAsync")}}(DerivedOptionsPlan{{suffix}}{{bindParent}},{{sortArgument}}scope.Filters,[{{order}}],5001,cancellationToken,actor.ProjectId,scope.Condition);
         if(rows.Count>5000)throw new InvalidOperationException("关联候选超过5000条，请使用分页查询。");
         return rows.Select(ReadDerivedOption{{suffix}}).ToArray();
     },cancellationToken);
@@ -116,19 +130,34 @@ internal static class DerivedRelationNamesRenderer
     {
         ArgumentNullException.ThrowIfNull(request);request.Validate();var scope=await DerivedOptionsScope{{suffix}}Async(request.ParentId,request.TargetParentId,actor,cancellationToken,{{form}});
         if(!string.IsNullOrEmpty(request.Keyword))scope.Filters.Add(new({{Literal(name)}},FixedReadComparison.{{search}},request.Keyword));
-        var rows=await new NonRedundantReader(session).PageAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},scope.Filters,[{{order}}],request.PageNo,request.PageSize,cancellationToken,projectId:actor.ProjectId,condition:scope.Condition);
+        var rows=await new NonRedundantReader(session).{{(independentOrder?"OrderedPageAsync":"PageAsync")}}(DerivedOptionsPlan{{suffix}}{{bindParent}},{{sortArgument}}scope.Filters,[{{order}}],request.PageNo,request.PageSize,cancellationToken,projectId:actor.ProjectId,condition:scope.Condition);
         var options=rows.Records.Select(ReadDerivedOption{{suffix}}).ToArray();
         return new(options,rows.Total,(rows.Total+request.PageSize-1)/request.PageSize,request.PageNo,request.PageSize);
     },cancellationToken);
     /// <summary>已选回读不使用关键词，逐个核对实际候选范围，缺项整体拒绝。</summary>
     public Task<IReadOnlyList<GeneratedOption>> OptionsSelected{{suffix}}Async(RelationOptionsSelectedRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>{{GlobalCachedSourceCompilation.ReadSession(model)}}.InReadSnapshotAsync<IReadOnlyList<GeneratedOption>>(async()=>
     {
-        ArgumentNullException.ThrowIfNull(request);var selected=request.ParseIds();var rows=await DerivedOptionsRows{{suffix}}Async(request.ParentId,request.TargetParentId,actor,selected,cancellationToken,{{form}});
+        ArgumentNullException.ThrowIfNull(request);var selected=request.ParseIds();var rows=await DerivedOptionsRows{{suffix}}Async(request.ParentId,request.TargetParentId,actor,selected,cancellationToken,{{form}}{{(independentOrder?",orderCandidates:true":"")}});
         if(rows.Count!=selected.Length)throw new InvalidOperationException("关联已选项不存在、已删除或不在当前可选范围。");return rows;
     },cancellationToken);
 
 """);return result.ToString();
     }
+    /// <summary>独立联接只返回主键和排序值，原候选、导出及写前查询仍使用自己的名称。</summary>
+    private static string CandidateOrderDeclaration(GenerationModel model, RelationModel relation, string suffix)
+    {
+        var columns = string.Join(",", new[] { "id" }.Concat(relation.IndependentOrder
+            .Select(column => column.Source.ColumnName)).Select(Literal));
+        var targets = NonRedundantReadCompilation.SingleTargetArgument(
+            DerivedRelationNamesCompilation.CandidateOrderTargets(model, relation), "singleTargets");
+        return $$"""
+    /// <summary>独立排序按本级发布的字典范围编译，对外继续返回原名称。</summary>
+    private static readonly NonRedundantReadPlan OptionsSortPlan{{suffix}}=
+        global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.CompileRelation(
+            {{Literal(relation.Target.Source.Id)}},[{{columns}}],[]{{targets}});
+""";
+    }
+
     /// <summary>Excel按名称类型绑定同一范围的当前读，零个或重名均拒绝整批。</summary>
     internal static string Import(GenerationModel model,RelationModel relation,PageModel page,ImportDependencyPlan dependency)
     {
