@@ -26,6 +26,24 @@ public static class ProjectScopedSingleRelationTarget
         return string.IsNullOrWhiteSpace(configured) ? Text(foreign,"linkConfigPageId") : configured;
     }
 
+    /// <summary>固定候选按原 V8 逐键覆盖附加条件，显式留空只清除控件条件。旧实体查询仍以非空值覆盖。</summary>
+    public static string ListWhereSql(MetadataCatalog catalog,PageMetadata sourcePage,ColumnMetadata foreign)
+    {
+        using var definition=Definition(foreign);
+        using var overlay=PageDetail(catalog,sourcePage,foreign);
+        return EffectiveListWhereSql(definition.RootElement,overlay?.RootElement,UsesFixedListCandidates(catalog));
+    }
+
+    private static string EffectiveListWhereSql(JsonElement definition,JsonElement? overlay,bool fixedQuery)
+    {
+        if(overlay is {} detail)
+        {
+            var current=Value(detail,"whereSql");
+            if(fixedQuery?detail.TryGetProperty("whereSql",out _):current.Length>0)return current;
+        }
+        return Value(definition,"whereSql");
+    }
+
     /// <summary>项目内单值页可用已声明的跨表层位限定父级。</summary>
     public static MultiTargetParentScope? LogicalParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
         PageParent(catalog,target,page) is {Logical:true} parent?parent:null;
@@ -120,13 +138,12 @@ public static class ProjectScopedSingleRelationTarget
             .Select(column=>column.ColumnName).ToArray();
         if(foreign.ControlKind!="List")return FixedConditionPlan.Compile(null,members);
         using var definition=Definition(foreign);
-        var baseline=Value(definition.RootElement,"whereSql");
+        var fixedQuery=UsesFixedListCandidates(catalog);
         var pages=sourcePage is null?catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id).ToArray():[sourcePage];
         var definitions=pages.Select(page=>
         {
             using var overlay=PageDetail(catalog,page,foreign);
-            var current=overlay is null?"":Value(overlay.RootElement,"whereSql");
-            return Normalize(current.Length==0?baseline:current);
+            return Normalize(EffectiveListWhereSql(definition.RootElement,overlay?.RootElement,fixedQuery));
         }).Distinct(StringComparer.Ordinal).ToArray();
         if(definitions.Length>1)
             throw new InvalidOperationException("同一物理名称副本的来源页附加条件必须一致。");

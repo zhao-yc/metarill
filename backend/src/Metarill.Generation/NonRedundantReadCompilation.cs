@@ -446,7 +446,9 @@ internal static partial class NonRedundantReadCompilation
             compiled.Target.Source.Id == ForeignValidationRenderer.Target(model, source)?.Source.Id &&
             (!nameChanged || compiled.NameColumn.IsId || PageSingleDisplayOverride(model,owner,source,compiled.Target,compiled.NameColumn) is not null) &&
             (!pageChanged || compiled.ListPageOverride) &&
-            (!conditionsChanged || compiled.Conditions is not null) &&
+            (!conditionsChanged || compiled.Conditions is not null || compiled.Scopes.Count>0 ||
+                source.Source.ControlKind=="List" && string.IsNullOrWhiteSpace(
+                    ProjectScopedSingleRelationTarget.ListWhereSql(model.Catalog,page.Source,source.Source))) &&
             (!orderChanged || compiled.OptionsOrder is not null || clearedListOrder);
     }
     /// <summary>没有页面的依赖表仍必须先验证物理结构；本入口不写任何生成文件。</summary>

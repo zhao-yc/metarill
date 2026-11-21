@@ -1188,6 +1188,135 @@ public sealed class DerivedRelationNamesTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+
+    /// <summary>纯冗余项目的旧实体候选仍使用原非空覆盖规则。</summary>
+    [Fact]
+    public void List_blank_condition_keeps_the_nonempty_definition_in_legacy_mode()
+    {
+        var catalog = RelationOptionsContractTests.Catalog();
+        foreach (var table in catalog.ConfigTables) table.IsRongyu = 1;
+        var foreign = catalog.ConfigColumns.Single(column => column.Id == "25");
+        foreign.ControlDetail = """{"tableId":"3","nameField":"name","whereSql":"name like '%甲%'"}""";
+        catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == foreign.Id).Extra["controlDetail"] =
+            JsonSerializer.SerializeToElement("""{"whereSql":null}""");
+        var model = GenerationModel.Create(catalog, "Example.LegacyListCondition");
+        var page = model.Tables.Single(table => table.Source.Id == foreign.ConfigTableId).Pages.Single();
+        var options = Assert.Single(RelationCompilation.ForPage(model,page));
+        Assert.Equal("name like '%甲%'", options.Conditions?.Definition);
+    }
+
+    /// <summary>原固定候选明确清空本页附加条件时，目标页常量、共享副本范围及原 Excel 出入口仍有效。</summary>
+    [Theory]
+    [InlineData(0, 0, "\"\"")]
+    [InlineData(0, 0, "null")]
+    [InlineData(0, 0, "\"  \"")]
+    [InlineData(0, 1, "\"\"")]
+    [InlineData(1, 0, "null")]
+    [InlineData(1, 1, "\"\"")]
+    public async Task List_explicit_blank_condition_clears_only_the_page_control(int sourceStorage, int targetStorage, string clear)
+    {
+        const string ns = "Example.ListPageCondition";
+        var catalog = Catalog("dr_names", false);
+        var source = catalog.ConfigTables.Single(table => table.Id == "1");
+        var target = catalog.ConfigTables.Single(table => table.Id == "2");
+        source.IsRongyu = sourceStorage;
+        target.IsRongyu = targetStorage;
+        catalog.ConfigTables.Single(table => table.Id == "3").IsRongyu = 0;
+        if (targetStorage == 1)
+        {
+            catalog.ConfigColumns.RemoveAll(column => column.Id is "27" or "28");
+            catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId is "27" or "28");
+            var display = catalog.ConfigColumns.Single(column => column.Id == "113");
+            display.ColumnName = "customer_name";
+            display.Extra["columnFullName"] = JsonSerializer.SerializeToElement("customer.name");
+        }
+        var foreign = catalog.ConfigColumns.Single(column => column.Id == "15");
+        var definition = JsonSerializer.Deserialize<Dictionary<string,string>>(foreign.ControlDetail)!;
+        if (targetStorage == 1) definition["nameField"] = "name";
+        definition["whereSql"] = "status=72";
+        foreign.ControlDetail = JsonSerializer.Serialize(definition);
+        catalog.ConfigPages.Single(page => page.Id == "201").WhereSql = "yz_project_id=@current_yz_project_id AND status>=87";
+        var overlay = JsonSerializer.SerializeToElement("{\"whereSql\":" + clear + "}");
+        var visible = catalog.ConfigPageColumns.Single(field => field.ConfigPageId == "101" && field.ConfigColumnId == foreign.Id);
+        visible.Extra["controlDetail"] = overlay;
+        catalog.ConfigPageColumns.Single(field => field.ConfigPageId == "103" && field.ConfigColumnId == foreign.Id)
+            .Extra["controlDetail"] = overlay;
+        var hidden = catalog.ConfigPages.Single(page => page.Id == "104");
+        if (sourceStorage == 1)
+        {
+            // 即使第二页隐藏外键，混用清空与继承条件也不能发布同一份冗余名称。
+            Assert.Throws<InvalidOperationException>(() =>
+                ProjectScopedSingleRelationTarget.Resolve(catalog,source,foreign,target));
+            catalog.ConfigPageColumns.Add(new() { Id = "10415", ConfigPageId = hidden.Id, ConfigColumnId = foreign.Id,
+                YzProjectId = catalog.YzProjectId, IsShow = 0, IsEdit = 0,
+                Extra = new() { ["controlDetail"] = overlay } });
+        }
+
+        var model = GenerationModel.Create(catalog, ns);
+        var owner = model.Tables.Single(table => table.Source.Id == source.Id);
+        var page = owner.Pages.Single(item => item.Source.Id == "101");
+        var options = Assert.Single(RelationCompilation.ForPage(model,page,forExcel:true), item => item.SourceColumn.Source.Id == foreign.Id);
+        Assert.Null(options.Conditions);
+        Assert.Equal("201", options.TargetPage.Source.Id);
+        Assert.Empty(ProjectScopedSingleRelationTarget.ControlScope(catalog, source, foreign, target, page.Source).Terms);
+
+        if (sourceStorage == 0)
+        {
+            var inherited = Assert.Single(RelationCompilation.ForPage(model,owner.Pages.Single(item => item.Source.Id == hidden.Id),true),
+                item => item.SourceColumn.Source.Id == foreign.Id);
+            Assert.Equal("status=72", inherited.Conditions?.Definition);
+        }
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-list-page-condition");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ns);
+            var code = await File.ReadAllTextAsync(Path.Combine(output, "Services", "DrNamesOrderService.g.cs"));
+            Assert.DoesNotContain("OptionsCondition101_15", code);
+            Assert.Contains("OptionsScope101_15Async", code);
+            Assert.Contains("ImportRelation101_15Async", code);
+            Assert.DoesNotContain("OptionsCondition103_15", code);
+            Assert.Contains("ImportRelation103_15Async", code);
+            Assert.Contains("OptionsPageCondition101_15", code);
+            Assert.Contains("OptionsPageCondition103_15", code);
+            Assert.Contains(JsonSerializer.Serialize("status>=87"), code);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.DrNamesOrderService", true)!;
+            RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+
+            if (sourceStorage == 1)
+            {
+                Assert.Empty(ProjectScopedSingleRelationTarget.ControlScope(catalog, source, foreign, target).Terms);
+                var binding = Assert.Single(RelationPropagationCompilation.DerivedBindings(model),
+                    item => item.Foreign.Source.Id == foreign.Id);
+                Assert.Equal("201", binding.ScopedSinglePageId);
+                var maintenance = Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    assembly.GetType(ns + ".Generated.GeneratedRelationMaintenance", true)!.GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains("customer_" + definition["nameField"], maintenance.MixedSourceColumns["dr_names_order"]);
+                Assert.Contains("dr_names_party", maintenance.MixedTargets);
+            }
+            else
+            {
+                var constants = Constants("ReadPlan101");
+                Assert.Contains(constants.Values, value => value is int number && number == 87);
+                Assert.DoesNotContain(constants.Values, value => value is int number && number == 72);
+                Assert.Contains(Constants("ReadPlan104").Values, value => value is int number && number == 72);
+            }
+
+            IReadOnlyDictionary<string,object?> Constants(string member)
+            {
+                var plan = Assert.IsType<NonRedundantReadPlan>(service.GetField(member,
+                    BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+                var sql = plan.GetType().GetProperty("MySql", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(plan)!;
+                return Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    sql.GetType().GetProperty("Constants", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(sql));
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>同一实体的实际目标页约束候选、来源回显、写校验和 Excel，冗余副本绑定同一页。</summary>
     [Theory]
     [InlineData(false, "column")]

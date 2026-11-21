@@ -140,8 +140,11 @@ internal static class RelationCompilation
                 ? FunctionTableSelectionCompilation.PublishedParent(model, target, targetPage)
                 : DerivedRelationNamesCompilation.SingleParent(model,target,targetPage)??
                     PhysicalTargetForLogicalSource(model,owner,page,target,targetPage);
-            var where=selection is not null&&(excelOnly||selection.ImportCondition is not null||fixedParent is {Logical:true}||
-                fixedParent is {AdditionalTargets.Count:>0}||FixedPageConditionCompilation.HasLogicalFields(targetPage))?"":Mapped("whereSql");
+            var where = source.Source.ControlKind == "List"
+                ? ProjectScopedSingleRelationTarget.ListWhereSql(model.Catalog,page.Source,source.Source)
+                : selection is not null && (excelOnly || selection.ImportCondition is not null ||
+                    fixedParent is { Logical:true } or { AdditionalTargets.Count:>0 } ||
+                    FixedPageConditionCompilation.HasLogicalFields(targetPage)) ? "" : Mapped("whereSql");
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,allowLogicalList:selection is null);
             if ((conditions is not null||FixedPageConditionCompilation.HasLogicalFields(targetPage))&&
                 !functionForm && ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
@@ -271,9 +274,7 @@ internal static class RelationCompilation
         if (ListTargetPage(model,target,page,source,requireExplicit:UsesProjectListPage(model,target,page,source)) is not {} targetPage)
             return false;
         if(HasFixedTargetScope(target,targetPage)||DerivedRelationNamesCompilation.UsesExactSingleTarget(target,targetPage)||ListIdSetting(model,page,source))return true;
-        var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
-        var effective=Text(Definition(field?.Extra.GetValueOrDefault("controlDetail").ToString()??""),"whereSql");
-        if(string.IsNullOrWhiteSpace(effective))effective=Text(Definition(source.Source.ControlDetail),"whereSql");
+        var effective=ProjectScopedSingleRelationTarget.ListWhereSql(model.Catalog,page.Source,source.Source);
         return target.Source.IsRongyu==1 && UsesProjectListPage(model,target,page,source) &&
                 ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)==targetPage.Source.Id &&
                 (HasStoredListRange(targetPage) || !string.IsNullOrWhiteSpace(effective)) ||
