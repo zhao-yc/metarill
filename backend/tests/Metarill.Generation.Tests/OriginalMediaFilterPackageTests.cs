@@ -12,7 +12,7 @@ public sealed class OriginalMediaFilterPackageTests
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
-    public async Task Full_package_supports_text_search_on_original_media_fields(int redundant)
+    public async Task Full_package_supports_original_media_and_file_text_filters(int redundant)
     {
         var catalog = redundant == 0 ? NonRedundantApplicationFixture.Catalog("mt_media_filter") : GeneratorTests.Catalog();
         var table = catalog.ConfigTables.Single(table => table.Id == "1");
@@ -20,6 +20,8 @@ public sealed class OriginalMediaFilterPackageTests
         var page = catalog.ConfigPages.Single(page => page.Id == "101");
         page.IsExport = 1;
         var fields = AddMediaFields(catalog, page);
+        var attachment = AddFileLibrary(catalog, page);
+        fields.Add(attachment);
 
         var model = GenerationModel.Create(catalog, "Example.MediaFilter");
         Assert.DoesNotContain(GenerationCapabilityAudit.Collect(model), gap =>
@@ -42,6 +44,8 @@ public sealed class OriginalMediaFilterPackageTests
                     : $"StringNameQuery.ApplyPattern(session,query,entity => entity.{GenerationModel.Pascal(column.ColumnName)},value!)", service);
             }
 
+            // 本页仍由原文件库组件承接受保护附件，文本筛选只查询业务记录中的附件 ID。
+            Assert.Contains("access-mode=\"PROTECTED\"", list);
             // 同一页的 Export 应在原过滤入口基础上读取数据，不能只在列表使用筛选。
             var exportStart = service.IndexOf("Export" + page.Id + "Async(PageRequest request", StringComparison.Ordinal);
             Assert.True(exportStart >= 0);
@@ -56,18 +60,49 @@ public sealed class OriginalMediaFilterPackageTests
     }
 
     /// <summary>页级改为动态下拉时不借原媒体文本规则放行未接线的候选。</summary>
-    [Fact]
-    public void Media_filter_does_not_admit_unproven_list_override()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Media_and_file_filters_do_not_admit_unproven_list_override(bool fileLibrary)
     {
         var catalog = GeneratorTests.Catalog();
         var page = catalog.ConfigPages.Single();
-        var field = AddMediaFields(catalog, page).First();
+        var field = fileLibrary ? AddFileLibrary(catalog, page) : AddMediaFields(catalog, page).First();
         catalog.ConfigPageColumns.Single(entry => entry.ConfigColumnId == field.Id).Extra["controlKind"] =
             JsonSerializer.SerializeToElement("List");
 
         var model = GenerationModel.Create(catalog, "Example.MediaFilter");
         Assert.Contains(GenerationCapabilityAudit.Collect(model), gap =>
             gap.PageId == page.Id && gap.Column == field.ColumnName && gap.Usage == "filter");
+    }
+
+    /// <summary>受保护文件库按原格式登记独立的可筛选物理字段。</summary>
+    private static ColumnMetadata AddFileLibrary(MetadataCatalog catalog, PageMetadata page)
+    {
+        var field = new ColumnMetadata
+        {
+            Id = "190",
+            ConfigTableId = page.ConfigTableId,
+            YzProjectId = catalog.YzProjectId,
+            ColumnName = "filter_attachments",
+            Name = "附件",
+            LogicalType = "string",
+            ColumnLength = "max",
+            ControlKind = "FileLibrary",
+            ControlDetail = """{"accessMode":"PROTECTED","maxCount":3}"""
+        };
+        catalog.ConfigColumns.Add(field);
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id = page.Id + field.Id,
+            YzProjectId = catalog.YzProjectId,
+            ConfigPageId = page.Id,
+            ConfigColumnId = field.Id,
+            IsShow = 1,
+            IsEdit = 1,
+            Extra = new() { ["isInFilter"] = JsonSerializer.SerializeToElement(1) }
+        });
+        return field;
     }
 
     /// <summary>使用原控件和实际可写字符串列生成合成元数据。</summary>

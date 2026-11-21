@@ -180,9 +180,9 @@ internal static class ControlRenderer
             return Wrap($"<uni-datetime-picker type=\"{(column.Source.ControlKind == "date" ? "daterange" : "datetimerange")}\" {binding} @change=\"setFilter('{column.JsonName}', $event)\" />");
         if (column.Source.ControlKind is "" or "Text" or "TextArea" or "RTF")
             return Wrap($"<uni-easyinput {binding} {change} placeholder=\"请输入{label}\" />");
-        // 原列表对物理媒体字符串使用普通文本框。审计以本页实际生成的筛选控件为准。
+        // 原列表对媒体文本和文件库的物理 ID 数组文本使用普通文本框。候选控件仍需经过自己的能力审计。
         if (column.Source.LogicalType == "string" && column.Type == "string?" &&
-            (column.IsLegacyMedia || column.Source.ControlKind is "Base64Image" or "IntenetImage"))
+            (column.IsLegacyMedia || column.Source.ControlKind is "Base64Image" or "IntenetImage" or "FileLibrary"))
         {
             var effective = SelectionNameFilterCompilation.EffectiveFilterKind(model, page, column);
             var owner = model.Tables.Single(table => table.Source.Id == page.Source.ConfigTableId);
