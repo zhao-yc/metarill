@@ -446,9 +446,32 @@ public sealed partial class {{page.Name}}ImportRequest
             var normalized = options.Where(option => option.Number is not null)
                 .Select(option => (label: option.Number!, value: option.Number!));
             var cases = declared.Concat(normalized).DistinctBy(pair => pair.label, StringComparer.Ordinal);
-            return "cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : cell.Value.ToString() switch { "
-                + string.Join(", ", cases.Select(pair => Literal(pair.label) + " => " + (column.Type == "string?" ? "JsonSerializer.SerializeToElement(" + Literal(pair.value) + ")" : "JsonSerializer.SerializeToElement(JsonSerializer.Deserialize<" + column.Type + ">(" + Literal(JsonSerializer.Serialize(pair.value)) + ", JsonOptions))")))
-                + ", _ => throw PageImportException.Input(PageImportError.Constant) }";
+            // Excel 的布尔单元格和原数字选项共用同一查找键。显式文本标签仍先匹配。
+            var key = column.IsBooleanConstant
+                ? "(cell.Value.ValueKind switch { JsonValueKind.True => \"1\", JsonValueKind.False => \"0\", _ => cell.Value.ToString() })"
+                : "cell.Value.ToString()";
+            var arms = cases.Select(pair =>
+            {
+                var value = column.Type switch
+                {
+                    "string?" => Literal(pair.value),
+                    "bool?" => pair.value.Length == 0 ? "(bool?)null" : pair.value == "1" ? "true" : "false",
+                    _ => $"JsonSerializer.Deserialize<{column.Type}>({Literal(JsonSerializer.Serialize(pair.value))}, JsonOptions)"
+                };
+                return $"{Literal(pair.label)} => JsonSerializer.SerializeToElement({value})";
+            }).ToList();
+            const string rejected = "_ => throw PageImportException.Input(PageImportError.Constant)";
+            if (column.Type == "double?")
+            {
+                // 原 Excel 的 JSON 数值可能有不同指数写法，确认数值相等后才采用对应选项。
+                var numbers = options.Select(option => option.Number).OfType<string>().Distinct(StringComparer.Ordinal);
+                var numericArms = numbers.Select(number => $"{number}D => JsonSerializer.SerializeToElement({number}D)").Append(rejected);
+                arms.Add("_ when ExactNumericValue.TryDouble(cell.Value.ToString(), out var numericConstant) => numericConstant switch { " +
+                    string.Join(", ", numericArms) + " }");
+            }
+            arms.Add(rejected);
+            return "cell.Value.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.Value.ToString()) ? JsonSerializer.SerializeToElement<object?>(null) : "
+                + key + " switch { " + string.Join(", ", arms) + " }";
         }
         if(column.Type=="byte[]?")return "cell.Value.Clone()";
         if (column.IsJsonArray) return "cell.Value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(cell.Value.GetString()) ? JsonSerializer.Deserialize<JsonElement>(cell.Value.GetString()!) : cell.Value.Clone()";

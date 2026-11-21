@@ -238,7 +238,7 @@ internal static class GeneratedNonRedundantReadCatalog
         {
             var column=page.Readable.SingleOrDefault(column=>column.Source.ColumnName==output.Storage);
             result.AppendLine($"    [JsonPropertyName({Literal(output.JsonName)})]");
-            if(column is not null&&Checkbox(column))result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
+            if(column is not null&&UsesBooleanOptionWireFormat(column))result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
             if (column?.IsMonthDate == true) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.OriginalMonthDateJsonConverter))]");
             if(output.Type=="TimeSpan?")result.AppendLine($"    [JsonConverter(typeof({TimeFieldCompilation.Converter(column)}))]");
             // 物理存储仍是字符串；原接口文件值保持JSON数组或null，不能向前端返回二次编码字符串。
@@ -383,7 +383,7 @@ internal static class GeneratedNonRedundantReadCatalog
                 var parse = column.Type switch
                 {
                     "TimeSpan?" => $"{TimeFieldCompilation.Value(column)}.Parse(filter.Value)",
-                    "int?" when !Checkbox(column) => "filter.Value.ValueKind==JsonValueKind.String?int.Parse(filter.Value.GetString()!,NumberStyles.Integer,CultureInfo.InvariantCulture):filter.Value.GetInt32()",
+                    "int?" when !UsesBooleanOptionWireFormat(column) => "filter.Value.ValueKind==JsonValueKind.String?int.Parse(filter.Value.GetString()!,NumberStyles.Integer,CultureInfo.InvariantCulture):filter.Value.GetInt32()",
                     _ => CheckboxFilterBoolean(model, page, column) ? "CheckboxBooleanJsonConverter.Parse(filter.Value)" : $"JsonSerializer.Deserialize<{column.Type}>(filter.Value.GetRawText(),JsonOptions)"
                 };
                 var parseArray=column.Type=="TimeSpan?"?$"filter.Value.EnumerateArray().Select({TimeFieldCompilation.Value(column)}.Parse).Cast<object?>().ToArray()":CheckboxFilterBoolean(model, page, column)?"filter.Value.EnumerateArray().Select(CheckboxBooleanJsonConverter.Parse).Cast<object?>().ToArray()":$"JsonSerializer.Deserialize<{column.Type}[]>(filter.Value.GetRawText(),JsonOptions)!.Cast<object?>().ToArray()";

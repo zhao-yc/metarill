@@ -23,7 +23,7 @@ internal static partial class BackendRenderer
 
     /// <summary>按实际筛选控件接收原布尔 0/1 编码，保留直接绑定复选字段的旧筛选合同。</summary>
     private static bool CheckboxFilterBoolean(GenerationModel model, PageModel page, ColumnModel column) =>
-        column.Type == "bool?" && (Checkbox(column) || ControlRenderer.HasCheckboxArrayFilter(column) ||
+        column.Type == "bool?" && (UsesBooleanOptionWireFormat(column) || ControlRenderer.HasCheckboxArrayFilter(column) ||
             SelectionNameFilterCompilation.EffectiveFilterKind(model, page, column) is "CheckBox" or "ConstList" or "ConstDownList");
 
     /// <summary>生成安全的 C# 字面量。</summary>
@@ -84,7 +84,7 @@ internal static partial class BackendRenderer
             foreach (var column in ManagerCredentialCompilation.Writable(table,page))
             {
                 result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]");
-                if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(CheckboxBooleanJsonConverter))]");
+                if (UsesBooleanOptionWireFormat(column)) result.AppendLine("    [JsonConverter(typeof(CheckboxBooleanJsonConverter))]");
                 if(column.Type=="TimeSpan?")result.AppendLine($"    [JsonConverter(typeof({TimeFieldCompilation.Converter(column)}))]");
                 result.AppendLine($"    public Optional<{column.BoundaryType}> {column.Property} {{ get; set; }}");
             }
@@ -121,7 +121,7 @@ internal static partial class BackendRenderer
             result.AppendLine($"    [JsonPropertyName({Literal(column.JsonName)})]");
             if (UsesOriginalConfigurationPageSizeText(model, table, page, column))
                 result.AppendLine("    [JsonNumberHandling(JsonNumberHandling.WriteAsString)]");
-            if (Checkbox(column)) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
+            if (UsesBooleanOptionWireFormat(column)) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.CheckboxBooleanJsonConverter))]");
             if (column.IsMonthDate) result.AppendLine("    [JsonConverter(typeof(Metarill.Core.Contracts.OriginalMonthDateJsonConverter))]");
             if(column.Type=="TimeSpan?")result.AppendLine($"    [JsonConverter(typeof({TimeFieldCompilation.Converter(column)}))]");
             result.AppendLine($"    public {column.BoundaryType} {column.Property} {{ get; init; }}");
@@ -150,8 +150,9 @@ internal static partial class BackendRenderer
         foreach (var column in constants) result.AppendLine($"        {column.Property}Show = {ConstantDisplayExpression(column, "entity." + column.Property)},");
         return result.AppendLine("    };").AppendLine("}").ToString();
     }
-    /// <summary>只对已发布CheckBox布尔字段使用原0/1协议，其他bool API不改变。</summary>
-    private static bool Checkbox(ColumnModel column) => column.Type == "bool?" && column.Source.ControlKind == "CheckBox";
+    /// <summary>原复选和常量选择的布尔字段使用数字 0／1 协议。</summary>
+    private static bool UsesBooleanOptionWireFormat(ColumnModel column) =>
+        column.IsBooleanConstant || column.Type == "bool?" && column.Source.ControlKind == "CheckBox";
     /// <summary>把常量标签预编译为类型匹配的 switch，未知值保留原文、空值保持为空。</summary>
     internal static string ConstantDisplayExpression(ColumnModel column, string valueExpression)
     {
@@ -169,13 +170,16 @@ internal static partial class BackendRenderer
                 "int?" => number!,
                 "long" or "long?" => number + "L",
                 "decimal?" => number + "M",
+                "bool?" => number == "1" ? "true" : "false",
+                "double?" => number + "D",
                 _ => throw new InvalidOperationException("常量控件不支持该字段类型：" + column.Source.ColumnName)
             };
             if (!choices.Any(choice => choice.Pattern == pattern)) choices.Add((pattern, parts[0]));
         }
         var arms = choices.Select(choice => choice.Pattern + " => " + Literal(choice.Text)).ToList();
         if (column.Type != "long") arms.Insert(0, "null => null");
-        arms.Add("var raw => Convert.ToString(raw, CultureInfo.InvariantCulture)");
+        if (column.Type != "bool?" || choices.Count < 2)
+            arms.Add("var raw => Convert.ToString(raw, CultureInfo.InvariantCulture)");
         return valueExpression + " switch { " + string.Join(", ", arms) + " }";
     }
 
@@ -188,9 +192,28 @@ internal static partial class BackendRenderer
             "int?" => int.Parse(raw, System.Globalization.CultureInfo.InvariantCulture).ToString(System.Globalization.CultureInfo.InvariantCulture),
             "long" or "long?" => long.Parse(raw, System.Globalization.CultureInfo.InvariantCulture).ToString(System.Globalization.CultureInfo.InvariantCulture),
             "decimal?" => decimal.Parse(raw, System.Globalization.CultureInfo.InvariantCulture).ToString("G29", System.Globalization.CultureInfo.InvariantCulture),
+            "bool?" => ReadBooleanConstant(column, raw) ? "1" : "0",
+            "double?" => Metarill.Core.Contracts.ExactNumericValue.FormatDouble(ReadDoubleConstant(column, raw)),
             _ => null
         };
     }
+    /// <summary>配置可用布尔字面值或原控件的 0／1。请求继续由 DTO 的严格转换器验证。</summary>
+    internal static bool ReadBooleanConstant(ColumnModel column, string value) => value switch
+    {
+        "0" => false,
+        "1" => true,
+        _ when bool.TryParse(value, out var boolean) => boolean,
+        _ => throw new InvalidOperationException("布尔常量必须为 true、false、0 或 1：" + column.Source.ColumnName)
+    };
+
+    /// <summary>常量映射使用可精确往返的有限双精度值，生成代码和原表单使用同一个数值。</summary>
+    internal static double ReadDoubleConstant(ColumnModel column, string value)
+    {
+        if (!Metarill.Core.Contracts.ExactNumericValue.TryDouble(value, out var result))
+            throw new InvalidOperationException("双精度常量必须为有效有限值：" + column.Source.ColumnName);
+        return result == 0 ? 0 : result;
+    }
+
     /// <summary>生成加入当前事务的强类型数据库操作。</summary>
     private static string Mapper(GenerationModel model, TableModel table)
     {
@@ -766,6 +789,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     private static string DefaultExpression(ColumnModel column,string raw)
     {
         if (column.Type == "string?") return Literal(raw);
+        if (column.IsBooleanConstant) return ReadBooleanConstant(column, raw) ? "true" : "false";
         // 每次创建重新分配默认字节，不能共享可变数组；SQL形式仍只由数据库适配器生成。
         if(column.Type=="byte[]?")return "global::System.Convert.FromBase64String("+Literal(Convert.ToBase64String(global::Metarill.Core.Contracts.BinaryFieldValue.DefaultBytes(raw,column.Source.ColumnLength)!))+")";
         try

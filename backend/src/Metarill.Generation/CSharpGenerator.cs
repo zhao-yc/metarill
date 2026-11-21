@@ -171,6 +171,8 @@ internal sealed record ColumnModel(ColumnMetadata Source, string Property, strin
     internal bool IsLegacyMedia => Source.ControlKind is "Image" or "MultiImage" or "Upload" or "Video";
     public bool IsJsonArray => Type == "string?" && (IsLegacyMedia || IsManagedMultiNames ||
         Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage");
+    /// <summary>物理布尔常量沿原选择控件使用数字 0／1 传输。</summary>
+    internal bool IsBooleanConstant => Type == "bool?" && Source.ControlKind is "ConstList" or "ConstDownList";
     public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;
     /// <summary>原年月控件可绑定文本或日期。只有日期字段按原日期格式回显。</summary>
     internal bool IsMonthDate => Type == "DateTime?" && Source.ControlKind is "month" or "Month";

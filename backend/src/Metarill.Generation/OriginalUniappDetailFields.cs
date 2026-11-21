@@ -44,6 +44,8 @@ internal static class OriginalUniappDetailFields
         if (f.Column.Source.ControlKind is "Image" or "MultiImage" or "Upload" or "Video" or "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage") return "[]";
         // 配置中的零字节字面量转换为原表单与请求使用的空 Base64 文本。
         if (f.Column.Type == "byte[]?" && f.Default == Metarill.Core.Contracts.BinaryFieldValue.EmptyDefault) return Js("");
+        if (f.Column.IsBooleanConstant && !string.IsNullOrWhiteSpace(f.Default))
+            return BackendRenderer.ReadBooleanConstant(f.Column, f.Default) ? "1" : "0";
         // double默认值按有限binary64解析，保持原控件及数值绑定，避免误用decimal范围拒绝。
         if(f.Column.Type=="double?"&&!string.IsNullOrWhiteSpace(f.Default))
         {
@@ -214,6 +216,8 @@ this.$watch(()=>this.entity.{{{targetField}}},()=>{this.{{{list}}}=[];this._orig
         "long" or "long?" => value.Length==0?null:long.Parse(value,NumberStyles.Integer,CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture),
         "int?" => value.Length==0?null:int.Parse(value,NumberStyles.Integer,CultureInfo.InvariantCulture),
         "decimal?" => value.Length==0?null:decimal.Parse(value,NumberStyles.Number,CultureInfo.InvariantCulture),
+        "bool?" => value.Length == 0 ? null : BackendRenderer.ReadBooleanConstant(column, value) ? 1 : 0,
+        "double?" => value.Length == 0 ? null : BackendRenderer.ReadDoubleConstant(column, value),
         _ => throw new InvalidOperationException("原详情常量值与字段类型不符："+column.Source.ColumnName)
     };
     private static string Stem(ColumnModel column) => column.Source.ColumnName.EndsWith("_ids", StringComparison.Ordinal) ? column.Source.ColumnName[..^4] : column.Source.ColumnName.EndsWith("_id", StringComparison.Ordinal) ? column.Source.ColumnName[..^3] : column.Source.ColumnName;

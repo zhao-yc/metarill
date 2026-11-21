@@ -271,6 +271,8 @@ internal static partial class OriginalUniappListRenderer
     /// <summary>候选和默认值采用相同原始类型，避免复选框因数字与字符串不同而漏回显。</summary>
     private static object ConstantValue(ColumnModel column, string value, bool scalar = false) => column.Type switch
     {
+        "bool?" when column.IsBooleanConstant && value.Length != 0 => BackendRenderer.ReadBooleanConstant(column, value) ? 1 : 0,
+        "double?" when value.Length != 0 => BackendRenderer.ReadDoubleConstant(column, value),
         "bool?" when bool.TryParse(value, out var boolean) => scalar ? (object)(boolean ? 1 : 0) : boolean,
         "int?" when int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) => number,
         "decimal?" when decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number) => number,
