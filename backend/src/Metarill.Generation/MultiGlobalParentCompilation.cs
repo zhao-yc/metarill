@@ -246,7 +246,7 @@ internal static class MultiGlobalParentCompilation
     /// <summary>项目内单选取当前页面的有效配置，下拉沿用原目标页回退规则。</summary>
     private static PageModel? ProjectSinglePage(GenerationModel model,PageModel page,ColumnModel column,TableModel target)
     {
-        if(column.Source.ControlKind=="List")return RelationCompilation.ListTargetPage(target,page,column,requireExplicit:false);
+        if(column.Source.ControlKind=="List")return RelationCompilation.ListTargetPage(model,target,page,column,requireExplicit:false);
         var configuration=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>
             field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id);
         var definition=SelectionControlDefinition.Resolve(column,configuration);

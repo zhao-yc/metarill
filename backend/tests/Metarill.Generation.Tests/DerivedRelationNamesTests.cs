@@ -1077,6 +1077,118 @@ public sealed class DerivedRelationNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>同一实体的实际目标页约束候选、来源回显、写校验和 Excel，冗余副本绑定同一页。</summary>
+    [Theory]
+    [InlineData(false, "column")]
+    [InlineData(false, "overlay")]
+    [InlineData(true, "column")]
+    [InlineData(true, "overlay-all")]
+    [InlineData(false, "page-only")]
+    public async Task List_uses_the_configured_page_on_the_same_target(bool redundant, string binding)
+    {
+        const string ns = "Example.ListPublishedPage";
+        var catalog = Catalog("dr_names", false);
+        catalog.ConfigTables.Single(table => table.Id == "1").IsRongyu = redundant ? 1 : 0;
+        var target = catalog.ConfigPages.Single(page => page.Id == "201");
+        var alternate = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(target))!;
+        alternate.Id = "202";
+        alternate.WhereSql = "yz_project_id=@current_yz_project_id AND status=83";
+        alternate.OrderBy = "id desc";
+        catalog.ConfigPages.Add(alternate);
+        foreach (var setting in catalog.ConfigPageColumns.Where(setting => setting.ConfigPageId == target.Id).ToArray())
+        {
+            var copy = JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(setting))!;
+            copy.Id = "202" + setting.Id;
+            copy.ConfigPageId = alternate.Id;
+            catalog.ConfigPageColumns.Add(copy);
+        }
+        var foreign = catalog.ConfigColumns.Single(column => column.Id == "15");
+        if (binding is "column" or "page-only")
+        {
+            var definition = JsonSerializer.Deserialize<Dictionary<string,string>>(foreign.ControlDetail)!;
+            definition["pageId"] = alternate.Id;
+            if (binding == "page-only")
+            {
+                definition.Remove("tableId");
+                definition.Remove("table");
+                foreign.LinkConfigTableId = "";
+            }
+            foreign.ControlDetail = JsonSerializer.Serialize(definition);
+        }
+        else
+        {
+            foreach (var setting in catalog.ConfigPageColumns.Where(setting => setting.ConfigColumnId == foreign.Id &&
+                         (binding == "overlay-all" || setting.ConfigPageId == "101")))
+                setting.Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"pageId":"202"}""");
+        }
+        if (binding == "overlay-all")
+        {
+            // 隐藏页也必须能够证明共享缓存范围，不能仅比较有控件的页面。
+            catalog.ConfigPageColumns.Add(new() { Id = "10415", ConfigPageId = "104", ConfigColumnId = "15",
+                YzProjectId = catalog.YzProjectId, IsShow = 0, IsEdit = 0,
+                Extra = new() { ["controlDetail"] = JsonSerializer.SerializeToElement("""{"pageId":"202"}""") } });
+        }
+        var model = GenerationModel.Create(catalog, ns);
+        var owner = model.Tables.Single(table => table.Source.Id == "1");
+        var page = owner.Pages.Single(candidate => candidate.Source.Id == "101");
+        var relation = Assert.Single(RelationCompilation.ForPage(model,page), item => item.SourceColumn.Source.Id == foreign.Id);
+        Assert.Equal("202", relation.TargetPage.Source.Id);
+        Assert.True(Assert.Single(relation.OptionsOrder!).Descending);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-list-published-page");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ns);
+            var text = await File.ReadAllTextAsync(Path.Combine(output, "Services", "DrNamesOrderService.g.cs"));
+            Assert.Contains("""status=83""", text.Replace(" ", "", StringComparison.Ordinal));
+            Assert.Contains("OptionsPageCondition101_15", text);
+            Assert.Contains("DerivedOptionsScope101_15Async", text);
+            Assert.Contains("ImportRelation101_15Async", text);
+            Assert.Contains("DerivedOptionsRows101_15Async", text);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.DrNamesOrderService", true)!;
+            RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            var directoryType = assembly.GetType(ns + ".Generated.GeneratedNonRedundantReadCatalog", true)!;
+            var frozen = Assert.IsType<MetadataCatalog>(directoryType.GetField("Snapshot", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+            Assert.Contains("status=83", frozen.ConfigPages.Single(item => item.Id == "202").WhereSql);
+            if (redundant)
+            {
+                var maintenanceType = assembly.GetType(ns + ".Generated.GeneratedRelationMaintenance", true)!;
+                var maintenance = Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    maintenanceType.GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains("customer_company_name", maintenance.MixedSourceColumns["dr_names_order"]);
+                var bindings = RelationPropagationCompilation.DerivedBindings(model);
+                Assert.Contains(bindings, item => item.Foreign.Source.Id == "15" && item.ScopedSinglePageId == "202");
+            }
+            else
+            {
+                var plan = Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan101", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+                var mysql = plan.GetType().GetProperty("MySql", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(plan)!;
+                var constants = Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(mysql.GetType()
+                    .GetProperty("Constants", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(mysql));
+                Assert.Contains(constants.Values, value => value is int number && number == 83);
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+
+        var sourceField = catalog.ConfigPageColumns.Single(setting => setting.ConfigPageId == "101" && setting.ConfigColumnId == foreign.Id);
+        if (redundant)
+        {
+            sourceField.Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"pageId":"201"}""");
+            var sourceTable = catalog.ConfigTables.Single(table => table.Id == "1");
+            var targetTable = catalog.ConfigTables.Single(table => table.Id == "2");
+            Assert.Throws<InvalidOperationException>(() =>
+                ProjectScopedSingleRelationTarget.Resolve(catalog, sourceTable, foreign, targetTable));
+        }
+        sourceField.Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"pageId":"301"}""");
+        model = GenerationModel.Create(catalog, ns);
+        page = model.Tables.Single(table => table.Source.Id == "1").Pages.Single(candidate => candidate.Source.Id == "101");
+        Assert.Throws<InvalidOperationException>(() => RelationCompilation.ForPage(model, page));
+    }
+
     /// <summary>独立字典排序覆盖原数组、分页搜索与已选回读，并保持名称及 Excel 的原投影。</summary>
     [Theory]
     [InlineData(false, false)]

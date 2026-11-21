@@ -427,6 +427,12 @@ internal static partial class NonRedundantReadCompilation
         effective.Remove("whereSql");
         original.Remove("orderBy");
         effective.Remove("orderBy");
+        var pageChanged = source.Source.ControlKind=="List" && !JsonNode.DeepEquals(original["pageId"], effective["pageId"]);
+        if (source.Source.ControlKind=="List")
+        {
+            original.Remove("pageId");
+            effective.Remove("pageId");
+        }
         var nameChanged = !JsonNode.DeepEquals(original["nameField"], effective["nameField"]);
         original.Remove("nameField");
         effective.Remove("nameField");
@@ -439,6 +445,7 @@ internal static partial class NonRedundantReadCompilation
         return compiled is not null &&
             compiled.Target.Source.Id == ForeignValidationRenderer.Target(model, source)?.Source.Id &&
             (!nameChanged || compiled.NameColumn.IsId || PageSingleDisplayOverride(model,owner,source,compiled.Target,compiled.NameColumn) is not null) &&
+            (!pageChanged || compiled.ListPageOverride) &&
             (!conditionsChanged || compiled.Conditions is not null) &&
             (!orderChanged || compiled.OptionsOrder is not null || clearedListOrder);
     }

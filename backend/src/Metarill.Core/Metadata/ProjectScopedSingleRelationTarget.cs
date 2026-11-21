@@ -6,6 +6,26 @@ namespace Metarill.Core.Metadata;
 /// <summary>项目内冗余单值关系的固定目标页。所有来源入口必须能共享同一个名称副本。</summary>
 public static class ProjectScopedSingleRelationTarget
 {
+    /// <summary>V8 固定候选用于含非冗余实体的项目，纯冗余项目保留原控件绑定。</summary>
+    public static bool UsesFixedListCandidates(MetadataCatalog catalog) =>
+        catalog.ConfigTables.Any(table => table is { IsRongyu: 0, IsView: 0, IsFunctionTable: 0 });
+
+    /// <summary>下拉从本页覆盖、字段配置或原关联页取实际目标标识，留空时回到原关联页。</summary>
+    public static string ListPageId(MetadataCatalog catalog,PageMetadata sourcePage,ColumnMetadata foreign)
+    {
+        if (!UsesFixedListCandidates(catalog)) return Text(foreign,"linkConfigPageId");
+        using var root = Definition(foreign);
+        using var overlay = PageDetail(catalog,sourcePage,foreign);
+        return FixedListPageId(foreign,root.RootElement,overlay?.RootElement);
+    }
+
+    private static string FixedListPageId(ColumnMetadata foreign,JsonElement definition,JsonElement? overlay)
+    {
+        var settings = overlay is {} detail && detail.TryGetProperty("pageId",out _) ? detail : definition;
+        var configured = Value(settings,"pageId");
+        return string.IsNullOrWhiteSpace(configured) ? Text(foreign,"linkConfigPageId") : configured;
+    }
+
     /// <summary>项目内单值页可用已声明的跨表层位限定父级。</summary>
     public static MultiTargetParentScope? LogicalParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
         PageParent(catalog,target,page) is {Logical:true} parent?parent:null;
@@ -36,7 +56,8 @@ public static class ProjectScopedSingleRelationTarget
         if(pages.Length==0)return null;
         using var document=Definition(foreign);
         var definition=document.RootElement;
-        var selected=SelectedPage(foreign,definition);
+        var fixedList = foreign.ControlKind=="List" && UsesFixedListCandidates(catalog);
+        var selected=SelectedPage(foreign,definition,fixedList);
         var linked=Text(foreign,"linkConfigPageId");
         var nameField=NameField(definition);
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
@@ -45,7 +66,7 @@ public static class ProjectScopedSingleRelationTarget
         var integerListId=foreign.ControlKind=="List"&&foreign.LogicalType=="int64"&&
             columns.Any(column=>column.ColumnName=="id"&&column.LogicalType=="int64");
         var matches=catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id)
-            .Select(page=>TargetFor(catalog,page,foreign,selected,nameField,pages,names,integerListId)).ToArray();
+            .Select(page=>TargetFor(catalog,page,foreign,definition,selected,nameField,pages,names,integerListId,fixedList)).ToArray();
         var hasNameCache=foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
             catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName==foreign.ColumnName[..^3]+"_"+nameField);
         var controlScope=hasNameCache?ControlScope(catalog,owner,foreign,target):null;
@@ -53,8 +74,8 @@ public static class ProjectScopedSingleRelationTarget
             NamePathHasScope(catalog,target,match.Page,[match.Name],new()))))return null;
         if(matches.Any(match=>match.Page is null||match.Name!=nameField)||
             matches.Select(match=>match.Page!.Id).Distinct(StringComparer.Ordinal).Count()!=1||
-            selected.Length>0&&selected!=matches[0].Page!.Id||
-            linked.Length>0&&linked!=matches[0].Page!.Id||
+            !fixedList&&(selected.Length>0&&selected!=matches[0].Page!.Id||
+                linked.Length>0&&linked!=matches[0].Page!.Id)||
             owner.YzProjectId!=catalog.YzProjectId||target.YzProjectId!=catalog.YzProjectId)throw Invalid();
 
         RequirePhysicalRole(catalog,owner,foreign,target,definition);
@@ -77,7 +98,9 @@ public static class ProjectScopedSingleRelationTarget
         var definition=document.RootElement;
         var members=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id))
             .Select(column=>column.ColumnName).ToArray();
-        var (page,_)=TargetFor(catalog,sourcePage,foreign,SelectedPage(foreign,definition),NameField(definition),pages,members);
+        var fixedList = foreign.ControlKind=="List" && target.IsRongyu==0 && UsesFixedListCandidates(catalog);
+        var (page,_)=TargetFor(catalog,sourcePage,foreign,definition,SelectedPage(foreign,definition,fixedList),
+            NameField(definition),pages,members,fixedList:fixedList);
         if(page is null)return null;
         RequirePhysicalRole(catalog,owner,foreign,target,definition);
         // 页面覆盖可以选择同一实体的另一个页，表归属仍由物理外键确定。
@@ -182,14 +205,16 @@ public static class ProjectScopedSingleRelationTarget
 
     /// <summary>下拉回退与原页面一致，同后台优先且不选择带父参数的候选页。</summary>
     private static (PageMetadata? Page,string Name) TargetFor(MetadataCatalog catalog,PageMetadata sourcePage,
-        ColumnMetadata foreign,string selected,string name,PageMetadata[] pages,string[] members,bool integerListId=false)
+        ColumnMetadata foreign,JsonElement definition,string selected,string name,PageMetadata[] pages,string[] members,
+        bool integerListId=false,bool fixedList=false)
     {
         using var overlay=PageDetail(catalog,sourcePage,foreign);
         if(overlay is not null)
         {
             var pageId=foreign.ControlKind=="SelectPage"?Value(overlay.RootElement,"pageId"):"";
             var label=Value(overlay.RootElement,"nameField");
-            if(pageId.Length>0)selected=pageId;
+            if(fixedList) selected=FixedListPageId(foreign,definition,overlay.RootElement);
+            else if(pageId.Length>0)selected=pageId;
             // 下拉的主键显示直接使用外键。写入口仍须复核同一候选范围，并维护表级名称副本。
             if(label.Length>0 && !(integerListId && label=="id"))name=label;
         }
@@ -240,8 +265,9 @@ public static class ProjectScopedSingleRelationTarget
         return(id.Length==0||id==target.Id)&&(name.Length==0||name==target.TableName);
     }
 
-    private static string SelectedPage(ColumnMetadata foreign,JsonElement definition)
+    private static string SelectedPage(ColumnMetadata foreign,JsonElement definition,bool fixedList)
     {
+        if (fixedList) return FixedListPageId(foreign,definition,null);
         var selected=foreign.ControlKind=="SelectPage"?Value(definition,"pageId"):"";
         return selected.Length==0?Text(foreign,"linkConfigPageId"):selected;
     }

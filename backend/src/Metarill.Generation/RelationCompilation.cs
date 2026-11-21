@@ -10,6 +10,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     FixedParentRelationResult? ParentBinding = null, IReadOnlyList<(ColumnModel Column, bool Descending)>? OptionsOrder = null,
     RelationConditionModel? Conditions = null, ColumnModel? FixedSourceParent = null, MultiTargetParentScope? FixedParent = null, bool LogicalSourceParent = false)
 {
+    internal bool ListPageOverride { get; init; }
     internal IReadOnlyList<ColumnModel> IndependentOrder { get; init; } = [];
     internal RelationConditionModel? ImportCondition { get; init; }
     internal bool ExcelOnly { get; init; }
@@ -39,7 +40,7 @@ internal static class RelationCompilation
     {
         var relations = new List<RelationModel>();
         // Java V8 在项目含非冗余实体时使用固定候选计划，纯冗余项目沿用旧实体查询。
-        var fixedCandidateQuery = model.Tables.Any(table => table.Source is { IsRongyu: 0, IsView: 0, IsFunctionTable: 0 });
+        var fixedCandidateQuery = ProjectScopedSingleRelationTarget.UsesFixedListCandidates(model.Catalog);
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
         var functionForm = owner.Source.IsFunctionTable == 1;
         // 普通冗余单选的弹窗直达目标页，Excel 仅生成私有名称范围，不增加候选路由。
@@ -87,11 +88,13 @@ internal static class RelationCompilation
                     throw new InvalidOperationException("功能表下拉的已发布目标页与声明目标表或页面不一致。");
                 target = published;
             }
-            else if (source.Source.ControlKind == "List" && tableId.Length == 0 && tableName.Length == 0 &&
-                Mapped("pageId").Length == 0)
+            else if (source.Source.ControlKind == "List" && tableId.Length == 0 && tableName.Length == 0)
             {
-                // 没有控件目标时，与实体校验、派生名称共同使用原关联页和旧表名。
-                target = ForeignValidationRenderer.Target(model, source);
+                // 仅靠页定位时也沿实体外键证明目标；纯冗余的旧控件仍使用原关联表声明。
+                var linkedTarget = ForeignValidationRenderer.Target(model, source);
+                if (Mapped("pageId").Length == 0 ||
+                    linkedTarget is not null && UsesProjectListPage(model,linkedTarget,page,source))
+                    target = linkedTarget;
             }
             if (target is null) continue; // 保留尚未移植的外部关系配置，能力清单明确列出未接入字段。
             if (target.Source.IsFunctionTable == 1)
@@ -112,7 +115,7 @@ internal static class RelationCompilation
             if (ManagerCredentialCompilation.IsCredential(target,name)) throw new InvalidOperationException("账号凭据不能作为关系名称、候选或导出读取列。");
             var targetPage = selection?.TargetPage ?? (functionPageId.Length > 0
                 ? target.Pages.Single(candidate => candidate.Source.Id == functionPageId)
-                : ListTargetPage(target, page, source));
+                : ListTargetPage(model, target, page, source));
             if (functionForm && target.IsGlobal && functionPageId.Length == 0)
                 throw new InvalidOperationException("功能表下拉的全局目标需要显式发布页面。");
             if(!functionForm&&target.IsGlobal&&(owner.Source.IsRongyu==0||!source.IsSystem))
@@ -126,6 +129,7 @@ internal static class RelationCompilation
                 if(name.Source.Id!=parent.Name.Source.Id)throw new InvalidOperationException("普通父关系页级名称与发布来源不一致。");
             }
             if (targetPage is null) continue;
+            var listPageOverride = !functionForm && UsesProjectListPage(model,target,page,source) && overlay.ContainsKey("pageId");
             if (listId && Mapped("pageId") is {Length:>0} declaredPage && declaredPage != targetPage.Source.Id)
                 throw new InvalidOperationException("主键下拉的目标页声明与写入关系不一致。");
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
@@ -204,6 +208,7 @@ internal static class RelationCompilation
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,
                 fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0)
             {
+                ListPageOverride = listPageOverride,
                 IndependentOrder = independentOrder,
                 FunctionForm = functionForm,
                 ImportCondition = selection?.ImportCondition,
@@ -256,8 +261,10 @@ internal static class RelationCompilation
     /// <summary>有账号或逻辑范围的下拉即使隐藏，也须复核默认值和最终持久化值。</summary>
     private static bool FixedListTarget(GenerationModel model,PageModel page,ColumnModel source)
     {
-        if(source.Source.ControlKind!="List"||ForeignValidationRenderer.Target(model,source) is not {} target||
-            ListTargetPage(target,page,source,requireExplicit:false) is not {} targetPage)return false;
+        if(source.Source.ControlKind!="List"||ForeignValidationRenderer.Target(model,source) is not {} target)return false;
+        // 已声明的非冗余目标页即使在隐藏入口也必须可解析，不能把失效绑定当作无范围。
+        if (ListTargetPage(model,target,page,source,requireExplicit:UsesProjectListPage(model,target,page,source)) is not {} targetPage)
+            return false;
         if(HasFixedTargetScope(target,targetPage)||DerivedRelationNamesCompilation.UsesExactSingleTarget(target,targetPage)||ListIdSetting(model,page,source))return true;
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var effective=Text(Definition(field?.Extra.GetValueOrDefault("controlDetail").ToString()??""),"whereSql");
@@ -294,15 +301,28 @@ internal static class RelationCompilation
         relation.SourceColumn.Source.ControlKind == "List" && relation.NameColumn.IsId && relation.TargetParents.Count > 0;
 
     /// <summary>运行时和私有写校验使用同一个原绑定页或原后台的无父目标页。</summary>
-    internal static PageModel? ListTargetPage(TableModel target,PageModel page,ColumnModel source,bool requireExplicit=true)
+    internal static PageModel? ListTargetPage(GenerationModel model,TableModel target,PageModel page,ColumnModel source,
+        bool requireExplicit=true)
     {
-        var explicitPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+        var projectListPage = UsesProjectListPage(model,target,page,source);
+        var explicitPage = projectListPage
+            ? ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)
+            : source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+        if (projectListPage && explicitPage.Length>0 &&
+            ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
+            throw new InvalidOperationException("下拉目标页必须使用原外键关联的同一实体。");
         return !string.IsNullOrWhiteSpace(explicitPage)
             ?target.Pages.SingleOrDefault(candidate=>candidate.Source.Id==explicitPage)
                 ??(requireExplicit?throw new InvalidOperationException("关联目标页不存在或不属于目标表。"):null)
             :target.Pages.FirstOrDefault(candidate=>candidate.Source.YzAdminTypeId==page.Source.YzAdminTypeId&&!candidate.Scopes.Any(scope=>scope.Source=="parent"))
                 ??target.Pages.FirstOrDefault(candidate=>!candidate.Scopes.Any(scope=>scope.Source=="parent"));
     }
+
+    /// <summary>项目内非冗余实体已有按页读取及维护证明，系统固定归属和全局关系沿原专用入口。</summary>
+    private static bool UsesProjectListPage(GenerationModel model,TableModel target,PageModel page,ColumnModel source) =>
+        source.Source.ControlKind=="List" && target.Source.IsRongyu==0 && !target.IsGlobal &&
+        !FixedParentRelationCompilation.HasDeclaration(source) &&
+        model.Tables.Any(owner=>owner.Source.Id==page.Source.ConfigTableId && !owner.IsGlobal && owner.Source.IsFunctionTable==0);
 
     /// <summary>父范围必须引用真实已声明的表与项目键，不能按请求选择父定义。</summary>
     private static TableModel Parent(GenerationModel model, ColumnModel column, TableModel? owner=null, PageModel? page=null)
