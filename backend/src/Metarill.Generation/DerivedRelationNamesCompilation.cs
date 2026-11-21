@@ -108,8 +108,13 @@ internal static class DerivedRelationNamesCompilation
             ExactDataManageCompilation.Declared(relation.TargetPage) ||
             RelationCompilation.HasFixedTargetScope(relation.Target, relation.TargetPage) || UsesLogicalPage(relation));
 
+    /// <summary>按主键显示的全局下拉仍从实际发布页取得候选，显示值直接复用真实 ID。</summary>
+    internal static bool UsesGlobalListId(RelationModel relation)=>
+        relation.Target.IsGlobal&&relation.SourceColumn.Source.ControlKind=="List"&&relation.NameColumn.IsId;
+
     /// <summary>读取用途与下发产物共用实际全局发布页。</summary>
     internal static bool UsesGlobalPlan(GenerationModel model, RelationModel relation) =>
+        UsesGlobalListId(relation) ||
         relation.Target.IsGlobal && (relation.FunctionForm || IsPhysicalTypedName(model, relation.Target, relation.NameColumn)) ||
         NonRedundantReadCompilation.HasGlobalRowProject(relation.Target) || HasGlobalAccountScope(relation.Target, relation.TargetPage);
 
@@ -208,7 +213,8 @@ internal static class DerivedRelationNamesCompilation
         if(target.IsGlobal&&!relation.FunctionForm)
         {
             var proof=RelationCompilation.GlobalTargetForPage(model,owner,page,relation.SourceColumn,target);
-            if(proof.Page.Id!=relation.TargetPage.Source.Id||proof.Name.Id!=name.Source.Id)throw new InvalidOperationException("全局派生候选与固定名称或目标页不一致。");
+            if(proof.Page.Id!=relation.TargetPage.Source.Id||proof.Name.Id!=name.Source.Id&&!UsesGlobalListId(relation))
+                throw new InvalidOperationException("全局派生候选与固定名称或目标页不一致。");
         }
         if(!relation.FunctionForm&&owner.Source.IsRongyu==1&&(!NonRedundantReadCompilation.Physical(model,owner,relation.SourceColumn)||GenerationModel.Enabled(relation.SourceColumn.Source.Extra,"isJoinColumn")||relation.SourceColumn.Source.IsVirtualColumn!=0||relation.SourceColumn.Source.LogicalType is not("int64" or "string")))throw new InvalidOperationException("R1派生候选必须使用本表真实单值外键。");
         if (typedName && owner.Source.IsRongyu == 1 && !relation.FunctionForm)

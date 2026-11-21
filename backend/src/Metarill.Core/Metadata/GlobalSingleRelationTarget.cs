@@ -212,17 +212,22 @@ public static class GlobalSingleRelationTarget
         }
         var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var nameField=Value("nameField");if(nameField.Length==0)nameField="name";var name=targetColumns.SingleOrDefault(column=>column.ColumnName==nameField);
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(targetStorage,target,column);
+        var key=targetColumns.SingleOrDefault(column=>column.ColumnName=="id");
+        if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))
+            throw new InvalidOperationException("全局单值目标必须使用非空int64物理主键。");
+        // 原整数外键可直接展示字典主键。页级主键显示复用外键，表级名称副本仍按原显示列计算。
+        var allowsListId=!projectParent&&!GlobalCrossTableTarget.Declared(owner)&&
+            foreign.ControlKind=="List"&&foreign.LogicalType=="int64";
         // 普通与显式全局来源使用同一终点证明；来源的存储模式和发布身份已由各入口核验。
         var typedName = name is not null && name.ColumnName != "id" && MultiValueLabel.IsTyped(name.LogicalType) &&
             owner.IsRongyu is 0 or 1;
-        var hasNameCache=cacheControl&&(target.IsRongyu==0||usesListPageScope)&&name is not null&&
+        var hasNameCache=cacheControl&&(target.IsRongyu==0||usesListPageScope)&&name is not null&&name!=key&&
             catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName==foreign.ColumnName[..^3]+"_"+name.ColumnName);
         var nestedScope=false;
-        if (name is null || name.LogicalType != "string" && (!typedName||projectParent) ||
+        if (name is null || name.LogicalType != "string" && (!typedName||projectParent) && !(allowsListId&&name==key) ||
             !(projectParent?Scalar(name):GlobalPhysicalRelationValue.IsPublishedScalar(catalog,targetStorage,target,name,
                 resolving??new HashSet<string>(StringComparer.Ordinal),hasNameCache||sourcePage is not null?page:null,out nestedScope)))
             throw new NotSupportedException("全局单值名称要求已证明的非凭据单值标量。");
-        var key=targetColumns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局单值目标必须使用非空int64物理主键。");
         // 逻辑范围只允许已声明的级联字段，其他成员仍按非凭据物理标量验证。
         foreach(var field in condition.Fields)
         {
@@ -252,7 +257,7 @@ public static class GlobalSingleRelationTarget
                     ReadValue(scope,"pageId") is {Length:>0} selectedPage&&selectedPage!=page.Id||
                     ReadValue(scope,"tableId") is {Length:>0} selectedTable&&selectedTable!=target.Id||
                     ReadValue(scope,"table") is {Length:>0} selectedName&&selectedName!=target.TableName||
-                    ReadValue(scope,"nameField") is {Length:>0} selectedField&&selectedField!=name.ColumnName)
+                    ReadValue(scope,"nameField") is {Length:>0} selectedField&&selectedField!=name.ColumnName&&!(allowsListId&&selectedField=="id"))
                     throw new InvalidOperationException("全局单值关系范围要求来源页使用已发布的目标和名称。");
             }
         }

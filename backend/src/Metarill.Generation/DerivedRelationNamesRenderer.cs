@@ -19,7 +19,8 @@ internal static class DerivedRelationNamesRenderer
         var bindParent=validateCurrent||projectTargets.Count>0?".BindAccount(actor)":"";
         var globalExact=DerivedRelationNamesCompilation.IsGlobalExactSingle(relation);
         var embeddedParent=DerivedRelationNamesCompilation.EmbedsParentScope(relation.Target,relation.FixedParent);
-        var embedsPageScope=globalExact||embeddedParent||relation.Target.IsGlobal&&(logical||globalAccount||relation.FunctionForm);
+        var embedsPageScope=globalExact||embeddedParent||DerivedRelationNamesCompilation.UsesGlobalListId(relation)||
+            relation.Target.IsGlobal&&(logical||globalAccount||relation.FunctionForm);
         var parentPlan = globalExact?"":exact is not null && embeddedParent
             ? NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans ?? [])
             : accountParent ? ",OptionsAccountParentScope"+suffix : "";

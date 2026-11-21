@@ -235,10 +235,17 @@ public sealed class NonRedundantGeneratedReadTests
     [InlineData(0, 1, false)]
     [InlineData(1, 1, true)]
     [InlineData(1, 0, true)]
-    public async Task List_id_display_preserves_scoped_options_and_workbook(int sourceStorage, int targetStorage, bool pageOverride)
+    [InlineData(0, 0, false, true)]
+    [InlineData(0, 1, true, true)]
+    [InlineData(1, 0, true, true)]
+    [InlineData(1, 1, false, true)]
+    [InlineData(0, 0, true, true, true)]
+    [InlineData(1, 0, false, true, true)]
+    public async Task List_id_display_preserves_scoped_options_and_workbook(
+        int sourceStorage, int targetStorage, bool pageOverride, bool global=false, bool accountParent=false)
     {
         var catalog = NonRedundantGeneratedFixture.Catalog("mt_list_id");
-        NonRedundantGeneratedFixture.EnableSingleSelection(catalog, targetParent: true);
+        NonRedundantGeneratedFixture.EnableSingleSelection(catalog, targetParent: !global || accountParent);
         NonRedundantGeneratedFixture.EnableImports(catalog);
         foreach (var item in catalog.ConfigTables) item.YzProjectId = catalog.YzProjectId;
         foreach (var item in catalog.ConfigPages) item.YzProjectId = catalog.YzProjectId;
@@ -252,7 +259,28 @@ public sealed class NonRedundantGeneratedReadTests
         {
             tableId = "2", table = "mt_list_id_party", nameField = pageOverride ? "name" : "id"
         });
-        catalog.ConfigPages.Single(page => page.Id == "201").Extra.Remove("type");
+        var targetPage=catalog.ConfigPages.Single(page => page.Id == "201");
+        var alternatePage=global&&accountParent&&pageOverride&&sourceStorage==0;
+        targetPage.Extra.Remove("type");
+        if (global)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            // 字典无行项目列，目标页条件仍须进入固定候选。保留名称页的原模式以核对页级显示覆盖。
+            catalog.ConfigColumns.RemoveAll(column=>column.Id is "22" or "16" or "17" || !pageOverride&&column.Id=="111");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "22" or "16" or "17" ||
+                !pageOverride&&field.ConfigColumnId=="111");
+            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+                page.OrderBy="id desc";
+            catalog.ConfigColumns.Add(new(){Id="212",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
+                ColumnName="status",LogicalType="int32"});
+            targetPage.WhereSql="status=83";
+            if(accountParent)
+            {
+                catalog.ConfigColumns.Add(new(){Id="213",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
+                    ColumnName="store_id",LogicalType="int64"});
+                targetPage.WhereSql+=" AND group_id=@parent_id AND store_id=@current_store_id";
+            }
+        }
         var sourcePage = catalog.ConfigPages.Single(page => page.Id == "101");
         sourcePage.IsExport = 1;
         sourcePage.Extra["exportMethod"] = JsonSerializer.SerializeToElement(targetStorage == 0 ? "list" : "edit");
@@ -260,8 +288,24 @@ public sealed class NonRedundantGeneratedReadTests
         field.Extra["isSearch"] = JsonSerializer.SerializeToElement(1);
         if (pageOverride)
         {
+            if(alternatePage)
+            {
+                // 同一字典的一张页按主键显示，另一张仍按名称显示并使用独立发布范围。
+                var alternative=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(targetPage))!;
+                alternative.Id="202";
+                alternative.WhereSql=targetPage.WhereSql.Replace("status=83","status=97",StringComparison.Ordinal);
+                catalog.ConfigPages.Add(alternative);
+                foreach(var fieldSetting in catalog.ConfigPageColumns.Where(item=>item.ConfigPageId==targetPage.Id).ToArray())
+                {
+                    var clone=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(fieldSetting))!;
+                    clone.Id="202"+clone.ConfigColumnId;
+                    clone.ConfigPageId="202";
+                    catalog.ConfigPageColumns.Add(clone);
+                }
+            }
             foreach (var setting in catalog.ConfigPageColumns.Where(item => item.ConfigColumnId == source.Id))
-                setting.Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"nameField":"id"}""");
+                setting.Extra["controlDetail"] = JsonSerializer.SerializeToElement(alternatePage
+                    ? """{"nameField":"id","pageId":"202"}""" : """{"nameField":"id"}""");
             var namePage = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(sourcePage))!;
             namePage.Id = "104";
             namePage.IsImport = namePage.IsExport = 0;
@@ -283,7 +327,8 @@ public sealed class NonRedundantGeneratedReadTests
         var relation = Assert.Single(RelationCompilation.ForPage(model, pageModel),
             item => item.SourceColumn.Source.Id == source.Id);
         Assert.True(relation.NameColumn.IsId);
-        Assert.Contains(relation.TargetPage.Scopes, scope => scope.Source == "parent");
+        Assert.Equal(alternatePage?"202":"201",relation.TargetPage.Source.Id);
+        Assert.Equal(!global||accountParent,relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"));
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
 
         var root = Path.Combine(Path.GetTempPath(), "metarill-list-id", Guid.NewGuid().ToString("N"));
@@ -307,11 +352,44 @@ public sealed class NonRedundantGeneratedReadTests
             Assert.Contains("ImportRelation101_15Async", service);
             Assert.Contains("ImportRelation103_15Async", service);
             Assert.Contains("namesCustomerId", service);
-            Assert.Contains("originalCandidateValues.CustomerId", service);
-            Assert.Contains("filters.Add(new(\"group_id\",FixedReadComparison.Equal", service);
+            if (!global || accountParent) Assert.Contains("originalCandidateValues.CustomerId", service);
+            Assert.Contains("IntegerLabelContains",service);
+            Assert.Contains("new(\"id\", FixedReadComparison.Equal, key)",service);
+            if (!global || accountParent) Assert.Contains("filters.Add(new(\"group_id\",FixedReadComparison.Equal", service);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
             var serviceType = assembly.GetType(ns + ".Generated.Services.MtListIdOrderService", true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
+            if (global)
+            {
+                const System.Reflection.BindingFlags hidden = System.Reflection.BindingFlags.NonPublic;
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    serviceType.GetField("DerivedOptionsPlan101_15",hidden | System.Reflection.BindingFlags.Static)!.GetValue(null));
+                Assert.Equal(accountParent,plan.RequiresAccount);
+                if(accountParent)
+                    plan=plan.BindAccount(new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5")
+                        {StoreId=9007199254740993L});
+                var sql=plan.GetType().GetProperty("MySql",hidden | System.Reflection.BindingFlags.Instance)!.GetValue(plan)!;
+                var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    sql.GetType().GetProperty("Constants",hidden | System.Reflection.BindingFlags.Instance)!.GetValue(sql));
+                Assert.Contains(alternatePage?97:83,parameters.Values);
+                if(alternatePage)Assert.DoesNotContain(83,parameters.Values);
+                if(accountParent)Assert.Contains(9007199254740993L,parameters.Values);
+            }
+            if(sourceStorage==0)
+            {
+                var request=new Metarill.Core.Contracts.PageRequest
+                {
+                    ParentId="123",
+                    Filters=new(){{"customerId",JsonSerializer.SerializeToElement("9007199254740993")}}
+                };
+                var actor=new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5");
+                var filters=Assert.IsAssignableFrom<IReadOnlyList<Metarill.Data.Queries.FixedReadFilter>>(serviceType
+                    .GetMethod("ReadFilters101",System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                    .Invoke(null,[request,actor]));
+                var filter=Assert.Single(filters,item=>item.Field=="customer_id");
+                Assert.Equal(Metarill.Data.Queries.FixedReadComparison.Equal,filter.Comparison);
+                Assert.Equal(9007199254740993L,Assert.IsType<long>(filter.Value));
+            }
             var readOption = serviceType.GetMethod("ReadDerivedOption101_15",
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
             var option = readOption.Invoke(null, [new Dictionary<string, object?> { ["id"] = 9007199254740993L }]);

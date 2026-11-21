@@ -106,10 +106,10 @@ internal static class RelationCompilation
             var name = selection?.Name ?? target.Columns.SingleOrDefault(c => c.Source.ColumnName == Mapped("nameField", "name"));
             if (name is null) continue;
             var typedName = DerivedRelationNamesCompilation.IsTypedName(model, owner, target, name);
-            // 原普通下拉可以展示真实主键。展示、选项及写入必须绑定同一个项目内外键。
+            // 原整数下拉可展示真实主键。显示、候选和写入都沿外键已声明的实体及实际发布页。
             var listId = name.IsId && !functionForm && source.Source.ControlKind == "List" &&
                 source.Type == "long?" && source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal) &&
-                !owner.IsGlobal && !target.IsGlobal && name.Type == "long" &&
+                !owner.IsGlobal && name.Type == "long" &&
                 NonRedundantReadCompilation.Physical(model,owner,source) && NonRedundantReadCompilation.Physical(model,target,name) &&
                 ForeignValidationRenderer.Target(model,source)?.Source.Id == target.Source.Id &&
                 (tableName.Length == 0 || tableName == target.Source.TableName);
@@ -126,7 +126,7 @@ internal static class RelationCompilation
                 var global=GlobalTargetForPage(model,owner,page,source,target);
                 targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);
                 globalListPageScope=global.UsesListPageScope;
-                if(name.Source.Id!=global.Name.Id)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
+                if(name.Source.Id!=global.Name.Id&&!listId)throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
             }
             if(owner.IsGlobal&&!target.IsGlobal&&GlobalCachedSourceCompilation.ForModel(model)
                 .SingleOrDefault(binding=>binding.Source.Source.Id==owner.Source.Id&&binding.Foreign.Source.Id==source.Source.Id) is {} parent)
@@ -137,7 +137,7 @@ internal static class RelationCompilation
             if (targetPage is null) continue;
             var projectListPage = !functionForm && UsesProjectListPage(model,target,page,source);
             var listPageOverride = globalListPageScope || projectListPage && overlay.ContainsKey("pageId");
-            if (listId && Mapped("pageId") is {Length:>0} declaredPage && declaredPage != targetPage.Source.Id)
+            if (listId && !target.IsGlobal && Mapped("pageId") is {Length:>0} declaredPage && declaredPage != targetPage.Source.Id)
                 throw new InvalidOperationException("主键下拉的目标页声明与写入关系不一致。");
             if (!targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) throw new InvalidOperationException("关联名称列未在目标页开放读取。");
             // 原单选的附加条件已经逐项证明属于目标页，逻辑父和固定条件由同一页面计划执行。
