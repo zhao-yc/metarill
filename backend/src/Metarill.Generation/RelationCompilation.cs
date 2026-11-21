@@ -150,17 +150,17 @@ internal static class RelationCompilation
             // 单选弹层和辅助回读采用同一目标排序，包括稳定的主键次序。
             if (typedName && selection is not null)
                 ordering = FixedPageQueryCompilation.For(target, targetPage).DefaultOrder;
-            else if (!string.IsNullOrWhiteSpace(orderBy) && (binding.Binding is not null ||
-                source.Source.ControlKind == "List" && (typedName || NonRedundantReadCompilation.Physical(model, target, name))))
+            else if (!string.IsNullOrWhiteSpace(orderBy) && (binding.Binding is not null || source.Source.ControlKind == "List"))
             {
                 try
                 {
-                    // 普通候选按物理列排序，派生名称由固定 SQL 计划单独处理。
+                    // 已开放的当前显示名使用原固定投影排序，避免派生文本丢弃控件或页级配置。
                     var order = GenerationModel.ValidateOrderBy(orderBy, target.Columns).ToList();
                     if (order.Any(item => item.Column.IsJsonArray ||
                         item.Column.Source.ControlKind is "Title" or "Tab" ||
                         ManagerCredentialCompilation.IsCredential(target, item.Column) ||
-                        !NonRedundantReadCompilation.Physical(model, target, item.Column) && !(typedName && item.Column == name)))
+                        !NonRedundantReadCompilation.Physical(model, target, item.Column) &&
+                            !(target.Source.IsRongyu == 0 && item.Column.Source.Id == name.Source.Id)))
                         throw new InvalidOperationException("候选排序只支持目标表的非凭据物理标量列及已证明的标量名称。");
 
                     // 原排序不含主键时补稳定次序，避免同值候选在两页之间换位。

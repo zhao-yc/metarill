@@ -1077,6 +1077,59 @@ public sealed class DerivedRelationNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>原下拉的联接文本与物理字段共用实际候选范围，并按显式排序和主键稳定分页。</summary>
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    public async Task List_with_joined_text_uses_its_configured_order(bool redundant, bool overrideOrder, bool contextual)
+    {
+        const string ns = "Example.JoinedTextListOrder";
+        var catalog = Catalog("dr_names", contextual);
+        var source = catalog.ConfigTables.Single(table => table.Id == "1");
+        source.IsRongyu = redundant ? 1 : 0;
+
+        var field = catalog.ConfigColumns.Single(column => column.Id == "15");
+        var control = JsonSerializer.Deserialize<Dictionary<string, string>>(field.ControlDetail)!;
+        control["orderBy"] = "status desc, company_name desc";
+        field.ControlDetail = JsonSerializer.Serialize(control);
+        if (overrideOrder)
+            catalog.ConfigPageColumns.Single(column => column.ConfigPageId == "101" && column.ConfigColumnId == field.Id)
+                .Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"orderBy":"company_name desc, id desc"}""");
+        var model = GenerationModel.Create(catalog, ns);
+        var owner = model.Tables.Single(table => table.Source.Id == "1");
+        var page = owner.Pages.Single(item => item.Source.Id == "101");
+        var relation = Assert.Single(RelationCompilation.ForPage(model, page), item => item.SourceColumn.Source.Id == field.Id);
+        var configured = Assert.IsAssignableFrom<IReadOnlyList<(ColumnModel Column, bool Descending)>>(relation.OptionsOrder);
+        Assert.Equal(overrideOrder ? new[] { ("company_name", true), ("id", true) } :
+            new[] { ("status", true), ("company_name", true), ("id", false) },
+            configured.Select(item => (item.Column.Source.ColumnName, item.Descending)));
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-list-text-order");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ns);
+            var code = await File.ReadAllTextAsync(Path.Combine(output, "Services", "DrNamesOrderService.g.cs"));
+            var order = overrideOrder ? """[new("company_name", true), new("id", true)]""" :
+                """[new("status", true), new("company_name", true), new("id", false)]""";
+            Assert.Contains(order, code);
+            Assert.Contains("FixedReadComparison.Contains,request.Keyword", code);
+            Assert.Contains("request.PageNo,request.PageSize", code);
+            Assert.Contains("OptionsSelected101_15Async", code);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.DrNamesOrderService", true)!;
+            RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            var plan = Assert.IsType<NonRedundantReadPlan>(
+                service.GetField("DerivedOptionsPlan101_15", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+            Assert.Equal("string", plan.OutputTypes["company_name"]);
+            Assert.DoesNotContain("status", plan.OutputTypes.Keys);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>业务编号与外键不同，保持联接整数投影、原候选文本及 Excel 精确匹配。</summary>
     [Theory]
     [InlineData("int32", "int", "-2000000001", false)]
