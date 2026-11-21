@@ -56,8 +56,13 @@ function createEmptyRule() {
 	}
 }
 
-// 旧配置会直接保存 JSON 数字。仅引用 JSON 值位置的数字词元，使 JSON.parse 不先舍入。
-const ruleNumberToken = /"(?:[^"\\]|\\[\s\S])*"|([:\[,]\s*)(-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)(?=\s*[,}\]])/g
+// 仅引用 JSON 值位置的数字词元，使规则和表单 JSON 内的数字都不先舍入。
+const jsonNumberToken = /"(?:[^"\\]|\\[\s\S])*"|([:\[,]\s*)(-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)(?=\s*[,}\]])/g
+
+function parseJsonWithExactNumbers(text) {
+	return JSON.parse(text.replace(jsonNumberToken, (token, separator, number) =>
+		separator === undefined ? token : separator + JSON.stringify(number)))
+}
 
 function normalizeRule(ruleLike) {
 	if (utils.isBlank(ruleLike)) {
@@ -66,8 +71,7 @@ function normalizeRule(ruleLike) {
 	let rule = ruleLike
 	if (typeof ruleLike === 'string') {
 		try {
-			rule = JSON.parse(ruleLike.replace(ruleNumberToken, (token, separator, number) =>
-				separator === undefined ? token : separator + JSON.stringify(number)))
+			rule = parseJsonWithExactNumbers(ruleLike)
 		} catch (error) {
 			return createEmptyRule()
 		}
@@ -205,24 +209,7 @@ function readFieldValue(entity, field, jsonObjectFields, booleanOptionFields) {
 	}
 	const segments = String(field).split('.')
 	if (segments.length > 1 && Array.isArray(jsonObjectFields) && jsonObjectFields.includes(segments[0])) {
-		// 只在生成器声明的详情 JSON 字段上解码原文本，保留表单和请求中的原值。
-		let value = entity[segments[0]]
-		if (typeof value === 'string') {
-			try {
-				value = JSON.parse(value)
-			} catch {
-				return null
-			}
-		}
-		for (const segment of segments.slice(1)) {
-			if (['__proto__', 'prototype', 'constructor'].includes(segment) ||
-				!value || typeof value !== 'object' || Array.isArray(value) ||
-				!Object.prototype.hasOwnProperty.call(value, segment)) {
-				return null
-			}
-			value = value[segment]
-		}
-		return value
+		return readDeclaredJsonMember(entity[segments[0]], segments.slice(1))
 	}
 	return segments.reduce((current, segment) => {
 		if (current == null || typeof current !== 'object') {
@@ -230,6 +217,29 @@ function readFieldValue(entity, field, jsonObjectFields, booleanOptionFields) {
 		}
 		return current[segment]
 	}, entity)
+}
+
+// 仅对生成器声明的 JSON 对象解析文本，精确保留标量数字。复合叶值仍沿用原比较输入。
+function readDeclaredJsonMember(value, path) {
+	if (typeof value !== 'string') return readObjectMember(value, path)
+	try {
+		const member = readObjectMember(parseJsonWithExactNumbers(value), path)
+		return member !== null && typeof member === 'object' ? readObjectMember(JSON.parse(value), path) : member
+	} catch {
+		return null
+	}
+}
+
+function readObjectMember(value, path) {
+	for (const segment of path) {
+		if (['__proto__', 'prototype', 'constructor'].includes(segment) ||
+			!value || typeof value !== 'object' || Array.isArray(value) ||
+			!Object.prototype.hasOwnProperty.call(value, segment)) {
+			return null
+		}
+		value = value[segment]
+	}
+	return value
 }
 
 function compareValues(actualValue, expectedValue) {

@@ -44,9 +44,11 @@ public sealed class OriginalVisibilityGenerationTests
         await Probe(catalog, "boolean");
     }
 
-    /// <summary>同时核对字符串记录 ID 及规则 JSON 数字字面量的精度。</summary>
-    [Fact]
-    public async Task Original_visibility_distinguishes_adjacent_ids_and_exact_numeric_rules()
+    /// <summary>核对字符串 ID、JSON 子字段及规则数值常量的精度。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Original_visibility_distinguishes_adjacent_ids_and_exact_numeric_rules(bool jsonMember)
     {
         const long lower = 9007199254740992;
         const long expected = 9007199254740993;
@@ -54,7 +56,17 @@ public sealed class OriginalVisibilityGenerationTests
         var page = catalog.ConfigPages.Single();
         catalog.ConfigColumns.Add(new() { Id = "16", ConfigTableId = "1", ColumnName = "owner_id", LogicalType = "int64", Name = "归属 ID" });
         catalog.ConfigPageColumns.Add(new() { Id = "116", ConfigPageId = page.Id, ConfigColumnId = "16", IsShow = 1, IsEdit = 1 });
-        const string columnRule = """{"conditions":[{"field":"ownerId","operator":"eq","value":9007199254740993}]}""";
+        var columnRule = """{"conditions":[{"field":"ownerId","operator":"eq","value":9007199254740993}]}""";
+        if (jsonMember)
+        {
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "17", ConfigTableId = "1", ColumnName = "payload", LogicalType = "json", Name = "审批参数", ControlKind = "TextArea",
+                ColumnLength = "max"
+            });
+            catalog.ConfigPageColumns.Add(new() { Id = "117", ConfigPageId = page.Id, ConfigColumnId = "17", IsShow = 1, IsEdit = 1 });
+            columnRule = columnRule.Replace("ownerId", "payload.review.owner", StringComparison.Ordinal);
+        }
         const string buttonRule = """{"groups":[{"logic":"AND","conditions":[{"field":"ownerId","operator":"in","valueList":[9007199254740993,9007199254740996]}]}]}""";
         catalog.ConfigColumns.Single(column => column.ColumnName == "remark").Extra["visibleCondition"] =
             JsonSerializer.SerializeToElement(columnRule);
@@ -69,10 +81,15 @@ public sealed class OriginalVisibilityGenerationTests
         foreach (var text in new[] { columnRule, buttonRule })
         {
             var rule = ButtonVisibilityRule.Compile(text);
-            Assert.False(rule.Matches(new Dictionary<string, object?> { ["ownerId"] = lower }));
-            Assert.True(rule.Matches(new Dictionary<string, object?> { ["ownerId"] = expected }));
+            Assert.False(rule.Matches(Record(lower)));
+            Assert.True(rule.Matches(Record(expected)));
         }
-        await Probe(catalog, "numeric");
+        await Probe(catalog, jsonMember ? "json-numeric" : "numeric");
+
+        Dictionary<string, object?> Record(long id) => new()
+        {
+            ["ownerId"] = id, ["payload"] = JsonSerializer.SerializeToElement(new { review = new { owner = id } })
+        };
     }
 
     /// <summary>实际挂载生成的列表及详情，以独立原运行时执行规则。</summary>

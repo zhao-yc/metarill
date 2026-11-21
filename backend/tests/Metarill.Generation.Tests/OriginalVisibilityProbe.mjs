@@ -22,11 +22,14 @@ for (const fixture of [detail, list]) {
   fixture.yzp.isButtonVisible = real.isButtonVisible
 }
 const hasRemark = node => node.props.id === 'yzp-detail-field-remark' || node.children.some(hasRemark)
-if (process.argv[3] === 'numeric') {
+if (process.argv[3] === 'numeric' || process.argv[3] === 'json-numeric') {
+  const jsonMember = process.argv[3] === 'json-numeric'
+  const payload = id => '{"review":{"owner":' + id + '},"text":' + JSON.stringify('含 " 引号和数字 123') + '}'
   try {
     await detail.flush()
     detail.respond(detail.requests.find(item => item.options.url.includes('/detail/7')),
-      { id: '7', name: '记录', remark: '审批后显示', ownerId: '9007199254740992' })
+      { id: '7', name: '记录', remark: '审批后显示', ownerId: '9007199254740992',
+        ...(jsonMember ? { payload: payload('9007199254740992') } : {}) })
     await new Promise(resolve => setTimeout(resolve, 320))
     await detail.flush()
     assert.equal(detail.state.loadEntitySuccess, true)
@@ -35,12 +38,22 @@ if (process.argv[3] === 'numeric') {
     assert.equal(detail.state.visibleDetailGroups.length, 0)
     assert.equal(list.state.customerButtonShow900({ id: '7', ownerId: '9007199254740992' }), false)
     detail.state.entity.ownerId = '9007199254740993'
+    if (jsonMember) detail.state.entity.payload = payload('9007199254740993')
     await detail.flush()
     assert.equal(detail.state.customerButtonShow900, true)
     assert.equal(hasRemark(detail.tree), true)
     assert.deepEqual(detail.state.visibleDetailGroups.map(group => group.key), ['review'])
     assert.equal(list.state.customerButtonShow900({ id: '7', ownerId: '9007199254740993' }), true)
     assert.equal(detail.state.entity.ownerId, '9007199254740993')
+    if (jsonMember) {
+      assert.equal(detail.state.entity.payload, payload('9007199254740993'))
+      detail.state.entity.payload = '{"review":[9007199254740993]}'
+      await detail.flush()
+      assert.equal(hasRemark(detail.tree), false)
+      detail.state.entity.payload = '{"review":{"owner":9007199254740993}'
+      await detail.flush()
+      assert.equal(hasRemark(detail.tree), false)
+    }
 
     const compare = (actual, operator, expected) =>
       evaluate(JSON.stringify({ conditions: [{ field: 'value', operator, value: expected }] }), { value: actual })

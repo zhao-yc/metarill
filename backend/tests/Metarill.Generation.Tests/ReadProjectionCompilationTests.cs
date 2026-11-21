@@ -406,10 +406,9 @@ public sealed class ReadProjectionCompilationTests
                 Assert.Contains(use.Gaps, gap => gap.ColumnId == "27");
                 return;
             }
-            // 自动名称没有详情显式字段，原详情回退 ID；原列表的实际显示仍使用自动名称。
-            var expectName = !automatic || use.Purpose != ReadProjectionPurpose.Detail;
-            Assert.Equal(expectName, use.OutputFields.Any(field => field.JsonName == "targetNames" && field.Kind == ReadProjectionOutputKind.NonRedundantValue));
-            Assert.Equal(expectName, use.FixedRead!.OutputTypes.ContainsKey("target_names"));
+            // 原数据库复选按 _ids 约定推导名称数组，详情的只读显示同样使用这个已发布的属性。
+            Assert.Contains(use.OutputFields, field => field.JsonName == "targetNames" && field.Kind == ReadProjectionOutputKind.NonRedundantValue);
+            Assert.Contains("target_names", use.FixedRead!.OutputTypes.Keys);
         });
     }
 
