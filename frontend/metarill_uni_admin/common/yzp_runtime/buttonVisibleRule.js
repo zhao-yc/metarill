@@ -114,19 +114,18 @@ function normalizeGroups(groups) {
 }
 
 function normalizeValueList(valueList, singleValue) {
-	if (Array.isArray(valueList)) {
-		return valueList.map((item) => String(item)).filter((item) => !utils.isBlank(item))
+	const explicitValues = Array.isArray(valueList) ? valueList : singleValue
+	if (Array.isArray(explicitValues)) {
+		// 显式数组的空项仍是候选。逗号或换行产生的空片段才按原规则忽略。
+		return explicitValues.map((item) => item == null ? '' : String(item))
 	}
-	if (Array.isArray(singleValue)) {
-		return singleValue.map((item) => String(item)).filter((item) => !utils.isBlank(item))
-	}
-	if (utils.isBlank(singleValue)) {
+	if (isBlankValue(singleValue)) {
 		return []
 	}
 	return String(singleValue)
 		.split(/[\n,]/)
-		.map((item) => item.trim())
-		.filter((item) => !utils.isBlank(item))
+		.filter((item) => !isBlankValue(item))
+		.map(trimRuleText)
 }
 
 function serializeRule(ruleLike) {
@@ -195,7 +194,7 @@ function evaluateCondition(condition, entity, jsonObjectFields, booleanOptionFie
 }
 
 function readFieldValue(entity, field, jsonObjectFields, booleanOptionFields) {
-	if (!entity || utils.isBlank(field)) {
+	if (!entity || isBlankValue(field)) {
 		return null
 	}
 	if (booleanOptionFields && Object.prototype.hasOwnProperty.call(booleanOptionFields, field)) {
@@ -252,15 +251,21 @@ function compareValues(actualValue, expectedValue) {
 	if (isBlankValue(expectedValue)) {
 		return 1
 	}
-	const actual = readRuleDecimal(actualValue)
-	const expected = readRuleDecimal(expectedValue)
+	const left = trimRuleText(String(actualValue))
+	const right = trimRuleText(String(expectedValue))
+	const actual = readRuleDecimal(left)
+	const expected = readRuleDecimal(right)
 	if (actual && expected) return compareRuleDecimals(actual, expected)
-	return String(actualValue).trim().localeCompare(String(expectedValue).trim())
+	// 原 Java 按 UTF-16 码元逐位比较，不能由浏览器地区设置合并不同文本。
+	return left < right ? -1 : left > right ? 1 : 0
+}
+
+function trimRuleText(text) {
+	return text.replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '')
 }
 
 // 原判定按有效数字与数量级比较。指数只用来计算位数，不能展开成大量尾零。
-function readRuleDecimal(value) {
-	const text = String(value).replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, '')
+function readRuleDecimal(text) {
 	const match = /^([+-]?)([0-9]*)(?:\.([0-9]*))?(?:[eE]([+-]?[0-9]+))?$/.exec(text)
 	if (!match) return null
 	const [, sign, whole, fraction = '', exponentText = '0'] = match
@@ -290,7 +295,8 @@ function isBlankValue(value) {
 		return true
 	}
 	if (typeof value === 'string') {
-		return value.trim() === ''
+		// Java 的空白判断保留不换行空格，比对用的 trim 则另按 U+0020 边界执行。
+		return /^[\u0009-\u000d\u001c-\u0020\u1680\u2000-\u2006\u2008-\u200a\u2028\u2029\u205f\u3000]*$/.test(value)
 	}
 	if (Array.isArray(value)) {
 		return value.length === 0

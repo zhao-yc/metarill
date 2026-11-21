@@ -70,6 +70,38 @@ if (process.argv[3] === 'numeric' || process.argv[3] === 'json-numeric') {
   }
   process.exit(0)
 }
+if (process.argv[3] === 'text') {
+  try {
+    await detail.flush()
+    detail.respond(detail.requests.find(item => item.options.url.includes('/detail/7')),
+      { id: '7', name: 'A', remark: '审批后显示' })
+    await new Promise(resolve => setTimeout(resolve, 320))
+    await detail.flush()
+    assert.equal(detail.state.loadEntitySuccess, true)
+    for (const [name, showColumn, showButton] of [
+      ['A', true, true], ['a', false, false], ['e\u0301', false, false], ['\u00e9', false, true],
+      ['\u00a0', false, true], ['\u001c', true, true], ['', true, true], ['\u202f', false, false]
+    ]) {
+      detail.state.entity.name = name
+      await detail.flush()
+      const label = JSON.stringify(name)
+      assert.equal(hasRemark(detail.tree), showColumn, '字段的原文字顺序 ' + label)
+      assert.equal(detail.state.visibleDetailGroups.length, showColumn ? 1 : 0, '分组 ' + label)
+      assert.equal(detail.state.customerButtonShow900, showButton, '详情按钮 ' + label)
+      assert.equal(list.state.customerButtonShow900({ id: '7', name }), showButton, '行按钮 ' + label)
+      assert.equal(detail.state.entity.name, name)
+    }
+
+    // 条件编辑器提交的包含值仍可用逗号或换行分隔，不丢掉不换行空格。
+    const nodes = JSON.stringify({ conditions: [{ field: 'value', operator: 'in', value: 'A,\u00a0,\u001c' }] })
+    assert.equal(evaluate(nodes, { value: '\u00a0' }), true)
+    assert.equal(evaluate(nodes, { value: '\u001c' }), false)
+  } finally {
+    detail.app.unmount()
+    list.app.unmount()
+  }
+  process.exit(0)
+}
 try {
   await detail.flush()
   detail.respond(detail.requests.find(item => item.options.url.includes('/detail/7')),

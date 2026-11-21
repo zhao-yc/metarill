@@ -92,6 +92,40 @@ public sealed class OriginalVisibilityGenerationTests
         };
     }
 
+    /// <summary>原文字与空白条件须在服务端和生成页面得到一致结果。</summary>
+    [Fact]
+    public async Task Original_visibility_compares_text_and_blank_values_as_the_server()
+    {
+        var catalog = GeneratorTests.Catalog();
+        var page = catalog.ConfigPages.Single();
+        const string columnRule = """{"conditions":[{"field":"name","operator":"lt","value":"a"}]}""";
+        const string buttonRule = """{"conditions":[{"field":"name","operator":"in","valueList":["A","é","\u00a0",null]}]}""";
+        catalog.ConfigColumns.Single(column => column.ColumnName == "remark").Extra["visibleCondition"] =
+            JsonSerializer.SerializeToElement(columnRule);
+        catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "13").Extra["detailGroupKey"] = JsonSerializer.SerializeToElement("review");
+        page.Extra["detailLayout"] = JsonSerializer.SerializeToElement(
+            """{"version":1,"mode":"tabs","groups":[{"key":"review","name":"审批备注"}]}""");
+        catalog.ConfigButtons.Add(JsonSerializer.SerializeToElement(new
+        {
+            id = "900", name = "审批动作", configPageId = page.Id, place = "EditAndGrid",
+            visibleScheme = "Normal", visibleRuleJson = buttonRule, actionType = 1, saveOption = "NotSave"
+        }));
+
+        var column = ButtonVisibilityRule.Compile(columnRule);
+        var button = ButtonVisibilityRule.Compile(buttonRule);
+        foreach (var (name, showColumn, showButton) in new (string, bool, bool)[]
+        {
+            ("A", true, true), ("a", false, false), ("e\u0301", false, false), ("\u00e9", false, true),
+            ("\u00a0", false, true), ("\u001c", true, true), ("", true, true), ("\u202f", false, false)
+        })
+        {
+            var record = new Dictionary<string, object?> { ["name"] = name };
+            Assert.Equal(showColumn, column.Matches(record));
+            Assert.Equal(showButton, button.Matches(record));
+        }
+        await Probe(catalog, "text");
+    }
+
     /// <summary>实际挂载生成的列表及详情，以独立原运行时执行规则。</summary>
     private static async Task Probe(MetadataCatalog catalog, string scenario)
     {
