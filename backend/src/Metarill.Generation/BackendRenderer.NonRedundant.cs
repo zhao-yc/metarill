@@ -385,7 +385,7 @@ internal static class GeneratedNonRedundantReadCatalog
                     .AppendLine($"                    if (selectedIds.Length > 0) result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayHasAnyId,selectedIds));")
                     .AppendLine("                    break;");
             else if(DatabaseCheckboxCompilation.Generic(table,column)&&!multiIdCheckbox)result.AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayHasId,Metarill.Core.Contracts.DatabaseCheckboxValue.ReadId(filter.Value)));break;");
-            else if(column.IsManagedMultiNames&&DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.Names.Source.Id==column.Source.Id))result.AppendLine("                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException(\"复选名称筛选只接受文本。\");").AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayAnyContains,filter.Value.GetString()!));break;");
+            else if(column.IsManagedMultiNames&&DatabaseCheckboxCompilation.ForService(model,table,page).Any(def=>def.Names?.Source.Id==column.Source.Id))result.AppendLine("                    if(filter.Value.ValueKind!=JsonValueKind.String)throw new ArgumentException(\"复选名称筛选只接受文本。\");").AppendLine($"                    result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.JsonArrayAnyContains,filter.Value.GetString()!));break;");
             else if(column.Source.ControlKind=="CascadeTree")result.AppendLine("                    break;");
             else if (column.Type == "DateTime?")
             {

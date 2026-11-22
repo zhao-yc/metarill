@@ -106,7 +106,7 @@ internal sealed class OriginalDetailContext(GenerationModel model, TableModel ta
         if (column.Source.ControlKind == "MultiCheckBoxDatabase" && FixedRoleCheckboxCompilation.Resolve(model,table,page,column).Definition is not null) return FixedRoleCheckboxModel.Alias;
         if (DatabaseCheckboxCompilation.Generic(table,column) &&
             DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is { } checkbox)
-            return checkbox.Names.JsonName;
+            return checkbox.Names?.JsonName??column.JsonName;
         if(RelationCompilation.ListDisplaysId(model,page,column) || nameField=="id"&&NonRedundantSelectionCompilation.DisplaysId(model,page,column))
             return column.JsonName;
         // 页级简称使用原辅助名，候选切换和只读回显读取同一返回属性。

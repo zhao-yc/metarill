@@ -4,7 +4,7 @@ using Metarill.Data.Queries;
 
 namespace Metarill.Generation;
 
-internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Target,ColumnModel Name,ColumnModel Names,IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,IReadOnlyList<TableModel> SourceParents,ColumnModel? SourceParent,bool DerivedName=false,PageModel? GlobalPage=null)
+internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Target,ColumnModel Name,ColumnModel? Names,IReadOnlyList<(ColumnModel Column,string Source)> Scopes,RelationConditionModel? Conditions,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,IReadOnlyList<TableModel> SourceParents,ColumnModel? SourceParent,bool DerivedName=false,PageModel? GlobalPage=null)
 {
     // null 表示沿用原物理排序；空集合仍可以是已证明的固定联接。
     internal IReadOnlyList<NonRedundantSingleTargetScope>? CandidateOrderTargets { get; init; }
@@ -114,8 +114,9 @@ internal static class DatabaseCheckboxCompilation
             }
             var usesNameOverride=definition.NameField!=baseline.NameField;
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
+            var idLabel=name is not null&&name.IsId&&name.Type=="long"&&NonRedundantReadCompilation.Physical(model,target,name);
             var scalarLabel=name is not null&&MultiSelectCompilation.SupportsTypedLabel(model,table,source,target,name);
-            if(name is null||name.Type!="string?"&&!scalarLabel||name.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,name))
+            if(name is null||!idLabel&&name.Type!="string?"&&!scalarLabel||name.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,name))
                 return Gap("名称必须为已声明的非凭据且已证明的标量。");
             var derived=!NonRedundantReadCompilation.Physical(model,target,name);if(!derived&&GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&(!target.IsGlobal||!GlobalPhysicalRelationValue.IsPublishedScalar(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,name.Source)))return Gap("物理Join名称仍需独立缓存证明。");
             if(!target.IsGlobal&&!HasIdentity(model,target))return Gap("目标缺少真实项目归属。");
@@ -327,12 +328,12 @@ internal static class DatabaseCheckboxCompilation
                 return Gap("候选排序须为物理标量或实际目标页开放的固定单值联接。");
             if (!order.Any(item => item.Column.IsId)) order.Add((target.Columns.Single(column => column.IsId), false));
             var independentCache=table.Source.IsRongyu==1&&usesNameOverride;
-            var names=functionForm?SelectionDisplayFieldCompilation.FunctionFormNames(table,source,name):
+            var names=idLabel?null:functionForm?SelectionDisplayFieldCompilation.FunctionFormNames(table,source,name):
                 independentCache?MultiNameStorageCompilation.FindPhysicalName(table,source,name):SelectionDisplayFieldCompilation.Resolve(table,source);
-            if(names is null||!functionForm&&(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names)))return Gap("冗余模式需要已证明的同一关系名称数组缓存，非冗余使用只读联接或自动名称。");
-            if(independentCache&&!forService&&!page.Readable.Any(column=>column.Source.Id==names.Source.Id))
+            if(!idLabel&&(names is null||!functionForm&&(names.Source.Id==source.Source.Id||names.Type!="string?"||table.Source.IsRongyu==1&&!MultiNameStorageCompilation.Supports(model,table,source,name,names))))return Gap("冗余模式需要已证明的同一关系名称数组缓存，非冗余使用只读联接或自动名称。");
+            if(independentCache&&names is not null&&!forService&&!page.Readable.Any(column=>column.Source.Id==names.Source.Id))
                 return Gap("本页必须开放简称对应的物理名称数组。");
-            if(!functionForm&&table.Source.IsRongyu==0&&(!GenerationModel.Enabled(names.Source.Extra,"isJoinColumn")||names.Source.IsVirtualColumn!=0))return Gap("非冗余名称必须是明确只读联接或自动投影。");
+            if(!idLabel&&!functionForm&&table.Source.IsRongyu==0&&(!GenerationModel.Enabled(names!.Source.Extra,"isJoinColumn")||names.Source.IsVirtualColumn!=0))return Gap("非冗余名称必须是明确只读联接或自动投影。");
             var result=new DatabaseCheckboxModel(source,target,name,names,scopes,conditions,order,parents,sourceParent,derived,globalPage)
             {
                 CandidateOrderTargets=joinedOrder.Length==0?null:RequireOrderTargets(model,target,namePage!,order),
@@ -443,7 +444,7 @@ internal static class DatabaseCheckboxCompilation
                 fixedParent=FixedCacheParent(root);
                 actual.Add(root);
             }
-            bindings.AddRange(actual.Select(definition=>new MultiNameWriteBinding(definition.Source,definition.Target,definition.Name,definition.Names)
+            bindings.AddRange(actual.Where(definition=>definition.Names is not null).Select(definition=>new MultiNameWriteBinding(definition.Source,definition.Target,definition.Name,definition.Names!)
                 {CheckboxTargetPageId=fixedPage,CheckboxSourceParentId=fixedParent}));
         }
         foreach(var binding in bindings.GroupBy(item=>item.Cache.Source.Id))
@@ -455,9 +456,26 @@ internal static class DatabaseCheckboxCompilation
     /// <summary>名称数组是服务端管理的只读字段；保持原布局，不把普通名称列继续作为可写DTO输入。</summary>
     internal static GenerationModel Prepare(GenerationModel model)=>model with{Tables=model.Tables.Select(table=>
     {
+        var idDisplaySources=table.Pages.SelectMany(page=>ForService(model,table,page)).Where(def=>def.Name.IsId)
+            .Select(def=>def.Source.Source.ColumnName[..^4]).ToHashSet(StringComparer.Ordinal);
+        foreach(var source in table.Source is { IsFunctionTable:0 } ? model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id&&column.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase") : [])
+        {
+            try
+            {
+                var id=source.ControlKind=="MultiCheckBoxDatabase"
+                    ?DatabaseCheckboxDefinition.Parse(source.ControlDetail).NameField=="id"
+                    :JsonDocument.Parse(string.IsNullOrWhiteSpace(source.ControlDetail)?"{}":source.ControlDetail).RootElement.TryGetProperty("nameField",out var field)&&field.GetString()=="id";
+                if(id)idDisplaySources.Add(source.ColumnName[..^4]);
+            }
+            catch(JsonException) { }
+        }
+        // 切换为主键显示后，旧名称副本不再属于当前页面读取合同，避免按过时联接路径编译。
+        bool staleIdName(ColumnModel column)=>column.Source.Extra.GetValueOrDefault("columnFullName").ToString() is {Length:>0} path&&
+            idDisplaySources.Any(stem=>path.StartsWith(stem+".",StringComparison.Ordinal));
         var managed=(table.Source.IsRongyu==1&&table.Source.IsFunctionTable==0
             ?Caches(model,table).Select(binding=>binding.Cache.Source.Id)
-            :table.Pages.SelectMany(page=>ForService(model,table,page)).Select(def=>def.Names.Source.Id)).ToHashSet(StringComparer.Ordinal);ColumnModel Fix(ColumnModel column)=>managed.Contains(column.Source.Id)?column with{IsManagedMultiNames=true}:column;IReadOnlyList<ColumnModel> All(IEnumerable<ColumnModel> columns)=>columns.Select(Fix).ToArray();
-        return table with{Columns=All(table.Columns),Pages=table.Pages.Select(page=>page with{Readable=All(page.Readable),Writable=All(page.Writable.Where(column=>!managed.Contains(column.Source.Id))),Searchable=All(page.Searchable),Sortable=All(page.Sortable),ListColumns=All(page.ListColumns),DetailColumns=All(page.DetailColumns)}).ToArray()};
+            :table.Pages.SelectMany(page=>ForService(model,table,page)).Where(def=>def.Names is not null).Select(def=>def.Names!.Source.Id)).ToHashSet(StringComparer.Ordinal);ColumnModel Fix(ColumnModel column)=>managed.Contains(column.Source.Id)?column with{IsManagedMultiNames=true}:column;IReadOnlyList<ColumnModel> All(IEnumerable<ColumnModel> columns)=>columns.Select(Fix).ToArray();
+        IReadOnlyList<ColumnModel> Visible(IEnumerable<ColumnModel> columns)=>columns.Where(column=>!staleIdName(column)).ToArray();
+        return table with{Columns=All(table.Columns),Pages=table.Pages.Select(page=>page with{Readable=All(Visible(page.Readable)),Writable=All(Visible(page.Writable.Where(column=>!managed.Contains(column.Source.Id)))),Searchable=All(Visible(page.Searchable)),Sortable=All(Visible(page.Sortable)),ListColumns=All(Visible(page.ListColumns)),DetailColumns=All(Visible(page.DetailColumns))}).ToArray()};
     }).ToArray()};
 }

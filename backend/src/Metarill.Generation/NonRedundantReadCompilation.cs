@@ -200,8 +200,8 @@ internal static partial class NonRedundantReadCompilation
         foreach(var name in CascadeTreeViewRenderer.ImplicitNames(model,table,page))outputs.Add(new(name.Source.ColumnName,name.Property,name.JsonName,name.Type));
         foreach(var multi in MultiSelectCompilation.ForPage(model,table,page).Where(multi=>multi.Names is not null))
             if(!outputs.Any(output=>output.Storage==multi.Names!.Source.ColumnName))outputs.Add(new(multi.Names!.Source.ColumnName,multi.Names.Property,multi.Names.JsonName,"string?",true));
-        foreach(var checkbox in DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>page.Readable.Any(field=>field.Source.Id==def.Source.Source.Id)))
-            if(!outputs.Any(output=>output.Storage==checkbox.Names.Source.ColumnName))outputs.Add(new(checkbox.Names.Source.ColumnName,checkbox.Names.Property,checkbox.Names.JsonName,"string?",true));
+        foreach(var checkbox in DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>def.Names is not null&&page.Readable.Any(field=>field.Source.Id==def.Source.Source.Id)))
+            if(!outputs.Any(output=>output.Storage==checkbox.Names!.Source.ColumnName))outputs.Add(new(checkbox.Names!.Source.ColumnName,checkbox.Names.Property,checkbox.Names.JsonName,"string?",true));
         foreach(var relation in page.Readable.Where(column=>MetadataStoragePolicy.IsRelationColumn(column.Source)))
         {
             if(relation.Source.ControlKind is not("List" or "SelectPage"))continue;

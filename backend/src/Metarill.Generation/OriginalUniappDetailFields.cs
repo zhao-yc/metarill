@@ -116,7 +116,7 @@ internal static class OriginalUniappDetailFields
                 return Choice(ro, $"readonlyDisplayText(entity.{display})", $"<zxz-uni-data-select v-model='entity.{name}' :localdata='{list}' filterable :disabled='{ro}' dataKey='name' dataValue='id'{(remote is null ? "" : OriginalRemoteOptionsCompilation.Attributes(column))} @change='{handler}' />");
             case "MultiCheckBoxDatabase":
                 var formCheckbox=c.Table.Source.IsFunctionTable==1?DatabaseCheckboxCompilation.Resolve(c.Model,c.Table,c.Page,column).Definition:null;
-                var checkboxDisplay=formCheckbox?.Names.JsonName??c.DisplayField(column);
+                var checkboxDisplay=formCheckbox?.Names?.JsonName??c.DisplayField(column);
                 // 功能表无保存回执。候选回读和原change事件使用同一身份下的显示名称。
                 var updateNames=formCheckbox is null?"":$" const labels=new Map(this.{name}List.map(item=>[String(item.id),item.name]));this.entity.{checkboxDisplay}=yzp.relationArray(this.entity.{name}).map(id=>labels.get(String(id))??null);";
                 var changeAfterAll=formCheckbox is null?"":$" this.{name}Change();";

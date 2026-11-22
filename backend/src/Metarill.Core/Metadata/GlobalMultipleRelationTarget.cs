@@ -55,6 +55,7 @@ public static class GlobalMultipleRelationTarget
         bool Scalar(ColumnMetadata column)=>GlobalPhysicalRelationValue.IsScalar(physical,target,column);
         var nameField=Value("nameField");if(nameField.Length==0)nameField="name";
         var name=columns.SingleOrDefault(column=>column.ColumnName==nameField);
+        var idLabel=name is not null&&name.ColumnName=="id"&&name.LogicalType=="int64"&&name.IsDbNotNull==1&&Scalar(name);
         // 物理列或固定联接名称由发布证明验证实际终点。
         var scalarLabel=name is not null&&(MultiNameStorageColumns.IsPhysicalScalarLabel(owner,foreign,target,name,physical)||
             MultiNameStorageColumns.IsDerivedScalarLabel(target,name,physical)||
@@ -64,7 +65,7 @@ public static class GlobalMultipleRelationTarget
             !ExactDataManageValues.IsSensitiveField(name.ColumnName)&&
             (CrossTableStorageColumns.IsLogicalPathField(target,columns,name.ColumnName)||
                 CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,name.ColumnName));
-        if(name is null||name.LogicalType!="string"&&!scalarLabel||!pathLabel&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name))
+        if(name is null||!idLabel&&name.LogicalType!="string"&&!scalarLabel||!idLabel&&!pathLabel&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name))
             throw new NotSupportedException("全局多值名称必须为已证明的非凭据标量。");
         var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");
         if(!scoped&&condition.Fields.Any(field=>!Scalar(columns.Single(column=>column.ColumnName==field))))

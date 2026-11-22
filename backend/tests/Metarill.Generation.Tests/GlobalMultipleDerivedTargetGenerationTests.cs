@@ -25,6 +25,39 @@ public sealed class GlobalMultipleDerivedTargetGenerationTests
         else Assert.DoesNotContain("cached_consumer",maintenance.MixedSourceColumns.Keys);
         Assert.Equal(before,JsonSerializer.Serialize(c));
     }
+
+    /// <summary>全局多选和数据库复选可以按同一发布页的真实 int64 主键显示，保留数组、回显和导入导出合同。</summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    public async Task Global_array_controls_can_display_exact_primary_keys(int mode,bool automatic)
+    {
+        var catalog=Catalog(mode,automatic,"int64");
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "34" or "38"))
+            column.ControlDetail=column.ControlDetail.Replace("global_target_name","id",StringComparison.Ordinal);
+        var model=GenerationModel.Create(catalog,"Example.GlobalMultiplePrimaryKey");
+        var table=model.Tables.Single(table=>table.Source.Id=="3");
+        var page=table.Pages.Single(page=>page.Source.Id=="30");
+        if(!automatic)Assert.DoesNotContain(page.Readable,column=>column.Source.Id is "35" or "40");
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var multi=Assert.Single(MultiSelectCompilation.ForPage(model,table,page));
+        var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,page));
+        Assert.True(multi.Name.IsId);
+        Assert.Null(multi.Names);
+        Assert.True(checkbox.Name.IsId);
+        var root=Path.Combine(Path.GetTempPath(),"metarill-global-multiple-primary-key",Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,root,"Example.GlobalMultiplePrimaryKey");
+            await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            var service=await File.ReadAllTextAsync(Path.Combine(root,"Services/CachedConsumerService.g.cs"));
+            Assert.Contains("ReadMultiValue30_34",service);
+            Assert.Contains("CheckboxOptions30_38Async",service);
+        }
+        finally { if(Directory.Exists(root)) Directory.Delete(root,true); }
+    }
     /// <summary>显式全局 R0 目标的整数别名同时接入原多选、数据库复选、Excel 和缓存依赖。</summary>
     [Theory]
     [InlineData(0,false,"int64","int32",false)]

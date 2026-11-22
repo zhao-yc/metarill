@@ -8,7 +8,7 @@ internal static class MultiNameStorageCompilation
     /// <summary>仅补已开放来源的隐式缓存，不改变页面布局、显式隐藏列或可写DTO。</summary>
     internal static IReadOnlyList<ColumnModel> ImplicitNames(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu!=1?[]:
         MultiSelectCompilation.ForPage(model,table,page).Where(def=>def.Names is not null&&page.Readable.Any(column=>column.Source.Id==def.Source.Source.Id)).Select(def=>def.Names!)
-        .Concat(DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>page.Readable.Any(column=>column.Source.Id==def.Source.Source.Id)).Select(def=>def.Names))
+        .Concat(DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>def.Names is not null&&page.Readable.Any(column=>column.Source.Id==def.Source.Source.Id)).Select(def=>def.Names!))
         .Where(cache=>cache.IsManagedMultiNames&&IsImplicit(model,cache)&&!page.Readable.Any(column=>column.Source.Id==cache.Source.Id)).DistinctBy(cache=>cache.Source.Id).ToArray();
     /// <summary>按原多值名称规则定位声明列；完整归属仍由 Supports 检查。</summary>
     internal static ColumnModel? FindPhysicalName(TableModel table,ColumnModel source,ColumnModel value)

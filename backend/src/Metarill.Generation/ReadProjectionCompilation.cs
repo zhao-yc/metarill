@@ -358,6 +358,14 @@ internal static class ReadProjectionCompilation
         /// <summary>原复选只读名称沿用发布列；详情联动的实体依赖逐项接受本页可读校验。</summary>
         private void Checkbox(ColumnModel source, DatabaseCheckboxModel checkbox)
         {
+            if(checkbox.Names is null)
+            {
+                Auxiliary(source,source);
+                if (purpose == ReadProjectionPurpose.Detail && DatabaseCheckboxCompilation.LiveDetailForm(source, checkbox) is { } idForms)
+                    foreach (var field in idForms)
+                        Add(field.Column, "原复选联动表单：" + source.JsonName, false);
+                return;
+            }
             var display = purpose == ReadProjectionPurpose.Detail
                 ? OriginalDetailContext.DisplayField(model, table, page, source)
                 : checkbox.Names.JsonName;

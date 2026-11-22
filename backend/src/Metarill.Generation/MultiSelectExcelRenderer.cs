@@ -76,7 +76,7 @@ internal static class MultiSelectExcelRenderer
     internal static string LabelText(ColumnModel label,string input)=>label.Source.LogicalType switch
     {
         "string" => input,
-        "int32" or "int64" => input+"?.ToString(CultureInfo.InvariantCulture)",
+        "int32" or "int64" => input+(label.IsId?".":"?.")+"ToString(CultureInfo.InvariantCulture)",
         _ => "MultiValueLabel.Text("+Literal(label.Source.LogicalType)+","+input+")"
     };
     /// <summary>原工作簿名称接收文本或数值，布尔名称另外兼容原始 JSON 布尔标量。</summary>

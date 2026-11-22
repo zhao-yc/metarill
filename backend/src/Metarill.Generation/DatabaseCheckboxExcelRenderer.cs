@@ -61,7 +61,7 @@ internal static class DatabaseCheckboxExcelRenderer
             var selected=DatabaseCheckboxValue.Parse(entity.{{def.Source.Property}});
             var scope=await CheckboxScope{{suffix}}Async({{DatabaseCheckboxRenderer.ParentValue(def,"entity")}},actor,{{DatabaseCheckboxRenderer.EntityForm(def,"entity")}},false,cancellationToken);
             {{(def.DerivedName?"var rows=await DerivedCheckboxRows"+suffix+"Async("+DatabaseCheckboxRenderer.ParentValue(def,"entity")+",actor,"+DatabaseCheckboxRenderer.EntityForm(def,"entity")+",selected,null,false,DatabaseCheckboxValue.MaximumItems,false,cancellationToken);":"var rows=await scope.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>new{row.Id,Name=row."+def.Name.Property+"},cancellationToken);")}}
-            if(rows.Count!=selected.Length||rows.Any(row=>row.Name is null))throw new InvalidOperationException("复选名称导出存在缺失、删除或离开候选范围的目标，不能生成会重映射的名称数组。");
+            if(rows.Count!=selected.Length{{(def.Name.IsId?"":"||rows.Any(row=>row.Name is null)")}})throw new InvalidOperationException("复选名称导出存在缺失、删除或离开候选范围的目标，不能生成会重映射的名称数组。");
             var names=rows.ToDictionary(row=>row.Id,row=>row.Name);
             foreach(var id in selected)
             {
