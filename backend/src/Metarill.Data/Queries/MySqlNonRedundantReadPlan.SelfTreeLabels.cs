@@ -193,8 +193,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 origin=new(proof.Target.TableName,proof.Name.ColumnName);
             if(fixedTarget is null&&!storage[proof.Target.Id].IsPhysical(proof.Name))
             {
+                var nestedPage=global&&HasGlobalRowProject(proof.Target)?proof.Page:null;
                 var nested=new Builder(catalog,proof.Target.Id,matching:!global,rootAlias:display,aliasPrefix:prefix+"label_",
-                    trackReverse:trackReverse,candidatePage:global&&HasGlobalRowProject(proof.Target)?proof.Page:null,multiLabel:true)
+                    trackReverse:trackReverse,candidatePage:nestedPage,multiLabel:true,
+                    globalCandidate:global&&proof.Target.IsRongyu==0&&nestedPage is not null)
                     .Compile([proof.Name.ColumnName],[]);
                 if(!nested.Origins.TryGetValue(proof.Name.ColumnName,out var terminal)||
                     ExactDataManageValues.IsSensitiveField(terminal.Column)||nested.MultiProjections.Count>0||nested.Crosses.Count>0||

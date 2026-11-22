@@ -176,7 +176,8 @@ public static partial class MySqlNonRedundantReadCompiler
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
         if(!exactSingleCandidate&&pageType!="2"&&GlobalCrossTableTarget.SingleParent(catalog,table,page) is not null)
             return CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies??[],accountParentPageType:pageType,singleTargets:singleTargets);
-        return new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames,exactSingleCandidate:exactSingleCandidate)
+        return new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames,exactSingleCandidate:exactSingleCandidate,
+            globalCandidate:table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table))
         {
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
         }.Compile(outputs,dependencies??[]);
@@ -332,7 +333,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly bool scopedPhysicalCandidate;
         private readonly IReadOnlyList<RedundantSharedParentPlan> candidateParents;
         private readonly bool accountPhysicalCandidate;
-        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false,string? cascadeLabelField=null,CascadeCacheOwner? cascadeCacheOwner=null,bool scopedPhysicalCandidate=false,IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,bool accountPhysicalCandidate=false,bool exactSingleCandidate=false)
+        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false,string? cascadeLabelField=null,CascadeCacheOwner? cascadeCacheOwner=null,bool scopedPhysicalCandidate=false,IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,bool accountPhysicalCandidate=false,bool exactSingleCandidate=false,bool globalCandidate=false)
         {
             this.scopedPhysicalCandidate = scopedPhysicalCandidate;
             this.accountPhysicalCandidate=accountPhysicalCandidate;
@@ -343,7 +344,11 @@ public static partial class MySqlNonRedundantReadCompiler
             tables=catalog.ConfigTables.Where(table=>(table.YzProjectId.Length==0?catalog.YzProjectId:table.YzProjectId)==catalog.YzProjectId).ToDictionary(table=>table.Id,StringComparer.Ordinal);
             root=tables.GetValueOrDefault(tableId)??throw new InvalidOperationException("源表不属于当前项目。");
             var physicalCandidate = candidatePage is not null && refreshFields is null && root.IsRongyu == 1;
-            if ((!physicalCandidate && !scopedPhysicalCandidate && (refreshFields is null ? root.IsRongyu != 0 : root.IsRongyu != 1)) ||
+            // 全局 R0 的候选页可以跨项目读取，但必须同时满足显式全局声明和实际发布页证明。
+            // 普通业务页仍保留项目行归属，未传入该精确标志的 R0 候选继续拒绝。
+            var publishedGlobalCandidate = globalCandidate && candidatePage is not null && refreshFields is null &&
+                root.IsRongyu == 0 && GlobalCrossTableTarget.Declared(root);
+            if ((!physicalCandidate && !publishedGlobalCandidate && !scopedPhysicalCandidate && (refreshFields is null ? root.IsRongyu != 0 : root.IsRongyu != 1)) ||
                 root.IsFunctionTable != 0 || root.IsView != 0)
                 throw new InvalidOperationException("固定读取要求非冗余实体表或明确发布的物理候选。");
             if (candidatePage is not null)
@@ -554,7 +559,8 @@ public static partial class MySqlNonRedundantReadCompiler
                         if(target.IsRongyu!=0)throw new NotSupportedException("自树派生名称要求R0目标。");
                         var globalTarget=GlobalCrossTableTarget.Declared(target);
                         var targetPage=globalTarget&&SelfTreeLabel(catalog,tree) is {Scoped:false} fixedTree?fixedTree.Page:null;
-                        var nested=new Builder(catalog,target.Id,matching:!globalTarget,candidatePage:targetPage).Compile([value.ColumnName],[]);
+                        var nested=new Builder(catalog,target.Id,matching:!globalTarget,candidatePage:targetPage,
+                            globalCandidate:globalTarget&&target.IsRongyu==0&&targetPage is not null).Compile([value.ColumnName],[]);
                         if(nested.Types[value.ColumnName]!=value.LogicalType||nested.MultiProjections.Count>0||nested.Crosses.Count>0||!nested.Origins.TryGetValue(value.ColumnName,out var terminal)||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("自树名称必须落到同类型的非凭据标量。");
                     }
                     // 明确交由生成服务的固定图投影，SQL阶段不读取未经完整祖先范围证明的叶子名称。

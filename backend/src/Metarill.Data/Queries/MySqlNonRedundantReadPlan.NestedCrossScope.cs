@@ -175,7 +175,8 @@ public static partial class MySqlNonRedundantReadCompiler
             ?new Builder(catalog,parent.Id,rootAlias:alias,aliasPrefix:prefix,trackReverse:trackReverse,multiLabel:true,cascadeLabelField:"id",cascadeCacheOwner:owner)
                 {SelectedMultiPage=published,GlobalCrossCandidate=true,CrossAliasPrefix=prefix+"cross"}.Compile(["id"],[])
             :new Builder(catalog,parent.Id,rootAlias:alias,aliasPrefix:prefix,trackReverse:trackReverse,candidatePage:published,
-                cascadeCacheOwner:owner,accountPhysicalCandidate:true).Compile(["id"],[]);
+                cascadeCacheOwner:owner,accountPhysicalCandidate:true,
+                globalCandidate:parent.IsRongyu==0&&GlobalCrossTableTarget.Declared(parent)).Compile(["id"],[]);
     }
 
     /// <summary>多个目标页可共享同一个实际全局父页面，独立来源父校验只绑定该发布页。</summary>

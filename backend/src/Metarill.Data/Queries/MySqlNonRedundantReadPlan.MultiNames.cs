@@ -167,6 +167,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:candidatePage,multiLabel:true,cascadeLabelField:value.ColumnName,
                 cascadeCacheOwner:refreshFields is null||fixedParent is not null&&storage[target.Id].IsPhysical(value)?null:new(table,owner),
+                globalCandidate:global&&target.IsRongyu==0&&candidatePage is not null,
                 scopedPhysicalCandidate:physicalScope&&!global,
                 exactSingleCandidate:storedGlobalExact)
             {
