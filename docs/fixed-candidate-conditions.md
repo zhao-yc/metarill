@@ -217,4 +217,4 @@ Excel 首列为依赖联动值的下拉或单选时，按当前页面范围解�
 
 全局 R0 目标的单值联接名称可作为原多选和数据库复选的名称路径终点。嵌套读取仅在目标表、全局声明和发布页三项同时成立时放行，未发布页、普通 R0 业务页和 R1 缓存路径继续使用原有门禁。候选、名称回显、筛选、导入导出和维护共用同一发布证明。
 
-生成回归复用 `GlobalScopedCandidateTests.Generated_global_candidate_and_owned_service_paths_are_distinct` 的四种来源存储与外键类型组合。定向构建受本机当前缺少 `global.json` 要求的 .NET SDK 影响，待 SDK 恢复后运行并补充结果。专项 MySQL、完整包和浏览器验收后置。
+生成回归复用 `GlobalScopedCandidateTests.Generated_global_candidate_and_owned_service_paths_are_distinct` 的四种来源存储与外键类型组合。Server-200 的 .NET SDK 10.0.404 已完成源码和生成测试程序集编译，最终测试进程在主机高负载期间尚未取得 TRX。专项 MySQL、完整包和浏览器验收后置。
