@@ -594,10 +594,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 var published=PublishedCondition(target,alias,nestedProof.Page,allowAccount:nestedProof.ScopedAccount);
                 if(published is null)return "";
                 var provider=new MySqlDatabaseProvider();
-                var prefix=ConditionParameterPrefix("mt_global_nested_"+alias);
+                var nestedPrefix=ConditionParameterPrefix("mt_global_nested_"+alias);
                 var clause=nestedProof.ScopedAccount
-                    ?published.RenderAccountProjection(provider,prefix,field=>alias+"."+Q(field))
-                    :published.RenderConstants(provider,prefix,field=>alias+"."+Q(field));
+                    ?published.RenderAccountProjection(provider,nestedPrefix,field=>alias+"."+Q(field))
+                    :published.RenderConstants(provider,nestedPrefix,field=>alias+"."+Q(field));
                 foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
                 return clause.Sql;
             }
