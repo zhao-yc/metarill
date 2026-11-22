@@ -580,6 +580,28 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!binding.ApplyPageCondition)return "";
             if(global)scopedGlobalCrossTarget=true;
 
+            // 全局 R0 候选的嵌套名称可以引用全局 R1 目标，但必须继续使用该关系实际发布的目标页。
+            // 这里只放行无父范围的固定页面，带父级的组合仍由完整父级计划处理。
+            if(GlobalCrossCandidate&&multiLabel&&GlobalCrossTableTarget.Declared(owner)&&owner.IsRongyu==0&&
+                GlobalCrossTableTarget.Declared(target)&&target.IsRongyu==1&&MultiNameSourcePage(ownerAlias) is {} globalSourcePage&&
+                binding.SourceParentId is null)
+            {
+                var nestedProof=GlobalSingleRelationTarget.Require(catalog,owner,relation,target,globalSourcePage);
+                if(nestedProof.Page.Id!=binding.PageId)
+                    throw new InvalidOperationException("全局候选嵌套名称与实际发布目标页不一致。");
+                if(nestedProof.Parent is not null)
+                    throw new NotSupportedException("全局候选嵌套名称的父范围尚未形成完整单值计划。");
+                var published=PublishedCondition(target,alias,nestedProof.Page,allowAccount:nestedProof.ScopedAccount);
+                if(published is null)return "";
+                var provider=new MySqlDatabaseProvider();
+                var prefix=ConditionParameterPrefix("mt_global_nested_"+alias);
+                var clause=nestedProof.ScopedAccount
+                    ?published.RenderAccountProjection(provider,prefix,field=>alias+"."+Q(field))
+                    :published.RenderConstants(provider,prefix,field=>alias+"."+Q(field));
+                foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
+                return clause.Sql;
+            }
+
             var controlPage=binding.ControlSourcePageId is null?null:catalog.ConfigPages.Single(
                 item=>item.Id==binding.ControlSourcePageId&&item.ConfigTableId==owner.Id);
             var control=controlPage is null?null:ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,controlPage);

@@ -179,7 +179,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
                 MultiNamePathPage=namePage,
                 AllowLiteralMultiScope=sourcePage is not null||fixedParent is not null||sharedCheckbox,
-                GlobalCrossCandidate=global&&selectedPage is not null
+                GlobalCrossCandidate=global&&(selectedPage is not null||candidatePage is not null)
             };
             var parents=new List<string>();
             foreach(var range in controlParents)
