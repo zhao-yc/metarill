@@ -80,10 +80,13 @@ internal static partial class OriginalUniappListRenderer
                     var remote=kind=="List"?OriginalRemoteOptionsCompilation.Definition(model,page,column,name+"_list",true):null;
                     markup.Append($"<zxz-uni-data-select v-model='filters.{key}' :localdata='{name}_list' filterable dataKey='name' dataValue='id'{(remote is null?"":OriginalRemoteOptionsCompilation.Attributes(column))} />");
                     data.Append(name).Append("_list:[],");
-                    if(kind=="MultiCheckBoxDatabase"&&DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is {FormParentField:not null} checkbox)
+                    // 原下拉仍提交单个 ID，候选和已选值随实际门店或父范围失效。
+                    if(kind=="MultiCheckBoxDatabase"&&DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is {} checkbox&&
+                        (checkbox.FormParentField is not null||checkbox.HasStoredAccountScope))
                     {
                         optionFields.Add(name+"_list");
-                        var scope=AppendArrayCheckboxFilterOptions(model,table,page,column,checkbox.Endpoint,false,checkbox.Conditions,requests,
+                        var scope=AppendArrayCheckboxFilterOptions(model,table,page,column,checkbox.Endpoint,
+                            checkbox.SourceParent is not null&&checkbox.FormParentField is null,checkbox.Conditions,requests,
                             formParentField:checkbox.FormParentField,optionField:name+"_list");
                         if(scope is not null)checkboxOptions.Add(scope);
                     }

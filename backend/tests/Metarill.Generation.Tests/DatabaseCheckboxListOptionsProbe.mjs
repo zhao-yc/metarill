@@ -6,7 +6,10 @@ import { mountGenerated, plain } from './GeneratedOriginalVueHarness.mjs'
 const [output, scenario] = process.argv.slice(2)
 const frontend = join(output, 'frontend')
 const source = await readFile(join(frontend, 'pages/yzp/relation_source-list-201.vue'), 'utf8')
-assert(source.includes("multiple v-model='filters.targetIds' :localdata='targetIdsRange'"))
+const dropdown = scenario.endsWith('_dropdown')
+assert(source.includes(dropdown
+  ? "<zxz-uni-data-select v-model='filters.targetIds' :localdata='target__list'"
+  : "multiple v-model='filters.targetIds' :localdata='targetIdsRange'"))
 const stored = scenario.startsWith('stored')
 const root = scenario === 'root' || stored
 const page = mountGenerated(source, root ? {} : { parent_id: '71', is_son_page: true }, {}, {
@@ -16,7 +19,8 @@ const key = '9007199254740993'
 const nextKey = '9007199254740994'
 const optionRequests = () => page.requests.filter(request => request.options.url.endsWith('/findNameIdTarget25'))
 const option = (id, text) => ({ id, name: text, value: id, text })
-const range = () => plain(page.state.targetIdsRange)
+const range = () => plain(dropdown ? page.state.target__list : page.state.targetIdsRange)
+const displayed = (...items) => dropdown ? items : items.map(({text, value}) => ({text, value}))
 const empty = () => assert.deepEqual(range(), [])
 const broadcast = name => {
   const listeners = [...(page.subscriptions.get(name) || [])]
@@ -36,14 +40,15 @@ try {
     assert.equal(first.options.sendSessionId, true)
     const expected = root ? {} : { parentId: '71' }
     if (scenario === 'form') expected.formParameters = { relationSource: { categoryId: key } }
-    assert.deepEqual(plain(first.options.data), expected)
+    assert.deepEqual(plain(first.options.data ?? {}), expected)
     page.respond(first, [option(key, '甲'), option(nextKey, '乙')])
-    assert.deepEqual(range(), [{ text: '甲', value: key }, { text: '乙', value: nextKey }])
+    assert.deepEqual(range(), displayed(option(key, '甲'), option(nextKey, '乙')))
 
-    if (stored) assert.deepEqual(plain(page.state.filters.targetIds), [key])
-    page.state.filters.targetIds = [key, nextKey]
+    if (stored) assert.deepEqual(plain(page.state.filters.targetIds), dropdown ? key : [key])
+    const chosen = dropdown ? nextKey : [key, nextKey]
+    page.state.filters.targetIds = chosen
     page.state.filterList()
-    assert.deepEqual(plain(page.pages().at(-1).options.data.filters.targetIds), [key, nextKey])
+    assert.deepEqual(plain(page.pages().at(-1).options.data.filters.targetIds), chosen)
 
     if (scenario === 'form') {
       const count = optionRequests().length
@@ -81,7 +86,7 @@ try {
 
     const pending = optionRequests().at(-1)
     const beforeLogout = optionRequests().length
-    page.state.filters.targetIds = [key]
+    page.state.filters.targetIds = dropdown ? key : [key]
     page.storage.loginStateId = ''
     broadcast('onLogout')
     await page.flush()
@@ -99,7 +104,7 @@ try {
     assert.equal(page.state.filters.targetIds, undefined)
     const reopened = optionRequests().at(-1)
     page.respond(reopened, [option(nextKey, '当前账号')])
-    assert.deepEqual(range(), [{ text: '当前账号', value: nextKey }])
+    assert.deepEqual(range(), displayed(option(nextKey, '当前账号')))
   }
 } finally {
   page.app.unmount()

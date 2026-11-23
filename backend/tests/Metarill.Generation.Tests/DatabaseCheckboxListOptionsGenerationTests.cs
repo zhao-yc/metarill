@@ -16,17 +16,20 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
     [InlineData("redundant")]
     [InlineData("stored")]
     [InlineData("stored_global")]
+    [InlineData("stored_dropdown")]
+    [InlineData("stored_global_dropdown")]
     public async Task Original_checkbox_only_loads_candidates_with_its_published_scope(string scenario)
     {
         var stored = scenario.StartsWith("stored", StringComparison.Ordinal);
         var catalog = RedundantMultiNameCacheTests.Published(DatabaseCheckboxGenerationTests.Catalog(scenario != "redundant" && !stored));
         var checkbox = catalog.ConfigColumns.Single(column => column.Id == "25");
-        checkbox.Extra["filterControlKind"] = JsonSerializer.SerializeToElement("CheckBox");
+        var dropdown = scenario.EndsWith("_dropdown", StringComparison.Ordinal);
+        if (!dropdown) checkbox.Extra["filterControlKind"] = JsonSerializer.SerializeToElement("CheckBox");
         if (stored)
         {
-            ConfigureStoredCheckbox(catalog, scenario == "stored_global");
+            ConfigureStoredCheckbox(catalog, scenario.StartsWith("stored_global", StringComparison.Ordinal));
             catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "25").Extra["queryDefaultValue"] =
-                JsonSerializer.SerializeToElement("""["9007199254740993"]""");
+                JsonSerializer.SerializeToElement(dropdown ? "9007199254740993" : """["9007199254740993"]""");
         }
         if (scenario == "root")
         {
@@ -67,8 +70,8 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
             {
                 var service = await File.ReadAllTextAsync(Path.Combine(output, "backend/generated/Services/RelationSourceService.g.cs"));
                 Assert.Contains("CheckboxGlobalCondition201_25.BindAccount(actor)", service);
-                Assert.Contains("DatabaseCheckboxValue.ReadSelected(filter.Value)", service);
-                Assert.Contains("ApplyJsonArrayHasAnyId", service);
+                Assert.Contains(dropdown ? "DatabaseCheckboxValue.ReadId(filter.Value)" : "DatabaseCheckboxValue.ReadSelected(filter.Value)", service);
+                Assert.Contains(dropdown ? "ApplyJsonArrayHasId" : "ApplyJsonArrayHasAnyId", service);
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
