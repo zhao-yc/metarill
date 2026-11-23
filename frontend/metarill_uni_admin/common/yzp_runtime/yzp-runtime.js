@@ -256,42 +256,41 @@ var yzp = {
 			count: 1, //默认100
 			extension: ['.xls', '.xlsx', '.csv'],
 			success: function (res) {
-				this.filePath = res.tempFiles[0].path
-				this.fileName = res.tempFiles[0].name.split('.')[0]
+				const file = res.tempFiles[0];
+				this.filePath = file.path
+				this.fileName = file.name.split('.')[0]
 				// 获取文件流
 				const fileReader = new FileReader();
 				fileReader.onload = ev => {
 					try {
-						const data = ev.target.result;
+						const workbook = XLSX.read(ev.target.result, { type: "binary", cellDates: true });
+						const worksheet = workbook.Sheets[workbook.SheetNames[0]];
 
-						// const workbook = XLSX.read(data, {
-						// 	type: "binary",
-						// 	cellText: false,
-						// 	cellDates: true,
-						// });
-						const workbook = XLSX.read(data, {
-							type: "binary",
-							// UTC: false,
-							cellDates: true
-							// raw: false,
-							// dateNF: "yyyy-mm-dd"
-						});
+						// CSV 已有原始日期文本，保留其中的微秒和夏令时缺口时刻。
+						if (/\.csv$/i.test(file.name)) {
+							for (const cell of Object.values(worksheet)) {
+								if (cell?.t === 'd' && typeof cell.w === 'string') {
+									cell.t = 's';
+									cell.v = cell.w;
+								}
+							}
+						}
 
-						// 获取第一个工作表
-						const firstSheetName = workbook.SheetNames[0];
-						const worksheet = workbook.Sheets[firstSheetName];
-
-						// 转换为 JSON
-						var jsonData = XLSX.utils.sheet_to_json(worksheet, {
-							// raw: false,
-							// dateNF: "yyyy-mm-dd"
-						});
-						onSelect(jsonData)
+						// Excel 日期是无时区的本地日历值。按 UTC 读取原始数字，再去掉序列化的时区标记。
+						const rows = XLSX.utils.sheet_to_json(worksheet, { UTC: true });
+						for (const row of rows) {
+							for (const [column, value] of Object.entries(row)) {
+								if (Object.prototype.toString.call(value) === '[object Date]') {
+									row[column] = value.toISOString().slice(0, -1);
+								}
+							}
+						}
+						onSelect(rows)
 					} catch (e) {
 						console.error("上传失败", e)
 					}
 				}
-				const blob = new Blob([res.tempFiles[0]]);
+				const blob = new Blob([file]);
 				fileReader.readAsBinaryString(blob);
 			}
 		});

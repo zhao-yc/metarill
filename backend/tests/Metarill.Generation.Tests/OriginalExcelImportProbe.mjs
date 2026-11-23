@@ -16,6 +16,7 @@ const method = source.slice(start, end).trim().replace(/,$/, '');
 assert.ok(method.includes('XLSX.utils.sheet_to_json'), '必须执行原SheetJS分支');
 const xlsx = await import(pathToFileURL(path.join(root, 'frontend/metarill_uni_admin/node_modules/xlsx/xlsx.mjs')).href);
 const bytes = fs.readFileSync(workbook);
+const filename = path.basename(workbook);
 let result, reads = 0, conversions = 0, choices = 0;
 const XLSX = {
   ...xlsx,
@@ -25,7 +26,7 @@ const XLSX = {
 const handlers = vm.runInNewContext('({' + method + '})', {
   XLSX,
   // 只模拟本机文件选择和二进制传递；不创建浏览器、不发送HTTP、不替换SheetJS。
-  uni: {chooseFile(options) { choices++; assert.equal(options.count, 1); assert.ok(options.extension.includes('.xlsx')); options.success({tempFiles: [{path: workbook, name: 'paths.xlsx'}]}); }},
+  uni: {chooseFile(options) { choices++; assert.equal(options.count, 1); assert.ok(options.extension.includes(path.extname(filename).toLowerCase())); options.success({tempFiles: [{path: workbook, name: filename}]}); }},
   Blob: class {},
   FileReader: class { readAsBinaryString() { this.onload({target: {result: bytes.toString('binary')}}); } },
   console: {error(...args) { throw new Error(args.map(String).join(' ')); }},

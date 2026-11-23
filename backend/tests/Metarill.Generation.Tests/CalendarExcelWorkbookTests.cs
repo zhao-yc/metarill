@@ -75,20 +75,14 @@ public sealed class CalendarExcelWorkbookTests
                 Assert.Equal(expectedDateTime, timeCell.GetString());
             }
 
-            var expected = Path.Combine(directory, "expected.json");
-            await File.WriteAllTextAsync(expected, JsonSerializer.Serialize(new[]
+            var captured = Path.Combine(directory, "original-callback.json");
+            await ReadOriginalWorkbookAsync(book, new[]
             {
                 new Dictionary<string, string>
                 {
                     ["名称"] = "日历样本", ["备注"] = "原备注", ["启用日期"] = "2024-02-29", ["启用时间"] = expectedDateTime
                 }
-            }));
-            var root = NonRedundantApplicationFixture.Root();
-            var start = NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("NODE_HOST_PATH") ?? "node", root);
-            var captured = Path.Combine(directory, "original-callback.json");
-            foreach (var argument in new[] { Path.Combine(root, "backend/tests/Metarill.Generation.Tests/OriginalExcelImportProbe.mjs"), root, book, expected, captured })
-                start.ArgumentList.Add(argument);
-            await NonRedundantApplicationFixture.RunAsync(start);
+            }, captured);
 
             var requestType = assembly.GetType("Example.GuardContract.Generated.DTOs.CustomerPage101ImportRequest", true)!;
             var request = Activator.CreateInstance(requestType)!;
@@ -101,6 +95,85 @@ public sealed class CalendarExcelWorkbookTests
             Assert.Contains(importMode == "OnlyNew" ? "write:Insert" : "write:Update", run.Trace);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>覆盖工作簿日期的跨日偏移、夏令时缺口及普通单元格。</summary>
+    [Theory]
+    [InlineData("Asia/Shanghai")]
+    [InlineData("America/Los_Angeles")]
+    public async Task Native_calendar_cells_preserve_wall_clock(string timeZone)
+    {
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-calendar-excel");
+        var directory = Directory.CreateDirectory(Path.Combine(boundary, Guid.NewGuid().ToString("N"))).FullName;
+        try
+        {
+            var book = Path.Combine(directory, "native-calendar.xlsx");
+            using (var workbook = new XLWorkbook())
+            {
+                var sheet = workbook.AddWorksheet("日期样本");
+                var headers = new[] { "日期", "日期时间", "数量", "启用", "原文本" };
+                for (var column = 0; column < headers.Length; column++)
+                    sheet.Cell(1, column + 1).Value = headers[column];
+
+                sheet.Cell(2, 1).Value = new DateTime(2026, 11, 24);
+                sheet.Cell(2, 1).Style.DateFormat.Format = "yyyy-mm-dd";
+                sheet.Cell(2, 2).Value = new DateTime(2026, 3, 8, 2, 30, 0);
+                sheet.Cell(2, 2).Style.DateFormat.Format = "yyyy-mm-dd hh:mm:ss.000";
+                sheet.Cell(2, 3).Value = 42;
+                sheet.Cell(2, 4).Value = true;
+                sheet.Cell(2, 5).Value = "2026-11-24T01:00:00Z";
+                workbook.SaveAs(book);
+            }
+
+            await ReadOriginalWorkbookAsync(book, new[]
+            {
+                new Dictionary<string, object>
+                {
+                    ["日期"] = "2026-11-24T00:00:00.000", ["日期时间"] = "2026-03-08T02:30:00.000",
+                    ["数量"] = 42, ["启用"] = true, ["原文本"] = "2026-11-24T01:00:00Z"
+                }
+            }, timeZone: timeZone);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>CSV 保留输入的日期与微秒文本，同时维持数字和布尔值的原解析类型。</summary>
+    [Fact]
+    public async Task Csv_calendar_text_preserves_digits_without_coercing_other_values()
+    {
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-calendar-excel");
+        var directory = Directory.CreateDirectory(Path.Combine(boundary, Guid.NewGuid().ToString("N"))).FullName;
+        try
+        {
+            var book = Path.Combine(directory, "native-calendar.CSV");
+            await File.WriteAllTextAsync(book, "Date,Stamp,Number,Flag\n2026-11-24,2026-03-08T02:30:00.123456,42,TRUE\n");
+            await ReadOriginalWorkbookAsync(book, new[]
+            {
+                new Dictionary<string, object>
+                {
+                    ["Date"] = "2026-11-24", ["Stamp"] = "2026-03-08T02:30:00.123456", ["Number"] = 42, ["Flag"] = true
+                }
+            }, timeZone: "America/Los_Angeles");
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>从真实工作簿执行原文件选择回调，指定时区只作用于本轮 Node 进程。</summary>
+    private static async Task ReadOriginalWorkbookAsync(string workbook, object rows, string? outputPath = null, string? timeZone = null)
+    {
+        var expected = Path.Combine(Path.GetDirectoryName(workbook)!, "expected.json");
+        await File.WriteAllTextAsync(expected, JsonSerializer.Serialize(rows));
+        var root = NonRedundantApplicationFixture.Root();
+        var start = NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("NODE_HOST_PATH") ?? "node", root);
+        if (timeZone is not null)
+            start.Environment["TZ"] = timeZone;
+
+        foreach (var argument in new[] { Path.Combine(root, "backend/tests/Metarill.Generation.Tests/OriginalExcelImportProbe.mjs"), root, workbook, expected })
+            start.ArgumentList.Add(argument);
+        if (outputPath is not null)
+            start.ArgumentList.Add(outputPath);
+
+        await NonRedundantApplicationFixture.RunAsync(start);
     }
 
     private sealed class ImportedCalendarRow : IRecordMutationObserver
