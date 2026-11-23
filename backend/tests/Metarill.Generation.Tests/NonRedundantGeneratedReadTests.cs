@@ -419,8 +419,20 @@ public sealed class NonRedundantGeneratedReadTests
     [InlineData(0,true,true)]
     [InlineData(1,false,true)]
     [InlineData(1,true,false)]
-    public async Task Stored_global_single_with_constants_keeps_candidate_and_business_scopes(
-        int storage,bool idLabel,bool textProject)
+    public Task Stored_global_single_with_constants_keeps_candidate_and_business_scopes(int storage,bool idLabel,bool textProject)=>
+        VerifyStoredGlobalSelectionScopes(storage,idLabel,textProject,unfiltered:false);
+
+    /// <summary>无条件字典只在实际发布的详情单选入口被引用时作为全局候选读取。</summary>
+    [Theory]
+    [InlineData(0,false,false)]
+    [InlineData(0,true,true)]
+    [InlineData(1,false,true)]
+    [InlineData(1,true,false)]
+    public Task Stored_global_single_with_unfiltered_page_keeps_candidate_and_business_scopes(int storage,bool idLabel,bool textProject)=>
+        VerifyStoredGlobalSelectionScopes(storage,idLabel,textProject,unfiltered:true);
+
+    /// <summary>共用生成、工作簿入口和业务项目隔离检查。</summary>
+    private static async Task VerifyStoredGlobalSelectionScopes(int storage,bool idLabel,bool textProject,bool unfiltered)
     {
         const string ns="Example.GlobalFixedDictionary", prefix="mt_fixed_dictionary";
         const string fixedRange="amount >= 1 AND name <> '停用客户'";
@@ -432,7 +444,7 @@ public sealed class NonRedundantGeneratedReadTests
         dictionary.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         var removed=new HashSet<string>(["16","17","27"],StringComparer.Ordinal);
         if(idLabel)removed.Add("111");
-        if(storage==1)
+        if(storage==1&&!unfiltered)
         {
             owner.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             removed.Add("19");
@@ -443,12 +455,12 @@ public sealed class NonRedundantGeneratedReadTests
         foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
         {
             page.OrderBy="id desc";
-            if(storage==1)page.WhereSql="yz_project_id=@current_yz_project_id";
+            if(storage==1&&!unfiltered)page.WhereSql="yz_project_id=@current_yz_project_id";
         }
         if(idLabel)catalog.ConfigColumns.Single(column=>column.Id=="15").ControlDetail=
             """{"pageId":"201","nameField":"id"}""";
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
-        targetPage.WhereSql=fixedRange;
+        targetPage.WhereSql=unfiltered?"":fixedRange;
         targetPage.IsExport=1;
         var sourceDetail=catalog.ConfigPages.Single(page=>page.Id=="104");
         sourceDetail.IsExport=1;
@@ -475,6 +487,12 @@ public sealed class NonRedundantGeneratedReadTests
         var target=model.Tables.Single(table=>table.Source.Id=="2");
         Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(target));
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        if(unfiltered&&storage==1&&!idLabel)
+        {
+            var cache=Assert.Single(RelationPropagationCompilation.DerivedBindings(model),
+                binding=>binding.Source.Source.Id=="1"&&binding.Cache.Source.ColumnName=="customer_name");
+            Assert.Equal("201",cache.ScopedSinglePageId);
+        }
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-fixed-global-dictionary");
         var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -495,7 +513,9 @@ public sealed class NonRedundantGeneratedReadTests
             var request=new PageRequest();
             var candidate=sql("Query201",[request,actor]);
             Assert.DoesNotContain("yz_project_id",candidate);
-            foreach(var predicate in new[]{"amount","name","delete_no"})Assert.Contains(predicate,candidate);
+            Assert.Contains("delete_no",candidate);
+            Assert.Equal(!unfiltered,candidate.Contains("amount",StringComparison.Ordinal));
+            Assert.Equal(!unfiltered,candidate.Contains("name",StringComparison.Ordinal));
             Assert.Contains("yz_project_id",sql("Scope201",[actor,null]));
             Assert.Contains("yz_project_id",sql("Query201",[request,actor,false]));
             foreach(var suffix in new[]{"202","203","204"})
@@ -504,7 +524,7 @@ public sealed class NonRedundantGeneratedReadTests
             Assert.Contains("Scope202(actor, parentId)",targetService);
             Assert.Contains("Query201(request, actor).CountAsync",targetService);
 
-            var definition=new SelectionControlDefinition("201",idLabel?"id":"name","选择",fixedRange,"");
+            var definition=new SelectionControlDefinition("201",idLabel?"id":"name","选择",targetPage.WhereSql,"");
             var plan=FixedPageQueryCompilation.For(target,target.Pages.Single(page=>page.Source.Id=="201"));
             Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,definition,out _));
             var projectOnly=definition with{WhereSql="yz_project_id=@current_yz_project_id"};
@@ -520,8 +540,42 @@ public sealed class NonRedundantGeneratedReadTests
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(ownerType.TypeHandle);
             var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());
             Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+            if(unfiltered&&storage==0&&!idLabel)VerifyUnfilteredCandidatePublication(catalog,ns);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
+    }
+
+    /// <summary>验证同一候选页的真实引用、项目条件优先及功能表的固定引用。</summary>
+    private static void VerifyUnfilteredCandidatePublication(MetadataCatalog catalog,string ns)
+    {
+        var setting=catalog.ConfigPageColumns.Single(item=>item.ConfigPageId=="101"&&item.ConfigColumnId=="15");
+        setting.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"whereSql":"yz_project_id=@current_yz_project_id"}""");
+        Assert.False(Published());
+        setting.Extra.Remove("controlDetail");
+        foreach(var field in catalog.ConfigPageColumns.Where(item=>item.ConfigColumnId=="15"))field.IsEdit=0;
+        Assert.False(Published());
+
+        catalog.ConfigTables.Add(new()
+        {
+            Id="5",TableName="mt_fixed_dictionary_form",YzProjectId=catalog.YzProjectId,IsFunctionTable=1
+        });
+        catalog.ConfigPages.Add(new(){Id="501",ConfigTableId="5",YzAdminTypeId="5",YzProjectId=catalog.YzProjectId});
+        var selector=new ColumnMetadata
+        {
+            Id="51",ConfigTableId="5",YzProjectId=catalog.YzProjectId,ColumnName="review_id",LogicalType="int64",
+            IsVirtualColumn=1,ControlKind="SelectPage",ControlDetail="""{"pageId":"201","nameField":"id"}"""
+        };
+        catalog.ConfigColumns.Add(selector);
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id="50151",ConfigPageId="501",ConfigColumnId="51",YzProjectId=catalog.YzProjectId,IsEdit=1
+        });
+        Assert.True(Published());
+        selector.LinkConfigTableId="3";
+        Assert.False(Published());
+
+        bool Published()=>GenerationModel.Create(catalog,ns).Tables.Single(item=>item.Source.Id=="2")
+            .Pages.Single(item=>item.Source.Id=="201").PublishedUnfilteredSingleCandidate;
     }
 
     /// <summary>增加一层已发布字典，让原字典同时承担有真实项目归属的业务读取和写入。</summary>

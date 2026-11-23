@@ -259,8 +259,14 @@ public static class GlobalSingleRelationTarget
         var control=foreign.ControlKind!="List"||target.IsRongyu!=0&&!usesListPageScope?null:
             sourcePage is not null?ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target,sourcePage):
             hasNameCache?ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,foreign,target):null;
+        // 普通项目的冗余名称副本可绑定无条件全局字典，保留来源行项目和已发布目标身份。
+        var globalOwner=GlobalCrossTableTarget.Declared(owner);
+        var unfilteredStoredSelection=cacheControl&&!globalOwner&&target.IsRongyu==1&&selectPage&&
+            condition.Terms.Count==0&&string.IsNullOrWhiteSpace(Value("whereSql"))&&
+            targetColumns.Any(column=>column.ColumnName=="yz_project_id");
         // 实时按实际页证明表和名称。冻结的物理副本仍需跨所有入口使用同一范围。
-        var allSourcePages=!independentPages&&(usesListPageScope||fixedParent is not null||sourcePage is null&&(nestedScope||control is {Terms.Count:>0}));
+        var allSourcePages=!independentPages&&(usesListPageScope||fixedParent is not null||unfilteredStoredSelection||
+            sourcePage is null&&(nestedScope||control is {Terms.Count:>0}));
         if(allSourcePages||sourcePage is not null)
         {
             foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==foreign.Id&&
@@ -279,7 +285,7 @@ public static class GlobalSingleRelationTarget
             }
         }
         // 固定条件已通过同一发布页及物理列检查。无账号变量时无需额外声明来源归属字段。
-        var fixedSelectionPage=cacheControl&&owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&
+        var fixedSelectionPage=unfilteredStoredSelection||cacheControl&&owner.IsRongyu==1&&globalOwner&&
             selectPage&&condition.Terms.Count>0&&condition.Variables.Count==0;
         var plan=new GlobalSingleRelationPlan(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,
             ScopedAccount=scopedAccount,FixedSelectionPage=fixedSelectionPage,Parent=fixedParent,SourceParent=sourceParent,
