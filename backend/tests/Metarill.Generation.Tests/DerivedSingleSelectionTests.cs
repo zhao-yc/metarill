@@ -28,7 +28,9 @@ public sealed class DerivedSingleSelectionTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Project_selection_uses_the_published_global_dictionary(bool parent)
+    [InlineData(false,1)]
+    [InlineData(true,1)]
+    public async Task Project_selection_uses_the_published_global_dictionary(bool parent,int sourceStorage=0)
     {
         const string ns="Example.ProjectSelectionDictionary";
         var catalog=Catalog("scope_select",parent);
@@ -55,6 +57,25 @@ public sealed class DerivedSingleSelectionTests
         dictionary.Extra["controlDetail"]=JsonSerializer.SerializeToElement(
             """{"pageId":"402","whereSql":"option_group=@formParameters.dictionaryGroup"}""");
 
+        if(sourceStorage==1)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=1;
+            catalog.ConfigColumns.Add(new(){Id="114",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"});
+            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+                page.WhereSql+=" AND store_id=@current_store_id";
+
+            // 冗余来源按原名称键查询已登记的物理副本。
+            var model=GenerationModel.Create(catalog,ns);
+            var source=model.Tables.Single(table=>table.Source.Id=="1");
+            var filter=SelectionNameFilterCompilation.ForPage(model,source,source.Pages.Single(page=>page.Source.Id=="101"));
+            Assert.Empty(filter.Gaps);
+            var binding=Assert.Single(filter.Bindings);
+            Assert.Equal("customerCompanyName",binding.FilterKey);
+            Assert.Equal(SelectionNameFilterKind.ScalarLike,binding.Kind);
+            Assert.Equal("customer_company_name",binding.StorageColumn.Source.ColumnName);
+            Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        }
+
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-project-selection-dictionary");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -66,7 +87,10 @@ public sealed class DerivedSingleSelectionTests
             const BindingFlags fields=BindingFlags.Static|BindingFlags.NonPublic;
             const BindingFlags properties=BindingFlags.Instance|BindingFlags.NonPublic;
 
-            foreach(var member in new[]{"DerivedOptionsPlan101_15","ReadPlan101","ExportReadPlan101"})
+            var readPlans=sourceStorage==0
+                ?new[]{"DerivedOptionsPlan101_15","ReadPlan101","ExportReadPlan101"}
+                :new[]{"DerivedOptionsPlan101_15"};
+            foreach(var member in readPlans)
             {
                 var plan=Assert.IsType<NonRedundantReadPlan>(service.GetField(member,fields)!.GetValue(null));
                 Assert.True(plan.RequiresAccount);
@@ -82,6 +106,24 @@ public sealed class DerivedSingleSelectionTests
                 var label=Assert.IsType<string>(sql.GetType().GetMethod("Expression",properties)!.Invoke(sql,[nameField]));
                 Assert.Contains(".`dictionary_group`",from+label);
                 Assert.Contains(".`store_id`",from+label);
+            }
+            if(sourceStorage==1)
+            {
+                var code=File.ReadAllText(Path.Combine(directory,"generated/Services/ScopeSelectOrderService.g.cs"));
+                Assert.Contains("StringNameQuery.ApplyLike(session, query, entity => entity.CustomerCompanyName, value)",code);
+                var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains("scope_select_company",maintenance.MixedTargets);
+                Assert.Contains("customer_company_name",maintenance.MixedSourceColumns["scope_select_order"]);
+                var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                    maintenance.GetType().GetProperty("Plans",properties)!.GetValue(maintenance));
+                var published=plans["1"]!;
+                Assert.Null(published.GetType().GetProperty("Error")!.GetValue(published));
+                var maintenanceRead=published.GetType().GetProperty("Read")!.GetValue(published)!;
+                var expression=Assert.IsType<string>(maintenanceRead.GetType().GetMethod("Expression",properties)!
+                    .Invoke(maintenanceRead,["customer_company_name"]));
+                Assert.Contains("b.`store_id`",expression);
+                Assert.Contains(".`dictionary_group`",expression);
             }
             Assert.NotNull(service.GetMethod("OptionsSelected101_15Async"));
             Assert.NotNull(service.GetMethod("Import101Async"));

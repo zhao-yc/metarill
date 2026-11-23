@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
 
@@ -65,11 +66,13 @@ internal static class SelectionNameFilterCompilation
                      table.Source.IsRongyu==1&&MultiNameStorageCompilation.IsImplicit(model,storage));
                 var readable=page.Readable.Any(column=>column.Source.Id==storage.Source.Id)||
                     implicitNames&&page.Readable.Any(column=>column.Source.Id==source.Source.Id);
-                var scopedCache=table.Source.IsRongyu==1&&source.Source.ControlKind=="SelectPage"&&target.Source.IsRongyu==0&&
-                    FixedPageConditionCompilation.HasLogicalFields(targetPage)&&NonRedundantSelectionCompilation.IsDisplay(source,storage,name)&&
-                    NonRedundantReadCompilation.Physical(model,table,storage);
-                if(storage.Type!="string?"&&!typedStorage||storage.Source.IsVirtualColumn!=0||!readable||
-                    table.Source.IsRongyu==1&&GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")&&!storage.IsManagedMultiNames&&!typedStorage&&!scopedCache)
+                var joinedCache=table.Source.IsRongyu==1&&GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")&&
+                    !storage.IsManagedMultiNames&&!typedStorage;
+                var scopedCache=joinedCache&&source.Source.ControlKind=="SelectPage"&&target.Source.IsRongyu==0&&
+                    NonRedundantSelectionCompilation.IsDisplay(source,storage,name)&&
+                    NonRedundantReadCompilation.Physical(model,table,storage)&&
+                    HasPublishedCacheTarget(model,table,source,target,targetPage,name);
+                if(storage.Type!="string?"&&!typedStorage||storage.Source.IsVirtualColumn!=0||!readable||joinedCache&&!scopedCache)
                 {Gap("辅助名称必须为本页可读的已证明名称列。");continue;}
                 SelectionNameFilterKind kind;
                 if(table.Source.IsRongyu==0)
@@ -107,7 +110,10 @@ internal static class SelectionNameFilterCompilation
                 else
                 {
                     if(storage.IsJsonArray||SelectionPageRenderer.Enabled(targetPage)){Gap("单选名称不是标量，或目标页面实际为多选。");continue;}
-                    if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),definition,out var reason)){Gap(reason!);continue;}
+                    if(scopedCache)
+                        _=NonRedundantSelectionCompilation.Resolve(model,table,page,source);
+                    else if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))
+                    { Gap(reason!);continue; }
                     kind=SelectionNameFilterKind.ScalarLike;
                 }
                 var binding=new SelectionNameFilterBinding(source,storage,key,kind);
@@ -115,7 +121,7 @@ internal static class SelectionNameFilterCompilation
                 if(bindings.Remove(key,out var previous)){gaps.Add(new(previous.Source,key,"选择页名称筛选尚未支持：多个来源控件声明了同一个名称筛选键。"));Gap("多个来源控件声明了同一个名称筛选键。");ambiguous.Add(key);continue;}
                 bindings.Add(key,binding);
             }
-            catch(Exception error)when(error is JsonException or InvalidOperationException or ArgumentException){Gap("配置无法安全编译："+error.Message);}
+            catch(Exception error)when(error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException){Gap("配置无法安全编译："+error.Message);}
         }
         // 同一HTTP键不能同时代表另一字段筛选或缺口来源；移出绑定后固定拒绝，避免覆盖普通case或依顺序选中。
         foreach(var binding in bindings.Values.ToArray())
@@ -127,6 +133,19 @@ internal static class SelectionNameFilterCompilation
             bindings.Remove(binding.FilterKey);gaps.Add(new(binding.Source,binding.FilterKey,"选择页名称筛选尚未支持："+reason));
         }
         return new(bindings.Values.ToArray(),gaps.ToArray());
+    }
+
+    /// <summary>名称筛选复用副本传播的固定目标证明，不能从同表其它页面借用名称。</summary>
+    private static bool HasPublishedCacheTarget(GenerationModel model,TableModel table,ColumnModel source,
+        TableModel target,PageModel targetPage,ColumnModel name)
+    {
+        if(target.IsGlobal)
+        {
+            var binding=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source);
+            return binding.RequiresScopedCache&&binding.Page.Id==targetPage.Source.Id&&binding.Name.Id==name.Source.Id;
+        }
+        var project=ProjectScopedSingleRelationTarget.Resolve(model.Catalog,table.Source,source.Source,target.Source);
+        return project is {} bindingTarget&&bindingTarget.Page.Id==targetPage.Source.Id&&bindingTarget.Name.Id==name.Source.Id;
     }
 
     /// <summary>与原ListFilters的控件覆盖优先级相同，空配置继承来源；不修改元数据或详情控件。</summary>
