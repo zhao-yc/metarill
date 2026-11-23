@@ -54,6 +54,23 @@ public sealed record DatabaseCheckboxDefinition(string TableId,string Table,stri
         return left.SetEquals(FixedConditionPlan.Compile(other.WhereSql,allowed).Terms.Select(term=>term.ToDefinition()));
     }
 
+    /// <summary>普通账号字典的项目与发布页条件已执行，只保留控件独立追加的条件供候选和回填共用。</summary>
+    public string AdditionalProjectConditions(string publishedWhere,IEnumerable<string> fields)
+    {
+        var allowed=fields.ToArray();
+        var published=FixedConditionPlan.Compile(publishedWhere,allowed).Terms.Select(Identity).ToHashSet(StringComparer.Ordinal);
+        var additional=FixedConditionPlan.Compile(WhereSql,allowed).Terms
+            .Where(term=>!GlobalMultipleRelationTarget.IsProjectScope(term)&&!published.Contains(Identity(term))).ToArray();
+        if(additional.Any(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
+            MultiTargetParentScope.IsParameter(value.Text))))
+            throw new InvalidOperationException("复选附加父范围必须来自实际字典页。");
+        return string.Join(" AND ",additional.Select(term=>term.ToDefinition()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+
+        static string Identity(FixedConditionTerm term)=>term is {Comparison:FixedConditionComparison.Equal,
+            Values:[{Kind:FixedConditionValueKind.Variable} value]}&&MultiTargetParentScope.IsParameter(value.Text)
+            ?term.Field+"=@parentId":term.ToDefinition();
+    }
+
     /// <summary>仅供固定读取编译，名称和候选范围各走自己的静态用途；旧目标提示仅在没有明确绑定时使用。</summary>
     public JsonElement ReadDefinition(ColumnMetadata source)
     {

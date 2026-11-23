@@ -78,7 +78,12 @@ public static class DerivedCrossTableCaches
             var self=SelfTreeCache.Require(catalog,source,foreign,target,value,cache,d,cross);
             if(d.Multiple)DerivedMultipleCacheProof.Require(catalog,source,foreign,target,value,cache,d.CheckboxTargetPageId,d.CheckboxSourceParentId);
             else if(!cross&&!self)throw new InvalidOperationException("逻辑缓存缺少跨表层或固定自树证明。");
-            if(d.CheckboxSourceParentId is not null)
+            // 附加表单范围必须通过实际来源行的完整刷新计划，基础名称验证只编译固定目标页。
+            var projectCheckboxControl=d.Multiple&&foreign.ControlKind=="MultiCheckBoxDatabase"&&
+                !string.IsNullOrWhiteSpace(Metarill.Core.Metadata.DatabaseCheckboxDefinition.Parse(foreign.ControlDetail).WhereSql)&&
+                Metarill.Data.Queries.MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign) is {} controlPage&&
+                Metarill.Data.Queries.NonRedundantReads.IsProjectStoredCheckboxAccountPage(catalog,target,controlPage);
+            if(d.CheckboxSourceParentId is not null||projectCheckboxControl)
                 _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cache.ColumnName],[d]);
             // 嵌套叶名条件的归属要在整条 SQL 中证明，仅凭外层候选能查到不能发布副本。
             if(self&&SelfTreeCache.HasSelfTreeScopedPage(catalog,d.SelfTreePageId))

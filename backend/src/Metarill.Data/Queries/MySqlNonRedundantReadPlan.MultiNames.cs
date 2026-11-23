@@ -164,15 +164,18 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             var storedAccount=selectedScope is not null&&StoredAccountMultiPage(catalog,target,selectedScope,checkbox);
-            var storedCheckboxOwner=storedAccount&&checkbox&&refreshFields is not null
+            var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,checkboxAccount:checkbox);
+            var storedCheckboxOwner=(storedAccount||projectFixedScope)&&checkbox&&refreshFields is not null
                 ?new CascadeCacheOwner(table,owner,GlobalSingleSource:GlobalCrossTableTarget.Declared(table)):null;
             if(storedCheckboxOwner is not null)
             {
                 // 回填从表级条件和来源实际行重算，与候选和锁读使用同一门店、表单及常量。
-                var syntax=FixedConditionPlan.Compile(DatabaseCheckboxDefinition.Parse(relation.ControlDetail).WhereSql,columns[target.Id].Keys);
+                var definition=DatabaseCheckboxDefinition.Parse(relation.ControlDetail);
+                var fields=columns[target.Id].Keys;
+                var where=projectFixedScope?definition.AdditionalProjectConditions(selectedScope!.WhereSql,fields):definition.WhereSql;
+                var syntax=FixedConditionPlan.Compile(where,fields);
                 if(syntax.Terms.Count>0)control=syntax;
             }
-            var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,checkboxAccount:checkbox);
             var physicalScope=storedAccount||target.IsRongyu==1&&projectFixedScope||
                 checkbox&&target.IsRongyu==1&&(fixedParent is not null||
                 table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));

@@ -209,13 +209,13 @@ internal static class DatabaseCheckboxCompilation
             if(explicitPage!=fixedPage&&!pageRead&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate,includeProjectFixedScope:false))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
             var whereSql=definition.WhereSql;
-            if(projectStoredAccount&&table.Source.IsRongyu==1&&!string.IsNullOrWhiteSpace(whereSql))
+            if(projectStoredAccount&&table.Source.IsRongyu==1)
             {
-                // 回填只能重现实际字典页的范围。控件重复条件已由该页执行，无需再绑定一次。
-                var requested=new SelectionControlDefinition(explicitPage,definition.NameField,"",whereSql,"");
-                if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,namePage!),requested,out var reason))
-                    return Gap(reason??"复选名称副本的控件范围无法由实际字典页证明。");
-                whereSql="";
+                // 缓存只能重现表级候选与物理记录条件。重复项由实际字典页执行，等价页可独立选择显示名称。
+                var targetFields=target.Columns.Select(column=>column.Source.ColumnName);
+                whereSql=definition.AdditionalProjectConditions(namePage!.Source.WhereSql,targetFields);
+                if(whereSql!=baseline.AdditionalProjectConditions(namePage.Source.WhereSql,targetFields))
+                    return Gap("同一名称副本的页面必须沿用表级复选候选条件。");
             }
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,whereSql);
             var realtimeRead=table.Source.IsRongyu==0&&!functionForm;
@@ -431,7 +431,8 @@ internal static class DatabaseCheckboxCompilation
     /// <summary>多份物理名称必须共用同一个保存及维护范围；全局范围直接由实际发布页提供。</summary>
     private static bool CanSharePhysicalNames(DatabaseCheckboxModel definition)
     {
-        if(definition.Name.Type!="string?"||definition.ExactTarget is not null||definition.Conditions is not null&&!definition.HasStoredAccountScope)
+        if(definition.Name.Type!="string?"||definition.ExactTarget is not null||
+            definition.Conditions is not null&&!definition.HasStoredAccountScope&&!definition.HasProjectStoredAccountScope)
             return false;
         if(definition.SharedLogicalParentScope)
             return !definition.LogicalSourceParent&&definition.SourceParent is not null&&

@@ -41,8 +41,11 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var fields=storage.PhysicalColumns.Select(column=>column.ColumnName).ToArray();
         var storedAccount=global is not null&&sourceParentId is null&&target.IsRongyu==1&&
             GlobalMultipleRelationTarget.IsStoredAccountPage(target,page,FixedConditionPlan.Compile(page.WhereSql,fields),checkbox:true);
+        var projectAccount=global is null&&MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(catalog,target,page,checkboxAccount:true);
+        var baselineExtra=projectAccount?baseline.AdditionalProjectConditions(page.WhereSql,fields):"";
         if(relation.ControlKind!="MultiCheckBoxDatabase"||page.Id!=pageId||
-            !storedAccount&&!string.IsNullOrWhiteSpace(baseline.WhereSql)||page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
+            !storedAccount&&!projectAccount&&!string.IsNullOrWhiteSpace(baseline.WhereSql)||
+            page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
             !PublishedText(original)||!PublishedText(value))
             throw new InvalidOperationException("复选多名称必须使用固定目标页的已证明文本。");
         if(sourceParentId is null&&(!storage.IsPhysical(original)||!storage.IsPhysical(value)))
@@ -62,7 +65,9 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
             if(kind.Length>0&&kind!="MultiCheckBoxDatabase")return false;
             var definition=baseline.WithPageOverride(field.Extra.GetValueOrDefault("controlDetail").ToString());
             return definition.NameField==value.ColumnName&&
-                (storedAccount?baseline.HasSameCondition(definition,fields):string.IsNullOrWhiteSpace(definition.WhereSql))&&
+                (storedAccount?baseline.HasSameCondition(definition,fields):
+                    projectAccount?baselineExtra==definition.AdditionalProjectConditions(page.WhereSql,fields):
+                    string.IsNullOrWhiteSpace(definition.WhereSql))&&
                 (definition.TableId.Length==0||definition.TableId==target.Id)&&
                 (definition.Table.Length==0||definition.Table==target.TableName)&&
                 (definition.PageId.Length==0||definition.PageId==pageId);

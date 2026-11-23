@@ -94,10 +94,15 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
     [InlineData(true,false,true)]
     [InlineData(false,true,true)]
     [InlineData(true,true,true)]
-    public void Stored_checkbox_form_terms_reach_the_published_maintenance(bool globalSource,bool alternate,bool projectBound=false)
+    [InlineData(false,false,false,true)]
+    [InlineData(false,true,false,true)]
+    [InlineData(false,false,true,true,true)]
+    [InlineData(false,true,true,true,true)]
+    public async Task Stored_checkbox_form_terms_reach_the_published_maintenance(bool globalSource,bool alternate,
+        bool projectBound=false,bool projectScoped=false,bool parentScoped=false)
     {
         var catalog = RedundantMultiNameCacheTests.Published(DatabaseCheckboxGenerationTests.Catalog(false));
-        ConfigureStoredCheckbox(catalog, globalSource);
+        ConfigureStoredCheckbox(catalog, globalSource, projectScoped, parentScoped);
         foreach (var (table,id,name) in new[]{("2","71","category_id"),("3","72","category_id"),("2","73","merchant_id"),("3","74","merchant_id")})
             catalog.ConfigColumns.Add(new() { Id=id,ConfigTableId=table,YzProjectId=catalog.YzProjectId,
                 ColumnName=name,LogicalType="int64" });
@@ -123,7 +128,7 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
                 if(copy.ConfigColumnId=="25")
                     copy.Extra["controlDetail"]=JsonSerializer.SerializeToElement(
                         """{"nameField":"short_name","whereSql":"merchant_id=@current_merchant_id AND name <> '停用' AND category_id = @formParameters.relationSource.categoryId"}""");
-                if(copy.ConfigColumnId=="25"&&projectBound)
+                if(copy.ConfigColumnId=="25"&&projectBound&&!projectScoped)
                     copy.Extra["controlDetail"]=JsonSerializer.SerializeToElement(copy.Extra["controlDetail"].GetString()!
                         .Replace("category_id =","yz_project_id = @current_yz_project_id AND category_id =",StringComparison.Ordinal));
                 catalog.ConfigPageColumns.Add(copy);
@@ -150,7 +155,12 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
         Assert.Contains("CheckboxCondition201_25.Apply",service);
         Assert.Contains("entity.CategoryId",service);
         Assert.Contains("ImportCheckbox201_25Async",service);
-        if(projectBound)
+        if(projectScoped)
+        {
+            Assert.Contains(".Where(row=>row.YzProjectId==long.Parse(actor.ProjectId,CultureInfo.InvariantCulture))",service);
+            Assert.Contains("CheckboxTargetCondition201_25.BindAccount(actor)",service);
+        }
+        else if(projectBound)
         {
             Assert.Contains("query=query.Where(row=>row.YzProjectId==",service);
             Assert.Contains("""["current_yz_project_id"] = actor.ProjectId""",service);
@@ -171,7 +181,9 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
         Assert.Contains("multi_value."+(char)96+"merchant_id"+(char)96,expression);
         Assert.Contains("b."+(char)96+"merchant_id"+(char)96,expression);
         var projectScope="multi_value."+(char)96+"yz_project_id"+(char)96+"=@project_scope_";
-        Assert.Equal(projectBound,expression.Contains(projectScope,StringComparison.Ordinal));
+        if(projectScoped)Assert.Contains("multi_value."+(char)96+"yz_project_id"+(char)96,expression);
+        else Assert.Equal(projectBound,expression.Contains(projectScope,StringComparison.Ordinal));
+        if(parentScoped)Assert.Contains("b."+(char)96+"parent_id"+(char)96,expression);
         var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
             read.GetType().GetProperty("Constants",hidden)!.GetValue(read));
         Assert.Contains("停用",parameters.Values);
@@ -185,7 +197,7 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
         {
             Assert.Contains("category_id",fields);
             Assert.Contains("merchant_id",fields);
-            Assert.Equal(projectBound,fields.Contains("yz_project_id"));
+            Assert.Equal(projectBound||projectScoped,fields.Contains("yz_project_id"));
         });
 
         if(alternate)
@@ -194,7 +206,39 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
             var shortName=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["target_short_names"]));
             Assert.Contains("multi_value."+(char)96+"short_name"+(char)96,shortName);
             Assert.Contains("b."+(char)96+"category_id"+(char)96,shortName);
-            Assert.Equal(projectBound,shortName.Contains(projectScope,StringComparison.Ordinal));
+            if(projectScoped)Assert.Contains("multi_value."+(char)96+"yz_project_id"+(char)96,shortName);
+            else Assert.Equal(projectBound,shortName.Contains(projectScope,StringComparison.Ordinal));
+        }
+
+        if(projectScoped&&parentScoped&&alternate)
+        {
+            var boundary=Path.Combine(Path.GetTempPath(),"metarill-project-checkbox-form-scope");
+            var generatedRoot=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+            try
+            {
+                new CSharpGenerator().Generate(catalog,Path.Combine(generatedRoot,"generated"),directory.Namespace);
+                var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(generatedRoot);
+                var generatedService=assembly.GetType(directory.Namespace+".Generated.Services.RelationSourceService",true)!;
+                RuntimeHelpers.RunClassConstructor(generatedService.TypeHandle);
+                Assert.NotNull(generatedService.GetMethod("Import201Async"));
+                var compiled=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    assembly.GetType(directory.Namespace+".Generated.GeneratedRelationMaintenance",true)!
+                        .GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains("target_short_names",compiled.MixedSourceColumns["relation_source"]);
+            }
+            finally{await TestDirectoryCleanup.DeleteAsync(generatedRoot,boundary);}
+        }
+        if(projectScoped)
+        {
+            var sourceDependencies=Assert.IsAssignableFrom<IReadOnlyList<string>>(read.GetType().GetProperty("SourceDependencies",hidden)!.GetValue(read));
+            Assert.Contains("category_id",sourceDependencies);
+            Assert.Contains("merchant_id",sourceDependencies);
+            var originalScope=sourcePage.WhereSql;
+            sourcePage.WhereSql=originalScope.Replace(" AND merchant_id=@current_merchant_id","",StringComparison.Ordinal);
+            var missingOwner=GenerationModel.Create(catalog,"Example.MissingCheckboxFormOwner");
+            var missingError=Assert.Throws<InvalidOperationException>(()=>RelationPropagationCompilation.DerivedBindings(missingOwner));
+            Assert.Contains("物理账号归属",missingError.Message);
+            sourcePage.WhereSql=originalScope;
         }
 
         var settings=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25");
