@@ -19,9 +19,11 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
     public MultiSourceParent? SourceParent { get; internal init; }
     public MultiTargetParentScope? PhysicalParent=>Parent is {Logical:false}?Parent:null;
     public MultiTargetParentScope? AccountParent=>ScopedAccount?PhysicalParent:null;
+    /// <summary>已发布单选使用实际物理父键，名称读取不依赖账号条件是否存在。</summary>
+    public bool ScopedPhysicalSelectionParent=>PhysicalParent is not null&&Page.Extra.GetValueOrDefault("type").ToString()=="1";
     public bool ScopedLogicalPage=>ScopedSelfTree||ScopedCrossTable;
     /// <summary>候选、名称联接和回填均须执行该页的实际范围。</summary>
-    public bool RequiresScopedPage=>ScopedLogicalPage||ScopedAccount||FixedSelectionPage;
+    public bool RequiresScopedPage=>ScopedLogicalPage||ScopedAccount||FixedSelectionPage||ScopedPhysicalSelectionParent;
 
     /// <summary>同一物理副本的各来源页必须使用等价的下拉附加条件。</summary>
     public FixedConditionPlan? CacheControl { get; internal init; }

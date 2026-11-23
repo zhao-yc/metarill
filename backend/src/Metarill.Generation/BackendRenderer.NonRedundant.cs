@@ -36,6 +36,7 @@ internal static partial class BackendRenderer
                 DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
                 DerivedRelationNamesCompilation.UsesExactSingle(relation)||
                 DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)||
+                NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage)||
                 NonRedundantReadCompilation.UsesPageBoundGlobalList(relation)||
                 DerivedRelationNamesCompilation.UsesGlobalPrimaryKeyDisplay(relation)||
                 NonRedundantReadCompilation.UsesProjectSingleRead(relation)).ToArray();
@@ -205,7 +206,8 @@ internal static partial class BackendRenderer
         if(model.Tables.Any(table=>table.Pages.Any(page=>NonRedundantReadCompilation.GlobalSelectionPage(table,page))))
             helpers+="    /// <summary>原候选页的自树投影由固定图补齐显示路径。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileGlobalPage(string tableId,string pageId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalPage(Snapshot,tableId,pageId,outputs,dependencies,singleTargets);\n";
         if (model.Tables.Any(NonRedundantReadCompilation.HasGlobalRowProject) ||
-            scopedRelations.Any(relation=>DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)) ||
+            scopedRelations.Any(relation=>DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)||
+                NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage)) ||
             functionRelations.Any(relation => DerivedRelationNamesCompilation.UsesGlobalPlan(model, relation)) ||
             scopedRelations.Any(DerivedRelationNamesCompilation.UsesGlobalPrimaryKeyDisplay) ||
             model.Tables.SelectMany(table => table.Pages).SelectMany(page => RelationCompilation.ForPage(model, page, true))

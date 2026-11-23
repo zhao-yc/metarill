@@ -22,13 +22,12 @@ internal static partial class NonRedundantReadCompilation
         GlobalAccountMultiPage(table,page)||GlobalSingleParentPage(table,page)||
         table.Source.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source);
 
-    /// <summary>原独立单选在分页和详情中使用已证明的父级以及该页实际的账号或级联条件。</summary>
+    /// <summary>原独立单选在分页和详情中使用已证明的父级及实际发布条件。</summary>
     internal static bool GlobalSingleParentPage(TableModel table,PageModel page)=>
         page.Source.Extra.GetValueOrDefault("type").ToString()=="1"&&table.IsGlobal&&table.Source.IsRongyu==0&&
         (page.Scopes.Any(scope=>scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(
             table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName))||
-            GlobalPhysicalParentScope(table,page)&&(FixedPageConditionCompilation.HasAccountVariables(page)||
-                FixedPageConditionCompilation.HasLogicalFields(page)));
+            GlobalPhysicalParentScope(table,page));
 
     /// <summary>全局多选的物理账号父范围和同父级联范围共用独立分页的固定候选计划。</summary>
     internal static bool GlobalAccountMultiPage(TableModel table,PageModel page)=>

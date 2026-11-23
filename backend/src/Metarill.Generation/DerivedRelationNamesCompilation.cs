@@ -117,7 +117,8 @@ internal static class DerivedRelationNamesCompilation
     internal static bool UsesGlobalPlan(GenerationModel model, RelationModel relation) =>
         UsesGlobalPrimaryKeyDisplay(relation) ||
         relation.Target.IsGlobal && (relation.FunctionForm || IsPhysicalTypedName(model, relation.Target, relation.NameColumn)) ||
-        NonRedundantReadCompilation.HasGlobalRowProject(relation.Target) || HasGlobalAccountScope(relation.Target, relation.TargetPage);
+        NonRedundantReadCompilation.HasGlobalRowProject(relation.Target) || HasGlobalAccountScope(relation.Target, relation.TargetPage) ||
+        NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage);
 
     /// <summary>普通冗余目标的固定候选只能读取物理列及已发布的父范围。</summary>
     internal static bool UsesPhysicalPlan(GenerationModel model, RelationModel relation) =>
@@ -188,7 +189,7 @@ internal static class DerivedRelationNamesCompilation
                 NonRedundantReadCompilation.MergeProjectTargets(targets.Concat(exact.SingleTargets)))
             :EmbedsParentScope(target,fixedParent)||FixedPageConditionCompilation.HasLogicalFields(page)||exact?.SelfTree==true
             ?CompileLogicalPage(model,target,page,outputs,outputs,singleTargets:targets,exact:exact)
-            :HasGlobalAccountScope(target,page)
+            :HasGlobalAccountScope(target,page)||NonRedundantReadCompilation.GlobalSingleParentPage(target,page)
                 ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,[],targets)
                 :target.IsGlobal?NonRedundantReads.CompileProjectRelation(model.Catalog,target.Source.Id,outputs,[],targets)
                     :NonRedundantReads.CompilePublishedScalarMatch(model.Catalog,target.Source.Id,page.Source.Id,name.Source.ColumnName);

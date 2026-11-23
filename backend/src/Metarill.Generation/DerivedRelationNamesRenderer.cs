@@ -15,13 +15,14 @@ internal static class DerivedRelationNamesRenderer
         var logical=DerivedRelationNamesCompilation.UsesLogicalPage(relation);
         var globalAccount=DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
         var validateCurrent=exact is not null||accountParent||logical||relation.CompoundProjectSource||relation.CompoundProjectTarget||
-            relation.CanonicalProjectParent||FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
+            relation.CanonicalProjectParent||relation.FixedGlobalSelection||FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
         var projectTargets=DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation,exact);
         var bindParent=validateCurrent||projectTargets.Count>0?".BindAccount(actor)":"";
         var globalExact=DerivedRelationNamesCompilation.IsGlobalExactSingle(relation);
         var embeddedParent=DerivedRelationNamesCompilation.EmbedsParentScope(relation.Target,relation.FixedParent);
         var embedsPageScope=globalExact||embeddedParent||DerivedRelationNamesCompilation.UsesGlobalPrimaryKeyDisplay(relation)||
-            relation.Target.IsGlobal&&(logical||globalAccount||relation.FunctionForm);
+            relation.Target.IsGlobal&&(logical||globalAccount||relation.FunctionForm||
+                NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage));
         var parentPlan = globalExact?"":exact is not null && embeddedParent
             ? NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans ?? [])
             : accountParent ? ",OptionsAccountParentScope"+suffix : "";
@@ -173,7 +174,7 @@ internal static class DerivedRelationNamesRenderer
         var exact = DerivedRelationNamesCompilation.CandidateExact(model, owner, relation);
         var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
         var validateCurrent=exact is not null||accountParent||DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
-            FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
+            relation.FixedGlobalSelection||FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
         var lockParents=validateCurrent?",locking:true":"";
         var bindParent=validateCurrent||DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation,exact).Count>0?".BindAccount(actor)":"";
         var suffix=page.Source.Id+"_"+relation.SourceColumn.Source.Id;var mapped=dependency.Parents.GetValueOrDefault(relation.SourceColumn.Source.Id);

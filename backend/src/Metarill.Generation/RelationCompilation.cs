@@ -132,7 +132,7 @@ internal static class RelationCompilation
                 var global=GlobalTargetForPage(model,owner,page,source,target);
                 targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);
                 globalListPageScope=global.UsesListPageScope;
-                globalFixedSelection=global.FixedSelectionPage;
+                globalFixedSelection=global.FixedSelectionPage||global.ScopedPhysicalSelectionParent;
                 if(name.Source.Id!=global.Name.Id&&!listId&&selection?.Name.IsId!=true)
                     throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
             }
@@ -359,7 +359,7 @@ internal static class RelationCompilation
     /// <summary>目标页固定条件或父范围用于候选和内部最终值校验，包括原本隐藏的外键。</summary>
     internal static bool HasFixedTargetScope(TableModel target,PageModel targetPage)=>
         FixedPageConditionCompilation.HasLogicalFields(targetPage)||FixedPageConditionCompilation.HasAccountVariables(targetPage)||
-        HasProjectTargetScope(target,targetPage);
+        NonRedundantReadCompilation.GlobalSingleParentPage(target,targetPage)||HasProjectTargetScope(target,targetPage);
 
     /// <summary>项目内 R0 目标的额外固定范围也用于保护手写规则提交的外键与父键。</summary>
     internal static bool HasProjectTargetScope(TableModel target,PageModel targetPage)=>

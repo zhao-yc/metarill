@@ -406,6 +406,100 @@ public sealed class NonRedundantGeneratedReadTests
         finally{if(Directory.Exists(root))Directory.Delete(root,true);}
     }
 
+    /// <summary>不配置账号条件时，原单选仍统一按已发布的物理父范围处理所有入口。</summary>
+    [Theory]
+    [InlineData(0,false,false,false)]
+    [InlineData(0,true,false,true)]
+    [InlineData(1,false,false,true)]
+    [InlineData(1,true,false,false)]
+    [InlineData(1,true,true,false)]
+    [InlineData(1,true,true,true)]
+    public async Task Global_single_with_only_physical_parent_keeps_selection_workbook_and_cache(
+        int storage,bool globalParent,bool globalSource,bool idLabel)
+    {
+        const string ns="Example.GlobalPhysicalParent";
+        var catalog=NonRedundantApplicationFixture.Catalog("mt_parent_only");
+        var owner=catalog.ConfigTables.Single(table=>table.Id=="1");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="2");
+        owner.IsRongyu=storage;
+        target.IsRongyu=0;
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(globalSource)owner.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        var removed=new HashSet<string>(["16","17","22"],StringComparer.Ordinal);
+        if(idLabel)removed.Add("111");
+        if(globalParent)
+        {
+            var parent=catalog.ConfigTables.Single(table=>table.Id=="3");
+            parent.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            removed.Add("32");
+            catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="name <> '停用父记录'";
+            // 独立表单从原物理字段取父 ID；本用例不增加另一组名称下拉关系。
+            var sourceKey=catalog.ConfigColumns.Single(column=>column.Id=="19");
+            sourceKey.ControlKind="";
+            sourceKey.ControlDetail="";
+        }
+        catalog.ConfigColumns.RemoveAll(column=>removed.Contains(column.Id));
+        catalog.ConfigPages.RemoveAll(page=>page.Id=="102");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="102"||removed.Contains(field.ConfigColumnId));
+        foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))page.OrderBy="id desc";
+        if(idLabel)catalog.ConfigColumns.Single(column=>column.Id=="15").ControlDetail=
+            """{"pageId":"201","tableId":"2","nameField":"id"}""";
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        targetPage.IsExport=1;
+        var independent=catalog.ConfigPages.Single(page=>page.Id=="104");
+        independent.IsExport=1;
+        independent.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(table=>table.Source.Id=="1");
+        var source=model.Catalog.ConfigColumns.Single(column=>column.Id=="15");
+        var binding=GlobalSingleRelationTargetForStorage();
+        Assert.Equal("group_id",binding.Parent?.Target.ColumnName);
+        Assert.Equal("19",binding.SourceParent?.Column.Id);
+        Assert.False(binding.ScopedAccount);
+
+        var root=Path.Combine(Path.GetTempPath(),"metarill-parent-only",Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(root,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtParentOnlyOrderService.g.cs"));
+            var targetService=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtParentOnlyPartyService.g.cs"));
+            Assert.Contains("CompileGlobalSingleParentPage",targetService);
+            Assert.Contains("ImportRelation103_15Async",service);
+            Assert.Contains("ImportRelation105_15Async",service);
+            Assert.Contains("Export101Async",service);
+            Assert.Contains("Export104Async",service);
+            if(globalParent)Assert.Contains("OptionsGlobalParent104_15.BindAccount(actor)",service);
+            var detail=await File.ReadAllTextAsync(Path.Combine(generated,"frontend/pages/yzp/mt_parent_only_order-detail-104.vue"));
+            Assert.Contains(":parent_id=\"entity.groupId\"",detail);
+            Assert.Contains(idLabel?"selected-name-field=\"id\"":"selected-name-field=\"name\"",detail);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            var candidateType=assembly.GetType(ns+".Generated.Services.MtParentOnlyPartyService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(candidateType.TypeHandle);
+            var serviceType=assembly.GetType(ns+".Generated.Services.MtParentOnlyOrderService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
+            const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic;
+            var candidate=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                candidateType.GetField("CandidateReadPlan201",hidden|System.Reflection.BindingFlags.Static)!.GetValue(null));
+            Assert.False(candidate.RequiresAccount);
+            var mysql=candidate.GetType().GetProperty("MySql",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(candidate)!;
+            Assert.Equal("group_id",mysql.GetType().GetProperty("RequiredMultiParent",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(mysql));
+            if(storage==1&&!idLabel)
+            {
+                var cache=MixedRelationPropagationCompilation.ForModel(model);
+                Assert.Contains("customer_name",cache.MixedSourceColumns[table.Source.TableName]);
+                Assert.Contains("mt_parent_only_group",cache.MixedTargets);
+            }
+            var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+        }
+        finally{if(Directory.Exists(root))Directory.Delete(root,true);}
+
+        GlobalSingleRelationPlan GlobalSingleRelationTargetForStorage()=>storage==0
+            ?GlobalSingleRelationTarget.Require(catalog,owner,source,target)
+            :GlobalSingleRelationTarget.RequireCached(catalog,owner,source,target);
+    }
+
     /// <summary>原普通下拉按真实主键显示，候选、回显、筛选及两种工作簿入口继续走本项目同父范围。</summary>
     [Theory]
     [InlineData(0, 0, true)]
