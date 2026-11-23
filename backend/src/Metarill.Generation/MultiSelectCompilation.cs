@@ -37,12 +37,19 @@ internal static class MultiSelectCompilation
             names.UnionWith(MultiNameWriteCompilation.ForTable(model,table).Select(binding=>binding.Cache.Source.Id));
             // 可发布全局候选与带真实项目归属的业务记录分别使用各自的查询范围。
             var scopedGlobal = table.HasScopedGlobalCache || table.IsGlobal && table.Source.IsRongyu == 1 &&
-                actual.Any(definition => FixedPageConditionCompilation.HasStoredGlobalMultiScope(definition.Target, definition.TargetPage));
+                actual.Any(definition => FixedPageConditionCompilation.HasStoredGlobalMultiScope(definition.Target, definition.TargetPage) ||
+                    UsesStaticGlobalDictionary(definition));
             ColumnModel Fix(ColumnModel column) => names.Contains(column.Source.Id) ? column with { IsManagedMultiNames = true } : column;
             IReadOnlyList<ColumnModel> FixAll(IReadOnlyList<ColumnModel> columns) => columns.Select(Fix).ToArray();
             return table with { HasScopedGlobalCache = scopedGlobal, Columns = FixAll(table.Columns), Pages = table.Pages.Select(page => page with { Readable = FixAll(page.Readable), Writable = FixAll(page.Writable.Where(column => !names.Contains(column.Source.Id)).ToArray()), Searchable = FixAll(page.Searchable), Sortable = FixAll(page.Sortable), ListColumns = FixAll(page.ListColumns), DetailColumns = FixAll(page.DetailColumns) }).ToArray() };
         }).ToArray() };
     }
+
+    /// <summary>固定全局字典不读取动态项目或父参数，实际调用仍经过原目标页发布证明。</summary>
+    internal static bool UsesStaticGlobalDictionary(MultiSelectModel definition) =>
+        definition.TargetPage.Scopes.Count == 0 &&
+        GlobalMultipleRelationTarget.IsStoredStaticMultiSelectPage(definition.Target.Source, definition.TargetPage.Source,
+            definition.TargetPage.Condition?.Syntax);
 
     /// <summary>来源和目标均绑定稳定元数据ID，客户端不能替换表或页面。</summary>
     internal static IReadOnlyList<MultiSelectModel> ForPage(GenerationModel model, TableModel table, PageModel page) => page.Readable.Concat(page.Writable).DistinctBy(column => column.Source.Id)

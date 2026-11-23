@@ -335,7 +335,7 @@ public sealed class NonRedundantSelfTreeTests
         if(projectType is not null)
         {
             var published=RelationPropagationCompilation.PublishedCascadePages(model,RelationPropagationCompilation.Definitions(
-                RelationPropagationCompilation.DerivedBindings(model)));
+                RelationPropagationCompilation.DerivedBindings(model)),out _);
             Assert.Contains("201",published);
             Assert.Contains("401",published);
             var maintenance=MixedRelationPropagationCompilation.ForModel(model);

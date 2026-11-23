@@ -111,12 +111,15 @@ internal static class RelationPropagationCompilation
         var levels=plan.Read.Levels.Where(level=>level.Target.IsGlobal).ToArray();return levels.Length==0?null:levels.ToDictionary(level=>level.Key,level=>level.Page.Source.Id,StringComparer.Ordinal);
     }
     /// <summary>只为实际消费的全局级联页发布常量条件，未使用的页面不参与缓存计划。</summary>
-    internal static IReadOnlySet<string> PublishedCascadePages(GenerationModel model,IEnumerable<RelationCacheDefinition> definitions)
+    internal static IReadOnlySet<string> PublishedCascadePages(GenerationModel model,IEnumerable<RelationCacheDefinition> definitions,
+        out IReadOnlySet<string> staticMultiPages)
     {
         var r0Tables=model.Catalog.ConfigTables.Where(table=>table.IsRongyu==0).Select(table=>table.Id).ToHashSet(StringComparer.Ordinal);
         var r0Pages=model.Catalog.ConfigPages.Where(page=>r0Tables.Contains(page.ConfigTableId)).Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
         var typedNameColumns=model.Catalog.ConfigColumns.Where(column=>MultiValueLabel.IsTyped(column.LogicalType)).Select(column=>column.Id).ToHashSet(StringComparer.Ordinal);
         var pages=new HashSet<string>(StringComparer.Ordinal);
+        var staticPages=new HashSet<string>(StringComparer.Ordinal);
+        staticMultiPages=staticPages;
         foreach(var definition in definitions)
         {
             if(definition.CheckboxTargetPageId is {} checkboxPage)pages.Add(checkboxPage);
@@ -126,7 +129,9 @@ internal static class RelationPropagationCompilation
             {
                 // 物理传播和派生回填在宿主重新装载后仍从实际全局多值发布页读取条件。
                 var source=model.Catalog.ConfigTables.Single(table=>table.Id==definition.SourceTableId);
-                pages.Add(GlobalMultipleRelationTarget.RequireCached(model.Catalog,source,multi,target).Page.Id);
+                var proof=GlobalMultipleRelationTarget.RequireCached(model.Catalog,source,multi,target);
+                pages.Add(proof.Page.Id);
+                if(GlobalCrossTableTarget.Declared(source)&&proof.UsesStoredStaticPage)staticPages.Add(proof.Page.Id);
             }
             if(definition.SelfTreePageId is{} treePage)
             {
@@ -229,8 +234,10 @@ internal static class RelationPropagationCompilation
             .Select(definition=>definition.SourceTableId));
         scopedTables.UnionWith(definitions.Where(definition=>definition.CheckboxSourceParentId is not null)
             .Select(definition=>definition.SourceTableId));
-        return GenerationMetadataPublisher.ForRelations(model.Catalog,PublishedCascadePages(model,definitions),
-            selfTreeNamePages:treePages,nestedTables:scopedTables,checkboxProofFields:PublishedCheckboxProofFields(model,definitions));
+        var pages=PublishedCascadePages(model,definitions,out var staticMultiPages);
+        return GenerationMetadataPublisher.ForRelations(model.Catalog,pages,
+            selfTreeNamePages:treePages,nestedTables:scopedTables,checkboxProofFields:PublishedCheckboxProofFields(model,definitions),
+            staticMultiPages:staticMultiPages);
     }
 
     /// <summary>映射按稳定键比较，不把字典引用或插入顺序当作不同权限范围。</summary>

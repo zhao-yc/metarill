@@ -34,7 +34,7 @@ public static class GenerationMetadataPublisher
     /// <summary>关系执行目录先脱敏，再去掉品牌、菜单及布局；纯配置更新不因此强制更新后端生成代码。</summary>
     internal static MetadataCatalog ForRelations(MetadataCatalog catalog,IReadOnlySet<string>? cascadePages=null,
         IEnumerable<string>? selfTreeNamePages=null,IReadOnlySet<string>? nestedTables=null,
-        IReadOnlySet<(string Page,string Column)>? checkboxProofFields=null)
+        IReadOnlySet<(string Page,string Column)>? checkboxProofFields=null,IReadOnlySet<string>? staticMultiPages=null)
     {
         // 关系编译维持生成器的定义错误合同；直接发布保留原ArgumentException及原门禁边界。
         MetadataCatalog published;
@@ -88,7 +88,8 @@ public static class GenerationMetadataPublisher
         Dictionary<string,JsonElement> ExecutionPageFlags(PageMetadata page)
         {
             var flags=new Dictionary<string,JsonElement>(StringComparer.Ordinal);
-            if((multiProof.ContainsKey(page.Id)||globalR0Pages.Contains(page.Id)||labelPages.Contains(page.Id)||
+            // 固定全局多选发布后仍按真实 type=2 重新验证字典资格。
+            if((multiProof.ContainsKey(page.Id)||staticMultiPages?.Contains(page.Id)==true||globalR0Pages.Contains(page.Id)||labelPages.Contains(page.Id)||
                 nestedPages.Contains(page.Id))&&page.Extra.TryGetValue("type",out var kind))
                 flags["type"]=kind.Clone();
             if((nestedPages.Contains(page.Id)||labelPages.Contains(page.Id))&&page.Extra.TryGetValue("exactDataManageMatchField",out var exact))

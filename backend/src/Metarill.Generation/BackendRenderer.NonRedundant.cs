@@ -88,6 +88,10 @@ internal static partial class BackendRenderer
         var multiSelections=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
             .SelectMany(table=>table.Pages.SelectMany(page=>MultiSelectCompilation.ForService(model,table,page))).ToArray();
         // 即使名称是普通物理文本，业务回显和筛选也要保留全局多选页实际发布的范围。
+        var globalMultiOwners=model.Tables.Where(table=>table.IsGlobal).Select(table=>table.Source.Id).ToHashSet(StringComparer.Ordinal);
+        var staticMultiPages=multiSelections.Where(multi=>globalMultiOwners.Contains(multi.Source.Source.ConfigTableId)&&
+                MultiSelectCompilation.UsesStaticGlobalDictionary(multi)).Select(multi=>multi.TargetPage.Source.Id)
+            .ToHashSet(StringComparer.Ordinal);
         accountPages.UnionWith(multiSelections.Where(multi=>multi.Target.IsGlobal&&
                 !string.IsNullOrWhiteSpace(multi.TargetPage.Source.WhereSql))
             .Select(multi=>multi.TargetPage.Source.Id));
@@ -169,7 +173,8 @@ internal static partial class BackendRenderer
             .Concat(model.Tables.Where(table=>table.IsGlobal&&table.Source.IsRongyu==0)
                 .SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page))))
             .Select(tree=>tree.TargetPage.Source.Id).ToHashSet(StringComparer.Ordinal);
-        var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog,accountPages,selfTreeNamePages,nestedTables),new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog,accountPages,selfTreeNamePages,nestedTables,
+            staticMultiPages:staticMultiPages),new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var cross=model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>CrossTableWriteCompilation.ForService(model,table,page).Count>0));
         var helpers=cross?"    /// <summary>目标条件与页面一起冻结，静态初始化不读取后声明字段。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileCross(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[] bindings)=>Metarill.Data.Queries.NonRedundantReads.CompileWithCrossTables(Snapshot,tableId,outputs,bindings,dependencies,deferCascadeNames:true);\n    /// <summary>与统一物理结构共用稀疏选择编码器。</summary>\n    internal static Metarill.Core.Metadata.CrossTableSparseSelection CompileSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.CrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n":"";
         if(model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0)))helpers+="    /// <summary>共享R0由整组编译，成员不能分别打包覆盖。</summary>\n    internal static Metarill.Core.Metadata.SharedCrossTableSparseSelection CompileSharedSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.SharedCrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n";

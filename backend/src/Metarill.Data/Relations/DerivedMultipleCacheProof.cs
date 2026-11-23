@@ -6,17 +6,20 @@ namespace Metarill.Data.Relations;
 /// <summary>派生多选／数据库复选分别遵循原目标声明，名称缓存不开放任意数组或请求SQL。</summary>
 internal static class DerivedMultipleCacheProof
 {
-    /// <summary>全局业务数组回填只接受同表原多值控件及其实际固定账号目标页。</summary>
+    /// <summary>全局业务数组回填只接受同表原多值控件及其实际发布的冗余字典页。</summary>
     internal static bool IsStoredGlobalSource(MetadataCatalog catalog,TableMetadata source,RelationCacheDefinition binding)
     {
         if(!binding.Multiple||!GlobalCrossTableTarget.Declared(source)||binding.SourceTableId!=source.Id)return false;
         var foreign=catalog.ConfigColumns.SingleOrDefault(column=>column.Id==binding.ForeignColumnId&&column.ConfigTableId==source.Id);
         var target=catalog.ConfigTables.SingleOrDefault(table=>table.Id==binding.TargetTableId);
         if(foreign is not {ControlKind:"MultiSelectPage" or "MultiCheckBoxDatabase"}||target is not {IsRongyu:1}||
-            !GlobalCrossTableTarget.Declared(target)||MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign) is not {} page)
+            !GlobalCrossTableTarget.Declared(target))
             return false;
-        var fixedName=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).Name;
-        if(fixedName.Id==binding.ValueColumnId)return true;
+        var page=MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign);
+        if(page is null&&foreign.ControlKind!="MultiSelectPage")return false;
+        var published=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);
+        if(page is null)return published.UsesStoredStaticPage&&published.Name.Id==binding.ValueColumnId;
+        if(published.Name.Id==binding.ValueColumnId)return true;
         if(foreign.ControlKind!="MultiCheckBoxDatabase"||binding.CheckboxTargetPageId!=page.Id||binding.CheckboxSourceParentId is not null)
             return false;
 
