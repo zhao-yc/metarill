@@ -90,9 +90,21 @@ public sealed partial class ReadOnlyConditionRule
             };
         }
     }
-    /// <summary>JSON数值保留十进制文本，不经double或decimal缩窄；对象只允许明确字典/JSON路径。</summary>
-    private static object? Unwrap(object? value)=>value is not JsonElement json?value:json.ValueKind switch
-    {JsonValueKind.Null=>null,JsonValueKind.True=>true,JsonValueKind.False=>false,JsonValueKind.String=>json.GetString(),JsonValueKind.Number=>ParseNumber(json.GetRawText()),JsonValueKind.Object or JsonValueKind.Array=>json,_=>throw Invalid()};
+    /// <summary>TIME 以详情接口的文本参与比较；JSON 数值保留十进制，路径只读取明确字典或 JSON。</summary>
+    private static object? Unwrap(object? value)
+    {
+        if (value is TimeSpan time) return Metarill.Core.Contracts.SqlTimeValue.Format(time);
+        return value is not JsonElement json ? value : json.ValueKind switch
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String => json.GetString(),
+            JsonValueKind.Number => ParseNumber(json.GetRawText()),
+            JsonValueKind.Object or JsonValueKind.Array => json,
+            _ => throw Invalid()
+        };
+    }
     /// <summary>仅识别Java Number对应的标量，不对任意对象执行字符串或数值转换。</summary>
     private static bool IsNumber(object value)=>value is JavaDecimalNumber or byte or sbyte or short or ushort or int or uint or long or ulong or float or double or decimal or BigInteger;
     /// <summary>空对象/数组为真，非空字符串不因文字等于false或空白就变成假。</summary>

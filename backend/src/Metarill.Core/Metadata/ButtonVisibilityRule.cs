@@ -108,6 +108,8 @@ public sealed partial class ButtonVisibilityRule
     private static string Text(object? value)=>value switch
     {
         null=>"null",string text=>text,bool boolean=>boolean?"true":"false",DateOnly date=>date.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture),
+        // 生成实体的 TIME 必须与原详情回显一致，避免 .NET 默认时长格式改变条件结果。
+        TimeSpan duration => Metarill.Core.Contracts.SqlTimeValue.Format(duration),
         TimeOnly time=>time.ToString("HH:mm:ss",CultureInfo.InvariantCulture),DateTime date=>date.ToString("yyyy-MM-dd HH:mm:ss",CultureInfo.InvariantCulture)+"."+(date.ToString("fffffff",CultureInfo.InvariantCulture).TrimEnd('0') is var fraction&&fraction.Length>0?fraction:"0"),
         JsonElement element=>element.ValueKind switch{JsonValueKind.Null or JsonValueKind.Undefined=>"null",JsonValueKind.String=>element.GetString()!,JsonValueKind.True=>"true",JsonValueKind.False=>"false",JsonValueKind.Array or JsonValueKind.Object=>JsonSerializer.Serialize(element,CompactJson),_=>element.GetRawText()},
         IDictionary map=>"{"+string.Join(", ",map.Cast<DictionaryEntry>().Select(item=>Text(item.Key)+"="+Text(item.Value)))+"}",

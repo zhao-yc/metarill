@@ -27,5 +27,21 @@ public sealed class ReadOnlyConditionRuleTests
         Assert.True(rule.IsReadOnly(new Dictionary<string,object?>{{"flag",true},{"amount",-1m}}));Assert.False(rule.IsReadOnly(new Dictionary<string,object?>{{"flag",true},{"amount",1m}}));
         var error=Assert.Throws<ArgumentException>(()=>ReadOnlyConditionRule.Compile("amount < true").IsReadOnly(new Dictionary<string,object?>{{"amount","不得泄露的实际值"}}));Assert.DoesNotContain("不得泄露",error.Message);
     }
+    /// <summary>只读解释器对实际 TIME 的比较与原详情的字符串、严格相等和 null 语义一致。</summary>
+    [Theory]
+    [InlineData("12:34:56.120000", "12:34:56.12")]
+    [InlineData("-30:01:02.123456", "-30:01:02.123456")]
+    public void Time_rules_use_the_value_returned_to_the_original_detail(string input, string wire)
+    {
+        var serialized = JsonSerializer.Serialize(wire);
+        var equality = ReadOnlyConditionRule.Compile("this.entity.opensAt === " + serialized);
+        var bounds = ReadOnlyConditionRule.Compile("opens_at >= " + serialized + " && opens_at <= " + serialized);
+        var actual = Metarill.Core.Contracts.SqlTimeValue.ParseText(input);
+        Assert.True(equality.IsReadOnly(new Dictionary<string, object?> { ["opensAt"] = wire }));
+        Assert.True(equality.IsReadOnly(new Dictionary<string, object?> { ["opensAt"] = actual }));
+        Assert.True(bounds.IsReadOnly(new Dictionary<string, object?> { ["opens_at"] = actual }));
+        Assert.False(equality.IsReadOnly(new Dictionary<string, object?> { ["opensAt"] = null }));
+    }
+
     private static string VectorsPath([CallerFilePath]string source="")=>Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!,"../../../tools/acceptance/read-only-condition/vectors.json"));
 }

@@ -52,6 +52,22 @@ public sealed class ButtonVisibilityRuleTests
         var timestamp=ButtonVisibilityRule.Compile("{\"conditions\":[{\"field\":\"value\",\"value\":\"2026-10-29 10:20:30.1234\"}]}");
         Assert.True(timestamp.Matches(new Dictionary<string,object?>{{"value",new DateTime(2026,10,29,10,20,30).AddTicks(1234000)}}));
     }
+    /// <summary>同一 TIME 字段的实际持久值与 Web 回显应产生一致的显示结果。</summary>
+    [Theory]
+    [InlineData("12:34:56.120000", "12:34:56.12")]
+    [InlineData("-30:01:02.123456", "-30:01:02.123456")]
+    public void Time_rules_match_the_same_value_before_and_after_json(string input, string wire)
+    {
+        var definition = JsonSerializer.Serialize(new { conditions = new[] { new { field = "opensAt", value = wire } } });
+        var rule = ButtonVisibilityRule.Compile(definition);
+        Assert.True(rule.Matches(new Dictionary<string, object?> { ["opensAt"] = wire }));
+        Assert.True(rule.Matches(new Dictionary<string, object?>
+        {
+            ["opensAt"] = Metarill.Core.Contracts.SqlTimeValue.ParseText(input)
+        }));
+        Assert.False(rule.Matches(new Dictionary<string, object?> { ["opensAt"] = null }));
+    }
+
     /// <summary>还原共享样本的JDBC类型标签，生产规则编译器不解析这些测试标签。</summary>
     private static object? Value(JsonElement value)
     {

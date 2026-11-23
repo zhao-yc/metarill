@@ -7,6 +7,44 @@ namespace Metarill.Generation.Tests;
 
 public sealed class PageConditionalRequiredTests
 {
+    /// <summary>实际生成的新增服务按详情可见的 TIME 值决定必填，校验必须先于写入。</summary>
+    [Theory]
+    [InlineData(true, "12:34:56.120000", "12:34:56.12")]
+    [InlineData(false, "-30:01:02.123456", "-30:01:02.123456")]
+    public async Task Time_rules_require_visible_fields_before_generated_create(bool clock, string input, string wire)
+    {
+        var catalog = GeneratorTests.Catalog();
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "17", ConfigTableId = "1", ColumnName = "opens_at", LogicalType = "time",
+            ColumnType = "time", ControlKind = clock ? "time" : ""
+        });
+        catalog.ConfigPageColumns.Add(new() { Id = "117", ConfigPageId = "101", ConfigColumnId = "17", IsEdit = 1 });
+        catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "13").IsRequired = 1;
+        catalog.ConfigColumns.Single(column => column.Id == "13").Extra["visibleCondition"] =
+            JsonSerializer.SerializeToElement(new { conditions = new[] { new { field = "opensAt", value = wire } } });
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-time-required");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), "Example.GuardContract");
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            using var run = new GeneratedMutationGuardRun(assembly, new Metarill.Data.MySqlDatabaseProvider().ValidateTimeValue);
+            var service = run.Service([]);
+            var request = run.Request(Metarill.Core.Persistence.RecordMutationOperation.Create,
+                JsonSerializer.Serialize(new { name = "缺少备注", opensAt = input }));
+            await Assert.ThrowsAsync<Metarill.Core.Contracts.BusinessRuleException>(() =>
+                run.Invoke(service, Metarill.Core.Persistence.RecordMutationOperation.Create, request));
+            Assert.DoesNotContain("write:Insert", run.Trace);
+
+            var complete = run.Request(Metarill.Core.Persistence.RecordMutationOperation.Create,
+                JsonSerializer.Serialize(new { name = "带备注", opensAt = input, remark = "已填" }));
+            await run.Invoke(service, Metarill.Core.Persistence.RecordMutationOperation.Create, complete);
+            Assert.Contains("write:Insert", run.Trace);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>显示条件读取最终实体的真实字段，JSON文本与对象一致，数据库非空仍独立约束。</summary>
     [Theory]
     [InlineData("approvalPayload")]

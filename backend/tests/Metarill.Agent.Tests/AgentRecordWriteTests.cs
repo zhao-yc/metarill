@@ -103,6 +103,22 @@ namespace Metarill.Agent.Tests
             Assert.Equal(status == 200 ? 1 : 0, TaskCount(memory));
         }
 
+        /// <summary>TIME 等值锁定依据实际原记录，与已显示值一致，仍早于 Agent 任务入账。</summary>
+        [Theory]
+        [InlineData("-30:01:02.123456", 403)]
+        [InlineData("-30:01:02.123457", 200)]
+        [InlineData(null, 200)]
+        public async Task Time_rules_check_the_original_record_before_agent_task(string? original, int status)
+        {
+            using var memory = new PrincipalRealmFixture();
+            using var fixture = new Fixture(memory, condition: "opensAt === \"-30:01:02.123456\"");
+            fixture.Reader.OpensAt = SqlTimeValue.ParseText(original);
+            var context = fixture.Context("Update", "update", """{"id":"7"}""");
+            await new AgentTaskMiddleware(current => current.Response.WriteAsJsonAsync(R<object>.Success(new { id = "7" }), JsonDefaults.Options)).InvokeAsync(context);
+            Assert.Equal(status, context.Response.StatusCode);
+            Assert.Equal(status == 200 ? 1 : 0, TaskCount(memory));
+        }
+
         private static int TaskCount(PrincipalRealmFixture memory)=>memory.Provider.Rows.TryGetValue("sys_agent_task",out var rows)?rows.Count:0;
         private sealed class Fixture:IDisposable
         {
@@ -115,6 +131,7 @@ namespace Metarill.Agent.Tests
                 foreach(var(table,prefix)in new[]{("41000","42"),("41100","43")})
                 {source.ConfigColumns.Add(new(){Id=prefix+"01",ConfigTableId=table,ColumnName="id",LogicalType="int64"});source.ConfigColumns.Add(new(){Id=prefix+"02",ConfigTableId=table,ColumnName="name",LogicalType="string"});source.ConfigColumns.Add(new(){Id=prefix+"03",ConfigTableId=table,ColumnName="is_locked",LogicalType="bool"});}
                 source.ConfigColumns.Add(new(){Id="4204",ConfigTableId="41000",ColumnName="rule_payload",LogicalType="json"});
+                source.ConfigColumns.Add(new(){Id="4205",ConfigTableId="41000",ColumnName="opens_at",LogicalType="time"});
                 var services=new ServiceCollection();services.AddLogging();services.AddControllers().AddApplicationPart(typeof(Generated.Controllers.RecordWriteFixtureController).Assembly).AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));
                 services.AddSingleton<IAgentHostResources>(new Resources(source));services.AddSingleton<IRuntimeAuthorization>(Authorization);services.AddSingleton(Reader);services.AddSingleton<GeneratedCapabilityIndex>();services.AddSingleton<AgentCapabilityCatalog>();services.AddSingleton(new AgentTaskOptions());services.AddSingleton(new AgentTaskStore(memory.Store,memory.Ids,new()));
                 Services=services.BuildServiceProvider();Catalog=Services.GetRequiredService<AgentCapabilityCatalog>();actions=Services.GetRequiredService<IActionDescriptorCollectionProvider>();
@@ -139,15 +156,17 @@ namespace Metarill.Agent.Tests
     public sealed class RecordWriteReader
     {
         internal bool Locked,Visible=true,RequireParent;internal long VisibleId=7,Id;internal string? Parent,Operation,RulePayload;internal int Calls;
+        internal TimeSpan? OpensAt;
         /// <summary>仅用返回行替身证明绑定/时序，真实范围SQL由生成包验证。</summary>
         public Task<RecordWriteEntity?> ReadAgentRecord41001Async(long id,string? parent,string operation,RuntimeActor actor,IRuntimeAuthorization authorization,CancellationToken token)
-        {Calls++;Id=id;Parent=parent;Operation=operation;Assert.Equal(authorization.RequireActor(),actor);authorization.RequirePagePermission("41001",operation);return Task.FromResult(Visible&&id==VisibleId&&(!RequireParent||parent=="9")?new RecordWriteEntity{Id=id,IsLocked=Locked,RulePayload=RulePayload}:null);}
+        {Calls++;Id=id;Parent=parent;Operation=operation;Assert.Equal(authorization.RequireActor(),actor);authorization.RequirePagePermission("41001",operation);return Task.FromResult(Visible&&id==VisibleId&&(!RequireParent||parent=="9")?new RecordWriteEntity{Id=id,IsLocked=Locked,RulePayload=RulePayload,OpensAt=OpensAt}:null);}
     }
     public sealed class RecordWriteEntity
     {
         [JsonPropertyName("id")]public long Id{get;set;}
         [JsonPropertyName("isLocked")][FreeSql.DataAnnotations.Column(Name="is_locked")]public bool IsLocked{get;set;}
         [JsonPropertyName("rulePayload")][FreeSql.DataAnnotations.Column(Name="rule_payload")]public string? RulePayload{get;set;}
+        [JsonPropertyName("opensAt")][FreeSql.DataAnnotations.Column(Name="opens_at")]public TimeSpan? OpensAt{get;set;}
         public string Unpublished=>throw new InvalidOperationException("不得读取未发布属性。");
     }
 }
