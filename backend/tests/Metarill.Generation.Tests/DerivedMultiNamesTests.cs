@@ -257,6 +257,10 @@ public sealed class DerivedMultiNamesTests
     [InlineData(false,1,false,"global-page-constant")]
     [InlineData(true,0,false,"global-page-constant")]
     [InlineData(true,1,false,"global-page-constant")]
+    [InlineData(false,0,false,"stored-account")]
+    [InlineData(false,1,false,"stored-account")]
+    [InlineData(true,0,false,"stored-account")]
+    [InlineData(true,1,false,"stored-account")]
     public async Task Array_label_matching_uses_the_actual_nested_page(bool checkbox,int storage,bool globalAccount,string dictionaryMode="")
     {
         const string ns="Example.DerivedArrayScope";
@@ -266,7 +270,9 @@ public sealed class DerivedMultiNamesTests
         var companyTable=catalog.ConfigTables.Single(table=>table.Id=="4");
         var globalStored=dictionaryMode=="global-stored-dictionary";
         var globalPageConstant=dictionaryMode=="global-page-constant";
-        var stored=dictionaryMode=="stored-dictionary"||globalStored;
+        var storedAccount=dictionaryMode=="stored-account";
+        var hasAccount=globalAccount||storedAccount;
+        var stored=dictionaryMode=="stored-dictionary"||globalStored||storedAccount;
         companyTable.IsRongyu=stored?1:0;
         var company=catalog.ConfigColumns.Single(column=>column.Id=="37");
         company.ControlDetail=JsonSerializer.Serialize(new{tableId="4",pageId="401",nameField="name",
@@ -290,9 +296,26 @@ public sealed class DerivedMultiNamesTests
             foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id))
                 sourcePage.WhereSql+=" AND store_id=@current_store_id";
         }
+        if(storedAccount)
+        {
+            // 项目内物理字典按账号限定，List 覆盖使用实际多选目标行的持久表单值。
+            catalog.ConfigColumns.AddRange([
+                new(){Id="46",ConfigTableId="4",ColumnName="store_id",LogicalType="int64"},
+                new(){Id="47",ConfigTableId="4",ColumnName="option_group",LogicalType="int32"},
+                new(){Id="312",ConfigTableId="3",ColumnName="stored_group",LogicalType="int32"},
+                new(){Id="29",ConfigTableId="2",ColumnName="store_id",LogicalType="int64"}
+            ]);
+            catalog.ConfigPageColumns.Add(new(){Id="301312",ConfigPageId="301",ConfigColumnId="312",IsEdit=1,IsShow=1});
+            companyPage.WhereSql+=" AND store_id=@current_store_id";
+            if(storage==1)
+                foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id))
+                    sourcePage.WhereSql+=" AND store_id=@current_store_id";
+        }
         if(!globalPageConstant)
             catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="301"&&field.ConfigColumnId=="37")
-                .Extra["controlDetail"]=JsonSerializer.SerializeToElement("{\"whereSql\":\"status=3\"}");
+                .Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{
+                    whereSql=storedAccount?"status=3 AND option_group=@formParameters.storedGroup":"status=3"
+                }));
         if(checkbox)
         {
             var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
@@ -333,11 +356,22 @@ public sealed class DerivedMultiNamesTests
                 var read=maintenancePlan.GetType().GetProperty("Read")!.GetValue(maintenancePlan)!;
                 AssertConstants(read);
                 Assert.Contains("derived_array_scope_company",maintenance.MixedTargets);
-                if(globalAccount)
+                if(hasAccount)
                 {
                     const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
                     var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["target_names"]));
                     Assert.Contains("b.`store_id`",expression);
+                    if(storedAccount)
+                    {
+                        Assert.Contains("multi_value.`stored_group`",expression);
+                        var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
+                            read.GetType().GetProperty("Reverse",hidden)!.GetValue(read));
+                        var dictionary=Assert.Single(reverse.Cast<object>(),entry=>
+                            Equals(entry.GetType().GetProperty("TargetTable")!.GetValue(entry),"derived_array_scope_company"));
+                        var dependencies=Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(
+                            dictionary.GetType().GetProperty("Outputs")!.GetValue(dictionary));
+                        Assert.Subset(dependencies["target_names"].ToHashSet(),new HashSet<string>{"store_id","option_group","status"});
+                    }
                 }
             }
 
@@ -345,11 +379,13 @@ public sealed class DerivedMultiNamesTests
             {
                 const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
                 var fixedPlan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(value);
-                Assert.Equal(globalAccount,fixedPlan.RequiresAccount);
-                var bound=fixedPlan.BindAccount(new Metarill.Core.Security.RuntimeActor(7,"sample",false,catalog.YzProjectId,"5"){StoreId=23});
+                Assert.Equal(hasAccount,fixedPlan.RequiresAccount);
+                var actor=new Metarill.Core.Security.RuntimeActor(7,"sample",false,catalog.YzProjectId,"5"){StoreId=23};
+                if(storedAccount)Assert.Throws<UnauthorizedAccessException>(()=>fixedPlan.BindAccount(actor with{StoreId=null}));
+                var bound=fixedPlan.BindAccount(actor);
                 var read=bound.GetType().GetProperty("MySql",hidden)!.GetValue(bound)!;
                 var constants=AssertConstants(read);
-                if(globalAccount)Assert.Contains(23L,constants.Values);
+                if(hasAccount)Assert.Contains(23L,constants.Values);
                 return read;
             }
 

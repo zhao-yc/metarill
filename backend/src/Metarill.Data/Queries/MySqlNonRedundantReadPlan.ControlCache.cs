@@ -80,9 +80,10 @@ public static partial class MySqlNonRedundantReadCompiler
             }
         }
 
-        /// <summary>冗余字典按实际页面验证物理条件，当前账号、同一父记录及来源行表单字段分别绑定。</summary>
+        /// <summary>冗余字典按实际页面验证物理条件，实时读取绑定请求账号，维护绑定来源行账号与表单值。</summary>
         private string ProjectStoredListCondition(TableMetadata source,string owner,ColumnMetadata relation,TableMetadata target,
-            string targetAlias,PageMetadata sourcePage,PageMetadata page,NonRedundantSingleTargetScope binding,FixedConditionPlan control)
+            string targetAlias,PageMetadata sourcePage,PageMetadata page,string? sourceParentId,FixedConditionPlan control,
+            CascadeCacheOwner? cacheOwner=null)
         {
             var members=columns[target.Id];
             var pageCondition=FixedConditionPlan.Compile(page.WhereSql,members.Keys);
@@ -90,7 +91,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var controlParent=MultiTargetParentScope.Compile(catalog,target,control);
             var parent=pageParent??controlParent;
             if (pageParent is not null && controlParent is not null && pageParent.Target.Id!=controlParent.Target.Id ||
-                parent is {Logical:true} || (parent is null)!=(binding.SourceParentId is null) ||
+                parent is {Logical:true} || (parent is null)!=(sourceParentId is null) ||
                 page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
                 throw new InvalidOperationException("原下拉的冗余字典需要已证明的物理范围和同一实际父键。");
 
@@ -103,24 +104,44 @@ public static partial class MySqlNonRedundantReadCompiler
                 variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase);
             var scoped=terms.Where(term=>!term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
                 MultiTargetParentScope.IsParameter(value.Text))&&!Project(term));
-            var syntax=FixedConditionPlan.Compile(string.Join(" AND ",scoped.Select(term=>term.ToDefinition())),members.Keys);
-            var plan=FixedConditionSqlPlan.Compile(syntax,syntax.Fields.ToDictionary(field=>field,field=>Column(target,field).LogicalType));
             var validity=new HashSet<string>(StringComparer.Ordinal);
             if(GlobalCrossTableTarget.Declared(target)&&terms.Any(Project))
                 validity.Add(Scope(target,targetAlias,includeDeleted:true));
+            if(cacheOwner is {} row)
+            {
+                var account=scoped.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
+                    AccountConditionVariables.IsSupported(value.Text))).ToArray();
+                if(account.Length>0)
+                {
+                    var accountPage=new PageMetadata{Id=page.Id,ConfigTableId=page.ConfigTableId,Extra=page.Extra,
+                        WhereSql=string.Join(" AND ",account.Select(term=>term.ToDefinition()))};
+                    validity.Add(PhysicalAccountCacheCondition(target,targetAlias,accountPage,row,allowFixedOnly:true));
+                    scoped=scoped.Except(account);
+                }
+            }
+            var syntax=FixedConditionPlan.Compile(string.Join(" AND ",scoped.Select(term=>term.ToDefinition())),members.Keys);
+            var plan=FixedConditionSqlPlan.Compile(syntax,syntax.Fields.ToDictionary(field=>field,field=>Column(target,field).LogicalType));
             var clause=plan.RenderRowProjection(ConditionParameterPrefix("mt_stored_list_"+targetAlias),
-                field=>targetAlias+"."+Q(field),(variable,type)=>AccountConditionVariables.IsSupported(variable)
-                    ?null:SingleControlFormColumn(source,owner,validity,variable,type),deferAccount:true);
+                Projection,(variable,type)=>AccountConditionVariables.IsSupported(variable)
+                    ?null:SingleControlFormColumn(source,owner,validity,variable,type),deferAccount:cacheOwner is null);
             foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
             if (parent is not null)
             {
                 var parentSource=parent.SingleSource(catalog,source,relation,sourcePage);
-                if (parentSource.Column.Id!=binding.SourceParentId)
+                if (parentSource.Column.Id!=sourceParentId)
                     throw new InvalidOperationException("冗余字典选项与来源记录没有相同的已发布父范围。");
                 var sourceParent=SingleSourceParentValue(source,owner,parentSource);
                 validity.Add(SinglePhysicalParentCondition(source,owner,targetAlias,parent,parentSource.Column,sourceParent:sourceParent));
             }
             return string.Join(" AND ",new[]{clause.Sql}.Concat(validity).Where(part=>part.Length>0));
+
+            string Projection(string field)
+            {
+                // 字典的账号或表单筛选列变化后，也要反查旧选择并重算名称。
+                Use(target,Column(target,field));
+                Touch(targetAlias,field);
+                return targetAlias+"."+Q(field);
+            }
         }
 
         /// <summary>实时名称在目标子查询中求值，表单参数取实际来源行，账号参数由当前身份绑定。</summary>

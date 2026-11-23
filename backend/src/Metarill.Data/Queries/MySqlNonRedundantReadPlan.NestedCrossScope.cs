@@ -564,8 +564,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 cascadeLabelPages.Add(storedSource.Id);
                 cascadeLabelPages.Add(stored.Id);
                 var storedControl=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,storedSource);
-                return binding.ControlSourcePageId==storedSource.Id
-                    ? ProjectStoredListCondition(owner,ownerAlias,relation,target,alias,storedSource,stored,binding,storedControl)
+                return !global||binding.ControlSourcePageId==storedSource.Id
+                    ? ProjectStoredListCondition(owner,ownerAlias,relation,target,alias,storedSource,stored,binding.SourceParentId,storedControl)
                     : StoredSingleCondition(target,alias,stored,storedControl);
             }
             // 全局多值候选的编译入口也会传入名称路径。按来源页重新证明内层字典的物理条件。
@@ -859,7 +859,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     // 允许追溯变为不可见的字典记录，条件只控制名称是否写回多值副本。
                     var storedAlias=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true);
                     var control=ProjectScopedSingleRelationTarget.ControlScope(catalog,table,foreign,target,sourcePage);
-                    return(storedAlias,StoredSingleCondition(target,storedAlias,projectNested.Page,control),cacheOwner);
+                    var visible=ProjectStoredListCondition(table,owner,foreign,target,storedAlias,sourcePage,projectNested.Page,
+                        null,control,cacheOwner);
+                    return(storedAlias,visible,cacheOwner);
                 }
                 if(projectNested.Scoped)
                 {
