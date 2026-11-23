@@ -67,7 +67,8 @@ public sealed class RelationMaintenanceCatalog
                 {
                     GlobalCachedRelationSource.RequireSelfTree(catalog,table);
                     foreach(var field in fields.Where(field=>!bindings.Any(binding=>binding.CacheColumnId==field.Id&&
-                        SelfTreeCache.UsesWholePath(catalog,table,binding.SelfTreePageId))))
+                        (SelfTreeCache.UsesWholePath(catalog,table,binding.SelfTreePageId)||
+                            DerivedMultipleCacheProof.IsStoredGlobalSource(catalog,table,binding)))))
                         GlobalCachedRelationSource.RequireCache(catalog,table,field);
                 }
                 else if(projectColumn is null||projectColumn.LogicalType is not("int64" or "string")||Enabled(projectColumn))throw new InvalidOperationException("维护表缺少真实项目列。");

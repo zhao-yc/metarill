@@ -18,6 +18,26 @@ public static partial class MySqlNonRedundantReadCompiler
         internal IReadOnlyDictionary<string,NonRedundantMultiTargetScope> ProjectMultiTargets { get; init; }=
             new Dictionary<string,NonRedundantMultiTargetScope>(StringComparer.Ordinal);
 
+        /// <summary>全局业务只读取本项目行的原多选 ID 及名称，字典候选与精确匹配仍只返回标量。</summary>
+        private bool PublishedGlobalBusinessMultiField(string field)
+        {
+            if(!HasGlobalRowProject(root)||candidatePage is not null||SelectedMultiPage is not null||GlobalCrossCandidate||matching)
+                return false;
+            foreach(var relation in columns[root.Id].Values.Where(column=>column.ControlKind=="MultiSelectPage"&&
+                column.ColumnName.EndsWith("_ids",StringComparison.Ordinal)))
+            {
+                var name=Value(Definition(relation),"nameField");
+                if(name.Length==0)name="name";
+                var display=relation.ColumnName[..^4]+"_"+(name.EndsWith('s')?name:name+"s");
+                if(!field.Equals(relation.ColumnName,StringComparison.OrdinalIgnoreCase)&&
+                    (name=="id"||!field.Equals(display,StringComparison.OrdinalIgnoreCase)))continue;
+                var target=MultiTarget(relation);
+                _=GlobalMultipleRelationTarget.Require(catalog,root,relation,target);
+                return true;
+            }
+            return false;
+        }
+
         /// <summary>运行目录重新核对当前页的控件目标，禁止外部请求指定页、换表或读取别的发布项目。</summary>
         private (PageMetadata? Source,PageMetadata? Target,bool Scope,FixedConditionPlan? Control,string? Name) ProjectMultiTarget(TableMetadata table,string alias,
             ColumnMetadata relation,TableMetadata target)
@@ -168,7 +188,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 :GlobalCrossTableTarget.DeclaresExactMulti(target,candidatePage));
             var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:candidatePage,multiLabel:true,cascadeLabelField:value.ColumnName,
-                cascadeCacheOwner:refreshFields is null||fixedParent is not null&&storage[target.Id].IsPhysical(value)?null:new(table,owner),
+                cascadeCacheOwner:refreshFields is null||fixedParent is not null&&storage[target.Id].IsPhysical(value)?null:
+                    new(table,owner,GlobalSingleSource:storedAccount&&GlobalCrossTableTarget.Declared(table)),
                 globalCandidate:global&&target.IsRongyu==0&&candidatePage is not null,
                 scopedPhysicalCandidate:physicalScope&&!global,accountPhysicalCandidate:storedAccount,
                 exactSingleCandidate:storedGlobalExact)

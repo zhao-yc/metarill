@@ -36,8 +36,9 @@ public static class DerivedCrossTableCaches
             var global=GlobalCrossTableTarget.Declared(target);
             var globalSource=GlobalCrossTableTarget.Declared(source);
             var globalTree=globalSource&&d.SelfTreePageId is not null;
+            var globalMultiple=globalSource&&DerivedMultipleCacheProof.IsStoredGlobalSource(catalog,source,d);
             if(source.IsRongyu!=1||
-                globalSource&&!globalTree||source.IsView!=0||source.IsFunctionTable!=0||target.IsView!=0||target.IsFunctionTable!=0)
+                globalSource&&!globalTree&&!globalMultiple||source.IsView!=0||source.IsFunctionTable!=0||target.IsView!=0||target.IsFunctionTable!=0)
                 throw new InvalidOperationException("派生级联缓存要求已发布的R1来源和固定单值目标。");
             var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var columns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(c=>c.ConfigTableId==source.Id));var foreign=columns.SingleOrDefault(c=>c.Id==d.ForeignColumnId);var cache=columns.SingleOrDefault(c=>c.Id==d.CacheColumnId);var value=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id)).SingleOrDefault(c=>c.Id==d.ValueColumnId);
             var scopedTree=SelfTreeCache.UsesWholePath(catalog,source,d.SelfTreePageId);

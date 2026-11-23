@@ -9,7 +9,7 @@ public static class GlobalMultipleRelationTarget
 {
     /// <summary>读取原多选或复选定义；目标页面只是已发布关系归属，复选仍使用自己的原候选条件。</summary>
     public static GlobalMultipleRelationPlan Require(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,false);
-    /// <summary>仅供物理R1消费者的冻结缓存计划使用，来源仍要求真实项目范围；不开放全局来源。</summary>
+    /// <summary>冻结物理R1名称计划，来源必须有真实项目范围，全局来源另核对固定账号选择页。</summary>
     public static GlobalMultipleRelationPlan RequireCached(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,true);
     /// <summary>没有明确候选页时，保留全局复选名称的唯一发布要求。</summary>
     public static bool IsPublishedCheckboxText(MetadataCatalog catalog,TableMetadata target,ColumnMetadata value)
@@ -37,7 +37,7 @@ public static class GlobalMultipleRelationTarget
     private static GlobalMultipleRelationPlan RequireSource(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,bool cached)
     {
         var sourceColumns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==owner.Id).ToArray();var storage=MetadataStoragePolicy.ForTable(catalog,owner);var project=sourceColumns.SingleOrDefault(column=>column.ColumnName=="yz_project_id");
-        if(owner.IsRongyu!=(cached?1:0)||GlobalCrossTableTarget.Declared(owner)||owner.IsView!=0||owner.IsFunctionTable!=0||owner.YzProjectId!=catalog.YzProjectId||project is null||project.LogicalType is not("int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(storage,owner,project))throw new NotSupportedException("全局多值关系要求明确发布且有真实项目列的普通R0来源或已证明的R1消费者。");
+        if(owner.IsRongyu!=(cached?1:0)||owner.IsView!=0||owner.IsFunctionTable!=0||owner.YzProjectId!=catalog.YzProjectId||project is null||project.LogicalType is not("int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(storage,owner,project))throw new NotSupportedException("全局多值关系要求明确发布且有真实项目列的来源。");
         if(foreign.ConfigTableId!=owner.Id||foreign.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase")||!foreign.ColumnName.EndsWith("_ids",StringComparison.Ordinal)||foreign.LogicalType!="string"||foreign.IsVirtualColumn!=0||!storage.IsPhysical(foreign))throw new NotSupportedException("全局多值关系必须使用本表物理JSON文本ID数组。");
         using var document=foreign.ControlKind=="MultiCheckBoxDatabase"?null:JsonDocument.Parse(foreign.ControlDetail);var definition=foreign.ControlKind=="MultiCheckBoxDatabase"?DatabaseCheckboxDefinition.Parse(foreign.ControlDetail).ReadDefinition(foreign):document!.RootElement;
         if(definition.ValueKind!=JsonValueKind.Object||definition.EnumerateObject().Select(x=>x.Name).Distinct(StringComparer.Ordinal).Count()!=definition.EnumerateObject().Count())throw new InvalidOperationException("全局多值定义必须为无重复键对象。");
@@ -52,13 +52,20 @@ public static class GlobalMultipleRelationTarget
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
         var expanded=RelationStorageColumns.Expand(target,columns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
+        var storedAccount=foreign.ControlKind=="MultiSelectPage"&&pageId.Length>0&&IsStoredAccountPage(target,page,condition);
+        if(GlobalCrossTableTarget.Declared(owner))
+        {
+            // 全局业务来源仍有项目归属，仅开放明确绑定固定账号字典页的原多选。
+            if(!storedAccount)throw new NotSupportedException("全局多值来源必须绑定明确发布的冗余账号多选页。");
+            GlobalDerivedRelationSource.RequireTable(catalog,owner);
+        }
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
         var scoped=selfTreeScope||target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
         if(foreign.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.DeclaresExactMulti(target,page)||
             foreign.ControlKind=="MultiCheckBoxDatabase"&&GlobalCrossTableTarget.DeclaresExactPage(target,page))
             _=GlobalCrossTableTarget.ExactPageParent(catalog,target,page);
         else if(selfTreeScope)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page,allowMultiParent:true);
-        else if(foreign.ControlKind=="MultiSelectPage"&&pageId.Length>0&&IsStoredAccountPage(target,page,condition))
+        else if(storedAccount)
             GlobalCrossTableTarget.RequireAccountCandidate(catalog,target,page);
         else if(scoped||target.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported))
             GlobalCrossTableTarget.RequireMultiCandidate(catalog,target,page);

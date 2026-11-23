@@ -6,6 +6,17 @@ namespace Metarill.Data.Relations;
 /// <summary>派生多选／数据库复选分别遵循原目标声明，名称缓存不开放任意数组或请求SQL。</summary>
 internal static class DerivedMultipleCacheProof
 {
+    /// <summary>全局业务数组回填只接受同表原多选及其实际固定账号目标页。</summary>
+    internal static bool IsStoredGlobalSource(MetadataCatalog catalog,TableMetadata source,RelationCacheDefinition binding)
+    {
+        if(!binding.Multiple||!GlobalCrossTableTarget.Declared(source)||binding.SourceTableId!=source.Id)return false;
+        var foreign=catalog.ConfigColumns.SingleOrDefault(column=>column.Id==binding.ForeignColumnId&&column.ConfigTableId==source.Id);
+        var target=catalog.ConfigTables.SingleOrDefault(table=>table.Id==binding.TargetTableId);
+        return foreign is {ControlKind:"MultiSelectPage"}&&target is {IsRongyu:1}&&GlobalCrossTableTarget.Declared(target)&&
+            MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign) is not null&&
+            GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).Name.Id==binding.ValueColumnId;
+    }
+
     /// <summary>数据层独立核对生成器声明；派生值仍须由单值匹配编译器取得终点证明。</summary>
     internal static void Require(MetadataCatalog catalog,TableMetadata source,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,ColumnMetadata cache,
         string? checkboxTargetPageId,string? checkboxSourceParentId=null)
@@ -65,7 +76,8 @@ internal static class DerivedMultipleCacheProof
         // 验证也读取与实际名称副本相同的固定页及联接条件。
         if(target.IsRongyu==1&&foreign.ControlKind=="MultiSelectPage"&&scoped is not null)
         {
-            _=AccountScopedCrossCache.Compile(catalog,source,target,scoped);
+            _=AccountScopedCrossCache.Compile(catalog,source,target,scoped,globalTreeSource:false,
+                globalSingleSource:GlobalCrossTableTarget.Declared(source));
             var scopedRead=MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(catalog,target.Id,scoped.Id,
                 value.ColumnName,[value.ColumnName],[]);
             if(scopedRead.Types[value.ColumnName]!=value.LogicalType)throw Invalid();

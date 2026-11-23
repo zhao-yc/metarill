@@ -397,6 +397,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 foreach(var name in refreshFields!)
                 {
                     var field=columns[root.Id][name];
+                    if(refreshMultiples.Any(binding=>binding.CacheColumnId==field.Id&&
+                        DerivedMultipleCacheProof.IsStoredGlobalSource(catalog,root,binding)))continue;
                     var tree=refreshMultiples.SingleOrDefault(binding=>binding.CacheColumnId==field.Id&&
                         SelfTreeCache.UsesWholePath(catalog,root,binding.SelfTreePageId));
                     if(tree is null)
@@ -435,6 +437,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var controls=columns[root.Id].Values.Where(column=>crossTables.ContainsKey(column.Id)).ToArray();
                 foreach(var field in outputs.Concat(dependencies).Append("id").Distinct(StringComparer.OrdinalIgnoreCase))
                 {
+                    if(PublishedGlobalBusinessMultiField(field))continue;
                     if(!columns[root.Id].ContainsKey(field))
                     {
                         RequireGlobalSingleDisplay(root,field);
@@ -662,12 +665,9 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             finally{resolving.Remove(key);}
         }
-        /// <summary>仅编译明确多选的物理ID与名称；窗口聚合按原数组顺序保留缺失目标的null位置。</summary>
-        private (string Sql,string Type) MultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,string display,
-            string? checkboxPageId=null,string? checkboxSourceParentId=null)
+        /// <summary>读业务数组、改名传播和回填共用原多值目标解析，显式冲突不允许回退。</summary>
+        private TableMetadata MultiTarget(ColumnMetadata relation)
         {
-            if(matching)throw new NotSupportedException("固定单值名称路径不能穿过多值关系或数组。");
-            if(!storage[table.Id].IsPhysical(relation)||relation.LogicalType!="string")throw new NotSupportedException("多值关系必须以物理字符串列存储JSON ID数组。");
             var definition=Definition(relation);TableMetadata? target=null;
             var id=Value(definition,"tableId");if(id.Length>0)target=tables.GetValueOrDefault(id);
             var pageId=MultiPageId(definition);if(target is null&&pageId.Length>0)target=PageTarget(pageId);
@@ -679,6 +679,15 @@ public static partial class MySqlNonRedundantReadCompiler
             if(target is null)throw new InvalidOperationException("多值关联缺少同项目目标。");ValidateTarget(target);
             if(id.Length>0&&tables.GetValueOrDefault(id)?.Id!=target.Id||pageId.Length>0&&PageTarget(pageId)?.Id!=target.Id||Value(definition,"table") is {Length:>0} declared&&declared!=target.TableName||Text(relation,"linkConfigPageId") is {Length:>0} linkedPage&&PageTarget(linkedPage)?.Id!=target.Id)throw new InvalidOperationException("多值关系的目标声明缺失或相互矛盾。");
             if(relation.LinkConfigTableId.Length>0&&relation.LinkConfigTableId!=target.Id)throw new InvalidOperationException("多值关系目标声明不一致。");
+            return target;
+        }
+        /// <summary>仅编译明确多选的物理ID与名称；窗口聚合按原数组顺序保留缺失目标的null位置。</summary>
+        private (string Sql,string Type) MultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,string display,
+            string? checkboxPageId=null,string? checkboxSourceParentId=null)
+        {
+            if(matching)throw new NotSupportedException("固定单值名称路径不能穿过多值关系或数组。");
+            if(!storage[table.Id].IsPhysical(relation)||relation.LogicalType!="string")throw new NotSupportedException("多值关系必须以物理字符串列存储JSON ID数组。");
+            var target=MultiTarget(relation);
             var global=GlobalCrossTableTarget.Declared(target);
             var (sourcePage,overridden,applyPageScope,control,nameOverride)=ProjectMultiTarget(table,owner,relation,target);
             display=nameOverride??display;

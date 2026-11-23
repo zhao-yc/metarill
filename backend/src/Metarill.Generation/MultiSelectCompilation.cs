@@ -25,15 +25,20 @@ internal static class MultiSelectCompilation
     /// <summary>辅助名称只读且使用HTTP数组，实体仍保持原JSON文本存储。</summary>
     internal static GenerationModel Prepare(GenerationModel model)
     {
-        var managed = model.Tables.ToDictionary(table => table.Source.Id, table => table.Pages
-            .SelectMany(page => table.Source.IsFunctionTable == 1 ? ForPage(model, table, page) : ForService(model, table, page))
-            .Where(def => def.Names is not null).Select(def => def.Names!.Source.Id).ToHashSet(StringComparer.Ordinal));
+        var definitions = model.Tables.ToDictionary(table => table.Source.Id, table => table.Pages
+            .SelectMany(page => table.Source.IsFunctionTable == 1 ? ForPage(model, table, page) : ForService(model, table, page)).ToArray());
         return model with { Tables = model.Tables.Select(table =>
         {
-            var names = managed[table.Source.Id];names.UnionWith(MultiNameWriteCompilation.ForTable(model,table).Select(binding=>binding.Cache.Source.Id));
+            var actual = definitions[table.Source.Id];
+            var names = actual.Where(definition => definition.Names is not null)
+                .Select(definition => definition.Names!.Source.Id).ToHashSet(StringComparer.Ordinal);
+            names.UnionWith(MultiNameWriteCompilation.ForTable(model,table).Select(binding=>binding.Cache.Source.Id));
+            // 可发布全局候选与带真实项目归属的业务记录分别使用各自的查询范围。
+            var scopedGlobal = table.HasScopedGlobalCache || table.IsGlobal && table.Source.IsRongyu == 1 &&
+                actual.Any(definition => FixedPageConditionCompilation.HasStoredGlobalMultiScope(definition.Target, definition.TargetPage));
             ColumnModel Fix(ColumnModel column) => names.Contains(column.Source.Id) ? column with { IsManagedMultiNames = true } : column;
             IReadOnlyList<ColumnModel> FixAll(IReadOnlyList<ColumnModel> columns) => columns.Select(Fix).ToArray();
-            return table with { Columns = FixAll(table.Columns), Pages = table.Pages.Select(page => page with { Readable = FixAll(page.Readable), Writable = FixAll(page.Writable.Where(column => !names.Contains(column.Source.Id)).ToArray()), Searchable = FixAll(page.Searchable), Sortable = FixAll(page.Sortable), ListColumns = FixAll(page.ListColumns), DetailColumns = FixAll(page.DetailColumns) }).ToArray() };
+            return table with { HasScopedGlobalCache = scopedGlobal, Columns = FixAll(table.Columns), Pages = table.Pages.Select(page => page with { Readable = FixAll(page.Readable), Writable = FixAll(page.Writable.Where(column => !names.Contains(column.Source.Id)).ToArray()), Searchable = FixAll(page.Searchable), Sortable = FixAll(page.Sortable), ListColumns = FixAll(page.ListColumns), DetailColumns = FixAll(page.DetailColumns) }).ToArray() };
         }).ToArray() };
     }
 

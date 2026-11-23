@@ -307,7 +307,7 @@ public sealed class DerivedSingleSelectionTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
-    /// <summary>原弹窗单选直接使用全局冗余字典页的账号与常量条件，冗余副本另按持久门店计算。</summary>
+    /// <summary>原弹窗单选和多选直接使用全局冗余字典页，业务读取与维护另核对真实行归属。</summary>
     [Theory]
     [InlineData(0, false)]
     [InlineData(1, false)]
@@ -315,6 +315,8 @@ public sealed class DerivedSingleSelectionTests
     [InlineData(1, false, true)]
     [InlineData(0, false, true, true)]
     [InlineData(1, false, true, true)]
+    [InlineData(0, true, true, true)]
+    [InlineData(1, true, true, true)]
     public async Task Stored_global_selection_uses_published_account_dictionary(int storage, bool globalSource, bool managedDictionary = false, bool multiple = false)
     {
         const string ns = "Example.GlobalAccountSelection";
@@ -434,6 +436,25 @@ public sealed class DerivedSingleSelectionTests
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service = assembly.GetType(ns + ".Generated.Services.AccountSelectionOrderService", true)!;
             RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            if (globalSource && multiple)
+            {
+                var actor = new RuntimeActor(7, "合成账号", false, "999999", "5") { StoreId = 9007199254740993L };
+                var validate = service.GetMethod("ValidateActor", BindingFlags.Static | BindingFlags.NonPublic)!;
+                Assert.IsType<UnauthorizedAccessException>(
+                    Assert.Throws<TargetInvocationException>(() => validate.Invoke(null, [actor])).InnerException);
+                if (storage == 1)
+                {
+                    Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(owner));
+                    Assert.Contains("entity.YzProjectId = ", ownerCode);
+                    Assert.Contains("不能修改来源记录项目归属", ownerCode);
+                }
+                else
+                {
+                    // 业务数组有行项目约束，单独的全局候选入口不允许输出同名数组。
+                    Assert.Throws<NotSupportedException>(() => NonRedundantReads.CompileGlobalCandidate(
+                        catalog, source.Id, businessPage.Source.Id, [foreign.ColumnName]));
+                }
+            }
             if (managedDictionary)
             {
                 // 读取实际生成查询的 SQL，仅构造查询表达式。
@@ -500,6 +521,8 @@ public sealed class DerivedSingleSelectionTests
                 var bound = plan.BindAccount(new RuntimeActor(7, "合成账号", false, catalog.YzProjectId, "5")
                     { StoreId = 9007199254740993L });
                 var read = bound.GetType().GetProperty("MySql", hidden)!.GetValue(bound)!;
+                if (globalSource && multiple)
+                    Assert.Contains("`yz_project_id`", Assert.IsType<string>(read.GetType().GetProperty("Scope", hidden)!.GetValue(read)));
                 var constants = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
                     read.GetType().GetProperty("Constants", hidden)!.GetValue(read));
                 Assert.Contains(9007199254740993L, constants.Values);
@@ -522,6 +545,8 @@ public sealed class DerivedSingleSelectionTests
                 var published = plans[source.Id]!;
                 Assert.Null(published.GetType().GetProperty("Error")!.GetValue(published));
                 var read = published.GetType().GetProperty("Read")!.GetValue(published)!;
+                if (globalSource && multiple)
+                    Assert.Contains("`yz_project_id`", Assert.IsType<string>(read.GetType().GetProperty("Scope", hidden)!.GetValue(read)));
                 var label = Assert.IsType<string>(read.GetType().GetMethod("Expression", hidden)!
                     .Invoke(read, [cacheName]));
                 Assert.Matches(@"BINARY CAST\((?!b\.)\w+\.`store_id` AS CHAR\)=BINARY CAST\(b\.`store_id` AS CHAR\)", label);

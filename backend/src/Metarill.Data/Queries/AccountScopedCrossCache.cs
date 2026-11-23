@@ -46,7 +46,7 @@ public sealed class AccountScopedCrossCache
         IReadOnlySet<string>? additionalParents=null)
     {
         if(globalTreeSource)GlobalCachedRelationSource.RequireSelfTree(catalog,source);
-        // GlobalSingleSource 只由已核对 ScopedSingleTarget 的缓存计划设置，编译器另外保留根行项目范围。
+        // 仅经发布证明的全局单值或物理账号多选缓存可绑定来源行；根查询另行约束行项目。
         if (source.IsRongyu != 1 || targetPage.ConfigTableId != target.Id || GlobalCrossTableTarget.Declared(source)&&!globalTreeSource&&!globalSingleSource ||
             source.IsView != 0 || source.IsFunctionTable != 0 || target.IsView != 0 || target.IsFunctionTable != 0 ||
             !separateExactScope&&targetPage.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
