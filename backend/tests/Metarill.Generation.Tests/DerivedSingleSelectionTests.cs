@@ -632,6 +632,110 @@ public sealed class DerivedSingleSelectionTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>本项目多选固定范围对候选、名称读取和物理缓存重算使用同一份已发布条件。</summary>
+    [Theory]
+    [InlineData(0, 0, false, false)]
+    [InlineData(0, 1, true, false)]
+    [InlineData(1, 0, true, false)]
+    [InlineData(1, 1, false, false)]
+    [InlineData(0, 0, true, true)]
+    [InlineData(0, 1, false, true)]
+    public async Task Project_multiselect_uses_literal_dictionary_scope(int sourceStorage, int targetStorage, bool explicitProject, bool nameOverride)
+    {
+        const string ns = "Example.ProjectMultiLiteral";
+        const string nameField = "customer_names";
+        const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+        var catalog = DerivedSingleSelectionTests.Catalog("scope_multi", false);
+        var source = catalog.ConfigTables.Single(table => table.Id == "1");
+        source.IsRongyu = sourceStorage;
+        var target = catalog.ConfigTables.Single(table => table.Id == "2");
+        target.IsRongyu = targetStorage;
+        catalog.ConfigColumns.RemoveAll(column => column.Id is "16" or "17" or "27" or "28");
+        catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId is "16" or "17" or "27" or "28");
+        var foreign = catalog.ConfigColumns.Single(column => column.Id == "15");
+        foreign.ControlKind = "MultiSelectPage";
+        foreign.ColumnName = "customer_ids";
+        foreign.DefaultValue = "";
+        foreign.LogicalType = "string";
+        foreign.ColumnLength = "max";
+        foreign.ControlDetail = """{"tableId":"2","pageId":"201","nameField":"name","whereSql":"status = 17"}""";
+        if (nameOverride)
+            catalog.ConfigPageColumns.Single(field => field.ConfigPageId == "101" && field.ConfigColumnId == foreign.Id)
+                .Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"nameField":"notes"}""");
+        var display = catalog.ConfigColumns.Single(column => column.Id == "113");
+        display.ColumnName = nameField;
+        display.ColumnLength = "max";
+        display.Extra["columnFullName"] = JsonSerializer.SerializeToElement("customer.name");
+        var page = catalog.ConfigPages.Single(page => page.Id == "201");
+        foreach (var item in catalog.ConfigPages) item.OrderBy = "id desc";
+        page.Extra["type"] = JsonSerializer.SerializeToElement(2);
+        page.WhereSql = explicitProject ? "yz_project_id=@current_yz_project_id AND status=17" : "status=17";
+
+        var model = GenerationModel.Create(catalog, ns);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var owner = model.Tables.Single(table => table.Source.Id == source.Id);
+        var sourcePage = owner.Pages.Single(item => item.Source.Id == "101");
+        var control = owner.Columns.Single(column => column.Source.Id == foreign.Id);
+        var selection = MultiSelectCompilation.Resolve(model, owner, sourcePage, control, forService: true);
+        Assert.True(selection.Definition is not null, selection.Reason);
+        Assert.True(FixedPageConditionCompilation.HasMultiTargetScope(model, selection.Definition.Target, selection.Definition.TargetPage));
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-project-multi-literal");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.ScopeMultiOrderService", true)!;
+            var lookup = service.GetField("MultiDerivedPlan101_15", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(lookup);
+            var plan = Assert.IsType<NonRedundantReadPlan>(lookup.GetValue(null));
+            var matching = MySql(plan);
+            HasDictionaryRange(Assert.IsType<string>(matching.GetType().GetProperty("Scope", hidden)!.GetValue(matching)), matching);
+
+            if (sourceStorage == 0)
+            {
+                var pageRead = Assert.IsType<NonRedundantReadPlan>(
+                    service.GetField("ReadPlan101", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+                var read = MySql(pageRead);
+                var expression = Expression(read);
+                HasDictionaryRange(expression, read);
+                Assert.Contains(nameOverride ? ".`notes`" : ".`name`", expression);
+            }
+            else
+            {
+                var maintenance = Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    assembly.GetType(ns + ".Generated.GeneratedRelationMaintenance", true)!.GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains(nameField, maintenance.MixedSourceColumns["scope_multi_order"]);
+                var plans = Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                    maintenance.GetType().GetProperty("Plans", hidden)!.GetValue(maintenance));
+                var published = plans[source.Id]!;
+                Assert.Null(published.GetType().GetProperty("Error")!.GetValue(published));
+                var read = published.GetType().GetProperty("Read")!.GetValue(published)!;
+                HasDictionaryRange(Expression(read), read);
+                var reverse = Assert.IsAssignableFrom<System.Collections.IEnumerable>(
+                    read.GetType().GetProperty("Reverse", hidden)!.GetValue(read));
+                Assert.Contains(reverse.Cast<object>(), item =>
+                    Equals(target.TableName, item.GetType().GetProperty("TargetTable")!.GetValue(item)) &&
+                    Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlySet<string>>>(
+                        item.GetType().GetProperty("Outputs")!.GetValue(item)).TryGetValue(nameField, out var fields) &&
+                    fields.Contains("status") && fields.Contains("name"));
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+
+        static object MySql(NonRedundantReadPlan plan) => plan.GetType().GetProperty("MySql", hidden)!.GetValue(plan)!;
+        static string Expression(object read) =>
+            Assert.IsType<string>(read.GetType().GetMethod("Expression", hidden)!.Invoke(read, [nameField]));
+        static void HasDictionaryRange(string sql, object read)
+        {
+            Assert.Contains(".`status`", sql);
+            Assert.Contains(".`yz_project_id`", sql);
+            var values = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
+                read.GetType().GetProperty("Constants", hidden)!.GetValue(read)).Values;
+            Assert.Contains(17, values);
+        }
+    }
+
     /// <summary>从实际生成的查询上提取 WHERE，不让投影列影响范围断言。</summary>
     private static string SelectionSql<T>(object query) where T : class => ((FreeSql.ISelect<T>)query).ToSql("1");
 

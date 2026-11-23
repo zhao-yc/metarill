@@ -52,12 +52,12 @@ public static class GenerationMetadataPublisher
             var targetPage=published.ConfigPages.SingleOrDefault(page=>page.Id==pageId);
             if(targetPage is null)continue;
             var target=published.ConfigTables.Single(table=>table.Id==targetPage.ConfigTableId);
-            if(target.IsRongyu!=0)continue;
+            var scoped=Metarill.Data.Queries.NonRedundantReads.HasScopedMultiPage(published,target,field);
+            if(target.IsRongyu!=0&&(GlobalCrossTableTarget.Declared(target)||!scoped))continue;
             var name=definition.TryGetProperty("nameField",out var label)&&label.ValueKind==JsonValueKind.String&&
                 !string.IsNullOrWhiteSpace(label.GetString())?label.GetString()!:"name";
             var value=published.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==target.Id&&column.ColumnName==name);
-            if(value is null||MetadataStoragePolicy.ForTable(published,target).IsPhysical(value)&&
-                !Metarill.Data.Queries.NonRedundantReads.HasScopedMultiPage(published,target,field))continue;
+            if(value is null||MetadataStoragePolicy.ForTable(published,target).IsPhysical(value)&&!scoped)continue;
             if(!multiProof.TryGetValue(pageId,out var names))multiProof[pageId]=names=new(StringComparer.Ordinal);
             names.Add(value.Id);
         }

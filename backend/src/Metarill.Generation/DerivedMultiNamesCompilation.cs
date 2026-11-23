@@ -15,7 +15,10 @@ internal static class DerivedMultiNamesCompilation
     internal static void Require(GenerationModel model,TableModel owner,TableModel target,PageModel page,ColumnModel name,
         ExactDataManageModel? exact=null)
     {
-        if(owner.Source.IsRongyu is not(0 or 1)||target.Source.IsRongyu!=0&&!FixedPageConditionCompilation.HasStoredGlobalMultiScope(target,page)||
+        var scopedPhysicalTarget=target.Source.IsRongyu==1&&!target.IsGlobal&&
+            NonRedundantReads.IsProjectLiteralMultiSelectTarget(model.Catalog,target.Source,page.Source);
+        if(owner.Source.IsRongyu is not(0 or 1)||target.Source.IsRongyu!=0&&!scopedPhysicalTarget&&
+            !FixedPageConditionCompilation.HasStoredGlobalMultiScope(target,page)||
             target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&
             !Metarill.Core.Contracts.MultiValueLabel.IsTyped(name.Source.LogicalType)||name.IsJsonArray)
             throw new InvalidOperationException("多选名称要求已证明的来源、目标页面及固定单值名称。");

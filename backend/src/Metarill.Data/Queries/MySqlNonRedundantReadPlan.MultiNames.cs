@@ -165,7 +165,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 var syntax=FixedConditionPlan.Compile(DatabaseCheckboxDefinition.Parse(relation.ControlDetail).WhereSql,columns[target.Id].Keys);
                 if(syntax.Terms.Count>0)control=syntax;
             }
-            var physicalScope=storedAccount||checkbox&&target.IsRongyu==1&&(fixedParent is not null||
+            var projectLiteral=!checkbox&&selectedScope is not null&&IsProjectLiteralMultiPage(catalog,target,selectedScope);
+            var physicalScope=storedAccount||target.IsRongyu==1&&projectLiteral||
+                checkbox&&target.IsRongyu==1&&(fixedParent is not null||
                 table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
                 throw new NotSupportedException("多值名称要求已证明的目标及原多选或数据库复选。");
@@ -218,7 +220,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent,[]),
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
                 MultiNamePathPage=namePage,
-                AllowLiteralMultiScope=sourcePage is not null||fixedParent is not null||sharedCheckbox,
+                AllowLiteralMultiScope=sourcePage is not null||fixedParent is not null||sharedCheckbox||projectLiteral,
                 GlobalCrossCandidate=global&&(selectedPage is not null||candidatePage is not null)
             };
             var parents=new List<string>();

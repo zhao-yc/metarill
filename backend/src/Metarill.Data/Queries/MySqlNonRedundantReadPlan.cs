@@ -277,16 +277,20 @@ public static partial class MySqlNonRedundantReadCompiler
         }
         if(parent is {Global:true}&&source is {AdditionalColumns.Count:>0})
             RequireCompoundGlobalSourceParent(catalog,tableId,selectedPage!.Id,source);
-        return new Builder(catalog,tableId,true,multiLabel:true,cascadeLabelField:field,cascadeCacheOwner:cacheOwner)
+        var target=catalog.ConfigTables.Single(table=>table.Id==tableId);
+        var projectLiteral=selectedPage is not null&&relation?.ControlKind=="MultiSelectPage"&&
+            IsProjectLiteralMultiPage(catalog,target,selectedPage);
+        return new Builder(catalog,tableId,true,multiLabel:true,cascadeLabelField:field,cascadeCacheOwner:cacheOwner,
+            scopedPhysicalCandidate:projectLiteral&&target.IsRongyu==1)
         {
             SelectedMultiPage=selectedPage,
             AllowsExactMultiSelection=relation?.ControlKind=="MultiSelectPage",
             AllowsStoredExactCheckbox=relation?.ControlKind=="MultiCheckBoxDatabase",
-            AllowLiteralMultiScope=sharedCheckbox,
-            MultiNamePathPage=relation is null?null:MultiTargetNamePage(catalog,catalog.ConfigTables.Single(table=>table.Id==tableId),relation),
+            AllowLiteralMultiScope=sharedCheckbox||projectLiteral,
+            MultiNamePathPage=relation is null?null:MultiTargetNamePage(catalog,target,relation),
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             MultiParentOwner=source is null?null:(cacheOwner!,source.Column,source.AdditionalColumns),
-            GlobalCrossCandidate=selectedPage is not null&&GlobalCrossTableTarget.Declared(catalog.ConfigTables.Single(table=>table.Id==tableId))
+            GlobalCrossCandidate=selectedPage is not null&&GlobalCrossTableTarget.Declared(target)
         }.Compile(outputs,dependencies);
     }
     /// <summary>构造时消费元数据，最终只保留不可变的表达式文本、类型和项目范围。</summary>
@@ -720,7 +724,9 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
             var namePage=overridden??MultiTargetNamePage(catalog,target,relation);
-            var selectedScope=overridden is null?MultiTargetLogicalPage(catalog,target,relation):applyPageScope?overridden:null;
+            // 页级只换显示名称时，仍使用原多选实际目标页的项目内常量条件。
+            var selectedScope=overridden is null?MultiTargetLogicalPage(catalog,target,relation):
+                applyPageScope||relation.ControlKind=="MultiSelectPage"&&IsProjectLiteralMultiPage(catalog,target,overridden)?overridden:null;
             var derivedLabel=!storage[target.Id].IsPhysical(value);
             if(!global&&checkboxPageId is {} scopedCheckboxPage&&(selectedScope is not null||derivedLabel))
                 sharedCheckboxPage=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,table,relation,target,value,scopedCheckboxPage);
