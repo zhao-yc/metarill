@@ -242,6 +242,16 @@ public sealed class NonRedundantImportMatchTests
     [InlineData(1, true, true, false, true, 2)]
     [InlineData(1, true, false, true, false, 2)]
     [InlineData(1, true, false, false, true, 2)]
+    [InlineData(0, true, true, false, false, 3)]
+    [InlineData(0, true, true, true, false, 3)]
+    [InlineData(0, true, true, false, true, 3)]
+    [InlineData(0, true, false, true, false, 3)]
+    [InlineData(0, true, false, false, true, 3)]
+    [InlineData(1, true, true, false, false, 3)]
+    [InlineData(1, true, true, true, false, 3)]
+    [InlineData(1, true, true, false, true, 3)]
+    [InlineData(1, true, false, true, false, 3)]
+    [InlineData(1, true, false, false, true, 3)]
     public async Task Single_relation_keeps_all_published_parent_columns(int storage,bool compoundTarget,
         bool liveTarget=false,bool controlParent=true,bool popup=false,int parentMode=0)
     {
@@ -264,10 +274,17 @@ public sealed class NonRedundantImportMatchTests
         ]);
         var page=new PageMetadata{Id="701",ConfigTableId="7",IsNew=1,IsSave=1,IsCopy=1,IsImport=1,IsExport=1,
             WhereSql="yz_project_id=@current_yz_project_id AND review_country_id=@parent_id AND country_id=@parentId"};
-        if(parentMode==1)
+        var textSource=parentMode==3;
+        if(parentMode==1||textSource)
         {
             catalog.ConfigColumns.Remove(catalog.ConfigColumns.Single(column=>column.Id=="7017"));
             page.WhereSql="yz_project_id=@current_yz_project_id AND country_id=@parentId";
+            if(textSource)
+            {
+                catalog.ConfigColumns.Single(column=>column.Id=="7014").LogicalType="string";
+                catalog.ConfigColumns.Add(new(){Id="7019",ConfigTableId="7",ColumnName="scope_state",LogicalType="int64"});
+                page.WhereSql+=" AND scope_state=1";
+            }
         }
         else if(parentMode==2)
         {
@@ -279,7 +296,7 @@ public sealed class NonRedundantImportMatchTests
         catalog.ConfigPages.Add(page);
         catalog.ConfigPageColumns.Add(new(){Id="7017015",ConfigPageId="701",ConfigColumnId="7015",IsShow=1});
         // 分写父条件的非冗余字典同时用原首列覆盖路径，真实物理首列与名称回显列分开。
-        var overwrite=liveTarget&&splitControl||popup&&compoundTarget;
+        var overwrite=textSource||liveTarget&&splitControl||popup&&compoundTarget;
         if(overwrite)
         {
             page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
@@ -323,7 +340,7 @@ public sealed class NonRedundantImportMatchTests
                     .TryGetValue("picker_name",out var fields)&&fields.Contains("logical_overwrite_country_id")&&
                         (!compoundTarget||fields.Contains("approval_country_id")));
         }
-        Assert.Equal(parentMode!=1,sql.Contains("CAST(b."+(char)96+"review_country_id"+(char)96+" AS CHAR)",StringComparison.Ordinal));
+        Assert.Equal(parentMode is 0 or 2,sql.Contains("CAST(b."+(char)96+"review_country_id"+(char)96+" AS CHAR)",StringComparison.Ordinal));
         Assert.Equal(parentMode!=2,sql.Contains("CAST(b."+(char)96+"country_id"+(char)96+" AS CHAR)",StringComparison.Ordinal));
         Assert.Equal(compoundTarget,sql.Contains("approval_country_id",StringComparison.Ordinal));
         var generated=BackendRenderer.Render(model).Single(file=>file.Path=="Services/CompoundPickerOwnerService.g.cs").Content;
@@ -348,6 +365,16 @@ public sealed class NonRedundantImportMatchTests
             Assert.Contains("当前单值关联来源页要求规范正整数父键",generated);
         }
         if(parentMode==2)Assert.Contains("entity.ReviewCountryId",generated);
+        if(textSource)
+        {
+            Assert.Contains("ApplyTextParent(query,session,\"country_id\",parentId!",generated);
+            Assert.Contains("if(entity.CountryId!=long.Parse(parentId!, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture))",generated);
+            if(storage==0)
+            {
+                Assert.Contains("result.Add(FixedReadFilter.ForTextParent(\"country_id\",request.ParentId!))",generated);
+                Assert.Contains("filters.Add(FixedReadFilter.ForTextParent(\"country_id\",parentId!))",generated);
+            }
+        }
 
         // 编译实际生成包，证明宿主内嵌的目录仍能重新绑定两个来源字段。
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-compound-list-owner");
@@ -375,6 +402,7 @@ public sealed class NonRedundantImportMatchTests
             Assert.NotNull(service.GetMethod("Copy701Async"));
             Assert.NotNull(service.GetMethod("Import701Async"));
             Assert.NotNull(service.GetMethod("Export701Async"));
+            if(textSource)await AssertPublishedTextSourceGuards(service,storage,catalog.YzProjectId);
             if(storage==0)
                 Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan701",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
         }
@@ -392,8 +420,33 @@ public sealed class NonRedundantImportMatchTests
             Assert.Equal("7017",Assert.Single(binding.AdditionalColumns).Id);
         else
             Assert.Empty(binding.AdditionalColumns);
-        catalog.ConfigColumns.Single(column=>column.Id==(parentMode==1?"7014":"7017")).LinkConfigTableId="4";
+        catalog.ConfigColumns.Single(column=>column.Id==(parentMode is 1 or 3?"7014":"7017")).LinkConfigTableId="4";
         Assert.Throws<InvalidOperationException>(()=>parent.SingleSource(catalog,source,picker,page));
+    }
+
+    /// <summary>直接执行生成的输入守卫和固定过滤，非规范值必须在实际数据会话前被拒绝。</summary>
+    private static async Task AssertPublishedTextSourceGuards(Type service,int storage,string projectId)
+    {
+        var actor=new RuntimeActor(1,"文本父字段合同",false,projectId,"1");
+        var owner=System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(service);
+        var validate=service.GetMethod("ValidateParents701Async",BindingFlags.NonPublic|BindingFlags.Instance)!;
+        var filters=storage==0?service.GetMethod("ReadFilters701",BindingFlags.NonPublic|BindingFlags.Static):null;
+        foreach(var invalid in new[]{"071","71 ","+71","0","9223372036854775808"})
+        {
+            var arguments=new object?[]{invalid,actor,CancellationToken.None}
+                .Concat(validate.GetParameters().Skip(3).Select(parameter=>parameter.DefaultValue)).ToArray();
+            var error=await Assert.ThrowsAsync<ArgumentException>(async()=>await (Task)validate.Invoke(owner,arguments)!);
+            Assert.Contains("规范正整数父",error.Message);
+            if(filters is not null)
+                Assert.IsType<ArgumentException>(Assert.Throws<TargetInvocationException>(()=>
+                    filters.Invoke(null,[new PageRequest{ParentId=invalid},actor])).InnerException);
+        }
+        if(filters is not null)
+        {
+            const string large="9007199254740993";
+            var actual=Assert.IsAssignableFrom<IReadOnlyList<FixedReadFilter>>(filters.Invoke(null,[new PageRequest{ParentId=large},actor]));
+            Assert.Equal(FixedReadFilter.ForTextParent("country_id",large),Assert.Single(actual,value=>value.Field=="country_id"));
+        }
     }
 
     /// <summary>原字典页和控件可分别声明同一父记录的物理字段。</summary>

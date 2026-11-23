@@ -469,6 +469,12 @@ internal static class GeneratedNonRedundantReadCatalog
                 .AppendLine("        var filters=new List<FixedReadFilter>();");
             foreach(var (column,source) in fixedQuery.IdentityScopes)
             {
+                // 写后回显的窄查询也要核对已发布的文本父键，不能借排序规则命中近似记录。
+                if(source=="parent"&&fixedTextParent&&column.Type=="string?")
+                {
+                    result.AppendLine($"        filters.Add(FixedReadFilter.ForTextParent({Literal(column.Source.ColumnName)},parentId!));");
+                    continue;
+                }
                 if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求parentId。\");");
                 result.AppendLine($"        filters.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,{ScopeValue(column,source=="project"?"actor.ProjectId":"parentId!")}));");
             }

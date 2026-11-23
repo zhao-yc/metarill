@@ -306,7 +306,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("    {");
         if(UsesPublishedPhysicalMultiSource(model,table,page))
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前多选页要求已发布的来源父键使用规范正整数。\");");
-        else if(UsesPublishedCompoundSingleSource(model,page))
+        else if(UsesPublishedPhysicalSingleSource(model,table,page))
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前单值关联来源页要求规范正整数父键。\");");
         if(sharedRedundant)result.AppendLine("        ValidateActor(actor);").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);");
         else if(multiGlobal is not null)result.AppendLine("        ValidateActor(actor);");
@@ -354,16 +354,20 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         page.Scopes.Any(scope=>scope.Source=="parent")&&
         MultiSelectCompilation.ForService(model,table,page).Any(definition=>definition.PublishedPhysicalSource);
 
-    /// <summary>仅对已证明的普通单值来源页启用同父复合物理范围。</summary>
-    private static bool UsesPublishedCompoundSingleSource(GenerationModel model,PageModel page)=>
-        page.Scopes.Count(scope=>scope.Source=="parent")>1&&
-        RelationCompilation.ForPage(model,page,true).Any(relation=>relation.CompoundProjectSource);
+    /// <summary>复合来源范围和引用同父复合字典的单个文本父字段均使用已发布的物理父键。</summary>
+    private static bool UsesPublishedPhysicalSingleSource(GenerationModel model,TableModel table,PageModel page)
+    {
+        var parents=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
+        var text=parents is [var parent]&&parent.Type=="string?"&&NonRedundantReadCompilation.Physical(model,table,parent);
+        return (parents.Length>1||text)&&RelationCompilation.ForPage(model,page,true).Any(relation=>
+            relation.CompoundProjectSource||text&&relation.CompoundProjectTarget&&ControlRenderer.RelationContext(page,relation,false).SameParent);
+    }
 
     /// <summary>已发布的文本父键按规范 ID 二进制比较。</summary>
     private static bool UsesFixedTextParent(GenerationModel model,TableModel table,PageModel page)=>
         page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="string?")&&
         (Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source)||
-            UsesPublishedPhysicalMultiSource(model,table,page)||UsesPublishedCompoundSingleSource(model,page)||
+            UsesPublishedPhysicalMultiSource(model,table,page)||UsesPublishedPhysicalSingleSource(model,table,page)||
             ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null);
 
     private static string Query(GenerationModel model, TableModel table, PageModel page)
@@ -673,7 +677,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if(GlobalCachedParentCompilation.ForSelfTree(model,table,page) is {} parent)
             return Check(parent.Foreign);
         if(NonRedundantCrossParentCompilation.Enabled(model,table,page)||
-            !UsesPublishedPhysicalMultiSource(model,table,page)&&!UsesPublishedCompoundSingleSource(model,page)&&
+            !UsesPublishedPhysicalMultiSource(model,table,page)&&!UsesPublishedPhysicalSingleSource(model,table,page)&&
             MultiGlobalParentCompilation.CompoundSourceTarget(model,table,page) is null)return "";
         return string.Concat(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>Check(scope.Column)));
 

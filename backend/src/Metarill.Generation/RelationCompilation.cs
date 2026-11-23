@@ -222,7 +222,7 @@ internal static class RelationCompilation
                 sourceParents is [var sourceParent]&&targetParents is [var targetParent]&&sourceParent.Source.Id==targetParent.Source.Id&&
                 sourceKeys.All(column=>NonRedundantReadCompilation.Physical(model,owner,column));
             // 来源只有一个父字段时，目标页和控件上的多个同父字段仍使用已发布的完整证明。
-            var compoundTarget=projectParentScope&&target.Source.IsRongyu==0&&targetParents.Length==1&&
+            var compoundTarget=projectParentScope&&targetParents.Length==1&&
                 targetPage.Scopes.Concat(scopes).Where(scope=>scope.Source=="parent")
                     .Select(scope=>scope.Column.Source.Id).Distinct(StringComparer.Ordinal).Skip(1).Any();
             var publishedParent=selectionParent;
