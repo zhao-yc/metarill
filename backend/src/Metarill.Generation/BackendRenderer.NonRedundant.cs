@@ -90,7 +90,9 @@ internal static partial class BackendRenderer
         // 即使名称是普通物理文本，业务回显和筛选也要保留全局多选页实际发布的范围。
         var globalMultiOwners=model.Tables.Where(table=>table.IsGlobal).Select(table=>table.Source.Id).ToHashSet(StringComparer.Ordinal);
         var staticMultiPages=multiSelections.Where(multi=>globalMultiOwners.Contains(multi.Source.Source.ConfigTableId)&&
-                MultiSelectCompilation.UsesStaticGlobalDictionary(multi)).Select(multi=>multi.TargetPage.Source.Id)
+                MultiSelectCompilation.UsesStaticGlobalDictionary(multi)||
+                FixedPageConditionCompilation.HasStoredGlobalProjectScope(multi.Target,multi.TargetPage))
+            .Select(multi=>multi.TargetPage.Source.Id)
             .ToHashSet(StringComparer.Ordinal);
         accountPages.UnionWith(multiSelections.Where(multi=>multi.Target.IsGlobal&&
                 !string.IsNullOrWhiteSpace(multi.TargetPage.Source.WhereSql))

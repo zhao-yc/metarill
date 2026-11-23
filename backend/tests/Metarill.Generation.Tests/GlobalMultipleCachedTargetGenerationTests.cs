@@ -166,9 +166,18 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     public Task Global_business_multiselect_uses_published_global_dictionary(int mode,string projectType,bool unfiltered)=>
         VerifyPublishedGlobalMultiselect(mode,1,false,projectType,unfiltered:unfiltered,globalSource:true);
 
+    /// <summary>原多选必须执行字典页明确声明的当前项目约束，即使该页没有账号条件。</summary>
+    [Theory]
+    [InlineData(0,"int64",false)]
+    [InlineData(0,"string",true)]
+    [InlineData(1,"int64",true)]
+    [InlineData(1,"string",false)]
+    public Task Global_business_multiselect_uses_explicit_project_dictionary(int mode,string projectType,bool constants)=>
+        VerifyPublishedGlobalMultiselect(mode,1,false,projectType,unfiltered:!constants,globalSource:true,projectScoped:true);
+
     /// <summary>从实际生成程序集核对名称、关联选档、项目隔离和数据维护计划。</summary>
     private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType,
-        bool unfiltered=false,bool globalSource=false)
+        bool unfiltered=false,bool globalSource=false,bool projectScoped=false)
     {
         const string application="Example.GlobalTextDictionary";
         var names=derivedName?"global_source_global_target_names":"global_source_captions";
@@ -179,6 +188,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "38" or "40");
         var dictionary=catalog.ConfigPages.Single(page=>page.Id=="10");
         dictionary.WhereSql=unfiltered?"":"status=17";
+        if(projectScoped)dictionary.WhereSql=WithCurrentProject(dictionary.WhereSql);
         if(projectType is not null)ConfigureStoredGlobalDictionary(catalog,projectType);
         if(globalSource)
         {
@@ -203,7 +213,10 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             new CSharpGenerator().Generate(catalog,output,application);
             var serviceCode=await File.ReadAllTextAsync(Path.Combine(output,"Services/CachedConsumerService.g.cs"));
             Assert.Contains("ImportMulti30_34Async",serviceCode);
-            Assert.Equal(!unfiltered,serviceCode.Contains("MultiPageCondition30_34",StringComparison.Ordinal));
+            if(projectScoped)
+                Assert.Contains("MultiDerivedPlan30_34",serviceCode);
+            else
+                Assert.Equal(!unfiltered,serviceCode.Contains("MultiPageCondition30_34",StringComparison.Ordinal));
             Assert.Contains("Export30Async",serviceCode);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             if(projectType is not null)
@@ -213,7 +226,10 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(target));
                 Assert.Empty(GenerationCapabilityAudit.Collect(model));
                 Assert.Contains("ImportMulti31_34Async",serviceCode);
-                Assert.Equal(!unfiltered,serviceCode.Contains("MultiPageCondition31_34",StringComparison.Ordinal));
+                if(projectScoped)
+                    Assert.Contains("MultiDerivedPlan31_34",serviceCode);
+                else
+                    Assert.Equal(!unfiltered,serviceCode.Contains("MultiPageCondition31_34",StringComparison.Ordinal));
                 Assert.Contains("Export31Async",serviceCode);
                 if(globalSource&&mode==1)
                 {
@@ -236,24 +252,26 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     Assert.Contains("yz_project_id",business("Scope31",[actor,null]));
                 }
                 var list=sql("Query10",[new PageRequest(),actor]);
-                Assert.DoesNotContain("yz_project_id",list);
+                Assert.Equal(projectScoped,list.Contains("yz_project_id",StringComparison.Ordinal));
                 Assert.Equal(!unfiltered,list.Contains("status",StringComparison.Ordinal));
                 Assert.Contains("delete_no",list);
                 var selected=sql("Query10",[new PageRequest{SelectedIds=["9007199254740993"]},actor]);
                 Assert.Contains("`id`",selected);
                 Assert.Equal(!unfiltered,selected.Contains("status",StringComparison.Ordinal));
-                Assert.DoesNotContain("yz_project_id",selected);
+                Assert.Equal(projectScoped,selected.Contains("yz_project_id",StringComparison.Ordinal));
                 Assert.Contains("yz_project_id",sql("Scope10",[actor,null]));
-                Assert.Contains("yz_project_id",sql("Query10",[new PageRequest(),actor,false]));
+                if(!projectScoped)
+                    Assert.Contains("yz_project_id",sql("Query10",[new PageRequest(),actor,false]));
                 Assert.Contains("yz_project_id",sql("Query11",[new PageRequest(),actor]));
                 Assert.Contains("yz_project_id",sql("Query12",[new PageRequest(),actor]));
                 Assert.Contains("yz_project_id",sql("Query13",[new PageRequest(),actor]));
-                Assert.Contains("Query10(request, actor, candidateRows: false)",targetCode);
+                if(!projectScoped)
+                    Assert.Contains("Query10(request, actor, candidateRows: false)",targetCode);
                 Assert.Contains("Query10(request, actor).CountAsync",targetCode);
                 Assert.Contains("Query10(new PageRequest { ParentId = request.ParentId, SelectedIds",targetCode);
                 var plan=FixedPageQueryCompilation.For(target,target.Pages.Single(page=>page.Source.Id=="10"));
                 Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择",dictionary.WhereSql,""),out _));
-                Assert.False(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择",
+                Assert.Equal(projectScoped,FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择",
                     "yz_project_id=@current_yz_project_id",""),out _));
                 var package=new ApplicationPackager().Create(catalog,Path.Combine(directory,"application"),application,NonRedundantApplicationFixture.Root());
                 Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
@@ -280,8 +298,11 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var plan=plans["3"]!;
                 Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
                 read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
-                if(derivedName)
+                if(derivedName||projectScoped)
+                {
                     Assert.Contains(names,maintenance.MixedSourceColumns["cached_consumer"]);
+                    Assert.Contains("global_source",maintenance.MixedTargets);
+                }
                 else
                 {
                     var propagation=maintenance.GetType().GetProperty("Propagation",hidden)!.GetValue(maintenance)!;
@@ -307,12 +328,22 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             {
                 var scope=Assert.IsType<string>(read.GetType().GetProperty("Scope",hidden)!.GetValue(read));
                 Assert.Contains("`yz_project_id`",scope);
-                Assert.DoesNotContain("`yz_project_id`",CheckboxNameExpression(read,names));
+                var projectPredicate="multi_value.`yz_project_id`=@project_scope_"+(projectType=="string"?"text":"number");
+                Assert.Equal(projectScoped,CheckboxNameExpression(read,names).Contains(projectPredicate,StringComparison.Ordinal));
                 var service=assembly.GetType(application+".Generated.Services.CachedConsumerService",true)!;
                 var validate=service.GetMethod("ValidateActor",BindingFlags.Static|BindingFlags.NonPublic)!;
                 var otherProject=new RuntimeActor(7,"合成账号",false,"999999","9");
                 Assert.IsType<UnauthorizedAccessException>(
                     Assert.Throws<TargetInvocationException>(()=>validate.Invoke(null,[otherProject])).InnerException);
+            }
+            if(projectScoped)
+            {
+                var service=assembly.GetType(application+".Generated.Services.CachedConsumerService",true)!;
+                var lookup=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("MultiDerivedPlan30_34",
+                    BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                Assert.False(lookup.RequiresAccount);
+                var compiled=lookup.GetType().GetProperty("MySql",hidden)!.GetValue(lookup)!;
+                AssertOwnedScope(compiled);
             }
             Assert.Equal(!unfiltered,CheckboxNameExpression(read,names).Contains("multi_value.`status`",StringComparison.Ordinal));
             var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
@@ -658,7 +689,20 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     [InlineData(0,"string",true)]
     [InlineData(1,"int64",true)]
     [InlineData(1,"string",true)]
-    public async Task Global_business_checkbox_uses_static_global_dictionary(int mode,string projectType,bool unfiltered)
+    public Task Global_business_checkbox_uses_static_global_dictionary(int mode,string projectType,bool unfiltered)=>
+        VerifyGlobalBusinessCheckboxDictionary(mode,projectType,unfiltered);
+
+    /// <summary>原数据库复选和两份名称副本使用字典页发布的当前项目范围。</summary>
+    [Theory]
+    [InlineData(0,"int64",true)]
+    [InlineData(0,"string",false)]
+    [InlineData(1,"int64",false)]
+    [InlineData(1,"string",true)]
+    public Task Global_business_checkbox_uses_explicit_project_dictionary(int mode,string projectType,bool constants)=>
+        VerifyGlobalBusinessCheckboxDictionary(mode,projectType,!constants,projectScoped:true);
+
+    /// <summary>从同一实际生成代码验证字典候选、原筛选及非冗余和冗余名称。</summary>
+    private static async Task VerifyGlobalBusinessCheckboxDictionary(int mode,string projectType,bool unfiltered,bool projectScoped=false)
     {
         const string app="Example.StaticGlobalCheckbox";
         var catalog=PhysicalLabelCatalog(mode,false);
@@ -673,6 +717,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         var dictionary=catalog.ConfigPages.Single(page=>page.Id=="10");
         dictionary.Extra.Remove("type");
         dictionary.WhereSql=unfiltered?"":"status=17";
+        if(projectScoped)dictionary.WhereSql=WithCurrentProject(dictionary.WhereSql);
         var source=catalog.ConfigColumns.Single(column=>column.Id=="38");
         catalog.ConfigPageColumns.Single(field=>field.Id=="3038").Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
         if(!unfiltered)
@@ -774,7 +819,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             Assert.Contains("`global_source`",sql);
             Assert.Contains("`delete_no`",sql);
             Assert.Equal(!unfiltered,sql.Contains("`status`",StringComparison.Ordinal));
-            Assert.DoesNotContain("`yz_project_id`",sql);
+            Assert.Equal(projectScoped,sql.Contains("`yz_project_id`",StringComparison.Ordinal));
             const string fullNames="selected_global_source_captions";
             const string shortNames="selected_global_source_short_captions";
             void CheckName(object read,string outputName,string field)
@@ -783,7 +828,8 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var expression=CheckboxNameExpression(read,outputName);
                 Assert.Contains("`"+field+"`",expression);
                 Assert.Equal(!unfiltered,expression.Contains("multi_value.`status`",StringComparison.Ordinal));
-                Assert.DoesNotContain("multi_value.`yz_project_id`",expression);
+                var projectPredicate="multi_value.`yz_project_id`=@project_scope_"+(projectType=="string"?"text":"number");
+                Assert.Equal(projectScoped,expression.Contains(projectPredicate,StringComparison.Ordinal));
             }
             if(mode==0)
             {
@@ -795,11 +841,20 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.Contains("不能修改来源记录项目归属",code);
                 var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
                     assembly.GetType(app+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
-                var propagation=maintenance.GetType().GetProperty("Propagation",BindingFlags.Instance|hidden)!.GetValue(maintenance)!;
-                var bindings=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
-                    propagation.GetType().GetProperty("Bindings",BindingFlags.Instance|hidden)!.GetValue(propagation));
-                Assert.Equal(2,bindings.Cast<object>().Count(binding=>Equals(fullNames,binding.GetType().GetProperty("Cache")!.GetValue(binding))||
-                    Equals(shortNames,binding.GetType().GetProperty("Cache")!.GetValue(binding))));
+                if(projectScoped)
+                {
+                    Assert.Contains(fullNames,maintenance.MixedSourceColumns["cached_consumer"]);
+                    Assert.Contains(shortNames,maintenance.MixedSourceColumns["cached_consumer"]);
+                    Assert.Contains("global_source",maintenance.MixedTargets);
+                }
+                else
+                {
+                    var propagation=maintenance.GetType().GetProperty("Propagation",BindingFlags.Instance|hidden)!.GetValue(maintenance)!;
+                    var bindings=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
+                        propagation.GetType().GetProperty("Bindings",BindingFlags.Instance|hidden)!.GetValue(propagation));
+                    Assert.Equal(2,bindings.Cast<object>().Count(binding=>Equals(fullNames,binding.GetType().GetProperty("Cache")!.GetValue(binding))||
+                        Equals(shortNames,binding.GetType().GetProperty("Cache")!.GetValue(binding))));
+                }
                 var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
                     maintenance.GetType().GetProperty("Plans",BindingFlags.Instance|hidden)!.GetValue(maintenance));
                 var plan=plans["3"]!;
@@ -811,6 +866,10 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
     }
+
+    /// <summary>在测试字典页声明原项目变量；固定值继续独立验证。</summary>
+    private static string WithCurrentProject(string conditions)=>
+        "yz_project_id=@current_yz_project_id"+(conditions.Length==0?"":" AND "+conditions);
 
     /// <summary>检查已生成的 FreeSql 查询而不连接数据库。</summary>
     private static string CheckboxSql<T>(object query) where T:class=>((FreeSql.ISelect<T>)query).ToSql("1");

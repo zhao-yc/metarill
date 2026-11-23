@@ -72,6 +72,7 @@ public sealed class AccountScopedCrossCache
         var syntax = FixedConditionPlan.Compile(targetPage.WhereSql, types.Keys);
         var constants = new List<FixedConditionTerm>();
         var account = new List<(ColumnMetadata Target, string Variable)>();
+        var hasStoredProject=false;
         foreach (var term in syntax.Terms)
         {
             if (term.Values.All(value => value.Kind != FixedConditionValueKind.Variable))
@@ -83,14 +84,19 @@ public sealed class AccountScopedCrossCache
             if((multiParent?.ColumnName==term.Field||additionalParents?.Contains(term.Field)==true)&&MultiTargetParentScope.IsParameter(variable))continue;
             if(GlobalMultipleRelationTarget.IsProjectScope(term)&&
                 (!GlobalCrossTableTarget.Declared(target)||storedMulti&&target.IsRongyu==1&&
-                    targets.TryGetValue(term.Field,out var project)&&project.LogicalType is "int64" or "string"))continue;
+                    targets.TryGetValue(term.Field,out var project)&&project.LogicalType is "int64" or "string"))
+            {
+                // 项目由候选与回填的固定作用域绑定，无须从来源页再推断门店或商户。
+                hasStoredProject=storedMulti;
+                continue;
+            }
             if (term.Field == "yz_project_id" || !AccountConditionVariables.IsPageField(variable, term.Field) ||
                 selfTreeFields?.Contains(term.Field)==true||!targets.TryGetValue(term.Field,out var targetOwner)||targetOwner.LogicalType is not ("int32" or "int64" or "string")) throw Invalid();
             account.Add((targetOwner, variable));
         }
 
         var pages = catalog.ConfigPages.Where(page => page.ConfigTableId == source.Id).ToArray();
-        if (account.Count==0 ? !recursive&&!allowFixedOnly : pages.Length==0) throw Invalid();
+        if (account.Count==0 ? !recursive&&!allowFixedOnly&&!hasStoredProject : pages.Length==0) throw Invalid();
         var ownership = new List<(ColumnMetadata, ColumnMetadata)>();
         var sourceFields = MetadataStoragePolicy.ForTable(catalog,source).PhysicalColumns.Select(column=>column.ColumnName).ToArray();
         var sourceTerms = account.Count==0?[]:pages.Select(page => FixedConditionPlan.Compile(page.WhereSql, sourceFields).Terms).ToArray();

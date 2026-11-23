@@ -107,7 +107,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     IsProjectOnlyStoredMultiSelectPage(catalog,target,selected));
             var physicalNameOverride=name is not null&&target.IsRongyu==1&&!binding.ApplyPageScope;
             var globalOwnedCheckbox=checkbox&&binding.ApplyPageScope&&selected is not null&&
-                (storedGlobalStatic||StoredAccountMultiPage(catalog,target,selected,checkbox:true));
+                (storedGlobalStatic||StoredIdentityMultiPage(catalog,target,selected,checkbox:true));
             if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!storedMultiSelect&&!physicalNameOverride||
                 GlobalCrossTableTarget.Declared(table)&&!globalOwnedCheckbox||
                 GlobalCrossTableTarget.Declared(target)&&!checkbox||pageId!=(selected?.Id??"")||
@@ -131,7 +131,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 return label.ColumnName;
             var fixedPage=globalPageId??(baseline.PageId.Length>0?baseline.PageId:Text(relation,"linkConfigPageId"));
             var storedGlobal=storedGlobalStatic||globalPageId is not null&&selected is not null&&
-                StoredAccountMultiPage(catalog,target,selected,checkbox:true);
+                StoredIdentityMultiPage(catalog,target,selected,checkbox:true);
             bool TextLabel(ColumnMetadata column)=>storedGlobal
                 ?PhysicalTextMultiLabel(target,column)
                 :globalPageId is not null
@@ -166,12 +166,12 @@ public static partial class MySqlNonRedundantReadCompiler
             (MultiTargetParentScope Target,MultiSourceParent Source)? fixedParent=null,bool sharedCheckbox=false)
         {
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
-            var storedAccount=selectedScope is not null&&StoredAccountMultiPage(catalog,target,selectedScope,checkbox);
+            var storedIdentity=selectedScope is not null&&StoredIdentityMultiPage(catalog,target,selectedScope,checkbox);
             var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,checkboxAccount:checkbox);
             var ordinaryForm=checkbox&&refreshFields is not null&&selectedScope is not null&&(sharedCheckbox||fixedParent is not null)
                 ?DatabaseCheckboxDefinition.Parse(relation.ControlDetail).AdditionalPhysicalFormConditions(catalog,target,selectedScope)
                 :null;
-            var storedCheckboxOwner=(storedAccount||projectFixedScope||ordinaryForm is not null)&&checkbox&&refreshFields is not null
+            var storedCheckboxOwner=(storedIdentity||projectFixedScope||ordinaryForm is not null)&&checkbox&&refreshFields is not null
                 ?new CascadeCacheOwner(table,owner,GlobalSingleSource:GlobalCrossTableTarget.Declared(table)):null;
             if(storedCheckboxOwner is not null)
             {
@@ -182,7 +182,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var syntax=FixedConditionPlan.Compile(where,fields);
                 if(syntax.Terms.Count>0)control=syntax;
             }
-            var physicalScope=storedAccount||target.IsRongyu==1&&projectFixedScope||
+            var physicalScope=storedIdentity||target.IsRongyu==1&&projectFixedScope||
                 checkbox&&target.IsRongyu==1&&(fixedParent is not null||ordinaryForm is not null||
                 table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
@@ -235,9 +235,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:candidatePage,multiLabel:true,cascadeLabelField:value.ColumnName,
                 cascadeCacheOwner:refreshFields is null||fixedParent is not null&&!projectFixedScope&&storage[target.Id].IsPhysical(value)?null:
-                    new(table,owner,GlobalSingleSource:storedAccount&&GlobalCrossTableTarget.Declared(table)),
+                    new(table,owner,GlobalSingleSource:storedIdentity&&GlobalCrossTableTarget.Declared(table)),
                 globalCandidate:global&&target.IsRongyu==0&&candidatePage is not null,
-                scopedPhysicalCandidate:physicalScope&&!global,accountPhysicalCandidate:storedAccount,
+                scopedPhysicalCandidate:physicalScope&&!global,accountPhysicalCandidate:storedIdentity,
                 exactSingleCandidate:storedGlobalExact)
             {
                 SelectedMultiPage=selectedPage,

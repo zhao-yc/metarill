@@ -5,6 +5,7 @@ namespace Metarill.Core.Metadata;
 public sealed record GlobalMultipleRelationPlan(PageMetadata Page,ColumnMetadata Name)
 {
     public bool UsesStoredStaticPage { get; init; }
+    public bool UsesStoredProjectPage { get; init; }
 }
 
 /// <summary>全局多值关系分别证明普通R0实时读取与普通R1缓存消费者，目标名称必须为明确发布的物理值、R1缓存或已证明的R0单值名称。</summary>
@@ -40,6 +41,11 @@ public static class GlobalMultipleRelationTarget
     public static bool IsStoredStaticPage(TableMetadata table,PageMetadata page,FixedConditionPlan? condition,bool checkbox=false)=>
         IsStoredPublishedPage(table,page,checkbox)&&(condition?.Variables.Count??0)==0;
 
+    /// <summary>当前项目等值可以单独发布，也可以与物理常量一起声明。</summary>
+    public static bool IsStoredProjectPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
+        IsStoredPublishedPage(table,page,checkbox)&&condition.Terms.Any(IsProjectScope)&&condition.Terms.All(term=>
+            IsProjectScope(term)||term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable));
+
     /// <summary>两类多值用途共用冗余字典的页面资格，精确数据管理由独立合同验证。</summary>
     private static bool IsStoredPublishedPage(TableMetadata table,PageMetadata page,bool checkbox)=>
         table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&page.ConfigTableId==table.Id&&
@@ -74,22 +80,24 @@ public static class GlobalMultipleRelationTarget
         var checkbox=foreign.ControlKind=="MultiCheckBoxDatabase";
         var storedAccount=(checkbox||pageId.Length>0)&&IsStoredAccountPage(target,page,condition,checkbox);
         var storedStatic=(checkbox||pageId.Length>0)&&IsStoredStaticPage(target,page,condition,checkbox);
+        var storedProject=(checkbox||pageId.Length>0)&&IsStoredProjectPage(target,page,condition,checkbox);
         if(GlobalCrossTableTarget.Declared(owner))
         {
             // 业务来源仍按行项目隔离。物理副本只能使用维护时也能重现的固定字典范围。
-            if(!storedAccount&&!storedStatic)throw new NotSupportedException("全局多值来源必须绑定受支持的已发布冗余字典页。");
+            if(!storedAccount&&!storedStatic&&!storedProject)throw new NotSupportedException("全局多值来源必须绑定受支持的已发布冗余字典页。");
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
-            if(cached&&checkbox&&storedStatic&&!DatabaseCheckboxDefinition.Parse(foreign.ControlDetail)
-                .IsCoveredByStaticPage(condition,expanded.Select(column=>column.ColumnName)))
-                throw new NotSupportedException("全局复选的冗余名称要求控件条件由实际发布字典页覆盖。");
         }
+        if(cached&&checkbox&&(storedProject||storedStatic&&GlobalCrossTableTarget.Declared(owner))&&
+            !DatabaseCheckboxDefinition.Parse(foreign.ControlDetail)
+                .IsCoveredByStaticPage(condition,expanded.Select(column=>column.ColumnName)))
+            throw new NotSupportedException("全局复选的冗余名称要求控件条件由实际发布字典页覆盖。");
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
         var scoped=selfTreeScope||target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
         if(foreign.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.DeclaresExactMulti(target,page)||
             foreign.ControlKind=="MultiCheckBoxDatabase"&&GlobalCrossTableTarget.DeclaresExactPage(target,page))
             _=GlobalCrossTableTarget.ExactPageParent(catalog,target,page);
         else if(selfTreeScope)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page,allowMultiParent:true);
-        else if(storedAccount)
+        else if(storedAccount||storedProject)
             GlobalCrossTableTarget.RequireStoredMultiAccountCandidate(catalog,target,page);
         else if(scoped||target.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported))
             GlobalCrossTableTarget.RequireMultiCandidate(catalog,target,page);
@@ -115,6 +123,6 @@ public static class GlobalMultipleRelationTarget
         var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");
         if(!scoped&&condition.Fields.Any(field=>!Scalar(columns.Single(column=>column.ColumnName==field))))
             throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");
-        return new(page,name){UsesStoredStaticPage=storedStatic};
+        return new(page,name){UsesStoredStaticPage=storedStatic,UsesStoredProjectPage=storedProject};
     }
 }

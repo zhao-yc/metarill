@@ -117,10 +117,16 @@ internal static class FixedPageConditionCompilation
     internal static bool HasCrossFields(PageModel page)=>page.Condition?.CrossFields.Count>0;
     internal static bool HasSelfTreeFields(PageModel page)=>page.Condition?.SelfTreeFields.Count>0;
     internal static bool HasLogicalFields(PageModel page)=>HasCrossFields(page)||HasSelfTreeFields(page);
-    /// <summary>原多选直接引用物理全局字典，账号条件沿实际发布页绑定。</summary>
+    /// <summary>原多选引用物理全局字典，独立项目条件与账号条件均沿实际发布页绑定。</summary>
     internal static bool HasStoredGlobalMultiScope(TableModel table,PageModel page)=>
+        HasStoredGlobalProjectScope(table,page)||
         page.Scopes.All(scope=>scope.Source=="project")&&page.Condition is {} condition&&!HasLogicalFields(page)&&
         GlobalMultipleRelationTarget.IsStoredAccountPage(table.Source,page.Source,condition.Syntax);
+
+    /// <summary>生成模型已把当前项目等值提取到 Scopes，剩余条件只允许物理常量。</summary>
+    internal static bool HasStoredGlobalProjectScope(TableModel table,PageModel page)=>
+        page.Scopes.Count>0&&page.Scopes.All(scope=>scope.Source=="project")&&!HasLogicalFields(page)&&
+        GlobalMultipleRelationTarget.IsStoredStaticPage(table.Source,page.Source,page.Condition?.Syntax);
 
     /// <summary>多值限定页包含账号、逻辑条件或实际发布的父范围。复选单独处理普通物理页面条件。</summary>
     internal static bool HasMultiTargetScope(GenerationModel model,TableModel table,PageModel page,bool includeProjectFixedScope=true)=>HasLogicalFields(page)||

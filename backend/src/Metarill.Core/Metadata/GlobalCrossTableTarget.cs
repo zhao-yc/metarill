@@ -92,7 +92,7 @@ public static class GlobalCrossTableTarget
         else RequirePublishedName(catalog,table,page,name,true,allowAccount:true);
     }
 
-    /// <summary>物理冗余多值字典可以同时限定当前项目和账号，其他全局关系沿用各自证明。</summary>
+    /// <summary>物理冗余多值字典可按当前项目或实际账号限定，其他全局关系沿用各自证明。</summary>
     public static void RequireStoredMultiAccountCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
     {
         if(table.IsRongyu!=1)throw new NotSupportedException("全局账号多值候选要求物理冗余字典。");

@@ -157,16 +157,20 @@ public static partial class MySqlNonRedundantReadCompiler
         if(candidates.Length!=1)return null;
         var page=candidates[0];
         return table.IsRongyu==0||
-            stored&&(checkbox||pageId.Length>0)&&StoredAccountMultiPage(catalog,table,page,checkbox)||
+            stored&&(checkbox||pageId.Length>0)&&StoredIdentityMultiPage(catalog,table,page,checkbox)||
             checkbox&&IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true)||
             relation.ControlKind=="MultiSelectPage"&&IsProjectFixedMultiPage(catalog,table,page)?page:null;
     }
 
-    /// <summary>按完整目录重证冗余字典页面，执行器只读取该页已发布的物理条件。</summary>
-    private static bool StoredAccountMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)=>
-        table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&
-        GlobalMultipleRelationTarget.IsStoredAccountPage(table,page,FixedConditionPlan.Compile(page.WhereSql,
-            catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).Select(column=>column.ColumnName)),checkbox);
+    /// <summary>按完整目录重证冗余字典的当前项目或账号范围，执行器只读取实际发布条件。</summary>
+    private static bool StoredIdentityMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)
+    {
+        if(table.IsRongyu!=1||!GlobalCrossTableTarget.Declared(table))return false;
+        var condition=FixedConditionPlan.Compile(page.WhereSql,
+            catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).Select(column=>column.ColumnName));
+        return GlobalMultipleRelationTarget.IsStoredAccountPage(table,page,condition,checkbox)||
+            GlobalMultipleRelationTarget.IsStoredProjectPage(table,page,condition,checkbox);
+    }
 
     /// <summary>普通冗余候选页只依赖当前项目，可保留实际页面而不添加固定父条件。</summary>
     internal static bool IsProjectOnlyStoredMultiSelectPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
@@ -231,6 +235,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var declared=RelationStorageColumns.Expand(table,members);
         var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
         return !checkbox&&IsProjectFixedMultiPage(catalog,table,page)||
+            GlobalMultipleRelationTarget.IsStoredProjectPage(table,page,syntax,checkbox)||
             syntax.Variables.Any(AccountConditionVariables.IsSupported)||
             (checkbox||page.Extra.GetValueOrDefault("type").ToString()=="2")&&syntax.Terms.Count(term=>term.Values.Any(value=>
                 value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text)))>1||
@@ -262,7 +267,7 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         if(importPageType=="2"&&!exactMultiSelection&&(importFields?.Count??0)==0&&
-            StoredAccountMultiPage(catalog,table,page,storedExactCheckbox))
+            StoredIdentityMultiPage(catalog,table,page,storedExactCheckbox))
             return new Builder(catalog,tableId,candidatePage:page,multiLabel:true,cascadeLabelField:field,
                 accountPhysicalCandidate:true)
             {

@@ -82,7 +82,7 @@ internal static partial class OriginalUniappListRenderer
                     data.Append(name).Append("_list:[],");
                     // 原下拉仍提交单个 ID，候选和已选值随实际门店或父范围失效。
                     if(kind=="MultiCheckBoxDatabase"&&DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is {} checkbox&&
-                        (checkbox.FormParentField is not null||checkbox.HasStoredAccountScope||checkbox.HasStoredStaticScope||
+                        (checkbox.FormParentField is not null||checkbox.HasStoredIdentityScope||checkbox.HasStoredStaticScope||
                             checkbox.HasProjectStoredAccountScope||checkbox.ProjectFormScope))
                     {
                         optionFields.Add(name+"_list");

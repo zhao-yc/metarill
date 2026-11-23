@@ -41,7 +41,8 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var fields=storage.PhysicalColumns.Select(column=>column.ColumnName).ToArray();
         var storedAccount=global is not null&&sourceParentId is null&&target.IsRongyu==1&&
             GlobalMultipleRelationTarget.IsStoredAccountPage(target,page,FixedConditionPlan.Compile(page.WhereSql,fields),checkbox:true);
-        var storedStatic=global?.UsesStoredStaticPage==true&&GlobalCrossTableTarget.Declared(source);
+        var storedStatic=global?.UsesStoredProjectPage==true||
+            global?.UsesStoredStaticPage==true&&GlobalCrossTableTarget.Declared(source);
         var staticCondition=storedStatic?FixedConditionPlan.Compile(page.WhereSql,fields):null;
         var projectAccount=global is null&&MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(catalog,target,page,checkboxAccount:true);
         var baselineExtra=projectAccount?baseline.AdditionalProjectConditions(page.WhereSql,fields):"";
@@ -134,6 +135,7 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
             definition=string.Join(" AND ",syntax.Terms.Where(term=>!GlobalMultipleRelationTarget.IsProjectScope(term))
                 .Select(term=>term.ToDefinition()));
             syntax=FixedConditionPlan.Compile(definition,physical.Keys);
+            if(syntax.Terms.Count==0)return null;
         }
         if(!allowAccount&&syntax.Variables.Count!=0)throw new NotSupportedException("全局候选只支持已发布的物理常量条件。");
         return new(definition,Array.AsReadOnly(syntax.Fields.ToArray()),FixedConditionSqlPlan.Compile(syntax,physical));
