@@ -407,11 +407,26 @@ public sealed class DerivedSelfTreeTests
     [InlineData(true,false)]
     [InlineData(false,true)]
     [InlineData(true,true)]
-    public async Task Project_tree_name_uses_published_dictionary_in_queries_and_backfill(bool redundant,bool logicalScope)
+    [InlineData(false,false,true)]
+    [InlineData(true,false,true)]
+    [InlineData(false,true,true)]
+    [InlineData(true,true,true)]
+    public async Task Project_tree_name_uses_published_dictionary_in_queries_and_backfill(bool redundant,bool logicalScope,
+        bool globalStoredDictionary=false)
     {
         const string ns="Example.ProjectTreeName";
         var catalog=Catalog("scope_tree","string","int64",true);
-        catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=0;
+        var dictionary=catalog.ConfigTables.Single(table=>table.Id=="4");
+        dictionary.IsRongyu=globalStoredDictionary?1:0;
+        if(globalStoredDictionary)
+        {
+            dictionary.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            var dictionaryProject=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="4"&&column.ColumnName=="yz_project_id");
+            catalog.ConfigColumns.Remove(dictionaryProject);
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId==dictionaryProject.Id);
+            catalog.ConfigPages.Single(item=>item.Id=="401").WhereSql="status>=1";
+            catalog.ConfigColumns.Add(new(){Id="48",ConfigTableId="4",ColumnName="status",LogicalType="int32",YzProjectId=catalog.YzProjectId});
+        }
         var source=catalog.ConfigTables.Single(table=>table.Id=="2");
         var page=catalog.ConfigPages.Single(item=>item.Id=="201");
         catalog.ConfigPages.Single(item=>item.Id=="401").WhereSql+=" AND store_id=@current_store_id";

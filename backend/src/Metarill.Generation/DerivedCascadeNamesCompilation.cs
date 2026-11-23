@@ -19,8 +19,9 @@ internal static class DerivedCascadeNamesCompilation
             plan.TargetPage.Condition?.CrossFields.Contains(column.Source.ColumnName)!=true&&
             plan.TargetPage.Condition?.SelfTreeFields.Contains(column.Source.ColumnName)!=true))
             throw new InvalidOperationException("自树的身份和条件必须为物理标量或固定级联路径。");
-        // 全局目标名称由固定发布页证明，普通目标继续要求单值匹配计划。
-        if(!target.IsGlobal)_=NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,plan.Name.Source.ColumnName);
+        // 项目内的树也要用实际页面证明各段名称，否则无法继承全局字典的发布条件。
+        if(!target.IsGlobal)
+            _=NonRedundantReads.PublishedSelfTreeLabelType(model.Catalog,target.Source.Id,plan.TargetPage.Source.Id,plan.Name.Source.ColumnName);
         return CascadeTargetOrderCompilation.Require(model, target, plan.TargetPage, plan.Name, plan.Parent,
             plan.DerivedName, plan.DerivedOrder, plan.Order, fields);
     }

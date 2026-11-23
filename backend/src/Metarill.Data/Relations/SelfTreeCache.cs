@@ -80,8 +80,13 @@ public static class SelfTreeCache
             else if(global)GlobalCrossTableTarget.RequireSelfTreeName(catalog,target,page,value);
         }
         else if(publishedPageId is not null)throw Invalid();
-        if(!global&&derived&&NonRedundantReads.CompileMatch(catalog,target.Id,value.ColumnName).OutputTypes[value.ColumnName]!=value.LogicalType)
-            throw Invalid();
+        if(!global&&derived)
+        {
+            var labelType=publishedPageId is null
+                ?NonRedundantReads.CompileMatch(catalog,target.Id,value.ColumnName).OutputTypes[value.ColumnName]
+                :NonRedundantReads.PublishedSelfTreeLabelType(catalog,target.Id,publishedPageId,value.ColumnName);
+            if(labelType!=value.LogicalType)throw Invalid();
+        }
         var name=foreign.ColumnName[..^3]+"_name";var cache=sourceColumns.Single(c=>c.ColumnName==name);if(cache.Id==foreign.Id||cache.LogicalType!="string"||cache.IsVirtualColumn!=0||!sourceStorage.IsPhysical(cache)||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();
         if(Enabled(cache)){var path=cache.Extra.GetValueOrDefault("columnFullName").ToString();if(path.Length>0&&path!=foreign.ColumnName[..^3]+"."+value.ColumnName&&path!=foreign.ColumnName+"."+value.ColumnName)throw Invalid();}
         return new(source.Id,foreign.Id,target.Id,value.Id,cache.Id,false){SelfTreePageId=publishedPageId};
