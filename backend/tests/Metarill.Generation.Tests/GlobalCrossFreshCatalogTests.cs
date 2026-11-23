@@ -14,11 +14,54 @@ public sealed class GlobalCrossFreshCatalogTests
     {
         var c=Catalog(profile);var before=JsonSerializer.Serialize(c);var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-cross-catalog");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{var model=GenerationModel.Create(c,"Example.GlobalCrossFresh");Assert.Empty(GenerationCapabilityAudit.Collect(model));Assert.True(new ApplicationPackager().Create(c,output,model.Namespace,NonRedundantApplicationFixture.Root()).FrontendIncluded);var probe=NonRedundantApplicationFixture.Start("node",output);probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GlobalCrossVueProbe.mjs"));probe.ArgumentList.Add(Path.Combine(output,"frontend"));probe.ArgumentList.Add("independent");probe.ArgumentList.Add("false");await NonRedundantApplicationFixture.RunAsync(probe);Assert.Equal(before,JsonSerializer.Serialize(c));foreach(var path in new[]{"components/yzp-cascade-tree/yzp-cascade-tree.vue","common/yzp_runtime/detailLayoutRuntime.js"})Assert.Equal(File.ReadAllBytes(Path.Combine(NonRedundantApplicationFixture.Root(),"frontend/metarill_uni_admin",path)),File.ReadAllBytes(Path.Combine(output,"frontend",path)));}finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
+    /// <summary>已发布的全局非冗余根节点可供两种来源存储使用，原级联页随独立应用生成。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Published_global_R0_cascade_target_packages_with_original_control(bool cachedSource)
+    {
+        var catalog=cachedSource?GlobalCrossCachedFreshCatalogTests.Catalog("cross3"):Catalog("cross3");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="3");
+        target.IsRongyu=0;
+        const string rootNamespace="Example.GlobalR0Cascade";
+        var model=GenerationModel.Create(catalog,rootNamespace);
+        var source=model.Tables.Single(table=>table.Source.Id=="2");
+        var chain=Assert.Single(CrossTableReadCompilation.ForPage(model,source,Assert.Single(source.Pages)));
+        Assert.Equal(target.Id,chain.Levels[0].Target.Source.Id);
+        Assert.Equal("301",chain.Levels[0].Page.Source.Id);
+        if(cachedSource)
+        {
+            Assert.Contains(RelationPropagationCompilation.Bindings(model),binding=>
+                binding.Target.Source.Id==target.Id&&binding.CrossTablePageId=="301");
+        }
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-r0-cascade");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        var repository=NonRedundantApplicationFixture.Root();
+        try
+        {
+            Assert.True(new ApplicationPackager().Create(catalog,directory,rootNamespace,repository).FrontendIncluded);
+            foreach(var operation in new[]{"restore","build"})
+                await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+            var probe=NonRedundantApplicationFixture.Start("node",directory);
+            probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GlobalCrossVueProbe.mjs"));
+            probe.ArgumentList.Add(Path.Combine(directory,"frontend"));
+            probe.ArgumentList.Add("independent");
+            probe.ArgumentList.Add("false");
+            await NonRedundantApplicationFixture.RunAsync(probe);
+        }
+        finally
+        {
+            if(Directory.Exists(directory))
+                await TestDirectoryCleanup.DeleteAsync(directory,boundary);
+        }
+    }
+
     /// <summary>全局条件不能带请求项目，来源和其余目标的项目范围仍保留。</summary>
-    [Theory][InlineData("variable")][InlineData("missingScope")][InlineData("globalR0")][InlineData("sourceGlobal")][InlineData("unpublished")][InlineData("foreignPage")][InlineData("view")][InlineData("derivedName")]
+    [Theory][InlineData("variable")][InlineData("missingScope")][InlineData("unpublishedGlobalR0Page")][InlineData("sourceGlobal")][InlineData("unpublished")][InlineData("foreignPage")][InlineData("view")][InlineData("derivedName")]
     public async Task Unproven_global_package_rejects_atomically(string kind)
     {
-        var c=Catalog("cross3");var target=c.ConfigTables.Single(x=>x.Id=="3");var page=c.ConfigPages.Single(x=>x.Id=="301");if(kind=="variable")page.WhereSql="yz_project_id=@current_yz_project_id AND status=1";if(kind=="missingScope"){target.Extra.Remove("scopeKind");c.ConfigColumns.RemoveAll(x=>x.ConfigTableId=="3"&&x.ColumnName=="yz_project_id");}if(kind=="globalR0")target.IsRongyu=0;if(kind=="sourceGlobal")c.ConfigTables.Single(x=>x.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");if(kind=="unpublished")target.YzProjectId="";if(kind=="foreignPage")page.YzProjectId="999";if(kind=="view")target.IsView=1;if(kind=="derivedName")c.ConfigColumns.Single(x=>x.Id=="32").Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+        var c=Catalog("cross3");var target=c.ConfigTables.Single(x=>x.Id=="3");var page=c.ConfigPages.Single(x=>x.Id=="301");if(kind=="variable")page.WhereSql="yz_project_id=@current_yz_project_id AND status=1";if(kind=="missingScope"){target.Extra.Remove("scopeKind");c.ConfigColumns.RemoveAll(x=>x.ConfigTableId=="3"&&x.ColumnName=="yz_project_id");}if(kind=="unpublishedGlobalR0Page"){target.IsRongyu=0;page.YzAdminTypeId="999";}if(kind=="sourceGlobal")c.ConfigTables.Single(x=>x.Id=="2").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");if(kind=="unpublished")target.YzProjectId="";if(kind=="foreignPage")page.YzProjectId="999";if(kind=="view")target.IsView=1;if(kind=="derivedName")c.ConfigColumns.Single(x=>x.Id=="32").Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-cross-reject");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(c,output,"Example.GlobalCrossReject",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));}finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
     /// <summary>四个正式模型分别改变根／中／末及全部目标的范围，项目列存在与缺省均有明确声明。</summary>
