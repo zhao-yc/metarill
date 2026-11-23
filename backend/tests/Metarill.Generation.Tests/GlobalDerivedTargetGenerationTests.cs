@@ -106,12 +106,14 @@ public sealed class GlobalDerivedTargetGenerationTests
     /// <summary>外层控件没有附加条件时，仍须在维护目录中保存实际中间页的名称范围。</summary>
     [Theory][InlineData("constant",false)][InlineData("form",false)][InlineData("account",false)]
     [InlineData("constant",true)][InlineData("account",true)][InlineData("deep",false)]
+    [InlineData("alternatePage",false)][InlineData("storedAlternatePage",false)]
     public async Task Global_R1_name_cache_keeps_downstream_only_control_scope(string mode,bool globalConsumer)
     {
         var catalog=Catalog(1,"int64","int64");
         var owner=catalog.ConfigTables.Single(table=>table.Id=="3");
         if(globalConsumer)owner.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
+        var alternatePage=mode is "alternatePage" or "storedAlternatePage";
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=mode=="storedAlternatePage"?1:0;
         Add("25","2","segment","int32");
         var definition=mode switch
         {
@@ -133,7 +135,17 @@ public sealed class GlobalDerivedTargetGenerationTests
 
         var relation=catalog.ConfigColumns.Single(column=>column.Id=="13");
         relation.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="20",nameField="name",whereSql="segment=17"});
-        if(mode!="deep")
+        if(alternatePage)
+        {
+            // 实际中间页改用同一字典的发布页，只有这个页面定义了 segment 限制。
+            relation.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="20",nameField="name"});
+            catalog.ConfigPages.Add(new(){Id="21",ConfigTableId="2",YzProjectId="100",YzAdminTypeId="9",
+                WhereSql="status=1 AND segment=3"});
+            catalog.ConfigPageColumns.Add(new(){Id="2122",ConfigPageId="21",ConfigColumnId="22",YzProjectId="100",IsShow=1,IsEdit=1});
+            catalog.ConfigPageColumns.Single(field=>field.Id=="1013").Extra["controlDetail"]=
+                JsonSerializer.SerializeToElement("""{"pageId":"21"}""");
+        }
+        else if(mode!="deep")
             catalog.ConfigPageColumns.Single(field=>field.Id=="1013").Extra["controlDetail"]=Overlay(definition);
         else
         {
@@ -161,7 +173,8 @@ public sealed class GlobalDerivedTargetGenerationTests
         }
         // 同一中间表的另一页可单独限定候选，外层List及单选均明确引用实际页10。
         catalog.ConfigPages.Add(new(){Id="11",ConfigTableId="1",YzProjectId="100",YzAdminTypeId="9",WhereSql="status=7"});
-        catalog.ConfigPageColumns.Add(new(){Id="1113",ConfigPageId="11",ConfigColumnId="13",YzProjectId="100",IsShow=1,IsEdit=1,Extra=new(){["controlDetail"]=Overlay("segment=19")}});
+        catalog.ConfigPageColumns.Add(new(){Id="1113",ConfigPageId="11",ConfigColumnId="13",YzProjectId="100",IsShow=1,IsEdit=1,
+            Extra=alternatePage?[]:new(){["controlDetail"]=Overlay("segment=19")}});
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-downstream-cache");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -169,6 +182,25 @@ public sealed class GlobalDerivedTargetGenerationTests
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.GlobalDownstreamCache");
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            if(alternatePage)
+            {
+                // 验证发布后从冻结目录初始化的原列表、Excel 导出和弹窗单选计划。
+                var intermediate=assembly.GetType("Example.GlobalDownstreamCache.Generated.Services.GlobalSourceService",true)!;
+                var consumer=assembly.GetType("Example.GlobalDownstreamCache.Generated.Services.CachedConsumerService",true)!;
+                const System.Reflection.BindingFlags planFlags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+                const System.Reflection.BindingFlags readFlags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                foreach(var (serviceType,name,restricted) in new[]{
+                    (intermediate,"ReadPlan10",true),(intermediate,"ExportReadPlan10",true),
+                    (intermediate,"ReadPlan11",false),(consumer,"DerivedOptionsPlan30_38",true)})
+                {
+                    var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(serviceType.GetField(name,planFlags)!.GetValue(null));
+                    Assert.Contains("global_target_name",plan.OutputTypes.Keys);
+                    var sql=plan.GetType().GetProperty("MySql",readFlags)!.GetValue(plan)!;
+                    var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                        sql.GetType().GetProperty("Constants",readFlags)!.GetValue(sql)).Values;
+                    Assert.Equal(restricted,parameters.Contains(3));
+                }
+            }
             var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
                 assembly.GetType("Example.GlobalDownstreamCache.Generated.GeneratedRelationMaintenance",true)!
                     .GetProperty("Catalog")!.GetValue(null));
@@ -215,12 +247,11 @@ public sealed class GlobalDerivedTargetGenerationTests
         JsonElement Overlay(string where)=>JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql=where}));
     }
 
-    /// <summary>多段副本的中间页覆盖不能将既有外键改绑到另一名称或发布页面。</summary>
-    [Theory][InlineData("nameField","status")][InlineData("pageId","21")]
+    /// <summary>多段副本的中间页拒绝不同名称及与已声明字典冲突的页面。</summary>
+    [Theory][InlineData("nameField","status")][InlineData("pageId","30")]
     public void Global_R1_name_cache_rejects_a_changed_intermediate_binding(string key,string value)
     {
         var catalog=Catalog(1,"int64","int64");
-        catalog.ConfigPages.Add(new(){Id="21",ConfigTableId="2",YzProjectId="100",YzAdminTypeId="9"});
         var overlay=new Dictionary<string,string>{{key,value}};
         catalog.ConfigPageColumns.Single(field=>field.Id=="1013").Extra["controlDetail"]=
             JsonSerializer.SerializeToElement(JsonSerializer.Serialize(overlay));
@@ -228,7 +259,7 @@ public sealed class GlobalDerivedTargetGenerationTests
         var target=catalog.ConfigTables.Single(table=>table.Id=="1");
         var foreign=catalog.ConfigColumns.Single(column=>column.Id=="34");
         var failure=Assert.Throws<InvalidOperationException>(()=>GlobalSingleRelationTarget.RequireCached(catalog,owner,foreign,target));
-        Assert.Contains("已发布的目标和名称",failure.Message);
+        Assert.Contains(key=="nameField"?"已发布的目标和名称":"真实目标页",failure.Message);
     }
 
     /// <summary>四个交叉模型实际生成完整包、严格构建并挂载原Vue，两次更新保持手写业务和全部受管产物。</summary>

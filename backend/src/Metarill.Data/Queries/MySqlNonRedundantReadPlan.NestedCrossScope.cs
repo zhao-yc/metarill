@@ -519,7 +519,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>全局下拉使用生成计划中的来源页，与多值名称的实际中间页同时存在时必须一致。</summary>
         private PageMetadata? GlobalSingleSourcePage(string alias,TableMetadata source,ColumnMetadata relation)
         {
-            var actual=MultiNameSourcePage(alias);
+            var actual=MultiNameSourcePage(alias)??(alias==rootAlias?candidatePage??SelectedMultiPage:null);
             if(relation.ControlKind!="List"||ExplicitSingleBinding(alias,relation) is not {} binding||
                 (binding.SourcePageId??binding.ControlSourcePageId) is not {} pageId)return actual;
             if(actual is not null&&actual.Id!=pageId||binding.ControlSourcePageId is {} controlPage&&controlPage!=pageId)
@@ -783,6 +783,18 @@ public static partial class MySqlNonRedundantReadCompiler
                 return(foreign,display);
             }
             return null;
+        }
+
+        /// <summary>全局派生标量使用该联接角色的实际来源页；无页面时沿用唯一发布范围。</summary>
+        private bool PublishedGlobalValue(ColumnMetadata column)
+        {
+            var rootStorage=storage[root.Id];
+            if(rootStorage.Kind(column)!=MetadataFieldStorage.Join)
+                return GlobalPhysicalRelationValue.IsPublishedScalar(catalog,rootStorage,root,column);
+            var segment=Text(column,"columnFullName").Split('.',2)[0];
+            var relation=columns[root.Id].GetValueOrDefault(segment+"_id")??columns[root.Id].GetValueOrDefault(segment);
+            var sourcePage=relation is null?null:GlobalSingleSourcePage(rootAlias,root,relation);
+            return GlobalPhysicalRelationValue.IsPublishedScalar(catalog,rootStorage,root,column,sourcePage);
         }
 
         /// <summary>全局自动名称使用原发布证明，缺失的任意字段、跨目录关系或凭据不能借显示名读取。</summary>

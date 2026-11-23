@@ -446,7 +446,7 @@ public static partial class MySqlNonRedundantReadCompiler
                          SelectedMultiPage is not null&&(field==cascadeLabelField||
                          IsSelectedLogicalParent(field))&&
                          CrossTableStorageColumns.IsLogicalPathField(root,columns[root.Id].Values.ToArray(),field));
-                    if(!logical&&!PublishedGlobalSelfTreeField(column)&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage[root.Id],root,column))
+                    if(!logical&&!PublishedGlobalSelfTreeField(column)&&!PublishedGlobalValue(column))
                         throw new NotSupportedException("全局R0读取只接受已证明的标量、单值名称与固定级联字段。");
                 }
             }

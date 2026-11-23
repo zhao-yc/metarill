@@ -177,17 +177,19 @@ internal static class DerivedRelationNamesCompilation
             else if (name.Type == "string?") GlobalCrossTableTarget.RequireSingleName(model.Catalog, target.Source, page.Source, name.Source);
             else GlobalCrossTableTarget.RequireSingle(model.Catalog, target.Source, page.Source);
         }
-        // 全局候选按当前名称读取，不借用仅允许int64路径的精确管理匹配用途。
+        // 以实际候选页编译全局名称的下游关系，避免在资格校验阶段退回无页面的投影。
+        var outputs=new[]{name.Source.ColumnName};
         var exact=ExactDataManageCompilation.Resolve(model,target,page);
+        var targets=target.IsGlobal?NonRedundantReadCompilation.ProjectPathTargets(model,target,page,outputs):[];
         var plan=globalExact
             ?NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,target.Source.Id,page.Source.Id,
-                [name.Source.ColumnName],[exact!.Column.Source.ColumnName],exact.SingleTargets)
+                outputs,[exact!.Column.Source.ColumnName],
+                NonRedundantReadCompilation.MergeProjectTargets(targets.Concat(exact.SingleTargets)))
             :EmbedsParentScope(target,fixedParent)||FixedPageConditionCompilation.HasLogicalFields(page)||exact?.SelfTree==true
-            ?CompileLogicalPage(model,target,page,[name.Source.ColumnName],[name.Source.ColumnName],
-                exact:exact)
+            ?CompileLogicalPage(model,target,page,outputs,outputs,singleTargets:targets,exact:exact)
             :HasGlobalAccountScope(target,page)
-                ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,page.Source.Id,[name.Source.ColumnName])
-                :target.IsGlobal?NonRedundantReads.Compile(model.Catalog,target.Source.Id,[name.Source.ColumnName])
+                ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,[],targets)
+                :target.IsGlobal?NonRedundantReads.CompileProjectRelation(model.Catalog,target.Source.Id,outputs,[],targets)
                     :NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,name.Source.ColumnName);
         if (plan.OutputTypes[name.Source.ColumnName] != NameType(name))
             throw new InvalidOperationException("派生单选名称未落到与声明一致的固定标量。");

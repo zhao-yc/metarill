@@ -20,6 +20,11 @@ public static class GlobalPhysicalRelationValue
     /// <summary>物理值保持原合同；名称缓存须逐层证明属于同一发布目录。</summary>
     public static bool IsPublishedScalar(MetadataCatalog catalog,MetadataStoragePlan storage,TableMetadata target,ColumnMetadata column)
         =>IsPublishedScalar(catalog,storage,target,column,new HashSet<string>(StringComparer.Ordinal));
+    /// <summary>实际来源页已固定时，派生名称按该页逐段证明目标和可见范围。</summary>
+    public static bool IsPublishedScalar(MetadataCatalog catalog,MetadataStoragePlan storage,TableMetadata target,
+        ColumnMetadata column,PageMetadata? sourcePage)
+        =>IsPublishedScalar(catalog,storage,target,column,new HashSet<string>(StringComparer.Ordinal),sourcePage,out _);
+
     /// <summary>显式传递本次证明栈，限制缓存链深度并拒绝循环；不保存请求状态或引入静态可变上下文。</summary>
     internal static bool IsPublishedScalar(MetadataCatalog catalog,MetadataStoragePlan storage,TableMetadata target,ColumnMetadata column,ISet<string> resolving)
         =>IsPublishedScalar(catalog,storage,target,column,resolving,null,out _);

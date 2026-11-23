@@ -39,7 +39,7 @@ public static class GlobalDerivedRelationSource
             current=target;
             if(page is not null)
             {
-                scoped|=last.RequiresScopedPage||last.CacheControl is {Terms.Count:>0};
+                scoped|=last.RequiresScopedCache;
                 page=last.Page;
             }
         }

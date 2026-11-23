@@ -195,7 +195,7 @@ public static class GlobalCrossTableTarget
         if(name.LogicalType!="string"&&!(name.ColumnName!="id"&&allowTyped&&MultiValueLabel.IsTyped(name.LogicalType)))
             throw new NotSupportedException("全局目标名称的类型超出当前用途。");
         if(GlobalPhysicalRelationValue.IsScalar(storage,table,name))return;
-        if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,table,name))throw new NotSupportedException("全局跨表名称缺少完整物理或受管缓存证明。");
+        if(!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,table,name,page))throw new NotSupportedException("全局跨表名称缺少完整物理或受管缓存证明。");
         var declared=ConditionColumns(catalog,table,allowLogical);
         var columns=declared.ToDictionary(column=>column.ColumnName,StringComparer.Ordinal);
         if(FixedConditionPlan.Compile(page.WhereSql,columns.Keys).Fields.Any(field=>
