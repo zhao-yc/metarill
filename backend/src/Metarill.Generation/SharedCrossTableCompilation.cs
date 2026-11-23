@@ -66,8 +66,9 @@ internal static class SharedCrossTableCompilation
                         {
                             // 名称来源与候选使用同一发布页，仍检查范围查询和名称路径是否回到当前写入表。
                             var targets=CascadeTargetOrderCompilation.NameTargets(model,level.Target,level.Page,level.Name,level.DerivedName);
+                            var logicalPage=FixedPageConditionCompilation.HasLogicalFields(level.Page)?level.Page.Source.Id:null;
                             if(Metarill.Data.Queries.NonRedundantReads.MatchReadsTable(model.Catalog,level.Target.Source.Id,
-                                level.Name.Source.ColumnName,table.Source.TableName,targets))
+                                level.Name.Source.ColumnName,table.Source.TableName,targets,logicalPage))
                                 throw new NotSupportedException("共享派生路径不能间接回到当前写入来源。");
                         }
                         levels.Add(new(level,id,name));var scope=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{target=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,where=level.Page.Source.WhereSql}))));slots.Add(new(id.Source.ColumnName,name.Source.ColumnName,id.Type=="string?"?"string":"int64",scope));

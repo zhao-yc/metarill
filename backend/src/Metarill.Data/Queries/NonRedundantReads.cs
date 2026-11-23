@@ -423,11 +423,18 @@ public static class NonRedundantReads
 
     /// <summary>已发布的级联名称使用各段实际页面读取，循环检查沿同一投影及范围依赖。</summary>
     public static bool MatchReadsTable(MetadataCatalog metadata,string tableId,string field,string referencedTable,
-        IReadOnlyList<NonRedundantSingleTargetScope> singleTargets)
+        IReadOnlyList<NonRedundantSingleTargetScope> singleTargets)=>
+        MatchReadsTable(metadata,tableId,field,referencedTable,singleTargets,null);
+
+    /// <summary>逻辑候选页的循环检查还要计入该页范围读取的实际级联与自树依赖。</summary>
+    public static bool MatchReadsTable(MetadataCatalog metadata,string tableId,string field,string referencedTable,
+        IReadOnlyList<NonRedundantSingleTargetScope> singleTargets,string? logicalCandidatePageId)
     {
         MetadataValidation.RequireIdentifier(referencedTable);
-        var plan=singleTargets.Count==0?CompileMatch(metadata,tableId,field):
-            CompileProjectRelation(metadata,tableId,[field],[],singleTargets);
+        var plan=logicalCandidatePageId is not null
+            ?CompileCrossPageCandidate(metadata,tableId,logicalCandidatePageId,[field],[],null,singleTargets)
+            :singleTargets.Count==0?CompileMatch(metadata,tableId,field):
+                CompileProjectRelation(metadata,tableId,[field],[],singleTargets);
         return plan.MySql.PhysicalReferences.Any(reference=>reference.Table==referencedTable);
     }
     /// <summary>只读规则取固定逻辑别名；无独立别名的派生名称继续读取原字段，不接受客户端别名。</summary>

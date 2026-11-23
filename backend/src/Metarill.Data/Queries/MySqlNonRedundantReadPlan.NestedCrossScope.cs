@@ -1042,8 +1042,16 @@ public static partial class MySqlNonRedundantReadCompiler
             var alias=Join(owner,foreign,target,sourceId.Sql,sourceId.Type,
                 validatedCrossGlobal:GlobalCrossTableTarget.Declared(target));
             var level=new CrossLevel(target,value,null,new(page.Id,condition),page,logical);
-            var visible=NestedCrossCondition(level,alias,new(table,owner),selfTreeFields:treeNames);
-            var name=Resolve(target,alias,value.ColumnName);
+            var row=new CascadeCacheOwner(table,owner);
+            var visible=NestedCrossCondition(level,alias,row,selfTreeFields:treeNames);
+            CascadeCacheOwner? nameOwner=null;
+            if(GlobalCrossTableTarget.Declared(target)&&storage[target.Id].Kind(value)==MetadataFieldStorage.Join)
+            {
+                // 递归条件与派生名称共用实际发布页。保留物理反查，使内层字典变化能触发回填。
+                singleCachePages[alias]=page;
+                nameOwner=row;
+            }
+            var name=Resolve(target,alias,value.ColumnName,nameOwner);
             return ("CASE WHEN "+alias+".`id` IS NOT NULL AND "+visible+" THEN "+MySqlMultiValueLabel.Text(name.Sql,name.Type)+" END","string");
         }
 

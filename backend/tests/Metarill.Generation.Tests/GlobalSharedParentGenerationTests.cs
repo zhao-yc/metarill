@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
@@ -68,8 +69,10 @@ public sealed class GlobalSharedParentGenerationTests
     [InlineData(true,true,false,true,true)]
     [InlineData(true,false,true,true)]
     [InlineData(true,true,true,true,true)]
+    [InlineData(true,false,true,true,false,true)]
+    [InlineData(true,true,true,true,true,true)]
     public async Task Published_global_derived_parent_compiles_business_and_file_scopes(bool shared,bool rowProject,bool accountScoped,
-        bool alternateDictionary=false,bool redundantSource=false)
+        bool alternateDictionary=false,bool redundantSource=false,bool selfTreeScope=false)
     {
         const string packageNamespace="Example.GlobalDerivedParent";
         var catalog=Catalog("shared_parent","string","int64",false,1,!rowProject,true);
@@ -136,6 +139,29 @@ public sealed class GlobalSharedParentGenerationTests
                 YzAdminTypeId=countryPage.YzAdminTypeId});
             catalog.ConfigPageColumns.Add(new(){Id="30299013",ConfigPageId="302",ConfigColumnId="99013",IsShow=1,IsEdit=1});
         }
+        if(selfTreeScope)
+        {
+            var visibility=new TableMetadata{Id="98",TableName="shared_parent_visibility",IsRongyu=1,YzProjectId=catalog.YzProjectId};
+            visibility.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigTables.Add(visibility);
+            catalog.ConfigColumns.AddRange([
+                new(){Id="9801",ConfigTableId="98",YzProjectId=catalog.YzProjectId,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id="9802",ConfigTableId="98",YzProjectId=catalog.YzProjectId,ColumnName="name",LogicalType="string"},
+                new(){Id="9803",ConfigTableId="98",YzProjectId=catalog.YzProjectId,ColumnName="parent_id",LogicalType="int64",LinkConfigTableId="98"},
+                new(){Id="9804",ConfigTableId="98",YzProjectId=catalog.YzProjectId,ColumnName="status",LogicalType="int32"},
+                new(){Id="9805",ConfigTableId="3",YzProjectId=catalog.YzProjectId,ColumnName="visibility_id",LogicalType="int64",
+                    ControlKind="CascadeTree",LinkConfigTableId="98",
+                    ControlDetail="""{"sourceMode":"selfTree","selfTree":{"table":"shared_parent_visibility","parentField":"parent_id"}}"""}
+            ]);
+            catalog.ConfigPages.Add(new(){Id="980",ConfigTableId="98",YzProjectId=catalog.YzProjectId,
+                YzAdminTypeId=countryPage.YzAdminTypeId,WhereSql="status=1"});
+            foreach(var id in new[]{"9802","9803"})
+                catalog.ConfigPageColumns.Add(new(){Id="980"+id,ConfigPageId="980",ConfigColumnId=id,IsShow=1,IsEdit=1,
+                    YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPageColumns.Add(new(){Id="3019805",ConfigPageId="301",ConfigColumnId="9805",IsShow=1,IsEdit=1,
+                YzProjectId=catalog.YzProjectId});
+            countryPage.WhereSql+=" AND visibility_name <> '不可选范围'";
+        }
         var model=GenerationModel.Create(catalog,packageNamespace);
         var source=model.Tables.Single(table=>table.Source.Id=="2");
         var page=source.Pages.Single(item=>item.Source.Id=="202");
@@ -149,6 +175,34 @@ public sealed class GlobalSharedParentGenerationTests
             Assert.Contains("current_store_id",scoped.Variables);
             Assert.Throws<UnauthorizedAccessException>(()=>scoped.BindAccount(missingStore));
             Assert.Empty(scoped.BindAccount(actor).Variables);
+        }
+        void VerifyParentRead(NonRedundantReadPlan scope,string? logicalField=null)
+        {
+            Assert.True(scope.RequiresAccount);
+            Assert.Throws<UnauthorizedAccessException>(()=>scope.BindAccount(missingStore));
+            var bound=scope.BindAccount(actor);
+            Assert.False(bound.RequiresAccount);
+            if(!selfTreeScope)return;
+
+            const BindingFlags flags=BindingFlags.Instance|BindingFlags.NonPublic;
+            var mysql=typeof(NonRedundantReadPlan).GetProperty("MySql",flags)!.GetValue(bound)!;
+            var sql=Assert.IsType<string>(logicalField is null
+                ?mysql.GetType().GetProperty("Scope",flags)!.GetValue(mysql)
+                :mysql.GetType().GetMethod("Expression",flags)!.Invoke(mysql,[logicalField]));
+            Assert.Contains("WITH RECURSIVE",sql);
+            Assert.Contains("shared_parent_visibility",sql);
+            Assert.Contains("visibility_id",sql);
+            Assert.Contains("store_id",sql);
+            Assert.DoesNotContain("不可选范围",sql);
+            var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                mysql.GetType().GetProperty("Constants",flags)!.GetValue(mysql));
+            Assert.Contains("不可选范围",parameters.Values);
+            Assert.Contains(actor.StoreId,parameters.Values);
+        }
+        void VerifyPhysicalParent(RedundantSharedParentLevel level)
+        {
+            VerifyAccount(level.Condition);
+            if(selfTreeScope)VerifyParentRead(Assert.IsType<NonRedundantReadPlan>(level.RecursiveCandidate));
         }
         if(redundantSource)
         {
@@ -191,7 +245,7 @@ public sealed class GlobalSharedParentGenerationTests
                 {
                     var physicalPlan=Assert.IsType<RedundantSharedParentPlan>(
                         parentScope.GetType().GetField("redundant",nonPublic)!.GetValue(parentScope));
-                    VerifyAccount(Assert.Single(physicalPlan.Levels).Condition);
+                    VerifyPhysicalParent(Assert.Single(physicalPlan.Levels));
                 }
 
                 // 允许固定目标页内部使用备用字典，来源页之间仍不能替换这个外键的固定目标页。
@@ -256,16 +310,23 @@ public sealed class GlobalSharedParentGenerationTests
                     var accountParents=Assert.IsType<RedundantSharedParentPlan[]>(
                         service.GetField("AccountParentScope206",staticPlan)!.GetValue(null));
                     Assert.Equal(2,accountParents.Length);
-                    Assert.All(accountParents,parent=>VerifyAccount(Assert.Single(parent.Levels).Condition));
+                    Assert.All(accountParents,parent=>VerifyPhysicalParent(Assert.Single(parent.Levels)));
+                    if(selfTreeScope)
+                    {
+                        var maintenance=generated.GetType(packageNamespace+".Generated.GeneratedRelationMaintenance",true)!;
+                        var published=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                            maintenance.GetProperty("Catalog")!.GetValue(null));
+                        Assert.Contains("country_name",published.MixedSourceColumns[source.Source.TableName]);
+                        Assert.Contains(company.TableName,published.MixedTargets);
+                        Assert.Contains("shared_parent_visibility",published.MixedTargets);
+                    }
                 }
                 else
                 {
                     Assert.Contains("LogicalParentPlan206.BindAccount(actor)",code);
                     var scope=Assert.IsType<NonRedundantReadPlan>(
                         service.GetField("LogicalParentPlan206",staticPlan)!.GetValue(null));
-                    Assert.True(scope.RequiresAccount);
-                    Assert.Throws<UnauthorizedAccessException>(()=>scope.BindAccount(missingStore));
-                    Assert.False(scope.BindAccount(actor).RequiresAccount);
+                    VerifyParentRead(scope,"country_id");
                 }
             }
         }
