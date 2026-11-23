@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Reflection;
 using System.Text.Json;
 using Metarill.Core.Metadata;
@@ -580,11 +581,29 @@ public sealed class NonRedundantImportMatchTests
             Array.Empty<IRecordMutationObserver>(), Array.Empty<IRecordMutationGuard>(), authorization])!;
         var read = service.GetMethod("ReadButtonRecord701Async")!;
         var rootQuery = service.GetMethod("ButtonRecordQuery701", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        const string largeParent = "9007199254740993";
+        const string largeParent = "9007199254741993";
         var textPredicate = $"BINARY (`a`.`{textParent}`)=BINARY @mt_parent_{textParent}";
         var commands = 0;
+        var parentLocks = 0;
+        var writing = false;
         session.Orm.Aop.CurdBefore += (_, args) =>
         {
+            if (writing)
+            {
+                // 父记录校验必须在按钮当前授权之后和子记录锁之前完成。
+                Assert.Equal(parentLocks + 1, authorization.CurrentChecks);
+                Assert.Same(session.CurrentTransaction, authorization.LastTransaction);
+                Assert.Contains("FROM `logical_overwrite_country`", args.Sql);
+                Assert.Contains("`delete_no`", args.Sql);
+                Assert.Contains("FOR UPDATE", args.Sql, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains(args.DbParms, parameter =>
+                    Convert.ToString(parameter.Value, System.Globalization.CultureInfo.InvariantCulture) == largeParent);
+                Assert.Contains(args.DbParms, parameter =>
+                    Convert.ToString(parameter.Value, System.Globalization.CultureInfo.InvariantCulture) == projectId);
+                Assert.DoesNotContain("compound_picker_owner", args.Sql);
+                parentLocks++;
+                throw new CapturedButtonParentSql();
+            }
             commands++;
             Assert.Contains(textPredicate, args.Sql);
             Assert.DoesNotContain(largeParent, args.Sql);
@@ -615,6 +634,20 @@ public sealed class NonRedundantImportMatchTests
             Assert.Contains("FOR UPDATE", sql, StringComparison.OrdinalIgnoreCase);
             return Task.FromResult(true);
         });
+        writing = true;
+        var lockRecord = service.GetMethod("LockButtonRecord701Async")!;
+        await Assert.ThrowsAsync<CapturedButtonParentSql>(() => session.InTransactionAsync(async () =>
+        {
+            await (Task)lockRecord.Invoke(target, [1L, largeParent, "86000", actor, CancellationToken.None])!;
+            return true;
+        }));
+
+        var update = service.GetMethod("UpdateButtonRecord701Async")!;
+        var request = JsonSerializer.Deserialize("""{"id":"1"}""", update.GetParameters()[0].ParameterType, Metarill.Runtime.JsonDefaults.Options);
+        await Assert.ThrowsAsync<CapturedButtonParentSql>(async () =>
+            await (Task)update.Invoke(target, [request, largeParent, "86000", actor, CancellationToken.None])!);
+        Assert.Equal(2, parentLocks);
+        Assert.Equal(2, transport.Rollbacks);
         Assert.Empty(transport.Commands);
     }
 
@@ -624,9 +657,21 @@ public sealed class NonRedundantImportMatchTests
     /// <summary>只授已登记按钮，普通查询权限不参与测试合同。</summary>
     private sealed class ButtonParentAuthorization(RuntimeActor actor) : IRuntimeAuthorization
     {
+        public int CurrentChecks { get; private set; }
+        public DbTransaction? LastTransaction { get; private set; }
         public RuntimeActor RequireActor() => actor;
         public void RequirePagePermission(string pageId, string operation) => throw new UnauthorizedAccessException();
         public void RequireButtonPermission(string pageId, string buttonId) => Assert.Equal(("701", "86000"), (pageId, buttonId));
+        /// <summary>记录当前授权确实在同一个按钮事务中发生，权限判定仍由真实宿主负责。</summary>
+        public Task RequireButtonCurrentAsync(string pageId, string buttonId, RuntimeActor current, DbTransaction transaction,
+            CancellationToken cancellationToken = default)
+        {
+            RequireButtonPermission(pageId, buttonId);
+            Assert.Equal(actor, current);
+            CurrentChecks++;
+            LastTransaction = transaction;
+            return Task.CompletedTask;
+        }
     }
 
     /// <summary>原字典页和控件可分别声明同一父记录的物理字段。</summary>

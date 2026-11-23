@@ -146,7 +146,7 @@ public partial class ConfigColumnService
     /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>
     public async Task<global::Metarill.Platform.Generated.Entities.ConfigColumn?> ReadButtonRecord6217715532627968Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6217715532627968(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
     /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>
-    public async Task<global::Metarill.Platform.Generated.Entities.ConfigColumn?> LockButtonRecord6217715532627968Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){await RequireButtonCurrent6217715532627968Async(id,buttonId,actor,cancellationToken);return await ButtonRecordQuery6217715532627968(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);}
+    public async Task<global::Metarill.Platform.Generated.Entities.ConfigColumn?> LockButtonRecord6217715532627968Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){await RequireButtonCurrent6217715532627968Async(id,buttonId,actor,cancellationToken);await ValidateParents6217715532627968Async(parentId,actor,cancellationToken);return await ButtonRecordQuery6217715532627968(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);}
     /// <summary>服务端固定按钮及真实主体校验在打开写事务前也可执行。</summary>
     private void RequireButtonRecordAccess6217715532627968(long id,string buttonId,RuntimeActor actor)
     {
@@ -279,6 +279,7 @@ public partial class ConfigColumnService
         if (parentId is not null) mutationScopeValues["config_table_id"] = long.Parse(parentId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("6217715532627968", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues, businessButtonId);
         if(businessButtonId is not null)await RequireButtonCurrent6217715532627968Async(request.Id,businessButtonId,actor,cancellationToken);
+        if(businessButtonId is not null)await ValidateParents6217715532627968Async(parentId,actor,cancellationToken);
         var entity = await (businessButtonId is null ? Scope6217715532627968(actor, parentId).Where(row => row.Id == request.Id).ForUpdate() : ButtonRecordQuery6217715532627968(request.Id,parentId,businessButtonId,actor,true)).FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         // 固定平台旧空物理类型仅兼容未编辑类型的局部更新。
