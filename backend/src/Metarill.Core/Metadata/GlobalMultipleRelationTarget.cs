@@ -26,6 +26,13 @@ public static class GlobalMultipleRelationTarget
             GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,target,value,page);
     }
 
+    /// <summary>冗余字典的原多选限定在实际 type=2 页面及物理账号等值范围。</summary>
+    public static bool IsStoredAccountPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition)=>
+        table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&page.ConfigTableId==table.Id&&
+        page.Extra.GetValueOrDefault("type").ToString()=="2"&&
+        string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString())&&
+        condition.Variables.Count>0&&condition.Variables.All(AccountConditionVariables.IsSupported);
+
     /// <summary>实时派生与缓存维护分别验证来源存储模式，其余发布和终点约束完全相同。</summary>
     private static GlobalMultipleRelationPlan RequireSource(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,bool cached)
     {
@@ -51,6 +58,8 @@ public static class GlobalMultipleRelationTarget
             foreign.ControlKind=="MultiCheckBoxDatabase"&&GlobalCrossTableTarget.DeclaresExactPage(target,page))
             _=GlobalCrossTableTarget.ExactPageParent(catalog,target,page);
         else if(selfTreeScope)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page,allowMultiParent:true);
+        else if(foreign.ControlKind=="MultiSelectPage"&&pageId.Length>0&&IsStoredAccountPage(target,page,condition))
+            GlobalCrossTableTarget.RequireAccountCandidate(catalog,target,page);
         else if(scoped||target.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported))
             GlobalCrossTableTarget.RequireMultiCandidate(catalog,target,page);
         else GlobalCrossTableTarget.RequireMultiple(catalog,target,page);

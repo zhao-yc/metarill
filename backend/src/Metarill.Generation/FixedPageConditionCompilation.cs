@@ -117,8 +117,14 @@ internal static class FixedPageConditionCompilation
     internal static bool HasCrossFields(PageModel page)=>page.Condition?.CrossFields.Count>0;
     internal static bool HasSelfTreeFields(PageModel page)=>page.Condition?.SelfTreeFields.Count>0;
     internal static bool HasLogicalFields(PageModel page)=>HasCrossFields(page)||HasSelfTreeFields(page);
+    /// <summary>原多选直接引用物理全局字典，账号条件沿实际发布页绑定。</summary>
+    internal static bool HasStoredGlobalMultiScope(TableModel table,PageModel page)=>
+        page.Scopes.Count==0&&page.Condition is {} condition&&!HasLogicalFields(page)&&
+        GlobalMultipleRelationTarget.IsStoredAccountPage(table.Source,page.Source,condition.Syntax);
+
     /// <summary>多值限定页包含账号、逻辑条件或由实际发布关系证明的全局物理父键。</summary>
     internal static bool HasMultiTargetScope(GenerationModel model,TableModel table,PageModel page)=>HasLogicalFields(page)||
+        HasStoredGlobalMultiScope(table,page)||
         table.Source.IsRongyu==0&&(HasAccountVariables(page)||SelectionPageRenderer.Enabled(page)&&
             page.Scopes.Count(scope=>scope.Source=="parent")>1)||page.Scopes.Any(scope=>
         scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName))||

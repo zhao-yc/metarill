@@ -23,10 +23,10 @@ internal static class FixedPageQueryCompilation
             ? table.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id")
             : GlobalSelfTreeProject(table);
 
-    /// <summary>原冗余单选列表按实际发布的全局门店范围读取，普通业务继续使用行项目。</summary>
+    /// <summary>原冗余选择页按实际发布的全局账号范围读取候选，普通业务继续使用行项目。</summary>
     internal static bool UsesStoredGlobalSelectionRows(TableModel table,PageModel page)=>
         table.IsGlobal&&table.Source.IsRongyu==1&&ManagedGlobalProject(table) is not null&&
-        page.Source.Extra.GetValueOrDefault("type").ToString()=="1"&&
+        page.Source.Extra.GetValueOrDefault("type").ToString() is "1" or "2"&&
         page.Scopes.Count==0&&!ExactDataManageCompilation.Declared(page)&&
         FixedPageConditionCompilation.HasAccountVariables(page)&&!FixedPageConditionCompilation.HasLogicalFields(page);
 

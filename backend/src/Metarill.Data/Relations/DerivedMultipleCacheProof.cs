@@ -63,6 +63,14 @@ internal static class DerivedMultipleCacheProof
             :MultiNameStorageColumns.IsDerivedScalarLabel(target,value,storage);
         if(value.LogicalType!="string"&&!typed)throw Invalid();
         // 验证也读取与实际名称副本相同的固定页及联接条件。
+        if(target.IsRongyu==1&&foreign.ControlKind=="MultiSelectPage"&&scoped is not null)
+        {
+            _=AccountScopedCrossCache.Compile(catalog,source,target,scoped);
+            var scopedRead=MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(catalog,target.Id,scoped.Id,
+                value.ColumnName,[value.ColumnName],[]);
+            if(scopedRead.Types[value.ColumnName]!=value.LogicalType)throw Invalid();
+            return;
+        }
         var read=MySqlNonRedundantReadCompiler.CompileMultiLabelForCache(catalog,source,target,value.ColumnName,scoped,foreign,sharedPage is not null);
         if(read.Types[value.ColumnName]!=value.LogicalType)throw Invalid();
     }

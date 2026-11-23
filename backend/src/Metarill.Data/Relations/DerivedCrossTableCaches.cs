@@ -36,13 +36,15 @@ public static class DerivedCrossTableCaches
             var global=GlobalCrossTableTarget.Declared(target);
             var globalSource=GlobalCrossTableTarget.Declared(source);
             var globalTree=globalSource&&d.SelfTreePageId is not null;
-            if(source.IsRongyu!=1||target.IsRongyu!=0&&d.CrossTableAccountPageId is null&&!globalTree||
+            if(source.IsRongyu!=1||
                 globalSource&&!globalTree||source.IsView!=0||source.IsFunctionTable!=0||target.IsView!=0||target.IsFunctionTable!=0)
                 throw new InvalidOperationException("派生级联缓存要求已发布的R1来源和固定单值目标。");
             var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var columns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(c=>c.ConfigTableId==source.Id));var foreign=columns.SingleOrDefault(c=>c.Id==d.ForeignColumnId);var cache=columns.SingleOrDefault(c=>c.Id==d.CacheColumnId);var value=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id)).SingleOrDefault(c=>c.Id==d.ValueColumnId);
             var scopedTree=SelfTreeCache.UsesWholePath(catalog,source,d.SelfTreePageId);
             var scopedMultiple=d.Multiple&&foreign is not null&&
                 Metarill.Data.Queries.NonRedundantReads.HasScopedMultiPage(catalog,target,foreign);
+            if(target.IsRongyu!=0&&d.CrossTableAccountPageId is null&&!globalTree&&!scopedMultiple)
+                throw new InvalidOperationException("派生级联缓存要求已发布的R1来源和固定单值目标。");
             if(foreign is null||cache is null||value is null||foreign.Id==cache.Id||!sourceStorage.IsPhysical(foreign)||Enabled(foreign)||!sourceStorage.IsPhysical(cache)||cache.IsVirtualColumn!=0||cache.LogicalType!="string"||foreign.LogicalType is not("string" or "int64")||value.IsVirtualColumn!=0||
                 (targetStorage.IsPhysical(value)?d.CrossTableAccountPageId is null&&d.CrossTableRecursivePageId is null&&!scopedMultiple&&!scopedTree:targetStorage.Kind(value)!=MetadataFieldStorage.Join&&!(d.Multiple&&targetStorage.Kind(value)==MetadataFieldStorage.RelationDisplay)))throw new InvalidOperationException("派生跨表关系ID、缓存或逻辑名称不明确。");
             if(cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0||ExactDataManageValues.IsSensitiveField(cache.ColumnName)||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id)throw new InvalidOperationException("派生跨表缓存不属于同一固定关系。");

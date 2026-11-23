@@ -126,7 +126,9 @@ public static partial class MySqlNonRedundantReadCompiler
             (MultiTargetParentScope Target,ColumnMetadata Source)? fixedParent=null,bool sharedCheckbox=false)
         {
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
-            var physicalScope=checkbox&&target.IsRongyu==1&&(fixedParent is not null||
+            var storedAccount=relation.ControlKind=="MultiSelectPage"&&selectedScope is not null&&
+                StoredAccountMultiPage(catalog,target,selectedScope);
+            var physicalScope=storedAccount||checkbox&&target.IsRongyu==1&&(fixedParent is not null||
                 table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
                 throw new NotSupportedException("多值名称要求已证明的目标及原多选或数据库复选。");
@@ -168,7 +170,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 trackReverse:refreshFields is not null,candidatePage:candidatePage,multiLabel:true,cascadeLabelField:value.ColumnName,
                 cascadeCacheOwner:refreshFields is null||fixedParent is not null&&storage[target.Id].IsPhysical(value)?null:new(table,owner),
                 globalCandidate:global&&target.IsRongyu==0&&candidatePage is not null,
-                scopedPhysicalCandidate:physicalScope&&!global,
+                scopedPhysicalCandidate:physicalScope&&!global,accountPhysicalCandidate:storedAccount,
                 exactSingleCandidate:storedGlobalExact)
             {
                 SelectedMultiPage=selectedPage,

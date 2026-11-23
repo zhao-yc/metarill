@@ -1159,6 +1159,7 @@ public partial class {{table.Name}}Service
         }
         return result.AppendLine("        return services;").AppendLine("    }").Append(TrustedSecurityPhysicalCompilation.Method(model)).AppendLine("}").Append(model.Tables.Any(table => NonRedundantReadCompilation.Requires(model, table) ||
             table.Pages.Any(page => MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null||
+                MultiSelectCompilation.ForService(model,table,page).Any(multi=>DerivedMultiNamesCompilation.UsesFixedRead(model,multi))||
                 table.Source.IsFunctionTable==1&&DatabaseCheckboxCompilation.ForPage(model,table,page).Any(checkbox=>checkbox.GlobalParent)||
                 RelationCompilation.ForPage(model, page, true,forExcel:true).Any(relation => DerivedRelationNamesCompilation.UsesFixedRead(model, relation))))
             ? NonRedundantCatalog(model) : "").Append(RelationPropagationRenderer.Catalog(model)).Append(RelationMaintenanceRenderer.Catalog(model)).ToString();
