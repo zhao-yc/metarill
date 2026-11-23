@@ -9,6 +9,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
 {
     internal bool LogicalSourceParent { get; init; }
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
+    internal bool CompoundProjectSource { get; init; }
     internal bool UsesPageRead { get; init; }
     internal bool UsesNameOverride { get; init; }
     internal bool GlobalParent { get; init; }
@@ -154,6 +155,7 @@ internal static class MultiSelectCompilation
             var usesPageRead=pageRead&&(pageOverride||targetParents.Length>0||!scoped&&targetPage.Condition is not null);
             var usesNameOverride=false;
             var logicalSourceParent=false;
+            var compoundProjectSource=false;
             IReadOnlyList<ColumnModel> compoundSourceDependencies=[];
             if(scopedParent is not null && !functionForm)
             {
@@ -168,6 +170,7 @@ internal static class MultiSelectCompilation
                 {
                     if(scopedParent.Global)
                         Metarill.Data.Queries.NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,targetPage.Source.Id,owner);
+                    compoundProjectSource=same&&!scopedParent.Global&&!logicalSourceParent&&!table.IsGlobal&&!target.IsGlobal;
                     compoundSourceDependencies=NonRedundantCrossParentCompilation.Dependencies(model,table,page,sourceScopes);
                 }
             }
@@ -221,6 +224,7 @@ internal static class MultiSelectCompilation
                 {
                     LogicalSourceParent=logicalSourceParent,
                     CompoundSourceDependencies=compoundSourceDependencies,
+                    CompoundProjectSource=compoundProjectSource,
                     GlobalParent=scopedParent?.Global==true,
                     UsesPageRead=usesPageRead,
                     UsesNameOverride=usesNameOverride,

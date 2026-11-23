@@ -652,6 +652,10 @@ public sealed class DerivedSingleSelectionTests
     [InlineData(0, 1, true, true, "compound-shared")]
     [InlineData(1, 0, true, false, "compound-form")]
     [InlineData(1, 1, false, false, "compound-form")]
+    [InlineData(0, 0, true, false, "source-pair")]
+    [InlineData(0, 1, false, true, "source-compound")]
+    [InlineData(1, 0, false, false, "source-compound")]
+    [InlineData(1, 1, true, false, "source-pair")]
     public async Task Project_multiselect_uses_fixed_dictionary_scope(int sourceStorage, int targetStorage, bool explicitProject,
         bool nameOverride, string parentMode)
     {
@@ -673,7 +677,8 @@ public sealed class DerivedSingleSelectionTests
         foreign.ColumnLength = "max";
         var literal = parentMode != "only";
         var hasParent = parentMode.Length != 0;
-        var compound = parentMode.StartsWith("compound-", StringComparison.Ordinal);
+        var sourcePair = parentMode.StartsWith("source-", StringComparison.Ordinal);
+        var compound = parentMode.StartsWith("compound-", StringComparison.Ordinal) || parentMode == "source-compound";
         var formParent = parentMode is "form" or "compound-form";
         foreign.ControlDetail = JsonSerializer.Serialize(new
         {
@@ -718,6 +723,16 @@ public sealed class DerivedSingleSelectionTests
             }
         }
         page.WhereSql = string.Join(" AND ", conditions);
+        if (sourcePair)
+        {
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "199", ConfigTableId = source.Id, YzProjectId = catalog.YzProjectId,
+                ColumnName = "secondary_group_id", LogicalType = "string", LinkConfigTableId = "3"
+            });
+            foreach (var item in catalog.ConfigPages.Where(item => item.ConfigTableId == source.Id))
+                item.WhereSql += " AND secondary_group_id=@parent_id";
+        }
 
         var model = GenerationModel.Create(catalog, ns);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
@@ -729,6 +744,11 @@ public sealed class DerivedSingleSelectionTests
         Assert.True(FixedPageConditionCompilation.HasMultiTargetScope(model, selection.Definition.Target, selection.Definition.TargetPage));
         Assert.Equal(hasParent && !formParent, selection.Definition.SameParent);
         if (formParent) Assert.Equal("groupId", selection.Definition.TargetParentField);
+        if (sourcePair)
+        {
+            Assert.Equal(new[] { "group_id", "secondary_group_id" },
+                selection.Definition.CompoundSourceDependencies.Select(column => column.Source.ColumnName).Order());
+        }
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-project-multi-literal");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try
@@ -736,6 +756,18 @@ public sealed class DerivedSingleSelectionTests
             new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             if (compound) VerifyCompoundCandidate(assembly, ns, targetStorage, catalog.YzProjectId);
+            if (sourcePair)
+            {
+                var serviceCode = File.ReadAllText(Path.Combine(directory, "generated/Services/ScopeMultiOrderService.g.cs"));
+                Assert.Contains("多选来源父字段必须指向同一条记录", serviceCode);
+                Assert.Contains("Convert.ToString(entity.SecondaryGroupId, CultureInfo.InvariantCulture)", serviceCode);
+                Assert.Contains("已发布的来源父键", serviceCode);
+                Assert.Contains("targetParentId!=parentKey.ToString(CultureInfo.InvariantCulture)", serviceCode);
+                Assert.Contains(sourceStorage == 0 ? "ForTextParent(\"secondary_group_id\"" :
+                    "ApplyTextParent(query,session,\"secondary_group_id\"", serviceCode);
+                Assert.Contains("entity.SecondaryGroupId!=long.Parse(parentId!, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture)", serviceCode);
+                await VerifyCompoundSourceWrite(assembly, ns, catalog.YzProjectId);
+            }
             var service = assembly.GetType(ns + ".Generated.Services.ScopeMultiOrderService", true)!;
             var lookup = service.GetField("MultiDerivedPlan101_15", BindingFlags.Static | BindingFlags.NonPublic);
             Assert.NotNull(lookup);
@@ -762,6 +794,8 @@ public sealed class DerivedSingleSelectionTests
                 HasDictionaryRange(expression, read);
                 Assert.Contains(nameOverride ? ".`notes`" : ".`name`", expression);
                 if (hasParent) Assert.Contains("b.`group_id`", expression);
+                if (sourcePair)
+                    Assert.Contains("BINARY CAST(b.`secondary_group_id` AS CHAR)=BINARY CAST(b.`group_id` AS CHAR)", expression);
             }
             else
             {
@@ -776,6 +810,8 @@ public sealed class DerivedSingleSelectionTests
                 var expression = Expression(read);
                 HasDictionaryRange(expression, read);
                 if (hasParent) Assert.Contains("b.`group_id`", expression);
+                if (sourcePair)
+                    Assert.Contains("BINARY CAST(b.`secondary_group_id` AS CHAR)=BINARY CAST(b.`group_id` AS CHAR)", expression);
                 var reverse = Assert.IsAssignableFrom<System.Collections.IEnumerable>(
                     read.GetType().GetProperty("Reverse", hidden)!.GetValue(read));
                 Assert.Contains(reverse.Cast<object>(), item =>
@@ -795,6 +831,16 @@ public sealed class DerivedSingleSelectionTests
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
 
+        if (sourcePair)
+        {
+            // 全局字典仍沿用原发布限制，即使该字典的父记录属于当前项目。
+            var fields = catalog.ConfigColumns.Where(column => column.ConfigTableId == target.Id).Select(column => column.ColumnName);
+            var targetParent = MultiTargetParentScope.Compile(catalog, target, FixedConditionPlan.Compile("group_id=@parent_id", fields));
+            Assert.NotNull(targetParent);
+            target.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+            Assert.Throws<InvalidOperationException>(() => targetParent.Source(catalog, source, foreign, sourcePage.Source));
+            target.Extra.Remove("scopeKind");
+        }
         if (compound)
         {
             // 同名参数只能指向一个真实父表，两个物理字段属于不同表时必须拒绝。
@@ -822,6 +868,48 @@ public sealed class DerivedSingleSelectionTests
             var values = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
                 read.GetType().GetProperty("Constants", hidden)!.GetValue(read)).Values;
             if (literal) Assert.Contains(17, values);
+        }
+    }
+
+    /// <summary>直接执行生成的写入校验，冲突和非规范的父键在连接数据库前明确拒绝。</summary>
+    private static async Task VerifyCompoundSourceWrite(Assembly assembly, string ns, string project)
+    {
+        using var session = new DatabaseSession(new DatabaseOptions
+        {
+            Provider = "mysql", ExpectedDatabase = "offline",
+            ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
+        });
+        var service = assembly.GetType(ns + ".Generated.Services.ScopeMultiOrderService", true)!;
+        var mapper = Activator.CreateInstance(assembly.GetType(ns + ".Generated.Mappers.ScopeMultiOrderMapper", true)!, session);
+        var actor = new RuntimeActor(7, "合成账号", false, project, "5");
+        var authorization = new CompoundSourceAuthorization(actor);
+        var constructor = service.GetConstructors().Single();
+        var arguments = new object?[] { session, mapper, new SnowflakeIdGenerator(), Array.Empty<IRecordMutationObserver>() };
+        var instance = constructor.Invoke(arguments.Concat(constructor.GetParameters().Skip(arguments.Length)
+            .Select(parameter => parameter.ParameterType == typeof(IRuntimeAuthorization) ? authorization : parameter.DefaultValue)).ToArray());
+        var entityType = assembly.GetType(ns + ".Generated.Entities.ScopeMultiOrder", true)!;
+        var entity = Activator.CreateInstance(entityType)!;
+        entityType.GetProperty("GroupId")!.SetValue(entity, 9007199254740993L);
+        entityType.GetProperty("CustomerIds")!.SetValue(entity, "[\"19\"]");
+        var validation = service.GetMethod("ValidateMulti101_15Async", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        foreach (var secondary in new[] { "9007199254740994", "09007199254740993" })
+        {
+            entityType.GetProperty("SecondaryGroupId")!.SetValue(entity, secondary);
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => (Task)validation.Invoke(instance,
+                [entity, actor, new HashSet<string>(), true, CancellationToken.None, null])!);
+            Assert.Equal("多选来源父字段必须指向同一条记录。", error.Message);
+        }
+    }
+
+    /// <summary>提供定向用例的当前身份和实际目标页读取权限。</summary>
+    private sealed class CompoundSourceAuthorization(RuntimeActor actor) : IRuntimeAuthorization
+    {
+        public RuntimeActor RequireActor() => actor;
+
+        public void RequirePagePermission(string pageId, string operation)
+        {
+            Assert.Equal("201", pageId);
+            Assert.Equal("list", operation);
         }
     }
 

@@ -304,6 +304,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var result = new StringBuilder().Append(multiGlobal is null?SharedGlobalParentCompilation.KeyService(model,table,page):MultiGlobalParentCompilation.Declaration(model,multiGlobal,multiPlan)).AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
             .AppendLine($"    private async Task ValidateParents{page.Source.Id}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken{(NonRedundantCrossParentCompilation.Enabled(model,table,page)?",bool includeManaged=true":"")}{(supportsReadOnlyParent?", bool locking=true":"")})")
             .AppendLine("    {");
+        if(UsesProjectCompoundMultiSource(model,table,page))
+            result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前多选页要求已发布的来源父键使用规范正整数。\");");
         if(sharedRedundant)result.AppendLine("        ValidateActor(actor);").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);");
         else if(multiGlobal is not null)result.AppendLine("        ValidateActor(actor);");
         var checkedGlobalParent=false;
@@ -345,10 +347,16 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if (!page.Scopes.Any(scope => scope.Source == "parent")) result.AppendLine("        await Task.CompletedTask;");
         return result.AppendLine("    }").ToString();
     }
-    /// <summary>只有原多选实际绑定且已证明的项目内文本父键需要二进制比较。</summary>
+    /// <summary>普通多选来源页的多个物理父字段必须在真实发布的关系中共同出现。</summary>
+    private static bool UsesProjectCompoundMultiSource(GenerationModel model,TableModel table,PageModel page)=>
+        page.Scopes.Count(scope=>scope.Source=="parent")>1&&
+        MultiSelectCompilation.ForService(model,table,page).Any(definition=>definition.CompoundProjectSource);
+
+    /// <summary>原多选目标和同父来源的项目内文本父键都按规范 ID 二进制比较。</summary>
     private static bool UsesFixedTextParent(GenerationModel model,TableModel table,PageModel page)=>
         page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="string?")&&
-        Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source);
+        (Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source)||
+            UsesProjectCompoundMultiSource(model,table,page));
 
     private static string Query(GenerationModel model, TableModel table, PageModel page)
     {
@@ -541,7 +549,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.Append(AccountScopeDefaults(table,page));
             var validateRelations=$"await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken{(ImportRenderer.RelationOperationAware(model,table,page)?", authorizationOperation":"")}{SharedCrossTableSparseRenderer.Argument(model,table,page)}{(GlobalCachedParentCompilation.HasCombinedCandidate(model,table,page)?", lockedParentId: parentId":"")}{(mergeParent is not null?", parentRecheck: parentRecheck, mergedCandidate: mergedCandidate":"")}{NonRedundantCrossParentCompilation.RelationParentArgument(model,table,page)}";
             result.Append(SharedCrossTableSparseRenderer.Capture(model,table,page)).Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"true","false")).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(ManagerCredentialCompilation.DigestCall(table,true)).Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine("        "+validateRelations+(deferParent?", deferParentCandidate: deferredParent is not null":"")+");").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false)).Append(RequiredValidation(model, table, page, false))
-                .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(AccountScopeCheck(table,page)).Append(KeepManagedGlobalProject(table)).Append(KeepFixedGlobalParent(model,table,page)).Append(WriteCall(page, "Create", "null"));
+                .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(AccountScopeCheck(table,page)).Append(KeepManagedGlobalProject(table)).Append(KeepPublishedPhysicalParents(model,table,page)).Append(WriteCall(page, "Create", "null"));
             if(deferParent)result.Replace("\n        ","\n            ",entityBodyStart,result.Length-entityBodyStart);
             result.Append(deferParent?"""
         }
@@ -639,7 +647,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine($"        entity.{column.Property} = source.{column.Property}; submitted.Add({Literal(column.Source.ColumnName)});");
         result.Append(Audit(table, true)).Append(SharedCrossTableSparseRenderer.Capture(model,table,page)).AppendLine("        BeforeSave(entity, actor, true, submitted);").Append(BoundRelationValidationRenderer.Call(model, table, page, true, true)).AppendLine($"        await ValidateRelations{page.Source.Id}Async(entity, actor, true, submitted, cancellationToken{SharedCrossTableSparseRenderer.Argument(model,table,page)}{NonRedundantCrossParentCompilation.RelationParentArgument(model,table,page)});").Append(BoundRelationValidationRenderer.Call(model, table, page, true, false))
             .Append(RequiredValidation(model, table, page, false))
-            .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(AccountScopeCheck(table,page)).Append(KeepManagedGlobalProject(table)).Append(KeepFixedGlobalParent(model,table,page)).Append(WriteCall(page, "Copy", "originalScopeValues"))
+            .Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(AccountScopeCheck(table,page)).Append(KeepManagedGlobalProject(table)).Append(KeepPublishedPhysicalParents(model,table,page)).Append(WriteCall(page, "Copy", "originalScopeValues"))
             .AppendLine("        if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException(\"复制失败。\");").Append(TimeFieldCompilation.AfterWrite(model,table)).Append(CrossTableWriteRenderer.After(model,table,page,true)).Append(CascadeTreeTopologyRenderer.After(model,table,page,true)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,true))
             .Append(NonRedundantCrossParentCompilation.VerifyCall(model,table,page)).Append(SharedRedundantParentCompilation.VerifyCall(model,table,page)).AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, true, cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation.Copy":"")});")
             .AppendLine($"        return {RoleResult(model,table,page,"copy")};").AppendLine("    }, cancellationToken);");
@@ -651,12 +659,13 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             ?$"        if(entity.{project.Property}!={ScopeValue(project,"actor.ProjectId")})throw new InvalidOperationException(\"不能修改来源记录项目归属。\");\n"
             :"";
 
-    /// <summary>手写规则处理后复核全局物理父字段，混合级联继续使用原存储范围复核。</summary>
-    private static string KeepFixedGlobalParent(GenerationModel model,TableModel table,PageModel page)
+    /// <summary>手写规则处理后复核实际发布的物理父字段，混合级联继续使用原存储范围复核。</summary>
+    private static string KeepPublishedPhysicalParents(GenerationModel model,TableModel table,PageModel page)
     {
         if(GlobalCachedParentCompilation.ForSelfTree(model,table,page) is {} parent)
             return Check(parent.Foreign);
         if(NonRedundantCrossParentCompilation.Enabled(model,table,page)||
+            !UsesProjectCompoundMultiSource(model,table,page)&&
             MultiGlobalParentCompilation.CompoundSourceTarget(model,table,page) is null)return "";
         return string.Concat(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>Check(scope.Column)));
 

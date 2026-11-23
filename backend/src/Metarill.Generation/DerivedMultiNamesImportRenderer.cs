@@ -11,6 +11,7 @@ internal static class DerivedMultiNamesImportRenderer
         if(!logicalImport)DerivedMultiNamesCompilation.Require(model,table,multi.Target,multi.TargetPage,multi.Name,multi.ExactTarget);
         var suffix=page.Source.Id+"_"+multi.Source.Source.Id;var parent=multi.TargetParentField is not null?dependency.Parents[multi.Source.Source.Id]:null;
         var typed=multi.TypedLabel||multi.Name.IsId;
+        var canonicalParent=multi.CompoundProjectSource?"||targetParentId!=parentKey.ToString(CultureInfo.InvariantCulture)":"";
         var readPlan=(logicalImport?"MultiImportReadPlan":"MultiDerivedPlan")+suffix;
         var targetCondition=logicalImport||multi.ExactTarget is not null||multi.TargetPage.Condition is null||FixedPageConditionCompilation.HasMultiTargetScope(model,multi.Target,multi.TargetPage)
             ?null:FixedPageConditionCompilation.Bound(multi.TargetPage,"MultiPageCondition"+suffix);
@@ -29,7 +30,7 @@ internal static class DerivedMultiNamesImportRenderer
         if(cell.ValueKind==JsonValueKind.String){try{cell=JsonSerializer.Deserialize<JsonElement>(cell.GetString()!);}catch(JsonException error){throw PageImportException.Input(PageImportError.Array,inner:error);} }
         if(cell.ValueKind!=JsonValueKind.Array||cell.GetArrayLength()>200)throw PageImportException.Input(PageImportError.Array);
 {{(parent is null?"":"        if(!relationContext.TryGetValue("+Literal(parent.JsonName)+",out var parentValue)||parentValue.ValueKind==JsonValueKind.Null)throw PageImportException.Input(PageImportError.Relation);")}}
-{{(multi.TargetParents.Count==0?"":"        var targetParentId="+(parent is null?"parentId":"parentValue.ToString()")+";if(!long.TryParse(targetParentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0)throw PageImportException.Input(PageImportError.Relation);")}}
+{{(multi.TargetParents.Count==0?"":"        var targetParentId="+(parent is null?"parentId":"parentValue.ToString()")+";if(!long.TryParse(targetParentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0"+canonicalParent+")throw PageImportException.Input(PageImportError.Relation);")}}
 {{MultiSelectExcelRenderer.ImportConditionBinding(multi,suffix)}}        var selected=new List<string>();
         foreach(var item in cell.EnumerateArray())
         {
