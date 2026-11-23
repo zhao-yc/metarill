@@ -90,14 +90,18 @@ public sealed class NonRedundantImportMatchTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>候选父取原记录的逻辑祖先，省略不补交、显式null不退回声明默认；实际调用生成解析器且禁止数据库访问。</summary>
-    [Fact]
-    public async Task Generated_context_keeps_logical_parent_null_and_omission_separate()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    [InlineData(true,true)]
+    public async Task Generated_context_keeps_logical_parent_null_and_omission_separate(bool compoundTarget,bool splitControl=false)
     {
         var catalog=Catalog("string");catalog.ConfigColumns.Single(column=>column.Id=="22").SortNo=-1000;catalog.ConfigPageColumns.Single(field=>field.Id=="20160").IsShow=1;
-        catalog.ConfigTables.Add(new(){Id="6",TableName="logical_overwrite_picker",IsRongyu=1});
-        catalog.ConfigColumns.AddRange(new ColumnMetadata[]{new(){Id="61",ConfigTableId="6",ColumnName="id",LogicalType="int64",IsDbNotNull=1},new(){Id="62",ConfigTableId="6",ColumnName="name",LogicalType="string"},new(){Id="63",ConfigTableId="6",ColumnName="yz_project_id",LogicalType="int64"},new(){Id="64",ConfigTableId="6",ColumnName="delete_no",LogicalType="datetime"},new(){Id="65",ConfigTableId="6",ColumnName="logical_overwrite_country_id",LogicalType="int64",LinkConfigTableId="3"}});
-        catalog.ConfigPages.Add(new(){Id="601",ConfigTableId="6",WhereSql="yz_project_id=@current_yz_project_id AND logical_overwrite_country_id=@parent_id"});catalog.ConfigPageColumns.Add(new(){Id="60162",ConfigPageId="601",ConfigColumnId="62"});
-        var picker=new ColumnMetadata{Id="71",ConfigTableId="2",ColumnName="picker_id",Name="候选",LogicalType="int64",LinkConfigTableId="6",ControlKind="List",ControlDetail="{\"table\":\"logical_overwrite_picker\",\"tableId\":\"6\",\"nameField\":\"name\"}"};picker.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("601");catalog.ConfigColumns.Add(picker);catalog.ConfigPageColumns.Add(new(){Id="20171",ConfigPageId="201",ConfigColumnId="71",IsEdit=1,IsShow=1});
+        var exportPage=catalog.ConfigPages.Single(item=>item.Id=="201");
+        exportPage.IsExport=1;
+        exportPage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(splitControl?"edit":"list");
+        AddStoredPickerTarget(catalog,compoundTarget,splitControl);
+        var picker=AddStoredPickerRole(catalog,"2","201","71",splitControl,repeatParent:!compoundTarget);
         var model=GenerationModel.Create(catalog,"Example.ImportContext");var table=model.Tables.Single(table=>table.Source.Id=="2");var page=table.Pages.Single();var dependency=ImportDependencyCompilation.ForPage(model,table,page);Assert.True(dependency.Contextual);Assert.Equal("country_id",Assert.Single(dependency.ContextValues).Source.ColumnName);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-logical-import-context");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -112,6 +116,16 @@ public sealed class NonRedundantImportMatchTests
             Assert.Contains("logical_overwrite_picker",from);
             Assert.Contains("logical_overwrite_country_id",from);
             Assert.Contains("CASE WHEN",from);
+            Assert.Equal(compoundTarget,from.Contains("approval_country_id",StringComparison.Ordinal));
+            if(compoundTarget)
+            {
+                var generated=File.ReadAllText(Path.Combine(directory,"generated/Services/LogicalOverwriteSourceService.g.cs"));
+                Assert.Contains("ApplyTextParent(query,session,\"approval_country_id\",targetParentId!",generated);
+                Assert.Contains("targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture)",generated);
+                Assert.Contains("entity.LogicalOverwriteCountryId ==",generated);
+                Assert.Contains("OptionsScope201_71Async(request.ParentId, groupPickerId.Key",generated);
+                Assert.NotNull(type.GetMethod("Export201Async"));
+            }
             var contextMethod=type.GetMethod("ImportContext201",BindingFlags.NonPublic|BindingFlags.Static)!;
             var defaultEntity=Activator.CreateInstance(assembly.GetType(model.Namespace+".Generated.Entities.LogicalOverwriteSource",true)!)!;Assert.Equal("99",defaultEntity.GetType().GetProperty("CountryId")!.GetValue(defaultEntity));
             var context=contextMethod.Invoke(null,new object[]{new Dictionary<string,object?>{{"country_id","1"}}})!;Assert.Equal("1",context.GetType().GetProperty("CountryId")!.GetValue(context));Assert.NotEqual(defaultEntity.GetType(),context.GetType());
@@ -121,8 +135,10 @@ public sealed class NonRedundantImportMatchTests
             var error=await Assert.ThrowsAsync<PageImportException>(()=>Parse("{\"候选\":\"某候选\"}",nullContext));Assert.Equal(PageImportError.Relation,error.Code);Assert.Equal("候选",error.ColumnName);
             var target=catalog.ConfigTables.Single(item=>item.Id=="6");
             var targetPage=catalog.ConfigPages.Single(item=>item.Id=="601");
-            var parent=MultiTargetParentScope.Compile(catalog,target,FixedConditionPlan.Compile(targetPage.WhereSql,
-                catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).Select(column=>column.ColumnName)))!;
+            var condition=FixedConditionPlan.Compile(targetPage.WhereSql,
+                catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).Select(column=>column.ColumnName));
+            var parent=MultiTargetParentScope.CompileSelectionPage(catalog,target,condition,
+                allowGlobalParent:false,allowStoredPhysicalParents:true)!;
             var scope=parent.SingleSource(catalog,table.Source,picker,page.Source,allowLogicalListForm:true);
             Assert.Equal("60",scope.Column.Id);
             Assert.Equal("201",Assert.Single(scope.LogicalPages).Id);
@@ -134,6 +150,94 @@ public sealed class NonRedundantImportMatchTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>冗余来源按实际父键重算名称，页面和控件分担的多个目标父字段也参与反查。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Stored_list_compound_parent_is_retained_in_redundant_cache(bool splitControl)
+    {
+        var catalog=Catalog("string");
+        AddStoredPickerTarget(catalog,compoundTarget:true,splitControl);
+        catalog.ConfigTables.Add(new(){Id="7",TableName="stored_picker_consumer",IsRongyu=1});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="7011",ConfigTableId="7",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="7012",ConfigTableId="7",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="7013",ConfigTableId="7",ColumnName="delete_no",LogicalType="datetime"},
+            new(){Id="7014",ConfigTableId="7",ColumnName="country_id",LogicalType="int64",LinkConfigTableId="3"},
+            new(){Id="7015",ConfigTableId="7",ColumnName="picker_name",LogicalType="string",Extra=new()
+            {
+                ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                ["columnFullName"]=JsonSerializer.SerializeToElement("picker.name")
+            }}
+        ]);
+        catalog.ConfigPages.Add(new(){Id="701",ConfigTableId="7",IsImport=1,IsExport=1,
+            WhereSql="yz_project_id=@current_yz_project_id AND country_id=@parentId"});
+        catalog.ConfigPageColumns.Add(new(){Id="7017015",ConfigPageId="701",ConfigColumnId="7015",IsShow=1});
+        AddStoredPickerRole(catalog,"7","701","7016",splitControl);
+        RedundantMultiNameCacheTests.Published(catalog);
+        var model=GenerationModel.Create(catalog,"Example.CompoundStoredList");
+        var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+        Assert.Contains("picker_name",maintenance.MixedSourceColumns["stored_picker_consumer"]);
+        var generated=BackendRenderer.Render(model).Single(file=>file.Path=="Services/StoredPickerConsumerService.g.cs").Content;
+        Assert.Contains("ApplyTextParent(query,session,\"approval_country_id\",targetParentId!",generated);
+        Assert.Contains("OptionsScope701_7016Async(request.ParentId, groupPickerId.Key",generated);
+        Assert.Contains("Import701Async",generated);
+        const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+        var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+        var plan=plans["7"]!;
+        Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
+        var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+        var sql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["picker_name"]));
+        Assert.Contains("approval_country_id",sql);
+        Assert.Contains("logical_overwrite_country_id",sql);
+        Assert.Contains("b."+(char)96+"country_id"+(char)96,sql);
+        var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("Reverse",hidden)!.GetValue(read));
+        Assert.Contains(reverse.Cast<object>(),item=>Equals("logical_overwrite_picker",item.GetType().GetProperty("TargetTable")!.GetValue(item))&&
+            Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(item.GetType().GetProperty("Outputs")!.GetValue(item))
+                .TryGetValue("picker_name",out var fields)&&fields.Contains("approval_country_id")&&fields.Contains("logical_overwrite_country_id"));
+
+        catalog.ConfigColumns.Single(column=>column.Id=="66").LinkConfigTableId="4";
+        var conflicting=GenerationModel.Create(catalog,"Example.ConflictingStoredList");
+        var error=Assert.Throws<InvalidOperationException>(()=>MixedRelationPropagationCompilation.ForModel(conflicting));
+        Assert.Contains("同一真实父表",error.Message);
+    }
+
+    /// <summary>原字典页和控件可分别声明同一父记录的物理字段。</summary>
+    private static void AddStoredPickerTarget(MetadataCatalog catalog,bool compoundTarget,bool splitControl)
+    {
+        catalog.ConfigTables.Add(new(){Id="6",TableName="logical_overwrite_picker",IsRongyu=1});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="61",ConfigTableId="6",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="62",ConfigTableId="6",ColumnName="name",LogicalType="string"},
+            new(){Id="63",ConfigTableId="6",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="64",ConfigTableId="6",ColumnName="delete_no",LogicalType="datetime"},
+            new(){Id="65",ConfigTableId="6",ColumnName="logical_overwrite_country_id",LogicalType="int64",LinkConfigTableId="3"}
+        ]);
+        var page=new PageMetadata{Id="601",ConfigTableId="6",
+            WhereSql="yz_project_id=@current_yz_project_id AND logical_overwrite_country_id=@parent_id"};
+        catalog.ConfigPages.Add(page);
+        catalog.ConfigPageColumns.Add(new(){Id="60162",ConfigPageId="601",ConfigColumnId="62"});
+        if(!compoundTarget)return;
+        catalog.ConfigColumns.Add(new(){Id="66",ConfigTableId="6",ColumnName="approval_country_id",LogicalType="string",LinkConfigTableId="3"});
+        if(!splitControl)page.WhereSql+=" AND approval_country_id=@parentId";
+    }
+
+    /// <summary>发布同一个普通下拉角色及实际目标页。</summary>
+    private static ColumnMetadata AddStoredPickerRole(MetadataCatalog catalog,string tableId,string pageId,string columnId,
+        bool splitControl,bool repeatParent=false)
+    {
+        var picker=new ColumnMetadata
+        {
+            Id=columnId,ConfigTableId=tableId,ColumnName="picker_id",Name="候选",LogicalType="int64",LinkConfigTableId="6",ControlKind="List",
+            ControlDetail=JsonSerializer.Serialize(new{table="logical_overwrite_picker",tableId="6",nameField="name",
+                whereSql=splitControl?"approval_country_id=@parentId":repeatParent?"logical_overwrite_country_id=@parentId":""})
+        };
+        picker.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("601");
+        catalog.ConfigColumns.Add(picker);
+        catalog.ConfigPageColumns.Add(new(){Id=pageId+columnId,ConfigPageId=pageId,ConfigColumnId=columnId,IsEdit=1,IsShow=1});
+        return picker;
+    }
+
     /// <summary>沿用真实跨表目录，仅按元数据显式把祖先原输入列设为覆盖首列，页面列顺序不改。</summary>
     private static MetadataCatalog Catalog(string type)
     {

@@ -1014,16 +1014,23 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             }
             else result.AppendLine($"        await ValidateOptionsSourceParents{page.Source.Id}Async(parentId, actor, cancellationToken);");
             var sameParent = ControlRenderer.RelationContext(page,relation,false).SameParent;
+            var targetParentScopes=relation.TargetPage.Scopes.Concat(relation.Scopes).Where(scope=>scope.Source=="parent"&&
+                relation.FixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true)
+                .DistinctBy(scope=>scope.Column.Source.Id).ToArray();
+            var compoundStoredParent=relation.ScopedStoredList&&!relation.Target.IsGlobal&&targetParentScopes.Length>1;
             if (relation.TargetParents.Count > 0)
             {
                 if (relation.LogicalSourceParent||sameParent&&
-                    (relation.FixedParent is {AdditionalTargets.Count:>0}||!relation.Target.IsGlobal&&fixedGlobalParent is not null))
+                    (compoundStoredParent||relation.FixedParent is {AdditionalTargets.Count:>0}||
+                        !relation.Target.IsGlobal&&fixedGlobalParent is not null))
                 {
                     var conflict=relation.LogicalSourceParent?"关联目标父必须与来源页的逻辑父一致。":"关联目标父必须与来源页的父记录一致。";
                     result.AppendLine($"        if(targetParentId is not null&&targetParentId!=parentId)throw new ArgumentException({Literal(conflict)});");
                 }
                 if (sameParent) result.AppendLine("        targetParentId ??= parentId; // 元数据证明同父时兼容原 parentId。");
                 result.AppendLine($"        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException({Literal("关联目标范围要求有效 targetParentId，请使用 " + relation.Endpoint + "/page 分页合同。")});");
+                if(compoundStoredParent)
+                    result.AppendLine("        if(targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"关联目标范围要求规范正整数 targetParentId。\");");
                 if (relation.ParentBinding?.Binding is null)
                 {
                     if(accountParents.Count>0)
@@ -1050,9 +1057,14 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if (relation.Target.Columns.Any(c => c.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(entity => entity.DeleteNo == null);");
             var project = relation.Target.Columns.SingleOrDefault(c => c.Source.ColumnName == "yz_project_id");
             if (project is not null && (!relation.Target.IsGlobal || relation.TargetPage.Scopes.Concat(relation.Scopes).Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
-            foreach (var (column, source) in relation.TargetPage.Scopes.Concat(relation.Scopes).Where(s => s.Source == "parent"&&
-                relation.FixedParent?.HasTarget(s.Column.Source.Id,logicalOnly:true)!=true).DistinctBy(scope => scope.Column.Source.Id))
-                result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
+            foreach (var (column, _) in targetParentScopes)
+            {
+                // 与名称联接使用同一种规范十进制比较，字符串父键不能因数据库排序规则而跨范围。
+                if(compoundStoredParent&&column.Type=="string?")
+                    result.AppendLine($"        query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},targetParentId!);");
+                else
+                    result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");
+            }
             // 固定候选包含已发布逻辑父层位，附加搜索继续复用同一相关查询。
             if((relation.Target.IsGlobal||DerivedRelationNamesCompilation.EmbedsParentScope(relation.Target,relation.FixedParent))&&logicalPlan is not null)
             {

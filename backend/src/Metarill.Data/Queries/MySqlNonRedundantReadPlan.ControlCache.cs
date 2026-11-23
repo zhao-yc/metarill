@@ -12,11 +12,20 @@ public static partial class MySqlNonRedundantReadCompiler
             TableMetadata target,(string Sql,string Type) source,PageMetadata page,CascadeCacheOwner cacheOwner,
             FixedConditionPlan control,PageMetadata? sourcePage=null)
         {
-            var pageParent=ProjectScopedSingleRelationTarget.PageParent(catalog,target,page)??MultiParent(catalog,page);
-            var controlParent=MultiTargetParentScope.Compile(catalog,target,control);
-            if(controlParent is {Logical:true}||pageParent is not null&&controlParent is not null&&!pageParent.HasTarget(controlParent.Target.Id))
-                throw new InvalidOperationException("名称副本的目标页与控件父范围不一致。");
-            var parent=pageParent??controlParent;
+            MultiTargetParentScope? parent;
+            if(target.IsRongyu==1&&foreign.ControlKind=="List"&&!GlobalCrossTableTarget.Declared(target))
+            {
+                var condition=FixedConditionPlan.Compile(page.WhereSql,columns[target.Id].Keys);
+                parent=StoredProjectListParent(target,condition.Terms.Concat(control.Terms));
+            }
+            else
+            {
+                var pageParent=ProjectScopedSingleRelationTarget.PageParent(catalog,target,page)??MultiParent(catalog,page);
+                var controlParent=MultiTargetParentScope.Compile(catalog,target,control);
+                if(controlParent is {Logical:true}||pageParent is not null&&controlParent is not null&&!pageParent.HasTarget(controlParent.Target.Id))
+                    throw new InvalidOperationException("名称副本的目标页与控件父范围不一致。");
+                parent=pageParent??controlParent;
+            }
             var binding=sourcePage is null?parent?.SingleSource(catalog,table,foreign):
                 parent?.SingleSource(catalog,table,foreign,sourcePage);
             return JoinScopedSingleCache(table,owner,foreign,target,source,page,cacheOwner,parent,binding,control);
@@ -80,6 +89,20 @@ public static partial class MySqlNonRedundantReadCompiler
             }
         }
 
+        /// <summary>普通冗余字典的页条件和控件条件一起证明同一个实际父记录，保留全部目标物理字段。</summary>
+        private MultiTargetParentScope? StoredProjectListParent(TableMetadata target,IEnumerable<FixedConditionTerm> terms)
+        {
+            // 同一列的重复声明仍属单父范围，旧的两种 parent 参数拼法使用同一比较。
+            var declarations=terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
+                MultiTargetParentScope.IsParameter(value.Text)))
+                .Select(term=>term is {Comparison:FixedConditionComparison.Equal,Values:[{Kind:FixedConditionValueKind.Variable} value]}&&
+                    MultiTargetParentScope.IsParameter(value.Text)?term.Field+"=@parentId":term.ToDefinition())
+                .Distinct(StringComparer.Ordinal);
+            var condition=FixedConditionPlan.Compile(string.Join(" AND ",declarations),columns[target.Id].Keys);
+            return MultiTargetParentScope.CompileSelectionPage(catalog,target,condition,allowGlobalParent:true,
+                allowStoredPhysicalParents:true);
+        }
+
         /// <summary>冗余字典按实际页面验证物理条件，实时读取绑定请求账号，维护绑定来源行账号与表单值。</summary>
         private string ProjectStoredListCondition(TableMetadata source,string owner,ColumnMetadata relation,TableMetadata target,
             string targetAlias,PageMetadata sourcePage,PageMetadata page,string? sourceParentId,FixedConditionPlan control,
@@ -87,15 +110,25 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             var members=columns[target.Id];
             var pageCondition=FixedConditionPlan.Compile(page.WhereSql,members.Keys);
-            var pageParent=MultiTargetParentScope.Compile(catalog,target,pageCondition);
-            var controlParent=MultiTargetParentScope.Compile(catalog,target,control);
-            var parent=pageParent??controlParent;
-            if (pageParent is not null && controlParent is not null && pageParent.Target.Id!=controlParent.Target.Id ||
-                parent is {Logical:true} || (parent is null)!=(sourceParentId is null) ||
+            var terms=pageCondition.Terms.Concat(control.Terms).ToArray();
+            var global=GlobalCrossTableTarget.Declared(target);
+            MultiTargetParentScope? parent;
+            if(global)
+            {
+                var pageParent=MultiTargetParentScope.Compile(catalog,target,pageCondition);
+                var controlParent=MultiTargetParentScope.Compile(catalog,target,control);
+                if(pageParent is not null&&controlParent is not null&&pageParent.Target.Id!=controlParent.Target.Id)
+                    throw new InvalidOperationException("原下拉的目标页与控件必须绑定同一实际父键。");
+                parent=pageParent??controlParent;
+            }
+            else
+            {
+                parent=StoredProjectListParent(target,terms);
+            }
+            if (parent is {Logical:true} || (parent is null)!=(sourceParentId is null) ||
                 page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
                 throw new InvalidOperationException("原下拉的冗余字典需要已证明的物理范围和同一实际父键。");
 
-            var terms=pageCondition.Terms.Concat(control.Terms).ToArray();
             if (terms.Any(term=>!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,term.Field))))
                 throw new InvalidOperationException("冗余字典范围只可使用真实的非凭据物理列。");
             // 普通字典已由物理联接限定项目。全局字典只有声明了项目谓词才按当前身份限定。
@@ -105,7 +138,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var scoped=terms.Where(term=>!term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
                 MultiTargetParentScope.IsParameter(value.Text))&&!Project(term));
             var validity=new HashSet<string>(StringComparer.Ordinal);
-            if(GlobalCrossTableTarget.Declared(target)&&terms.Any(Project))
+            if(global&&terms.Any(Project))
                 validity.Add(Scope(target,targetAlias,includeDeleted:true));
             if(cacheOwner is {} row)
             {
@@ -128,11 +161,17 @@ public static partial class MySqlNonRedundantReadCompiler
             if (parent is not null)
             {
                 var parentSource=parent.SingleSource(catalog,source,relation,sourcePage,
-                    allowLogicalListForm:!GlobalCrossTableTarget.Declared(source)&&!GlobalCrossTableTarget.Declared(target));
+                    allowLogicalListForm:!GlobalCrossTableTarget.Declared(source)&&!global);
                 if (parentSource.Column.Id!=sourceParentId)
                     throw new InvalidOperationException("冗余字典选项与来源记录没有相同的已发布父范围。");
                 var sourceParent=SingleSourceParentValue(source,owner,parentSource);
                 validity.Add(SinglePhysicalParentCondition(source,owner,targetAlias,parent,parentSource.Column,sourceParent:sourceParent));
+                foreach(var additional in parent.AdditionalTargets)
+                {
+                    Use(target,additional.Target);
+                    Touch(targetAlias,additional.Target.ColumnName);
+                    validity.Add(SameSingleParent(targetAlias+"."+Q(additional.Target.ColumnName),sourceParent));
+                }
             }
             return string.Join(" AND ",new[]{clause.Sql}.Concat(validity).Where(part=>part.Length>0));
 
