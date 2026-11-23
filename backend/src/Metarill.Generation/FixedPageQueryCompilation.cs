@@ -29,14 +29,19 @@ internal static class FixedPageQueryCompilation
             ? table.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id")
             : GlobalSelfTreeProject(table);
 
-    /// <summary>原冗余选择页按已发布的账号或物理父范围查询候选；详情、写入及导出继续限制行项目。</summary>
-    internal static bool UsesStoredGlobalSelectionRows(MetadataCatalog catalog,TableModel table,PageModel page)=>
-        table.IsGlobal&&table.Source.IsRongyu==1&&ManagedGlobalProject(table) is not null&&
-        page.Source.Extra.GetValueOrDefault("type").ToString() is "1" or "2"&&
-        !ExactDataManageCompilation.Declared(page)&&!FixedPageConditionCompilation.HasLogicalFields(page)&&
-        !page.Scopes.Any(scope=>scope.Source=="project")&&
-        (page.Scopes.Count==0&&FixedPageConditionCompilation.HasAccountVariables(page)||
-            HasStoredGlobalSelectionParent(catalog,table,page));
+    /// <summary>原冗余选择页按已发布条件查询候选，详情、写入及导出继续限制行项目。</summary>
+    internal static bool UsesStoredGlobalSelectionRows(MetadataCatalog catalog,TableModel table,PageModel page)
+    {
+        var pageType=page.Source.Extra.GetValueOrDefault("type").ToString();
+        // 单选可以只声明物理常量。显式项目条件和无条件页仍按各自原有范围执行。
+        var fixedSingle=pageType=="1"&&page.Condition?.Syntax is {Terms.Count:>0,Variables.Count:0};
+        return table.IsGlobal&&table.Source.IsRongyu==1&&ManagedGlobalProject(table) is not null&&
+            pageType is "1" or "2"&&
+            !ExactDataManageCompilation.Declared(page)&&!FixedPageConditionCompilation.HasLogicalFields(page)&&
+            !page.Scopes.Any(scope=>scope.Source=="project")&&
+            (page.Scopes.Count==0&&(fixedSingle||FixedPageConditionCompilation.HasAccountVariables(page))||
+                HasStoredGlobalSelectionParent(catalog,table,page));
+    }
 
     /// <summary>带真实行归属的全局普通业务同样绑定当前项目，候选使用独立计划。</summary>
     internal static FixedPageQueryPlan For(TableModel table, PageModel page)

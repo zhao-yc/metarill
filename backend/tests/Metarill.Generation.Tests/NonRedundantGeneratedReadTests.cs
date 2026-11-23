@@ -413,6 +413,172 @@ public sealed class NonRedundantGeneratedReadTests
         finally{if(Directory.Exists(root))Directory.Delete(root,true);}
     }
 
+    /// <summary>同一行项目字典的原单选、导出及普通业务各取自己的范围，显式项目条件继续生效。</summary>
+    [Theory]
+    [InlineData(0,false,false)]
+    [InlineData(0,true,true)]
+    [InlineData(1,false,true)]
+    [InlineData(1,true,false)]
+    public async Task Stored_global_single_with_constants_keeps_candidate_and_business_scopes(
+        int storage,bool idLabel,bool textProject)
+    {
+        const string ns="Example.GlobalFixedDictionary", prefix="mt_fixed_dictionary";
+        const string fixedRange="amount >= 1 AND name <> '停用客户'";
+        var catalog=NonRedundantApplicationFixture.Catalog(prefix);
+        var owner=catalog.ConfigTables.Single(table=>table.Id=="1");
+        owner.IsRongyu=storage;
+        var dictionary=catalog.ConfigTables.Single(table=>table.Id=="2");
+        dictionary.IsRongyu=1;
+        dictionary.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        var removed=new HashSet<string>(["16","17","27"],StringComparer.Ordinal);
+        if(idLabel)removed.Add("111");
+        if(storage==1)
+        {
+            owner.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            removed.Add("19");
+        }
+        catalog.ConfigColumns.RemoveAll(column=>removed.Contains(column.Id));
+        catalog.ConfigPages.RemoveAll(page=>page.Id=="102");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="102"||removed.Contains(field.ConfigColumnId));
+        foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+        {
+            page.OrderBy="id desc";
+            if(storage==1)page.WhereSql="yz_project_id=@current_yz_project_id";
+        }
+        if(idLabel)catalog.ConfigColumns.Single(column=>column.Id=="15").ControlDetail=
+            """{"pageId":"201","nameField":"id"}""";
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        targetPage.WhereSql=fixedRange;
+        targetPage.IsExport=1;
+        var sourceDetail=catalog.ConfigPages.Single(page=>page.Id=="104");
+        sourceDetail.IsExport=1;
+        sourceDetail.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+        AddManagedPartyDictionary(catalog,prefix,textProject);
+        // 同表显式项目页和无条件页用于核对各自的候选范围。
+        foreach(var (id,type,where) in new[]
+        {
+            ("203",1,fixedRange+" AND yz_project_id=@current_yz_project_id"),
+            ("204",1,"")
+        })
+        {
+            catalog.ConfigPages.Add(new()
+            {
+                Id=id,ConfigTableId="2",YzAdminTypeId="5",YzProjectId=catalog.YzProjectId,WhereSql=where,
+                Extra=new(){{"type",JsonSerializer.SerializeToElement(type)}}
+            });
+            catalog.ConfigPageColumns.Add(new()
+            {
+                Id=id+"24",ConfigPageId=id,ConfigColumnId="24",YzProjectId=catalog.YzProjectId,IsShow=1
+            });
+        }
+        var model=GenerationModel.Create(catalog,ns);
+        var target=model.Tables.Single(table=>table.Source.Id=="2");
+        Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(target));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-fixed-global-dictionary");
+        var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(root,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var targetService=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtFixedDictionaryPartyService.g.cs"));
+            var ownerService=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtFixedDictionaryOrderService.g.cs"));
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            using var session=new DatabaseSession(new()
+            {
+                Provider="mysql",ExpectedDatabase="offline",
+                ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
+            });
+            var sql=CreateDictionarySql(assembly,ns,"MtFixedDictionaryParty",session);
+            var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5");
+            var request=new PageRequest();
+            var candidate=sql("Query201",[request,actor]);
+            Assert.DoesNotContain("yz_project_id",candidate);
+            foreach(var predicate in new[]{"amount","name","delete_no"})Assert.Contains(predicate,candidate);
+            Assert.Contains("yz_project_id",sql("Scope201",[actor,null]));
+            Assert.Contains("yz_project_id",sql("Query201",[request,actor,false]));
+            foreach(var suffix in new[]{"202","203","204"})
+                Assert.Contains("yz_project_id",sql("Query"+suffix,[request,actor]));
+            Assert.Contains("Query201(request, actor, candidateRows: false)",targetService);
+            Assert.Contains("Scope202(actor, parentId)",targetService);
+            Assert.Contains("Query201(request, actor).CountAsync",targetService);
+
+            var definition=new SelectionControlDefinition("201",idLabel?"id":"name","选择",fixedRange,"");
+            var plan=FixedPageQueryCompilation.For(target,target.Pages.Single(page=>page.Source.Id=="201"));
+            Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,definition,out _));
+            var projectOnly=definition with{WhereSql="yz_project_id=@current_yz_project_id"};
+            Assert.False(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,projectOnly,out _));
+            var explicitPage=FixedPageQueryCompilation.For(target,target.Pages.Single(page=>page.Source.Id=="203"));
+            Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,explicitPage,projectOnly with{PageId="203"},out _));
+
+            Assert.Contains("ImportRelation103_15Async",ownerService);
+            Assert.Contains("ImportRelation105_15Async",ownerService);
+            Assert.Contains("Export101Async",ownerService);
+            Assert.Contains("Export104Async",ownerService);
+            var ownerType=assembly.GetType(ns+".Generated.Services.MtFixedDictionaryOrderService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(ownerType.TypeHandle);
+            var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
+    }
+
+    /// <summary>增加一层已发布字典，让原字典同时承担有真实项目归属的业务读取和写入。</summary>
+    private static void AddManagedPartyDictionary(MetadataCatalog catalog,string prefix,bool textProject)
+    {
+        if(textProject)catalog.ConfigColumns.Single(column=>column.Id=="22").LogicalType="string";
+        catalog.ConfigTables.Add(new()
+        {
+            Id="4",TableName=prefix+"_category",YzProjectId=catalog.YzProjectId,IsRongyu=1,
+            Extra=new(){{"scopeKind",JsonSerializer.SerializeToElement("global")}}
+        });
+        catalog.ConfigColumns.AddRange([
+            new(){Id="41",ConfigTableId="4",YzProjectId=catalog.YzProjectId,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="42",ConfigTableId="4",YzProjectId=catalog.YzProjectId,ColumnName="status",LogicalType="int32"},
+            new(){Id="28",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="category_id",LogicalType="int64",
+                LinkConfigTableId="4",ControlKind="SelectPage",ControlDetail="""{"pageId":"401","nameField":"id"}"""}
+        ]);
+        catalog.ConfigPages.Add(new()
+        {
+            Id="401",ConfigTableId="4",YzAdminTypeId="5",YzProjectId=catalog.YzProjectId,WhereSql="status=1",
+            Extra=new(){{"type",JsonSerializer.SerializeToElement(1)}}
+        });
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id="40141",ConfigPageId="401",ConfigColumnId="41",YzProjectId=catalog.YzProjectId,IsShow=1
+        });
+        catalog.ConfigPages.Add(new()
+        {
+            Id="202",ConfigTableId="2",YzAdminTypeId="5",YzProjectId=catalog.YzProjectId,IsSave=1,IsExport=1
+        });
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id="20224",ConfigPageId="202",ConfigColumnId="24",YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1
+        });
+    }
+
+    /// <summary>调用已生成的查询方法，并使用 FreeSql 构造 SQL，无需数据库连接。</summary>
+    private static Func<string,object?[],string> CreateDictionarySql(Assembly assembly,string ns,string entityName,DatabaseSession session)
+    {
+        var mapper=Activator.CreateInstance(assembly.GetType(ns+".Generated.Mappers."+entityName+"Mapper",true)!,session);
+        var type=assembly.GetType(ns+".Generated.Services."+entityName+"Service",true)!;
+        var constructor=type.GetConstructors().Single();
+        var service=constructor.Invoke(WithDefaults(constructor,
+            [session,mapper,new SnowflakeIdGenerator(),Array.Empty<IRecordMutationObserver>()]));
+        return (name,values)=>
+        {
+            var method=type.GetMethod(name,BindingFlags.Instance|BindingFlags.NonPublic)!;
+            var query=method.Invoke(service,WithDefaults(method,values));
+            var toSql=typeof(NonRedundantGeneratedReadTests).GetMethod(nameof(SelectionSql),BindingFlags.Static|BindingFlags.NonPublic)!
+                .MakeGenericMethod(method.ReturnType.GetGenericArguments()[0]);
+            return Assert.IsType<string>(toSql.Invoke(null,[query]));
+        };
+
+        static object?[] WithDefaults(MethodBase method,object?[] values)=>
+            values.Concat(method.GetParameters().Skip(values.Length).Select(parameter=>parameter.DefaultValue)).ToArray();
+    }
+
     /// <summary>不配置账号条件时，原单选仍统一按已发布的物理父范围处理所有入口。</summary>
     [Theory]
     [InlineData(0,false,false,false)]
@@ -476,39 +642,7 @@ public sealed class NonRedundantGeneratedReadTests
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
         if(storedTarget)targetPage.WhereSql+=" AND amount >= 1";
         targetPage.IsExport=1;
-        if(managedTarget)
-        {
-            // 字典同时保存自己的业务外键，因此业务读取依赖实际行项目。
-            if(textProject)catalog.ConfigColumns.Single(column=>column.Id=="22").LogicalType="string";
-            catalog.ConfigTables.Add(new()
-            {
-                Id="4",TableName="mt_parent_only_category",YzProjectId=catalog.YzProjectId,IsRongyu=1,
-                Extra=new(){{"scopeKind",JsonSerializer.SerializeToElement("global")}}
-            });
-            catalog.ConfigColumns.AddRange([
-                new(){Id="41",ConfigTableId="4",YzProjectId=catalog.YzProjectId,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
-                new(){Id="42",ConfigTableId="4",YzProjectId=catalog.YzProjectId,ColumnName="status",LogicalType="int32"},
-                new(){Id="28",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="category_id",LogicalType="int64",
-                    LinkConfigTableId="4",ControlKind="SelectPage",ControlDetail="""{"pageId":"401","nameField":"id"}"""}
-            ]);
-            catalog.ConfigPages.Add(new()
-            {
-                Id="401",ConfigTableId="4",YzAdminTypeId="5",YzProjectId=catalog.YzProjectId,WhereSql="status=1",
-                Extra=new(){{"type",JsonSerializer.SerializeToElement(1)}}
-            });
-            catalog.ConfigPageColumns.Add(new()
-            {
-                Id="40141",ConfigPageId="401",ConfigColumnId="41",YzProjectId=catalog.YzProjectId,IsShow=1
-            });
-            catalog.ConfigPages.Add(new()
-            {
-                Id="202",ConfigTableId="2",YzAdminTypeId="5",YzProjectId=catalog.YzProjectId,IsSave=1,IsExport=1
-            });
-            catalog.ConfigPageColumns.Add(new()
-            {
-                Id="20224",ConfigPageId="202",ConfigColumnId="24",YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1
-            });
-        }
+        if(managedTarget)AddManagedPartyDictionary(catalog,"mt_parent_only",textProject);
         var independent=catalog.ConfigPages.Single(page=>page.Id=="104");
         independent.IsExport=1;
         independent.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
@@ -579,32 +713,18 @@ public sealed class NonRedundantGeneratedReadTests
                     Provider="mysql",ExpectedDatabase="offline",
                     ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
                 });
-                var mapper=Activator.CreateInstance(assembly.GetType(ns+".Generated.Mappers.MtParentOnlyPartyMapper",true)!,session);
-                var constructor=candidateType.GetConstructors().Single();
-                var dictionary=constructor.Invoke(WithDefaults(constructor,
-                    [session,mapper,new SnowflakeIdGenerator(),Array.Empty<IRecordMutationObserver>()]));
+                var sql=CreateDictionarySql(assembly,ns,"MtParentOnlyParty",session);
                 var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5");
                 var parentId="9007199254740995";
                 var request=new PageRequest{ParentId=parentId};
-                var sql=Sql("Query201",request,actor);
-                Assert.DoesNotContain("yz_project_id",sql);
-                Assert.Contains("group_id",sql);
-                Assert.Contains("amount",sql);
-                Assert.Contains("delete_no",sql);
-                Assert.Contains("yz_project_id",Sql("Scope201",actor,parentId));
-                Assert.Contains("yz_project_id",Sql("Query201",request,actor,false));
-                Assert.Contains("yz_project_id",Sql("Query202",new PageRequest(),actor));
-
-                string Sql(string name,params object?[] values)
-                {
-                    var method=candidateType.GetMethod(name,BindingFlags.Instance|BindingFlags.NonPublic)!;
-                    var query=method.Invoke(dictionary,WithDefaults(method,values));
-                    var toSql=typeof(NonRedundantGeneratedReadTests).GetMethod(nameof(SelectionSql),BindingFlags.Static|BindingFlags.NonPublic)!
-                        .MakeGenericMethod(method.ReturnType.GetGenericArguments()[0]);
-                    return Assert.IsType<string>(toSql.Invoke(null,[query]));
-                }
-                static object?[] WithDefaults(MethodBase method,object?[] values)=>
-                    values.Concat(method.GetParameters().Skip(values.Length).Select(parameter=>parameter.DefaultValue)).ToArray();
+                var candidateSql=sql("Query201",[request,actor]);
+                Assert.DoesNotContain("yz_project_id",candidateSql);
+                Assert.Contains("group_id",candidateSql);
+                Assert.Contains("amount",candidateSql);
+                Assert.Contains("delete_no",candidateSql);
+                Assert.Contains("yz_project_id",sql("Scope201",[actor,parentId]));
+                Assert.Contains("yz_project_id",sql("Query201",[request,actor,false]));
+                Assert.Contains("yz_project_id",sql("Query202",[new PageRequest(),actor]));
             }
             var serviceType=assembly.GetType(ns+".Generated.Services.MtParentOnlyOrderService",true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
