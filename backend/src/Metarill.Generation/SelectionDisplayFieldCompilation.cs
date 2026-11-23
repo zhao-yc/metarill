@@ -8,7 +8,7 @@ namespace Metarill.Generation;
 internal static class SelectionDisplayFieldCompilation
 {
     /// <summary>沿原控件配置读取名称字段，空原定义继续采用 name。</summary>
-    private static string NameField(TableModel table,ColumnModel source)
+    internal static string NameField(TableModel table,ColumnModel source)
     {
         if(DatabaseCheckboxCompilation.Generic(table,source))return DatabaseCheckboxDefinition.Parse(source.Source.ControlDetail).NameField;
         if(source.Source.ControlKind is "List" or "SelectPage" or "MultiSelectPage")

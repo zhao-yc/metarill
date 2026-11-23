@@ -117,7 +117,8 @@ internal static class ReadProjectionCompilation
             var physicalMultiName = column.IsManagedMultiNames && table.Source.IsRongyu == 1 &&
                 NonRedundantReadCompilation.Physical(model, table, column);
             if (column.Source.IsVirtualColumn != 0 ||
-                GenerationModel.Enabled(column.Source.Extra, "isJoinColumn") && !column.IsManagedCascadeName && !physicalMultiName)
+                GenerationModel.Enabled(column.Source.Extra, "isJoinColumn") && !column.IsManagedCascadeName &&
+                !physicalMultiName && !PhysicalSingleName(column))
             { Gap(column.Source.Id, "联接或虚拟字段缺少固定读取计划：" + column.JsonName); return; }
             if(Kind(column)=="CascadeTree")
             {
@@ -409,6 +410,40 @@ internal static class ReadProjectionCompilation
                 return;
             }
             Add(auxiliary, "关系显示辅助名称：" + source.JsonName, false);
+        }
+
+        /// <summary>识别本页普通单值关系真正存入物理列的名称，避免把其当作实时联接或任意别名。</summary>
+        private bool PhysicalSingleName(ColumnModel cache)
+        {
+            if (table.Source.IsRongyu != 1 || cache.Type != "string?" || cache.IsJsonArray ||
+                !NonRedundantReadCompilation.Physical(model, table, cache))
+                return false;
+
+            var path = cache.Source.Extra.GetValueOrDefault("columnFullName").ToString().Split('.');
+            if (path.Length != 2 || path.Any(string.IsNullOrWhiteSpace)) return false;
+            var source = page.Readable.SingleOrDefault(column => column.Source.ColumnName == path[0] + "_id");
+            if (source is null || source.Source.ControlKind is not ("List" or "SelectPage") ||
+                SelectionDisplayFieldCompilation.NameField(table, source) != path[1] ||
+                SelectionDisplayFieldCompilation.Resolve(table, source).Source.Id != cache.Source.Id ||
+                !NonRedundantReadCompilation.Physical(model, table, source) ||
+                GenerationModel.Enabled(source.Source.Extra, "isJoinColumn"))
+                return false;
+
+            try
+            {
+                var target = ForeignValidationRenderer.Target(model, source);
+                var name = target?.Columns.SingleOrDefault(column => column.Source.ColumnName == path[1]);
+                return target is not null && name is not null &&
+                    !ManagerCredentialCompilation.IsCredential(target, name) &&
+                    !Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(name.Source.ColumnName) &&
+                    NonRedundantSelectionCompilation.IsDisplay(source, cache, name) &&
+                    NonRedundantReadCompilation.Physical(model, target, name);
+            }
+            catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException)
+            {
+                // 无法证明目标字段时保留原联接缺口。
+                return false;
+            }
         }
 
         /// <summary>独立目标父只接受现有编译器证明的唯一可读标量外键，同父由props提供。</summary>

@@ -130,6 +130,13 @@ public sealed class ReadProjectionCompilationTests
     {
         var catalog = SelectionCatalog(multi);
         catalog.ConfigColumns.Single(column => column.Id == "25").ControlKind = sourceKind;
+        if (!multi && sourceKind != "SelectPage")
+        {
+            // 没有表级单选时，同名字段只是列表使用的普通文本，页级覆盖不会创建新的缓存关系。
+            var display = catalog.ConfigColumns.Single(column => column.Id == "27");
+            display.Extra.Remove("isJoinColumn");
+            display.Extra.Remove("columnFullName");
+        }
         catalog.ConfigPageColumns.Single(field => field.ConfigPageId == "201" && field.ConfigColumnId == "25").Extra["controlKind"] = JsonSerializer.SerializeToElement(pageKind);
         var name = catalog.ConfigPageColumns.Single(field => field.ConfigPageId == "301" && field.ConfigColumnId == "32"); name.IsShow = 0; name.IsEdit = 1;
         var (model, table, page) = Model(catalog, "2", "201"); var plan = ReadProjectionCompilation.ForPage(model, table, page);
@@ -146,6 +153,27 @@ public sealed class ReadProjectionCompilationTests
         Assert.True(selection.CanCompile, string.Join(";", selection.Gaps.Select(gap => gap.Reason)));
         Assert.Equal(opensSelection, selection.Dependencies.Any(dependency => dependency.ColumnId == "32" && dependency.Reasons.Any(reason => reason.Contains("固定入站", StringComparison.Ordinal))));
         Assert.Equal(opensSelection, selection.OutputFields.Any(output => output.JsonName == "name"));
+    }
+
+    /// <summary>名称缓存必须证明同一真实外键和已开放辅助属性，不能借错路径或隐藏列扩大读取。</summary>
+    [Theory]
+    [InlineData("other.name", false)]
+    [InlineData("target.alias", false)]
+    [InlineData("target.name", true)]
+    public void Redundant_single_name_projection_rejects_mismatched_or_hidden_caches(string path, bool hidden)
+    {
+        var catalog = SelectionCatalog(false);
+        var cache = catalog.ConfigColumns.Single(column => column.Id == "27");
+        cache.Extra["columnFullName"] = JsonSerializer.SerializeToElement(path);
+        if (hidden)
+        {
+            var field = catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == cache.Id);
+            field.IsShow = field.IsEdit = 0;
+        }
+        var (model, table, page) = Model(catalog, "2", "201");
+        var plan = ReadProjectionCompilation.ForPage(model, table, page).List;
+        Assert.Contains(plan.Gaps, gap => gap.ColumnId == cache.Id);
+        Assert.DoesNotContain(plan.OutputFields, output => output.JsonName == "targetName");
     }
 
     /// <summary>只有实际详情中出现的选择控件才建立入站确认合同；网格只显示既有辅助名。</summary>
@@ -517,10 +545,17 @@ public sealed class ReadProjectionCompilationTests
     private static MetadataCatalog SelectionCatalog(bool multi)
     {
         var catalog = GeneratedMultiSelectContractTests.Catalog();
+        // 这个矩阵模拟已发布的同项目关系，固定父范围要求实际表和页面属于当前项目。
+        foreach (var row in catalog.ConfigTables.Cast<MetadataRecord>().Concat(catalog.ConfigPages)
+            .Concat(catalog.ConfigColumns).Concat(catalog.ConfigPageColumns))
+            row.YzProjectId = catalog.YzProjectId;
         if (!multi)
         {
             var source = catalog.ConfigColumns.Single(column => column.Id == "25"); source.ColumnName = "target_id"; source.LogicalType = "int64"; source.ControlKind = "SelectPage";
-            catalog.ConfigColumns.Single(column => column.Id == "27").ColumnName = "target_name";
+            var display = catalog.ConfigColumns.Single(column => column.Id == "27");
+            display.ColumnName = "target_name";
+            display.Extra["isJoinColumn"] = JsonSerializer.SerializeToElement(1);
+            display.Extra["columnFullName"] = JsonSerializer.SerializeToElement("target.name");
             catalog.ConfigPages.Single(page => page.Id == "301").Extra["type"] = JsonSerializer.SerializeToElement(1);
         }
         return catalog;
