@@ -72,7 +72,7 @@ internal static class DatabaseCheckboxRenderer
             foreach(var (column,source) in def.Scopes.Where(scope=>def.LogicalTargetPage is null||!NonRedundantCrossParentCompilation.Managed(model,def.Target,def.LogicalTargetPage,scope.Column)))
             {
                 // 物理字典的字符串父键与回填共用规范十进制比较，避免数据库文本排序规则扩大范围。
-                if(def.HasProjectStoredAccountScope&&source=="parent"&&column.Type=="string?")
+                if(source=="parent"&&column.Type=="string?")
                     result.AppendLine($"        query=global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},parentId!);");
                 else
                     result.AppendLine($"        query=query.Where(row=>row.{column.Property}=={Scope(column,source=="project"?"actor.ProjectId":"parentId!")});");

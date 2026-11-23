@@ -43,10 +43,15 @@ public sealed class DatabaseCheckboxGenerationTests
     [Theory]
     [InlineData(false,1,true)]
     [InlineData(true,0,false)]
-    public async Task Checkbox_page_label_override_reuses_candidate_range_and_name_array(bool automatic,int targetStorage,bool explicitPage)
+    [InlineData(false,1,true,"text-source")]
+    [InlineData(true,0,false,"text-target")]
+    [InlineData(false,1,true,"text-both")]
+    [InlineData(true,0,false,"text-both")]
+    public async Task Checkbox_page_label_override_reuses_candidate_range_and_name_array(bool automatic,int targetStorage,bool explicitPage,string textParents="")
     {
         var catalog=Published(Catalog(true,automatic));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");target.IsRongyu=targetStorage;
+        SetTextParents(catalog,textParents);
         catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId=target.Id,YzProjectId=catalog.YzProjectId,ColumnName="short_name",Name="简称",LogicalType="string",ColumnLength="100"});
         catalog.ConfigPageColumns.Add(new(){Id="3009",ConfigPageId="301",ConfigColumnId="39",YzProjectId=catalog.YzProjectId,IsShow=1});
         var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
@@ -81,6 +86,14 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Contains("CheckboxScope201_25Async",service);
             Assert.Contains("ShortName",service);
             if(!automatic)Assert.Contains("FixedReadComparison.JsonArrayAnyContains",service);
+            if(textParents is "text-target" or "text-both")
+                Assert.Contains("""query=global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,"parent_id",parentId!);""",service);
+            if(textParents is "text-source" or "text-both")
+            {
+                Assert.Contains("""query=NonRedundantReads.ApplyTextParent(query,session,"parent_id",parentId!);""",service);
+                Assert.Contains("""result.Add(FixedReadFilter.ForTextParent("parent_id",request.ParentId!));""",service);
+                Assert.Contains("if(entity.ParentId!=long.Parse(parentId!, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture))",service);
+            }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
             var serviceType=assembly.GetTypes().Single(type=>type.Name=="RelationSourceService");
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
@@ -121,13 +134,20 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(0, true, false, true, true, false, false, "", "joined-name", "parent-mixed")]
     [InlineData(0, true, true, false, false, false, false, "", "joined-both", "", "inner-literal")]
     [InlineData(0, true, true, true, true, false, false, "", "joined-alias", "parent-form", "inner-literal")]
+    [InlineData(0,true,true,true,false,false,false,"","","","","text-source")]
+    [InlineData(1,false,false,true,false,false,false,"","","","","text-target")]
+    [InlineData(0,true,true,true,false,false,false,"","","","","text-both")]
+    [InlineData(1,false,false,true,false,false,false,"","","","","text-both")]
+    [InlineData(0,true,true,true,true,false,false,"","","","","text-target")]
+    [InlineData(1,false,false,true,true,false,false,"","","","","text-both")]
     public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,
         bool fixedParent,bool independentParent,bool global=false,bool globalRowProject=false,string accountVariable="",string joinedNames="",
-        string parentMode="",string dictionaryMode="")
+        string parentMode="",string dictionaryMode="",string textParents="")
     {
         var catalog=Published(Catalog(false));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
         target.IsRongyu=targetStorage;
+        SetTextParents(catalog,textParents);
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
         targetPage.WhereSql=global?"":"yz_project_id=@current_yz_project_id";
         if(global)
@@ -322,7 +342,14 @@ public sealed class DatabaseCheckboxGenerationTests
                 }
                 if(fixedParent)
                 {
-                    Assert.Contains(".Where(row=>row.ParentId==",service);
+                    if(textParents is "text-target" or "text-both")
+                        Assert.Contains("""query=global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,"parent_id",parentId!);""",service);
+                    else Assert.Contains(".Where(row=>row.ParentId==",service);
+                    if(!independentParent&&textParents is ("text-source" or "text-both"))
+                    {
+                        Assert.Contains("""query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,"parent_id",parentId!);""",service);
+                        Assert.Contains("if(entity.ParentId!=long.Parse(parentId!, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture))",service);
+                    }
                     Assert.Contains("entity.ParentId",write);
                     if(independentParent&&(parentMode!="parent-mixed"||page.Source.Id=="201"))
                         Assert.Contains("selected.Length==0&&",write);
@@ -425,6 +452,8 @@ public sealed class DatabaseCheckboxGenerationTests
                     var sql=Assert.IsType<string>(expression.Invoke(read,[name]));
                     Assert.Contains("b.`parent_id`",sql);
                     Assert.Contains("multi_value.`parent_id`",sql);
+                    if(textParents.Length>0)
+                        Assert.Contains("BINARY CAST(b.`parent_id` AS CHAR)",sql);
                     if(fixedTarget)Assert.Contains("active_flag",sql);
                 }
                 var affected=(IReadOnlyList<string>)maintenance.GetType().GetProperty("MixedTargets")!.GetValue(maintenance)!;
@@ -947,6 +976,13 @@ public sealed class DatabaseCheckboxGenerationTests
         if(kind=="kindOverlay")catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="25").Extra["controlKind"]=JsonSerializer.SerializeToElement("List");
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-reject");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(catalog,output,"Example.RejectedCheckbox",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));}finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
+    /// <summary>用同一真实父表的文本外键校验混合存储，保留原路由和控件。</summary>
+    private static void SetTextParents(MetadataCatalog catalog,string textParents)
+    {
+        if(textParents is "text-source" or "text-both")catalog.ConfigColumns.Single(column=>column.Id=="26").LogicalType="string";
+        if(textParents is "text-target" or "text-both")catalog.ConfigColumns.Single(column=>column.Id=="36").LogicalType="string";
+    }
+
     /// <summary>发布测试使用明确的同项目表、字段、页面及菜单后台，绝不借空归属模拟正式包。</summary>
     private static MetadataCatalog Published(MetadataCatalog catalog)
     {
