@@ -6,13 +6,13 @@ namespace Metarill.Data.Relations;
 /// <summary>派生多选／数据库复选分别遵循原目标声明，名称缓存不开放任意数组或请求SQL。</summary>
 internal static class DerivedMultipleCacheProof
 {
-    /// <summary>全局业务数组回填只接受同表原多选及其实际固定账号目标页。</summary>
+    /// <summary>全局业务数组回填只接受同表原多值控件及其实际固定账号目标页。</summary>
     internal static bool IsStoredGlobalSource(MetadataCatalog catalog,TableMetadata source,RelationCacheDefinition binding)
     {
         if(!binding.Multiple||!GlobalCrossTableTarget.Declared(source)||binding.SourceTableId!=source.Id)return false;
         var foreign=catalog.ConfigColumns.SingleOrDefault(column=>column.Id==binding.ForeignColumnId&&column.ConfigTableId==source.Id);
         var target=catalog.ConfigTables.SingleOrDefault(table=>table.Id==binding.TargetTableId);
-        return foreign is {ControlKind:"MultiSelectPage"}&&target is {IsRongyu:1}&&GlobalCrossTableTarget.Declared(target)&&
+        return foreign is {ControlKind:"MultiSelectPage" or "MultiCheckBoxDatabase"}&&target is {IsRongyu:1}&&GlobalCrossTableTarget.Declared(target)&&
             MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign) is not null&&
             GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).Name.Id==binding.ValueColumnId;
     }

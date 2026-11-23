@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Xunit;
@@ -127,9 +128,15 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     [InlineData(0, false)]
     [InlineData(1, true)]
     [InlineData(1, false)]
-    public async Task Checkbox_with_stored_global_account_dictionary(int mode,bool explicitPage)
+    [InlineData(0, true, true)]
+    [InlineData(0, false, true)]
+    [InlineData(1, true, true)]
+    [InlineData(1, false, true)]
+    public async Task Checkbox_with_stored_global_account_dictionary(int mode,bool explicitPage,bool globalSource=false)
     {
         var catalog = PhysicalLabelCatalog(mode,false);
+        if(globalSource)
+            catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         catalog.ConfigColumns.RemoveAll(column => column.Id is "34" or "35");
         catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId is "34" or "35");
         var dictionary = catalog.ConfigPages.Single(page => page.Id == "10");
@@ -181,13 +188,45 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var generated = assembly.GetType(application+".Generated.Services.CachedConsumerService",throwOnError:true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(generated.TypeHandle);
+            const BindingFlags hidden=BindingFlags.Static|BindingFlags.NonPublic;
+            if(globalSource)
+            {
+                var wrongProject=new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,"999","9"){StoreId=9007199254740993L};
+                var validate=generated.GetMethod("ValidateActor",hidden)!;
+                Assert.IsType<UnauthorizedAccessException>(
+                    Assert.Throws<TargetInvocationException>(()=>validate.Invoke(null,[wrongProject])).InnerException);
+                if(mode==1)
+                {
+                    Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(owner));
+                    Assert.Contains("entity.YzProjectId = ",service);
+                    Assert.Contains("不能修改来源记录项目归属",service);
+                }
+            }
             if(mode==0)
             {
-                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic;
                 var read=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(generated.GetField("ReadPlan30",hidden)!.GetValue(null));
                 var actor=new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,"100","9"){StoreId=9007199254740993L};
                 Assert.True(read.RequiresAccount);
-                Assert.Equal("string",read.BindAccount(actor).OutputTypes["selected_global_source_captions"]);
+                var bound=read.BindAccount(actor);
+                Assert.Equal("string",bound.OutputTypes["selected_global_source_captions"]);
+                if(globalSource)
+                {
+                    Assert.Equal("string",bound.OutputTypes["attachments"]);
+                    var mysql=bound.GetType().GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(bound)!;
+                    AssertOwnedScope(mysql);
+                    var businessScope=business.WhereSql;
+                    try
+                    {
+                        business.WhereSql="store_id=@current_store_id";
+                        // 同页标量候选能够编译，只有业务数组和附件被候选用途拒绝。
+                        Assert.Equal("string",Metarill.Data.Queries.NonRedundantReads.CompileGlobalCandidate(
+                            catalog,owner.Source.Id,business.Id,["name"]).OutputTypes["name"]);
+                        foreach(var column in new[]{"selected_global_source_ids","selected_global_source_captions","attachments"})
+                            Assert.Throws<NotSupportedException>(()=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalCandidate(
+                                catalog,owner.Source.Id,business.Id,[column]));
+                    }
+                    finally { business.WhereSql=businessScope; }
+                }
                 Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor with{StoreId=null}));
             }
             else
@@ -197,6 +236,16 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.Contains("global_source",maintenance.MixedTargets);
                 var scoped=Assert.Single(RelationPropagationCompilation.DerivedBindings(model),binding=>binding.Foreign.Source.Id=="38");
                 Assert.True(scoped.Multiple);
+                if(globalSource)
+                {
+                    var generatedMaintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                        assembly.GetType(application+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+                    var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                        generatedMaintenance.GetType().GetProperty("Plans",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(generatedMaintenance));
+                    var ownerPlan=plans[owner.Source.Id]!;
+                    Assert.Null(ownerPlan.GetType().GetProperty("Error")!.GetValue(ownerPlan));
+                    AssertOwnedScope(ownerPlan.GetType().GetProperty("Read")!.GetValue(ownerPlan)!);
+                }
 
                 business.WhereSql=business.WhereSql.Replace(" AND store_id=@current_store_id","",StringComparison.Ordinal);
                 // 发布不得将账号的门店值当作所有持久来源行的门店。
@@ -210,6 +259,11 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);
         }
     }
+
+    /// <summary>核对实际生成的业务或维护计划仍以物理项目列作根范围。</summary>
+    private static void AssertOwnedScope(object mysql) =>
+        Assert.Contains("`yz_project_id`",Assert.IsType<string>(
+            mysql.GetType().GetProperty("Scope",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(mysql)));
 
     /// <summary>普通项目复选支持已声明名称，真实项目谓词不能被名称配置替代。</summary>
     [Theory][InlineData(0,false)][InlineData(0,true)][InlineData(1,false)][InlineData(1,true)]

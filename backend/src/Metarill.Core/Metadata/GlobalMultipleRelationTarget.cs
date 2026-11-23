@@ -57,8 +57,8 @@ public static class GlobalMultipleRelationTarget
         var storedAccount=(checkbox||pageId.Length>0)&&IsStoredAccountPage(target,page,condition,checkbox);
         if(GlobalCrossTableTarget.Declared(owner))
         {
-            // 全局业务来源仍有项目归属，仅开放明确绑定固定账号字典页的原多选。
-            if(checkbox||!storedAccount)throw new NotSupportedException("全局多值来源必须绑定明确发布的冗余账号多选页。");
+            // 全局业务来源仍有项目归属，多值控件必须绑定固定账号字典页。
+            if(!storedAccount)throw new NotSupportedException("全局多值来源必须绑定已发布的冗余账号字典页。");
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
         }
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));

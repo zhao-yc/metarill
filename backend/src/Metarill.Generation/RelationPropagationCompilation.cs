@@ -26,6 +26,8 @@ internal static class RelationPropagationCompilation
             result.AddRange(SelfTreePropagationCompilation.ForTable(model,table));
             foreach(var binding in MultiNameWriteCompilation.ForTable(model,table))
                 result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache));
+            foreach(var binding in DatabaseCheckboxCompilation.Caches(model,table))
+                result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache){CheckboxTargetPageId=binding.CheckboxTargetPageId,CheckboxSourceParentId=binding.CheckboxSourceParentId});
             if(table.IsGlobal)
             {
                 // 原下拉和单选共用已发布的页范围绑定，其余全局角色沿各自已证明的合约。
@@ -37,8 +39,7 @@ internal static class RelationPropagationCompilation
             }
             result.AddRange(ScopedSingleBindings(model,table));
 
-            foreach(var binding in DatabaseCheckboxCompilation.Caches(model,table))
-                result.Add(new(table,binding.Source,binding.Target,binding.Value,binding.Cache){CheckboxTargetPageId=binding.CheckboxTargetPageId,CheckboxSourceParentId=binding.CheckboxSourceParentId});
+
             // 完整写入链定义各级ID／名称归属；不按字段后缀猜目标，也不接受页间冲突定义。
             foreach(var page in table.Pages)foreach(var plan in CrossTableWriteCompilation.ForService(model,table,page))
             {

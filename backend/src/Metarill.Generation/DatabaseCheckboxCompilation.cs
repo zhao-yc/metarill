@@ -89,7 +89,7 @@ internal static class DatabaseCheckboxCompilation
         {
             if(model.Catalog.DatabaseProvider!="mysql")return Gap("当前方言尚未完成复选成员及名称用途验收。");
             var functionForm=table.Source.IsFunctionTable==1;
-            if(table.Source.IsRongyu is not(0 or 1)||table.IsGlobal||source.Type!="string?"||!source.Source.ColumnName.EndsWith("_ids",StringComparison.Ordinal)||
+            if(table.Source.IsRongyu is not(0 or 1)||source.Type!="string?"||!source.Source.ColumnName.EndsWith("_ids",StringComparison.Ordinal)||
                 !functionForm&&!NonRedundantReadCompilation.Physical(model,table,source))return Gap("来源须为已声明的字符串_ids。");
             if(!functionForm&&!HasIdentity(model,table))return Gap("来源缺少真实物理主键或项目归属。");
             var baseline=DatabaseCheckboxDefinition.Parse(source.Source.ControlDetail);
@@ -116,6 +116,8 @@ internal static class DatabaseCheckboxCompilation
                     table.Source.IsRongyu==1&&publishedGlobalPage.Condition is not null)
                     globalPage=publishedGlobalPage;
             }
+            if(table.IsGlobal&&!storedAccountPage)
+                return Gap("全局业务来源必须绑定已发布的冗余账号字典页。");
             var usesNameOverride=definition.NameField!=baseline.NameField;
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
             var idLabel=name is not null&&name.IsId&&name.Type=="long"&&NonRedundantReadCompilation.Physical(model,target,name);
@@ -460,7 +462,8 @@ internal static class DatabaseCheckboxCompilation
     /// <summary>名称数组是服务端管理的只读字段；保持原布局，不把普通名称列继续作为可写DTO输入。</summary>
     internal static GenerationModel Prepare(GenerationModel model)=>model with{Tables=model.Tables.Select(table=>
     {
-        var idDisplaySources=table.Pages.SelectMany(page=>ForService(model,table,page)).Where(def=>def.Name.IsId)
+        var definitions=table.Pages.SelectMany(page=>ForService(model,table,page)).ToArray();
+        var idDisplaySources=definitions.Where(def=>def.Name.IsId)
             .Select(def=>def.Source.Source.ColumnName[..^4]).ToHashSet(StringComparer.Ordinal);
         foreach(var source in table.Source is { IsFunctionTable:0 } ? model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id&&column.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase") : [])
         {
@@ -478,8 +481,10 @@ internal static class DatabaseCheckboxCompilation
             idDisplaySources.Any(stem=>path.StartsWith(stem+".",StringComparison.Ordinal));
         var managed=(table.Source.IsRongyu==1&&table.Source.IsFunctionTable==0
             ?Caches(model,table).Select(binding=>binding.Cache.Source.Id)
-            :table.Pages.SelectMany(page=>ForService(model,table,page)).Where(def=>def.Names is not null).Select(def=>def.Names!.Source.Id)).ToHashSet(StringComparer.Ordinal);ColumnModel Fix(ColumnModel column)=>managed.Contains(column.Source.Id)?column with{IsManagedMultiNames=true}:column;IReadOnlyList<ColumnModel> All(IEnumerable<ColumnModel> columns)=>columns.Select(Fix).ToArray();
+            :definitions.Where(def=>def.Names is not null).Select(def=>def.Names!.Source.Id)).ToHashSet(StringComparer.Ordinal);ColumnModel Fix(ColumnModel column)=>managed.Contains(column.Source.Id)?column with{IsManagedMultiNames=true}:column;IReadOnlyList<ColumnModel> All(IEnumerable<ColumnModel> columns)=>columns.Select(Fix).ToArray();
         IReadOnlyList<ColumnModel> Visible(IEnumerable<ColumnModel> columns)=>columns.Where(column=>!staleIdName(column)).ToArray();
-        return table with{Columns=All(table.Columns),Pages=table.Pages.Select(page=>page with{Readable=All(Visible(page.Readable)),Writable=All(Visible(page.Writable.Where(column=>!managed.Contains(column.Source.Id)))),Searchable=All(Visible(page.Searchable)),Sortable=All(Visible(page.Sortable)),ListColumns=All(Visible(page.ListColumns)),DetailColumns=All(Visible(page.DetailColumns))}).ToArray()};
+        // 原业务记录读写必须保留项目归属；字典范围只用于复选候选。
+        var scopedGlobal=table.HasScopedGlobalCache||table.IsGlobal&&table.Source.IsRongyu==1&&definitions.Length>0;
+        return table with{HasScopedGlobalCache=scopedGlobal,Columns=All(table.Columns),Pages=table.Pages.Select(page=>page with{Readable=All(Visible(page.Readable)),Writable=All(Visible(page.Writable.Where(column=>!managed.Contains(column.Source.Id)))),Searchable=All(Visible(page.Searchable)),Sortable=All(Visible(page.Sortable)),ListColumns=All(Visible(page.ListColumns)),DetailColumns=All(Visible(page.DetailColumns))}).ToArray()};
     }).ToArray()};
 }

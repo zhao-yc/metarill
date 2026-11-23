@@ -352,8 +352,9 @@ internal static partial class NonRedundantReadCompilation
     /// <summary>多值字段按当前页冻结目标，原复选回显与名称筛选套用已发布目标页范围。</summary>
     internal static IReadOnlyList<NonRedundantMultiTargetScope> ProjectMultiTargets(GenerationModel model,TableModel table,PageModel page)
     {
-        if(table.Source.IsRongyu!=0||table.IsGlobal)return [];
-        return MultiSelectCompilation.ForService(model,table,page).Where(def=>(def.UsesPageRead||def.UsesNameOverride)&&def.Names is not null)
+        if(table.Source.IsRongyu!=0)return [];
+        var multi=table.IsGlobal?Array.Empty<MultiSelectModel>():MultiSelectCompilation.ForService(model,table,page);
+        return multi.Where(def=>(def.UsesPageRead||def.UsesNameOverride)&&def.Names is not null)
             .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.TargetPage.Source.Id,def.UsesPageRead))
             .Concat(DatabaseCheckboxCompilation.ForService(model,table,page).Where(def=>def.UsesPageRead||def.UsesControlRead||def.UsesNameOverride)
                 .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.NameTargetPage?.Source.Id,

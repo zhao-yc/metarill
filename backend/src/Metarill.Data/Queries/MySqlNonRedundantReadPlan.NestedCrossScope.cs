@@ -801,6 +801,10 @@ public static partial class MySqlNonRedundantReadCompiler
         private bool PublishedGlobalValue(ColumnMetadata column)
         {
             var rootStorage=storage[root.Id];
+            // 物理文件 ID 只随已隔离的来源记录读取，附件下载及变更继续单独校验真实引用。
+            if(IsGlobalOwnedBusinessRead()&&column is {ControlKind:"FileLibrary",LogicalType:"string",IsVirtualColumn:0}&&
+                rootStorage.IsPhysical(column)&&!ExactDataManageValues.IsSensitiveField(column.ColumnName))
+                return true;
             if(rootStorage.Kind(column)!=MetadataFieldStorage.Join)
                 return GlobalPhysicalRelationValue.IsPublishedScalar(catalog,rootStorage,root,column);
             var segment=Text(column,"columnFullName").Split('.',2)[0];

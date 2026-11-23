@@ -18,12 +18,15 @@ public static partial class MySqlNonRedundantReadCompiler
         internal IReadOnlyDictionary<string,NonRedundantMultiTargetScope> ProjectMultiTargets { get; init; }=
             new Dictionary<string,NonRedundantMultiTargetScope>(StringComparer.Ordinal);
 
-        /// <summary>全局业务只读取本项目行的原多选 ID 及名称，字典候选与精确匹配仍只返回标量。</summary>
+        /// <summary>只有带项目归属的普通业务读取可以投影来源本身的多值和文件字段。</summary>
+        private bool IsGlobalOwnedBusinessRead()=>
+            HasGlobalRowProject(root)&&candidatePage is null&&SelectedMultiPage is null&&!GlobalCrossCandidate&&!matching;
+
+        /// <summary>全局业务只读取本项目行的原多值 ID 及名称，字典候选与精确匹配仍只返回标量。</summary>
         private bool PublishedGlobalBusinessMultiField(string field)
         {
-            if(!HasGlobalRowProject(root)||candidatePage is not null||SelectedMultiPage is not null||GlobalCrossCandidate||matching)
-                return false;
-            foreach(var relation in columns[root.Id].Values.Where(column=>column.ControlKind=="MultiSelectPage"&&
+            if(!IsGlobalOwnedBusinessRead())return false;
+            foreach(var relation in columns[root.Id].Values.Where(column=>column.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"&&
                 column.ColumnName.EndsWith("_ids",StringComparison.Ordinal)))
             {
                 var name=Value(Definition(relation),"nameField");
@@ -93,7 +96,10 @@ public static partial class MySqlNonRedundantReadCompiler
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             var scopedPhysicalCheckbox=checkbox&&target.IsRongyu==1&&(binding.ApplyPageScope||control is not null);
             var physicalNameOverride=name is not null&&target.IsRongyu==1&&!binding.ApplyPageScope;
-            if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!physicalNameOverride||GlobalCrossTableTarget.Declared(table)||
+            var globalOwnedCheckbox=checkbox&&binding.ApplyPageScope&&selected is not null&&
+                StoredAccountMultiPage(catalog,target,selected,checkbox:true);
+            if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!physicalNameOverride||
+                GlobalCrossTableTarget.Declared(table)&&!globalOwnedCheckbox||
                 GlobalCrossTableTarget.Declared(target)&&!checkbox||pageId!=(selected?.Id??"")||
                 selected is null&&(binding.ApplyPageScope||control is null&&name is null)||
                 binding.ApplyControlScope&&control is null||
