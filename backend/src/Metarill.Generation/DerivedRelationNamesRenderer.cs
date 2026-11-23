@@ -14,7 +14,7 @@ internal static class DerivedRelationNamesRenderer
         var accountParent = SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
         var logical=DerivedRelationNamesCompilation.UsesLogicalPage(relation);
         var globalAccount=DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
-        var validateCurrent=exact is not null||accountParent||logical||relation.CompoundProjectSource||
+        var validateCurrent=exact is not null||accountParent||logical||relation.CompoundProjectSource||relation.CompoundProjectTarget||
             FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
         var projectTargets=DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation,exact);
         var bindParent=validateCurrent||projectTargets.Count>0?".BindAccount(actor)":"";
@@ -79,7 +79,7 @@ internal static class DerivedRelationNamesRenderer
 """ : $"            var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{suffix}{bindParent},filters,[{originalOrder}],200,cancellationToken,actor.ProjectId,scope.Condition);";
         // 固定名称查询另外执行自己的筛选，文本父字段要沿用普通候选的规范字节比较。
         var filters=string.Join("\n",relation.TargetPage.Scopes.Concat(relation.Scopes).DistinctBy(scope=>scope.Column.Source.Id)
-            .Select(scope=>relation.CompoundProjectSource&&scope.Source=="parent"&&scope.Column.Type=="string?"&&
+            .Select(scope=>(relation.CompoundProjectSource||relation.CompoundProjectTarget)&&scope.Source=="parent"&&scope.Column.Type=="string?"&&
                 relation.FixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true
                 ?$"        filters.Add(FixedReadFilter.ForTextParent({Literal(scope.Column.Source.ColumnName)},targetParentId!));"
                 :"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+ScopeValue(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));"));

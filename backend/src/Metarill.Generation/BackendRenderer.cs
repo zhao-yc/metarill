@@ -994,7 +994,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var fixedWriteExact = !relation.FunctionForm && DerivedRelationNamesCompilation.UsesFixedRead(model,relation) &&
                 ExactDataManageCompilation.Declared(relation.TargetPage) &&
                 (logicalPlan is not null || DerivedRelationNamesCompilation.UsesExactSingle(relation));
-            var lockScope=fixedWriteExact||relation.ScopedStoredSingle||relation.CompoundProjectSource||relation.LogicalSourceParent||
+            var lockScope=fixedWriteExact||relation.ScopedStoredSingle||relation.CompoundProjectSource||relation.CompoundProjectTarget||
+                relation.LogicalSourceParent||
                 relation.Conditions is not null||logicalPlan is not null||
                 relation.Target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
@@ -1026,11 +1027,13 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var targetParentScopes=relation.TargetPage.Scopes.Concat(relation.Scopes).Where(scope=>scope.Source=="parent"&&
                 relation.FixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true)
                 .DistinctBy(scope=>scope.Column.Source.Id).ToArray();
-            var compoundStoredParent=relation.ScopedStoredSingle&&!relation.Target.IsGlobal&&targetParentScopes.Length>1;
+            // 目标复合父键本身就要求规范 ID，独立表单和仅单列的来源也使用相同的比较。
+            var canonicalParent=relation.CompoundProjectSource||relation.CompoundProjectTarget||
+                relation.ScopedStoredSingle&&!relation.Target.IsGlobal&&targetParentScopes.Length>1;
             if (relation.TargetParents.Count > 0)
             {
                 if (relation.LogicalSourceParent||sameParent&&
-                    (compoundStoredParent||relation.CompoundProjectSource||relation.FixedParent is {AdditionalTargets.Count:>0}||
+                    (canonicalParent||relation.FixedParent is {AdditionalTargets.Count:>0}||
                         !relation.Target.IsGlobal&&fixedGlobalParent is not null))
                 {
                     var conflict=relation.LogicalSourceParent?"关联目标父必须与来源页的逻辑父一致。":"关联目标父必须与来源页的父记录一致。";
@@ -1038,7 +1041,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 }
                 if (sameParent) result.AppendLine("        targetParentId ??= parentId; // 元数据证明同父时兼容原 parentId。");
                 result.AppendLine($"        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException({Literal("关联目标范围要求有效 targetParentId，请使用 " + relation.Endpoint + "/page 分页合同。")});");
-                if(compoundStoredParent||relation.CompoundProjectSource)
+                if(canonicalParent)
                     result.AppendLine("        if(targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"关联目标范围要求规范正整数 targetParentId。\");");
                 if (relation.ParentBinding?.Binding is null)
                 {
@@ -1069,7 +1072,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             foreach (var (column, _) in targetParentScopes)
             {
                 // 与名称联接使用同一种规范十进制比较，字符串父键不能因数据库排序规则而跨范围。
-                if((compoundStoredParent||relation.CompoundProjectSource)&&column.Type=="string?")
+                if(canonicalParent&&column.Type=="string?")
                     result.AppendLine($"        query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},targetParentId!);");
                 else
                     result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");

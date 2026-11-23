@@ -222,8 +222,28 @@ public sealed class NonRedundantImportMatchTests
     [InlineData(0, true, true, false, true)]
     [InlineData(1, false, true, false, true)]
     [InlineData(1, true, true, false, true)]
-    public async Task Single_relation_requires_both_physical_source_parent_columns(int storage,bool compoundTarget,
-        bool liveTarget=false,bool controlParent=true,bool popup=false)
+    [InlineData(0, true, true, false, false, 1)]
+    [InlineData(0, true, true, true, false, 1)]
+    [InlineData(0, true, true, false, true, 1)]
+    [InlineData(0, true, false, true, false, 1)]
+    [InlineData(0, true, false, false, true, 1)]
+    [InlineData(1, true, true, false, false, 1)]
+    [InlineData(1, true, true, true, false, 1)]
+    [InlineData(1, true, true, false, true, 1)]
+    [InlineData(1, true, false, true, false, 1)]
+    [InlineData(1, true, false, false, true, 1)]
+    [InlineData(0, true, true, false, false, 2)]
+    [InlineData(0, true, true, true, false, 2)]
+    [InlineData(0, true, true, false, true, 2)]
+    [InlineData(0, true, false, true, false, 2)]
+    [InlineData(0, true, false, false, true, 2)]
+    [InlineData(1, true, true, false, false, 2)]
+    [InlineData(1, true, true, true, false, 2)]
+    [InlineData(1, true, true, false, true, 2)]
+    [InlineData(1, true, false, true, false, 2)]
+    [InlineData(1, true, false, false, true, 2)]
+    public async Task Single_relation_keeps_all_published_parent_columns(int storage,bool compoundTarget,
+        bool liveTarget=false,bool controlParent=true,bool popup=false,int parentMode=0)
     {
         var catalog=Catalog("string");
         var splitControl=compoundTarget&&controlParent;
@@ -244,6 +264,17 @@ public sealed class NonRedundantImportMatchTests
         ]);
         var page=new PageMetadata{Id="701",ConfigTableId="7",IsNew=1,IsSave=1,IsCopy=1,IsImport=1,IsExport=1,
             WhereSql="yz_project_id=@current_yz_project_id AND review_country_id=@parent_id AND country_id=@parentId"};
+        if(parentMode==1)
+        {
+            catalog.ConfigColumns.Remove(catalog.ConfigColumns.Single(column=>column.Id=="7017"));
+            page.WhereSql="yz_project_id=@current_yz_project_id AND country_id=@parentId";
+        }
+        else if(parentMode==2)
+        {
+            catalog.ConfigColumns.Remove(catalog.ConfigColumns.Single(column=>column.Id=="7014"));
+            catalog.ConfigPageColumns.Add(new(){Id="7017017",ConfigPageId="701",ConfigColumnId="7017",IsShow=1,IsEdit=1});
+            page.WhereSql="yz_project_id=@current_yz_project_id";
+        }
         page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(compoundTarget&&(!liveTarget||!splitControl)?"edit":"list");
         catalog.ConfigPages.Add(page);
         catalog.ConfigPageColumns.Add(new(){Id="7017015",ConfigPageId="701",ConfigColumnId="7015",IsShow=1});
@@ -292,8 +323,8 @@ public sealed class NonRedundantImportMatchTests
                     .TryGetValue("picker_name",out var fields)&&fields.Contains("logical_overwrite_country_id")&&
                         (!compoundTarget||fields.Contains("approval_country_id")));
         }
-        Assert.Contains("CAST(b."+(char)96+"review_country_id"+(char)96+" AS CHAR)",sql);
-        Assert.Contains("CAST(b."+(char)96+"country_id"+(char)96+" AS CHAR)",sql);
+        Assert.Equal(parentMode!=1,sql.Contains("CAST(b."+(char)96+"review_country_id"+(char)96+" AS CHAR)",StringComparison.Ordinal));
+        Assert.Equal(parentMode!=2,sql.Contains("CAST(b."+(char)96+"country_id"+(char)96+" AS CHAR)",StringComparison.Ordinal));
         Assert.Equal(compoundTarget,sql.Contains("approval_country_id",StringComparison.Ordinal));
         var generated=BackendRenderer.Render(model).Single(file=>file.Path=="Services/CompoundPickerOwnerService.g.cs").Content;
         if(liveTarget&&compoundTarget&&!splitControl)
@@ -307,11 +338,16 @@ public sealed class NonRedundantImportMatchTests
         if(overwrite)Assert.Contains("var key = matchValue.Deserialize",generated);
         Assert.Contains("Import701Async",generated);
         Assert.Contains("Export701Async",generated);
-        Assert.Contains("targetParentId!=parentId",generated);
-        Assert.Contains("ApplyTextParent(query,session,\"review_country_id\",parentId!",generated);
-        Assert.Contains("entity.ReviewCountryId!=entity.CountryId?.ToString(CultureInfo.InvariantCulture)",generated);
-        Assert.Contains("originalCandidateValues.ReviewCountryId",generated);
-        Assert.Contains("当前单值关联来源页要求规范正整数父键",generated);
+        Assert.Equal(parentMode!=2,generated.Contains("targetParentId!=parentId",StringComparison.Ordinal));
+        Assert.Contains("targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture)",generated);
+        if(parentMode==0)
+        {
+            Assert.Contains("ApplyTextParent(query,session,\"review_country_id\",parentId!",generated);
+            Assert.Contains("entity.ReviewCountryId!=entity.CountryId?.ToString(CultureInfo.InvariantCulture)",generated);
+            Assert.Contains("originalCandidateValues.ReviewCountryId",generated);
+            Assert.Contains("当前单值关联来源页要求规范正整数父键",generated);
+        }
+        if(parentMode==2)Assert.Contains("entity.ReviewCountryId",generated);
 
         // 编译实际生成包，证明宿主内嵌的目录仍能重新绑定两个来源字段。
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-compound-list-owner");
@@ -325,7 +361,7 @@ public sealed class NonRedundantImportMatchTests
             {
                 var detail=await File.ReadAllTextAsync(Path.Combine(directory,"generated/frontend/pages/yzp/compound_picker_owner-detail-701.vue"));
                 Assert.Contains("OriginalSelection7016",detail);
-                Assert.Contains(":parent_id=\"parent_id\"",detail);
+                Assert.Contains(parentMode==2?":parent_id=\"entity.reviewCountryId\"":":parent_id=\"parent_id\"",detail);
                 Assert.Contains("onPopSelect7016",detail);
                 if(compoundTarget)
                 {
@@ -350,8 +386,13 @@ public sealed class NonRedundantImportMatchTests
         var parent=MultiTargetParentScope.CompileListPage(catalog,target,targetTerms)!;
         var source=catalog.ConfigTables.Single(table=>table.Id=="7");
         var picker=catalog.ConfigColumns.Single(column=>column.Id=="7016");
-        Assert.Equal("7017",Assert.Single(parent.SingleSource(catalog,source,picker,page).AdditionalColumns).Id);
-        catalog.ConfigColumns.Single(column=>column.Id=="7017").LinkConfigTableId="4";
+        var binding=parent.SingleSource(catalog,source,picker,page);
+        Assert.Equal(parentMode==2?"7017":"7014",binding.Column.Id);
+        if(parentMode==0)
+            Assert.Equal("7017",Assert.Single(binding.AdditionalColumns).Id);
+        else
+            Assert.Empty(binding.AdditionalColumns);
+        catalog.ConfigColumns.Single(column=>column.Id==(parentMode==1?"7014":"7017")).LinkConfigTableId="4";
         Assert.Throws<InvalidOperationException>(()=>parent.SingleSource(catalog,source,picker,page));
     }
 

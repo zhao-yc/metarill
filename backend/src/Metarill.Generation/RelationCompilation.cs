@@ -13,6 +13,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     internal bool ListPageOverride { get; init; }
     internal bool ScopedStoredSingle { get; init; }
     internal bool CompoundProjectSource { get; init; }
+    internal bool CompoundProjectTarget { get; init; }
     internal IReadOnlyList<ColumnModel> IndependentOrder { get; init; } = [];
     internal RelationConditionModel? ImportCondition { get; init; }
     internal bool ExcelOnly { get; init; }
@@ -213,23 +214,28 @@ internal static class RelationCompilation
             var selectionParent=selection is null?null:
                 ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,target.Source,targetPage.Source);
             var storedSelectionParent=target.Source.IsRongyu==1?selectionParent:null;
-            MultiSourceParent? compoundProjectSource=null;
             var sourceKeys=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
                 .DistinctBy(column=>column.Source.Id).ToArray();
-            // 原弹窗和下拉均用已发布目标页证明来源物理父键，冗余与实时名称使用同一个集合。
-            if((selectionParent is not null||scopedStoredList||source.Source.ControlKind=="List"&&target.Source.IsRongyu==0)&&
-                !functionForm&&!binding.Declared&&!owner.IsGlobal&&!target.IsGlobal&&sourceKeys.Length>1&&
+            var projectParentScope=!functionForm&&!binding.Declared&&!owner.IsGlobal&&!target.IsGlobal&&
+                (selectionParent is not null||scopedStoredList||source.Source.ControlKind=="List"&&target.Source.IsRongyu==0);
+            var compoundSource=projectParentScope&&sourceKeys.Length>1&&
                 sourceParents is [var sourceParent]&&targetParents is [var targetParent]&&sourceParent.Source.Id==targetParent.Source.Id&&
-                sourceKeys.All(column=>NonRedundantReadCompilation.Physical(model,owner,column)))
+                sourceKeys.All(column=>NonRedundantReadCompilation.Physical(model,owner,column));
+            // 来源只有一个父字段时，目标页和控件上的多个同父字段仍使用已发布的完整证明。
+            var compoundTarget=projectParentScope&&target.Source.IsRongyu==0&&targetParents.Length==1&&
+                targetPage.Scopes.Concat(scopes).Where(scope=>scope.Source=="parent")
+                    .Select(scope=>scope.Column.Source.Id).Distinct(StringComparer.Ordinal).Skip(1).Any();
+            var publishedParent=selectionParent;
+            if(publishedParent is null&&(compoundSource||compoundTarget))
             {
                 var fields=target.Columns.Select(column=>column.Source.ColumnName);
                 var targetTerms=FixedConditionPlan.Compile(targetPage.Source.WhereSql,fields).Terms;
                 var controlTerms=FixedConditionPlan.Compile(where,fields).Terms;
-                var physicalParent=selectionParent??MultiTargetParentScope.CompileListPage(model.Catalog,target.Source,targetTerms.Concat(controlTerms));
-                compoundProjectSource=physicalParent?.SingleSource(model.Catalog,owner.Source,source.Source,page.Source);
-                if(compoundProjectSource is not {AdditionalColumns.Count:>0})
-                    throw new InvalidOperationException("原单值关联缺少已发布的来源复合物理父键。");
+                publishedParent=MultiTargetParentScope.CompileListPage(model.Catalog,target.Source,targetTerms.Concat(controlTerms));
             }
+            var compoundProjectSource=compoundSource?publishedParent?.SingleSource(model.Catalog,owner.Source,source.Source,page.Source):null;
+            if(compoundSource&&compoundProjectSource is not {AdditionalColumns.Count:>0})
+                throw new InvalidOperationException("原单值关联缺少已发布的来源复合物理父键。");
             var parentProof=fixedParent??storedSelectionParent;
             var sourceBinding=compoundProjectSource??(parentProof is null||functionForm?null:
                 owner.Source.IsRongyu==0&&(globalListPageScope||!owner.IsGlobal&&!target.IsGlobal)
@@ -248,6 +254,7 @@ internal static class RelationCompilation
                 ListPageOverride = listPageOverride,
                 ScopedStoredSingle = scopedStoredList||storedSelectionParent is not null,
                 CompoundProjectSource = compoundProjectSource is not null,
+                CompoundProjectTarget = compoundTarget&&publishedParent is {Logical:false,Global:false,AdditionalTargets.Count:>0},
                 IndependentOrder = independentOrder,
                 FunctionForm = functionForm,
                 ImportCondition = selection?.ImportCondition,
