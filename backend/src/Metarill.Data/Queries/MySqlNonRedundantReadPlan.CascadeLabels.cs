@@ -159,7 +159,7 @@ public static partial class MySqlNonRedundantReadCompiler
         GlobalMultipleRelationTarget.IsStoredAccountPage(table,page,FixedConditionPlan.Compile(page.WhereSql,
             catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).Select(column=>column.ColumnName)),checkbox);
 
-    /// <summary>项目内多选字典可以使用已发布的物理常量和单个普通业务父键，项目隔离始终有效。</summary>
+    /// <summary>项目内多选字典可以使用已发布的物理常量及同一业务父表的物理键，项目隔离始终有效。</summary>
     internal static bool IsProjectFixedMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
     {
         if(GlobalCrossTableTarget.Declared(table)||table.IsRongyu is not(0 or 1)||table.IsView!=0||table.IsFunctionTable!=0||
@@ -171,8 +171,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 .Select(column=>column.ColumnName));
         var parents=syntax.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
             MultiTargetParentScope.IsParameter(value.Text))).ToArray();
-        if(parents.Length>1||
-            !syntax.Terms.Any(term=>!GlobalMultipleRelationTarget.IsProjectScope(term))||
+        if(!syntax.Terms.Any(term=>!GlobalMultipleRelationTarget.IsProjectScope(term))||
             syntax.Terms.Any(term=>!GlobalMultipleRelationTarget.IsProjectScope(term)&&!parents.Contains(term)&&
                 term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable))||
             syntax.Fields.Any(field=>!storage.PhysicalColumns.Any(column=>column.ColumnName==field&&
@@ -180,7 +179,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field)))
             return false;
         return parents.Length==0||
-            MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax) is {Global:false,Logical:false};
+            MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,
+                allowStoredPhysicalParents:true) is {Global:false,Logical:false};
     }
 
     /// <summary>按实际目标页，将原逻辑、账号或已证明的固定范围嵌入多值计划。</summary>
@@ -274,7 +274,8 @@ public static partial class MySqlNonRedundantReadCompiler
             ScopedRootControls=crossBindings.Select(binding=>binding.SourceColumnId).ToHashSet(StringComparer.Ordinal),
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             GlobalCrossCandidate=GlobalCrossTableTarget.Declared(table)
-        }.Compile(outputs,dependencies.Concat(extraFields).Concat(parent is null?[]:[parent.Target.ColumnName])
+        }.Compile(outputs,dependencies.Concat(extraFields).Concat(parent is null?[]:
+                parent.AdditionalTargets.Select(item=>item.Target.ColumnName).Prepend(parent.Target.ColumnName))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
         if(importColumns.Count!=extraFields.Count||importColumns.Any(column=>
             !plan.Types.TryGetValue(column.ColumnName,out var type)||type!=column.LogicalType))
@@ -310,7 +311,8 @@ public static partial class MySqlNonRedundantReadCompiler
         if(GlobalCrossTableTarget.Declared(table))return MultiTargetParentScope.CompileGlobalPage(catalog,table,syntax,checkbox);
         if(checkbox)return MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true);
         return page.Extra.GetValueOrDefault("type").ToString()=="2"
-            ?MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true)
+            ?MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,
+                allowStoredPhysicalParents:table.IsRongyu==1&&IsProjectFixedMultiPage(catalog,table,page))
             :MultiTargetParentScope.Compile(catalog,table,syntax);
     }
 

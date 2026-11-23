@@ -333,6 +333,18 @@ public static class NonRedundantReads
     public static bool IsScopedMultiSelectTarget(MetadataCatalog metadata,TableMetadata target,string pageId)=>
         MySqlNonRedundantReadCompiler.IsScopedMultiTarget(metadata,target,pageId,selectOnly:true);
 
+    /// <summary>原 ORM 候选页与固定名称计划按同一规范文本父键比较，字段和值不作为请求 SQL。</summary>
+    public static FreeSql.ISelect<T> ApplyTextParent<T>(FreeSql.ISelect<T> query,DatabaseSession session,string field,string parentId)
+        where T:class
+    {
+        if(session.Provider.Name!="mysql")throw new NotSupportedException("文本父键比较尚未完成该数据库适配。");
+        var parent=FixedReadFilter.RequireTextParent(parentId);
+        var column=session.Provider.QuoteIdentifier("a")+"."+session.Provider.QuoteIdentifier(field);
+        var parameter="mt_parent_"+field;
+        return query.As("a").Where("BINARY ("+column+")=BINARY "+session.Provider.ParameterPlaceholder(parameter),
+            new Dictionary<string,object?>{{parameter,parent}});
+    }
+
     /// <summary>实际绑定的项目内多选字典可把物理常量和父键纳入名称及匹配计划。</summary>
     public static bool IsProjectFixedMultiSelectTarget(MetadataCatalog metadata,TableMetadata target,PageMetadata page)=>
         page.Extra.GetValueOrDefault("type").ToString()=="2"&&IsScopedMultiSelectTarget(metadata,target,page.Id)&&

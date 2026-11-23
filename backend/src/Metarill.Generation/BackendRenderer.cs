@@ -345,6 +345,11 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if (!page.Scopes.Any(scope => scope.Source == "parent")) result.AppendLine("        await Task.CompletedTask;");
         return result.AppendLine("    }").ToString();
     }
+    /// <summary>只有原多选实际绑定且已证明的项目内文本父键需要二进制比较。</summary>
+    private static bool UsesFixedTextParent(GenerationModel model,TableModel table,PageModel page)=>
+        page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="string?")&&
+        Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source);
+
     private static string Query(GenerationModel model, TableModel table, PageModel page)
     {
         if(NonRedundantReadCompilation.Requires(model,table))return NonRedundantQuery(model,table,page);
@@ -366,9 +371,12 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>")
             .AppendLine($"    private ISelect<{table.EntityType}> Scope{suffix}(RuntimeActor actor, string? parentId{ExactDataManageCompilation.Parameter(page,"detail")}{(accountParent?", bool locking=false":"")}{(selectionRows?", bool candidateRows=false":"")})").AppendLine("    {")
             .AppendLine("        ValidateActor(actor);").AppendLine("        var query = mapper.Query();");
+        var fixedTextParent=UsesFixedTextParent(model,table,page);
         foreach (var (column, source) in fixedQuery.IdentityScopes)
         {
             if (source == "project") result.AppendLine($"        {(selectionRows?"if (!candidateRows) ":"")}query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "actor.ProjectId")});");
+            else if(fixedTextParent&&column.Type=="string?")
+                result.AppendLine($"        query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},parentId!);");
             else result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                 .AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "parentId")});");
         }

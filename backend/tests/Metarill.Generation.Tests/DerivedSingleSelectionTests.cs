@@ -5,6 +5,7 @@ using System.Text.Json;
 using Metarill.Core.Contracts;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
+using Metarill.Data;
 using Metarill.Data.Queries;
 using Metarill.Core.Metadata;
 using Xunit;
@@ -647,6 +648,10 @@ public sealed class DerivedSingleSelectionTests
     [InlineData(1, 1, false, false, "only")]
     [InlineData(0, 1, true, true, "shared")]
     [InlineData(1, 1, true, false, "text")]
+    [InlineData(0, 0, false, false, "compound-shared")]
+    [InlineData(0, 1, true, true, "compound-shared")]
+    [InlineData(1, 0, true, false, "compound-form")]
+    [InlineData(1, 1, false, false, "compound-form")]
     public async Task Project_multiselect_uses_fixed_dictionary_scope(int sourceStorage, int targetStorage, bool explicitProject,
         bool nameOverride, string parentMode)
     {
@@ -668,6 +673,8 @@ public sealed class DerivedSingleSelectionTests
         foreign.ColumnLength = "max";
         var literal = parentMode != "only";
         var hasParent = parentMode.Length != 0;
+        var compound = parentMode.StartsWith("compound-", StringComparison.Ordinal);
+        var formParent = parentMode is "form" or "compound-form";
         foreign.ControlDetail = JsonSerializer.Serialize(new
         {
             tableId = target.Id, pageId = "201", nameField = "name", whereSql = literal ? "status = 17" : ""
@@ -693,7 +700,16 @@ public sealed class DerivedSingleSelectionTests
                 Id = "29", ConfigTableId = target.Id, YzProjectId = catalog.YzProjectId,
                 ColumnName = "group_id", LogicalType = parentMode == "text" ? "string" : "int64", LinkConfigTableId = "3"
             });
-            if (parentMode == "form")
+            if (compound)
+            {
+                conditions.Add("alternate_group_id=@parent_id");
+                catalog.ConfigColumns.Add(new()
+                {
+                    Id = "299", ConfigTableId = target.Id, YzProjectId = catalog.YzProjectId,
+                    ColumnName = "alternate_group_id", LogicalType = "string", LinkConfigTableId = "3"
+                });
+            }
+            if (formParent)
             {
                 foreach (var item in catalog.ConfigPages.Where(item => item.ConfigTableId == source.Id))
                     item.WhereSql = "yz_project_id=@current_yz_project_id";
@@ -711,14 +727,15 @@ public sealed class DerivedSingleSelectionTests
         var selection = MultiSelectCompilation.Resolve(model, owner, sourcePage, control, forService: true);
         Assert.True(selection.Definition is not null, selection.Reason);
         Assert.True(FixedPageConditionCompilation.HasMultiTargetScope(model, selection.Definition.Target, selection.Definition.TargetPage));
-        Assert.Equal(hasParent && parentMode != "form", selection.Definition.SameParent);
-        if (parentMode == "form") Assert.Equal("groupId", selection.Definition.TargetParentField);
+        Assert.Equal(hasParent && !formParent, selection.Definition.SameParent);
+        if (formParent) Assert.Equal("groupId", selection.Definition.TargetParentField);
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-project-multi-literal");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try
         {
             new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            if (compound) VerifyCompoundCandidate(assembly, ns, targetStorage, catalog.YzProjectId);
             var service = assembly.GetType(ns + ".Generated.Services.ScopeMultiOrderService", true)!;
             var lookup = service.GetField("MultiDerivedPlan101_15", BindingFlags.Static | BindingFlags.NonPublic);
             Assert.NotNull(lookup);
@@ -727,7 +744,14 @@ public sealed class DerivedSingleSelectionTests
             var matchingScope = Assert.IsType<string>(matching.GetType().GetProperty("Scope", hidden)!.GetValue(matching));
             HasDictionaryRange(matchingScope, matching);
             if (hasParent) Assert.Contains("/*metarill:nested-current*/", matchingScope);
-            if (parentMode == "text") Assert.Contains("BINARY CAST(", matchingScope);
+            if (parentMode == "text" || compound) Assert.Contains("BINARY CAST(", matchingScope);
+            if (compound)
+            {
+                Assert.Contains(".`alternate_group_id`", matchingScope);
+                var types = Assert.IsAssignableFrom<IReadOnlyDictionary<string, string>>(
+                    matching.GetType().GetProperty("Types", hidden)!.GetValue(matching));
+                Assert.Equal("string", types["alternate_group_id"]);
+            }
 
             if (sourceStorage == 0)
             {
@@ -759,7 +783,8 @@ public sealed class DerivedSingleSelectionTests
                     Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlySet<string>>>(
                         item.GetType().GetProperty("Outputs")!.GetValue(item)).TryGetValue(nameField, out var fields) &&
                     (!literal || fields.Contains("status")) && fields.Contains("name") &&
-                    (!hasParent || fields.Contains("group_id")));
+                    (!hasParent || fields.Contains("group_id")) &&
+                    (!compound || fields.Contains("alternate_group_id")));
                 if (hasParent)
                     Assert.Contains(reverse.Cast<object>(), item =>
                         Equals("scope_multi_group", item.GetType().GetProperty("TargetTable")!.GetValue(item)) &&
@@ -769,6 +794,17 @@ public sealed class DerivedSingleSelectionTests
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+
+        if (compound)
+        {
+            // 同名参数只能指向一个真实父表，两个物理字段属于不同表时必须拒绝。
+            var alternate = catalog.ConfigColumns.Single(column => column.Id == "299");
+            alternate.LinkConfigTableId = "4";
+            var fields = catalog.ConfigColumns.Where(column => column.ConfigTableId == target.Id).Select(column => column.ColumnName);
+            var syntax = FixedConditionPlan.Compile(page.WhereSql, fields);
+            Assert.Throws<InvalidOperationException>(() => MultiTargetParentScope.CompileSelectionPage(catalog, target, syntax,
+                allowGlobalParent: false, allowStoredPhysicalParents: true));
+        }
 
         static object MySql(NonRedundantReadPlan plan) => plan.GetType().GetProperty("MySql", hidden)!.GetValue(plan)!;
         static string Expression(object read) =>
@@ -781,11 +817,59 @@ public sealed class DerivedSingleSelectionTests
             {
                 Assert.Contains(".`group_id`", sql);
                 Assert.Contains("`scope_multi_group`", sql);
+                if (compound) Assert.Contains(".`alternate_group_id`", sql);
             }
             var values = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
                 read.GetType().GetProperty("Constants", hidden)!.GetValue(read)).Values;
             if (literal) Assert.Contains(17, values);
         }
+    }
+
+    /// <summary>从实际生成的候选作用域验证两个物理父字段，以及字符串父键的数据库比较方式。</summary>
+    private static void VerifyCompoundCandidate(Assembly assembly, string ns, int targetStorage, string project)
+    {
+        const string parent = "9007199254740993";
+        const BindingFlags hidden = BindingFlags.NonPublic;
+        var service = assembly.GetType(ns + ".Generated.Services.ScopeMultiPartyService", true)!;
+        var actor = new RuntimeActor(7, "合成账号", false, project, "5");
+        var request = new PageRequest { ParentId = parent };
+
+        if (targetStorage == 0)
+        {
+            var filters = Assert.IsAssignableFrom<IReadOnlyList<FixedReadFilter>>(
+                service.GetMethod("ReadFilters201", hidden | BindingFlags.Static)!.Invoke(null, [request, actor]));
+            Assert.Equal(9007199254740993L, Assert.Single(filters, filter => filter.Field == "group_id").Value);
+            var alternate = Assert.Single(filters, filter => filter.Field == "alternate_group_id");
+            Assert.Equal(parent, alternate.Value);
+            var plan = Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan201", hidden | BindingFlags.Static)!.GetValue(null));
+            var mysql = plan.GetType().GetProperty("MySql", hidden | BindingFlags.Instance)!.GetValue(plan);
+            var comparison = typeof(MySqlNonRedundantReader).GetMethod("Filter", hidden | BindingFlags.Static)!;
+            Assert.Equal("BINARY (b.`alternate_group_id`)=BINARY @filter_0", comparison.Invoke(null, [mysql, alternate, 0]));
+            var invalid = new PageRequest { ParentId = "0" + parent };
+            var refused = Assert.Throws<TargetInvocationException>(() =>
+                service.GetMethod("ReadFilters201", hidden | BindingFlags.Static)!.Invoke(null, [invalid, actor]));
+            Assert.IsType<ArgumentException>(refused.InnerException);
+            return;
+        }
+
+        using var session = new DatabaseSession(new DatabaseOptions
+        {
+            Provider = "mysql", ExpectedDatabase = "offline",
+            ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
+        });
+        var mapper = Activator.CreateInstance(assembly.GetType(ns + ".Generated.Mappers.ScopeMultiPartyMapper", true)!, session);
+        var constructor = service.GetConstructors().Single();
+        var arguments = new object?[] { session, mapper, new SnowflakeIdGenerator(), Array.Empty<IRecordMutationObserver>() };
+        var instance = constructor.Invoke(arguments.Concat(constructor.GetParameters().Skip(arguments.Length)
+            .Select(parameter => parameter.DefaultValue)).ToArray());
+        var query = service.GetMethod("Query201", hidden | BindingFlags.Instance)!;
+        var queryArgs = new object?[] { request, actor };
+        var result = query.Invoke(instance, queryArgs.Concat(query.GetParameters().Skip(queryArgs.Length)
+            .Select(parameter => parameter.DefaultValue)).ToArray());
+        var sql = Assert.IsType<string>(typeof(DerivedSingleSelectionTests).GetMethod(nameof(SelectionSql), hidden | BindingFlags.Static)!
+            .MakeGenericMethod(assembly.GetType(ns + ".Generated.Entities.ScopeMultiParty", true)!).Invoke(null, [result]));
+        Assert.Contains("`group_id`", sql);
+        Assert.Contains("BINARY (`a`.`alternate_group_id`)=BINARY", sql);
     }
 
     /// <summary>从实际生成的查询上提取 WHERE，不让投影列影响范围断言。</summary>

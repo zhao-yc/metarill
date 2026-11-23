@@ -23,6 +23,12 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         bool allowGlobalParent=false)=>
         CompilePublishedPage(catalog,table,condition,checkbox:false,allowGlobalParent:allowGlobalParent);
 
+    /// <summary>实际多选页可显式开放项目内冗余目标的多个物理父键。</summary>
+    public static MultiTargetParentScope? CompileSelectionPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,
+        bool allowGlobalParent,bool allowStoredPhysicalParents)=>
+        CompilePublishedPage(catalog,table,condition,checkbox:false,allowGlobalParent:allowGlobalParent,
+            allowStoredPhysicalParents:allowStoredPhysicalParents);
+
     /// <summary>原数据库复选的实际发布页也可用已声明的自定义物理父字段。</summary>
     public static MultiTargetParentScope? CompileCheckboxPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,
         bool allowGlobalParent=false)=>
@@ -33,18 +39,21 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         CompilePublishedPage(catalog,table,condition,checkbox,globalTarget:true,allowGlobalParent:true);
 
     private static MultiTargetParentScope? CompilePublishedPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,
-        bool checkbox,bool globalTarget=false,bool allowGlobalParent=false)
+        bool checkbox,bool globalTarget=false,bool allowGlobalParent=false,bool allowStoredPhysicalParents=false)
     {
         var terms=condition.Terms.Where(ParentTerm).ToArray();
         if(terms.Length<=1)return Compile(catalog,table,condition);
-        if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)!=globalTarget)throw Invalid();
+        // 冗余字典新增的多个父键必须是同一个项目内业务父表的真实物理列。
+        var storedProject=allowStoredPhysicalParents&&table.IsRongyu==1&&!globalTarget;
+        if(table.IsRongyu!=0&&!storedProject||GlobalCrossTableTarget.Declared(table)!=globalTarget)throw Invalid();
         var fields=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
             .Select(column=>column.ColumnName).ToArray();
         var scopes=terms.Select(term=>Compile(catalog,table,FixedConditionPlan.Compile(term.ToDefinition(),fields),checkbox)!)
             .DistinctBy(scope=>scope.Target.Id).OrderByDescending(scope=>scope.Logical)
             .ThenBy(scope=>scope.Target.Id,StringComparer.Ordinal).ToArray();
         var parent=scopes[0];
-        if(parent.Global&&!allowGlobalParent||scopes.Any(scope=>scope.Parent.Id!=parent.Parent.Id))throw Invalid();
+        if(parent.Global&&(!allowGlobalParent||storedProject)||storedProject&&scopes.Any(scope=>scope.Logical)||
+            scopes.Any(scope=>scope.Parent.Id!=parent.Parent.Id))throw Invalid();
         return parent with{AdditionalTargets=scopes[1..]};
     }
 

@@ -6,6 +6,16 @@ public enum FixedReadComparison { Equal, NotEqual, Greater, GreaterOrEqual, Less
 public sealed record FixedReadFilter(string Field,FixedReadComparison Comparison,object? Value=null)
 {
     internal bool SharedExact {get;private init;}
+    internal bool ExactParentText {get;private init;}
+
+    /// <summary>已发布的文本父键比较规范十进制字节，数据库排序规则不能改变父记录身份。</summary>
+    public static FixedReadFilter ForTextParent(string field,string parentId)=>
+        new(field,FixedReadComparison.Equal,RequireTextParent(parentId)){ExactParentText=true};
+
+    internal static string RequireTextParent(string value)=>
+        long.TryParse(value,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var id)&&
+        id>0&&value==id.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            ?value:throw new ArgumentException("当前多选页要求规范正整数父ID。");
     /// <summary>服务端共享精确范围必须验证实际完整路径；普通请求筛选继续原逻辑。</summary>
     public static FixedReadFilter ForSharedExact(string field,IReadOnlyList<object?> values)=>
         ForCrossExact(field,values);
@@ -346,6 +356,8 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
             return filter with { Value = selected };
         }
         var type = plan.Types[filter.Field];
+        if(filter.ExactParentText&&(type!="string"||filter.Comparison!=FixedReadComparison.Equal||value is not string))
+            throw new InvalidOperationException("文本父键筛选缺少实际的文本字段或值。");
         // 普通 JSON 文本与关系数组分别处理。精确比较沿用 MySQL 的 JSON 值比较。
         if (type == "json")
         {
@@ -427,7 +439,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         if(filter.Comparison==FixedReadComparison.TypedLabelContains)
             return MySqlMultiValueLabel.Text(expression,plan.Types[filter.Field])+" LIKE "+parameter+" ESCAPE '!'";
         if(value is null)return filter.Comparison switch{FixedReadComparison.Equal=>expression+" IS NULL",FixedReadComparison.NotEqual=>expression+" IS NOT NULL",_=>throw new InvalidOperationException("范围比较不能使用null。")};
-        if(filter.Field==plan.RequiredMultiParent&&filter.Comparison==FixedReadComparison.Equal&&value is string)
+        if(filter.ExactParentText||filter.Field==plan.RequiredMultiParent&&filter.Comparison==FixedReadComparison.Equal&&value is string)
             return "BINARY ("+expression+")=BINARY "+parameter;
         return expression+(filter.Comparison switch{FixedReadComparison.Equal=>"=",FixedReadComparison.NotEqual=>"<>",FixedReadComparison.Greater=>">",FixedReadComparison.GreaterOrEqual=>">=",FixedReadComparison.Less=>"<",FixedReadComparison.LessOrEqual=>"<=",_=>throw new InvalidOperationException("未知固定筛选操作。")})+parameter;
     }

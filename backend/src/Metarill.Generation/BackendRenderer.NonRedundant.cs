@@ -352,13 +352,31 @@ internal static class GeneratedNonRedundantReadCatalog
         result.AppendLine("    /// <summary>生成校验和宿主静态初始化分别编译；普通请求不解释元数据。</summary>")
             .AppendLine($"    private static readonly NonRedundantReadPlan ReadPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.{NonRedundantReadCompilation.PagePlanCall(model,table,page,plan,outputs,dependencies)};")
             .AppendLine(NonRedundantCrossParentCompilation.Enabled(model,table,page)?"    /// <summary>更新前按真实项目及物理／逻辑父范围锁定主记录。</summary>":"    /// <summary>更新前仅按真实物理项目/父范围锁定主记录。</summary>").AppendLine($"    private ISelect<{table.EntityType}> Scope{suffix}(RuntimeActor actor,string? parentId{ExactDataManageCompilation.Parameter(page,"detail")}{(lockScope?",bool locking=false":"")}{(derivedExact?",bool exactLocking=true":"")})").AppendLine("    {").AppendLine("        ValidateActor(actor);var query=mapper.Query();");
+        var fixedTextParent=UsesFixedTextParent(model,table,page);
         foreach(var (column,source) in fixedQuery.IdentityScopes)
-        {if(source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,table,page,column))continue;if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求parentId。\");");result.AppendLine($"        query=query.Where(entity=>entity.{column.Property}=={ScopeValue(column,source=="project"?"actor.ProjectId":"parentId!")});");}
+        {
+            if(source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,table,page,column))continue;
+            if(source=="parent"&&fixedTextParent&&column.Type=="string?")
+                result.AppendLine($"        query=NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},parentId!);");
+            else
+            {
+                if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求parentId。\");");
+                result.AppendLine($"        query=query.Where(entity=>entity.{column.Property}=={ScopeValue(column,source=="project"?"actor.ProjectId":"parentId!")});");
+            }
+        }
         if(NonRedundantCrossParentCompilation.Enabled(model,table,page))result.AppendLine($"        query=LogicalParentScope{suffix}(query,actor,parentId,locking);");
         result.Append(FixedPageConditionCompilation.Apply(page,"PageCondition"+suffix,"page_"+suffix,NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"CrossConditionPlan"+suffix),"locking")).Append(ExactDataManageCompilation.Query(model,table,page,locking:derivedExact?"exactLocking":null)).AppendLine("        return query;").AppendLine("    }").AppendLine("    /// <summary>身份与父范围是服务附加的AND条件，请求筛选不能覆盖。</summary>").AppendLine($"    private {(ExactDataManageCompilation.Declared(page)?"":"static ")}List<FixedReadFilter> ReadFilters{suffix}(PageRequest request,RuntimeActor actor{ExactDataManageCompilation.Parameter(page,"list")}{(globalCandidate?",bool globalCandidate=false":"")})").AppendLine("    {").AppendLine("        ArgumentNullException.ThrowIfNull(request);ValidateActor(actor);var result=new List<FixedReadFilter>();");
         if(NonRedundantCrossParentCompilation.Enabled(model,table,page))result.AppendLine($"        _=LogicalParentId{suffix}(request.ParentId);");
         foreach(var (column,source) in fixedQuery.IdentityScopes)
-        {if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(request.ParentId))throw new ArgumentException(\"当前页面要求parentId。\");");result.AppendLine($"        {(globalCandidate&&source=="project"?"if(!globalCandidate)":"")}result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,{ScopeValue(column,source=="project"?"actor.ProjectId":"request.ParentId!")}));");}
+        {
+            if(source=="parent"&&fixedTextParent&&column.Type=="string?")
+                result.AppendLine($"        result.Add(FixedReadFilter.ForTextParent({Literal(column.Source.ColumnName)},request.ParentId!));");
+            else
+            {
+                if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(request.ParentId))throw new ArgumentException(\"当前页面要求parentId。\");");
+                result.AppendLine($"        {(globalCandidate&&source=="project"?"if(!globalCandidate)":"")}result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,{ScopeValue(column,source=="project"?"actor.ProjectId":"request.ParentId!")}));");
+            }
+        }
         result.Append(ExactDataManageCompilation.ReadFilter(model,table,page));
         result.AppendLine("        foreach(var filter in request.Filters??throw new ArgumentException(\"filters不能为空。\"))").AppendLine("        {").AppendLine("            switch(filter.Key)").AppendLine("            {");
         // 名称辅助键在SQL分页/统计之前解析；不能把IsIgnore实体列当持久化列查询。
