@@ -42,7 +42,11 @@ public sealed partial class GlobalScopedCandidateTests
             Assert.Contains("""CompileGlobalCandidate("1","10",""",source);
             Assert.Contains(multiple?"DerivedCheckboxPlan30_38":"DerivedOptionsPlan30_34",source);
             if(multiple)Assert.Contains("KeyRowsAsync(CandidateReadPlan10",source);
-            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            // 实际初始化生成服务，确认裁剪后的发布目录仍含内层字典页及其条件。
+            foreach(var service in new[]{"GlobalSourceService","CachedConsumerService"})
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
+                    assembly.GetType(ApplicationNamespace+".Generated.Services."+service,throwOnError:true)!.TypeHandle);
         }
         finally
         {

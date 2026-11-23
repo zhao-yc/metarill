@@ -535,28 +535,6 @@ public static partial class MySqlNonRedundantReadCompiler
             TableMetadata target,string alias,NonRedundantSingleTargetScope binding)
         {
             var global=GlobalCrossTableTarget.Declared(target);
-            // 全局 R0 候选的嵌套名称可以引用全局 R1 目标，但必须继续使用该关系实际发布的目标页。
-            // 这里只放行无父范围的固定页面，带父级的组合仍由完整父级计划处理。
-            if(GlobalCrossCandidate&&multiLabel&&GlobalCrossTableTarget.Declared(owner)&&owner.IsRongyu==0&&
-                GlobalCrossTableTarget.Declared(target)&&target.IsRongyu==1&&MultiNameSourcePage(ownerAlias) is {} globalSourcePage&&
-                binding.SourceParentId is null)
-            {
-                var nestedProof=GlobalSingleRelationTarget.Require(catalog,owner,relation,target,globalSourcePage);
-                if(nestedProof.Page.Id!=binding.PageId)
-                    throw new InvalidOperationException("全局候选嵌套名称与实际发布目标页不一致。");
-                if(!binding.ApplyPageCondition)return "";
-                if(nestedProof.Parent is not null)
-                    throw new NotSupportedException("全局候选嵌套名称的父范围尚未形成完整单值计划。");
-                var published=PublishedCondition(target,alias,nestedProof.Page,allowAccount:nestedProof.ScopedAccount);
-                if(published is null)return "";
-                var provider=new MySqlDatabaseProvider();
-                var nestedPrefix=ConditionParameterPrefix("mt_global_nested_"+alias);
-                var clause=nestedProof.ScopedAccount
-                    ?published.RenderAccountProjection(provider,nestedPrefix,field=>alias+"."+Q(field))
-                    :published.RenderConstants(provider,nestedPrefix,field=>alias+"."+Q(field));
-                foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
-                return clause.Sql;
-            }
             if(target.IsRongyu==1&&binding.SourcePageId is {} storedSourceId&&
                 (!global||binding.ControlSourcePageId==storedSourceId||!binding.ApplyPageCondition))
             {
@@ -574,6 +552,18 @@ public static partial class MySqlNonRedundantReadCompiler
                 return binding.ControlSourcePageId==storedSource.Id
                     ? ProjectStoredListCondition(owner,ownerAlias,relation,target,alias,storedSource,stored,binding,storedControl)
                     : StoredSingleCondition(target,alias,stored,storedControl);
+            }
+            // 全局多值候选的编译入口也会传入名称路径。按来源页重新证明内层字典的物理条件。
+            if(global&&target.IsRongyu==1&&binding is
+                {SourcePageId:not null, SourceParentId:null, ControlSourcePageId:null, ApplyPageCondition:true, NestedTargets.Count:0})
+            {
+                var nameSource=catalog.ConfigPages.Single(page=>page.Id==binding.SourcePageId&&page.ConfigTableId==owner.Id);
+                var stored=GlobalSingleRelationTarget.StoredMultiName(catalog,owner,nameSource,relation,target);
+                if(stored is not {} fixedName||fixedName.Page.Id!=binding.PageId)
+                    throw new InvalidOperationException("多值名称联接必须使用已发布的冗余字典页。");
+                cascadeLabelPages.Add(nameSource.Id);
+                cascadeLabelPages.Add(fixedName.Page.Id);
+                return StoredSingleCondition(target,alias,fixedName.Page,fixedName.Control);
             }
             if(owner.IsRongyu!=0||target.IsRongyu!=0||!global&&GlobalCrossTableTarget.Declared(owner)||
                 relation.ControlKind is not("List" or "SelectPage")||!storage[owner.Id].IsPhysical(relation))
