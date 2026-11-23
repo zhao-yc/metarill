@@ -308,6 +308,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前多选页要求已发布的来源父键使用规范正整数。\");");
         else if(UsesPublishedPhysicalSingleSource(model,table,page))
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前单值关联来源页要求规范正整数父键。\");");
+        else if(UsesPublishedPhysicalCheckboxSource(model,table,page))
+            result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前数据库复选来源页要求规范正整数父键。\");");
         if(sharedRedundant)result.AppendLine("        ValidateActor(actor);").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);");
         else if(multiGlobal is not null)result.AppendLine("        ValidateActor(actor);");
         var checkedGlobalParent=false;
@@ -364,11 +366,19 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 ControlRenderer.RelationContext(page,relation,false).SameParent);
     }
 
+    /// <summary>项目内账号字典复选使用物理父路由时，来源页与候选共用规范父键。</summary>
+    private static bool UsesPublishedPhysicalCheckboxSource(GenerationModel model,TableModel table,PageModel page)=>
+        page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="string?")&&
+        DatabaseCheckboxCompilation.ForService(model,table,page).Any(definition=>
+            definition is { HasProjectStoredAccountScope:true, LogicalSourceParent:false, FormParentField:null, GlobalParent:false }&&
+            definition.SourceParents is [{ IsGlobal:false }]);
+
     /// <summary>已发布的文本父键按规范 ID 二进制比较。</summary>
     private static bool UsesFixedTextParent(GenerationModel model,TableModel table,PageModel page)=>
         page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="string?")&&
         (Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source)||
             UsesPublishedPhysicalMultiSource(model,table,page)||UsesPublishedPhysicalSingleSource(model,table,page)||
+            UsesPublishedPhysicalCheckboxSource(model,table,page)||
             ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null);
 
     private static string Query(GenerationModel model, TableModel table, PageModel page)
@@ -679,6 +689,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             return Check(parent.Foreign);
         if(NonRedundantCrossParentCompilation.Enabled(model,table,page)||
             !UsesPublishedPhysicalMultiSource(model,table,page)&&!UsesPublishedPhysicalSingleSource(model,table,page)&&
+            !UsesPublishedPhysicalCheckboxSource(model,table,page)&&
             MultiGlobalParentCompilation.CompoundSourceTarget(model,table,page) is null)return "";
         return string.Concat(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>Check(scope.Column)));
 

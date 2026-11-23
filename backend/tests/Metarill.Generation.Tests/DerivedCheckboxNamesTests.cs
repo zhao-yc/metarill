@@ -243,6 +243,9 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(0, true, false, false, "source-compound")]
     [InlineData(1, true, false, false, "source-compound")]
     [InlineData(1, true, true, true, "source-compound")]
+    [InlineData(0, true, false, false, "source-text")]
+    [InlineData(1, true, false, false, "source-text")]
+    [InlineData(1, true, true, true, "source-text")]
     public async Task Project_stored_checkbox_preserves_published_account_scope(int sourceStorage, bool withParent,
         bool alternateName = false, bool compoundTarget = false, string sourceParentMode = "")
     {
@@ -274,6 +277,8 @@ public sealed class DerivedCheckboxNamesTests
         var scope = "yz_project_id=@current_yz_project_id AND store_id=@current_store_id";
         var parentScope = withParent ? scope + " AND parent_id=@parentId" : scope;
         var compoundSource = sourceParentMode == "source-compound";
+        var textSource = sourceParentMode == "source-text";
+        if (textSource) catalog.ConfigColumns.Single(column => column.Id == "26").LogicalType = "string";
         if (compoundSource)
             catalog.ConfigColumns.Add(new()
             {
@@ -292,6 +297,12 @@ public sealed class DerivedCheckboxNamesTests
                     YzProjectId = catalog.YzProjectId, IsShow = 1, IsEdit = 1,
                     Extra = new() { ["isSearch"] = JsonSerializer.SerializeToElement(1) }
                 });
+        }
+        if (compoundSource || textSource)
+        {
+            var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
+            if (!alternateName) sourcePage.Extra["importMethod"] = JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+            if (textSource) sourcePage.Extra["exportMethod"] = JsonSerializer.SerializeToElement("edit");
         }
         if (sourceStorage == 0 && sourceParentMode == "form" && compoundTarget)
         {
@@ -375,6 +386,39 @@ public sealed class DerivedCheckboxNamesTests
             Assert.Contains("CheckboxTargetCondition201_25.BindAccount(actor).ApplyConstants", code);
             Assert.Contains("CheckboxOptions201_25Async", code);
             Assert.Contains("ValidateCheckbox201_25Async", code);
+            if (compoundSource || textSource)
+            {
+                var parentColumn = compoundSource ? "backup_parent_id" : "parent_id";
+                var parentProperty = compoundSource ? "BackupParentId" : "ParentId";
+                var scopeCall = sourceStorage == 0
+                    ? "query=NonRedundantReads.ApplyTextParent"
+                    : "query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent";
+                Assert.Contains($"""{scopeCall}(query,session,"{parentColumn}",parentId!);""", code);
+                Assert.Contains($"if(entity.{parentProperty}!=long.Parse(parentId!, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture))", code);
+                if (!alternateName)
+                    Assert.Contains("var existing = await Scope201(actor, request.ParentId)", code);
+                Assert.NotNull(service.GetMethod("Copy201Async"));
+                var validate = service.GetMethod("ValidateParents201Async", instance)!;
+                var ownerService = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(service);
+                foreach (var invalid in new[] { "071", "71 ", "+71", "0", "9223372036854775808" })
+                {
+                    var arguments = new object?[] { invalid, actor, CancellationToken.None }
+                        .Concat(validate.GetParameters().Skip(3).Select(parameter => parameter.DefaultValue)).ToArray();
+                    var error = await Assert.ThrowsAsync<ArgumentException>(async () => await (Task)validate.Invoke(ownerService, arguments)!);
+                    Assert.Contains("规范正整数父键", error.Message);
+                }
+                if (sourceStorage == 0)
+                {
+                    const string largeParent = "9007199254740993";
+                    var filters = service.GetMethod("ReadFilters201", fields)!;
+                    var request = new Metarill.Core.Contracts.PageRequest { ParentId = largeParent };
+                    var result = Assert.IsAssignableFrom<IReadOnlyList<FixedReadFilter>>(filters.Invoke(null, [request, actor]));
+                    Assert.Equal(FixedReadFilter.ForTextParent(parentColumn, largeParent), Assert.Single(result, filter => filter.Field == parentColumn));
+                    Assert.Contains($"""filters.Add(FixedReadFilter.ForTextParent("{parentColumn}",parentId!));""", code);
+                    request.ParentId = "071";
+                    Assert.IsType<ArgumentException>(Assert.Throws<TargetInvocationException>(() => filters.Invoke(null, [request, actor])).InnerException);
+                }
+            }
             if (compoundSource)
             {
                 Assert.Contains("submitted.Contains(\"backup_parent_id\")", code);
