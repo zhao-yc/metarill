@@ -265,7 +265,8 @@ internal static class DatabaseCheckboxCompilation
             // 目标只有一个 parentId；用可还原的逻辑键作为来源代表，其他同父范围仍逐条验证。
             var logicalBindings=sourceBindings.Where(binding=>binding.Path is not null).ToArray();
             var logicalSource=logicalBindings.Length>0;
-            var sourceParent=logicalBindings.FirstOrDefault().Column??sourceScopeColumns.FirstOrDefault();
+            var sourceParent=logicalBindings.FirstOrDefault().Column??(projectStoredAccount
+                ?sourceScopeColumns.MinBy(column=>column.Source.Id,StringComparer.Ordinal):sourceScopeColumns.FirstOrDefault());
             var physicalParents=scopes.Where(scope=>scope.Source=="parent").ToArray();
             var pageHasParent=logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true;
             if(logicalSource&&physicalParents.Length==0&&!pageHasParent)
@@ -452,7 +453,8 @@ internal static class DatabaseCheckboxCompilation
     internal static string? FixedCacheParent(DatabaseCheckboxModel definition)
     {
         if(definition.PhysicalTargetPage is null||definition.LogicalSourceParent||definition.GlobalParent||
-            definition.SourceScopeColumns.Count!=1&&definition.FormParentField is null||
+            definition.SourceScopeColumns.Count==0&&definition.FormParentField is null||
+            definition.SourceScopeColumns.Count>1&&!definition.HasProjectStoredAccountScope||
             definition.SourceParents.Count!=1||definition.SourceParents[0].IsGlobal)
             return null;
         var target=definition.PhysicalTargetPage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();

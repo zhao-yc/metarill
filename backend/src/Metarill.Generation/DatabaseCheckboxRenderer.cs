@@ -129,6 +129,7 @@ internal static class DatabaseCheckboxRenderer
                 .AppendLine("        if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"复选保存要求真实当前身份。\");")
                 .AppendLine($"        if(operation==RecordMutationOperation.Import)relationAuthorization.RequirePagePermission({Literal(page.Source.Id)},\"import\");")
                 .AppendLine($"        var selected=DatabaseCheckboxValue.Parse(entity.{def.Source.Property});");
+            result.Append(RequireMatchingParents(def,"entity","        "));
             if(int.TryParse(def.Source.Source.ColumnLength,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var sourceLimit)&&sourceLimit>0)result.AppendLine($"        if(entity.{def.Source.Property} is {{Length:>{sourceLimit}}})throw new ArgumentException(\"复选ID数组超过已声明物理列长度。\");");
             var scope=$"CheckboxScope{suffix}Async({writeParent},actor,{EntityForm(def,"entity")},true,cancellationToken)";
             var physicalRead=$"Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>{projection},cancellationToken)";
@@ -178,7 +179,19 @@ internal static class DatabaseCheckboxRenderer
     /// <summary>只提取原表单槽中发布时声明的物理叶字段。</summary>
     private static string Reader(DatabaseCheckboxModel def,string suffix)=>$"    private static IReadOnlyDictionary<string,object?> ReadCheckboxForm{suffix}(JsonElement? formParameters)=>new Dictionary<string,object?>{{"+string.Join(",",(def.Conditions?.Forms??[]).Select(binding=>"["+Literal(binding.Variable)+"]=Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(Metarill.Core.Contracts.FixedConditionFormValue.Read(formParameters,new string[]{"+string.Join(",",binding.Path.Select(Literal))+"},new string[]{"+string.Join(",",binding.FallbackPath.Select(Literal))+"}),"+Literal(binding.Column.Source.LogicalType)+")"))+"};\n";
     internal static string EntityForm(DatabaseCheckboxModel def,string entity)=>"new Dictionary<string,object?>{"+string.Join(",",(def.Conditions?.Forms??[]).Select(binding=>"["+Literal(binding.Variable)+"]="+entity+"."+binding.Column.Property))+"}";
-    internal static string ParentValue(DatabaseCheckboxModel def,string entity)=>def.SourceParent is null?"null":def.SourceParent.Type=="string?"?entity+"."+def.SourceParent.Property:entity+"."+def.SourceParent.Property+"?.ToString(CultureInfo.InvariantCulture)";
+    internal static string ParentValue(DatabaseCheckboxModel def,string entity)=>ParentValue(def.SourceParent,entity);
+
+    private static string ParentValue(ColumnModel? field,string entity)=>field is null?"null":field.Type=="string?"
+        ?entity+"."+field.Property:entity+"."+field.Property+"?.ToString(CultureInfo.InvariantCulture)";
+
+    /// <summary>普通账号字典的同父来源需逐一核对物理字段，保存及名称导出共用精确十进制字符串。</summary>
+    internal static string RequireMatchingParents(DatabaseCheckboxModel def,string entity,string indent)
+    {
+        if(!def.HasProjectStoredAccountScope||def.SourceScopeColumns.Count<2)return "";
+        var parent=ParentValue(def,entity);
+        return string.Concat(def.SourceScopeColumns.Where(column=>column.Source.Id!=def.SourceParent?.Source.Id)
+            .Select(column=>$"{indent}if(!string.Equals({parent},{ParentValue(column,entity)},StringComparison.Ordinal))throw new InvalidOperationException(\"复选的来源父字段必须属于同一父记录。\");\n"));
+    }
     /// <summary>生成为固定标识与方向，请求不能扩展排序字段。</summary>
     internal static string FixedOrder(DatabaseCheckboxModel definition) =>
         "[" + string.Join(",", definition.Order.Select(item =>

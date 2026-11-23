@@ -131,13 +131,16 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         ResolveSource(catalog,source,relation,single:false,allowLogical:true,sourcePageId:sourcePage.Id);
 
     /// <summary>共享的复选名称必须从各来源页同一个真实外键读回，独立表单页须实际开放该字段。</summary>
-    public MultiSourceParent CheckboxSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation)=>
-        ResolveSource(catalog,source,relation,single:false,allowLogical:false,checkbox:true,allowFormParent:true);
+    public MultiSourceParent CheckboxSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,
+        bool allowProjectPhysicalColumns=false)=>
+        ResolveSource(catalog,source,relation,single:false,allowLogical:false,checkbox:true,allowFormParent:true,
+            allowProjectPhysicalCheckbox:allowProjectPhysicalColumns);
 
     /// <summary>复选仍从当前页已声明的父范围取值，支持通过关联表已明确的自定义字段名。</summary>
     public MultiSourceParent CheckboxSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,PageMetadata sourcePage,
-        bool allowFormParent=false)=>
-        ResolveSource(catalog,source,relation,single:false,allowLogical:true,sourcePageId:sourcePage.Id,checkbox:true,allowFormParent:allowFormParent);
+        bool allowFormParent=false,bool allowProjectPhysicalColumns=false)=>
+        ResolveSource(catalog,source,relation,single:false,allowLogical:true,sourcePageId:sourcePage.Id,checkbox:true,allowFormParent:allowFormParent,
+            allowProjectPhysicalCheckbox:allowProjectPhysicalColumns);
 
 
     /// <summary>单值固定页和多值页共用持久父键证明；单值只允许实际物理父字段。</summary>
@@ -153,14 +156,16 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         ResolveSource(catalog,source,relation,single:true,allowLogical:source.IsRongyu==0,sourcePageId:sourcePage.Id);
 
     private MultiSourceParent ResolveSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,
-        bool single,bool allowLogical,string? sourcePageId=null,bool checkbox=false,bool allowFormParent=false)
+        bool single,bool allowLogical,string? sourcePageId=null,bool checkbox=false,bool allowFormParent=false,
+        bool allowProjectPhysicalCheckbox=false)
     {
         var columns=catalog.ConfigColumns.Where(item=>item.ConfigTableId==source.Id).ToArray();
         var keys=columns.Where(column=>(PhysicalKey(catalog,source,column)||checkbox&&CheckboxKey(catalog,source,column,target:false))&&References(column,Parent)).ToArray();
         var explicitKeys=keys.Where(column=>column.LinkConfigTableId==Parent.Id).ToArray();
         var allFields=RelationStorageColumns.Expand(source,columns);
         // 项目内物理组合只扩展普通字典，显式全局字典继续要求原发布证明。
-        var projectPhysicalSource=relation.ControlKind=="MultiSelectPage"&&!Global&&source.IsRongyu is (0 or 1)&&
+        var projectPhysicalSource=(relation.ControlKind=="MultiSelectPage"||checkbox&&allowProjectPhysicalCheckbox)&&
+            !Global&&source.IsRongyu is (0 or 1)&&
             !GlobalCrossTableTarget.Declared(source)&&catalog.ConfigTables.Any(table=>
                 table.Id==Target.ConfigTableId&&!GlobalCrossTableTarget.Declared(table));
         var selected=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&

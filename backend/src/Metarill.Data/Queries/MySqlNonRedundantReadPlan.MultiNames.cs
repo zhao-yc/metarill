@@ -160,7 +160,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>派生多值名称使用独立固定别名域，联接保持在目标子查询内，不把来源扩成多行。</summary>
         private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,
             ColumnMetadata value,PageMetadata? publishedPage,PageMetadata? selectedScope,PageMetadata? namePage,PageMetadata? sourcePage,FixedConditionPlan? control,
-            (MultiTargetParentScope Target,ColumnMetadata Source)? fixedParent=null,bool sharedCheckbox=false)
+            (MultiTargetParentScope Target,MultiSourceParent Source)? fixedParent=null,bool sharedCheckbox=false)
         {
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             var storedAccount=selectedScope is not null&&StoredAccountMultiPage(catalog,target,selectedScope,checkbox);
@@ -197,10 +197,12 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new InvalidOperationException("复选目标页与控件必须绑定同一实际来源父表。");
             // 账号字典的父键可来自已开放的物理表单字段，回显和回填均从实际来源记录读取。
             var projectCheckbox=checkbox&&projectFixedScope;
-            var sourceBinding=fixedParent is {} paired?new MultiSourceParent(paired.Source,[]):
-                sharedCheckbox||projectCheckbox&&sourcePage is null?parent?.CheckboxSource(catalog,table,relation):
+            var sourceBinding=fixedParent is {} paired?paired.Source:
+                sharedCheckbox||projectCheckbox&&sourcePage is null?parent?.CheckboxSource(catalog,table,relation,
+                    allowProjectPhysicalColumns:projectCheckbox):
                 sourcePage is null?parent?.Source(catalog,table,relation):
-                projectCheckbox||controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage,allowFormParent:projectCheckbox):
+                projectCheckbox||controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage,
+                    allowFormParent:projectCheckbox,allowProjectPhysicalColumns:projectCheckbox):
                 parent?.Source(catalog,table,relation,sourcePage);
             var sourceParent=sourceBinding?.Column;
             var logicalSource=sourceBinding?.LogicalPages.Count>0;

@@ -276,7 +276,8 @@ public static partial class MySqlNonRedundantReadCompiler
         if(parent is not null)
         {
             var publishedRelation=relation??throw new InvalidOperationException("多值缓存缺少发布关系。");
-            source=sharedCheckbox||checkbox&&projectFixedScope?parent.CheckboxSource(catalog,cacheOwner!.Table,publishedRelation):
+            source=sharedCheckbox||checkbox&&projectFixedScope?parent.CheckboxSource(catalog,cacheOwner!.Table,publishedRelation,
+                allowProjectPhysicalColumns:projectFixedScope):
                 parent.Source(catalog,cacheOwner!.Table,publishedRelation);
         }
         if(parent is {Global:true}&&source is {AdditionalColumns.Count:>0})

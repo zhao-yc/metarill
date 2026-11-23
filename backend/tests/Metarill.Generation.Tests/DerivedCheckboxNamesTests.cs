@@ -240,6 +240,9 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(1, true, false, true, "form")]
     [InlineData(1, true, true, true, "form")]
     [InlineData(1, true, true, true, "mixed")]
+    [InlineData(0, true, false, false, "source-compound")]
+    [InlineData(1, true, false, false, "source-compound")]
+    [InlineData(1, true, true, true, "source-compound")]
     public async Task Project_stored_checkbox_preserves_published_account_scope(int sourceStorage, bool withParent,
         bool alternateName = false, bool compoundTarget = false, string sourceParentMode = "")
     {
@@ -270,10 +273,18 @@ public sealed class DerivedCheckboxNamesTests
             });
         var scope = "yz_project_id=@current_yz_project_id AND store_id=@current_store_id";
         var parentScope = withParent ? scope + " AND parent_id=@parentId" : scope;
+        var compoundSource = sourceParentMode == "source-compound";
+        if (compoundSource)
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "2993", ConfigTableId = owner.Id, YzProjectId = catalog.YzProjectId,
+                ColumnName = "backup_parent_id", LogicalType = "string", LinkConfigTableId = "1"
+            });
         foreach (var sourcePage in catalog.ConfigPages.Where(page => page.ConfigTableId == owner.Id))
         {
             var formParent = sourceParentMode == "form" || sourceParentMode == "mixed" && sourcePage.Id == "201";
-            sourcePage.WhereSql = formParent ? scope : parentScope;
+            sourcePage.WhereSql = formParent ? scope :
+                compoundSource ? parentScope + " AND backup_parent_id=@parentId" : parentScope;
             if (formParent)
                 catalog.ConfigPageColumns.Add(new()
                 {
@@ -364,7 +375,12 @@ public sealed class DerivedCheckboxNamesTests
             Assert.Contains("CheckboxTargetCondition201_25.BindAccount(actor).ApplyConstants", code);
             Assert.Contains("CheckboxOptions201_25Async", code);
             Assert.Contains("ValidateCheckbox201_25Async", code);
-            if (sourceParentMode.Length > 0)
+            if (compoundSource)
+            {
+                Assert.Contains("submitted.Contains(\"backup_parent_id\")", code);
+                Assert.Contains("string.Equals(entity.ParentId?.ToString(CultureInfo.InvariantCulture),entity.BackupParentId,StringComparison.Ordinal)", code);
+            }
+            if (sourceParentMode is "form" or "mixed")
             {
                 var sourceTable = model.Tables.Single(table => table.Source.Id == owner.Id);
                 var sourceField = sourceTable.Columns.Single(column => column.Source.Id == relation.Id);
@@ -408,6 +424,7 @@ public sealed class DerivedCheckboxNamesTests
                 Assert.Contains("multi_value.`store_id`", predicate);
                 Assert.Contains(store, Property<IReadOnlyDictionary<string, object?>>(read, "Constants").Values);
                 Assert.Equal(compoundTarget, predicate.Contains("review_parent_id", StringComparison.Ordinal));
+                Assert.Equal(compoundSource, predicate.Contains("backup_parent_id", StringComparison.Ordinal));
                 Assert.Equal(withParent, predicate.Contains("b.`parent_id`", StringComparison.Ordinal));
             }
             else
@@ -427,6 +444,11 @@ public sealed class DerivedCheckboxNamesTests
                 var dependencies = Property<IReadOnlyList<string>>(read, "SourceDependencies");
                 Assert.Contains("store_id", dependencies);
                 if (withParent) Assert.Contains("parent_id", dependencies);
+                if (compoundSource)
+                {
+                    Assert.Contains("backup_parent_id", dependencies);
+                    Assert.Contains("backup_parent_id", sql);
+                }
                 Assert.Equal(compoundTarget, sql.Contains("review_parent_id", StringComparison.Ordinal));
                 if (alternateName)
                 {
@@ -451,7 +473,7 @@ public sealed class DerivedCheckboxNamesTests
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
 
-        if (sourceParentMode.Length > 0)
+        if (sourceParentMode is "form" or "mixed")
         {
             var field = catalog.ConfigPageColumns.Single(setting => setting.ConfigPageId == "201" && setting.ConfigColumnId == "26");
             catalog.ConfigPageColumns.Remove(field);
@@ -466,6 +488,15 @@ public sealed class DerivedCheckboxNamesTests
         if (sourceStorage == 1)
         {
             var hidden = catalog.ConfigPages.Single(page => page.Id == "202");
+            if (compoundSource)
+            {
+                var originalScope = hidden.WhereSql;
+                hidden.WhereSql = originalScope.Replace(" AND backup_parent_id=@parentId", "", StringComparison.Ordinal);
+                var incomplete = GenerationModel.Create(catalog, ns);
+                var badParent = Assert.Throws<InvalidOperationException>(() => RelationPropagationCompilation.DerivedBindings(incomplete));
+                Assert.Contains("所有来源入口一致的父键", badParent.Message);
+                hidden.WhereSql = originalScope;
+            }
             hidden.WhereSql = hidden.WhereSql.Replace(" AND store_id=@current_store_id", "", StringComparison.Ordinal);
             var model = GenerationModel.Create(catalog, ns);
             var error = Assert.Throws<InvalidOperationException>(() => RelationPropagationCompilation.DerivedBindings(model));

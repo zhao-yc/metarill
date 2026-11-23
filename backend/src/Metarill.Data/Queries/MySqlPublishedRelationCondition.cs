@@ -85,7 +85,7 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
             : fallback==1;
 
     /// <summary>按发布页重证来源行使用的物理父键，避免维护和改名只按目标 ID 读取。</summary>
-    internal static (PageMetadata Page,MultiTargetParentScope TargetParent,ColumnMetadata SourceParent) RequireProjectCheckboxParent(
+    internal static (PageMetadata Page,MultiTargetParentScope TargetParent,MultiSourceParent SourceParent) RequireProjectCheckboxParent(
         MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,TableMetadata target,string pageId,string sourceParentId)
     {
         var page=RequireProjectCheckboxPage(catalog,source,relation,target,pageId);
@@ -99,16 +99,12 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
             !MultiTargetParentScope.IsParameter(variable)&&!variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))&&
             !projectStoredAccount)
             throw new InvalidOperationException("复选多名称要求实际普通物理目标父键。");
-        var sourcePages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==source.Id).ToArray();
-        ColumnMetadata? sourceKey=null;
-        foreach(var published in sourcePages)
-        {
-            var bound=parent.CheckboxSource(catalog,source,relation,published,allowFormParent:true);
-            if(bound.Column.Id!=sourceParentId||bound.LogicalPages.Count>0||bound.AdditionalColumns.Count>0)
-                throw new InvalidOperationException("复选多名称要求所有来源页使用同一物理父键。");
-            sourceKey=bound.Column;
-        }
-        return (page,parent,sourceKey??throw new InvalidOperationException("复选多名称缺少实际来源页父级。"));
+        // 重证所有来源页的完整物理父键集合，维护不能把复合范围降成第一个外键。
+        var sourceKey=parent.CheckboxSource(catalog,source,relation,allowProjectPhysicalColumns:projectStoredAccount);
+        if(sourceKey.Column.Id!=sourceParentId||sourceKey.LogicalPages.Count>0||
+            !projectStoredAccount&&sourceKey.AdditionalColumns.Count>0)
+            throw new InvalidOperationException("复选多名称要求所有来源页使用同一物理父键。");
+        return (page,parent,sourceKey);
     }
 
     /// <summary>只从真实目标表解析类型；调用方已证明页面和目标同属发布目录。</summary>
