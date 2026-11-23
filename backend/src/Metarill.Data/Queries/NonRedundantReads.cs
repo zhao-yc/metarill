@@ -434,8 +434,9 @@ public static class NonRedundantReads
     /// <summary>非冗余单选 Excel 使用实际单选页与同一固定条件编译器。</summary>
     public static NonRedundantReadPlan CompileSingleImportLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
         IReadOnlyList<string> conditionFields,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)=>
-        new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,["id",field],[],
-            singleTargets,conditionFields,importPageType:"1"));
+        // 按主键显示时，名称列和返回的匹配 ID 是同一列，工作簿读取只需要一个输出。
+        new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,
+            [..new[]{"id",field}.Distinct(StringComparer.OrdinalIgnoreCase)],[],singleTargets,conditionFields,importPageType:"1"));
 
     /// <summary>生成及维护按实际发布页核对派生名称的固定单值终点。</summary>
     public static NonRedundantReadPlan CompilePublishedScalarMatch(MetadataCatalog catalog,string tableId,string pageId,string field)

@@ -832,9 +832,19 @@ public sealed class DerivedRelationNamesTests
 
             if(buttonOverride)
             {
-                // 纯文案可以继承。重设范围、排序或实体仍会在发布前被拒绝。
+                // 文案和 Excel 附加条件可覆盖。实际候选页、排序和实体仍须沿用表级定义。
                 var overrideField=catalog.ConfigPageColumns.Single(column=>column.Id=="80184");
-                foreach(var item in new[]{new{Key="whereSql",Value="id IS NOT NULL"},new{Key="orderBy",Value="id asc"},
+                overrideField.Extra["controlDetail"]=JsonSerializer.SerializeToElement(
+                    JsonSerializer.Serialize(new{buttonText="查找中间记录",whereSql="id IS NOT NULL"}));
+                var overlayModel=GenerationModel.Create(catalog,"Example.ScopedSingleRelation");
+                var observerPage=overlayModel.Tables.Single(table=>table.Source.Id=="8").Pages.Single(page=>page.Source.Id=="801");
+                var overlayRelation=Assert.Single(RelationCompilation.ForPage(overlayModel,observerPage,forExcel:true),
+                    relation=>relation.SourceColumn.Source.Id=="84");
+                Assert.Equal("101",overlayRelation.TargetPage.Source.Id);
+                Assert.Null(overlayRelation.Conditions);
+                Assert.Equal("id IS NOT NULL",overlayRelation.ImportCondition?.Definition);
+
+                foreach(var item in new[]{new{Key="pageId",Value="201"},new{Key="orderBy",Value="id asc"},
                     new{Key="tableId",Value="2"},new{Key="table",Value=prefix+"_party"}})
                 {
                     overrideField.Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(

@@ -414,8 +414,12 @@ public sealed class NonRedundantGeneratedReadTests
     [InlineData(1,true,false,false)]
     [InlineData(1,true,true,false)]
     [InlineData(1,true,true,true)]
+    [InlineData(0,false,false,true,true)]
+    [InlineData(0,true,false,true,true)]
+    [InlineData(1,false,false,true,true)]
+    [InlineData(1,true,true,true,true)]
     public async Task Global_single_with_only_physical_parent_keeps_selection_workbook_and_cache(
-        int storage,bool globalParent,bool globalSource,bool idLabel)
+        int storage,bool globalParent,bool globalSource,bool idLabel,bool excelOverride=false)
     {
         const string ns="Example.GlobalPhysicalParent";
         var catalog=NonRedundantApplicationFixture.Catalog("mt_parent_only");
@@ -444,6 +448,9 @@ public sealed class NonRedundantGeneratedReadTests
         foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))page.OrderBy="id desc";
         if(idLabel)catalog.ConfigColumns.Single(column=>column.Id=="15").ControlDetail=
             """{"pageId":"201","tableId":"2","nameField":"id"}""";
+        if(excelOverride)
+            foreach(var field in catalog.ConfigPageColumns.Where(field=>(field.ConfigPageId is "104" or "105")&&field.ConfigColumnId=="15"))
+                field.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"whereSql":"amount >= 12.34"}""");
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
         targetPage.IsExport=1;
         var independent=catalog.ConfigPages.Single(page=>page.Id=="104");
@@ -484,6 +491,38 @@ public sealed class NonRedundantGeneratedReadTests
             Assert.False(candidate.RequiresAccount);
             var mysql=candidate.GetType().GetProperty("MySql",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(candidate)!;
             Assert.Equal("group_id",mysql.GetType().GetProperty("RequiredMultiParent",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(mysql));
+            if(excelOverride)
+            {
+                const System.Reflection.BindingFlags instance=hidden|System.Reflection.BindingFlags.Instance;
+                const System.Reflection.BindingFlags members=hidden|System.Reflection.BindingFlags.Static;
+                var options=serviceType.GetField("DerivedOptionsPlan104_15",members)!.GetValue(null)!;
+                // 原交互仍只使用目标页；附加金额字段进入两个 Excel 匹配计划。
+                var optionsSql=options.GetType().GetProperty("MySql",instance)!.GetValue(options)!;
+                var optionFields=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                    optionsSql.GetType().GetProperty("Expressions",instance)!.GetValue(optionsSql));
+                Assert.DoesNotContain("amount",optionFields.Keys);
+                foreach(var pageId in new[]{"104","105"})
+                {
+                    var read=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                        serviceType.GetField("SingleImportReadPlan"+pageId+"_15",members)!.GetValue(null));
+                    Assert.Equal("int64",read.OutputTypes["id"]);
+                    var match=Assert.IsType<Metarill.Data.Queries.MySqlNonRedundantReadPlan>(
+                        read.GetType().GetProperty("MySql",instance)!.GetValue(read));
+                    Assert.Equal("id",Assert.Single(match.Outputs));
+                    var expressions=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                        match.GetType().GetProperty("Expressions",instance)!.GetValue(match));
+                    Assert.Contains("amount",expressions.Keys);
+                    Assert.Equal("group_id",match.GetType().GetProperty("RequiredMultiParent",instance)!.GetValue(match));
+                    var condition=Assert.IsType<Metarill.Data.Queries.FixedConditionSqlPlan>(
+                        serviceType.GetField("SingleImportCondition"+pageId+"_15",members)!.GetValue(null));
+                    var clause=condition.GetType().GetMethod("RenderConstants",instance)!.Invoke(condition,
+                        [new Metarill.Data.MySqlDatabaseProvider(),"excel",new Func<string,string>(name=>expressions[name])])!;
+                    var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                        clause.GetType().GetProperty("Parameters")!.GetValue(clause));
+                    Assert.Equal(12.34m,Assert.Single(parameters.Values));
+                    Assert.Contains("SingleImportCondition"+pageId+"_15.BindVariables",service);
+                }
+            }
             if(storage==1&&!idLabel)
             {
                 var cache=MixedRelationPropagationCompilation.ForModel(model);
