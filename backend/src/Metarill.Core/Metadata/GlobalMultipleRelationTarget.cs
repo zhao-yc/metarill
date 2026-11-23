@@ -11,14 +11,19 @@ public static class GlobalMultipleRelationTarget
     public static GlobalMultipleRelationPlan Require(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,false);
     /// <summary>仅供物理R1消费者的冻结缓存计划使用，来源仍要求真实项目范围；不开放全局来源。</summary>
     public static GlobalMultipleRelationPlan RequireCached(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,true);
-    /// <summary>全局复选的页级文本必须属于该非冗余字典，联接逐段证明发布目录和同类型终点。</summary>
+    /// <summary>没有明确候选页时，保留全局复选名称的唯一发布要求。</summary>
     public static bool IsPublishedCheckboxText(MetadataCatalog catalog,TableMetadata target,ColumnMetadata value)
+        =>IsPublishedCheckboxText(catalog,target,value,null);
+
+    /// <summary>用复选实际发布页证明文本联接及同类型终点，不借用同表其它发布页。</summary>
+    public static bool IsPublishedCheckboxText(MetadataCatalog catalog,TableMetadata target,ColumnMetadata value,PageMetadata? page)
     {
-        if(value.LogicalType!="string"||target.IsRongyu!=0||!GlobalCrossTableTarget.Declared(target))return false;
+        if(value.LogicalType!="string"||target.IsRongyu!=0||!GlobalCrossTableTarget.Declared(target)||
+            page is not null&&(page.ConfigTableId!=target.Id||!catalog.ConfigPages.Contains(page)))return false;
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
         return GlobalPhysicalRelationValue.IsScalar(storage,target,value)||
             MultiNameStorageColumns.IsDerivedCheckboxText(target,storage,value)&&
-            GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,target,value);
+            GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,target,value,page);
     }
 
     /// <summary>实时派生与缓存维护分别验证来源存储模式，其余发布和终点约束完全相同。</summary>

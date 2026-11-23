@@ -162,7 +162,7 @@ internal static class DatabaseCheckboxCompilation
                     exactTarget is null&&namePage is not null&&namePage.Source.Id==fixedPage;
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
                 bool TextLabel(ColumnModel label)=>target.IsGlobal&&realtimeFixedName
-                    ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(model.Catalog,target.Source,label.Source)
+                    ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(model.Catalog,target.Source,label.Source,namePage!.Source)
                     :MultiSelectCompilation.PhysicalTextLabel(model,target,label)||
                         (sharedLogicalParentScope||sharedDerivedPageScope||realtimeFixedName)&&
                         MultiNameStorageColumns.IsDerivedCheckboxText(target.Source,storage,label.Source);
