@@ -6,7 +6,17 @@ using Metarill.Core.Security;
 
 namespace Metarill.Runtime.Files;
 
-internal sealed record FileParentScope(ColumnMetadata Source, TableMetadata Parent, ColumnMetadata? Project, bool HasSoftDelete);
+internal sealed record FileParentScope(ColumnMetadata Source, TableMetadata Parent, ColumnMetadata? Project, bool HasSoftDelete)
+{
+    /// <summary>文本外键必须保留父主键的唯一拼写，下载和写事务都核对实际存储值。</summary>
+    internal long ReadStoredId(IReadOnlyDictionary<string, object?> record)
+    {
+        var value = record.GetValueOrDefault(Source.ColumnName);
+        return Project is null || Source.LogicalType.ToLowerInvariant() is "string" or "text" or "varchar"
+            ? FileReferenceScope.CanonicalId(value)
+            : FileReferenceScope.PositiveId(value);
+    }
+}
 
 internal sealed record FilePageScope(IReadOnlyList<FileParentScope> Parents,FixedConditionSqlPlan? Condition,IReadOnlyList<string> ConditionFields)
 {
@@ -122,10 +132,13 @@ internal static class FileReferenceScope
             ? id : throw new UnauthorizedAccessException("实际记录的父范围无效。");
     }
 
-    /// <summary>新全局物理父仍须与规范ID逐字相等，不能用前导零或空白冒充已证明的共享节点。</summary>
+    /// <summary>范围标识使用正整数的唯一十进制拼写，避免为同一记录引入文本别名。</summary>
     internal static long CanonicalId(object? value)
     {
-        var id=PositiveId(value);if(Convert.ToString(value,CultureInfo.InvariantCulture)!=id.ToString(CultureInfo.InvariantCulture))throw new UnauthorizedAccessException("实际全局父范围ID不规范。");return id;
+        var id = PositiveId(value);
+        if (Convert.ToString(value, CultureInfo.InvariantCulture) != id.ToString(CultureInfo.InvariantCulture))
+            throw new UnauthorizedAccessException("实际记录范围ID不规范。");
+        return id;
     }
 
     /// <summary>查询参数沿用生成器的字符串/整型身份映射，范围不依赖MySQL隐式数值转换。</summary>

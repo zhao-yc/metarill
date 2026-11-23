@@ -267,6 +267,129 @@ public sealed class FileCommandFactoryTests
         Assert.Equal(mode is "exact-allowed" or "exact-denied" ? 1 : 0, authorization.ExactCalls);
     }
 
+    /// <summary>保护文件读取和原引用同步核对同一个实际存储父键，文本父键必须逐字对应真实父记录。</summary>
+    [Theory]
+    [InlineData("string", false)]
+    [InlineData("text", false)]
+    [InlineData("varchar", false)]
+    [InlineData("string", true)]
+    [InlineData("int64", false)]
+    public async Task File_read_and_reference_sync_share_project_parent_identity(string type, bool noncanonical)
+    {
+        const long parentId = 9007199254740993;
+        const long recordId = 71;
+        const long fileId = 81;
+        var parentText = parentId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var storedParent = noncanonical ? "0" + parentText : parentText;
+        var catalog = new MetadataCatalog
+        {
+            YzProjectId = "1",
+            ConfigTables =
+            [
+                new() { Id = "10", TableName = "child_record" },
+                new() { Id = "30", TableName = "parent_record" }
+            ],
+            ConfigPages = [new() { Id = "20", ConfigTableId = "10", YzAdminTypeId = "3", WhereSql = "parent_id=@parentId AND yz_project_id=@current_yz_project_id" }],
+            YzAdminTypes = [new() { Id = "3" }],
+            ConfigColumns =
+            [
+                new() { Id = "11", ConfigTableId = "10", ColumnName = "id", LogicalType = "int64" },
+                new() { Id = "12", ConfigTableId = "10", ColumnName = "yz_project_id", LogicalType = "int64" },
+                new() { Id = "13", ConfigTableId = "10", ColumnName = "parent_id", LogicalType = type, LinkConfigTableId = "30" },
+                new() { Id = "14", ConfigTableId = "10", ColumnName = "attachments", LogicalType = "string",
+                    ControlKind = "FileLibrary", ControlDetail = """{"accessMode":"PROTECTED","maxCount":2,"allowedExtensions":[".txt"]}""" },
+                new() { Id = "31", ConfigTableId = "30", ColumnName = "id", LogicalType = "int64" },
+                new() { Id = "32", ConfigTableId = "30", ColumnName = "yz_project_id", LogicalType = "int64" }
+            ],
+            ConfigPageColumns = [new() { Id = "21", ConfigPageId = "20", ConfigColumnId = "14" }]
+        };
+        var source = Path.Combine(Path.GetDirectoryName(SourcePath())!, "../../metadata/files.json");
+        var infrastructure = System.Text.Json.JsonSerializer.Deserialize<MetadataCatalog>(File.ReadAllText(source),
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        var registry = new FileMetadataContext([catalog]);
+        var provider = new Provider();
+        using var session = new DatabaseSession(new()
+        {
+            ExpectedDatabase = "offline",
+            ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused"
+        }, null, provider);
+        var store = new SqlRowStore(session, MetadataCatalogComposition.MergePhysical(catalog, infrastructure));
+        var authorization = new ReferenceSyncAuthorization(false);
+        var files = new FileLibraryService(store, registry, new SnowflakeIdGenerator(29), authorization, new FileLibraryOptions());
+        var synchronizing = false;
+        var writes = 0;
+        var parentChecks = 0;
+        provider.Scalar = command =>
+        {
+            Assert.Same(session.CurrentTransaction, command.Transaction);
+            if (command.CommandText.Contains("FROM `yz_file_ref`", StringComparison.Ordinal))
+            {
+                Assert.True(synchronizing);
+                Assert.Equal(fileId, command.Parameters["history_file"].Value);
+                return null;
+            }
+            Assert.Contains("FROM `parent_record`", command.CommandText);
+            Assert.Contains(command.Parameters.Cast<DbParameter>(), parameter => Equals(parameter.Value, parentId));
+            Assert.Contains(command.Parameters.Cast<DbParameter>(), parameter => Equals(parameter.Value, 1L));
+            Assert.Equal(synchronizing, command.CommandText.EndsWith("FOR UPDATE", StringComparison.Ordinal));
+            parentChecks++;
+            return parentId;
+        };
+        provider.Read = command =>
+        {
+            var data = new DataTable();
+            var sql = command.CommandText;
+            if (sql.Contains("FROM `child_record`", StringComparison.Ordinal))
+            {
+                data.Columns.Add("id", typeof(long));
+                data.Columns.Add("yz_project_id", typeof(long));
+                data.Columns.Add("parent_id", type == "int64" ? typeof(long) : typeof(string));
+                data.Columns.Add("attachments", typeof(string));
+                data.Rows.Add(recordId, 1L, type == "int64" ? (object)parentId : storedParent, "[\"81\"]");
+            }
+            else if (sql.Contains("FROM `yz_file_library`", StringComparison.Ordinal))
+            {
+                data.Columns.Add("id", typeof(long));
+                data.Columns.Add("yz_project_id", typeof(long));
+                data.Columns.Add("status", typeof(string));
+                data.Columns.Add("name", typeof(string));
+                data.Columns.Add("size", typeof(long));
+                data.Columns.Add("access_mode", typeof(string));
+                data.Columns.Add("owner_id", typeof(long));
+                data.Rows.Add(fileId, 1L, "ready", "sample.txt", 3L, "PROTECTED", 2L);
+            }
+            else
+            {
+                Assert.Contains("FROM `yz_file_ref`", sql);
+                data.Columns.Add("record_id", typeof(long));
+                data.Columns.Add("field_name", typeof(string));
+                if (!synchronizing) data.Rows.Add(recordId, "attachments");
+            }
+            return data.CreateDataReader();
+        };
+        provider.Write = command =>
+        {
+            Assert.Contains("INSERT INTO `yz_file_ref`", command.CommandText);
+            Assert.Same(session.CurrentTransaction, command.Transaction);
+            writes++;
+            return 1;
+        };
+
+        var canRead = await FileReferenceReadAuthorization.CanReadAsync(store, registry, authorization, fileId,
+            authorization.RequireActor(), default);
+        synchronizing = true;
+        var request = new FileReferenceSyncRequest("20", "10", "14", "child_record", "71", parentText, "attachments", ["81"]);
+        if (noncanonical)
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => files.SynchronizeReferencesAsync(request));
+        else
+            await files.SynchronizeReferencesAsync(request);
+
+        Assert.Equal(!noncanonical, canRead);
+        Assert.Equal(noncanonical ? 0 : 2, parentChecks);
+        Assert.Equal(noncanonical ? 0 : 1, writes);
+        Assert.Equal(noncanonical ? 1 : 0, provider.Last!.Rollbacks);
+    }
+
     /// <summary>普通附件沿用账号目标范围，并让引用与业务行位于同一快照或写事务。</summary>
     [Theory]
     [InlineData("snapshot")]
@@ -377,6 +500,7 @@ public sealed class FileCommandFactoryTests
             return new(true, match ? System.Text.Json.JsonSerializer.SerializeToElement(1) : null);
         }
         public RuntimeActor RequireActor() => new(2, "测试", false, "1", "3");
+        public void RequireFileSourcePagePermission(string pageId) => Assert.Equal("20", pageId);
         public void RequirePagePermission(string pageId, string operation)
         {
             Assert.Equal("20", pageId);
@@ -614,6 +738,7 @@ public sealed class FileCommandFactoryTests
         internal int Commands,Connections;internal Exception? Failure;internal Connection? Last;
         internal Func<DbCommand,DbDataReader>? Read;
         internal Func<DbCommand,int>? Write;
+        internal Func<DbCommand,object?>? Scalar;
         public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}
         public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);
         public DbConnection CreateConnection(DatabaseOptions options){Connections++;return Last=new(this);}
@@ -630,7 +755,7 @@ public sealed class FileCommandFactoryTests
         [System.Diagnostics.CodeAnalysis.AllowNull]public override string ConnectionString{get;set;}="";
         public override string Database=>"offline";public override string DataSource=>"offline";public override string ServerVersion=>"fake";public override ConnectionState State=>ConnectionState.Open;
         public override void Open()=>Opens++;public override void Close(){}public override void ChangeDatabase(string name)=>throw new NotSupportedException();
-        protected override DbCommand CreateDbCommand()=>Command=new(this,owner.Failure,owner.Read,owner.Write);
+        protected override DbCommand CreateDbCommand()=>Command=new(this,owner.Failure,owner.Read,owner.Write,owner.Scalar);
         protected override DbTransaction BeginDbTransaction(IsolationLevel level)=>new Transaction(this,level);
         protected override void Dispose(bool disposing){IsDisposed=true;base.Dispose(disposing);}
     }
@@ -640,12 +765,12 @@ public sealed class FileCommandFactoryTests
         public override void Commit()=>connection.Commits++;public override void Rollback()=>connection.Rollbacks++;
     }
     /// <summary>仅复用MySQL参数集合，实际执行返回空reader或原异常；不解释SQL、不读写文件。</summary>
-    private sealed class Command(Connection connection,Exception? failure,Func<DbCommand,DbDataReader>? read,Func<DbCommand,int>? write):DbCommand
+    private sealed class Command(Connection connection,Exception? failure,Func<DbCommand,DbDataReader>? read,Func<DbCommand,int>? write,Func<DbCommand,object?>? scalar):DbCommand
     {
         private readonly MySqlCommand parameters=new();internal int Executions;internal bool IsDisposed;internal CancellationToken Token;
         [System.Diagnostics.CodeAnalysis.AllowNull]public override string CommandText{get;set;}="";public override int CommandTimeout{get;set;}public override CommandType CommandType{get;set;}public override bool DesignTimeVisible{get;set;}public override UpdateRowSource UpdatedRowSource{get;set;}
         protected override DbConnection? DbConnection{get;set;}=connection;protected override DbTransaction? DbTransaction{get;set;}protected override DbParameterCollection DbParameterCollection=>parameters.Parameters;
-        public override void Cancel(){}public override void Prepare(){}protected override DbParameter CreateDbParameter()=>new MySqlParameter();public override int ExecuteNonQuery()=>write?.Invoke(this)??throw new NotSupportedException();public override object? ExecuteScalar()=>throw new NotSupportedException();
+        public override void Cancel(){}public override void Prepare(){}protected override DbParameter CreateDbParameter()=>new MySqlParameter();public override int ExecuteNonQuery()=>write?.Invoke(this)??throw new NotSupportedException();public override object? ExecuteScalar()=>scalar is null?throw new NotSupportedException():scalar(this);
         protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)=>throw new NotSupportedException();
         /// <summary>异步执行保留传入取消标记及异常对象，供真实调用链断言。</summary>
         protected override Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior,CancellationToken token){Executions++;Token=token;return failure is null?Task.FromResult(read?.Invoke(this)??new DataTable().CreateDataReader()):Task.FromException<DbDataReader>(failure);}

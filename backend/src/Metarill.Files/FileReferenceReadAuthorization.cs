@@ -54,7 +54,7 @@ internal static class FileReferenceReadAuthorization
                     try{actual=FileValidation.ParseFileIds(record.GetValueOrDefault(field.ColumnName));}
                     catch(InvalidOperationException){continue;} // 仅把损坏的存储文件值作为拒权，不吞数据库或连接错误。
                     if(!actual.Contains(fileId))continue;
-                    var parents=scopes.Select(scope=>(Scope:scope,Id:scope.Project is null?FileReferenceScope.CanonicalId(record.GetValueOrDefault(scope.Source.ColumnName)):FileReferenceScope.PositiveId(record.GetValueOrDefault(scope.Source.ColumnName)))).ToArray();
+                    var parents = scopes.Select(parent => (Scope: parent, Id: parent.ReadStoredId(record))).ToArray();
                     var logical=await FileCrossParentScope.ValuesAsync(scope.Crosses,store,record,actor,currentRead,token);
                     if(parents.Select(parent=>parent.Id).Concat(scope.GlobalParents.Select(parent=>FileReferenceScope.CanonicalId(record.GetValueOrDefault(parent.ColumnName)))).Concat(logical).Distinct().Skip(1).Any())continue;
                     var valid=true;
