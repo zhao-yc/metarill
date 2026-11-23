@@ -132,7 +132,11 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     [InlineData(0, false, true)]
     [InlineData(1, true, true)]
     [InlineData(1, false, true)]
-    public async Task Checkbox_with_stored_global_account_dictionary(int mode,bool explicitPage,bool globalSource=false)
+    [InlineData(0, true, false, true)]
+    [InlineData(0, false, true, true)]
+    [InlineData(1, false, false, true)]
+    [InlineData(1, true, true, true)]
+    public async Task Checkbox_with_stored_global_account_dictionary(int mode,bool explicitPage,bool globalSource=false,bool alternate=false)
     {
         var catalog = PhysicalLabelCatalog(mode,false);
         if(globalSource)
@@ -160,18 +164,61 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             new() { Id="17", ConfigTableId="1", YzProjectId="100", ColumnName="store_id", LogicalType="int64" },
             new() { Id="37", ConfigTableId="3", YzProjectId="100", ColumnName="store_id", LogicalType="int64" }
         ]);
+        if(alternate)
+        {
+            catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",YzProjectId="100",ColumnName="short_caption",
+                Name="简称",LogicalType="string",ColumnLength="100"});
+            catalog.ConfigPageColumns.Add(new(){Id="1018",ConfigColumnId="18",ConfigPageId="10",YzProjectId="100",IsShow=1,IsEdit=0});
+            var pageWithShortName=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(business))!;
+            pageWithShortName.Id="31";
+            catalog.ConfigPages.Add(pageWithShortName);
+            foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="30").ToArray())
+            {
+                var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+                copy.Id="31"+field.ConfigColumnId;
+                copy.ConfigPageId="31";
+                if(copy.ConfigColumnId=="38")
+                    copy.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"short_caption"}""");
+                if(mode==1&&copy.ConfigColumnId=="40")continue;
+                catalog.ConfigPageColumns.Add(copy);
+            }
+            if(mode==1)
+            {
+                catalog.ConfigColumns.Add(new(){Id="41",ConfigTableId="3",YzProjectId="100",ColumnName="selected_global_source_short_captions",
+                    LogicalType="string",ColumnLength="max",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                        ["columnFullName"]=JsonSerializer.SerializeToElement("selected_global_source.short_caption")}});
+                catalog.ConfigPageColumns.Add(new(){Id="3141",ConfigPageId="31",ConfigColumnId="41",YzProjectId="100",IsShow=1});
+            }
+        }
 
         const string application = "Example.GlobalStoredCheckbox";
         var model = GenerationModel.Create(catalog,application);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
         var owner = model.Tables.Single(table => table.Source.Id == "3");
-        var page = Assert.Single(owner.Pages);
+        var page = owner.Pages.Single(page=>page.Source.Id=="30");
         var checkbox = Assert.Single(DatabaseCheckboxCompilation.ForService(model,owner,page));
         Assert.Equal("10",checkbox.GlobalPage?.Source.Id);
         Assert.Equal("16",checkbox.Name.Source.Id);
         Assert.Contains(page.Searchable,column=>column.Source.Id=="40");
         Assert.False(checkbox.DerivedName);
+        if(alternate)
+        {
+            var second=owner.Pages.Single(candidate=>candidate.Source.Id=="31");
+            var label=Assert.Single(DatabaseCheckboxCompilation.ForService(model,owner,second));
+            Assert.Equal("short_caption",label.Name.Source.ColumnName);
+            Assert.Equal("10",label.GlobalPage?.Source.Id);
+
+            // 简称必须在实际字典页发布，页面覆盖不能借用未公开的字段。
+            var labelField=catalog.ConfigPageColumns.Single(field=>field.Id=="1018");
+            labelField.IsShow=0;
+            try
+            {
+                var rejected=Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+                Assert.Contains("已开放该字段",rejected.Message);
+            }
+            finally { labelField.IsShow=1; }
+        }
 
         var boundary = Path.Combine(Path.GetTempPath(),"metarill-global-stored-checkbox");
         var directory = Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -185,6 +232,20 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             Assert.Contains("ImportCheckbox30_38Async",service);
             Assert.Contains("Export30Async",service);
             Assert.Contains(mode==0?"FixedReadComparison.JsonArrayAnyContains":"ApplyJsonArrayAnyLike",service);
+            if(alternate)
+            {
+                Assert.Contains("CheckboxGlobalCondition31_38.BindAccount(actor)",service);
+                Assert.Contains("CheckboxOptions31_38Async",service);
+                Assert.Contains("ImportCheckbox31_38Async",service);
+                Assert.Contains("Export31Async",service);
+                if(mode==0)
+                    Assert.Contains("row.ShortCaption==name",service);
+                else
+                {
+                    Assert.Contains("entity.SelectedGlobalSourceCaptions=entity.SelectedGlobalSourceIds",service);
+                    Assert.Contains("entity.SelectedGlobalSourceShortCaptions=entity.SelectedGlobalSourceIds",service);
+                }
+            }
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var generated = assembly.GetType(application+".Generated.Services.CachedConsumerService",throwOnError:true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(generated.TypeHandle);
@@ -209,6 +270,16 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.True(read.RequiresAccount);
                 var bound=read.BindAccount(actor);
                 Assert.Equal("string",bound.OutputTypes["selected_global_source_captions"]);
+                if(alternate)
+                {
+                    var second=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(generated.GetField("ReadPlan31",hidden)!.GetValue(null));
+                    Assert.True(second.RequiresAccount);
+                    var selected=second.BindAccount(actor);
+                    var mysql=selected.GetType().GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(selected)!;
+                    var expression=CheckboxNameExpression(mysql,"selected_global_source_captions");
+                    Assert.Contains("`short_caption`",expression);
+                    Assert.DoesNotContain("`caption`",expression);
+                }
                 if(globalSource)
                 {
                     Assert.Equal("string",bound.OutputTypes["attachments"]);
@@ -234,9 +305,11 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var maintenance=MixedRelationPropagationCompilation.ForModel(model);
                 Assert.Contains("selected_global_source_captions",maintenance.MixedSourceColumns["cached_consumer"]);
                 Assert.Contains("global_source",maintenance.MixedTargets);
-                var scoped=Assert.Single(RelationPropagationCompilation.DerivedBindings(model),binding=>binding.Foreign.Source.Id=="38");
-                Assert.True(scoped.Multiple);
-                if(globalSource)
+                var scoped=RelationPropagationCompilation.DerivedBindings(model).Where(binding=>binding.Foreign.Source.Id=="38").ToArray();
+                Assert.Equal(alternate?new[]{"caption","short_caption"}:new[]{"caption"},
+                    scoped.Select(binding=>binding.Value.Source.ColumnName).Order(StringComparer.Ordinal));
+                Assert.All(scoped,binding=>Assert.True(binding.Multiple));
+                if(globalSource||alternate)
                 {
                     var generatedMaintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
                         assembly.GetType(application+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
@@ -244,7 +317,14 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                         generatedMaintenance.GetType().GetProperty("Plans",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(generatedMaintenance));
                     var ownerPlan=plans[owner.Source.Id]!;
                     Assert.Null(ownerPlan.GetType().GetProperty("Error")!.GetValue(ownerPlan));
-                    AssertOwnedScope(ownerPlan.GetType().GetProperty("Read")!.GetValue(ownerPlan)!);
+                    var read=ownerPlan.GetType().GetProperty("Read")!.GetValue(ownerPlan)!;
+                    AssertOwnedScope(read);
+                    if(alternate)
+                    {
+                        Assert.Contains("selected_global_source_short_captions",generatedMaintenance.MixedSourceColumns["cached_consumer"]);
+                        Assert.Contains("`short_caption`",CheckboxNameExpression(read,"selected_global_source_short_captions"));
+                        Assert.Contains("`caption`",CheckboxNameExpression(read,"selected_global_source_captions"));
+                    }
                 }
 
                 business.WhereSql=business.WhereSql.Replace(" AND store_id=@current_store_id","",StringComparison.Ordinal);
@@ -264,6 +344,10 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     private static void AssertOwnedScope(object mysql) =>
         Assert.Contains("`yz_project_id`",Assert.IsType<string>(
             mysql.GetType().GetProperty("Scope",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(mysql)));
+
+    /// <summary>从实际生成的名称表达式核对最终使用的物理字典列。</summary>
+    private static string CheckboxNameExpression(object mysql,string name) =>
+        Assert.IsType<string>(mysql.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(mysql,[name]));
 
     /// <summary>普通项目复选支持已声明名称，真实项目谓词不能被名称配置替代。</summary>
     [Theory][InlineData(0,false)][InlineData(0,true)][InlineData(1,false)][InlineData(1,true)]

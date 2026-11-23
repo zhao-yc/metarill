@@ -119,10 +119,14 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!GlobalCrossTableTarget.Declared(target)&&PhysicalTextMultiLabel(target,original)&&PhysicalTextMultiLabel(target,label))
                 return label.ColumnName;
             var fixedPage=globalPageId??(baseline.PageId.Length>0?baseline.PageId:Text(relation,"linkConfigPageId"));
-            bool TextLabel(ColumnMetadata column)=>globalPageId is not null
-                ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(catalog,target,column,selected)
-                :PhysicalTextMultiLabel(target,column)||MultiNameStorageColumns.IsDerivedCheckboxText(target,storage[target.Id],column);
-            if(table.IsRongyu!=0||target.IsRongyu!=0||selected is null||
+            var storedAccount=globalPageId is not null&&selected is not null&&
+                StoredAccountMultiPage(catalog,target,selected,checkbox:true);
+            bool TextLabel(ColumnMetadata column)=>storedAccount
+                ?PhysicalTextMultiLabel(target,column)
+                :globalPageId is not null
+                    ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(catalog,target,column,selected)
+                    :PhysicalTextMultiLabel(target,column)||MultiNameStorageColumns.IsDerivedCheckboxText(target,storage[target.Id],column);
+            if(table.IsRongyu!=0||target.IsRongyu!=0&&!storedAccount||selected is null||
                 selected.Id!=fixedPage||selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
                 definition.TableId.Length>0&&definition.TableId!=target.Id||
                 definition.Table.Length>0&&definition.Table!=target.TableName||

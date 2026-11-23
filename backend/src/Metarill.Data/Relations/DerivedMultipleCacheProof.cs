@@ -12,9 +12,17 @@ internal static class DerivedMultipleCacheProof
         if(!binding.Multiple||!GlobalCrossTableTarget.Declared(source)||binding.SourceTableId!=source.Id)return false;
         var foreign=catalog.ConfigColumns.SingleOrDefault(column=>column.Id==binding.ForeignColumnId&&column.ConfigTableId==source.Id);
         var target=catalog.ConfigTables.SingleOrDefault(table=>table.Id==binding.TargetTableId);
-        return foreign is {ControlKind:"MultiSelectPage" or "MultiCheckBoxDatabase"}&&target is {IsRongyu:1}&&GlobalCrossTableTarget.Declared(target)&&
-            MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign) is not null&&
-            GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).Name.Id==binding.ValueColumnId;
+        if(foreign is not {ControlKind:"MultiSelectPage" or "MultiCheckBoxDatabase"}||target is not {IsRongyu:1}||
+            !GlobalCrossTableTarget.Declared(target)||MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign) is not {} page)
+            return false;
+        var fixedName=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).Name;
+        if(fixedName.Id==binding.ValueColumnId)return true;
+        if(foreign.ControlKind!="MultiCheckBoxDatabase"||binding.CheckboxTargetPageId!=page.Id||binding.CheckboxSourceParentId is not null)
+            return false;
+
+        // 页级简称仍须是来源实际声明且在同一目标页开放的文本，不能从其他页面借用。
+        var value=catalog.ConfigColumns.SingleOrDefault(column=>column.ConfigTableId==target.Id&&column.Id==binding.ValueColumnId);
+        return value is not null&&MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,source,foreign,target,value,page.Id).Id==page.Id;
     }
 
     /// <summary>数据层独立核对生成器声明；派生值仍须由单值匹配编译器取得终点证明。</summary>

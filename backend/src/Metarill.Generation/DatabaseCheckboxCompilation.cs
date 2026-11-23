@@ -143,7 +143,8 @@ internal static class DatabaseCheckboxCompilation
             var sharedFixedR0Page=sharedNamesPage&&target.Source.IsRongyu==0&&exactTarget is null&&
                 !FixedPageConditionCompilation.HasLogicalFields(namePage!);
             var sharedScalarPage=sharedFixedR0Page&&namePage!.Scopes.All(scope=>scope.Source=="project");
-            var sharedAccountScope=sharedScalarPage&&FixedPageConditionCompilation.HasAccountVariables(namePage!);
+            var sharedStoredAccountScope=sharedNamesPage&&storedAccountPage;
+            var sharedAccountScope=sharedStoredAccountScope||sharedScalarPage&&FixedPageConditionCompilation.HasAccountVariables(namePage!);
             var literalConditions=sharedFixedR0Page&&(namePage!.Condition is null||namePage.Condition.Syntax.Variables.Count==0);
             var sharedLiteralScope=sharedScalarPage&&literalConditions;
             // 普通物理目标父沿用原路由及独立表单的持久外键证明。
@@ -151,10 +152,10 @@ internal static class DatabaseCheckboxCompilation
                 namePage!.Scopes.Count(scope=>scope.Source=="parent")==1&&namePage.Scopes.Any(scope=>
                     scope.Source=="parent"&&NonRedundantReadCompilation.Physical(model,target,scope.Column)&&
                     !NonRedundantCrossParentCompilation.Managed(model,target,namePage,scope.Column));
-            if(sharedAccountScope)
+            if(sharedAccountScope&&!sharedStoredAccountScope)
                 _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,namePage!.Source);
             // 任一副本来自联接时，各页的写入口都必须使用可以一次投影全部名称的计划。
-            var sharedDerivedPageScope=(sharedAccountScope||sharedLiteralScope||sharedPhysicalParentScope)&&
+            var sharedDerivedPageScope=(!sharedStoredAccountScope&&sharedAccountScope||sharedLiteralScope||sharedPhysicalParentScope)&&
                 target.Columns.Any(label=>
                 (label.Source.ColumnName==baseline.NameField||pageNames.Contains(label.Source.ColumnName))&&
                 !NonRedundantReadCompilation.Physical(model,target,label));
@@ -164,10 +165,10 @@ internal static class DatabaseCheckboxCompilation
             if(usesNameOverride)
             {
                 // 非冗余页仍通过原数组实时投影；冗余名称副本沿发布范围独立证明。
-                var realtimeFixedName=table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&
+                var realtimeFixedName=table.Source.IsRongyu==0&&(target.Source.IsRongyu==0||storedAccountPage)&&
                     exactTarget is null&&namePage is not null&&namePage.Source.Id==fixedPage;
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
-                bool TextLabel(ColumnModel label)=>target.IsGlobal&&realtimeFixedName
+                bool TextLabel(ColumnModel label)=>target.IsGlobal&&realtimeFixedName&&target.Source.IsRongyu==0
                     ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(model.Catalog,target.Source,label.Source,namePage!.Source)
                     :MultiSelectCompilation.PhysicalTextLabel(model,target,label)||
                         (sharedLogicalParentScope||sharedDerivedPageScope||realtimeFixedName)&&
@@ -192,7 +193,7 @@ internal static class DatabaseCheckboxCompilation
                 return Gap("复选不能用页覆盖替换表级固定范围。");
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
             var realtimeRead=table.Source.IsRongyu==0&&!functionForm;
-            var globalRealtimeNameOverride=realtimeRead&&target.IsGlobal&&usesNameOverride;
+            var globalRealtimeNameOverride=realtimeRead&&target.IsGlobal&&target.Source.IsRongyu==0&&usesNameOverride;
             var controlRead=realtimeRead&&(conditions is not null||
                 scopes.Any(scope=>scope.Source=="parent"||target.IsGlobal&&scope.Source=="project"));
             // 旧复选允许只绑定表。具有物理行项目归属的全局目录仍按真实身份限定。
