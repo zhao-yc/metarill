@@ -667,6 +667,12 @@ public sealed class DerivedSingleSelectionTests
     [InlineData(0, 1, true, true, "mixed-target-alternate")]
     [InlineData(0, 1, true, false, "mixed-target-root-literal")]
     [InlineData(0, 1, false, false, "mixed-target-alternate-literal")]
+    [InlineData(0, 1, false, false, "account")]
+    [InlineData(0, 1, true, false, "account-parent")]
+    [InlineData(1, 1, true, false, "account")]
+    [InlineData(1, 1, false, false, "account-parent")]
+    [InlineData(0, 1, true, false, "account-merchant")]
+    [InlineData(1, 1, true, false, "account-merchant-parent")]
     public async Task Project_multiselect_uses_fixed_dictionary_scope(int sourceStorage, int targetStorage, bool explicitProject,
         bool nameOverride, string parentMode)
     {
@@ -687,7 +693,11 @@ public sealed class DerivedSingleSelectionTests
         foreign.LogicalType = "string";
         foreign.ColumnLength = "max";
         var literal = parentMode != "only";
-        var hasParent = parentMode.Length != 0;
+        var accountTarget = parentMode.StartsWith("account", StringComparison.Ordinal);
+        var merchantAccount = parentMode.StartsWith("account-merchant", StringComparison.Ordinal);
+        var ownershipField = merchantAccount ? "merchant_id" : "store_id";
+        var ownershipPredicate = $"{ownershipField}=@current_{ownershipField}";
+        var hasParent = accountTarget ? parentMode.EndsWith("-parent", StringComparison.Ordinal) : parentMode.Length != 0;
         var mixedTarget = parentMode.StartsWith("mixed-target-", StringComparison.Ordinal);
         var targetHasParent = !parentMode.EndsWith("-literal", StringComparison.Ordinal);
         var rootIsPlain = parentMode.StartsWith("mixed-target-root", StringComparison.Ordinal);
@@ -713,6 +723,18 @@ public sealed class DerivedSingleSelectionTests
         List<string> conditions = [];
         if (explicitProject) conditions.Add("yz_project_id=@current_yz_project_id");
         if (literal) conditions.Add("status=17");
+        if (accountTarget)
+        {
+            conditions.Add(ownershipPredicate);
+            foreach (var tableId in new[] { source.Id, target.Id })
+                catalog.ConfigColumns.Add(new()
+                {
+                    Id = tableId + "990", ConfigTableId = tableId, YzProjectId = catalog.YzProjectId,
+                    ColumnName = ownershipField, LogicalType = merchantAccount ? "string" : "int64"
+                });
+            foreach (var item in catalog.ConfigPages.Where(item => item.ConfigTableId == source.Id))
+                item.WhereSql += " AND " + ownershipPredicate;
+        }
         if (hasParent && targetHasParent)
         {
             conditions.Add("group_id=@parent_id");
@@ -809,7 +831,8 @@ public sealed class DerivedSingleSelectionTests
         }
         var selection = MultiSelectCompilation.Resolve(model, owner, sourcePage, control, forService: true);
         Assert.True(selection.Definition is not null, selection.Reason);
-        Assert.True(FixedPageConditionCompilation.HasMultiTargetScope(model, selection.Definition.Target, selection.Definition.TargetPage));
+        if (!accountTarget)
+            Assert.True(FixedPageConditionCompilation.HasMultiTargetScope(model, selection.Definition.Target, selection.Definition.TargetPage));
         Assert.Equal(hasParent && !formParent, selection.Definition.SameParent);
         if (formParent) Assert.Equal("groupId", selection.Definition.TargetParentField);
         if (sourcePair)
@@ -817,6 +840,12 @@ public sealed class DerivedSingleSelectionTests
             Assert.Equal(new[] { "group_id", "secondary_group_id" },
                 selection.Definition.CompoundSourceDependencies.Select(column => column.Source.ColumnName).Order());
         }
+        const long accountOwnerId = 9007199254740993L;
+        var accountActor = new RuntimeActor(7, "合成归属账号", false, catalog.YzProjectId, "5")
+        {
+            StoreId = merchantAccount ? null : accountOwnerId,
+            MerchantId = merchantAccount ? accountOwnerId : null
+        };
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-project-multi-literal");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try
@@ -874,7 +903,7 @@ public sealed class DerivedSingleSelectionTests
             var lookup = service.GetField("MultiDerivedPlan101_15", BindingFlags.Static | BindingFlags.NonPublic);
             Assert.NotNull(lookup);
             var plan = Assert.IsType<NonRedundantReadPlan>(lookup.GetValue(null));
-            var matching = MySql(plan);
+            var matching = MySql(BindAccount(plan));
             var matchingScope = Assert.IsType<string>(matching.GetType().GetProperty("Scope", hidden)!.GetValue(matching));
             HasDictionaryRange(matchingScope, matching);
             if (hasParent) Assert.Contains("/*metarill:nested-current*/", matchingScope);
@@ -891,9 +920,15 @@ public sealed class DerivedSingleSelectionTests
             {
                 var pageRead = Assert.IsType<NonRedundantReadPlan>(
                     service.GetField("ReadPlan101", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
-                var read = MySql(pageRead);
+                var read = MySql(BindAccount(pageRead));
                 var expression = Expression(read);
                 HasDictionaryRange(expression, read);
+                if (accountTarget)
+                {
+                    var exported = Assert.IsType<NonRedundantReadPlan>(
+                        service.GetField("ExportReadPlan101", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+                    Assert.Equal(expression, Expression(MySql(BindAccount(exported))));
+                }
                 Assert.Contains(nameOverride ? ".`notes`" : ".`name`", expression);
                 if (hasParent) Assert.Contains("b.`group_id`", expression);
                 if (sourcePair)
@@ -911,6 +946,11 @@ public sealed class DerivedSingleSelectionTests
                 var read = published.GetType().GetProperty("Read")!.GetValue(published)!;
                 var expression = Expression(read);
                 HasDictionaryRange(expression, read);
+                if (accountTarget)
+                {
+                    Assert.Equal(false, read.GetType().GetProperty("RequiresAccount", hidden)!.GetValue(read));
+                    Assert.Contains($"b.`{ownershipField}`", expression);
+                }
                 if (hasParent) Assert.Contains("b.`group_id`", expression);
                 if (sourcePair)
                     Assert.Contains("BINARY CAST(b.`secondary_group_id` AS CHAR)=BINARY CAST(b.`group_id` AS CHAR)", expression);
@@ -921,6 +961,7 @@ public sealed class DerivedSingleSelectionTests
                     Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlySet<string>>>(
                         item.GetType().GetProperty("Outputs")!.GetValue(item)).TryGetValue(nameField, out var fields) &&
                     (!literal || fields.Contains("status")) && fields.Contains("name") &&
+                    (!accountTarget || fields.Contains(ownershipField)) &&
                     (!hasParent || fields.Contains("group_id")) &&
                     (!compound || fields.Contains("alternate_group_id")));
                 if (hasParent)
@@ -954,9 +995,34 @@ public sealed class DerivedSingleSelectionTests
                 allowGlobalParent: false, allowStoredPhysicalParents: true));
         }
 
+        if (accountTarget && sourceStorage == 1)
+        {
+            // 隐藏来源页也能触发写入，缺少同一来源归属时应在发布前拒绝。
+            var hiddenOwner = catalog.ConfigPages.Single(item => item.Id == "104");
+            hiddenOwner.WhereSql = hiddenOwner.WhereSql.Replace(" AND " + ownershipPredicate, "", StringComparison.Ordinal);
+            var incomplete = GenerationModel.Create(catalog, ns);
+            Assert.Contains(GenerationCapabilityAudit.Collect(incomplete), gap =>
+                gap.Column == foreign.ColumnName && gap.Reason.Contains("物理账号归属", StringComparison.Ordinal));
+        }
+
+        NonRedundantReadPlan BindAccount(NonRedundantReadPlan plan)
+        {
+            if (!accountTarget) return plan;
+            Assert.True(plan.RequiresAccount);
+            Assert.Throws<UnauthorizedAccessException>(() => plan.BindAccount(accountActor with { StoreId = null, MerchantId = null }));
+            var bound = plan.BindAccount(accountActor);
+            object expected = merchantAccount ? accountOwnerId.ToString(CultureInfo.InvariantCulture) : accountOwnerId;
+            Assert.Contains(expected, Constants(MySql(bound)).Values);
+            return bound;
+        }
+
         static object MySql(NonRedundantReadPlan plan) => plan.GetType().GetProperty("MySql", hidden)!.GetValue(plan)!;
         static string Expression(object read) =>
             Assert.IsType<string>(read.GetType().GetMethod("Expression", hidden)!.Invoke(read, [nameField]));
+        static IReadOnlyDictionary<string, object?> Constants(object read) =>
+            Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
+                read.GetType().GetProperty("Constants", hidden)!.GetValue(read));
+
         void HasDictionaryRange(string sql, object read)
         {
             Assert.Equal(literal, sql.Contains(".`status`", StringComparison.Ordinal));
@@ -967,9 +1033,8 @@ public sealed class DerivedSingleSelectionTests
                 Assert.Contains("`scope_multi_group`", sql);
                 if (compound) Assert.Contains(".`alternate_group_id`", sql);
             }
-            var values = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
-                read.GetType().GetProperty("Constants", hidden)!.GetValue(read)).Values;
-            if (literal) Assert.Contains(17, values);
+            if (literal) Assert.Contains(17, Constants(read).Values);
+            if (accountTarget) Assert.Contains($".`{ownershipField}`", sql);
         }
     }
 

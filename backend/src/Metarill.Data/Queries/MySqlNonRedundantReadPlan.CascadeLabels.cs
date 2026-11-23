@@ -183,7 +183,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 .Terms.All(GlobalMultipleRelationTarget.IsProjectScope);
     }
 
-    /// <summary>项目内多选字典可以使用已发布的物理常量及同一业务父表的物理键，项目隔离始终有效。</summary>
+    /// <summary>项目内多选字典保留物理常量、实际父键和冗余字典的原账号等值条件。</summary>
     internal static bool IsProjectFixedMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
     {
         if(GlobalCrossTableTarget.Declared(table)||table.IsRongyu is not(0 or 1)||table.IsView!=0||table.IsFunctionTable!=0||
@@ -197,7 +197,7 @@ public static partial class MySqlNonRedundantReadCompiler
             MultiTargetParentScope.IsParameter(value.Text))).ToArray();
         if(!syntax.Terms.Any(term=>!GlobalMultipleRelationTarget.IsProjectScope(term))||
             syntax.Terms.Any(term=>!GlobalMultipleRelationTarget.IsProjectScope(term)&&!parents.Contains(term)&&
-                term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable))||
+                term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)&&!IsStoredAccount(term))||
             syntax.Fields.Any(field=>!storage.PhysicalColumns.Any(column=>column.ColumnName==field&&
                 GlobalPhysicalRelationValue.IsScalar(storage,table,column))||
                 CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field)))
@@ -205,6 +205,12 @@ public static partial class MySqlNonRedundantReadCompiler
         return parents.Length==0||
             MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,
                 allowStoredPhysicalParents:true) is {Global:false,Logical:false};
+
+        // 请求通过认证快照绑定，冗余名称回填则由现有归属计划逐页证明来源物理字段。
+        bool IsStoredAccount(FixedConditionTerm term)=>table.IsRongyu==1&&term.Field!="yz_project_id"&&
+            term is {Comparison:FixedConditionComparison.Equal,Values:[{Kind:FixedConditionValueKind.Variable} value]}&&
+            AccountConditionVariables.IsPageField(value.Text,term.Field)&&storage.PhysicalColumns.Any(column=>
+                column.ColumnName==term.Field&&column.LogicalType is "int32" or "int64" or "string");
     }
 
     /// <summary>按实际目标页，将原逻辑、账号或已证明的固定范围嵌入多值计划。</summary>
