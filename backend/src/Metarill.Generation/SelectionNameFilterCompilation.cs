@@ -68,7 +68,8 @@ internal static class SelectionNameFilterCompilation
                     implicitNames&&page.Readable.Any(column=>column.Source.Id==source.Source.Id);
                 var joinedCache=table.Source.IsRongyu==1&&GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")&&
                     !storage.IsManagedMultiNames&&!typedStorage;
-                var scopedCache=joinedCache&&source.Source.ControlKind=="SelectPage"&&target.Source.IsRongyu==0&&
+                var scopedCache=joinedCache&&source.Source.ControlKind=="SelectPage"&&
+                    (target.Source.IsRongyu==0||target.IsGlobal)&&
                     NonRedundantSelectionCompilation.IsDisplay(source,storage,name)&&
                     NonRedundantReadCompilation.Physical(model,table,storage)&&
                     HasPublishedCacheTarget(model,table,source,target,targetPage,name);
@@ -142,7 +143,8 @@ internal static class SelectionNameFilterCompilation
         if(target.IsGlobal)
         {
             var binding=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source);
-            return binding.RequiresScopedCache&&binding.Page.Id==targetPage.Source.Id&&binding.Name.Id==name.Source.Id;
+            return binding.RequiresScopedCache&&(target.Source.IsRongyu==0||binding.ScopedAccount)&&
+                binding.Page.Id==targetPage.Source.Id&&binding.Name.Id==name.Source.Id;
         }
         var project=ProjectScopedSingleRelationTarget.Resolve(model.Catalog,table.Source,source.Source,target.Source);
         return project is {} bindingTarget&&bindingTarget.Page.Id==targetPage.Source.Id&&bindingTarget.Name.Id==name.Source.Id;

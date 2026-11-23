@@ -198,7 +198,11 @@ public static class GlobalSingleRelationTarget
         var storedListAccount=allowsLogical&&target.IsRongyu==1&&fixedList&&boundStoredList&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
         var usesListPageScope=alternateListPage||pageOnlyList||storedListAccount;
-        var scopedAccount=storedListAccount||allowsLogical&&target.IsRongyu==0&&!scopedSelfTree&&!scopedCrossTable&&
+        // 原弹窗直达显式发布的 type=1 单选页，账号条件与真实单值关系和名称副本共用。
+        var storedSelectionAccount=allowsLogical&&target.IsRongyu==1&&foreign.ControlKind=="SelectPage"&&
+            pageId.Length>0&&page.Extra.GetValueOrDefault("type").ToString()=="1"&&
+            condition.Variables.Any(AccountConditionVariables.IsSupported);
+        var scopedAccount=storedListAccount||storedSelectionAccount||allowsLogical&&target.IsRongyu==0&&!scopedSelfTree&&!scopedCrossTable&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
         // 原下拉可以引用业务页；弹窗单选继续要求实际发布的 type=1 页面。
         var exactSingle=GlobalCrossTableTarget.DeclaresExactSingle(target,page)&&

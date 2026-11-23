@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Metarill.Core.Contracts;
 using Metarill.Core.Security;
@@ -272,14 +273,26 @@ public sealed class DerivedSingleSelectionTests
             var service = await File.ReadAllTextAsync(Path.Combine(output, "Services/RelationSourceService.g.cs"));
             var controller = await File.ReadAllTextAsync(Path.Combine(output, "Controllers/RelationSourcePage201Controller.g.cs"));
             Assert.Contains("await ImportRelation201_25Async(cell.Value", service);
-            Assert.Contains("query=query.Where(row=>row.Name==label);", service);
-            Assert.Contains("query.ForUpdate().Limit(2)", service);
-            Assert.Contains("queryTargetId = await OptionsScope201_25Async", service);
+            if (exactTarget)
+            {
+                // 精确数据管理沿固定 SQL 的当前读查找唯一名称，普通页继续使用实体查询。
+                Assert.Contains("""scope.Filters.Add(new("name",FixedReadComparison.Equal,cell.ToString().Trim()));""", service);
+                Assert.Contains("DerivedOptionsScope201_25Async(parentId,targetParent.ToString(),actor,cancellationToken,locking:true)", service);
+                Assert.Contains("""DerivedOptionsPlan201_25.BindAccount(actor),scope.Filters,[new("id")],1,2""", service);
+                Assert.Contains("currentRead:true", service);
+                Assert.Contains("if(rows.Records.Count!=1)", service);
+            }
+            else
+            {
+                Assert.Contains("query=query.Where(row=>row.Name==label);", service);
+                Assert.Contains("query.ForUpdate().Limit(2)", service);
+            }
+            Assert.Contains("OptionsScope201_25Async", service);
             Assert.Contains("query = query.Where(entity => entity.ParentId", service);
             Assert.Contains("options_page_201_25", service);
             if (exactTarget)
                 Assert.Contains("targetExactAuthorization.ResolveExactDataManage(\"301\", \"list\",", service);
-            Assert.Contains(independentParent ? "string? targetParentId=parentValue.ToString();" : "string? targetParentId=parentId;", service);
+            if (!exactTarget) Assert.Contains(independentParent ? "string? targetParentId=parentValue.ToString();" : "string? targetParentId=parentId;", service);
             Assert.Contains("importDatas201", controller);
             Assert.Contains("initExport", controller);
             Assert.DoesNotContain("findNameId", controller);
@@ -289,6 +302,116 @@ public sealed class DerivedSingleSelectionTests
             var serviceType = assembly.GetType(generatedNamespace + ".Generated.Services.RelationSourceService", true)!;
             Assert.NotNull(serviceType.GetMethod("Import201Async"));
             Assert.NotNull(serviceType.GetMethod("Export201Async"));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>原弹窗单选直接使用全局冗余字典页的账号与常量条件，冗余副本另按持久门店计算。</summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    public async Task Stored_global_selection_uses_published_account_dictionary(int storage, bool globalSource)
+    {
+        const string ns = "Example.GlobalAccountSelection";
+        var catalog = Catalog("account_selection", false);
+        var source = catalog.ConfigTables.Single(table => table.Id == "1");
+        source.IsRongyu = storage;
+        if (globalSource) source.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        var dictionary = catalog.ConfigTables.Single(table => table.Id == "2");
+        dictionary.IsRongyu = 1;
+        dictionary.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        catalog.ConfigColumns.RemoveAll(column => column.Id is "16" or "17" or "27" or "28");
+        catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId is "16" or "17" or "27" or "28");
+
+        var foreign = catalog.ConfigColumns.Single(column => column.Id == "15");
+        foreign.ControlDetail = """{"tableId":"2","pageId":"201","nameField":"name","whereSql":"status=1"}""";
+        var display = catalog.ConfigColumns.Single(column => column.Id == "113");
+        display.ColumnName = "customer_name";
+        display.Extra["columnFullName"] = JsonSerializer.SerializeToElement("customer.name");
+        catalog.ConfigColumns.AddRange([
+            new() { Id = "11201", ConfigTableId = "1", YzProjectId = catalog.YzProjectId, ColumnName = "store_id", LogicalType = "int64" },
+            new() { Id = "21201", ConfigTableId = "2", YzProjectId = catalog.YzProjectId, ColumnName = "store_id", LogicalType = "int64" }
+        ]);
+        var targetPage = catalog.ConfigPages.Single(page => page.Id == "201");
+        targetPage.WhereSql = "status=1 AND store_id=@current_store_id";
+        foreach (var page in catalog.ConfigPages.Where(page => page.ConfigTableId == source.Id))
+        {
+            page.WhereSql += " AND store_id=@current_store_id";
+            page.OrderBy = "id desc";
+        }
+
+        if (globalSource) catalog.ConfigPages.Single(page => page.Id == "101").Extra["exportMethod"] = JsonSerializer.SerializeToElement("edit");
+
+        var model = GenerationModel.Create(catalog, ns);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var owner = model.Tables.Single(table => table.Source.Id == source.Id);
+        var businessPage = owner.Pages.Single(page => page.Source.Id == "101");
+        var selected = NonRedundantSelectionCompilation.Resolve(model, owner, businessPage,
+            owner.Columns.Single(column => column.Source.Id == "15"));
+        Assert.Equal("201", selected.TargetPage.Source.Id);
+        var filter = Assert.Single(SelectionNameFilterCompilation.ForPage(model, owner, businessPage).Bindings);
+        Assert.Equal("customerName", filter.FilterKey);
+
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-global-account-selection");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ns);
+            var services = Path.Combine(output, "Services");
+            var ownerCode = await File.ReadAllTextAsync(Path.Combine(services, "AccountSelectionOrderService.g.cs"));
+            var dictionaryCode = await File.ReadAllTextAsync(Path.Combine(services, "AccountSelectionPartyService.g.cs"));
+            Assert.Contains("PageCondition201.BindAccount(actor)", dictionaryCode);
+            Assert.Contains("ImportRelation101_15Async", ownerCode);
+            Assert.Contains("ImportRelation103_15Async", ownerCode);
+            Assert.Contains("Export101Async", ownerCode);
+            Assert.Contains("OptionsPageCondition101_15.BindAccount(actor)", ownerCode);
+            var controller = await File.ReadAllTextAsync(Path.Combine(output, "Controllers", businessPage.Name + "Controller.g.cs"));
+            Assert.Contains("""RequirePagePermission("201", "list")""", controller);
+
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.AccountSelectionOrderService", true)!;
+            RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            if (storage == 0)
+            {
+                // 原业务列表的名称联接须绑定真实认证门店，读取和筛选共用该计划。
+                var plan = Assert.IsType<NonRedundantReadPlan>(
+                    service.GetField("ReadPlan101", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+                Assert.True(plan.RequiresAccount);
+                Assert.Equal("string", plan.OutputTypes["customer_name"]);
+                var bound = plan.BindAccount(new RuntimeActor(7, "合成账号", false, catalog.YzProjectId, "5")
+                    { StoreId = 9007199254740993L });
+                var read = bound.GetType().GetProperty("MySql", hidden)!.GetValue(bound)!;
+                var constants = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
+                    read.GetType().GetProperty("Constants", hidden)!.GetValue(read));
+                Assert.Contains(9007199254740993L, constants.Values);
+            }
+            else
+            {
+                var binding = Assert.Single(RelationPropagationCompilation.DerivedBindings(model),
+                    item => item.Foreign.Source.Id == foreign.Id);
+                Assert.Equal("201", binding.ScopedSinglePageId);
+                var maintenance = Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    assembly.GetType(ns + ".Generated.GeneratedRelationMaintenance", true)!.GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains("customer_name", maintenance.MixedSourceColumns["account_selection_order"]);
+                Assert.Contains("account_selection_party", maintenance.MixedTargets);
+                var plans = Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                    maintenance.GetType().GetProperty("Plans", hidden)!.GetValue(maintenance));
+                var published = plans[source.Id]!;
+                Assert.Null(published.GetType().GetProperty("Error")!.GetValue(published));
+                var read = published.GetType().GetProperty("Read")!.GetValue(published)!;
+                var label = Assert.IsType<string>(read.GetType().GetMethod("Expression", hidden)!
+                    .Invoke(read, ["customer_name"]));
+                Assert.Matches(@"BINARY CAST\((?!b\.)\w+\.`store_id` AS CHAR\)=BINARY CAST\(b\.`store_id` AS CHAR\)", label);
+
+                var sourcePage = catalog.ConfigPages.Single(page => page.Id == "101");
+                sourcePage.WhereSql = sourcePage.WhereSql.Replace(" AND store_id=@current_store_id", "", StringComparison.Ordinal);
+                var missing = GenerationModel.Create(catalog, ns);
+                var error = Assert.Throws<InvalidOperationException>(() => RelationPropagationCompilation.DerivedBindings(missing));
+                Assert.Contains("物理账号归属", error.Message);
+            }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }

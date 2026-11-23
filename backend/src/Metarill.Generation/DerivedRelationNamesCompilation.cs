@@ -37,9 +37,10 @@ internal static class DerivedRelationNamesCompilation
         relation.Conditions?.HasLogicalFields==true||UsesSelfTreeExact(relation)||
         UsesExactSingle(relation)&&relation.ImportCondition is ({CrossFields.Count:>0} or {SelfTreeFields.Count:>0});
 
-    /// <summary>全局非冗余目标的账号范围来自实际发布页，仅绑定认证的账号值。</summary>
+    /// <summary>全局非冗余目标及冗余单选的账号范围来自实际发布页，生成目录须保留该页范围。</summary>
     internal static bool HasGlobalAccountScope(TableModel target,PageModel page)=>
-        target.IsGlobal&&target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(page);
+        target.IsGlobal&&(target.Source.IsRongyu==0||page.Source.Extra.GetValueOrDefault("type").ToString()=="1")&&
+        FixedPageConditionCompilation.HasAccountVariables(page);
 
     /// <summary>单值候选父级来自实际发布页，项目内稀疏层位与显式全局父复用同一父键模型。</summary>
     internal static MultiTargetParentScope? SingleParent(GenerationModel model,TableModel target,PageModel page)=>
