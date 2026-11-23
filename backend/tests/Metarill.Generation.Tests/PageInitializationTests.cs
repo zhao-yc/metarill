@@ -42,6 +42,58 @@ public sealed class PageInitializationTests
         }
     }
 
+    /// <summary>生成服务区分纯空白文本默认值、声明为空和请求显式 null，隐藏列也应用默认。</summary>
+    [Fact]
+    public async Task Whitespace_column_defaults_survive_generated_create()
+    {
+        const string storedDefault = " \t ";
+        var catalog = GeneratorTests.Catalog();
+        catalog.ConfigColumns.Single(column => column.Id == "13").DefaultValue = storedDefault;
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "901", ConfigTableId = "1", ColumnName = "internal_note", LogicalType = "string", DefaultValue = storedDefault
+        });
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "902", ConfigTableId = "1", ColumnName = "optional_note", LogicalType = "string", DefaultValue = ""
+        });
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id = "903", ConfigPageId = "101", ConfigColumnId = "902", IsEdit = 1, IsShow = 1
+        });
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-whitespace-default");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, "Example.GuardContract");
+            await File.WriteAllTextAsync(Path.Combine(directory, "Directory.Build.props"),
+                "<Project><PropertyGroup><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>");
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            using var run = new GeneratedMutationGuardRun(assembly);
+            var service = run.Service([]);
+            foreach (var (json, expected) in new (string, string?)[]
+            {
+                ("{\"name\":\"省略\"}", storedDefault),
+                ("{\"name\":\"显式空\",\"remark\":null}", null),
+                ("{\"name\":\"显式文本\",\"remark\":\"保留\"}", "保留")
+            })
+            {
+                var request = run.Request(Metarill.Core.Persistence.RecordMutationOperation.Create, json);
+                var operation = (Task)service.GetType().GetMethod("Create101Async")!
+                    .Invoke(service, [request, null, run.Actor, CancellationToken.None])!;
+                await operation;
+                var result = operation.GetType().GetProperty("Result")!.GetValue(operation)!;
+                Assert.Equal(expected, result.GetType().GetProperty("Remark")!.GetValue(result));
+                Assert.Null(result.GetType().GetProperty("OptionalNote")!.GetValue(result));
+            }
+            var source = await File.ReadAllTextAsync(Path.Combine(output, "Services/CustomerService.g.cs"));
+            Assert.Contains($"entity.InternalNote = {JsonSerializer.Serialize(storedDefault)};", source);
+            Assert.Equal(3, run.Trace.Count(item => item == "write:Insert"));
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>发布期拒绝坏初始值或客户端不应覆写的真实主键。</summary>
     [Theory]
     [InlineData("11","10")]

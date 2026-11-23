@@ -178,7 +178,8 @@ public sealed partial class {{page.Name}}ImportRequest
             result.AppendLine("        var relationContext = new Dictionary<string, JsonElement>(StringComparer.Ordinal);");
             foreach(var parent in dependency.ContextValues)
             {
-                var fallback=BackendRenderer.PageInitialValue(model,table,page,parent) ?? (string.IsNullOrWhiteSpace(parent.Source.DefaultValue)?$"default({parent.Type})":BackendRenderer.DefaultExpression(parent));
+                var fallback = BackendRenderer.PageInitialValue(model, table, page, parent)
+                    ?? (BackendRenderer.HasColumnDefault(parent) ? BackendRenderer.DefaultExpression(parent) : $"default({parent.Type})");
                 var value="existing is null ? "+fallback+" : existing."+parent.Property;
                 if(parent.Source.ColumnName=="yz_project_id")value=ScopeValue(parent,"actor.ProjectId");
                 else if(page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==parent.Source.Id))value=ScopeValue(parent,"parentId!");

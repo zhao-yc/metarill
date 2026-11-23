@@ -71,7 +71,7 @@ internal static class GlobalCachedParentCompilation
         // 本次合并维护的唯一缓存允许保留派生标记，生成实体只能以空值进入原关联校验。
         return table.Columns.All(column=>column.Type is "long" or "long?" or "int?" or "string?" or "decimal?" or "bool?" or "DateTime?")&&
             table.Columns.All(column=>!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")||
-                column.Source.Id==cache.Source.Id&&string.IsNullOrWhiteSpace(column.Source.DefaultValue)&&!page.Writable.Contains(column))&&
+                column.Source.Id==cache.Source.Id&&!BackendRenderer.HasColumnDefault(column)&&!page.Writable.Contains(column))&&
             SharedCrossTableSparseRenderer.Capture(model,table,page).Length==0&&
             CrossTableWriteRenderer.ScopeCheck(model,table,page).Length==0&&
             NonRedundantCrossTableCompilation.PackCall(model,table,page).Length==0;

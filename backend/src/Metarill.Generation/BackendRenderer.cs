@@ -560,7 +560,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var entityBodyStart=result.Length-1;
             result.AppendLine($"        {(deferParent?"":"var ")}entity = new {table.EntityType} {{ Id = ids.NextId() }};")
                 .AppendLine($"        {(deferParent?"":"var ")}submitted = new HashSet<string>(StringComparer.Ordinal);");
-            foreach (var column in table.Columns.Where(column => !column.IsSystem && !page.Writable.Contains(column) && !string.IsNullOrWhiteSpace(column.Source.DefaultValue))) result.AppendLine($"        entity.{column.Property} = {DefaultExpression(column)};");
+            foreach (var column in table.Columns.Where(column => !column.IsSystem && !page.Writable.Contains(column) && HasColumnDefault(column))) result.AppendLine($"        entity.{column.Property} = {DefaultExpression(column)};");
             foreach (var column in ManagerCredentialCompilation.Writable(table,page))
             {
                 var multi = column.Source.ControlKind == "MultiSelectPage" && MultiSelectCompilation.Resolve(model, table, page, column).Definition is not null;
@@ -568,7 +568,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 var databaseCheckbox=DatabaseCheckboxCompilation.Generic(table,column)&&DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is not null;
                 if (column.IsJsonArray && !multi && !role) result.AppendLine($"        if (request.{column.Property}.IsSpecified && request.{column.Property}.Value is {{ }} array{column.Property} && array{column.Property}.ValueKind != JsonValueKind.Array) throw new ArgumentException(\"数组控件只接受数组或 null。\");");
                 result.AppendLine($"        if (request.{column.Property}.IsSpecified) {{ entity.{column.Property} = {(role ? $"RoleCheckboxValue.ReadWrite(request.{column.Property}.Value)" : databaseCheckbox ? $"DatabaseCheckboxValue.ReadWrite(request.{column.Property}.Value)" : multi ? MultiSelectFieldRenderer.Assignment(page, column) : column.IsJsonArray ? $"request.{column.Property}.Value?.GetRawText()" : ManagerCredentialCompilation.Assignment(table,page,column,$"request.{column.Property}.Value"))}; submitted.Add({Literal(column.Source.ColumnName)}); }}");
-                if (!string.IsNullOrWhiteSpace(column.Source.DefaultValue))
+                if (HasColumnDefault(column))
                     result.AppendLine($"        else entity.{column.Property} = {DefaultExpression(column)};");
             }
             result.Append(PageInitialization(model,table,page)).Append(Audit(table, true));
@@ -833,6 +833,12 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                     result.AppendLine($"        if ({(updating?$"submitted.Contains({Literal(column.Source.ColumnName)}) && ":"")}entity.{column.Property} is {{ Length: > {limit} }}) throw new ArgumentException({Literal(column.Source.Name+"长度不能超过"+limit+"个字符。")});");
         return result.ToString();
     }
+    /// <summary>文本标量沿用 MySQL 字面量语义，保留非空的纯空白默认值。</summary>
+    internal static bool HasColumnDefault(ColumnModel column) =>
+        !column.IsJsonArray && column.Source.LogicalType.Equals("string", StringComparison.OrdinalIgnoreCase)
+            ? !string.IsNullOrEmpty(column.Source.DefaultValue)
+            : !string.IsNullOrWhiteSpace(column.Source.DefaultValue);
+
     /// <summary>把固定默认值转为安全的类型表达式。</summary>
     internal static string DefaultExpression(ColumnModel column)=>DefaultExpression(column,column.Source.DefaultValue);
 

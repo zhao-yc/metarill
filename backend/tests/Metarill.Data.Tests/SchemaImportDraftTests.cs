@@ -42,6 +42,17 @@ public sealed class SchemaImportDraftTests
         Assert.Equal(before, System.Text.Json.JsonSerializer.Serialize(input));
     }
 
+    /// <summary>VARCHAR 和 TEXT 的空白字面量进入元数据草案时保留全部空格。</summary>
+    [Theory]
+    [InlineData("varchar(64)", "'  '")]
+    [InlineData("text", "('  ')")]
+    public void Whitespace_column_defaults_roundtrip_as_text(string type, string value)
+    {
+        var draft = SchemaImportDraftCompiler.Compile(Source(new("value", type, true, DefaultSql: value)), "123");
+        Assert.True(draft.ColumnsAndIndexesRepresentable, string.Join(";", draft.Issues.Select(issue => issue.Message)));
+        Assert.Equal("  ", Assert.Single(draft.LogicalMetadata.ConfigColumns, column => column.ColumnName == "value").DefaultValue);
+    }
+
     /// <summary>只读视图草案保留逻辑显示字段和实际物理列，也明确报告无法由结构证明的 ID 约束。</summary>
     [Theory]
     [InlineData(false)]

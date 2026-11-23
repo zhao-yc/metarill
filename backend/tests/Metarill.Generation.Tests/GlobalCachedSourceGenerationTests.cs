@@ -62,6 +62,14 @@ public sealed class GlobalCachedSourceGenerationTests
         Assert.True(rendered.IndexOf("await ValidateMutationAsync(\"81003\", RecordMutationOperation.Create",StringComparison.Ordinal) <
             rendered.IndexOf("TryInsertScalarSourceAsync",StringComparison.Ordinal));
 
+        // 有实际文本默认值时，继续走原逐行校验，避免批量路径把已赋值的缓存当作未赋值。
+        var cache = GlobalCachedSourceCompilation.ForModel(model).Single(plan => plan.Source.Source.Id == table.Source.Id).Cache;
+        cache.Source.DefaultValue = " \t ";
+        var withDefault = GenerationModel.Create(metadata, "Example.GlobalSource");
+        var tableWithDefault = withDefault.Tables.Single(candidate => candidate.Source.Id == table.Source.Id);
+        Assert.False(GlobalCachedParentCompilation.CanDeferAppendCandidate(withDefault, tableWithDefault, Assert.Single(tableWithDefault.Pages)));
+        cache.Source.DefaultValue = "";
+
         metadata.ConfigPages.Single(item=>item.Id=="81003").Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
         var overwrite=GenerationModel.Create(metadata,"Example.GlobalSource");
         var overwriteTable=overwrite.Tables.Single(item=>item.Source.TableName=="sample_contract_line");

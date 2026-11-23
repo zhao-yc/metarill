@@ -69,6 +69,37 @@ public sealed class ImportDependencyTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>Excel 追加和首列覆盖解析关系时，从默认或旧记录取得完整表单上下文。</summary>
+    [Fact]
+    public void Whitespace_column_defaults_feed_both_contextual_excel_import_modes()
+    {
+        const string storedDefault = " \t ";
+        var catalog = Fixture();
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "130", ConfigTableId = "1", ColumnName = "allowed", LogicalType = "string", DefaultValue = storedDefault
+        });
+        var relation = catalog.ConfigColumns.Single(column => column.Id == "15");
+        relation.ControlKind = "List";
+        relation.Extra["linkConfigPageId"] = JsonSerializer.SerializeToElement("201");
+        relation.ControlDetail = """{"tableId":"2","nameField":"name","whereSql":"name LIKE @formParameters.allowed"}""";
+        foreach (var page in catalog.ConfigPages.Where(page => page.ConfigTableId == "1"))
+            catalog.ConfigPageColumns.Add(new()
+            {
+                Id = page.Id + "130", ConfigPageId = page.Id, ConfigColumnId = "130", IsShow = 1, IsEdit = 1
+            });
+
+        var model = GenerationModel.Create(catalog, "Example.ImportDependency");
+        var table = model.Tables.Single(table => table.Source.Id == "1");
+        foreach (var id in new[] { "104", "105" })
+        {
+            var page = table.Pages.Single(page => page.Source.Id == id);
+            var source = ImportRenderer.Service(model, table, page);
+            Assert.Contains($"relationContext[\"allowed\"] = JsonSerializer.SerializeToElement(existing is null ? {JsonSerializer.Serialize(storedDefault)} : existing.Allowed, JsonOptions);",
+                source);
+        }
+    }
+
     /// <summary>固定夹具与实际MySQL专项相同，不手写业务CRUD。</summary>
     private static Metarill.Core.Metadata.MetadataCatalog Fixture()
     {var catalog=NonRedundantGeneratedFixture.Catalog("mt_import_dep");NonRedundantGeneratedFixture.EnableSingleSelection(catalog,true);NonRedundantGeneratedFixture.EnableImports(catalog);NonRedundantGeneratedFixture.AddMappedSinglePage(catalog);NonRedundantGeneratedFixture.EnableMappedImports(catalog);return catalog;}
