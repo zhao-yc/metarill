@@ -201,6 +201,12 @@ internal static class ExportRenderer
             (column.Source.ControlKind == "ConstList" ||
              column.Source.ControlKind == "ConstDownList" && column.Type is not ("long" or "long?")))
             return BackendRenderer.ConstantDisplayExpression(column, access);
+        // 原工作簿把 LocalDate／LocalDateTime 写成文本，避免 Excel 日期序列和 SheetJS 截掉微秒。
+        if (column.Type == "DateTime?")
+        {
+            var dateOnly = column.Source.LogicalType.Equals("date", StringComparison.OrdinalIgnoreCase) ? "true" : "false";
+            return $"{access} is {{ }} calendar{column.Property} ? global::Metarill.Core.Contracts.BusinessCalendar.FormatExcel(calendar{column.Property}, {dateOnly}) : null";
+        }
         if (column.Type == "long") return access + ".ToString(CultureInfo.InvariantCulture)";
         if (column.Type == "long?") return access + "?.ToString(CultureInfo.InvariantCulture)";
         return access;

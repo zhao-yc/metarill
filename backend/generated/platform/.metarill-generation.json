@@ -366,7 +366,7 @@
     },
     {
       "path": "Services/ConfigColumnService.g.cs",
-      "sha256": "31ceb5e31921fb3b69cac778c7a926f533eeb59bac77f033a57789c04fcd15f8"
+      "sha256": "fb136bae4e947de62e025fc99e3a897f00b0e787ca8a79b324736b54efe6c10a"
     },
     {
       "path": "Services/ConfigCustomPageService.g.cs",

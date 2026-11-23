@@ -244,6 +244,18 @@ public sealed class GeneratedMutationGuardRun : IDisposable
                 var projection = (System.Linq.Expressions.LambdaExpression)args![0]!;
                 return Task.FromResult(new List<long> { (long)projection.Compile().DynamicInvoke(row)! });
             }
+            // 用同一代表行执行生成的实体投影，Excel 测试从真实导出方法取数。
+            if (method.Name == "ToListAsync" && type == entityType && SeedRow is { } seed &&
+                method.IsGenericMethod && method.GetGenericArguments().Single() == type &&
+                args is { Length: > 0 } && args[0] is System.Linq.Expressions.LambdaExpression selectRow)
+            {
+                var row = Activator.CreateInstance(type)!;
+                seed(row);
+                var listType = typeof(List<>).MakeGenericType(type);
+                var rows = (System.Collections.IList)Activator.CreateInstance(listType)!;
+                rows.Add(selectRow.Compile().DynamicInvoke(row));
+                return typeof(Task).GetMethod(nameof(Task.FromResult))!.MakeGenericMethod(listType).Invoke(null, [rows]);
+            }
             if (method.Name == "CountAsync") return Task.FromResult(1L);
             return query;
         }); return query;
