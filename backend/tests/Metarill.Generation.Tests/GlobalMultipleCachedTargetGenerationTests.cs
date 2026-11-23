@@ -145,8 +145,16 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     public Task Stored_global_multiselect_fixed_dictionary_uses_published_candidate_range(int mode,string projectType)=>
         VerifyPublishedGlobalMultiselect(mode,1,false,projectType);
 
+    /// <summary>原详情多选引用无条件字典时，候选面向已发布字典，业务页沿用实际项目。</summary>
+    [Theory]
+    [InlineData(0,"int64")]
+    [InlineData(0,"string")]
+    [InlineData(1,"int64")]
+    [InlineData(1,"string")]
+    public Task Stored_global_multiselect_without_conditions_uses_published_candidate_range(int mode,string projectType)=>
+        VerifyPublishedGlobalMultiselect(mode,1,false,projectType,unfiltered:true);
     /// <summary>从实际生成程序集核对名称、关联选档、项目隔离和数据维护计划。</summary>
-    private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType)
+    private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType,bool unfiltered=false)
     {
         const string application="Example.GlobalTextDictionary";
         var names=derivedName?"global_source_global_target_names":"global_source_captions";
@@ -156,7 +164,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         catalog.ConfigColumns.RemoveAll(column=>column.Id is "38" or "40");
         catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "38" or "40");
         var dictionary=catalog.ConfigPages.Single(page=>page.Id=="10");
-        dictionary.WhereSql="status=17";
+        dictionary.WhereSql=unfiltered?"":"status=17";
         if(projectType is not null)ConfigureStoredGlobalDictionary(catalog,projectType);
         if(derivedName)
         {
@@ -172,7 +180,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             new CSharpGenerator().Generate(catalog,output,application);
             var serviceCode=await File.ReadAllTextAsync(Path.Combine(output,"Services/CachedConsumerService.g.cs"));
             Assert.Contains("ImportMulti30_34Async",serviceCode);
-            Assert.Contains("MultiPageCondition30_34",serviceCode);
+            Assert.Equal(!unfiltered,serviceCode.Contains("MultiPageCondition30_34",StringComparison.Ordinal));
             Assert.Contains("Export30Async",serviceCode);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             if(projectType is not null)
@@ -182,7 +190,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(target));
                 Assert.Empty(GenerationCapabilityAudit.Collect(model));
                 Assert.Contains("ImportMulti31_34Async",serviceCode);
-                Assert.Contains("MultiPageCondition31_34",serviceCode);
+                Assert.Equal(!unfiltered,serviceCode.Contains("MultiPageCondition31_34",StringComparison.Ordinal));
                 Assert.Contains("Export31Async",serviceCode);
                 var targetCode=await File.ReadAllTextAsync(Path.Combine(output,"Services/GlobalSourceService.g.cs"));
                 using var session=new DatabaseSession(new()
@@ -194,23 +202,24 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"9");
                 var list=sql("Query10",[new PageRequest(),actor]);
                 Assert.DoesNotContain("yz_project_id",list);
-                Assert.Contains("status",list);
+                Assert.Equal(!unfiltered,list.Contains("status",StringComparison.Ordinal));
                 Assert.Contains("delete_no",list);
                 var selected=sql("Query10",[new PageRequest{SelectedIds=["9007199254740993"]},actor]);
                 Assert.Contains("`id`",selected);
-                Assert.Contains("status",selected);
+                Assert.Equal(!unfiltered,selected.Contains("status",StringComparison.Ordinal));
                 Assert.DoesNotContain("yz_project_id",selected);
                 Assert.Contains("yz_project_id",sql("Scope10",[actor,null]));
                 Assert.Contains("yz_project_id",sql("Query10",[new PageRequest(),actor,false]));
                 Assert.Contains("yz_project_id",sql("Query11",[new PageRequest(),actor]));
                 Assert.Contains("yz_project_id",sql("Query12",[new PageRequest(),actor]));
+                Assert.Contains("yz_project_id",sql("Query13",[new PageRequest(),actor]));
                 Assert.Contains("Query10(request, actor, candidateRows: false)",targetCode);
                 Assert.Contains("Query10(request, actor).CountAsync",targetCode);
                 Assert.Contains("Query10(new PageRequest { ParentId = request.ParentId, SelectedIds",targetCode);
                 var plan=FixedPageQueryCompilation.For(target,target.Pages.Single(page=>page.Source.Id=="10"));
-                Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择","status = 17",""),out _));
+                Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择",dictionary.WhereSql,""),out _));
                 Assert.False(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择",
-                    "status = 17 AND yz_project_id=@current_yz_project_id",""),out _));
+                    "yz_project_id=@current_yz_project_id",""),out _));
                 var package=new ApplicationPackager().Create(catalog,Path.Combine(directory,"application"),application,NonRedundantApplicationFixture.Root());
                 Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
             }
@@ -224,7 +233,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 read=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
                 var filters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
                     read.GetType().GetProperty("ArrayNamePredicates",hidden)!.GetValue(read));
-                Assert.Contains("multi_value.`status`",filters[names]);
+                Assert.Equal(!unfiltered,filters[names].Contains("multi_value.`status`",StringComparison.Ordinal));
             }
             else
             {
@@ -245,14 +254,15 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                         propagation.GetType().GetProperty("Bindings",hidden)!.GetValue(propagation)).Cast<object>();
                     var binding=Assert.Single(bindings,item=>Equals(names,item.GetType().GetProperty("Cache")!.GetValue(item)));
                     var condition=binding.GetType().GetProperty("PublishedCondition")!.GetValue(binding);
-                    Assert.NotNull(condition);
-                    Assert.Equal("status=17",condition.GetType().GetProperty("Definition")!.GetValue(condition));
+                    if(unfiltered)Assert.Null(condition);
+                    else Assert.Equal("status=17",condition?.GetType().GetProperty("Definition")!.GetValue(condition));
                 }
             }
-            Assert.Contains("multi_value.`status`",CheckboxNameExpression(read,names));
+            Assert.Equal(!unfiltered,CheckboxNameExpression(read,names).Contains("multi_value.`status`",StringComparison.Ordinal));
             var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
                 read.GetType().GetProperty("Constants",hidden)!.GetValue(read));
-            Assert.Contains(17,constants.Values);
+            Assert.Equal(!unfiltered,constants.Values.Contains(17));
+            if(unfiltered&&mode==0&&projectType=="int64")VerifyUnfilteredMultiselectPublication(catalog,application);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
     }
@@ -268,7 +278,8 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         foreach(var (id,type,where) in new[]
         {
             ("11",0,""),
-            ("12",2,"status=17 AND yz_project_id=@current_yz_project_id")
+            ("12",2,"status=17 AND yz_project_id=@current_yz_project_id"),
+            ("13",2,"")
         })
         {
             catalog.ConfigPages.Add(new()
@@ -297,6 +308,43 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         }
     }
 
+    /// <summary>真实详情引用才能发布无条件候选，账号项目限制和错误目标均不得放宽范围。</summary>
+    private static void VerifyUnfilteredMultiselectPublication(MetadataCatalog catalog,string application)
+    {
+        var reference=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="30"&&field.ConfigColumnId=="34");
+        reference.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"whereSql":"yz_project_id=@current_yz_project_id"}""");
+        Assert.False(Published());
+        reference.Extra.Remove("controlDetail");
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId=="34"))field.IsEdit=0;
+        Assert.False(Published());
+
+        catalog.ConfigTables.Add(new()
+        {
+            Id="4",TableName="cached_consumer_form",YzProjectId=catalog.YzProjectId,IsFunctionTable=1
+        });
+        catalog.ConfigPages.Add(new(){Id="40",ConfigTableId="4",YzAdminTypeId="9",YzProjectId=catalog.YzProjectId});
+        var selector=new ColumnMetadata
+        {
+            Id="41",ConfigTableId="4",YzProjectId=catalog.YzProjectId,ColumnName="review_ids",LogicalType="string",
+            IsVirtualColumn=1,ControlKind="MultiSelectPage",ControlDetail="""{"pageId":"10","nameField":"caption"}"""
+        };
+        catalog.ConfigColumns.Add(selector);
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id="4041",ConfigPageId="40",ConfigColumnId="41",YzProjectId=catalog.YzProjectId,IsEdit=1
+        });
+        Assert.True(Published());
+        selector.LinkConfigTableId="2";
+        Assert.False(Published());
+
+        bool Published()
+        {
+            var model=GenerationModel.Create(catalog,application);
+            var dictionary=model.Tables.Single(table=>table.Source.Id=="1");
+            return FixedPageQueryCompilation.UsesStoredGlobalSelectionRows(model.Catalog,dictionary,
+                dictionary.Pages.Single(page=>page.Source.Id=="10"));
+        }
+    }
     /// <summary>实际复选候选页可以是普通字典页，账号归属、搜索、Excel 和持久名称用同一发布条件。</summary>
     [Theory]
     [InlineData(0, true)]

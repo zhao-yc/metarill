@@ -183,8 +183,8 @@ internal sealed record PageModel(PageMetadata Source, string Name, IReadOnlyList
     /// <summary>保存模型扩展前的显式可写列，隐式表单字段不能改变原Excel合同。</summary>
     internal IReadOnlyList<ColumnModel> DeclaredWritable {get;init;} = Writable.ToArray();
     internal FixedPageCondition? Condition {get;init;}
-    /// <summary>无固定条件的原单选有真实发布引用时，候选使用全局范围。</summary>
-    internal bool PublishedUnfilteredSingleCandidate {get;init;}
+    /// <summary>无固定条件的原单选和多选有真实发布引用时，候选使用全局范围。</summary>
+    internal bool PublishedUnfilteredSelectionCandidate {get;init;}
 }
 internal sealed record TableModel(TableMetadata Source, string Name, IReadOnlyList<ColumnModel> Columns, IReadOnlyList<PageModel> Pages)
 {
@@ -264,7 +264,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
         }
         if (result.Select(x => x.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != result.Count) throw new InvalidOperationException("表在 C# 命名转换后冲突。");
         var model=FixedPageConditionCompilation.ValidateFinal(CrossTableFilterCompilation.Prepare(CrossTableWriteCompilation.Prepare(CascadeTreeWriteCompilation.Prepare(DatabaseCheckboxCompilation.Prepare(MultiSelectCompilation.Prepare(GlobalCachedSourceCompilation.AddReadAliases(new GenerationModel(catalog, rootNamespace, result))))))));
-        return NonRedundantSelectionCompilation.PublishUnfilteredStoredPages(model);
+        return FixedPageQueryCompilation.PublishUnfilteredStoredPages(model);
     }
     /// <summary>只编译明确的身份或父记录范围。</summary>
     internal static IReadOnlyList<(ColumnModel Column, string Source)> CompileScopes(string sql, IReadOnlyList<ColumnModel> columns)

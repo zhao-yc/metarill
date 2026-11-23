@@ -29,13 +29,61 @@ internal static class FixedPageQueryCompilation
             ? table.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id")
             : GlobalSelfTreeProject(table);
 
+    /// <summary>无条件字典只有在原详情控件实际引用且选档协议能编译时才发布全局候选。</summary>
+    internal static GenerationModel PublishUnfilteredStoredPages(GenerationModel model)
+    {
+        var candidates=model.Tables
+            .Where(table=>ManagedGlobalProject(table) is not null)
+            .SelectMany(table=>table.Pages.Where(page=>(page.Source.Extra.GetValueOrDefault("type").ToString() is "1" or "2")&&
+                page.Condition is null&&page.Scopes.Count==0&&!ExactDataManageCompilation.Declared(page)))
+            .Select(page=>page.Source.Id).ToHashSet(StringComparer.Ordinal);
+        if(candidates.Count==0)return model;
+
+        var published=new HashSet<string>(StringComparer.Ordinal);
+        var scoped=new HashSet<string>(StringComparer.Ordinal);
+        foreach(var table in model.Tables)
+        foreach(var page in table.Pages)
+        foreach(var source in page.DetailColumns.Where(column=>column.Source.ControlKind is "SelectPage" or "MultiSelectPage"))
+        {
+            try
+            {
+                var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
+                var definition=SelectionControlDefinition.Resolve(source,field);
+                if(!candidates.Contains(definition.PageId))continue;
+
+                var target=source.Source.ControlKind switch
+                {
+                    "MultiSelectPage"=>MultiSelectCompilation.Resolve(model,table,page,source).Definition?.Target,
+                    _ when table.Source.IsFunctionTable!=0=>FunctionTableSelectionCompilation.Resolve(model,table,page,source).Target,
+                    _=>NonRedundantSelectionCompilation.Resolve(model,table,page,source).Target
+                };
+                if(target is null)continue;
+                var condition=FixedConditionPlan.Compile(definition.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
+                // 原弹窗由目标页共享。已经使用当前项目限定的来源不能因另一个引用放宽。
+                if(condition.Variables.Any(variable=>variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)))
+                    scoped.Add(definition.PageId);
+                else published.Add(definition.PageId);
+            }
+            catch(Exception error) when(error is System.Text.Json.JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
+            {
+                // 无效引用由来源生成诊断报告，本步骤不为它授予全局候选范围。
+            }
+        }
+        published.ExceptWith(scoped);
+        if(published.Count==0)return model;
+        return model with{Tables=model.Tables.Select(table=>table.Pages.Any(page=>published.Contains(page.Source.Id))
+            ?table with{Pages=table.Pages.Select(page=>published.Contains(page.Source.Id)
+                ?page with{PublishedUnfilteredSelectionCandidate=true}:page).ToArray()}
+            :table).ToArray()};
+    }
+
     /// <summary>原冗余选择页按已发布条件查询候选，详情、写入及导出继续限制行项目。</summary>
     internal static bool UsesStoredGlobalSelectionRows(MetadataCatalog catalog,TableModel table,PageModel page)
     {
         var pageType=page.Source.Extra.GetValueOrDefault("type").ToString();
-        // 单选和多选均可按已发布的物理常量选档。无条件候选仍单独核验真实单选引用。
-        var fixedSelection=page.Condition?.Syntax is {Terms.Count:>0,Variables.Count:0}||
-            pageType=="1"&&page.PublishedUnfilteredSingleCandidate;
+        // 原单选和多选可按已发布的固定条件选档。无条件字典须有真实详情引用。
+        var fixedSelection=page.PublishedUnfilteredSelectionCandidate||
+            page.Condition?.Syntax is {Terms.Count:>0,Variables.Count:0};
         return table.IsGlobal&&table.Source.IsRongyu==1&&ManagedGlobalProject(table) is not null&&
             pageType is "1" or "2"&&
             !ExactDataManageCompilation.Declared(page)&&!FixedPageConditionCompilation.HasLogicalFields(page)&&

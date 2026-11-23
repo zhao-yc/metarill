@@ -8,50 +8,6 @@ internal sealed record NonRedundantSelectionModel(TableModel Target,PageModel Ta
 /// <summary>单值选择页的固定目标、名称和候选范围证明；不解释客户端SQL或改变原弹层。</summary>
 internal static class NonRedundantSelectionCompilation
 {
-    /// <summary>无条件字典只有在原详情控件实际引用且选档协议能编译时才发布全局候选。</summary>
-    internal static GenerationModel PublishUnfilteredStoredPages(GenerationModel model)
-    {
-        var candidates=model.Tables
-            .Where(table=>FixedPageQueryCompilation.ManagedGlobalProject(table) is not null)
-            .SelectMany(table=>table.Pages.Where(page=>page.Source.Extra.GetValueOrDefault("type").ToString()=="1"&&
-                page.Condition is null&&page.Scopes.Count==0&&!ExactDataManageCompilation.Declared(page)))
-            .Select(page=>page.Source.Id).ToHashSet(StringComparer.Ordinal);
-        if(candidates.Count==0)return model;
-
-        var published=new HashSet<string>(StringComparer.Ordinal);
-        var scoped=new HashSet<string>(StringComparer.Ordinal);
-        foreach(var table in model.Tables)
-        foreach(var page in table.Pages)
-        foreach(var source in page.DetailColumns.Where(column=>column.Source.ControlKind=="SelectPage"))
-        {
-            try
-            {
-                var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
-                var definition=SelectionControlDefinition.Resolve(source,field);
-                if(!candidates.Contains(definition.PageId))continue;
-
-                var target=table.Source.IsFunctionTable!=0
-                    ?FunctionTableSelectionCompilation.Resolve(model,table,page,source).Target
-                    :Resolve(model,table,page,source).Target;
-                var condition=FixedConditionPlan.Compile(definition.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
-                // 原弹窗由目标页共享。已经使用当前项目限定的来源不能因另一个引用放宽。
-                if(condition.Variables.Any(variable=>variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)))
-                    scoped.Add(definition.PageId);
-                else published.Add(definition.PageId);
-            }
-            catch(Exception error) when(error is System.Text.Json.JsonException or InvalidOperationException or ArgumentException or NotSupportedException)
-            {
-                // 无效引用由来源生成诊断报告，本步骤不为它授予全局候选范围。
-            }
-        }
-        published.ExceptWith(scoped);
-        if(published.Count==0)return model;
-        return model with{Tables=model.Tables.Select(table=>table.Pages.Any(page=>published.Contains(page.Source.Id))
-            ?table with{Pages=table.Pages.Select(page=>published.Contains(page.Source.Id)
-                ?page with{PublishedUnfilteredSingleCandidate=true}:page).ToArray()}
-            :table).ToArray()};
-    }
-
     /// <summary>页面覆盖沿原标量合并，物理文本允许同目标表、同响应属性的页级显示值。</summary>
     internal static NonRedundantSelectionModel Resolve(GenerationModel model,TableModel table,PageModel page,ColumnModel source)
     {

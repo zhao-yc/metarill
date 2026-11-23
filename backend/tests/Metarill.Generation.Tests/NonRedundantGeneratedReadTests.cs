@@ -587,7 +587,7 @@ public sealed class NonRedundantGeneratedReadTests
         Assert.False(Published());
 
         bool Published()=>GenerationModel.Create(catalog,ns).Tables.Single(item=>item.Source.Id=="2")
-            .Pages.Single(item=>item.Source.Id=="201").PublishedUnfilteredSingleCandidate;
+            .Pages.Single(item=>item.Source.Id=="201").PublishedUnfilteredSelectionCandidate;
     }
 
     /// <summary>增加一层已发布字典，让原字典同时承担有真实项目归属的业务读取和写入。</summary>
