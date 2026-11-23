@@ -1031,7 +1031,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var fixedWriteExact = !relation.FunctionForm && DerivedRelationNamesCompilation.UsesFixedRead(model,relation) &&
                 ExactDataManageCompilation.Declared(relation.TargetPage) &&
                 (logicalPlan is not null || DerivedRelationNamesCompilation.UsesExactSingle(relation));
-            var lockScope=fixedWriteExact||relation.ScopedStoredSingle||relation.CompoundProjectSource||relation.CompoundProjectTarget||
+            var lockScope=fixedWriteExact||relation.ScopedStoredSingle||relation.FixedGlobalSelection||relation.CompoundProjectSource||relation.CompoundProjectTarget||
                 relation.CanonicalProjectParent||relation.LogicalSourceParent||
                 relation.Conditions is not null||logicalPlan is not null||
                 relation.Target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);

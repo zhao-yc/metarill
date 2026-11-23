@@ -186,9 +186,17 @@ public sealed class NonRedundantGeneratedReadTests
     [InlineData(1,1,true,true,false,true)]
     [InlineData(1,0,true,false,false,true)]
     [InlineData(1,1,true,false,false,true,true)]
+    [InlineData(1,0,true,true,false,true,false,true)]
+    [InlineData(1,0,true,true,false,true,true,true)]
+    [InlineData(1,1,true,true,false,true,false,true)]
+    [InlineData(1,1,true,true,false,true,true,true)]
+    [InlineData(1,0,true,false,false,true,false,true)]
+    [InlineData(1,0,true,false,false,true,true,true)]
+    [InlineData(1,1,true,false,false,true,false,true)]
+    [InlineData(1,1,true,false,false,true,true,true)]
     public async Task Single_id_display_preserves_exact_web_filter_and_excel(
         int storage,int targetStorage,bool global=false,bool fieldId=false,bool accountParent=false,
-        bool globalSource=false,bool rowProject=false)
+        bool globalSource=false,bool rowProject=false,bool fixedOnly=false)
     {
         var catalog=NonRedundantApplicationFixture.Catalog("mt_single_id");
         catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=storage;
@@ -230,7 +238,7 @@ public sealed class NonRedundantGeneratedReadTests
             catalog.ConfigPageColumns.RemoveAll(field => field.ConfigPageId == "102" || omitted.Contains(field.ConfigColumnId));
             foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
                 sourcePage.WhereSql=rowProject?"yz_project_id=@current_yz_project_id":"";
-            if(storage==1)
+            if(storage==1&&!fixedOnly)
             {
                 // 复用全局单选已支持的账号范围，并保留原固定状态过滤。
                 catalog.ConfigColumns.Add(new(){Id="213",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
@@ -251,6 +259,9 @@ public sealed class NonRedundantGeneratedReadTests
         if(storage==1)
             foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId=="15"))
                 field.Extra.Remove("isSearch");
+        if(fixedOnly&&!fieldId)
+            catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="101"&&field.ConfigColumnId=="15")
+                .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
         foreach(var field in catalog.ConfigPageColumns.Where(field=>(field.ConfigPageId is "104" or "105")&&field.ConfigColumnId=="15"&&!fieldId))
             field.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"id"}""");
         var page=catalog.ConfigPages.Single(page=>page.Id=="104");page.IsExport=1;
@@ -270,6 +281,12 @@ public sealed class NonRedundantGeneratedReadTests
         var selection=NonRedundantSelectionCompilation.Resolve(model,table,actual,table.Columns.Single(column=>column.Source.Id=="15"));
         Assert.True(selection.Name.IsId);
         Assert.Equal("201",selection.TargetPage.Source.Id);
+        if (fixedOnly)
+        {
+            var relation=Assert.Single(RelationCompilation.ForPage(model,actual), candidate=>candidate.SourceColumn.Source.Id=="15");
+            Assert.True(relation.FixedGlobalSelection);
+            Assert.False(NonRedundantReadCompilation.UsesProjectSingleRead(relation));
+        }
         Assert.Empty(SelectionNameFilterCompilation.ForPage(model,table,actual).Gaps);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         if (storage == 1 && !global)
@@ -291,6 +308,31 @@ public sealed class NonRedundantGeneratedReadTests
             {
                 Assert.Equal("customer_name",binding.Cache?.Source.ColumnName);
                 Assert.Contains("customer_name",caches);
+                if (fixedOnly)
+                {
+                    // 同一实际字典页同时决定原名称筛选和名称重算，改状态也要触发反查。
+                    var namedPage=table.Pages.Single(candidate=>candidate.Source.Id=="101");
+                    var namedFilter=SelectionNameFilterCompilation.ForPage(model,table,namedPage);
+                    Assert.Empty(namedFilter.Gaps);
+                    Assert.Contains(namedFilter.Bindings,filter=>filter.Source.Source.Id=="15"&&filter.FilterKey=="customerName");
+                    var cachePlan=Assert.Single(RelationPropagationCompilation.DerivedBindings(model),
+                        candidate=>candidate.Cache.Source.ColumnName=="customer_name");
+                    Assert.Equal("201",cachePlan.ScopedSinglePageId);
+                    var definitions=RelationPropagationCompilation.Definitions([cachePlan]);
+                    const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.NonPublic;
+                    var refresh=typeof(Metarill.Data.Queries.MySqlNonRedundantReadCompiler)
+                        .GetMethod("CompileRefresh",flags|System.Reflection.BindingFlags.Static)!
+                        .Invoke(null,[catalog,"1",new[]{"customer_name"},definitions,null])!;
+                    var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                        refresh.GetType().GetProperty("Constants",flags|System.Reflection.BindingFlags.Instance)!.GetValue(refresh));
+                    Assert.Contains(83,constants.Values);
+                    var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
+                        refresh.GetType().GetProperty("Reverse",flags|System.Reflection.BindingFlags.Instance)!.GetValue(refresh));
+                    Assert.Contains(reverse.Cast<object>(),reference=>
+                        reference.GetType().GetProperty("Outputs")!.GetValue(reference) is
+                            IReadOnlyDictionary<string,IReadOnlySet<string>> dependencies &&
+                        dependencies.TryGetValue("customer_name",out var fields)&&fields.Contains("status"));
+                }
             }
         }
         var root=Path.Combine(Path.GetTempPath(),"metarill-single-id",Guid.NewGuid().ToString("N"));
@@ -321,7 +363,7 @@ public sealed class NonRedundantGeneratedReadTests
                 const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic;
                 var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
                     serviceType.GetField("DerivedOptionsPlan104_15",hidden|System.Reflection.BindingFlags.Static)!.GetValue(null));
-                var requiresAccount=accountParent||globalSource&&storage==1;
+                var requiresAccount=accountParent||globalSource&&storage==1&&!fixedOnly;
                 Assert.Equal(requiresAccount,plan.RequiresAccount);
                 if(requiresAccount)plan=plan.BindAccount(new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5")
                     {StoreId=9007199254740993L});

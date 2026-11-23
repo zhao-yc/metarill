@@ -143,7 +143,7 @@ internal static class SelectionNameFilterCompilation
         if(target.IsGlobal)
         {
             var binding=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source);
-            return binding.RequiresScopedCache&&(target.Source.IsRongyu==0||binding.ScopedAccount)&&
+            return binding.RequiresScopedCache&&(target.Source.IsRongyu==0||binding.ScopedAccount||binding.FixedSelectionPage)&&
                 binding.Page.Id==targetPage.Source.Id&&binding.Name.Id==name.Source.Id;
         }
         var project=ProjectScopedSingleRelationTarget.Resolve(model.Catalog,table.Source,source.Source,target.Source);

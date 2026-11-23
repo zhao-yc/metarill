@@ -11,6 +11,8 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
     public bool ScopedCrossTable { get; internal init; }
     /// <summary>纯物理的账号条件同样必须按已发布页绑定。</summary>
     public bool ScopedAccount { get; internal init; }
+    /// <summary>全局冗余单选可只使用实际候选页的固定常量范围，缓存不需要来源行账号列。</summary>
+    public bool FixedSelectionPage { get; internal init; }
     /// <summary>名称读取和维护从来源行取得持久父键，候选才使用实际父参数。</summary>
     public MultiTargetParentScope? Parent { get; internal init; }
     /// <summary>来源父键的存储方式及其实际页面由同一发布计划证明。</summary>
@@ -19,7 +21,7 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
     public MultiTargetParentScope? AccountParent=>ScopedAccount?PhysicalParent:null;
     public bool ScopedLogicalPage=>ScopedSelfTree||ScopedCrossTable;
     /// <summary>候选、名称联接和回填均须执行该页的实际范围。</summary>
-    public bool RequiresScopedPage=>ScopedLogicalPage||ScopedAccount;
+    public bool RequiresScopedPage=>ScopedLogicalPage||ScopedAccount||FixedSelectionPage;
 
     /// <summary>同一物理副本的各来源页必须使用等价的下拉附加条件。</summary>
     public FixedConditionPlan? CacheControl { get; internal init; }
@@ -274,8 +276,12 @@ public static class GlobalSingleRelationTarget
                     throw new InvalidOperationException("全局单值关系范围要求来源页使用已发布的目标和名称。");
             }
         }
+        // 固定条件已通过同一发布页及物理列检查。无账号变量时无需额外声明来源归属字段。
+        var fixedSelectionPage=cacheControl&&owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&
+            selectPage&&condition.Terms.Count>0&&condition.Variables.Count==0;
         var plan=new GlobalSingleRelationPlan(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,
-            ScopedAccount=scopedAccount,Parent=fixedParent,SourceParent=sourceParent,CacheControl=control,NestedCacheScope=nestedScope,
+            ScopedAccount=scopedAccount,FixedSelectionPage=fixedSelectionPage,Parent=fixedParent,SourceParent=sourceParent,
+            CacheControl=control,NestedCacheScope=nestedScope,
             AlternateListPage=alternateListPage,PageOnlyList=pageOnlyList,StoredListAccount=storedListAccount};
         if(owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&foreign.ControlKind=="SelectPage"&&
             (!plan.RequiresScopedCache||page.Extra.GetValueOrDefault("type").ToString()!="1"))

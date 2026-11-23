@@ -12,6 +12,8 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
 {
     internal bool ListPageOverride { get; init; }
     internal bool ScopedStoredSingle { get; init; }
+    // 全局固定页要求当前读锁，但不进入项目内冗余下拉的名称投影路径。
+    internal bool FixedGlobalSelection { get; init; }
     internal bool CompoundProjectSource { get; init; }
     internal bool CompoundProjectTarget { get; init; }
     internal bool CanonicalProjectParent { get; init; }
@@ -124,11 +126,13 @@ internal static class RelationCompilation
             if (functionForm && target.IsGlobal && functionPageId.Length == 0)
                 throw new InvalidOperationException("功能表下拉的全局目标需要显式发布页面。");
             var globalListPageScope = false;
+            var globalFixedSelection = false;
             if(!functionForm&&target.IsGlobal&&(owner.Source.IsRongyu==0||!source.IsSystem))
             {
                 var global=GlobalTargetForPage(model,owner,page,source,target);
                 targetPage=target.Pages.Single(candidate=>candidate.Source.Id==global.Page.Id);
                 globalListPageScope=global.UsesListPageScope;
+                globalFixedSelection=global.FixedSelectionPage;
                 if(name.Source.Id!=global.Name.Id&&!listId&&selection?.Name.IsId!=true)
                     throw new InvalidOperationException("全局关系页级名称覆盖与固定显示来源不一致。");
             }
@@ -260,6 +264,7 @@ internal static class RelationCompilation
             {
                 ListPageOverride = listPageOverride,
                 ScopedStoredSingle = scopedStoredList||storedSelectionParent is not null,
+                FixedGlobalSelection = globalFixedSelection,
                 CompoundProjectSource = compoundProjectSource is not null,
                 CompoundProjectTarget = compoundTarget&&publishedParent is {Logical:false,Global:false,AdditionalTargets.Count:>0},
                 CanonicalProjectParent = canonicalProjectParent,
