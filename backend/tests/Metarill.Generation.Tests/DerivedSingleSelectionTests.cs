@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Metarill.Core.Contracts;
+using Metarill.Core.Persistence;
 using Metarill.Core.Security;
 using Metarill.Data.Queries;
 using Metarill.Core.Metadata;
@@ -311,7 +312,8 @@ public sealed class DerivedSingleSelectionTests
     [InlineData(0, false)]
     [InlineData(1, false)]
     [InlineData(1, true)]
-    public async Task Stored_global_selection_uses_published_account_dictionary(int storage, bool globalSource)
+    [InlineData(1, false, true)]
+    public async Task Stored_global_selection_uses_published_account_dictionary(int storage, bool globalSource, bool managedDictionary = false)
     {
         const string ns = "Example.GlobalAccountSelection";
         var catalog = Catalog("account_selection", false);
@@ -321,8 +323,8 @@ public sealed class DerivedSingleSelectionTests
         var dictionary = catalog.ConfigTables.Single(table => table.Id == "2");
         dictionary.IsRongyu = 1;
         dictionary.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
-        catalog.ConfigColumns.RemoveAll(column => column.Id is "16" or "17" or "27" or "28");
-        catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId is "16" or "17" or "27" or "28");
+        catalog.ConfigColumns.RemoveAll(column => column.Id is "16" or "17" || !managedDictionary && column.Id is "27" or "28");
+        catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId is "16" or "17" || !managedDictionary && field.ConfigColumnId is "27" or "28");
 
         var foreign = catalog.ConfigColumns.Single(column => column.Id == "15");
         foreign.ControlDetail = """{"tableId":"2","pageId":"201","nameField":"name","whereSql":"status=1"}""";
@@ -342,6 +344,39 @@ public sealed class DerivedSingleSelectionTests
         }
 
         if (globalSource) catalog.ConfigPages.Single(page => page.Id == "101").Extra["exportMethod"] = JsonSerializer.SerializeToElement("edit");
+
+        if (managedDictionary)
+        {
+            // 字典的数据维护页保存公司名称副本，弹窗页继续按明确发布的门店条件提供候选。
+            catalog.ConfigTables.Single(table => table.Id == "3").IsRongyu = 0;
+            var company = catalog.ConfigTables.Single(table => table.Id == "4");
+            company.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "41201", ConfigTableId = "4", YzProjectId = catalog.YzProjectId,
+                ColumnName = "store_id", LogicalType = "int64"
+            });
+            catalog.ConfigPages.Single(page => page.Id == "401").WhereSql = "store_id=@current_store_id";
+            catalog.ConfigColumns.Single(column => column.Id == "27").ControlDetail =
+                """{"tableId":"4","pageId":"401","nameField":"name"}""";
+
+            targetPage.IsExport = 1;
+            foreach (var id in new[] { "202", "203" })
+            {
+                var owned = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(targetPage))!;
+                owned.Id = id;
+                owned.WhereSql += " AND yz_project_id=@current_yz_project_id";
+                if (id == "202") owned.Extra.Remove("type");
+                catalog.ConfigPages.Add(owned);
+                foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigPageId == targetPage.Id).ToArray())
+                {
+                    var copy = JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+                    copy.Id = id + field.Id;
+                    copy.ConfigPageId = owned.Id;
+                    catalog.ConfigPageColumns.Add(copy);
+                }
+            }
+        }
 
         var model = GenerationModel.Create(catalog, ns);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
@@ -373,6 +408,50 @@ public sealed class DerivedSingleSelectionTests
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service = assembly.GetType(ns + ".Generated.Services.AccountSelectionOrderService", true)!;
             RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            if (managedDictionary)
+            {
+                // 读取实际生成查询的 SQL，仅构造查询表达式。
+                using var session = new Metarill.Data.DatabaseSession(new()
+                {
+                    Provider = "mysql", ExpectedDatabase = "offline",
+                    ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
+                });
+                var serviceType = assembly.GetType(ns + ".Generated.Services.AccountSelectionPartyService", true)!;
+                var mapper = Activator.CreateInstance(assembly.GetType(ns + ".Generated.Mappers.AccountSelectionPartyMapper", true)!, session);
+                var arguments = new object?[] { session, mapper, new SnowflakeIdGenerator(), Array.Empty<IRecordMutationObserver>() };
+                var constructor = serviceType.GetConstructors().Single();
+                var dictionaryService = constructor.Invoke(Arguments(constructor, arguments));
+                var actor = new RuntimeActor(7, "合成账号", false, catalog.YzProjectId, "5") { StoreId = 9007199254740993L };
+                var sqlType = typeof(DerivedSingleSelectionTests).GetMethod(nameof(SelectionSql), BindingFlags.Static | BindingFlags.NonPublic)!
+                    .MakeGenericMethod(assembly.GetType(ns + ".Generated.Entities.AccountSelectionParty", true)!);
+                var candidate = Sql("Query201", new PageRequest(), actor);
+                Assert.DoesNotContain("`yz_project_id`", candidate);
+                Assert.Contains("`store_id`", candidate);
+                Assert.Contains("`status`", candidate);
+                Assert.Contains("`delete_no`", candidate);
+                Assert.Contains("`yz_project_id`", Sql("Query202", new PageRequest(), actor));
+                Assert.Contains("`yz_project_id`", Sql("Scope201", actor, null));
+                Assert.Contains("`yz_project_id`", Sql("Scope202", actor, null));
+                Assert.Contains("`yz_project_id`", Sql("Query203", new PageRequest(), actor));
+                Assert.Contains("`yz_project_id`", Sql("Query201", new PageRequest(), actor, false));
+                Assert.Contains("Query201(request, actor, candidateRows: false)", dictionaryCode);
+                var error = Assert.Throws<TargetInvocationException>(
+                    () => Sql("Query201", new PageRequest(), actor with { StoreId = null }));
+                Assert.IsType<UnauthorizedAccessException>(error.InnerException);
+                var query = FixedPageQueryCompilation.For(selected.Target, selected.TargetPage);
+                Assert.False(FixedPageQueryCompilation.TryProveSelection(query,
+                    selected.Definition with { WhereSql = "yz_project_id=@current_yz_project_id" }, out _));
+
+                string Sql(string method, params object?[] values)
+                {
+                    var query = serviceType.GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!;
+                    return Assert.IsType<string>(sqlType.Invoke(null, [query.Invoke(dictionaryService, Arguments(query, values))]));
+                }
+
+                static object?[] Arguments(MethodBase method, object?[] values) =>
+                    values.Concat(method.GetParameters().Skip(values.Length).Select(parameter => parameter.DefaultValue)).ToArray();
+            }
+
             const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
             if (storage == 0)
             {
@@ -415,6 +494,9 @@ public sealed class DerivedSingleSelectionTests
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
+
+    /// <summary>从实际生成的查询上提取 WHERE，不让投影列影响范围断言。</summary>
+    private static string SelectionSql<T>(object query) where T : class => ((FreeSql.ISelect<T>)query).ToSql("1");
 
     /// <summary>普通项目的两种目标存储都能把物理编号用于候选、回显和工作簿。</summary>
     [Theory]

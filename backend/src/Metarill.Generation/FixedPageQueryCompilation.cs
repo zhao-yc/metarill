@@ -23,6 +23,13 @@ internal static class FixedPageQueryCompilation
             ? table.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id")
             : GlobalSelfTreeProject(table);
 
+    /// <summary>原冗余单选列表按实际发布的全局门店范围读取，普通业务继续使用行项目。</summary>
+    internal static bool UsesStoredGlobalSelectionRows(TableModel table,PageModel page)=>
+        table.IsGlobal&&table.Source.IsRongyu==1&&ManagedGlobalProject(table) is not null&&
+        page.Source.Extra.GetValueOrDefault("type").ToString()=="1"&&
+        page.Scopes.Count==0&&!ExactDataManageCompilation.Declared(page)&&
+        FixedPageConditionCompilation.HasAccountVariables(page)&&!FixedPageConditionCompilation.HasLogicalFields(page);
+
     /// <summary>带真实行归属的全局普通业务同样绑定当前项目，候选使用独立计划。</summary>
     internal static FixedPageQueryPlan For(TableModel table, PageModel page)
     {
@@ -48,7 +55,8 @@ internal static class FixedPageQueryCompilation
     {
         try
         {
-            var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(target.Table,target.Page);
+            var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(target.Table,target.Page)||
+                UsesStoredGlobalSelectionRows(target.Table,target.Page);
             var allowed = target.IdentityScopes.Where(scope=>!globalCandidate||scope.Source!="project")
                 .Select(scope => (scope.Column.Source.Id, scope.Source)).ToHashSet();
             // 附加项必须逐项已被目标页实际执行；不把来源控件的更窄条件偷换成宽目标页。

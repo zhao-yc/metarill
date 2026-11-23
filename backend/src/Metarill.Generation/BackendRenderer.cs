@@ -350,6 +350,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if(NonRedundantReadCompilation.Requires(model,table))return NonRedundantQuery(model,table,page);
         var suffix = page.Source.Id;
         var fixedQuery = FixedPageQueryCompilation.For(table, page);
+        var selectionRows = FixedPageQueryCompilation.UsesStoredGlobalSelectionRows(table, page);
+        if (selectionRows) GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog, table.Source, page.Source);
         var globalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
             GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null;
         var snapshot=globalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
@@ -362,11 +364,11 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var result = new StringBuilder().Append(FixedPageConditionCompilation.Declaration(page,"PageCondition"+suffix))
             .Append(SharedRedundantParentCompilation.AccountDeclaration(model,table,page,"AccountParentScope"+suffix))
             .AppendLine($"    /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>")
-            .AppendLine($"    private ISelect<{table.EntityType}> Scope{suffix}(RuntimeActor actor, string? parentId{ExactDataManageCompilation.Parameter(page,"detail")}{(accountParent?", bool locking=false":"")})").AppendLine("    {")
+            .AppendLine($"    private ISelect<{table.EntityType}> Scope{suffix}(RuntimeActor actor, string? parentId{ExactDataManageCompilation.Parameter(page,"detail")}{(accountParent?", bool locking=false":"")}{(selectionRows?", bool candidateRows=false":"")})").AppendLine("    {")
             .AppendLine("        ValidateActor(actor);").AppendLine("        var query = mapper.Query();");
         foreach (var (column, source) in fixedQuery.IdentityScopes)
         {
-            if (source == "project") result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "actor.ProjectId")});");
+            if (source == "project") result.AppendLine($"        {(selectionRows?"if (!candidateRows) ":"")}query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "actor.ProjectId")});");
             else result.AppendLine("        if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException(\"当前页面要求 parentId。\");")
                 .AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "parentId")});");
         }
@@ -376,9 +378,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if (ManagerCredentialCompilation.Unsupported(table,page)) result.AppendLine("        ManagerCredentialValue.RequirePublishedPage(false);");
         result.AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>请求筛选只接受本页开放键；所有值通过表达式参数绑定。</summary>")
-            .AppendLine($"    private {(CascadeTreeQueryCompilation.Async(page)?$"async Task<ISelect<{table.EntityType}>>":$"ISelect<{table.EntityType}>")} Query{suffix}(PageRequest request, RuntimeActor actor{(CascadeTreeQueryCompilation.Async(page)?", CancellationToken cancellationToken":"")}{ExactDataManageCompilation.Parameter(page,"list")})").AppendLine("    {")
+            .AppendLine($"    private {(CascadeTreeQueryCompilation.Async(page)?$"async Task<ISelect<{table.EntityType}>>":$"ISelect<{table.EntityType}>")} Query{suffix}(PageRequest request, RuntimeActor actor{(CascadeTreeQueryCompilation.Async(page)?", CancellationToken cancellationToken":"")}{ExactDataManageCompilation.Parameter(page,"list")}{(selectionRows?", bool candidateRows=true":"")})").AppendLine("    {")
             .AppendLine("        ArgumentNullException.ThrowIfNull(request);")
-            .AppendLine($"        var query = Scope{suffix}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"authorizationOperation")});")
+            .AppendLine($"        var query = Scope{suffix}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"authorizationOperation")}{(selectionRows?", candidateRows: candidateRows":"")});")
             .AppendLine("        foreach (var filter in request.Filters ?? throw new ArgumentException(\"filters 不能为空。\"))")
             .AppendLine("        {").AppendLine("            switch (filter.Key)").AppendLine("            {");
         // 成功名称谓词与缺口拒绝共用固定键集合，不能落入普通JSON文本LIKE，也不能重复生成switch case。

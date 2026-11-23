@@ -99,7 +99,10 @@ internal static class ExportRenderer
         }
         else
         {
-        result.AppendLine($"        var query = Order{page.Source.Id}({CascadeTreeQueryCompilation.Call(page,extra:ExactDataManageCompilation.Argument(page,"\"export\""))}, request);")
+        // 导出是独立业务用途，原单选页也继续从当前项目导出。
+        var queryArguments=ExactDataManageCompilation.Argument(page,"\"export\"")+
+            (FixedPageQueryCompilation.UsesStoredGlobalSelectionRows(table,page)?", candidateRows: false":"");
+        result.AppendLine($"        var query = Order{page.Source.Id}({CascadeTreeQueryCompilation.Call(page,extra:queryArguments)}, request);")
             .AppendLine($"        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new {table.EntityType}").AppendLine("        {");
         // 目标父依赖只在已有可读字段中取固定列，不因此增加导出的表头或VO字段。
         foreach (var column in columns.Concat(dependencies).Concat(crossDependencies).Concat(multis.Select(multi=>multi.Names!)).Concat(table.Columns.Where(column => column.IsId)).DistinctBy(column => column.Source.Id)) result.AppendLine($"            {column.Property} = entity.{column.Property},");
