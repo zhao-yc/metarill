@@ -48,7 +48,7 @@ internal static class MultiSelectCompilation
     /// <summary>固定全局字典不读取动态项目或父参数，实际调用仍经过原目标页发布证明。</summary>
     internal static bool UsesStaticGlobalDictionary(MultiSelectModel definition) =>
         definition.TargetPage.Scopes.Count == 0 &&
-        GlobalMultipleRelationTarget.IsStoredStaticMultiSelectPage(definition.Target.Source, definition.TargetPage.Source,
+        GlobalMultipleRelationTarget.IsStoredStaticPage(definition.Target.Source, definition.TargetPage.Source,
             definition.TargetPage.Condition?.Syntax);
 
     /// <summary>来源和目标均绑定稳定元数据ID，客户端不能替换表或页面。</summary>

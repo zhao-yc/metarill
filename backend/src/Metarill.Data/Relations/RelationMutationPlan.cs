@@ -120,6 +120,8 @@ public sealed class RelationMutationPlan
                 {
                     if(!definition.Multiple||cross||selfTree)throw new InvalidOperationException("全局复选固定页必须绑定普通多值缓存。");
                     var page=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,source,foreign,target,value,globalCheckboxPage);
+                    rowProjectSource=GlobalCrossTableTarget.Declared(source)&&
+                        GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).UsesStoredStaticPage;
                     publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,page);
                 }
                 else if(cross||selfTree)

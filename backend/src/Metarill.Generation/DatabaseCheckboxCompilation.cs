@@ -25,13 +25,15 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool SharedDerivedPageScope { get; init; }
     internal bool SharedLogicalParentScope { get; init; }
     internal bool HasStoredAccountScope { get; init; }
+    internal bool HasStoredStaticScope { get; init; }
     internal bool HasProjectStoredAccountScope { get; init; }
     internal bool CompoundPhysicalSource { get; init; }
     internal bool ProjectFormScope { get; init; }
 
     /// <summary>原列表勾选的加载和冗余数组匹配共用同一候选范围证明。</summary>
     internal bool SupportsRedundantArrayFilter =>
-        FormParentField is not null || SharedLogicalParentScope || HasStoredAccountScope || HasProjectStoredAccountScope || ProjectFormScope;
+        FormParentField is not null || SharedLogicalParentScope || HasStoredAccountScope || HasStoredStaticScope ||
+        HasProjectStoredAccountScope || ProjectFormScope;
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
@@ -110,6 +112,7 @@ internal static class DatabaseCheckboxCompilation
             PageModel? globalPage=null;
             PageModel? publishedGlobalPage=null;
             var storedAccountPage=false;
+            var storedStaticPage=false;
             if(target.IsGlobal&&!functionForm)
             {
                 var proof=table.Source.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);
@@ -120,13 +123,14 @@ internal static class DatabaseCheckboxCompilation
                 storedAccountPage=publishedGlobalPage.Condition is {} publishedCondition&&
                     publishedGlobalPage.Scopes.All(scope=>scope.Source=="project")&&
                     GlobalMultipleRelationTarget.IsStoredAccountPage(target.Source,publishedGlobalPage.Source,publishedCondition.Syntax,checkbox:true);
-                if(storedAccountPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
+                storedStaticPage=table.IsGlobal&&proof.UsesStoredStaticPage;
+                if(storedAccountPage||storedStaticPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
                     GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name)||
                     table.Source.IsRongyu==1&&publishedGlobalPage.Condition is not null)
                     globalPage=publishedGlobalPage;
             }
-            if(table.IsGlobal&&!storedAccountPage)
-                return Gap("全局业务来源必须绑定已发布的冗余账号字典页。");
+            if(table.IsGlobal&&!storedAccountPage&&!storedStaticPage)
+                return Gap("全局业务来源必须绑定受支持的已发布冗余字典页。");
             if(storedAccountPage&&table.Source.IsRongyu==1&&!functionForm&&
                 !baseline.HasSameCondition(definition,target.Columns.Select(column=>column.Source.ColumnName)))
                 return Gap("同一名称副本的页面必须沿用表级复选候选条件。");
@@ -191,7 +195,7 @@ internal static class DatabaseCheckboxCompilation
             if(usesNameOverride)
             {
                 // 非冗余页仍通过原数组实时投影；冗余名称副本沿发布范围独立证明。
-                var realtimeFixedName=table.Source.IsRongyu==0&&(target.Source.IsRongyu==0||storedAccountPage)&&
+                var realtimeFixedName=table.Source.IsRongyu==0&&(target.Source.IsRongyu==0||storedAccountPage||storedStaticPage)&&
                     exactTarget is null&&namePage is not null&&namePage.Source.Id==fixedPage;
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
                 bool TextLabel(ColumnModel label)=>target.IsGlobal&&realtimeFixedName&&target.Source.IsRongyu==0
@@ -219,6 +223,15 @@ internal static class DatabaseCheckboxCompilation
             if(explicitPage!=fixedPage&&!pageRead&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate,includeProjectFixedScope:false))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
             var whereSql=definition.WhereSql;
+            if(storedStaticPage&&table.Source.IsRongyu==1)
+            {
+                var fields=target.Columns.Select(column=>column.Source.ColumnName).ToArray();
+                var publishedCondition=FixedConditionPlan.Compile(publishedGlobalPage!.Source.WhereSql,fields);
+                if(!definition.IsCoveredByStaticPage(publishedCondition,fields))
+                    return Gap("全局复选的冗余名称要求控件和页面覆盖条件由实际发布字典页覆盖。");
+                // 发布字典页已经应用这些条件，物理副本和候选共用一份过滤。
+                whereSql="";
+            }
             var projectForm=table.Source.IsRongyu==1&&!functionForm&&!table.IsGlobal&&exactTarget is null&&
                 namePage is {} formPage&&explicitPage==fixedPage&&logicalPage is null
                 ?baseline.AdditionalPhysicalFormConditions(model.Catalog,target.Source,formPage.Source):null;
@@ -433,6 +446,7 @@ internal static class DatabaseCheckboxCompilation
                 SharedDerivedPageScope=sharedDerivedPageScope,
                 SharedLogicalParentScope=sharedLogicalParentScope,
                 HasStoredAccountScope=storedAccountPage,
+                HasStoredStaticScope=storedStaticPage,
                 HasProjectStoredAccountScope=projectStoredAccount,
                 CompoundPhysicalSource=ordinaryCompoundSource||projectStoredAccount&&sourceScopeColumns.Length>1,
                 ProjectFormScope=projectForm is not null,

@@ -59,6 +59,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 ?.Extra.GetValueOrDefault("controlDetail").ToString();
             string pageId;
             string? name=null;
+            var storedGlobalStatic=false;
             if(relation.ControlKind=="MultiCheckBoxDatabase")
             {
                 var baseline=DatabaseCheckboxDefinition.Parse(relation.ControlDetail);
@@ -75,12 +76,13 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(GlobalCrossTableTarget.Declared(target))
                 {
                     // 即使旧配置省略页面 ID，也只接受全局发布证明选中的唯一目录。
-                    var published=GlobalMultipleRelationTarget.Require(catalog,table,relation,target).Page;
-                    if(pageId.Length>0&&pageId!=published.Id||selected?.Id!=published.Id||!binding.ApplyPageScope)
+                    var published=GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
+                    if(pageId.Length>0&&pageId!=published.Page.Id||selected?.Id!=published.Page.Id||!binding.ApplyPageScope)
                         throw new InvalidOperationException("全局复选名称与已发布目标页不一致。");
-                    pageId=globalPageId=published.Id;
+                    pageId=globalPageId=published.Page.Id;
+                    storedGlobalStatic=GlobalCrossTableTarget.Declared(table)&&published.UsesStoredStaticPage;
                 }
-                name=CheckboxPageNameOverride(table,relation,target,selected,baseline,definition,globalPageId);
+                name=CheckboxPageNameOverride(table,relation,target,selected,baseline,definition,globalPageId,storedGlobalStatic);
             }
             else
             {
@@ -105,7 +107,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     IsProjectOnlyStoredMultiSelectPage(catalog,target,selected));
             var physicalNameOverride=name is not null&&target.IsRongyu==1&&!binding.ApplyPageScope;
             var globalOwnedCheckbox=checkbox&&binding.ApplyPageScope&&selected is not null&&
-                StoredAccountMultiPage(catalog,target,selected,checkbox:true);
+                (storedGlobalStatic||StoredAccountMultiPage(catalog,target,selected,checkbox:true));
             if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!storedMultiSelect&&!physicalNameOverride||
                 GlobalCrossTableTarget.Declared(table)&&!globalOwnedCheckbox||
                 GlobalCrossTableTarget.Declared(target)&&!checkbox||pageId!=(selected?.Id??"")||
@@ -119,7 +121,8 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>原非冗余复选允许从同一个发布页读取已明确声明的派生文本。</summary>
         private string? CheckboxPageNameOverride(TableMetadata table,ColumnMetadata relation,TableMetadata target,
-            PageMetadata? selected,DatabaseCheckboxDefinition baseline,DatabaseCheckboxDefinition definition,string? globalPageId)
+            PageMetadata? selected,DatabaseCheckboxDefinition baseline,DatabaseCheckboxDefinition definition,string? globalPageId,
+            bool storedGlobalStatic)
         {
             if(definition.NameField==baseline.NameField)return null;
             var original=Column(target,baseline.NameField);
@@ -127,14 +130,14 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!GlobalCrossTableTarget.Declared(target)&&PhysicalTextMultiLabel(target,original)&&PhysicalTextMultiLabel(target,label))
                 return label.ColumnName;
             var fixedPage=globalPageId??(baseline.PageId.Length>0?baseline.PageId:Text(relation,"linkConfigPageId"));
-            var storedAccount=globalPageId is not null&&selected is not null&&
+            var storedGlobal=storedGlobalStatic||globalPageId is not null&&selected is not null&&
                 StoredAccountMultiPage(catalog,target,selected,checkbox:true);
-            bool TextLabel(ColumnMetadata column)=>storedAccount
+            bool TextLabel(ColumnMetadata column)=>storedGlobal
                 ?PhysicalTextMultiLabel(target,column)
                 :globalPageId is not null
                     ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(catalog,target,column,selected)
                     :PhysicalTextMultiLabel(target,column)||MultiNameStorageColumns.IsDerivedCheckboxText(target,storage[target.Id],column);
-            if(table.IsRongyu!=0||target.IsRongyu!=0&&!storedAccount||selected is null||
+            if(table.IsRongyu!=0||target.IsRongyu!=0&&!storedGlobal||selected is null||
                 selected.Id!=fixedPage||selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
                 definition.TableId.Length>0&&definition.TableId!=target.Id||
                 definition.Table.Length>0&&definition.Table!=target.TableName||

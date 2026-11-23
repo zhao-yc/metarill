@@ -54,6 +54,13 @@ public sealed record DatabaseCheckboxDefinition(string TableId,string Table,stri
         return left.SetEquals(FixedConditionPlan.Compile(other.WhereSql,allowed).Terms.Select(term=>term.ToDefinition()));
     }
 
+    /// <summary>固定全局字典的物理副本只能依赖发布页已执行的条件，避免回填扩大候选范围。</summary>
+    public bool IsCoveredByStaticPage(FixedConditionPlan published,IEnumerable<string> fields)
+    {
+        var conditions=published.Terms.Select(term=>term.ToDefinition()).ToHashSet(StringComparer.Ordinal);
+        return FixedConditionPlan.Compile(WhereSql,fields).Terms.All(term=>conditions.Contains(term.ToDefinition()));
+    }
+
     /// <summary>普通账号字典的项目与发布页条件已执行，只保留控件独立追加的条件供候选和回填共用。</summary>
     public string AdditionalProjectConditions(string publishedWhere,IEnumerable<string> fields)
     {

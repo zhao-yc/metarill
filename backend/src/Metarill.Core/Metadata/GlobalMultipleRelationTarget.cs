@@ -36,9 +36,9 @@ public static class GlobalMultipleRelationTarget
             IsProjectScope(term)||term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable)
                 .All(value=>AccountConditionVariables.IsSupported(value.Text)));
 
-    /// <summary>全局业务来源可使用原多选已发布的物理字典页，候选范围为固定常量或无条件。</summary>
-    public static bool IsStoredStaticMultiSelectPage(TableMetadata table,PageMetadata page,FixedConditionPlan? condition)=>
-        IsStoredPublishedPage(table,page,checkbox:false)&&(condition?.Variables.Count??0)==0;
+    /// <summary>全局业务数组可使用实际发布的物理字典页，候选范围为固定常量或无条件。</summary>
+    public static bool IsStoredStaticPage(TableMetadata table,PageMetadata page,FixedConditionPlan? condition,bool checkbox=false)=>
+        IsStoredPublishedPage(table,page,checkbox)&&(condition?.Variables.Count??0)==0;
 
     /// <summary>两类多值用途共用冗余字典的页面资格，精确数据管理由独立合同验证。</summary>
     private static bool IsStoredPublishedPage(TableMetadata table,PageMetadata page,bool checkbox)=>
@@ -73,12 +73,15 @@ public static class GlobalMultipleRelationTarget
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
         var checkbox=foreign.ControlKind=="MultiCheckBoxDatabase";
         var storedAccount=(checkbox||pageId.Length>0)&&IsStoredAccountPage(target,page,condition,checkbox);
-        var storedStatic=!checkbox&&pageId.Length>0&&IsStoredStaticMultiSelectPage(target,page,condition);
+        var storedStatic=(checkbox||pageId.Length>0)&&IsStoredStaticPage(target,page,condition,checkbox);
         if(GlobalCrossTableTarget.Declared(owner))
         {
-            // 业务来源仍按行项目隔离。原多选可以另外绑定已发布的固定常量或无条件字典。
+            // 业务来源仍按行项目隔离。物理副本只能使用维护时也能重现的固定字典范围。
             if(!storedAccount&&!storedStatic)throw new NotSupportedException("全局多值来源必须绑定受支持的已发布冗余字典页。");
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
+            if(cached&&checkbox&&storedStatic&&!DatabaseCheckboxDefinition.Parse(foreign.ControlDetail)
+                .IsCoveredByStaticPage(condition,expanded.Select(column=>column.ColumnName)))
+                throw new NotSupportedException("全局复选的冗余名称要求控件条件由实际发布字典页覆盖。");
         }
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
         var scoped=selfTreeScope||target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));

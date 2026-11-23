@@ -648,6 +648,173 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         }
     }
 
+    /// <summary>全局业务复选的固定字典、实时名称及两份物理副本共用实际发布范围。</summary>
+    [Theory]
+    [InlineData(0,"int64",false)]
+    [InlineData(0,"string",false)]
+    [InlineData(1,"int64",false)]
+    [InlineData(1,"string",false)]
+    [InlineData(0,"int64",true)]
+    [InlineData(0,"string",true)]
+    [InlineData(1,"int64",true)]
+    [InlineData(1,"string",true)]
+    public async Task Global_business_checkbox_uses_static_global_dictionary(int mode,string projectType,bool unfiltered)
+    {
+        const string app="Example.StaticGlobalCheckbox";
+        var catalog=PhysicalLabelCatalog(mode,false);
+        catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigColumns.RemoveAll(column=>column.Id is "34" or "35");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "34" or "35");
+        catalog.ConfigColumns.Single(column=>column.Id=="32").LogicalType=projectType;
+        catalog.ConfigColumns.Add(new(){Id="17",ConfigTableId="1",YzProjectId="100",ColumnName="yz_project_id",LogicalType=projectType});
+        catalog.ConfigColumns.Single(column=>column.Id=="13").ControlKind="SelectPage";
+        catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",YzProjectId="100",ColumnName="short_caption",LogicalType="string"});
+        catalog.ConfigPageColumns.Add(new(){Id="1018",ConfigPageId="10",ConfigColumnId="18",YzProjectId="100",IsShow=1});
+        var dictionary=catalog.ConfigPages.Single(page=>page.Id=="10");
+        dictionary.Extra.Remove("type");
+        dictionary.WhereSql=unfiltered?"":"status=17";
+        var source=catalog.ConfigColumns.Single(column=>column.Id=="38");
+        catalog.ConfigPageColumns.Single(field=>field.Id=="3038").Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        if(!unfiltered)
+            source.Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
+        if(mode==1&&!unfiltered&&projectType=="int64")
+            source.ControlDetail=source.ControlDetail.Insert(1,"\"whereSql\":\"status = 17\",");
+        if(unfiltered)
+        {
+            // 省略页面时仍须绑定唯一发布页，不能从其他页面借用名称。
+            source.ControlDetail=source.ControlDetail.Replace("\"pageId\":\"10\",","",StringComparison.Ordinal);
+            source.Extra.Remove("linkConfigPageId");
+            Assert.Empty(DatabaseCheckboxDefinition.Parse(source.ControlDetail).PageId);
+        }
+        var business=catalog.ConfigPages.Single(page=>page.Id=="30");
+        business.WhereSql="";
+        catalog.ConfigColumns.Single(column=>column.Id=="36").SortNo=-10;
+        catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="36").SortNo=-10;
+        var overwrite=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(business))!;
+        overwrite.Id="31";
+        overwrite.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+        overwrite.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+        catalog.ConfigPages.Add(overwrite);
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="30").ToArray())
+        {
+            if(mode==1&&field.ConfigColumnId=="40")continue;
+            var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+            copy.Id="31"+copy.ConfigColumnId;
+            copy.ConfigPageId="31";
+            if(copy.ConfigColumnId=="38")
+                copy.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"short_caption"}""");
+            catalog.ConfigPageColumns.Add(copy);
+        }
+        if(mode==1)
+        {
+            catalog.ConfigColumns.Add(new(){Id="41",ConfigTableId="3",YzProjectId="100",ColumnName="selected_global_source_short_captions",
+                LogicalType="string",ColumnLength="max",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=JsonSerializer.SerializeToElement("selected_global_source.short_caption")}});
+            catalog.ConfigPageColumns.Add(new(){Id="3141",ConfigPageId="31",ConfigColumnId="41",YzProjectId="100",IsShow=1});
+        }
+
+        var model=GenerationModel.Create(catalog,app);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        var consumer=model.Tables.Single(item=>item.Source.Id=="3");
+        var vue=OriginalUniappListRenderer.Render(model,consumer,consumer.Pages.Single(page=>page.Source.Id=="30"));
+        Assert.Contains("/admin/auto/cached_consumer/30/findNameIdSelectedGlobalSource38",vue);
+        if(mode==1&&!unfiltered&&projectType=="int64")
+        {
+            var pageField=catalog.ConfigPageColumns.Single(field=>field.Id=="3138");
+            var original=pageField.Extra["controlDetail"];
+            pageField.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"short_caption","whereSql":"status=18"}""");
+            Assert.Contains(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,app)),gap=>
+                gap.PageId=="31"&&gap.Reason.Contains("实际发布字典页覆盖",StringComparison.Ordinal));
+            pageField.Extra["controlDetail"]=original;
+        }
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-static-global-checkbox");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,output,app);
+            var code=await File.ReadAllTextAsync(Path.Combine(output,"Services/CachedConsumerService.g.cs"));
+            foreach(var id in new[]{"30","31"})
+            {
+                Assert.Contains($"CheckboxOptions{id}_38Async",code);
+                Assert.Contains($"ImportCheckbox{id}_38Async",code);
+                Assert.Contains($"Export{id}Async",code);
+            }
+            Assert.DoesNotContain("CheckboxGlobalCondition30_38.BindAccount(actor)",code);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(app+".Generated.Services.CachedConsumerService",true)!;
+            const BindingFlags hidden=BindingFlags.NonPublic;
+            object MySql(string field)
+            {
+                var read=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField(field,BindingFlags.Static|hidden)!.GetValue(null));
+                Assert.False(read.RequiresAccount);
+                return read.GetType().GetProperty("MySql",BindingFlags.Instance|hidden)!.GetValue(read)!;
+            }
+            var wrong=new RuntimeActor(7,"合成账号",false,"999","9");
+            var validate=service.GetMethod("ValidateActor",BindingFlags.Static|hidden)!;
+            Assert.IsType<UnauthorizedAccessException>(Assert.Throws<TargetInvocationException>(()=>validate.Invoke(null,[wrong])).InnerException);
+            // 直接执行已生成的候选查询构造；离线测试只生成 SQL，禁止数据库连接。
+            var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"9");
+            using var orm=new FreeSql.FreeSqlBuilder().UseConnectionFactory(FreeSql.DataType.MySql,
+                ()=>throw new InvalidOperationException("离线验收不连接数据库。")).UseAutoSyncStructure(false).Build();
+            using var session=new DatabaseSession(new()
+            {
+                Provider="mysql",ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Database=offline;User ID=unused"
+            },orm);
+            var mapper=Activator.CreateInstance(assembly.GetType(app+".Generated.Mappers.CachedConsumerMapper",true)!,session);
+            var instance=Activator.CreateInstance(service,session,mapper,new SnowflakeIdGenerator(),
+                Array.Empty<Metarill.Core.Persistence.IRecordMutationObserver>(),null,new CascadeTreeReadTests.TreeListOnly(actor))!;
+            var candidate=service.GetMethod("CheckboxScope30_38Async",BindingFlags.Instance|hidden)!;
+            var task=Assert.IsAssignableFrom<Task>(candidate.Invoke(instance,[null,actor,new Dictionary<string,object?>(),false,CancellationToken.None]));
+            await task;
+            var query=task.GetType().GetProperty("Result")!.GetValue(task);
+            var sql=Assert.IsType<string>(typeof(GlobalMultipleCachedTargetGenerationTests).GetMethod(nameof(CheckboxSql),BindingFlags.Static|hidden)!
+                .MakeGenericMethod(assembly.GetType(app+".Generated.Entities.GlobalSource",true)!).Invoke(null,[query]));
+            Assert.Contains("`global_source`",sql);
+            Assert.Contains("`delete_no`",sql);
+            Assert.Equal(!unfiltered,sql.Contains("`status`",StringComparison.Ordinal));
+            Assert.DoesNotContain("`yz_project_id`",sql);
+            const string fullNames="selected_global_source_captions";
+            const string shortNames="selected_global_source_short_captions";
+            void CheckName(object read,string outputName,string field)
+            {
+                AssertOwnedScope(read);
+                var expression=CheckboxNameExpression(read,outputName);
+                Assert.Contains("`"+field+"`",expression);
+                Assert.Equal(!unfiltered,expression.Contains("multi_value.`status`",StringComparison.Ordinal));
+                Assert.DoesNotContain("multi_value.`yz_project_id`",expression);
+            }
+            if(mode==0)
+            {
+                CheckName(MySql("ReadPlan30"),fullNames,"caption");
+                CheckName(MySql("ReadPlan31"),fullNames,"short_caption");
+            }
+            else
+            {
+                Assert.Contains("不能修改来源记录项目归属",code);
+                var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    assembly.GetType(app+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+                var propagation=maintenance.GetType().GetProperty("Propagation",BindingFlags.Instance|hidden)!.GetValue(maintenance)!;
+                var bindings=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
+                    propagation.GetType().GetProperty("Bindings",BindingFlags.Instance|hidden)!.GetValue(propagation));
+                Assert.Equal(2,bindings.Cast<object>().Count(binding=>Equals(fullNames,binding.GetType().GetProperty("Cache")!.GetValue(binding))||
+                    Equals(shortNames,binding.GetType().GetProperty("Cache")!.GetValue(binding))));
+                var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                    maintenance.GetType().GetProperty("Plans",BindingFlags.Instance|hidden)!.GetValue(maintenance));
+                var plan=plans["3"]!;
+                Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
+                var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+                CheckName(read,fullNames,"caption");
+                CheckName(read,shortNames,"short_caption");
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>检查已生成的 FreeSql 查询而不连接数据库。</summary>
+    private static string CheckboxSql<T>(object query) where T:class=>((FreeSql.ISelect<T>)query).ToSql("1");
+
     /// <summary>核对实际生成的业务或维护计划仍以物理项目列作根范围。</summary>
     private static void AssertOwnedScope(object mysql) =>
         Assert.Contains("`yz_project_id`",Assert.IsType<string>(

@@ -16,9 +16,9 @@ internal static class DerivedMultipleCacheProof
             !GlobalCrossTableTarget.Declared(target))
             return false;
         var page=MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign);
-        if(page is null&&foreign.ControlKind!="MultiSelectPage")return false;
         var published=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);
-        if(page is null)return published.UsesStoredStaticPage&&published.Name.Id==binding.ValueColumnId;
+        if(page is null&&!published.UsesStoredStaticPage)return false;
+        page??=published.Page;
         if(published.Name.Id==binding.ValueColumnId)return true;
         if(foreign.ControlKind!="MultiCheckBoxDatabase"||binding.CheckboxTargetPageId!=page.Id||binding.CheckboxSourceParentId is not null)
             return false;

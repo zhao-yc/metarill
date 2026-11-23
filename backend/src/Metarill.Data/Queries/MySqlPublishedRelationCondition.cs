@@ -41,11 +41,14 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var fields=storage.PhysicalColumns.Select(column=>column.ColumnName).ToArray();
         var storedAccount=global is not null&&sourceParentId is null&&target.IsRongyu==1&&
             GlobalMultipleRelationTarget.IsStoredAccountPage(target,page,FixedConditionPlan.Compile(page.WhereSql,fields),checkbox:true);
+        var storedStatic=global?.UsesStoredStaticPage==true&&GlobalCrossTableTarget.Declared(source);
+        var staticCondition=storedStatic?FixedConditionPlan.Compile(page.WhereSql,fields):null;
         var projectAccount=global is null&&MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(catalog,target,page,checkboxAccount:true);
         var baselineExtra=projectAccount?baseline.AdditionalProjectConditions(page.WhereSql,fields):"";
         var ordinaryForm=global is null?baseline.AdditionalPhysicalFormConditions(catalog,target,page):null;
         if(relation.ControlKind!="MultiCheckBoxDatabase"||page.Id!=pageId||
-            !storedAccount&&!projectAccount&&ordinaryForm is null&&!string.IsNullOrWhiteSpace(baseline.WhereSql)||
+            !storedAccount&&!projectAccount&&ordinaryForm is null&&
+                (staticCondition is null?!string.IsNullOrWhiteSpace(baseline.WhereSql):!baseline.IsCoveredByStaticPage(staticCondition,fields))||
             page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
             !PublishedText(original)||!PublishedText(value))
             throw new InvalidOperationException("复选多名称必须使用固定目标页的已证明文本。");
@@ -64,6 +67,7 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
             .Select(field=>baseline.WithPageOverride(field.Extra.GetValueOrDefault("controlDetail").ToString())).ToArray();
         bool SameRange(DatabaseCheckboxDefinition definition)=>
             (storedAccount?baseline.HasSameCondition(definition,fields):
+                staticCondition is not null?definition.IsCoveredByStaticPage(staticCondition,fields):
                 projectAccount?baselineExtra==definition.AdditionalProjectConditions(page.WhereSql,fields):
                 ordinaryForm is not null?ordinaryForm==definition.AdditionalPhysicalFormConditions(catalog,target,page):
                 string.IsNullOrWhiteSpace(definition.WhereSql))&&
