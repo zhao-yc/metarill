@@ -123,6 +123,9 @@ internal static class DatabaseCheckboxCompilation
             }
             if(table.IsGlobal&&!storedAccountPage)
                 return Gap("全局业务来源必须绑定已发布的冗余账号字典页。");
+            if(storedAccountPage&&table.Source.IsRongyu==1&&!functionForm&&
+                !baseline.HasSameCondition(definition,target.Columns.Select(column=>column.Source.ColumnName)))
+                return Gap("同一名称副本的页面必须沿用表级复选候选条件。");
             var usesNameOverride=definition.NameField!=baseline.NameField;
             var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==definition.NameField);
             var idLabel=name is not null&&name.IsId&&name.Type=="long"&&NonRedundantReadCompilation.Physical(model,target,name);
@@ -401,7 +404,7 @@ internal static class DatabaseCheckboxCompilation
     /// <summary>多份物理名称必须共用同一个保存及维护范围；全局范围直接由实际发布页提供。</summary>
     private static bool CanSharePhysicalNames(DatabaseCheckboxModel definition)
     {
-        if(definition.Name.Type!="string?"||definition.ExactTarget is not null||definition.Conditions is not null)
+        if(definition.Name.Type!="string?"||definition.ExactTarget is not null||definition.Conditions is not null&&!definition.HasStoredAccountScope)
             return false;
         if(definition.SharedLogicalParentScope)
             return !definition.LogicalSourceParent&&definition.SourceParent is not null&&

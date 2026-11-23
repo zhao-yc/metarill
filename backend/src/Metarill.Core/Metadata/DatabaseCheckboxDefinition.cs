@@ -45,6 +45,15 @@ public sealed record DatabaseCheckboxDefinition(string TableId,string Table,stri
         }
         catch(JsonException error){throw new InvalidOperationException("数据库复选配置不是有效JSON。",error);}
     }
+    /// <summary>不同页面可以改变名称和排序，持久名称副本须沿用同一候选条件。</summary>
+    public bool HasSameCondition(DatabaseCheckboxDefinition other,IEnumerable<string> fields)
+    {
+        if(WhereSql==other.WhereSql)return true;
+        var allowed=fields.ToArray();
+        var left=FixedConditionPlan.Compile(WhereSql,allowed).Terms.Select(term=>term.ToDefinition()).ToHashSet(StringComparer.Ordinal);
+        return left.SetEquals(FixedConditionPlan.Compile(other.WhereSql,allowed).Terms.Select(term=>term.ToDefinition()));
+    }
+
     /// <summary>仅供固定读取编译，名称和候选范围各走自己的静态用途；旧目标提示仅在没有明确绑定时使用。</summary>
     public JsonElement ReadDefinition(ColumnMetadata source)
     {

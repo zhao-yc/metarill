@@ -157,6 +157,14 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             var storedAccount=selectedScope is not null&&StoredAccountMultiPage(catalog,target,selectedScope,checkbox);
+            var storedCheckboxOwner=storedAccount&&checkbox&&refreshFields is not null
+                ?new CascadeCacheOwner(table,owner,GlobalSingleSource:GlobalCrossTableTarget.Declared(table)):null;
+            if(storedCheckboxOwner is not null)
+            {
+                // 回填从表级条件和来源实际行重算，与候选和锁读使用同一门店、表单及常量。
+                var syntax=FixedConditionPlan.Compile(DatabaseCheckboxDefinition.Parse(relation.ControlDetail).WhereSql,columns[target.Id].Keys);
+                if(syntax.Terms.Count>0)control=syntax;
+            }
             var physicalScope=storedAccount||checkbox&&target.IsRongyu==1&&(fixedParent is not null||
                 table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
@@ -241,7 +249,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!nested.From.StartsWith(prefix,StringComparison.Ordinal))throw new InvalidOperationException("多选名称别名域与固定目标不一致。");
             var targetJoins=nested.From[prefix.Length..];var valueSql=nested.Expression(value.ColumnName);
             var formFields=new HashSet<string>(StringComparer.Ordinal);
-            var added=ProjectCheckboxControlCondition(table,owner,parentAlias,target,control,prefixForNames,formFields);
+            var added=ProjectCheckboxControlCondition(table,owner,parentAlias,target,control,prefixForNames,formFields,storedCheckboxOwner);
             var scope=string.Join(" AND ",new[]{nested.Scope,added}.Concat(parents).Where(part=>part.Length>0));
             var ownerFields=nested.CascadeCacheOwnerFields.Concat(formFields)
                 .Concat(controlParents.Length>0&&sourceParent is not null?[sourceParent.ColumnName]:[])
@@ -270,7 +278,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 // 来源行的门店或商户变化和目标树变更一样会触发缓存重算。
                 foreach(var field in nested.CascadeCacheOwnerFields)Use(table,Column(table,field));
                 foreach(var reference in nested.PhysicalReferences)references.TryAdd((reference.Table,reference.Column.Name),reference);
-                var from=" FROM "+Q(table.TableName)+" "+owner;var rootFields=nested.PhysicalReferences.Where(p=>p.Table==target.TableName).Select(p=>p.Column.Name).ToHashSet(StringComparer.Ordinal);var dependency=new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,rootFields}};
+                var from=" FROM "+Q(table.TableName)+" "+owner;
+                var rootFields=nested.PhysicalReferences.Where(p=>p.Table==target.TableName).Select(p=>p.Column.Name).ToHashSet(StringComparer.Ordinal);
+                if(storedCheckboxOwner is not null&&control is not null)rootFields.UnionWith(control.Fields);
+                var dependency=new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,rootFields}};
                 // 删除树目标时仍按源数组找到消费者，不依赖目标当前还存在。
                 customReverse.Add(new(target.TableName,from,ArrayMember(array,"@target_text"),"predicate",dependency));
                 if(parent is not null&&sourceParent is not null)
@@ -305,7 +316,7 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>附加条件继承原表单槽。项目和父级已单独绑定，账号值延后从认证身份获取。</summary>
         private string ProjectCheckboxControlCondition(TableMetadata source,string owner,string projectionAlias,TableMetadata target,
-            FixedConditionPlan? control,string prefix,HashSet<string> fields)
+            FixedConditionPlan? control,string prefix,HashSet<string> fields,CascadeCacheOwner? cacheOwner=null)
         {
             if(control is null)return "";
             bool Project(FixedConditionTerm term)=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
@@ -313,15 +324,31 @@ public static partial class MySqlNonRedundantReadCompiler
             var project=control.Terms.Where(Project).ToArray();
             if(project.Any(term=>term.Field!="yz_project_id"||term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1))
                 throw new InvalidOperationException("复选附加条件的项目变量必须使用真实项目列。");
-            var terms=control.Terms.Where(term=>!Project(term)&&!IsCheckboxParentTerm(term)).Select(term=>term.ToDefinition());
-            var syntax=FixedConditionPlan.Compile(string.Join(" AND ",terms),columns[target.Id].Keys);
+            var terms=control.Terms.Where(term=>!Project(term)&&!IsCheckboxParentTerm(term)).ToArray();
+            var persistedScope="";
+            if(cacheOwner is not null)
+            {
+                var account=terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
+                    AccountConditionVariables.IsSupported(value.Text))).ToArray();
+                if(account.Length>0)
+                {
+                    var accountPage=new PageMetadata{ConfigTableId=target.Id,WhereSql=string.Join(" AND ",account.Select(term=>term.ToDefinition()))};
+                    var proof=AccountScopedCrossCache.Compile(catalog,source,target,accountPage,globalTreeSource:false,
+                        globalSingleSource:cacheOwner.GlobalSingleSource);
+                    fields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
+                    persistedScope=AccountCacheScope(proof,target,"multi_value",projectionAlias,render:true,source);
+                    terms=terms.Except(account).ToArray();
+                }
+            }
+            var syntax=FixedConditionPlan.Compile(string.Join(" AND ",terms.Select(term=>term.ToDefinition())),columns[target.Id].Keys);
             var types=syntax.Fields.ToDictionary(field=>field,field=>Column(target,field).LogicalType,StringComparer.Ordinal);
             var plan=FixedConditionSqlPlan.Compile(syntax,types);
             var validity=new HashSet<string>(StringComparer.Ordinal);
             var clause=plan.RenderRowProjection(ConditionParameterPrefix(prefix+"control"),field=>
             {
                 var column=Column(target,field);
-                if(!storage[target.Id].IsPhysical(column)||column.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(field))
+                if(cacheOwner is not null?!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,column):
+                    !storage[target.Id].IsPhysical(column)||column.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(field))
                     throw new InvalidOperationException("复选名称附加条件必须使用非凭据物理字段。");
                 Use(target,column);
                 return "multi_value."+Q(field);
@@ -335,7 +362,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     throw new InvalidOperationException("全局复选按项目过滤须有明确的物理归属列。");
                 rowProject=Scope(target,"multi_value",includeDeleted:true);
             }
-            return string.Join(" AND ",new[]{clause.Sql,rowProject}.Concat(validity).Where(part=>part.Length>0));
+            return string.Join(" AND ",new[]{clause.Sql,rowProject,persistedScope}.Concat(validity).Where(part=>part.Length>0));
         }
 
 

@@ -77,6 +77,107 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
     }
 
+    /// <summary>门店内的分类变更必须参与持久名称回填，而非只在原候选和写入时生效。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    [InlineData(true,true)]
+    public void Stored_checkbox_form_terms_reach_the_published_maintenance(bool globalSource,bool alternate)
+    {
+        var catalog = RedundantMultiNameCacheTests.Published(DatabaseCheckboxGenerationTests.Catalog(false));
+        ConfigureStoredCheckbox(catalog, globalSource);
+        foreach (var (table,id,name) in new[]{("2","71","category_id"),("3","72","category_id"),("2","73","merchant_id"),("3","74","merchant_id")})
+            catalog.ConfigColumns.Add(new() { Id=id,ConfigTableId=table,YzProjectId=catalog.YzProjectId,
+                ColumnName=name,LogicalType="int64" });
+        var sourcePage = catalog.ConfigPages.Single(page => page.Id=="201");
+        sourcePage.IsImport=1;
+        sourcePage.WhereSql+=" AND merchant_id=@current_merchant_id";
+        catalog.ConfigPageColumns.Add(new(){Id="20171",ConfigPageId="201",ConfigColumnId="71",
+            YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1});
+        var relation = catalog.ConfigColumns.Single(column => column.Id == "25");
+        relation.ControlDetail = """{"tableId":"3","pageId":"301","nameField":"name","whereSql":"category_id=@formParameters.relationSource.categoryId AND merchant_id=@current_merchant_id AND name<>'停用'"}""";
+        if(alternate)
+        {
+            var second=JsonSerializer.Deserialize<Metarill.Core.Metadata.PageMetadata>(JsonSerializer.Serialize(sourcePage))!;
+            second.Id="202";
+            catalog.ConfigPages.Add(second);
+            foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="201"&&field.ConfigColumnId!="27").ToArray())
+            {
+                var copy=JsonSerializer.Deserialize<Metarill.Core.Metadata.PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+                copy.Id="202"+field.ConfigColumnId;
+                copy.ConfigPageId="202";
+                if(copy.ConfigColumnId=="25")
+                    copy.Extra["controlDetail"]=JsonSerializer.SerializeToElement(
+                        """{"nameField":"short_name","whereSql":"merchant_id=@current_merchant_id AND name <> '停用' AND category_id = @formParameters.relationSource.categoryId"}""");
+                catalog.ConfigPageColumns.Add(copy);
+            }
+            catalog.ConfigColumns.Add(new(){Id="75",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
+                ColumnName="short_name",LogicalType="string",ColumnLength="100"});
+            catalog.ConfigPageColumns.Add(new(){Id="30175",ConfigPageId="301",ConfigColumnId="75",
+                YzProjectId=catalog.YzProjectId,IsShow=1});
+            catalog.ConfigColumns.Add(new(){Id="76",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
+                ColumnName="target_short_names",LogicalType="string",ColumnLength="max",
+                Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=JsonSerializer.SerializeToElement("target.short_name")}});
+            catalog.ConfigPageColumns.Add(new(){Id="20276",ConfigPageId="202",ConfigColumnId="76",YzProjectId=catalog.YzProjectId,IsShow=1});
+        }
+
+        var directory = GenerationModel.Create(catalog,"Example.StoredCheckboxForm");
+        Assert.Empty(GenerationCapabilityAudit.Collect(directory));
+        var service = BackendRenderer.Render(directory).Single(file=>file.Path=="Services/RelationSourceService.g.cs").Content;
+        if(alternate)
+        {
+            Assert.Contains("CheckboxCondition202_25.Apply",service);
+            Assert.Contains("entity.TargetShortNames=",service);
+        }
+        Assert.Contains("CheckboxCondition201_25.Apply",service);
+        Assert.Contains("entity.CategoryId",service);
+        Assert.Contains("ImportCheckbox201_25Async",service);
+
+        const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var maintenance=MixedRelationPropagationCompilation.ForModel(directory);
+        Assert.Contains("target_names",maintenance.MixedSourceColumns["relation_source"]);
+        var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+            maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+        var plan=plans["2"]!;
+        Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
+        var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+        var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["target_names"]));
+        Assert.Contains("multi_value."+(char)96+"category_id"+(char)96,expression);
+        Assert.Contains("b."+(char)96+"category_id"+(char)96,expression);
+        Assert.Contains("multi_value."+(char)96+"store_id"+(char)96,expression);
+        Assert.Contains("multi_value."+(char)96+"merchant_id"+(char)96,expression);
+        Assert.Contains("b."+(char)96+"merchant_id"+(char)96,expression);
+        var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+            read.GetType().GetProperty("Constants",hidden)!.GetValue(read));
+        Assert.Contains("停用",parameters.Values);
+        // 改分类和停用都需要按存量选择反查，不能只在目标改名时更新。
+        var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("Reverse",hidden)!.GetValue(read));
+        var dependencies=reverse.Cast<object>().Where(item=>Equals("relation_target",item.GetType().GetProperty("TargetTable")!.GetValue(item)))
+            .Select(item=>Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(item.GetType().GetProperty("Outputs")!.GetValue(item)))
+            .SelectMany(outputs=>outputs).ToDictionary(output=>output.Key,output=>output.Value,StringComparer.Ordinal);
+        Assert.Equal(alternate?2:1,dependencies.Count);
+        Assert.All(dependencies.Values,fields=>
+        {
+            Assert.Contains("category_id",fields);
+            Assert.Contains("merchant_id",fields);
+        });
+
+        if(alternate)
+        {
+            Assert.Contains("target_short_names",maintenance.MixedSourceColumns["relation_source"]);
+            var shortName=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["target_short_names"]));
+            Assert.Contains("multi_value."+(char)96+"short_name"+(char)96,shortName);
+            Assert.Contains("b."+(char)96+"category_id"+(char)96,shortName);
+        }
+
+        var settings=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25");
+        settings.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"whereSql":"category_id=1"}""");
+        var rejected=GenerationModel.Create(catalog,"Example.ConflictingCheckboxCondition");
+        Assert.Contains(GenerationCapabilityAudit.Collect(rejected),gap=>gap.Reason.Contains("沿用表级复选候选条件",StringComparison.Ordinal));
+    }
+
     /// <summary>列表与生成查询使用同一合成门店字典，项目和门店分别存储。</summary>
     internal static void ConfigureStoredCheckbox(Metarill.Core.Metadata.MetadataCatalog catalog, bool globalSource)
     {
