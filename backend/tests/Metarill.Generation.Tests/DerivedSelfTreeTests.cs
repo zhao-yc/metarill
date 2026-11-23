@@ -1,6 +1,8 @@
 using System.Reflection;
 using System.Text.Json;
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
+using Metarill.Data.Queries;
 using Xunit;
 namespace Metarill.Generation.Tests;
 
@@ -397,6 +399,126 @@ public sealed class DerivedSelfTreeTests
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>项目内派生叶名的账号和下拉附加条件贯穿实际生成的候选、查询和维护。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    [InlineData(true,true)]
+    public async Task Project_tree_name_uses_published_dictionary_in_queries_and_backfill(bool redundant,bool logicalScope)
+    {
+        const string ns="Example.ProjectTreeName";
+        var catalog=Catalog("scope_tree","string","int64",true);
+        catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=0;
+        var source=catalog.ConfigTables.Single(table=>table.Id=="2");
+        var page=catalog.ConfigPages.Single(item=>item.Id=="201");
+        catalog.ConfigPages.Single(item=>item.Id=="401").WhereSql+=" AND store_id=@current_store_id";
+        catalog.ConfigColumns.Single(item=>item.Id=="38").ControlDetail=
+            """{"tableId":"4","pageId":"401","nameField":"name","whereSql":"segment=7"}""";
+        catalog.ConfigPageColumns.Single(item=>item.Id=="30138").Extra["controlDetail"]=
+            JsonSerializer.SerializeToElement("""{"whereSql":"segment=17"}""");
+        catalog.ConfigColumns.AddRange([
+            new(){Id="45",ConfigTableId="4",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId},
+            new(){Id="46",ConfigTableId="4",ColumnName="segment",LogicalType="int32",YzProjectId=catalog.YzProjectId},
+            new(){Id="26",ConfigTableId="2",ColumnName="tree_name",LogicalType="string",YzProjectId=catalog.YzProjectId}
+        ]);
+        catalog.ConfigPageColumns.Single(item=>item.Id=="40142").IsShow=1;
+        catalog.ConfigPageColumns.Single(item=>item.Id=="30138").IsEdit=1;
+        catalog.ConfigPageColumns.Add(new(){Id="20126",ConfigPageId="201",ConfigColumnId="26",IsShow=1,
+            YzProjectId=catalog.YzProjectId});
+        if(redundant)
+        {
+            source.IsRongyu=1;
+            catalog.ConfigColumns.Add(new(){Id="27",ConfigTableId="2",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId});
+            page.WhereSql+=" AND store_id=@current_store_id";
+        }
+        else page.OrderBy="tree_name asc";
+
+        if(logicalScope)
+        {
+            // 树本身的叶名条件与名称字典必须同时入查询。下层树仍保持真实项目和状态范围。
+            var nodePage=catalog.ConfigPages.Single(item=>item.Id=="301");
+            catalog.ConfigTables.Add(new(){Id="5",TableName="scope_tree_visibility",IsRongyu=1,YzProjectId=catalog.YzProjectId});
+            catalog.ConfigColumns.AddRange([
+                new(){Id="510",ConfigTableId="5",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id="511",ConfigTableId="5",ColumnName="yz_project_id",LogicalType="int64"},
+                new(){Id="512",ConfigTableId="5",ColumnName="name",LogicalType="string"},
+                new(){Id="513",ConfigTableId="5",ColumnName="parent_id",LogicalType="int64",LinkConfigTableId="5"},
+                new(){Id="514",ConfigTableId="5",ColumnName="status",LogicalType="int32"},
+                new(){Id="350",ConfigTableId="3",ColumnName="visibility_id",LogicalType="int64",
+                    LinkConfigTableId="5",ControlKind="CascadeTree",
+                    ControlDetail="""{"sourceMode":"selfTree","selfTree":{"table":"scope_tree_visibility","parentField":"parent_id"}}"""}
+            ]);
+            catalog.ConfigPages.Add(new(){Id="501",ConfigTableId="5",YzProjectId=catalog.YzProjectId,
+                YzAdminTypeId=nodePage.YzAdminTypeId,WhereSql="yz_project_id=@current_yz_project_id AND status=1"});
+            foreach(var field in new[]{"512","513"})
+                catalog.ConfigPageColumns.Add(new(){Id="501"+field,ConfigPageId="501",ConfigColumnId=field,IsShow=1,IsEdit=1});
+            catalog.ConfigPageColumns.Add(new(){Id="301350",ConfigPageId="301",ConfigColumnId="350",IsShow=1,IsEdit=1});
+            nodePage.WhereSql+=" AND visibility_name <> '停用范围'";
+        }
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-project-tree-dictionary");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.ScopeTreeSourceService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            const BindingFlags staticPlans=BindingFlags.Static|BindingFlags.NonPublic;
+            const BindingFlags sqlPlan=BindingFlags.Instance|BindingFlags.NonPublic;
+            var actor=new RuntimeActor(12,"实际门店",false,catalog.YzProjectId,page.YzAdminTypeId){StoreId=9007199254740993L};
+            var candidate=Assert.IsType<NonRedundantReadPlan>(service.GetField("DerivedCascadePlan201_25",staticPlans)!.GetValue(null));
+            AssertReaderScope(candidate);
+            Assert.NotNull(service.GetMethod("CascadePath201_25Async"));
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+            if(redundant)
+            {
+                var metadata=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
+                var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(metadata.GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains("scope_tree_company",maintenance.MixedTargets);
+                Assert.Contains("tree_name",maintenance.MixedSourceColumns[source.TableName]);
+                var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                    maintenance.GetType().GetProperty("Plans",sqlPlan)!.GetValue(maintenance));
+                var published=plans["2"]!;
+                Assert.Null(published.GetType().GetProperty("Error")!.GetValue(published));
+                var read=Assert.IsType<MySqlNonRedundantReadPlan>(published.GetType().GetProperty("Read")!.GetValue(published));
+                Assert.False(Assert.IsType<bool>(read.GetType().GetProperty("RequiresAccount",sqlPlan)!.GetValue(read)));
+                var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",sqlPlan)!.Invoke(read,["tree_name"]));
+                Assert.Contains("=BINARY CAST(b.`store_id` AS CHAR)",expression);
+                AssertDictionaryConstants(read);
+            }
+            else
+            {
+                var query=Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan201",staticPlans)!.GetValue(null));
+                AssertReaderScope(query);
+                var code=File.ReadAllText(Path.Combine(directory,"generated/Services/ScopeTreeSourceService.g.cs"));
+                Assert.Contains("ReadPlan201.BindAccount(actor)",code);
+            }
+
+            void AssertReaderScope(NonRedundantReadPlan plan)
+            {
+                Assert.True(plan.RequiresAccount);
+                Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+                var read=Assert.IsType<MySqlNonRedundantReadPlan>(
+                    typeof(NonRedundantReadPlan).GetProperty("MySql",sqlPlan)!.GetValue(plan.BindAccount(actor)));
+                Assert.Contains(actor.StoreId,AssertDictionaryConstants(read).Values);
+            }
+
+            IReadOnlyDictionary<string,object?> AssertDictionaryConstants(MySqlNonRedundantReadPlan read)
+            {
+                var values=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    read.GetType().GetProperty("Constants",sqlPlan)!.GetValue(read));
+                Assert.Contains(17,values.Values);
+                Assert.DoesNotContain(7,values.Values);
+                if(logicalScope)Assert.Contains("停用范围",values.Values);
+                return values;
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
     /// <summary>非冗余树的叶子名称使用已声明的单值联接；夹具保留宿主页面和物理父键。</summary>

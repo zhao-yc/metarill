@@ -85,7 +85,7 @@ public static class DerivedCrossTableCaches
     public static IReadOnlySet<string> ScopedSingleReferencedTables(MetadataCatalog catalog,IReadOnlyList<RelationCacheDefinition> definitions)
     {
         var referenced=new HashSet<string>(StringComparer.Ordinal);
-        var byTable=definitions.Where(definition=>definition.ScopedSinglePageId is not null||HasJoinedCheckboxName(definition)||HasJoinedCrossName(definition))
+        var byTable=definitions.Where(definition=>definition.ScopedSinglePageId is not null||HasJoinedCheckboxName(definition)||HasJoinedCascadeName(definition))
             .GroupBy(definition=>definition.SourceTableId);
         foreach(var group in byTable)
         {
@@ -98,9 +98,9 @@ public static class DerivedCrossTableCaches
         }
         return referenced;
 
-        bool HasJoinedCrossName(RelationCacheDefinition definition)
+        bool HasJoinedCascadeName(RelationCacheDefinition definition)
         {
-            if(definition.CrossTableColumnId is null)return false;
+            if(definition.CrossTableColumnId is null&&definition.SelfTreePageId is null)return false;
             var target=catalog.ConfigTables.Single(table=>table.Id==definition.TargetTableId);
             if(target.IsRongyu!=0)return false;
             var label=catalog.ConfigColumns.SingleOrDefault(column=>column.Id==definition.ValueColumnId);

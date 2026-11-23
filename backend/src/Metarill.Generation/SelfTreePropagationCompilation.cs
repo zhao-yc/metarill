@@ -11,9 +11,9 @@ internal static class SelfTreePropagationCompilation
     private static readonly ConditionalWeakTable<GenerationModel,ConcurrentDictionary<string,IReadOnlyList<RelationPropagationBinding>>> Cache=new();
     /// <summary>一个生成模型只编译一次，不使后续HTTP重新解释目录。</summary>
     internal static IReadOnlyList<RelationPropagationBinding> ForTable(GenerationModel model,TableModel table)=>Cache.GetValue(model,_=>new()).GetOrAdd(table.Source.Id,_=>Compile(model,table));
-    /// <summary>来自全局来源的自树缓存保留实际目标页，即使目标是项目内树也使用整条祖先链。</summary>
+    /// <summary>全局及带条件的路径保留实际页，派生叶名也固定该页来读取内部字典。</summary>
     internal static string? PageId(TableModel owner,CascadeTreeReadModel read)=>
-        owner.IsGlobal||read.Target.IsGlobal||read.ScopedCondition?read.TargetPage.Source.Id:null;
+        owner.IsGlobal||read.Target.IsGlobal||read.ScopedCondition||read.DerivedName?read.TargetPage.Source.Id:null;
 
     /// <summary>BackendOnly保留未证明用途的原门槛；Full另逐字段拒绝，不能借有效同伴发布坏字段。</summary>
     private static IReadOnlyList<RelationPropagationBinding> Compile(GenerationModel model,TableModel table)

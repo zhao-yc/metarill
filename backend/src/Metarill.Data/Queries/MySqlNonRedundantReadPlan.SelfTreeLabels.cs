@@ -156,14 +156,9 @@ public static partial class MySqlNonRedundantReadCompiler
                             deferCascadeNames:proof.SelfTreeScoped,trackReverse:trackReverse,multiLabel:true,cascadeLabelField:"id",cascadeCacheOwner:cached)
                         {
                             SelectedMultiPage=proof.Page,ActiveSelfTreeScopes=ActiveSelfTreeScopes,
-                            GlobalCrossCandidate=global,CrossAliasPrefix=prefix+"sx"
+                            CrossNameSourcePage=proof.Page,GlobalCrossCandidate=global,CrossAliasPrefix=prefix+"sx"
                         }.Compile(fields,[]);
-                        foreach(var field in fixedTarget.CascadeCacheOwnerFields)
-                        {
-                            Use(cached.Table,Column(cached.Table,field));
-                            Touch(cached.Alias,field);
-                        }
-                        cascadeCacheOwnerFields.UnionWith(fixedTarget.CascadeCacheOwnerFields);
+                        TrackNameOwner(fixedTarget,cached);
                     }
                     else fixedTarget=CompileCrossPageCandidate(catalog,proof.Target.Id,proof.Page.Id,
                         fields,[],rootAlias:display,aliasPrefix:prefix+"s_",activeSelfTreeScopes:ActiveSelfTreeScopes);
@@ -196,8 +191,12 @@ public static partial class MySqlNonRedundantReadCompiler
                 var nestedPage=global&&HasGlobalRowProject(proof.Target)?proof.Page:null;
                 var nested=new Builder(catalog,proof.Target.Id,matching:!global,rootAlias:display,aliasPrefix:prefix+"label_",
                     trackReverse:trackReverse,candidatePage:nestedPage,multiLabel:true,
-                    globalCandidate:global&&proof.Target.IsRongyu==0&&nestedPage is not null)
-                    .Compile([proof.Name.ColumnName],[]);
+                    globalCandidate:global&&proof.Target.IsRongyu==0&&nestedPage is not null,
+                    cascadeCacheOwner:cacheOwner)
+                {
+                    // 叶名查询与树候选沿同一发布页取字典，继续保留祖先路径的范围。
+                    CrossNameSourcePage=proof.Page
+                }.Compile([proof.Name.ColumnName],[]);
                 if(!nested.Origins.TryGetValue(proof.Name.ColumnName,out var terminal)||
                     ExactDataManageValues.IsSensitiveField(terminal.Column)||nested.MultiProjections.Count>0||nested.Crosses.Count>0||
                     nested.Types[proof.Name.ColumnName]!=proof.Name.LogicalType)
@@ -205,7 +204,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 nodeName=nested.Expression(proof.Name.ColumnName);
                 nodeFrom=nested.From;
                 if(publishedPageId is not null)origin=terminal;
-                foreach(var pair in nested.Constants)crossConstants.Add(pair.Key,pair.Value);
+                nested.CopyParametersTo(crossConstants);
+                if(cacheOwner is {} cached)TrackNameOwner(nested,cached);
+                cascadeLabelPages.UnionWith(nested.CascadeLabelPages);
+                if(nested.RequiresPublishedProjectIdentity)scopedGlobalCrossTarget=true;
                 if(trackReverse)
                 {
                     foreach(var reference in nested.PhysicalReferences)references.TryAdd((reference.Table,reference.Column.Name),reference);
@@ -273,6 +275,17 @@ public static partial class MySqlNonRedundantReadCompiler
 
             IReadOnlySet<string> ConditionFields()=>FixedConditionPlan.Compile(proof.Page.WhereSql,
                 columns[proof.Target.Id].Keys).Fields.ToHashSet(StringComparer.Ordinal);
+
+            // 字典账号条件读到的来源字段也属于反查依赖，来源归属变化后应重算副本。
+            void TrackNameOwner(MySqlNonRedundantReadPlan plan,CascadeCacheOwner row)
+            {
+                foreach(var field in plan.CascadeCacheOwnerFields)
+                {
+                    Use(row.Table,Column(row.Table,field));
+                    Touch(row.Alias,field);
+                }
+                cascadeCacheOwnerFields.UnionWith(plan.CascadeCacheOwnerFields);
+            }
 
             void AddReverse(string target,string predicate,IEnumerable<string> fields)
             {

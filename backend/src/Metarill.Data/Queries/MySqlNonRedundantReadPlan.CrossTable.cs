@@ -19,7 +19,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,IReadOnlyDictionary<string,(string Sql,string Type)>> crossValues=new(StringComparer.Ordinal);
         private readonly Dictionary<string,object?> crossConstants=new(StringComparer.Ordinal);
         private readonly Dictionary<string,PageMetadata> crossNameSourcePages=new(StringComparer.Ordinal);
-        private PageMetadata? CrossNameSourcePage { get; init; }
+        internal PageMetadata? CrossNameSourcePage { get; init; }
 
         /// <summary>层位别名逐段带上已发布页面，重复目标表也各自使用自己的页面。</summary>
         private PageMetadata? CrossNamePage(string alias)=>

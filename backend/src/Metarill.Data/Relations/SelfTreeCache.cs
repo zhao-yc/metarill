@@ -58,16 +58,16 @@ public static class SelfTreeCache
                     GlobalPhysicalRelationValue.IsScalar(storage,target,column))))throw Invalid();
         }
         var scoped=HasScopedPage(catalog,publishedPageId);
-        if(global||scoped||globalSource)
+        if(global||scoped||globalSource||derived&&publishedPageId is not null)
         {
             var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==publishedPageId&&p.ConfigTableId==target.Id)??throw Invalid();
             if(source.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||
                 !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))throw Invalid();
-            if(scoped||globalSource)
+            if(scoped||globalSource||derived&&!global)
             {
                 var selected=MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,value.ColumnName,parent.ColumnName,allowSelfTree:true);
                 if(selected.Page.Id!=page.Id)throw Invalid();
-                if(!scoped&&selected.Condition?.Variables.Count>0)
+                if(!scoped&&globalSource&&selected.Condition?.Variables.Count>0)
                     _=AccountScopedCrossCache.Compile(catalog,source,target,page,globalTreeSource:globalSource);
             }
             if(scoped)

@@ -112,6 +112,7 @@ public static partial class MySqlNonRedundantReadCompiler
             MultiCandidateParent=projectSingle&&parent?.AdditionalTargets.Count is not >0?null:parent,
             MultiCandidatePage=page,
             GlobalCrossCandidate=global,
+            CrossNameSourcePage=page,
             MultiNamePathPage=globalExactSingle?page:null,
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             ScopedRootControls=(pageScopes??scopes).Select(path=>path.SourceColumnId).ToHashSet(StringComparer.Ordinal),
@@ -494,7 +495,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         {SourcePageId=sourcePage.Id,ControlSourcePageId=sourcePage.Id};
                 }
             }
-            if(multiLabel&&target.IsRongyu==1&&ProjectScopedSingleRelationTarget.NestedPage(
+            if(multiLabel&&target.IsRongyu==1&&(crossPage is null||MultiNameSourcePage(ownerAlias) is not null)&&ProjectScopedSingleRelationTarget.NestedPage(
                 catalog,owner,sourcePage,relation,target,allowStoredTarget:true) is {Scoped:true} stored)
                 return new(relation.Id,stored.Page.Id){SourcePageId=sourcePage.Id};
             if(target.IsRongyu!=0||owner.IsRongyu!=0||
@@ -842,7 +843,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var scoped=JoinRegisteredSingleCache(table,owner,foreign,target,source,registered,row);
                 return(scoped.Alias,scoped.Visibility,row);
             }
-            if(cacheOwner is not null&&owner==rootAlias&&MultiNamePathPage is {} namePage)
+            if(cacheOwner is not null&&owner==rootAlias&&(MultiNamePathPage??CrossNameSourcePage) is {} namePage)
                 singleCachePages.TryAdd(owner,namePage);
             if(multiLabel&&JoinGlobalStoredName(table,owner,foreign,target,source,cacheOwner) is {} globalStored)
                 return(globalStored.Alias,globalStored.Visibility,cacheOwner);
@@ -851,7 +852,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 return(globalNested.Alias,globalNested.Visibility,cacheOwner);
             if(cacheOwner is not null&&singleCachePages.TryGetValue(owner,out var sourcePage)&&
                 ProjectScopedSingleRelationTarget.NestedPage(catalog,table,sourcePage,foreign,target,
-                    allowStoredTarget:multiLabel) is {} projectNested)
+                    allowStoredTarget:multiLabel&&(CrossNamePage(owner) is null||MultiNameSourcePage(owner) is not null)) is {} projectNested)
             {
                 if(projectNested.Scoped&&target.IsRongyu==1)
                 {

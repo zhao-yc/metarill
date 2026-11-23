@@ -463,7 +463,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 output=name;origin=null;physicalOriginAlias=null;
                 if(IsSelectedLogicalParent(name))
                     continue; // 父层位由选中页的完整可见路径解析，不能回退到稀疏原始列。
-                var nameCacheOwner=MultiNamePathPage is not null?cascadeCacheOwner:null;
+                var nameCacheOwner=MultiNamePathPage is not null||CrossNameSourcePage is not null?cascadeCacheOwner:null;
                 var resolved=Resolve(root,rootAlias,name,nameCacheOwner);expressions.Add(name,resolved.Sql);types.Add(name,resolved.Type);if(origin is not null)origins[name]=origin;
                 // 派生联接或数组即使触及物理列，也只有直接返回该列时才沿用保存刷新。
                 if(physicalOriginAlias is{} alias&&directSaveAliases.Contains(alias)&&origin is{} terminal&&resolved.Sql==alias+"."+Q(terminal.Column))
@@ -523,8 +523,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(refresh.CrossTableRecursivePageId is not null)return RecursiveCacheValue(table,alias,foreign,target,value,refresh);
                     // 标量级联缓存的精确目标由已验证定义确定，叶子无需伪装成普通List关系。
                     ValidateTarget(target);var crossGlobal=refresh.CrossTableColumnId is not null&&GlobalCrossTableTarget.Declared(target);
-                    var joinedCross=refresh.CrossTableColumnId is not null&&target.IsRongyu==0&&
-                        storage[target.Id].Kind(value)==MetadataFieldStorage.Join;
+                    var joinedName=target.IsRongyu==0&&storage[target.Id].Kind(value)==MetadataFieldStorage.Join;
+                    var joinedCross=joinedName&&refresh.CrossTableColumnId is not null;
+                    var joinedTree=joinedName&&refresh.SelfTreePageId is not null&&!GlobalCrossTableTarget.Declared(target);
                     if(crossGlobal||joinedCross)_=CrossTableCacheProof.Require(catalog,table,foreign,target,value,column!,refresh,refreshMultiples);
                     var pageId=refresh.SelfTreePageId??(crossGlobal&&(target.IsRongyu==0||MultiValueLabel.IsTyped(value.LogicalType))&&
                         refresh.CrossTableAccountPageId is null?refresh.CrossTablePageId:null);
@@ -533,15 +534,17 @@ public static partial class MySqlNonRedundantReadCompiler
                         ?AccountScopedCrossCache.Compile(catalog,table,target,catalog.ConfigPages.Single(page=>page.Id==accountPage))
                         :null;
                     var id=Resolve(table,alias,foreign.ColumnName);
-                    var targetAlias=Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||publishedPage is not null,cachePage:publishedPage,account:account);
+                    // 普通树仍按已保存的叶键更新，仅名称的字典联接需要新的页级证明。
+                    var joinPage=joinedTree?null:publishedPage;
+                    var targetAlias=Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||joinPage is not null,cachePage:joinPage,account:account);
                     CascadeCacheOwner? nameOwner=null;
                     // 旧项目内纯物理联接定义可以没有目标页，仍沿原项目及物理终点校验。
-                    if(joinedCross&&(crossGlobal||catalog.ConfigPages.Any(page=>page.ConfigTableId==target.Id)))
+                    if((joinedCross||joinedTree)&&(crossGlobal||catalog.ConfigPages.Any(page=>page.ConfigTableId==target.Id)))
                     {
-                        // 有发布页时，以真实层位解析字典范围并保留物理反查。
-                        singleCachePages[targetAlias]=crossGlobal
-                            ?catalog.ConfigPages.Single(page=>page.Id==refresh.CrossTablePageId&&page.ConfigTableId==target.Id)
-                            :CrossTableCacheProof.NamePage(catalog,target,value,refresh).Page;
+                        // 自树及跨表名称都按实际发布页绑定字典，保留失效前的物理反查。
+                        singleCachePages[targetAlias]=joinedTree?publishedPage!:
+                            crossGlobal?catalog.ConfigPages.Single(page=>page.Id==refresh.CrossTablePageId&&page.ConfigTableId==target.Id):
+                                CrossTableCacheProof.NamePage(catalog,target,value,refresh).Page;
                         nameOwner=new CascadeCacheOwner(table,alias);
                     }
                     var projected=Resolve(target,targetAlias,value.ColumnName,nameOwner);
