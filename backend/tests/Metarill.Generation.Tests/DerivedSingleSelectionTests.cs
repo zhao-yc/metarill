@@ -661,6 +661,12 @@ public sealed class DerivedSingleSelectionTests
     [InlineData(0, 1, false, true, "split-source-pair")]
     [InlineData(0, 0, true, false, "split-source-dictionary")]
     [InlineData(0, 1, true, false, "split-source-dictionary")]
+    [InlineData(0, 1, false, false, "mixed-target-root")]
+    [InlineData(0, 1, true, false, "mixed-target-root")]
+    [InlineData(0, 1, false, false, "mixed-target-alternate")]
+    [InlineData(0, 1, true, true, "mixed-target-alternate")]
+    [InlineData(0, 1, true, false, "mixed-target-root-literal")]
+    [InlineData(0, 1, false, false, "mixed-target-alternate-literal")]
     public async Task Project_multiselect_uses_fixed_dictionary_scope(int sourceStorage, int targetStorage, bool explicitProject,
         bool nameOverride, string parentMode)
     {
@@ -682,14 +688,17 @@ public sealed class DerivedSingleSelectionTests
         foreign.ColumnLength = "max";
         var literal = parentMode != "only";
         var hasParent = parentMode.Length != 0;
-        var splitSource = parentMode.StartsWith("split-source-", StringComparison.Ordinal);
-        var splitDictionary = parentMode == "split-source-dictionary";
+        var mixedTarget = parentMode.StartsWith("mixed-target-", StringComparison.Ordinal);
+        var targetHasParent = !parentMode.EndsWith("-literal", StringComparison.Ordinal);
+        var rootIsPlain = parentMode.StartsWith("mixed-target-root", StringComparison.Ordinal);
+        var splitSource = mixedTarget || parentMode.StartsWith("split-source-", StringComparison.Ordinal);
+        var splitDictionary = mixedTarget || parentMode == "split-source-dictionary";
         var sourcePair = splitSource || parentMode.StartsWith("source-", StringComparison.Ordinal);
         var compound = parentMode.StartsWith("compound-", StringComparison.Ordinal) || parentMode == "source-compound";
         var formParent = parentMode is "form" or "compound-form";
         foreign.ControlDetail = JsonSerializer.Serialize(new
         {
-            tableId = target.Id, pageId = "201", nameField = "name", whereSql = literal ? "status = 17" : ""
+            tableId = target.Id, pageId = "201", nameField = "name", whereSql = literal && !mixedTarget ? "status = 17" : ""
         });
         if (nameOverride)
             catalog.ConfigPageColumns.Single(field => field.ConfigPageId == "101" && field.ConfigColumnId == foreign.Id)
@@ -704,7 +713,7 @@ public sealed class DerivedSingleSelectionTests
         List<string> conditions = [];
         if (explicitProject) conditions.Add("yz_project_id=@current_yz_project_id");
         if (literal) conditions.Add("status=17");
-        if (hasParent)
+        if (hasParent && targetHasParent)
         {
             conditions.Add("group_id=@parent_id");
             catalog.ConfigColumns.Add(new()
@@ -766,7 +775,13 @@ public sealed class DerivedSingleSelectionTests
             {
                 var alternateTarget = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(page))!;
                 alternateTarget.Id = "202";
-                alternateTarget.WhereSql += " AND notes <> '停用备用名称'";
+                if (mixedTarget)
+                {
+                    var unfiltered = rootIsPlain ? page : alternateTarget;
+                    unfiltered.WhereSql = explicitProject ? "yz_project_id=@current_yz_project_id" : "";
+                }
+                else
+                    alternateTarget.WhereSql += " AND notes <> '停用备用名称'";
                 catalog.ConfigPages.Add(alternateTarget);
                 foreach (var targetField in catalog.ConfigPageColumns.Where(item => item.ConfigPageId == page.Id).ToArray())
                 {
@@ -775,7 +790,9 @@ public sealed class DerivedSingleSelectionTests
                     targetCopy.ConfigPageId = alternateTarget.Id;
                     catalog.ConfigPageColumns.Add(targetCopy);
                 }
-                field.Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"pageId":"202","nameField":"notes"}""");
+                field.Extra["controlDetail"] = JsonSerializer.SerializeToElement(mixedTarget
+                    ? """{"pageId":"202"}"""
+                    : """{"pageId":"202","nameField":"notes"}""");
             }
             catalog.ConfigPageColumns.Add(field);
         }
@@ -785,6 +802,11 @@ public sealed class DerivedSingleSelectionTests
         var owner = model.Tables.Single(table => table.Source.Id == source.Id);
         var sourcePage = owner.Pages.Single(item => item.Source.Id == "101");
         var control = owner.Columns.Single(column => column.Source.Id == foreign.Id);
+        if (mixedTarget)
+        {
+            await VerifyMixedTargetPages(catalog, model, owner, control, rootIsPlain, targetHasParent, nameOverride);
+            return;
+        }
         var selection = MultiSelectCompilation.Resolve(model, owner, sourcePage, control, forService: true);
         Assert.True(selection.Definition is not null, selection.Reason);
         Assert.True(FixedPageConditionCompilation.HasMultiTargetScope(model, selection.Definition.Target, selection.Definition.TargetPage));
@@ -949,6 +971,53 @@ public sealed class DerivedSingleSelectionTests
                 read.GetType().GetProperty("Constants", hidden)!.GetValue(read)).Values;
             if (literal) Assert.Contains(17, values);
         }
+    }
+
+    /// <summary>从实际生成的类核对项目候选与固定候选分别读各自范围，且原送入和导出入口可用。</summary>
+    private static async Task VerifyMixedTargetPages(MetadataCatalog catalog, GenerationModel model, TableModel owner,
+        ColumnModel control, bool rootIsPlain, bool targetHasParent, bool nameOverride)
+    {
+        const BindingFlags fields = BindingFlags.Static | BindingFlags.NonPublic;
+        const BindingFlags instance = BindingFlags.Instance | BindingFlags.NonPublic;
+        const string output = "customer_names";
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-project-mixed-target-pages");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), model.Namespace);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(model.Namespace + ".Generated.Services.ScopeMultiOrderService", true)!;
+            var code = File.ReadAllText(Path.Combine(directory, "generated/Services/ScopeMultiOrderService.g.cs"));
+            foreach (var (sourcePageId, dictionaryPage, scoped, parentField, display) in new[]
+            {
+                ("101", "201", !rootIsPlain, "group_id", nameOverride ? "notes" : "name"),
+                ("104", "202", rootIsPlain, "other_group_id", "name")
+            })
+            {
+                var sourcePage = owner.Pages.Single(item => item.Source.Id == sourcePageId);
+                var selection = MultiSelectCompilation.Resolve(model, owner, sourcePage, control, forService: true);
+                Assert.True(selection.Definition is not null, selection.Reason);
+                Assert.Equal(dictionaryPage, selection.Definition.TargetPage.Source.Id);
+                Assert.Equal(scoped && targetHasParent, selection.Definition.SameParent);
+                var sql = Expression("ReadPlan" + sourcePageId);
+                Assert.Equal(scoped, sql.Contains(".`status`", StringComparison.Ordinal));
+                Assert.Equal(scoped && targetHasParent, sql.Contains("b.`" + parentField + "`", StringComparison.Ordinal));
+                Assert.Contains(".`yz_project_id`", sql);
+                Assert.Contains(".`delete_no`", sql);
+                Assert.Contains(".`" + display + "`", sql);
+                Assert.Equal(sql, Expression("ExportReadPlan" + sourcePageId));
+                Assert.Contains("ImportMulti" + sourcePageId + "_15Async(", code);
+                Assert.Equal(scoped, service.GetField("MultiDerivedPlan" + sourcePageId + "_15", fields) is not null);
+            }
+
+            string Expression(string planName)
+            {
+                var plan = Assert.IsType<NonRedundantReadPlan>(service.GetField(planName, fields)!.GetValue(null));
+                var read = plan.GetType().GetProperty("MySql", instance)!.GetValue(plan)!;
+                return Assert.IsType<string>(read.GetType().GetMethod(nameof(Expression), instance)!.Invoke(read, [output]));
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
     /// <summary>直接执行生成的写入校验，冲突和非规范的父键在连接数据库前明确拒绝。</summary>

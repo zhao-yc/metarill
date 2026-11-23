@@ -11,6 +11,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal bool PublishedPhysicalSource { get; init; }
     internal bool UsesPageRead { get; init; }
+    internal bool UsesTargetPageScope { get; init; }
     internal bool UsesNameOverride { get; init; }
     internal bool GlobalParent { get; init; }
     internal RelationConditionModel? ImportCondition { get; init; }
@@ -101,9 +102,11 @@ internal static class MultiSelectCompilation
             var fixedPage=Scalar(root,"pageId");
             if(fixedPage.Length==0)fixedPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
             var pageOverride=pageId!=fixedPage;
-            // 实时名称按实际业务页解析，普通冗余字典也可用已发布的物理常量和父键。
+            // 实时名称绑定实际候选页。普通备用页仍须证明同项目，但无需套用默认字典的固定条件。
+            var projectOnlyOverride=pageOverride&&table.Source.IsRongyu==0&&!table.IsGlobal&&
+                Metarill.Data.Queries.NonRedundantReads.IsProjectOnlyStoredMultiSelectPage(model.Catalog,target.Source,targetPage.Source);
             var pageRead=table.Source.IsRongyu==0&&!table.IsGlobal&&!target.IsGlobal&&
-                (target.Source.IsRongyu==0||
+                (target.Source.IsRongyu==0||projectOnlyOverride||
                     Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,target.Source,targetPage.Source));
             if(!functionForm&&pageOverride&&!pageRead&&(scoped||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate))))
                 return Gap("限定范围的目标页必须与表级读取和缓存绑定一致。");
@@ -156,6 +159,7 @@ internal static class MultiSelectCompilation
             }
             // 普通非冗余来源按实际页面校验父键，全局关系及冗余缓存继续按其固定范围证明。
             var usesPageRead=pageRead&&(pageOverride||targetParents.Length>0||!scoped&&targetPage.Condition is not null);
+            var usesTargetPageScope=usesPageRead&&!projectOnlyOverride;
             var usesNameOverride=false;
             var logicalSourceParent=false;
             var publishedPhysicalSource=false;
@@ -216,7 +220,7 @@ internal static class MultiSelectCompilation
                 {
                     if(usesPageRead||usesNameOverride)
                         Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(model.Catalog,table.Source.Id,[names.Source.ColumnName],
-                            [],[],[],[new(source.Source.Id,page.Source.Id,targetPage.Source.Id,usesPageRead)]);
+                            [],[],[],[new(source.Source.Id,page.Source.Id,targetPage.Source.Id,usesTargetPageScope)]);
                     else
                         Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[names.Source.ColumnName]);
                 }
@@ -231,6 +235,7 @@ internal static class MultiSelectCompilation
                     PublishedPhysicalSource=publishedPhysicalSource,
                     GlobalParent=scopedParent?.Global==true,
                     UsesPageRead=usesPageRead,
+                    UsesTargetPageScope=usesTargetPageScope,
                     UsesNameOverride=usesNameOverride,
                     ImportCondition=importCondition,
                     ExactTarget=exactTarget

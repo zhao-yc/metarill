@@ -345,6 +345,10 @@ public static class NonRedundantReads
             new Dictionary<string,object?>{{parameter,parent}});
     }
 
+    /// <summary>原多选可绑定只受当前项目限制的冗余候选页。</summary>
+    public static bool IsProjectOnlyStoredMultiSelectPage(MetadataCatalog metadata,TableMetadata target,PageMetadata page)=>
+        MySqlNonRedundantReadCompiler.IsProjectOnlyStoredMultiSelectPage(metadata,target,page);
+
     /// <summary>实际绑定的项目内多选字典可把物理常量和父键纳入名称及匹配计划。</summary>
     public static bool IsProjectFixedMultiSelectTarget(MetadataCatalog metadata,TableMetadata target,PageMetadata page)=>
         page.Extra.GetValueOrDefault("type").ToString()=="2"&&IsScopedMultiSelectTarget(metadata,target,page.Id)&&

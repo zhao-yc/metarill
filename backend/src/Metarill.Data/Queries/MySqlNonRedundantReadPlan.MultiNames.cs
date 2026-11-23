@@ -100,12 +100,13 @@ public static partial class MySqlNonRedundantReadCompiler
             // 冗余目标的多选页面必须按精简目录重新证明物理范围，不能仅信任生成标志。
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             var scopedPhysicalCheckbox=checkbox&&target.IsRongyu==1&&(binding.ApplyPageScope||control is not null);
-            var scopedPhysicalMultiSelect=relation.ControlKind=="MultiSelectPage"&&target.IsRongyu==1&&
-                binding.ApplyPageScope&&selected is not null&&IsProjectFixedMultiPage(catalog,target,selected);
+            var storedMultiSelect=relation.ControlKind=="MultiSelectPage"&&target.IsRongyu==1&&selected is not null&&
+                (binding.ApplyPageScope?IsProjectFixedMultiPage(catalog,target,selected):
+                    IsProjectOnlyStoredMultiSelectPage(catalog,target,selected));
             var physicalNameOverride=name is not null&&target.IsRongyu==1&&!binding.ApplyPageScope;
             var globalOwnedCheckbox=checkbox&&binding.ApplyPageScope&&selected is not null&&
                 StoredAccountMultiPage(catalog,target,selected,checkbox:true);
-            if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!scopedPhysicalMultiSelect&&!physicalNameOverride||
+            if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!storedMultiSelect&&!physicalNameOverride||
                 GlobalCrossTableTarget.Declared(table)&&!globalOwnedCheckbox||
                 GlobalCrossTableTarget.Declared(target)&&!checkbox||pageId!=(selected?.Id??"")||
                 selected is null&&(binding.ApplyPageScope||control is null&&name is null)||

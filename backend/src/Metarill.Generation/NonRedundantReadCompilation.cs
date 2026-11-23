@@ -355,7 +355,7 @@ internal static partial class NonRedundantReadCompilation
         if(table.Source.IsRongyu!=0)return [];
         var multi=table.IsGlobal?Array.Empty<MultiSelectModel>():MultiSelectCompilation.ForService(model,table,page);
         return multi.Where(def=>(def.UsesPageRead||def.UsesNameOverride)&&def.Names is not null)
-            .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.TargetPage.Source.Id,def.UsesPageRead))
+            .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.TargetPage.Source.Id,def.UsesTargetPageScope))
             .Concat(DatabaseCheckboxCompilation.ForService(model,table,page).Where(def=>def.UsesPageRead||def.UsesControlRead||def.UsesNameOverride)
                 .Select(def=>new NonRedundantMultiTargetScope(def.Source.Source.Id,page.Source.Id,def.NameTargetPage?.Source.Id,
                     def.LogicalTargetPage is not null||def.PhysicalTargetPage is not null||def.Target.IsGlobal,def.UsesControlRead))).ToArray();

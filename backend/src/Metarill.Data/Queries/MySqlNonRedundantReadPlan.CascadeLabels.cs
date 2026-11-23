@@ -30,6 +30,14 @@ public static partial class MySqlNonRedundantReadCompiler
                 var compoundPhysical=selected is null&&namePage is not null&&source is not null&&sourcePage is not null&&
                     HasCompoundMultiSelectSource(catalog,source,sourcePage,relation,namePage);
                 if(compoundPhysical)selected=namePage;
+                // 普通备用页没有附加 SQL 条件，但宿主仍需用实际覆盖核对候选页。
+                if(selected is null&&sourcePage is not null&&namePage is not null&&!checkbox&&
+                    IsProjectOnlyStoredMultiSelectPage(catalog,target,namePage))
+                {
+                    pages.Add(sourcePage.Id);
+                    pages.Add(namePage.Id);
+                    continue;
+                }
                 if(selected is null&&(sourcePage is not null||storage.IsPhysical(column)||column.LogicalType!="string"&&
                     !MultiNameStorageColumns.IsDerivedScalarLabel(target,column,storage)))continue;
                 var plan=selected is null?CompileMultiLabel(catalog,target.Id,field,[field],[],cacheOwner:null,relation:relation):
@@ -158,6 +166,22 @@ public static partial class MySqlNonRedundantReadCompiler
         table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&
         GlobalMultipleRelationTarget.IsStoredAccountPage(table,page,FixedConditionPlan.Compile(page.WhereSql,
             catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).Select(column=>column.ColumnName)),checkbox);
+
+    /// <summary>普通冗余候选页只依赖当前项目，可保留实际页面而不添加固定父条件。</summary>
+    internal static bool IsProjectOnlyStoredMultiSelectPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
+        if(table.IsRongyu!=1||GlobalCrossTableTarget.Declared(table)||table.IsView!=0||table.IsFunctionTable!=0||
+            page.ConfigTableId!=table.Id||page.Extra.GetValueOrDefault("type").ToString()!="2"||
+            table.YzProjectId.Length>0&&table.YzProjectId!=catalog.YzProjectId||
+            page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||
+            page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)return false;
+        var storage=MetadataStoragePolicy.ForTable(catalog,table);
+        var declared=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
+        return storage.PhysicalColumns.Any(column=>column is {ColumnName:"yz_project_id",LogicalType:"string" or "int64"}&&
+            GlobalPhysicalRelationValue.IsScalar(storage,table,column))&&
+            FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName))
+                .Terms.All(GlobalMultipleRelationTarget.IsProjectScope);
+    }
 
     /// <summary>项目内多选字典可以使用已发布的物理常量及同一业务父表的物理键，项目隔离始终有效。</summary>
     internal static bool IsProjectFixedMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
@@ -359,9 +383,13 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(tableName.Length==0)tableName=Text(relation,"joinTable");
                 if(tableName.Length==0&&relation.ColumnName.EndsWith("_ids",StringComparison.Ordinal))tableName=relation.ColumnName[..^4];
                 var target=catalog.ConfigTables.SingleOrDefault(table=>tableId.Length>0?table.Id==tableId:table.TableName==tableName);
-                if(target is null||target.IsRongyu!=0&&
-                    MultiTargetNamePage(catalog,target,relation) is null)continue;
+                if(target is null)continue;
                 var source=catalog.ConfigTables.SingleOrDefault(table=>table.Id==relation.ConfigTableId);
+                // 普通默认页没有固定名称计划，也应继续发现各个来源页明确配置的固定候选。
+                if(target.IsRongyu!=0&&MultiTargetNamePage(catalog,target,relation) is null&&
+                    !(relation.ControlKind=="MultiSelectPage"&&source is {IsRongyu:0}&&!GlobalCrossTableTarget.Declared(source)&&
+                        catalog.ConfigPages.SingleOrDefault(page=>page.Id==pageId&&page.ConfigTableId==target.Id) is {} original&&
+                        IsProjectOnlyStoredMultiSelectPage(catalog,target,original)))continue;
                 result=(source,target,field,relation);
             }
             catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
