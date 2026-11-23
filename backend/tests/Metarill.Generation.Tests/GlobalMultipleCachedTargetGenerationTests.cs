@@ -121,6 +121,96 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     {
         var c=PhysicalLabelCatalog(mode,automatic);var model=GenerationModel.Create(c,"Example.GlobalPhysicalLabel");Assert.Empty(GenerationCapabilityAudit.Collect(model));var table=model.Tables.Single(x=>x.Source.Id=="3");var page=table.Pages.Single(x=>x.Source.Id=="30");var multi=Assert.Single(MultiSelectCompilation.ForPage(model,table,page));var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,page));Assert.Equal("16",multi.Name.Source.Id);Assert.Equal("16",checkbox.Name.Source.Id);Assert.Equal("global_source_captions",multi.Names!.Source.ColumnName);Assert.Equal("selected_global_source_captions",checkbox.Names.Source.ColumnName);
     }
+    /// <summary>实际复选候选页可以是普通字典页，账号归属、搜索、Excel 和持久名称用同一发布条件。</summary>
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(1, false)]
+    public async Task Checkbox_with_stored_global_account_dictionary(int mode,bool explicitPage)
+    {
+        var catalog = PhysicalLabelCatalog(mode,false);
+        catalog.ConfigColumns.RemoveAll(column => column.Id is "34" or "35");
+        catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId is "34" or "35");
+        var dictionary = catalog.ConfigPages.Single(page => page.Id == "10");
+        dictionary.Extra.Remove("type");
+        dictionary.WhereSql = "status=1 AND store_id=@current_store_id";
+        var business = catalog.ConfigPages.Single(page => page.Id == "30");
+        business.WhereSql += " AND store_id=@current_store_id";
+        if(!explicitPage)
+        {
+            var source=catalog.ConfigColumns.Single(column=>column.Id=="38");
+            source.ControlDetail=source.ControlDetail.Replace("\"pageId\":\"10\",","",StringComparison.Ordinal);
+            source.Extra.Remove("linkConfigPageId");
+            Assert.Empty(DatabaseCheckboxDefinition.Parse(source.ControlDetail).PageId);
+            // 覆盖模式按表级首列匹配。先放可比较的业务名称，再导入复选数组。
+            catalog.ConfigColumns.Single(column=>column.Id=="36").SortNo=-10;
+            catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="36").SortNo=-10;
+            business.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+            business.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+        }
+        catalog.ConfigColumns.AddRange([
+            new() { Id="17", ConfigTableId="1", YzProjectId="100", ColumnName="store_id", LogicalType="int64" },
+            new() { Id="37", ConfigTableId="3", YzProjectId="100", ColumnName="store_id", LogicalType="int64" }
+        ]);
+
+        const string application = "Example.GlobalStoredCheckbox";
+        var model = GenerationModel.Create(catalog,application);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        var owner = model.Tables.Single(table => table.Source.Id == "3");
+        var page = Assert.Single(owner.Pages);
+        var checkbox = Assert.Single(DatabaseCheckboxCompilation.ForService(model,owner,page));
+        Assert.Equal("10",checkbox.GlobalPage?.Source.Id);
+        Assert.Equal("16",checkbox.Name.Source.Id);
+        Assert.Contains(page.Searchable,column=>column.Source.Id=="40");
+        Assert.False(checkbox.DerivedName);
+
+        var boundary = Path.Combine(Path.GetTempPath(),"metarill-global-stored-checkbox");
+        var directory = Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,output,application);
+            var service = await File.ReadAllTextAsync(Path.Combine(output,"Services/CachedConsumerService.g.cs"));
+            Assert.Contains("CheckboxGlobalCondition30_38.BindAccount(actor)",service);
+            Assert.Contains("CheckboxOptions30_38Async",service);
+            Assert.Contains("ImportCheckbox30_38Async",service);
+            Assert.Contains("Export30Async",service);
+            Assert.Contains(mode==0?"FixedReadComparison.JsonArrayAnyContains":"ApplyJsonArrayAnyLike",service);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var generated = assembly.GetType(application+".Generated.Services.CachedConsumerService",throwOnError:true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(generated.TypeHandle);
+            if(mode==0)
+            {
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic;
+                var read=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(generated.GetField("ReadPlan30",hidden)!.GetValue(null));
+                var actor=new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,"100","9"){StoreId=9007199254740993L};
+                Assert.True(read.RequiresAccount);
+                Assert.Equal("string",read.BindAccount(actor).OutputTypes["selected_global_source_captions"]);
+                Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor with{StoreId=null}));
+            }
+            else
+            {
+                var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+                Assert.Contains("selected_global_source_captions",maintenance.MixedSourceColumns["cached_consumer"]);
+                Assert.Contains("global_source",maintenance.MixedTargets);
+                var scoped=Assert.Single(RelationPropagationCompilation.DerivedBindings(model),binding=>binding.Foreign.Source.Id=="38");
+                Assert.True(scoped.Multiple);
+
+                business.WhereSql=business.WhereSql.Replace(" AND store_id=@current_store_id","",StringComparison.Ordinal);
+                // 发布不得将账号的门店值当作所有持久来源行的门店。
+                var missing=GenerationModel.Create(catalog,application);
+                var error=Assert.Throws<InvalidOperationException>(()=>RelationPropagationCompilation.DerivedBindings(missing));
+                Assert.Contains("物理账号归属",error.Message);
+            }
+        }
+        finally
+        {
+            if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);
+        }
+    }
+
     /// <summary>普通项目复选支持已声明名称，真实项目谓词不能被名称配置替代。</summary>
     [Theory][InlineData(0,false)][InlineData(0,true)][InlineData(1,false)][InlineData(1,true)]
     public void Custom_non_global_checkbox_label_requires_real_project_scope(int mode,bool automatic)

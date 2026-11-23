@@ -139,7 +139,8 @@ public static partial class MySqlNonRedundantReadCompiler
     private static PageMetadata? MultiTargetNamePage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
     {
         var global=GlobalCrossTableTarget.Declared(table);
-        var stored=table.IsRongyu==1&&global&&relation.ControlKind=="MultiSelectPage";
+        var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
+        var stored=table.IsRongyu==1&&global&&(checkbox||relation.ControlKind=="MultiSelectPage");
         if(table.IsRongyu!=0&&!stored)return null;
         var pageId=MultiPageId(Definition(relation));
         if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
@@ -147,14 +148,14 @@ public static partial class MySqlNonRedundantReadCompiler
         var candidates=catalog.ConfigPages.Where(item=>item.ConfigTableId==table.Id&&
             (item.Id==pageId||global&&pageId.Length==0)).Take(2).ToArray();
         if(candidates.Length!=1)return null;
-        return !stored||pageId.Length>0&&StoredAccountMultiPage(catalog,table,candidates[0])?candidates[0]:null;
+        return !stored||(checkbox||pageId.Length>0)&&StoredAccountMultiPage(catalog,table,candidates[0],checkbox)?candidates[0]:null;
     }
 
     /// <summary>按完整目录重证冗余字典页面，执行器只读取该页已发布的物理条件。</summary>
-    private static bool StoredAccountMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
-        table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&page.Extra.GetValueOrDefault("type").ToString()=="2"&&
+    private static bool StoredAccountMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)=>
+        table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&
         GlobalMultipleRelationTarget.IsStoredAccountPage(table,page,FixedConditionPlan.Compile(page.WhereSql,
-            catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).Select(column=>column.ColumnName)));
+            catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).Select(column=>column.ColumnName)),checkbox);
 
     /// <summary>只在原逻辑或账号条件确实存在时，将目标页本身的范围嵌入多值计划。</summary>
     internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
@@ -197,8 +198,8 @@ public static partial class MySqlNonRedundantReadCompiler
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
             throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
-        if(importPageType=="2"&&!exactMultiSelection&&!storedExactCheckbox&&(importFields?.Count??0)==0&&
-            StoredAccountMultiPage(catalog,table,page))
+        if(importPageType=="2"&&!exactMultiSelection&&(importFields?.Count??0)==0&&
+            StoredAccountMultiPage(catalog,table,page,storedExactCheckbox))
             return new Builder(catalog,tableId,candidatePage:page,multiLabel:true,cascadeLabelField:field,
                 accountPhysicalCandidate:true)
             {
@@ -328,7 +329,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(tableName.Length==0&&relation.ColumnName.EndsWith("_ids",StringComparison.Ordinal))tableName=relation.ColumnName[..^4];
                 var target=catalog.ConfigTables.SingleOrDefault(table=>tableId.Length>0?table.Id==tableId:table.TableName==tableName);
                 if(target is null||target.IsRongyu!=0&&
-                    (relation.ControlKind!="MultiSelectPage"||MultiTargetNamePage(catalog,target,relation) is null))continue;
+                    MultiTargetNamePage(catalog,target,relation) is null)continue;
                 var source=catalog.ConfigTables.SingleOrDefault(table=>table.Id==relation.ConfigTableId);
                 result=(source,target,field,relation);
             }

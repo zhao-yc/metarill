@@ -74,12 +74,14 @@ internal static class DerivedMultipleCacheProof
             :MultiNameStorageColumns.IsDerivedScalarLabel(target,value,storage);
         if(value.LogicalType!="string"&&!typed)throw Invalid();
         // 验证也读取与实际名称副本相同的固定页及联接条件。
-        if(target.IsRongyu==1&&foreign.ControlKind=="MultiSelectPage"&&scoped is not null)
+        var checkbox=foreign.ControlKind=="MultiCheckBoxDatabase";
+        if(target.IsRongyu==1&&scoped is not null&&GlobalCrossTableTarget.Declared(target)&&
+            (sharedPage is null||MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign)?.Id==scoped.Id))
         {
             _=AccountScopedCrossCache.Compile(catalog,source,target,scoped,globalTreeSource:false,
                 globalSingleSource:GlobalCrossTableTarget.Declared(source));
             var scopedRead=MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(catalog,target.Id,scoped.Id,
-                value.ColumnName,[value.ColumnName],[]);
+                value.ColumnName,[value.ColumnName],[],storedExactCheckbox:checkbox);
             if(scopedRead.Types[value.ColumnName]!=value.LogicalType)throw Invalid();
             return;
         }

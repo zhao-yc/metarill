@@ -26,10 +26,11 @@ public static class GlobalMultipleRelationTarget
             GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,target,value,page);
     }
 
-    /// <summary>冗余字典的原多选限定在实际 type=2 页面及物理账号等值范围。</summary>
-    public static bool IsStoredAccountPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition)=>
+    /// <summary>原多选要求 type=2，数据库复选可以引用普通字典页，两个用途都必须证明物理账号等值。</summary>
+    public static bool IsStoredAccountPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
         table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&page.ConfigTableId==table.Id&&
-        page.Extra.GetValueOrDefault("type").ToString()=="2"&&
+        (checkbox?page.Extra.GetValueOrDefault("type").ToString() is "" or "0" or "1" or "2":
+            page.Extra.GetValueOrDefault("type").ToString()=="2")&&
         string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString())&&
         condition.Variables.Count>0&&condition.Variables.All(AccountConditionVariables.IsSupported);
 
@@ -52,11 +53,12 @@ public static class GlobalMultipleRelationTarget
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
         var expanded=RelationStorageColumns.Expand(target,columns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
-        var storedAccount=foreign.ControlKind=="MultiSelectPage"&&pageId.Length>0&&IsStoredAccountPage(target,page,condition);
+        var checkbox=foreign.ControlKind=="MultiCheckBoxDatabase";
+        var storedAccount=(checkbox||pageId.Length>0)&&IsStoredAccountPage(target,page,condition,checkbox);
         if(GlobalCrossTableTarget.Declared(owner))
         {
             // 全局业务来源仍有项目归属，仅开放明确绑定固定账号字典页的原多选。
-            if(!storedAccount)throw new NotSupportedException("全局多值来源必须绑定明确发布的冗余账号多选页。");
+            if(checkbox||!storedAccount)throw new NotSupportedException("全局多值来源必须绑定明确发布的冗余账号多选页。");
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
         }
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));

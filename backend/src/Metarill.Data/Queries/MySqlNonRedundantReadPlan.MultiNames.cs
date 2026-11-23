@@ -146,8 +146,7 @@ public static partial class MySqlNonRedundantReadCompiler
             (MultiTargetParentScope Target,ColumnMetadata Source)? fixedParent=null,bool sharedCheckbox=false)
         {
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
-            var storedAccount=relation.ControlKind=="MultiSelectPage"&&selectedScope is not null&&
-                StoredAccountMultiPage(catalog,target,selectedScope);
+            var storedAccount=selectedScope is not null&&StoredAccountMultiPage(catalog,target,selectedScope,checkbox);
             var physicalScope=storedAccount||checkbox&&target.IsRongyu==1&&(fixedParent is not null||
                 table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
