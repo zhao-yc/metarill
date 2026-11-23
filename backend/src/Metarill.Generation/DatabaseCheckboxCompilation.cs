@@ -124,7 +124,7 @@ internal static class DatabaseCheckboxCompilation
                 storedAccountPage=publishedGlobalPage.Condition is {} publishedCondition&&
                     publishedGlobalPage.Scopes.All(scope=>scope.Source=="project")&&
                     GlobalMultipleRelationTarget.IsStoredAccountPage(target.Source,publishedGlobalPage.Source,publishedCondition.Syntax,checkbox:true);
-                storedProjectPage=proof.UsesStoredProjectPage;
+                storedProjectPage=proof.UsesProjectPage;
                 storedStaticPage=table.IsGlobal&&proof.UsesStoredStaticPage;
                 if(storedAccountPage||storedProjectPage||storedStaticPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
                     GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name)||

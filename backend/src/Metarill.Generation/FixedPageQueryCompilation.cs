@@ -119,7 +119,9 @@ internal static class FixedPageQueryCompilation
         {
             var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(target.Table,target.Page)||
                 UsesStoredGlobalSelectionRows(catalog,target.Table,target.Page);
-            var allowed = target.IdentityScopes.Where(scope=>!globalCandidate||scope.Source!="project")
+            // 全局候选只在实际发布页明确限制当前项目时，才证明控件的项目条件已执行。
+            var explicitProject=FixedPageConditionCompilation.HasGlobalProjectMultiScope(target.Table,target.Page);
+            var allowed = target.IdentityScopes.Where(scope=>!globalCandidate||scope.Source!="project"||explicitProject)
                 .Select(scope => (scope.Column.Source.Id, scope.Source)).ToHashSet();
             // 附加项必须逐项已被目标页实际执行；不把来源控件的更窄条件偷换成宽目标页。
             var requested=Metarill.Core.Metadata.FixedConditionPlan.Compile(definition.WhereSql,target.Table.Columns.Select(column=>column.Source.ColumnName));

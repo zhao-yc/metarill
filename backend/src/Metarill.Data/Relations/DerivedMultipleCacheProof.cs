@@ -12,12 +12,12 @@ internal static class DerivedMultipleCacheProof
         if(!binding.Multiple||!GlobalCrossTableTarget.Declared(source)||binding.SourceTableId!=source.Id)return false;
         var foreign=catalog.ConfigColumns.SingleOrDefault(column=>column.Id==binding.ForeignColumnId&&column.ConfigTableId==source.Id);
         var target=catalog.ConfigTables.SingleOrDefault(table=>table.Id==binding.TargetTableId);
-        if(foreign is not {ControlKind:"MultiSelectPage" or "MultiCheckBoxDatabase"}||target is not {IsRongyu:1}||
+        if(foreign is not {ControlKind:"MultiSelectPage" or "MultiCheckBoxDatabase"}||target is null||
             !GlobalCrossTableTarget.Declared(target))
             return false;
         var page=MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign);
         var published=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);
-        if(page is null&&!published.UsesStoredStaticPage)return false;
+        if(target.IsRongyu!=1&&!published.UsesProjectPage||page is null&&!published.UsesStoredStaticPage)return false;
         page??=published.Page;
         if(published.Name.Id==binding.ValueColumnId)return true;
         if(foreign.ControlKind!="MultiCheckBoxDatabase"||binding.CheckboxTargetPageId!=page.Id||binding.CheckboxSourceParentId is not null)

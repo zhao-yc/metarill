@@ -38,6 +38,7 @@ internal static class MultiSelectCompilation
             // 可发布全局候选与带真实项目归属的业务记录分别使用各自的查询范围。
             var scopedGlobal = table.HasScopedGlobalCache || table.IsGlobal && table.Source.IsRongyu == 1 &&
                 actual.Any(definition => FixedPageConditionCompilation.HasStoredGlobalMultiScope(definition.Target, definition.TargetPage) ||
+                    FixedPageConditionCompilation.HasGlobalProjectMultiScope(definition.Target, definition.TargetPage) ||
                     UsesStaticGlobalDictionary(definition));
             ColumnModel Fix(ColumnModel column) => names.Contains(column.Source.Id) ? column with { IsManagedMultiNames = true } : column;
             IReadOnlyList<ColumnModel> FixAll(IReadOnlyList<ColumnModel> columns) => columns.Select(Fix).ToArray();

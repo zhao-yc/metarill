@@ -91,7 +91,7 @@ internal static partial class BackendRenderer
         var globalMultiOwners=model.Tables.Where(table=>table.IsGlobal).Select(table=>table.Source.Id).ToHashSet(StringComparer.Ordinal);
         var staticMultiPages=multiSelections.Where(multi=>globalMultiOwners.Contains(multi.Source.Source.ConfigTableId)&&
                 MultiSelectCompilation.UsesStaticGlobalDictionary(multi)||
-                FixedPageConditionCompilation.HasStoredGlobalProjectScope(multi.Target,multi.TargetPage))
+                FixedPageConditionCompilation.HasGlobalProjectMultiScope(multi.Target,multi.TargetPage))
             .Select(multi=>multi.TargetPage.Source.Id)
             .ToHashSet(StringComparer.Ordinal);
         accountPages.UnionWith(multiSelections.Where(multi=>multi.Target.IsGlobal&&

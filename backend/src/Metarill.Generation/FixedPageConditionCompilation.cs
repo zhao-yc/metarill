@@ -119,18 +119,20 @@ internal static class FixedPageConditionCompilation
     internal static bool HasLogicalFields(PageModel page)=>HasCrossFields(page)||HasSelfTreeFields(page);
     /// <summary>原多选引用物理全局字典，独立项目条件与账号条件均沿实际发布页绑定。</summary>
     internal static bool HasStoredGlobalMultiScope(TableModel table,PageModel page)=>
-        HasStoredGlobalProjectScope(table,page)||
+        (table.Source.IsRongyu==1&&HasGlobalProjectMultiScope(table,page))||
         page.Scopes.All(scope=>scope.Source=="project")&&page.Condition is {} condition&&!HasLogicalFields(page)&&
         GlobalMultipleRelationTarget.IsStoredAccountPage(table.Source,page.Source,condition.Syntax);
 
-    /// <summary>生成模型已把当前项目等值提取到 Scopes，剩余条件只允许物理常量。</summary>
-    internal static bool HasStoredGlobalProjectScope(TableModel table,PageModel page)=>
-        page.Scopes.Count>0&&page.Scopes.All(scope=>scope.Source=="project")&&!HasLogicalFields(page)&&
-        GlobalMultipleRelationTarget.IsStoredStaticPage(table.Source,page.Source,page.Condition?.Syntax);
+    /// <summary>生成模型已校验字段和作用域，再从实际发布页确认当前项目及固定条件。</summary>
+    internal static bool HasGlobalProjectMultiScope(TableModel table,PageModel page)=>
+        table.IsGlobal&&page.Scopes.Count>0&&page.Scopes.All(scope=>scope.Source=="project")&&!HasLogicalFields(page)&&
+        GlobalMultipleRelationTarget.IsProjectPage(table.Source,page.Source,
+            FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName)));
 
     /// <summary>多值限定页包含账号、逻辑条件或实际发布的父范围。复选单独处理普通物理页面条件。</summary>
     internal static bool HasMultiTargetScope(GenerationModel model,TableModel table,PageModel page,bool includeProjectFixedScope=true)=>HasLogicalFields(page)||
         HasStoredGlobalMultiScope(table,page)||
+        table.Source.IsRongyu==0&&HasGlobalProjectMultiScope(table,page)||
         includeProjectFixedScope&&NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source)||
         table.Source.IsRongyu==0&&(HasAccountVariables(page)||SelectionPageRenderer.Enabled(page)&&
             page.Scopes.Count(scope=>scope.Source=="parent")>1)||page.Scopes.Any(scope=>

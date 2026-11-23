@@ -5,7 +5,7 @@ namespace Metarill.Core.Metadata;
 public sealed record GlobalMultipleRelationPlan(PageMetadata Page,ColumnMetadata Name)
 {
     public bool UsesStoredStaticPage { get; init; }
-    public bool UsesStoredProjectPage { get; init; }
+    public bool UsesProjectPage { get; init; }
 }
 
 /// <summary>全局多值关系分别证明普通R0实时读取与普通R1缓存消费者，目标名称必须为明确发布的物理值、R1缓存或已证明的R0单值名称。</summary>
@@ -32,23 +32,23 @@ public static class GlobalMultipleRelationTarget
 
     /// <summary>原多选要求 type=2，数据库复选可以引用普通字典页，两个用途都必须证明物理账号等值。</summary>
     public static bool IsStoredAccountPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
-        IsStoredPublishedPage(table,page,checkbox)&&
+        table.IsRongyu==1&&IsPublishedMultiPage(table,page,checkbox)&&
         condition.Variables.Any(AccountConditionVariables.IsSupported)&&condition.Terms.All(term=>
             IsProjectScope(term)||term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable)
                 .All(value=>AccountConditionVariables.IsSupported(value.Text)));
 
     /// <summary>全局业务数组可使用实际发布的物理字典页，候选范围为固定常量或无条件。</summary>
     public static bool IsStoredStaticPage(TableMetadata table,PageMetadata page,FixedConditionPlan? condition,bool checkbox=false)=>
-        IsStoredPublishedPage(table,page,checkbox)&&(condition?.Variables.Count??0)==0;
+        table.IsRongyu==1&&IsPublishedMultiPage(table,page,checkbox)&&(condition?.Variables.Count??0)==0;
 
     /// <summary>当前项目等值可以单独发布，也可以与物理常量一起声明。</summary>
-    public static bool IsStoredProjectPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
-        IsStoredPublishedPage(table,page,checkbox)&&condition.Terms.Any(IsProjectScope)&&condition.Terms.All(term=>
+    public static bool IsProjectPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
+        table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox)&&condition.Terms.Any(IsProjectScope)&&condition.Terms.All(term=>
             IsProjectScope(term)||term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable));
 
     /// <summary>两类多值用途共用冗余字典的页面资格，精确数据管理由独立合同验证。</summary>
-    private static bool IsStoredPublishedPage(TableMetadata table,PageMetadata page,bool checkbox)=>
-        table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&page.ConfigTableId==table.Id&&
+    private static bool IsPublishedMultiPage(TableMetadata table,PageMetadata page,bool checkbox)=>
+        GlobalCrossTableTarget.Declared(table)&&page.ConfigTableId==table.Id&&
         (checkbox?page.Extra.GetValueOrDefault("type").ToString() is "" or "0" or "1" or "2":
             page.Extra.GetValueOrDefault("type").ToString()=="2")&&
         string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
@@ -80,14 +80,14 @@ public static class GlobalMultipleRelationTarget
         var checkbox=foreign.ControlKind=="MultiCheckBoxDatabase";
         var storedAccount=(checkbox||pageId.Length>0)&&IsStoredAccountPage(target,page,condition,checkbox);
         var storedStatic=(checkbox||pageId.Length>0)&&IsStoredStaticPage(target,page,condition,checkbox);
-        var storedProject=(checkbox||pageId.Length>0)&&IsStoredProjectPage(target,page,condition,checkbox);
+        var projectPage=(checkbox||pageId.Length>0)&&IsProjectPage(target,page,condition,checkbox);
         if(GlobalCrossTableTarget.Declared(owner))
         {
             // 业务来源仍按行项目隔离。物理副本只能使用维护时也能重现的固定字典范围。
-            if(!storedAccount&&!storedStatic&&!storedProject)throw new NotSupportedException("全局多值来源必须绑定受支持的已发布冗余字典页。");
+            if(!storedAccount&&!storedStatic&&!projectPage)throw new NotSupportedException("全局多值来源必须绑定受支持的已发布字典页。");
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
         }
-        if(cached&&checkbox&&(storedProject||storedStatic&&GlobalCrossTableTarget.Declared(owner))&&
+        if(cached&&checkbox&&(projectPage||storedStatic&&GlobalCrossTableTarget.Declared(owner))&&
             !DatabaseCheckboxDefinition.Parse(foreign.ControlDetail)
                 .IsCoveredByStaticPage(condition,expanded.Select(column=>column.ColumnName)))
             throw new NotSupportedException("全局复选的冗余名称要求控件条件由实际发布字典页覆盖。");
@@ -97,7 +97,9 @@ public static class GlobalMultipleRelationTarget
             foreign.ControlKind=="MultiCheckBoxDatabase"&&GlobalCrossTableTarget.DeclaresExactPage(target,page))
             _=GlobalCrossTableTarget.ExactPageParent(catalog,target,page);
         else if(selfTreeScope)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page,allowMultiParent:true);
-        else if(storedAccount||storedProject)
+        else if(projectPage)
+            GlobalCrossTableTarget.RequireProjectMultiCandidate(catalog,target,page,checkbox);
+        else if(storedAccount)
             GlobalCrossTableTarget.RequireStoredMultiAccountCandidate(catalog,target,page);
         else if(scoped||target.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported))
             GlobalCrossTableTarget.RequireMultiCandidate(catalog,target,page);
@@ -123,6 +125,6 @@ public static class GlobalMultipleRelationTarget
         var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");
         if(!scoped&&condition.Fields.Any(field=>!Scalar(columns.Single(column=>column.ColumnName==field))))
             throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");
-        return new(page,name){UsesStoredStaticPage=storedStatic,UsesStoredProjectPage=storedProject};
+        return new(page,name){UsesStoredStaticPage=storedStatic,UsesProjectPage=projectPage};
     }
 }

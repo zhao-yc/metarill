@@ -409,6 +409,13 @@ public static partial class MySqlNonRedundantReadCompiler
             var page=SelectedMultiPage!;
             if(page.ConfigTableId!=root.Id||page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)
                 throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
+            // 独立项目条件绑定已发布项目，名称、回填及 Excel 不依赖请求另传项目参数。
+            if(IsNonRedundantProjectMultiPage(catalog,root,page,AllowsStoredExactCheckbox))
+            {
+                GlobalCrossTableTarget.RequireProjectMultiCandidate(catalog,root,page,AllowsStoredExactCheckbox);
+                var projectScope=PublishedScope(root,rootAlias,page,aliasPrefix+"multi_project",explicitMultiProject:true);
+                return string.Join(" AND ",new[]{scope,projectScope}.Where(part=>part.Length>0));
+            }
             var treeNames=PublishedSelfTreeConditionFields(catalog,root,page,columns[root.Id].Values.ToArray());
             var global=GlobalCrossTableTarget.Declared(root);
             var exact=UsesExactMultiSelection(page,rootAlias);

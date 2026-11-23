@@ -175,6 +175,15 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     public Task Global_business_multiselect_uses_explicit_project_dictionary(int mode,string projectType,bool constants)=>
         VerifyPublishedGlobalMultiselect(mode,1,false,projectType,unfiltered:!constants,globalSource:true,projectScoped:true);
 
+    /// <summary>实际非冗余字典按当前项目返回原多选候选及名称。</summary>
+    [Theory]
+    [InlineData(0,"int64",false)]
+    [InlineData(0,"string",true)]
+    [InlineData(1,"int64",true)]
+    [InlineData(1,"string",false)]
+    public Task Global_business_multiselect_uses_nonredundant_project_dictionary(int mode,string projectType,bool constants)=>
+        VerifyPublishedGlobalMultiselect(mode,0,false,projectType,unfiltered:!constants,globalSource:true,projectScoped:true);
+
     /// <summary>从实际生成程序集核对名称、关联选档、项目隔离和数据维护计划。</summary>
     private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType,
         bool unfiltered=false,bool globalSource=false,bool projectScoped=false)
@@ -190,6 +199,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         dictionary.WhereSql=unfiltered?"":"status=17";
         if(projectScoped)dictionary.WhereSql=WithCurrentProject(dictionary.WhereSql);
         if(projectType is not null)ConfigureStoredGlobalDictionary(catalog,projectType);
+        if(projectScoped&&targetStorage==0)MakeProjectDictionaryNonRedundant(catalog);
         if(globalSource)
         {
             catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
@@ -223,7 +233,10 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             {
                 var model=GenerationModel.Create(catalog,application);
                 var target=model.Tables.Single(table=>table.Source.Id=="1");
-                Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(target));
+                if(targetStorage==1)
+                    Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(target));
+                else
+                    Assert.True(NonRedundantReadCompilation.HasGlobalRowProject(target));
                 Assert.Empty(GenerationCapabilityAudit.Collect(model));
                 Assert.Contains("ImportMulti31_34Async",serviceCode);
                 if(projectScoped)
@@ -251,24 +264,41 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     Assert.Contains("yz_project_id",business("Query30",[new PageRequest(),actor]));
                     Assert.Contains("yz_project_id",business("Scope31",[actor,null]));
                 }
-                var list=sql("Query10",[new PageRequest(),actor]);
-                Assert.Equal(projectScoped,list.Contains("yz_project_id",StringComparison.Ordinal));
-                Assert.Equal(!unfiltered,list.Contains("status",StringComparison.Ordinal));
-                Assert.Contains("delete_no",list);
-                var selected=sql("Query10",[new PageRequest{SelectedIds=["9007199254740993"]},actor]);
-                Assert.Contains("`id`",selected);
-                Assert.Equal(!unfiltered,selected.Contains("status",StringComparison.Ordinal));
-                Assert.Equal(projectScoped,selected.Contains("yz_project_id",StringComparison.Ordinal));
-                Assert.Contains("yz_project_id",sql("Scope10",[actor,null]));
-                if(!projectScoped)
-                    Assert.Contains("yz_project_id",sql("Query10",[new PageRequest(),actor,false]));
-                Assert.Contains("yz_project_id",sql("Query11",[new PageRequest(),actor]));
-                Assert.Contains("yz_project_id",sql("Query12",[new PageRequest(),actor]));
-                Assert.Contains("yz_project_id",sql("Query13",[new PageRequest(),actor]));
-                if(!projectScoped)
-                    Assert.Contains("Query10(request, actor, candidateRows: false)",targetCode);
-                Assert.Contains("Query10(request, actor).CountAsync",targetCode);
-                Assert.Contains("Query10(new PageRequest { ParentId = request.ParentId, SelectedIds",targetCode);
+                if(targetStorage==0)
+                {
+                    // 实际原多选分页和已选回读共用独立候选，普通详情仍按业务行查询。
+                    var targetService=assembly.GetType(application+".Generated.Services.GlobalSourceService",true)!;
+                    var candidate=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(targetService.GetField(
+                        "CandidateReadPlan10",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                    Assert.False(candidate.RequiresAccount);
+                    var query=candidate.GetType().GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(candidate)!;
+                    AssertOwnedScope(query);
+                    var scope=Assert.IsType<string>(query.GetType().GetProperty("Scope",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(query));
+                    Assert.Contains("`yz_project_id`=@project_scope_"+(projectType=="string"?"text":"number"),scope);
+                    Assert.Equal(!unfiltered,scope.Contains("`status`",StringComparison.Ordinal));
+                    Assert.Contains("CandidateReadPlan10",targetCode);
+                }
+                else
+                {
+                    var list=sql("Query10",[new PageRequest(),actor]);
+                    Assert.Equal(projectScoped,list.Contains("yz_project_id",StringComparison.Ordinal));
+                    Assert.Equal(!unfiltered,list.Contains("status",StringComparison.Ordinal));
+                    Assert.Contains("delete_no",list);
+                    var selected=sql("Query10",[new PageRequest{SelectedIds=["9007199254740993"]},actor]);
+                    Assert.Contains("`id`",selected);
+                    Assert.Equal(!unfiltered,selected.Contains("status",StringComparison.Ordinal));
+                    Assert.Equal(projectScoped,selected.Contains("yz_project_id",StringComparison.Ordinal));
+                    Assert.Contains("yz_project_id",sql("Scope10",[actor,null]));
+                    if(!projectScoped)
+                        Assert.Contains("yz_project_id",sql("Query10",[new PageRequest(),actor,false]));
+                    Assert.Contains("yz_project_id",sql("Query11",[new PageRequest(),actor]));
+                    Assert.Contains("yz_project_id",sql("Query12",[new PageRequest(),actor]));
+                    Assert.Contains("yz_project_id",sql("Query13",[new PageRequest(),actor]));
+                    if(!projectScoped)
+                        Assert.Contains("Query10(request, actor, candidateRows: false)",targetCode);
+                    Assert.Contains("Query10(request, actor).CountAsync",targetCode);
+                    Assert.Contains("Query10(new PageRequest { ParentId = request.ParentId, SelectedIds",targetCode);
+                }
                 var plan=FixedPageQueryCompilation.For(target,target.Pages.Single(page=>page.Source.Id=="10"));
                 Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择",dictionary.WhereSql,""),out _));
                 Assert.Equal(projectScoped,FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择",
@@ -701,8 +731,18 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     public Task Global_business_checkbox_uses_explicit_project_dictionary(int mode,string projectType,bool constants)=>
         VerifyGlobalBusinessCheckboxDictionary(mode,projectType,!constants,projectScoped:true);
 
+    /// <summary>原数据库复选从非冗余字典发布页读取全称和简称，并保留当前项目约束。</summary>
+    [Theory]
+    [InlineData(0,"int64",true)]
+    [InlineData(0,"string",false)]
+    [InlineData(1,"int64",false)]
+    [InlineData(1,"string",true)]
+    public Task Global_business_checkbox_uses_nonredundant_project_dictionary(int mode,string projectType,bool constants)=>
+        VerifyGlobalBusinessCheckboxDictionary(mode,projectType,!constants,projectScoped:true,targetStorage:0);
+
     /// <summary>从同一实际生成代码验证字典候选、原筛选及非冗余和冗余名称。</summary>
-    private static async Task VerifyGlobalBusinessCheckboxDictionary(int mode,string projectType,bool unfiltered,bool projectScoped=false)
+    private static async Task VerifyGlobalBusinessCheckboxDictionary(int mode,string projectType,bool unfiltered,
+        bool projectScoped=false,int targetStorage=1)
     {
         const string app="Example.StaticGlobalCheckbox";
         var catalog=PhysicalLabelCatalog(mode,false);
@@ -712,6 +752,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         catalog.ConfigColumns.Single(column=>column.Id=="32").LogicalType=projectType;
         catalog.ConfigColumns.Add(new(){Id="17",ConfigTableId="1",YzProjectId="100",ColumnName="yz_project_id",LogicalType=projectType});
         catalog.ConfigColumns.Single(column=>column.Id=="13").ControlKind="SelectPage";
+        if(targetStorage==0)MakeProjectDictionaryNonRedundant(catalog);
         catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",YzProjectId="100",ColumnName="short_caption",LogicalType="string"});
         catalog.ConfigPageColumns.Add(new(){Id="1018",ConfigPageId="10",ConfigColumnId="18",YzProjectId="100",IsShow=1});
         var dictionary=catalog.ConfigPages.Single(page=>page.Id=="10");
@@ -865,6 +906,14 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>保留物理字典字段，移除基类样本与本次范围无关的冗余名称副本。</summary>
+    private static void MakeProjectDictionaryNonRedundant(MetadataCatalog catalog)
+    {
+        catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=0;
+        catalog.ConfigColumns.RemoveAll(column=>column.Id is "13" or "14");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "13" or "14");
     }
 
     /// <summary>在测试字典页声明原项目变量；固定值继续独立验证。</summary>

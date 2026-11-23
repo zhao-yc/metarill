@@ -107,7 +107,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     IsProjectOnlyStoredMultiSelectPage(catalog,target,selected));
             var physicalNameOverride=name is not null&&target.IsRongyu==1&&!binding.ApplyPageScope;
             var globalOwnedCheckbox=checkbox&&binding.ApplyPageScope&&selected is not null&&
-                (storedGlobalStatic||StoredIdentityMultiPage(catalog,target,selected,checkbox:true));
+                (storedGlobalStatic||StoredIdentityMultiPage(catalog,target,selected,checkbox:true)||
+                    IsNonRedundantProjectMultiPage(catalog,target,selected,checkbox:true));
             if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!storedMultiSelect&&!physicalNameOverride||
                 GlobalCrossTableTarget.Declared(table)&&!globalOwnedCheckbox||
                 GlobalCrossTableTarget.Declared(target)&&!checkbox||pageId!=(selected?.Id??"")||

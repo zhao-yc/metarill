@@ -131,7 +131,7 @@ internal static class RelationPropagationCompilation
                 var source=model.Catalog.ConfigTables.Single(table=>table.Id==definition.SourceTableId);
                 var proof=GlobalMultipleRelationTarget.RequireCached(model.Catalog,source,multi,target);
                 pages.Add(proof.Page.Id);
-                if(proof.UsesStoredProjectPage||GlobalCrossTableTarget.Declared(source)&&proof.UsesStoredStaticPage)
+                if(proof.UsesProjectPage||GlobalCrossTableTarget.Declared(source)&&proof.UsesStoredStaticPage)
                     staticPages.Add(proof.Page.Id);
             }
             if(definition.SelfTreePageId is{} treePage)

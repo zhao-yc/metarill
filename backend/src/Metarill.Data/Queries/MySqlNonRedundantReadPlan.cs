@@ -348,6 +348,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly bool scopedPhysicalCandidate;
         private readonly IReadOnlyList<RedundantSharedParentPlan> candidateParents;
         private readonly bool accountPhysicalCandidate;
+        private readonly bool explicitMultiProjectCandidate;
         internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false,string? cascadeLabelField=null,CascadeCacheOwner? cascadeCacheOwner=null,bool scopedPhysicalCandidate=false,IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,bool accountPhysicalCandidate=false,bool exactSingleCandidate=false,bool globalCandidate=false)
         {
             this.scopedPhysicalCandidate = scopedPhysicalCandidate;
@@ -369,6 +370,11 @@ public static partial class MySqlNonRedundantReadCompiler
             if (candidatePage is not null)
             {
                 if (exactSingleCandidate) _=GlobalCrossTableTarget.ExactPageParent(catalog,root,candidatePage);
+                else if(publishedGlobalCandidate&&IsNonRedundantProjectMultiPage(catalog,root,candidatePage,checkbox:multiLabel))
+                {
+                    GlobalCrossTableTarget.RequireProjectMultiCandidate(catalog,root,candidatePage,checkbox:multiLabel);
+                    explicitMultiProjectCandidate=true;
+                }
                 else if (physicalCandidate&&!accountPhysicalCandidate) GlobalCrossTableTarget.Require(catalog, root, candidatePage);
                 else if (physicalCandidate&&multiLabel) GlobalCrossTableTarget.RequireStoredMultiAccountCandidate(catalog,root,candidatePage);
                 else if (physicalCandidate&&GlobalCrossTableTarget.SingleParent(catalog,root,candidatePage) is {} parent)
@@ -919,12 +925,14 @@ public static partial class MySqlNonRedundantReadCompiler
         private bool HasGlobalRowProject(TableMetadata table)=>table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table)&&columns[table.Id].ContainsKey("yz_project_id");
 
         /// <summary>全局候选和联接用同一固定页面条件，逻辑删除仍由物理字段约束。</summary>
-        private string PublishedScope(TableMetadata table,string alias,PageMetadata page,string parameterKey,bool allowAccount=false,bool projectParent=false,bool scopedSingle=false,bool scopedCrossTable=false,MultiTargetParentScope? accountParent=null,string? sourceParent=null)
+        private string PublishedScope(TableMetadata table,string alias,PageMetadata page,string parameterKey,bool allowAccount=false,bool projectParent=false,bool scopedSingle=false,bool scopedCrossTable=false,MultiTargetParentScope? accountParent=null,string? sourceParent=null,bool explicitMultiProject=false)
         {
-            var storedProject=accountPhysicalCandidate&&multiLabel&&table.Id==root.Id&&alias==rootAlias&&
+            var sourceCandidate=table.Id==root.Id&&alias==rootAlias&&page.Id==candidatePage?.Id;
+            var publishedProject=explicitMultiProject||explicitMultiProjectCandidate&&sourceCandidate||
+                accountPhysicalCandidate&&multiLabel&&table.Id==root.Id&&alias==rootAlias&&
                 table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&
                 FixedConditionPlan.Compile(page.WhereSql,columns[table.Id].Keys).Terms.Any(GlobalMultipleRelationTarget.IsProjectScope);
-            var scope=Scope(table,alias,projectScoped:projectParent||storedProject);
+            var scope=Scope(table,alias,projectScoped:projectParent||publishedProject);
             if(scopedSingle||accountParent is not null)
             {
                 // 原单值联接和候选一样携带全部同父字段，隐藏名称也不能绕过附加父范围。
@@ -932,11 +940,11 @@ public static partial class MySqlNonRedundantReadCompiler
                     PublishedSingleCondition(table,alias,page,parentField:accountParent?.Target,additionalScopes:accountParent?.AdditionalTargets);
                 return scope.Length==0?logical:scope+" AND "+logical;
             }
-            var condition=PublishedCondition(table,alias,page,allowAccount,projectParent,storedProject);
+            var condition=PublishedCondition(table,alias,page,allowAccount,projectParent,publishedProject);
             if(condition is null)return scope;
             if(accountPhysicalCandidate&&table.Id==root.Id&&alias==rootAlias&&cascadeCacheOwner is {} owner&&condition.Variables.Count>0)
             {
-                var proof=storedProject?AccountScopedCrossCache.CompileStoredMulti(catalog,owner.Table,table,page):
+                var proof=publishedProject?AccountScopedCrossCache.CompileStoredMulti(catalog,owner.Table,table,page):
                     AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,globalSingleSource:owner.GlobalSingleSource);
                 cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                 var owned=AccountCacheScope(proof,table,alias,owner.Alias,render:true,owner.Table,"mt_global_scope_"+parameterKey);

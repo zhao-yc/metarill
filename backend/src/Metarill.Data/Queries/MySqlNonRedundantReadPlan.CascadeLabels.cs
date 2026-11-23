@@ -169,7 +169,22 @@ public static partial class MySqlNonRedundantReadCompiler
         var condition=FixedConditionPlan.Compile(page.WhereSql,
             catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).Select(column=>column.ColumnName));
         return GlobalMultipleRelationTarget.IsStoredAccountPage(table,page,condition,checkbox)||
-            GlobalMultipleRelationTarget.IsStoredProjectPage(table,page,condition,checkbox);
+            GlobalMultipleRelationTarget.IsProjectPage(table,page,condition,checkbox);
+    }
+
+    /// <summary>非冗余全局字典的项目声明只在固定多值候选及名称计划生效。</summary>
+    private static bool IsNonRedundantProjectMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)
+    {
+        if(table.IsRongyu!=0||!GlobalCrossTableTarget.Declared(table))return false;
+        var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
+        if(!members.Any(column=>column.ColumnName=="yz_project_id"))return false;
+        // 先以完整模型识别已有的逻辑条件。纯物理项目范围须逐项证明，避免抢占原递归候选。
+        var expanded=RelationStorageColumns.Expand(table,members);
+        var syntax=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
+        if(!GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,checkbox))return false;
+        var storage=MetadataStoragePolicy.ForTable(catalog,table);
+        return syntax.Fields.All(field=>members.Any(column=>column.ColumnName==field&&
+            GlobalPhysicalRelationValue.IsScalar(storage,table,column)));
     }
 
     /// <summary>普通冗余候选页只依赖当前项目，可保留实际页面而不添加固定父条件。</summary>
@@ -235,7 +250,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var declared=RelationStorageColumns.Expand(table,members);
         var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
         return !checkbox&&IsProjectFixedMultiPage(catalog,table,page)||
-            GlobalMultipleRelationTarget.IsStoredProjectPage(table,page,syntax,checkbox)||
+            GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,checkbox)||
             syntax.Variables.Any(AccountConditionVariables.IsSupported)||
             (checkbox||page.Extra.GetValueOrDefault("type").ToString()=="2")&&syntax.Terms.Count(term=>term.Values.Any(value=>
                 value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text)))>1||
