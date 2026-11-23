@@ -60,7 +60,10 @@ public sealed class GlobalSharedParentGenerationTests
     [InlineData(true,true,false)]
     [InlineData(false,true,true)]
     [InlineData(true,false,true)]
-    public async Task Published_global_derived_parent_compiles_business_and_file_scopes(bool shared,bool rowProject,bool accountScoped)
+    [InlineData(true,false,false,true)]
+    [InlineData(true,true,false,true)]
+    public async Task Published_global_derived_parent_compiles_business_and_file_scopes(bool shared,bool rowProject,bool accountScoped,
+        bool alternateDictionary=false)
     {
         const string packageNamespace="Example.GlobalDerivedParent";
         var catalog=Catalog("shared_parent","string","int64",false,1,!rowProject,true);
@@ -100,6 +103,22 @@ public sealed class GlobalSharedParentGenerationTests
             catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId is "205" or "206"||field.ConfigColumnId is "80" or "91");
             catalog.ConfigMenus.RemoveAll(menu=>menu.ConfigPageId is "205" or "206");
         }
+        if(alternateDictionary)
+        {
+            // 共享父所在目标页使用备用字典，另一业务页沿用表级字典声明。
+            company.IsRongyu=rowProject?0:1;
+            catalog.ConfigColumns.Add(new(){Id="99020",ConfigTableId=company.Id,YzProjectId=catalog.YzProjectId,
+                ColumnName="segment",LogicalType="int32"});
+            catalog.ConfigPages.Single(page=>page.Id=="9901").WhereSql="segment=17";
+            catalog.ConfigPages.Add(new(){Id="9902",ConfigTableId=company.Id,YzAdminTypeId=countryPage.YzAdminTypeId,
+                YzProjectId=catalog.YzProjectId,WhereSql="segment=7"});
+            catalog.ConfigPageColumns.Add(new(){Id="990299012",ConfigPageId="9902",ConfigColumnId="99012",IsShow=1});
+            catalog.ConfigPageColumns.Single(field=>field.Id=="99016").Extra["controlDetail"]=
+                JsonSerializer.SerializeToElement("""{"pageId":"9902"}""");
+            catalog.ConfigPages.Add(new(){Id="302",ConfigTableId=target.Id,YzProjectId=catalog.YzProjectId,
+                YzAdminTypeId=countryPage.YzAdminTypeId});
+            catalog.ConfigPageColumns.Add(new(){Id="30299013",ConfigPageId="302",ConfigColumnId="99013",IsShow=1,IsEdit=1});
+        }
         var model=GenerationModel.Create(catalog,packageNamespace);
         var source=model.Tables.Single(table=>table.Source.Id=="2");
         var page=source.Pages.Single(item=>item.Source.Id=="202");
@@ -107,6 +126,24 @@ public sealed class GlobalSharedParentGenerationTests
         Assert.Equal("301",parent.Level.Page.Source.Id);
         Assert.True(parent.Level.DerivedName);
         Assert.Equal(shared,parent.Shared);
+        if(alternateDictionary)
+        {
+            var mixed=source.Pages.Single(item=>item.Source.Id=="206");
+            Assert.Empty(SharedCrossTableCompilation.ForPage(model,source,mixed).Gaps.Values);
+            var physical=mixed.Scopes.Single(scope=>scope.Column.Source.ColumnName=="owner_country_id").Column;
+            var bound=Assert.Single(SharedGlobalParentCompilation.ForColumn(model,source,mixed,physical));
+            Assert.Equal("301",bound.Level.Page.Source.Id);
+            Assert.Equal(name.Id,bound.Level.Name.Source.Id);
+            // 从文件运行时冻结目录取第 206 页的实际计划，目录建立成功并不代表该页已发布。
+            var files=new Metarill.Runtime.Files.FileMetadataContext([catalog]);
+            var snapshot=Assert.Single(files.Catalogs);
+            var filePage=snapshot.ConfigPages.Single(item=>item.Id==mixed.Source.Id);
+            const System.Reflection.BindingFlags nonPublic=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+            var scope=typeof(Metarill.Runtime.Files.FileMetadataContext).GetMethod("PageScope",nonPublic)!
+                .Invoke(files,[snapshot,filePage])!;
+            var global=Assert.IsAssignableFrom<IReadOnlyList<ColumnMetadata>>(scope.GetType().GetProperty("GlobalParents",nonPublic)!.GetValue(scope));
+            Assert.Equal(physical.Source.Id,Assert.Single(global).Id);
+        }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
 

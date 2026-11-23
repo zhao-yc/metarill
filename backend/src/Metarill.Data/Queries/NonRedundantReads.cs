@@ -418,9 +418,17 @@ public static class NonRedundantReads
         var plan=CompileMatch(metadata,tableId,field);return Array.AsReadOnly(plan.MySql.SourceDependencies.ToArray());
     }
     /// <summary>生成期证明固定名称路径是否读到指定实体，不向生成层暴露方言计划或SQL。</summary>
-    public static bool MatchReadsTable(MetadataCatalog metadata,string tableId,string field,string referencedTable)
+    public static bool MatchReadsTable(MetadataCatalog metadata,string tableId,string field,string referencedTable)=>
+        MatchReadsTable(metadata,tableId,field,referencedTable,[]);
+
+    /// <summary>已发布的级联名称使用各段实际页面读取，循环检查沿同一投影及范围依赖。</summary>
+    public static bool MatchReadsTable(MetadataCatalog metadata,string tableId,string field,string referencedTable,
+        IReadOnlyList<NonRedundantSingleTargetScope> singleTargets)
     {
-        MetadataValidation.RequireIdentifier(referencedTable);return CompileMatch(metadata,tableId,field).MySql.PhysicalReferences.Any(reference=>reference.Table==referencedTable);
+        MetadataValidation.RequireIdentifier(referencedTable);
+        var plan=singleTargets.Count==0?CompileMatch(metadata,tableId,field):
+            CompileProjectRelation(metadata,tableId,[field],[],singleTargets);
+        return plan.MySql.PhysicalReferences.Any(reference=>reference.Table==referencedTable);
     }
     /// <summary>只读规则取固定逻辑别名；无独立别名的派生名称继续读取原字段，不接受客户端别名。</summary>
     public static T? RuleValue<T>(NonRedundantReadPlan plan,IReadOnlyDictionary<string,object?> row,string name)

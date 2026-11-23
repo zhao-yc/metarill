@@ -29,7 +29,8 @@ internal static class SharedGlobalParentCompilation
         {
             // 混合物理父键必须有独立单值证明，并与共享链同一个固定目标页／名称一致。
             var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(column.Source.ControlDetail)))throw new NotSupportedException("全局物理父键的页覆盖不能替换固定关系。");
-            var single=GlobalSingleRelationTarget.Require(model.Catalog,table.Source,column.Source,target.Source);paths=paths.Where(path=>path.Shared&&path.Level.Page.Source.Id==single.Page.Id&&path.Level.Name.Source.Id==single.Name.Id);
+            var single=RelationCompilation.GlobalTargetForPage(model,table,page,column,target);
+            paths=paths.Where(path=>path.Shared&&path.Level.Page.Source.Id==single.Page.Id&&path.Level.Name.Source.Id==single.Name.Id);
         }
         var result=paths.DistinctBy(Identity,StringComparer.Ordinal).ToArray();
         if(result.Length!=1)throw new NotSupportedException("全局共享父字段缺少唯一已证明层位，不能猜测重复目标角色。");

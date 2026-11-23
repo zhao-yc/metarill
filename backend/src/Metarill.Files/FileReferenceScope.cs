@@ -96,7 +96,11 @@ internal static class FileReferenceScope
             {
                 if(!crosses.Any(cross=>cross.IsShared)){if(candidate.Project is null)throw Unsupported();result.Add(new(candidate.Source,candidate.Parent,candidate.Project,candidate.Deleted));continue;}
                 var overlay=catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==candidate.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(overlay),System.Text.Json.Nodes.JsonNode.Parse(candidate.Source.ControlDetail)))throw Unsupported();
-                var proof=GlobalSingleRelationTarget.Require(catalog,table,candidate.Source,candidate.Parent);if(!crosses.Any(cross=>cross.CoversGlobalParent(candidate.Parent.TableName,proof.Page.Id,proof.Name.Id)))throw Unsupported();globalParents.Add(candidate.Source);
+                // 按实际文件来源页证明名称，使用与生成业务相同的发布目标及末端字典。
+                var proof=GlobalSingleRelationTarget.Require(catalog,table,candidate.Source,candidate.Parent,page);
+                if(!crosses.Any(cross=>cross.CoversGlobalParent(candidate.Parent.TableName,proof.Page.Id,proof.Name.Id)))
+                    throw Unsupported();
+                globalParents.Add(candidate.Source);
             }
             var fields=constants.Select(term=>term.Field).Distinct(StringComparer.Ordinal).ToArray();
             var condition=constants.Count==0?null:FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",constants.Select(term=>term.ToDefinition())),fields),fields.ToDictionary(field=>field,field=>declared.Single(column=>column.ColumnName==field).LogicalType,StringComparer.Ordinal));
