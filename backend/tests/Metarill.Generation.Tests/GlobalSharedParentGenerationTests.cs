@@ -62,11 +62,14 @@ public sealed class GlobalSharedParentGenerationTests
     [InlineData(true,false,true)]
     [InlineData(true,false,false,true)]
     [InlineData(true,true,false,true)]
+    [InlineData(true,false,false,true,true)]
+    [InlineData(true,true,false,true,true)]
     public async Task Published_global_derived_parent_compiles_business_and_file_scopes(bool shared,bool rowProject,bool accountScoped,
-        bool alternateDictionary=false)
+        bool alternateDictionary=false,bool redundantSource=false)
     {
         const string packageNamespace="Example.GlobalDerivedParent";
         var catalog=Catalog("shared_parent","string","int64",false,1,!rowProject,true);
+        if(redundantSource)catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
         target.IsRongyu=0;
         var countryPage=catalog.ConfigPages.Single(page=>page.Id=="301");
@@ -122,18 +125,29 @@ public sealed class GlobalSharedParentGenerationTests
         var model=GenerationModel.Create(catalog,packageNamespace);
         var source=model.Tables.Single(table=>table.Source.Id=="2");
         var page=source.Pages.Single(item=>item.Source.Id=="202");
-        var parent=Assert.Single(SharedGlobalParentCompilation.ForColumn(model,source,page,page.Scopes.Single(scope=>scope.Source=="parent").Column));
-        Assert.Equal("301",parent.Level.Page.Source.Id);
-        Assert.True(parent.Level.DerivedName);
-        Assert.Equal(shared,parent.Shared);
+        var parentColumn=page.Scopes.Single(scope=>scope.Source=="parent").Column;
+        if(redundantSource)
+        {
+            var parent=Assert.Single(SharedRedundantParentCompilation.ForColumn(model,source,page,parentColumn));
+            Assert.Equal("301",parent.Level.Page.Source.Id);
+            Assert.True(parent.Level.DerivedName);
+        }
+        else
+        {
+            var parent=Assert.Single(SharedGlobalParentCompilation.ForColumn(model,source,page,parentColumn));
+            Assert.Equal("301",parent.Level.Page.Source.Id);
+            Assert.True(parent.Level.DerivedName);
+            Assert.Equal(shared,parent.Shared);
+        }
         if(alternateDictionary)
         {
             var mixed=source.Pages.Single(item=>item.Source.Id=="206");
             Assert.Empty(SharedCrossTableCompilation.ForPage(model,source,mixed).Gaps.Values);
             var physical=mixed.Scopes.Single(scope=>scope.Column.Source.ColumnName=="owner_country_id").Column;
-            var bound=Assert.Single(SharedGlobalParentCompilation.ForColumn(model,source,mixed,physical));
-            Assert.Equal("301",bound.Level.Page.Source.Id);
-            Assert.Equal(name.Id,bound.Level.Name.Source.Id);
+            var level=redundantSource?Assert.Single(SharedRedundantParentCompilation.ForColumn(model,source,mixed,physical)).Level:
+                Assert.Single(SharedGlobalParentCompilation.ForColumn(model,source,mixed,physical)).Level;
+            Assert.Equal("301",level.Page.Source.Id);
+            Assert.Equal(name.Id,level.Name.Source.Id);
             // 从文件运行时冻结目录取第 206 页的实际计划，目录建立成功并不代表该页已发布。
             var files=new Metarill.Runtime.Files.FileMetadataContext([catalog]);
             var snapshot=Assert.Single(files.Catalogs);
@@ -142,7 +156,26 @@ public sealed class GlobalSharedParentGenerationTests
             var scope=typeof(Metarill.Runtime.Files.FileMetadataContext).GetMethod("PageScope",nonPublic)!
                 .Invoke(files,[snapshot,filePage])!;
             var global=Assert.IsAssignableFrom<IReadOnlyList<ColumnMetadata>>(scope.GetType().GetProperty("GlobalParents",nonPublic)!.GetValue(scope));
-            Assert.Equal(physical.Source.Id,Assert.Single(global).Id);
+            if(redundantSource)
+            {
+                Assert.Empty(global);
+                var cross=Assert.IsAssignableFrom<System.Collections.IEnumerable>(scope.GetType().GetProperty("Crosses",nonPublic)!.GetValue(scope));
+                Assert.Contains(cross.Cast<object>(),path=>
+                    Equals("r1:"+physical.Source.Id,path.GetType().GetProperty("SourceId",nonPublic)!.GetValue(path)));
+
+                // 允许固定目标页内部使用备用字典，来源页之间仍不能替换这个外键的固定目标页。
+                Assert.DoesNotContain(catalog.ConfigColumns,column=>column.ConfigTableId==source.Source.Id&&column.ColumnName=="owner_country_name");
+                var incompatible=JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Serialize(catalog))!;
+                incompatible.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==physical.Source.Id)
+                    .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"pageId":"302"}""");
+                var fixedOwner=incompatible.ConfigTables.Single(table=>table.Id==source.Source.Id);
+                var fixedParent=incompatible.ConfigTables.Single(table=>table.Id==target.Id);
+                var parentKey=incompatible.ConfigColumns.Single(column=>column.Id==physical.Source.Id);
+                var rejected=Assert.Throws<InvalidOperationException>(()=>
+                    GlobalSingleRelationTarget.RequireCached(incompatible,fixedOwner,parentKey,fixedParent));
+                Assert.Contains("物理名称副本必须使用同一目标页",rejected.Message);
+            }
+            else Assert.Equal(physical.Source.Id,Assert.Single(global).Id);
         }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
@@ -157,8 +190,16 @@ public sealed class GlobalSharedParentGenerationTests
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
             Assert.NotNull(service.GetMethod("Update202Async"));
             var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/SharedParentSourceService.g.cs"));
-            Assert.Contains("LogicalParentScope202",code);
-            Assert.Contains("VerifyLogicalParent202Async",code);
+            if(redundantSource)
+            {
+                Assert.NotNull(service.GetMethod("Update206Async"));
+                Assert.Contains("VerifySharedR1Parent206Async",code);
+            }
+            else
+            {
+                Assert.Contains("LogicalParentScope202",code);
+                Assert.Contains("VerifyLogicalParent202Async",code);
+            }
             if(accountScoped)
             {
                 Assert.Contains("LogicalParentPlan202.BindAccount(actor)",code);

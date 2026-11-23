@@ -223,10 +223,12 @@ public static class GlobalSingleRelationTarget
             owner.IsRongyu is 0 or 1;
         var hasNameCache=cacheControl&&(target.IsRongyu==0||usesListPageScope)&&name is not null&&name!=key&&
             catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName==foreign.ColumnName[..^3]+"_"+name.ColumnName);
+        // 冗余外键即使未声明本地名称副本，仍按已经固定的目标页证明派生名称。
+        var namePage=cacheControl||sourcePage is not null?page:null;
         var nestedScope=false;
         if (name is null || name.LogicalType != "string" && (!typedName||projectParent) && !(allowsIdDisplay&&name==key) ||
             !(projectParent?Scalar(name):GlobalPhysicalRelationValue.IsPublishedScalar(catalog,targetStorage,target,name,
-                resolving??new HashSet<string>(StringComparer.Ordinal),hasNameCache||sourcePage is not null?page:null,out nestedScope)))
+                resolving??new HashSet<string>(StringComparer.Ordinal),namePage,out nestedScope)))
             throw new NotSupportedException("全局单值名称要求已证明的非凭据单值标量。");
         // 逻辑范围只允许已声明的级联字段，其他成员仍按非凭据物理标量验证。
         foreach(var field in condition.Fields)
