@@ -35,8 +35,8 @@ internal static class SharedGlobalParentCompilation
         var result=paths.DistinctBy(Identity,StringComparer.Ordinal).ToArray();
         if(result.Length!=1)throw new NotSupportedException("全局共享父字段缺少唯一已证明层位，不能猜测重复目标角色。");
         var published=result[0].Level;
-        if(logical.Length>0)NonRedundantCrossTargetsCompilation.RequireGlobal(model,target,published.Page,published.Name);
-        else GlobalCrossTableTarget.RequireSingle(model.Catalog,target.Source,published.Page.Source);
+        // 物理父键已与共享路径的页和名称匹配，校验时保留该路径的账号及固定条件。
+        NonRedundantCrossTargetsCompilation.RequireGlobal(model,target,published.Page,published.Name);
         return result;
     }
     /// <summary>候选来源父表去重后仍收齐原字段的层位证明；目标候选自身的父表不借用本入口。</summary>

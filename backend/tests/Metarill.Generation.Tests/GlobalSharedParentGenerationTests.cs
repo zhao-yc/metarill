@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
+using Metarill.Data.Queries;
 using Xunit;
 namespace Metarill.Generation.Tests;
 
@@ -64,6 +66,8 @@ public sealed class GlobalSharedParentGenerationTests
     [InlineData(true,true,false,true)]
     [InlineData(true,false,false,true,true)]
     [InlineData(true,true,false,true,true)]
+    [InlineData(true,false,true,true)]
+    [InlineData(true,true,true,true,true)]
     public async Task Published_global_derived_parent_compiles_business_and_file_scopes(bool shared,bool rowProject,bool accountScoped,
         bool alternateDictionary=false,bool redundantSource=false)
     {
@@ -78,11 +82,21 @@ public sealed class GlobalSharedParentGenerationTests
             countryPage.WhereSql+=" AND store_id=@current_store_id";
             catalog.ConfigColumns.Add(new(){Id="99017",ConfigTableId="3",YzProjectId=catalog.YzProjectId,ColumnName="store_id",LogicalType="int64"});
             catalog.ConfigPages.Single(page=>page.Id=="202").WhereSql+=" AND country_name <> '停用'";
-            // 本用例证明逻辑父与固定条件；另一页的独立物理List保留原已验证组合。
-            catalog.ConfigPages.RemoveAll(page=>page.Id=="206");
-            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="206"||field.ConfigColumnId=="91");
-            catalog.ConfigMenus.RemoveAll(menu=>menu.ConfigPageId=="206");
-            catalog.ConfigColumns.RemoveAll(column=>column.Id=="91");
+            if(redundantSource)
+            {
+                // 物理名称副本的门店归属来自持久行，与当前账号过滤使用同一字段。
+                catalog.ConfigColumns.Add(new(){Id="99018",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
+                    ColumnName="store_id",LogicalType="int64"});
+                foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId=="2"))
+                    sourcePage.WhereSql+=" AND store_id=@current_store_id";
+            }
+            if(!alternateDictionary)
+            {
+                catalog.ConfigPages.RemoveAll(page=>page.Id=="206");
+                catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="206"||field.ConfigColumnId=="91");
+                catalog.ConfigMenus.RemoveAll(menu=>menu.ConfigPageId=="206");
+                catalog.ConfigColumns.RemoveAll(column=>column.Id=="91");
+            }
         }
         var name=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="3"&&column.ColumnName=="name");
         name.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
@@ -126,6 +140,16 @@ public sealed class GlobalSharedParentGenerationTests
         var source=model.Tables.Single(table=>table.Source.Id=="2");
         var page=source.Pages.Single(item=>item.Source.Id=="202");
         var parentColumn=page.Scopes.Single(scope=>scope.Source=="parent").Column;
+        var actor=new RuntimeActor(9,"父级账号范围",false,catalog.YzProjectId,countryPage.YzAdminTypeId)
+            {StoreId=9007199254740993L};
+        var missingStore=actor with{StoreId=null,IsAdministrator=true};
+        void VerifyAccount(FixedConditionSqlPlan? condition)
+        {
+            var scoped=Assert.IsType<FixedConditionSqlPlan>(condition);
+            Assert.Contains("current_store_id",scoped.Variables);
+            Assert.Throws<UnauthorizedAccessException>(()=>scoped.BindAccount(missingStore));
+            Assert.Empty(scoped.BindAccount(actor).Variables);
+        }
         if(redundantSource)
         {
             var parent=Assert.Single(SharedRedundantParentCompilation.ForColumn(model,source,page,parentColumn));
@@ -156,12 +180,19 @@ public sealed class GlobalSharedParentGenerationTests
             var scope=typeof(Metarill.Runtime.Files.FileMetadataContext).GetMethod("PageScope",nonPublic)!
                 .Invoke(files,[snapshot,filePage])!;
             var global=Assert.IsAssignableFrom<IReadOnlyList<ColumnMetadata>>(scope.GetType().GetProperty("GlobalParents",nonPublic)!.GetValue(scope));
+            var crosses=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
+                scope.GetType().GetProperty("Crosses",nonPublic)!.GetValue(scope));
             if(redundantSource)
             {
                 Assert.Empty(global);
-                var cross=Assert.IsAssignableFrom<System.Collections.IEnumerable>(scope.GetType().GetProperty("Crosses",nonPublic)!.GetValue(scope));
-                Assert.Contains(cross.Cast<object>(),path=>
+                var parentScope=Assert.Single(crosses.Cast<object>(),path=>
                     Equals("r1:"+physical.Source.Id,path.GetType().GetProperty("SourceId",nonPublic)!.GetValue(path)));
+                if(accountScoped)
+                {
+                    var physicalPlan=Assert.IsType<RedundantSharedParentPlan>(
+                        parentScope.GetType().GetField("redundant",nonPublic)!.GetValue(parentScope));
+                    VerifyAccount(Assert.Single(physicalPlan.Levels).Condition);
+                }
 
                 // 允许固定目标页内部使用备用字典，来源页之间仍不能替换这个外键的固定目标页。
                 Assert.DoesNotContain(catalog.ConfigColumns,column=>column.ConfigTableId==source.Source.Id&&column.ColumnName=="owner_country_name");
@@ -175,7 +206,19 @@ public sealed class GlobalSharedParentGenerationTests
                     GlobalSingleRelationTarget.RequireCached(incompatible,fixedOwner,parentKey,fixedParent));
                 Assert.Contains("物理名称副本必须使用同一目标页",rejected.Message);
             }
-            else Assert.Equal(physical.Source.Id,Assert.Single(global).Id);
+            else
+            {
+                Assert.Equal(physical.Source.Id,Assert.Single(global).Id);
+                if(accountScoped)
+                {
+                    var fileLevels=crosses.Cast<object>().SelectMany(path=>
+                        Assert.IsAssignableFrom<IReadOnlyList<NonRedundantCrossTableScope>>(
+                            path.GetType().GetProperty("ReadBindings",nonPublic)!.GetValue(path)))
+                        .SelectMany(binding=>binding.Levels).Where(target=>target.PageId=="301").ToArray();
+                    Assert.NotEmpty(fileLevels);
+                    Assert.All(fileLevels,level=>VerifyAccount(level.Condition));
+                }
+            }
         }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
@@ -200,10 +243,30 @@ public sealed class GlobalSharedParentGenerationTests
                 Assert.Contains("LogicalParentScope202",code);
                 Assert.Contains("VerifyLogicalParent202Async",code);
             }
-            if(accountScoped)
+            if(accountScoped&&!redundantSource)
             {
                 Assert.Contains("LogicalParentPlan202.BindAccount(actor)",code);
                 Assert.Contains("CrossConditionPlan202.BindAccount(actor)",code);
+            }
+            if(accountScoped&&alternateDictionary)
+            {
+                const System.Reflection.BindingFlags staticPlan=System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic;
+                if(redundantSource)
+                {
+                    var accountParents=Assert.IsType<RedundantSharedParentPlan[]>(
+                        service.GetField("AccountParentScope206",staticPlan)!.GetValue(null));
+                    Assert.Equal(2,accountParents.Length);
+                    Assert.All(accountParents,parent=>VerifyAccount(Assert.Single(parent.Levels).Condition));
+                }
+                else
+                {
+                    Assert.Contains("LogicalParentPlan206.BindAccount(actor)",code);
+                    var scope=Assert.IsType<NonRedundantReadPlan>(
+                        service.GetField("LogicalParentPlan206",staticPlan)!.GetValue(null));
+                    Assert.True(scope.RequiresAccount);
+                    Assert.Throws<UnauthorizedAccessException>(()=>scope.BindAccount(missingStore));
+                    Assert.False(scope.BindAccount(actor).RequiresAccount);
+                }
             }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

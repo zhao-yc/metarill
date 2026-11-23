@@ -42,10 +42,11 @@ internal static class SharedRedundantParentCompilation
         var level=result[0].Level;
         if(level.Target.IsGlobal)
         {
-            if(cascadeParent&&FixedPageConditionCompilation.HasLogicalFields(level.Page))
+            // 两类物理父键都走已匹配的级联层，使用相同的账号条件和事务读范围。
+            if(FixedPageConditionCompilation.HasLogicalFields(level.Page))
                 NonRedundantCrossTargetsCompilation.RequireGlobal(model,level.Target,level.Page,level.Name);
-            else if(cascadeParent)GlobalCrossTableTarget.RequireCrossTableName(model.Catalog,level.Target.Source,level.Page.Source,level.Name.Source,allowAccount:true);
-            else GlobalCrossTableTarget.RequireSingle(model.Catalog,level.Target.Source,level.Page.Source);
+            else
+                GlobalCrossTableTarget.RequireCrossTableName(model.Catalog,level.Target.Source,level.Page.Source,level.Name.Source,allowAccount:true);
         }
         return result;
     }
