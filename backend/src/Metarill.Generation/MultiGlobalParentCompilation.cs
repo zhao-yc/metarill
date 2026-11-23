@@ -61,6 +61,10 @@ internal static class MultiGlobalParentCompilation
         if(!model.Tables.Any(candidate=>candidate.IsGlobal&&candidate.Source.Id==key.Source.LinkConfigTableId)||
             CrossTableStorageColumns.IsLogicalPathField(table.Source,model.Catalog.ConfigColumns,key.Source.ColumnName))
             return null;
+        // 已由共享级联冻结的 R1 父键沿完整祖先路径校验，不能再作为独立多选父键编译。
+        if(!SelectionPageRenderer.Enabled(page)&&SharedRedundantParentCompilation.ForColumn(model,table,page,key).Count>0)
+            return null;
+
         var condition=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
         return MultiTargetParentScope.Compile(model.Catalog,table.Source,condition) is {Global:true,Logical:false} parent?parent:null;
     }
