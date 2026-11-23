@@ -201,6 +201,10 @@ public sealed class NonRedundantGeneratedReadTests
     [InlineData(1,0,true,false,false,true,true,true)]
     [InlineData(1,1,true,false,false,true,false,true)]
     [InlineData(1,1,true,false,false,true,true,true)]
+    [InlineData(1,0,true,false,false,false,true,true)]
+    [InlineData(1,0,true,true,false,false,true,true)]
+    [InlineData(1,1,true,false,false,false,true,true)]
+    [InlineData(1,1,true,true,false,false,true,true)]
     public async Task Single_id_display_preserves_exact_web_filter_and_excel(
         int storage,int targetStorage,bool global=false,bool fieldId=false,bool accountParent=false,
         bool globalSource=false,bool rowProject=false,bool fixedOnly=false)
@@ -315,32 +319,32 @@ public sealed class NonRedundantGeneratedReadTests
             {
                 Assert.Equal("customer_name",binding.Cache?.Source.ColumnName);
                 Assert.Contains("customer_name",caches);
-                if (fixedOnly)
-                {
-                    // 同一实际字典页同时决定原名称筛选和名称重算，改状态也要触发反查。
-                    var namedPage=table.Pages.Single(candidate=>candidate.Source.Id=="101");
-                    var namedFilter=SelectionNameFilterCompilation.ForPage(model,table,namedPage);
-                    Assert.Empty(namedFilter.Gaps);
-                    Assert.Contains(namedFilter.Bindings,filter=>filter.Source.Source.Id=="15"&&filter.FilterKey=="customerName");
-                    var cachePlan=Assert.Single(RelationPropagationCompilation.DerivedBindings(model),
-                        candidate=>candidate.Cache.Source.ColumnName=="customer_name");
-                    Assert.Equal("201",cachePlan.ScopedSinglePageId);
-                    var definitions=RelationPropagationCompilation.Definitions([cachePlan]);
-                    const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.NonPublic;
-                    var refresh=typeof(Metarill.Data.Queries.MySqlNonRedundantReadCompiler)
-                        .GetMethod("CompileRefresh",flags|System.Reflection.BindingFlags.Static)!
-                        .Invoke(null,[catalog,"1",new[]{"customer_name"},definitions,null])!;
-                    var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
-                        refresh.GetType().GetProperty("Constants",flags|System.Reflection.BindingFlags.Instance)!.GetValue(refresh));
-                    Assert.Contains(83,constants.Values);
-                    var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
-                        refresh.GetType().GetProperty("Reverse",flags|System.Reflection.BindingFlags.Instance)!.GetValue(refresh));
-                    Assert.Contains(reverse.Cast<object>(),reference=>
-                        reference.GetType().GetProperty("Outputs")!.GetValue(reference) is
-                            IReadOnlyDictionary<string,IReadOnlySet<string>> dependencies &&
-                        dependencies.TryGetValue("customer_name",out var fields)&&fields.Contains("status"));
-                }
             }
+        }
+        if(fixedOnly&&!fieldId)
+        {
+            // 同一实际字典页同时决定原名称筛选和名称重算，改状态也要触发反查。
+            var namedPage=table.Pages.Single(candidate=>candidate.Source.Id=="101");
+            var namedFilter=SelectionNameFilterCompilation.ForPage(model,table,namedPage);
+            Assert.Empty(namedFilter.Gaps);
+            Assert.Contains(namedFilter.Bindings,filter=>filter.Source.Source.Id=="15"&&filter.FilterKey=="customerName");
+            var cachePlan=Assert.Single(RelationPropagationCompilation.DerivedBindings(model),
+                candidate=>candidate.Cache.Source.ColumnName=="customer_name");
+            Assert.Equal("201",cachePlan.ScopedSinglePageId);
+            var definitions=RelationPropagationCompilation.Definitions([cachePlan]);
+            const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.NonPublic;
+            var refresh=typeof(Metarill.Data.Queries.MySqlNonRedundantReadCompiler)
+                .GetMethod("CompileRefresh",flags|System.Reflection.BindingFlags.Static)!
+                .Invoke(null,[catalog,"1",new[]{"customer_name"},definitions,null])!;
+            var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                refresh.GetType().GetProperty("Constants",flags|System.Reflection.BindingFlags.Instance)!.GetValue(refresh));
+            Assert.Contains(83,constants.Values);
+            var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
+                refresh.GetType().GetProperty("Reverse",flags|System.Reflection.BindingFlags.Instance)!.GetValue(refresh));
+            Assert.Contains(reverse.Cast<object>(),reference=>
+                reference.GetType().GetProperty("Outputs")!.GetValue(reference) is
+                    IReadOnlyDictionary<string,IReadOnlySet<string>> dependencies &&
+                dependencies.TryGetValue("customer_name",out var fields)&&fields.Contains("status"));
         }
         var root=Path.Combine(Path.GetTempPath(),"metarill-single-id",Guid.NewGuid().ToString("N"));
         try
@@ -422,6 +426,14 @@ public sealed class NonRedundantGeneratedReadTests
     public Task Stored_global_single_with_constants_keeps_candidate_and_business_scopes(int storage,bool idLabel,bool textProject)=>
         VerifyStoredGlobalSelectionScopes(storage,idLabel,textProject,unfiltered:false);
 
+    /// <summary>普通冗余来源的固定字典同时验证整数和字符串项目列、名称及主键显示。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(false,true)]
+    [InlineData(true,false)]
+    [InlineData(true,true)]
+    public Task Project_cache_selects_from_managed_fixed_global_dictionary(bool idLabel,bool textProject)=>
+        VerifyStoredGlobalSelectionScopes(1,idLabel,textProject,unfiltered:false,projectSource:true);
     /// <summary>无条件字典只在实际发布的详情单选入口被引用时作为全局候选读取。</summary>
     [Theory]
     [InlineData(0,false,false)]
@@ -432,7 +444,7 @@ public sealed class NonRedundantGeneratedReadTests
         VerifyStoredGlobalSelectionScopes(storage,idLabel,textProject,unfiltered:true);
 
     /// <summary>共用生成、工作簿入口和业务项目隔离检查。</summary>
-    private static async Task VerifyStoredGlobalSelectionScopes(int storage,bool idLabel,bool textProject,bool unfiltered)
+    private static async Task VerifyStoredGlobalSelectionScopes(int storage,bool idLabel,bool textProject,bool unfiltered,bool projectSource=false)
     {
         const string ns="Example.GlobalFixedDictionary", prefix="mt_fixed_dictionary";
         const string fixedRange="amount >= 1 AND name <> '停用客户'";
@@ -444,7 +456,7 @@ public sealed class NonRedundantGeneratedReadTests
         dictionary.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         var removed=new HashSet<string>(["16","17","27"],StringComparer.Ordinal);
         if(idLabel)removed.Add("111");
-        if(storage==1&&!unfiltered)
+        if(storage==1&&!unfiltered&&!projectSource)
         {
             owner.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             removed.Add("19");
@@ -455,7 +467,7 @@ public sealed class NonRedundantGeneratedReadTests
         foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
         {
             page.OrderBy="id desc";
-            if(storage==1&&!unfiltered)page.WhereSql="yz_project_id=@current_yz_project_id";
+            if(storage==1&&!unfiltered&&!projectSource)page.WhereSql="yz_project_id=@current_yz_project_id";
         }
         if(idLabel)catalog.ConfigColumns.Single(column=>column.Id=="15").ControlDetail=
             """{"pageId":"201","nameField":"id"}""";
@@ -487,7 +499,7 @@ public sealed class NonRedundantGeneratedReadTests
         var target=model.Tables.Single(table=>table.Source.Id=="2");
         Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(target));
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
-        if(unfiltered&&storage==1&&!idLabel)
+        if((unfiltered||projectSource)&&storage==1&&!idLabel)
         {
             var cache=Assert.Single(RelationPropagationCompilation.DerivedBindings(model),
                 binding=>binding.Source.Source.Id=="1"&&binding.Cache.Source.ColumnName=="customer_name");

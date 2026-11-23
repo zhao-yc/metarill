@@ -264,8 +264,12 @@ public static class GlobalSingleRelationTarget
         var unfilteredStoredSelection=cacheControl&&!globalOwner&&target.IsRongyu==1&&selectPage&&
             condition.Terms.Count==0&&string.IsNullOrWhiteSpace(Value("whereSql"))&&
             targetColumns.Any(column=>column.ColumnName=="yz_project_id");
+        // 物理常量已通过实际发布页和字段证明。普通冗余来源同样使用此范围执行保存和名称维护。
+        var fixedSelectionPage=unfilteredStoredSelection||cacheControl&&owner.IsRongyu==1&&selectPage&&
+            condition.Terms.Count>0&&condition.Variables.Count==0&&
+            (globalOwner||!exactSingle&&!scopedCrossTable&&!scopedSelfTree);
         // 实时按实际页证明表和名称。冻结的物理副本仍需跨所有入口使用同一范围。
-        var allSourcePages=!independentPages&&(usesListPageScope||fixedParent is not null||unfilteredStoredSelection||
+        var allSourcePages=!independentPages&&(usesListPageScope||fixedParent is not null||!globalOwner&&fixedSelectionPage||
             sourcePage is null&&(nestedScope||control is {Terms.Count:>0}));
         if(allSourcePages||sourcePage is not null)
         {
@@ -284,9 +288,6 @@ public static class GlobalSingleRelationTarget
                     throw new InvalidOperationException("全局单值关系范围要求来源页使用已发布的目标和名称。");
             }
         }
-        // 固定条件已通过同一发布页及物理列检查。无账号变量时无需额外声明来源归属字段。
-        var fixedSelectionPage=unfilteredStoredSelection||cacheControl&&owner.IsRongyu==1&&globalOwner&&
-            selectPage&&condition.Terms.Count>0&&condition.Variables.Count==0;
         var plan=new GlobalSingleRelationPlan(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,
             ScopedAccount=scopedAccount,FixedSelectionPage=fixedSelectionPage,Parent=fixedParent,SourceParent=sourceParent,
             CacheControl=control,NestedCacheScope=nestedScope,
