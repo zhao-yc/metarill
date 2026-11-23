@@ -71,8 +71,10 @@ public sealed class GlobalSharedParentGenerationTests
     [InlineData(true,true,true,true,true)]
     [InlineData(true,false,true,true,false,true)]
     [InlineData(true,true,true,true,true,true)]
+    [InlineData(true,false,true,true,false,true,true)]
+    [InlineData(true,true,true,true,true,true,true)]
     public async Task Published_global_derived_parent_compiles_business_and_file_scopes(bool shared,bool rowProject,bool accountScoped,
-        bool alternateDictionary=false,bool redundantSource=false,bool selfTreeScope=false)
+        bool alternateDictionary=false,bool redundantSource=false,bool selfTreeScope=false,bool nestedCrossScope=false)
     {
         const string packageNamespace="Example.GlobalDerivedParent";
         var catalog=Catalog("shared_parent","string","int64",false,1,!rowProject,true);
@@ -162,6 +164,72 @@ public sealed class GlobalSharedParentGenerationTests
                 YzProjectId=catalog.YzProjectId});
             countryPage.WhereSql+=" AND visibility_name <> '不可选范围'";
         }
+        if(nestedCrossScope)
+        {
+            // 发布页同时使用独立自树与另一条跨表级联的逻辑名称。条件需要能够还原所选项的实际分类。
+            const string accessClass="shared_parent_access_class";
+            const string accessOption="shared_parent_access_option";
+            foreach(var (id,tableName) in new[]{("96",accessClass),("97",accessOption)})
+            {
+                var table=new TableMetadata{Id=id,TableName=tableName,IsRongyu=1,YzProjectId=catalog.YzProjectId};
+                table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+                catalog.ConfigTables.Add(table);
+                catalog.ConfigColumns.AddRange([
+                    new(){Id=id+"01",ConfigTableId=id,YzProjectId=catalog.YzProjectId,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                    new(){Id=id+"02",ConfigTableId=id,YzProjectId=catalog.YzProjectId,ColumnName="name",LogicalType="string"}
+                ]);
+                catalog.ConfigPages.Add(new(){Id=id+"0",ConfigTableId=id,YzProjectId=catalog.YzProjectId,YzAdminTypeId=countryPage.YzAdminTypeId});
+                catalog.ConfigPageColumns.Add(new(){Id=id+"002",ConfigPageId=id+"0",ConfigColumnId=id+"02",IsShow=1,IsEdit=1,
+                    YzProjectId=catalog.YzProjectId});
+            }
+            catalog.ConfigColumns.AddRange([
+                new(){Id="9703",ConfigTableId="97",YzProjectId=catalog.YzProjectId,ColumnName="access_class_id",LogicalType="int64",LinkConfigTableId="96"},
+                new(){Id="9704",ConfigTableId=target.Id,YzProjectId=catalog.YzProjectId,ColumnName="access_option_id",LogicalType="int64",
+                    ControlKind="CascadeTree",LinkConfigTableId="97",ControlDetail=JsonSerializer.Serialize(new
+                    {
+                        sourceMode="crossTable",
+                        levels=new object[]{
+                            new{table=accessClass,columnPrefix="access_class",nameField="name"},
+                            new{table=accessOption,columnPrefix="access_option",nameField="name",parentField="access_class_id"}
+                        }
+                    })}
+            ]);
+            catalog.ConfigPageColumns.AddRange([
+                new(){Id="9709703",ConfigPageId="970",ConfigColumnId="9703",IsShow=1,IsEdit=1,YzProjectId=catalog.YzProjectId},
+                new(){Id="3019704",ConfigPageId="301",ConfigColumnId="9704",IsShow=1,IsEdit=1,YzProjectId=catalog.YzProjectId}
+            ]);
+            var category=catalog.ConfigTables.Single(table=>table.Id=="96");
+            category.IsRongyu=0;
+            var categoryName=catalog.ConfigColumns.Single(column=>column.Id=="9602");
+            categoryName.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            categoryName.Extra["columnFullName"]=JsonSerializer.SerializeToElement("class_label.name");
+            var labels=new TableMetadata{Id="95",TableName="shared_parent_class_label",IsRongyu=0,YzProjectId=catalog.YzProjectId};
+            labels.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigTables.Add(labels);
+            catalog.ConfigColumns.AddRange([
+                new(){Id="9501",ConfigTableId="95",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id="9502",ConfigTableId="95",ColumnName="name",LogicalType="string"},
+                new(){Id="9503",ConfigTableId="95",ColumnName="store_id",LogicalType="int64"},
+                new(){Id="9504",ConfigTableId="95",ColumnName="segment",LogicalType="int32"},
+                new(){Id="9603",ConfigTableId="96",ColumnName="class_label_id",LogicalType="int64",ControlKind="List",
+                    LinkConfigTableId="95",ControlDetail="""{"pageId":"950"}"""}
+            ]);
+            foreach(var (pageId,segment) in new[]{("950",711),("951",171)})
+            {
+                catalog.ConfigPages.Add(new(){Id=pageId,ConfigTableId="95",YzProjectId=catalog.YzProjectId,
+                    YzAdminTypeId=countryPage.YzAdminTypeId,WhereSql=$"store_id=@current_store_id AND segment={segment}"});
+                catalog.ConfigPageColumns.Add(new(){Id=pageId+"9502",ConfigPageId=pageId,ConfigColumnId="9502",IsShow=1,
+                    YzProjectId=catalog.YzProjectId});
+            }
+            catalog.ConfigPages.Add(new(){Id="961",ConfigTableId="96",YzProjectId=catalog.YzProjectId,
+                YzAdminTypeId=countryPage.YzAdminTypeId});
+            catalog.ConfigPageColumns.AddRange([
+                new(){Id="9609603",ConfigPageId="960",ConfigColumnId="9603",IsEdit=1,YzProjectId=catalog.YzProjectId,
+                    Extra=new(){["controlDetail"]=JsonSerializer.SerializeToElement("""{"pageId":"951"}""")}},
+                new(){Id="9619603",ConfigPageId="961",ConfigColumnId="9603",IsEdit=1,YzProjectId=catalog.YzProjectId}
+            ]);
+            countryPage.WhereSql+=" AND access_class_name <> '未开放分类'";
+        }
         var model=GenerationModel.Create(catalog,packageNamespace);
         var source=model.Tables.Single(table=>table.Source.Id=="2");
         var page=source.Pages.Single(item=>item.Source.Id=="202");
@@ -198,6 +266,16 @@ public sealed class GlobalSharedParentGenerationTests
                 mysql.GetType().GetProperty("Constants",flags)!.GetValue(mysql));
             Assert.Contains("不可选范围",parameters.Values);
             Assert.Contains(actor.StoreId,parameters.Values);
+            if(nestedCrossScope)
+            {
+                var from=Assert.IsType<string>(mysql.GetType().GetProperty("From",flags)!.GetValue(mysql));
+                Assert.Contains("shared_parent_access_class",from);
+                Assert.Contains("shared_parent_access_option",from);
+                Assert.Contains("shared_parent_class_label",from);
+                Assert.Contains("access_option_id",sql);
+                Assert.DoesNotContain("未开放分类",sql);
+                Assert.Contains("未开放分类",parameters.Values);
+            }
         }
         void VerifyPhysicalParent(RedundantSharedParentLevel level)
         {
@@ -319,6 +397,31 @@ public sealed class GlobalSharedParentGenerationTests
                         Assert.Contains("country_name",published.MixedSourceColumns[source.Source.TableName]);
                         Assert.Contains(company.TableName,published.MixedTargets);
                         Assert.Contains("shared_parent_visibility",published.MixedTargets);
+                        if(nestedCrossScope)
+                        {
+                            Assert.Contains("shared_parent_access_class",published.MixedTargets);
+                            Assert.Contains("shared_parent_access_option",published.MixedTargets);
+                            Assert.Contains("shared_parent_class_label",published.MixedTargets);
+                            const BindingFlags runtimePlan=BindingFlags.Instance|BindingFlags.NonPublic;
+                            var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                                published.GetType().GetProperty("Plans",runtimePlan)!.GetValue(published));
+                            var entry=plans[source.Source.Id]!;
+                            Assert.Null(entry.GetType().GetProperty("Error")!.GetValue(entry));
+                            var read=Assert.IsType<MySqlNonRedundantReadPlan>(entry.GetType().GetProperty("Read")!.GetValue(entry));
+                            // 自动传播和整表回填只使用当前持久来源行，不能依赖人工请求恰好带门店参数。
+                            Assert.False(Assert.IsType<bool>(read.GetType().GetProperty("RequiresAccount",runtimePlan)!.GetValue(read)));
+                            var from=Assert.IsType<string>(read.GetType().GetProperty("From",runtimePlan)!.GetValue(read));
+                            var labelsAlias=System.Text.RegularExpressions.Regex.Match(from,
+                                @"LEFT JOIN `shared_parent_class_label` (\w+) ON ");
+                            Assert.True(labelsAlias.Success);
+                            var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",runtimePlan)!
+                                .Invoke(read,["country_name"]));
+                            Assert.Contains($"BINARY CAST({labelsAlias.Groups[1].Value}.`store_id` AS CHAR)=BINARY CAST(b.`store_id` AS CHAR)",expression);
+                            var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                                read.GetType().GetProperty("Constants",runtimePlan)!.GetValue(read));
+                            Assert.Contains(171,parameters.Values);
+                            Assert.DoesNotContain(711,parameters.Values);
+                        }
                     }
                 }
                 else

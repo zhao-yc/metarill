@@ -131,13 +131,24 @@ public static partial class MySqlNonRedundantReadCompiler
                     // 来源varchar与目标CAST可能采用不同默认排序规则；逻辑ID显式保持二进制精确比较。
                     if(slot.LogicalType=="string")idExpression="CONVERT(("+idExpression+") USING utf8mb4) COLLATE utf8mb4_bin";
                     result.Add(slot.ColumnName,(idExpression,slot.LogicalType));
-                    if(trackReverse&&(labelPath||scopeOnly)&&levels[index].Table.IsRongyu==1)Touch(targetAliases[index],levels[index].Name.ColumnName);
+                    var level=levels[index];
                     var labelAlias=targetAliases[index];
+                    if(trackReverse&&(labelPath||scopeOnly)&&level.Table.IsRongyu==1)Touch(labelAlias,level.Name.ColumnName);
+                    CascadeCacheOwner? nameOwner=null;
                     // 同一表可以在不同层担任不同角色，各名称联接使用本级发布页。
-                    if(levels[index].Table.IsRongyu==0&&GlobalCrossTableTarget.Declared(levels[index].Table))
-                        crossNameSourcePages[labelAlias]=levels[index].Page;
-                    var label=levels[index].Table.IsRongyu==0?Resolve(levels[index].Table,labelAlias,levels[index].Name.ColumnName).Sql:labelAlias+"."+Q(levels[index].Name.ColumnName);
-                    var text=MySqlMultiValueLabel.Text(label,levels[index].Name.LogicalType);
+                    if(level.Table.IsRongyu==0&&GlobalCrossTableTarget.Declared(level.Table))
+                    {
+                        crossNameSourcePages[labelAlias]=level.Page;
+                        if((cacheOwner??cascadeCacheOwner) is {} row&&storage[level.Table.Id].Kind(level.Name)==MetadataFieldStorage.Join)
+                        {
+                            // 递归名称条件参与副本维护时，内层字典沿原持久来源行绑定账号范围。
+                            singleCachePages[labelAlias]=level.Page;
+                            nameOwner=row;
+                        }
+                    }
+                    var label=level.Table.IsRongyu==0?Resolve(level.Table,labelAlias,level.Name.ColumnName,nameOwner).Sql:
+                        labelAlias+"."+Q(level.Name.ColumnName);
+                    var text=MySqlMultiValueLabel.Text(label,level.Name.LogicalType);
                     result.Add(slot.ColumnName[..^3]+"_name",("CASE WHEN "+string.Join(" OR ",paths.Skip(index))+" THEN "+text+" END","string"));
                 }
                 (scopeOnly?scopedCrossProjections:crossProjections).Add(key,new(selection,new ReadOnlyDictionary<string,string>(raw),valid,"("+string.Join(" OR ",paths)+")"));values=new ReadOnlyDictionary<string,(string Sql,string Type)>(result);crossValues.Add(key,values);
