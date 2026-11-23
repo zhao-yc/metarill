@@ -94,6 +94,71 @@ public sealed class PageInitializationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>反查恢复的日期默认和原配置的日期时间都进入实际生成服务，显式 null 单独处理。</summary>
+    [Fact]
+    public async Task Calendar_literals_reach_generated_create_and_original_detail()
+    {
+        var physical = new Metarill.Data.Schema.DatabaseSchema("temporal_test", [new("customer",
+        [
+            new("id", "bigint", false, true),
+            new("starts_on", "date", true, DefaultSql: "2024-02-29"),
+            new("starts_at", "datetime(6)", true, DefaultSql: "2026-11-24 12:34:56.123456")
+        ])]);
+        var imported = Metarill.Data.Schema.SchemaImportDraftCompiler.Compile(new(new("mysql", physical, "read-only"), []), "100");
+        Assert.True(imported.ColumnsAndIndexesRepresentable, string.Join("、", imported.Issues.Select(issue => issue.Message)));
+        var catalog = GeneratorTests.Catalog();
+        var columns = imported.LogicalMetadata.ConfigColumns.Where(column => column.ColumnName != "id").ToArray();
+        for (var index = 0; index < columns.Length; index++)
+        {
+            var column = columns[index];
+            column.Id = "90" + index;
+            column.ConfigTableId = "1";
+            column.ControlKind = column.LogicalType == "date" ? "date" : "date_time";
+            catalog.ConfigColumns.Add(column);
+            catalog.ConfigPageColumns.Add(new() { Id = "101" + column.Id, ConfigPageId = "101", ConfigColumnId = column.Id });
+        }
+        // 原字段配置允许空格分隔的日历时间，生成端与导入后的 ISO 表达都应无损。
+        catalog.ConfigColumns.Add(new() { Id = "902", ConfigTableId = "1", ColumnName = "manual_at",
+            LogicalType = "datetime", ControlKind = "date_time", DefaultValue = "2026-11-24 12:34:56.123456" });
+        catalog.ConfigPageColumns.Add(new() { Id = "101902", ConfigPageId = "101", ConfigColumnId = "902" });
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-calendar-default");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, "Example.GuardContract");
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            using var run = new GeneratedMutationGuardRun(assembly);
+            var service = run.Service([]);
+            var expected = new DateTime(2026, 11, 24, 12, 34, 56).AddTicks(1234560);
+            var record = await Create("""{"name":"采用默认值"}""");
+            var vo = record.GetType();
+            Assert.Equal(new DateTime(2024, 2, 29), vo.GetProperty("StartsOn")!.GetValue(record));
+            Assert.Equal(expected, vo.GetProperty("StartsAt")!.GetValue(record));
+            Assert.Equal(expected, vo.GetProperty("ManualAt")!.GetValue(record));
+            var cleared = await Create("""{"name":"明确清空","startsOn":null,"startsAt":null}""");
+            Assert.Null(vo.GetProperty("StartsOn")!.GetValue(cleared));
+            Assert.Null(vo.GetProperty("StartsAt")!.GetValue(cleared));
+
+            var detail = Assert.Single(Directory.EnumerateFiles(Path.Combine(output, "frontend/pages/yzp"), "*-detail-101.vue"));
+            var vue = await File.ReadAllTextAsync(detail);
+            Assert.Contains("startsOn:\"2024-02-29\"", vue);
+            Assert.Contains("startsAt:\"2026-11-24T12:34:56.123456\"", vue);
+            Assert.Contains("manualAt:\"2026-11-24T12:34:56.123456\"", vue);
+
+            /// <summary>实际运行生成的新增服务，离线替身只替换数据库传输。</summary>
+            async Task<object> Create(string json)
+            {
+                var request = run.Request(Metarill.Core.Persistence.RecordMutationOperation.Create, json);
+                var task = (Task)service.GetType().GetMethod("Create101Async")!
+                    .Invoke(service, [request, null, run.Actor, CancellationToken.None])!;
+                await task;
+                return task.GetType().GetProperty("Result")!.GetValue(task)!;
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>发布期拒绝坏初始值或客户端不应覆写的真实主键。</summary>
     [Theory]
     [InlineData("11","10")]

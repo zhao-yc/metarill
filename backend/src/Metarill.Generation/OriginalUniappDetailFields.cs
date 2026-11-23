@@ -59,6 +59,13 @@ internal static class OriginalUniappDetailFields
         }
         if (f.Column.IsMonthDate && DateTime.TryParseExact(f.Default, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var month))
             return Js(month.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        // 默认值继续通过原 v-model 提交，使用宿主可无损接收微秒的 ISO 文本。
+        if (f.Column.Type == "DateTime?" && f.Column.Source.ControlKind is "date" or "date_time")
+        {
+            var dateOnly = f.Column.Source.LogicalType.Equals("date", StringComparison.OrdinalIgnoreCase);
+            if (global::Metarill.Core.Contracts.CalendarColumnDefault.TryParse(f.Default, dateOnly, out var calendar))
+                return Js(global::Metarill.Core.Contracts.CalendarColumnDefault.Format(calendar, dateOnly));
+        }
         return Js(f.Default);
     }
     /// <summary>恢复原必填、长度、整数和小数校验，字段只读不产生必填规则。</summary>

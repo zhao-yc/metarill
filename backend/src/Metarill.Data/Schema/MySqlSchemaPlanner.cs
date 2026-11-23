@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 
 namespace Metarill.Data.Schema;
@@ -58,7 +59,15 @@ public static class MySqlSchemaPlanner
         if (isId && logical != "int64") throw new InvalidOperationException("id 必须为 int64。");
         if (column.ColumnName == "delete_no" && (logical != "datetime" || column.IsDbNotNull != 0))
             throw new InvalidOperationException("delete_no 必须是可空 datetime，null 表示活动记录。");
-        var defaultSql = TryAuditTimestampDefault(column.ColumnName,sqlType,column.DefaultValue,out var temporalDefault) ? temporalDefault : logical=="time"?CompileTimeDefault(column):logical=="binary"?MySqlBinaryDefault.Compile(column,sqlType):CompileDefault(column.DefaultValue, logical);
+        var defaultSql = TryAuditTimestampDefault(column.ColumnName, sqlType, column.DefaultValue, out var temporalDefault)
+            ? temporalDefault
+            : logical switch
+            {
+                "date" or "datetime" => CompileCalendarDefault(sqlType, column.DefaultValue),
+                "time" => CompileTimeDefault(column),
+                "binary" => MySqlBinaryDefault.Compile(column, sqlType),
+                _ => CompileDefault(column.DefaultValue, logical)
+            };
         // MySQL 8.0.13及以后要求TEXT常量也使用表达式括号；仍不接受原生表达式。
         if(defaultSql is not null&&sqlType is "text" or "longtext")defaultSql="("+defaultSql+")";
         return new ColumnSchema(column.ColumnName, sqlType, column.IsDbNotNull == 0, isId, defaultSql);
@@ -138,6 +147,7 @@ public static class MySqlSchemaPlanner
     {
         var value=column.DefaultSql;
         if(TryAuditTimestampDefault(column.Name,column.StoreType,value,out var temporal))return temporal;
+        if (TryCalendarDefault(column.StoreType, value, out var calendar, fromSnapshot: true)) return calendar;
         // TIME字符串默认可能由MySQL补零，只归一相同TIME值，不放宽列精度或未知表达式。
         if(value is not null&&System.Text.RegularExpressions.Regex.IsMatch(column.StoreType,@"\Atime(?:\([0-6]\))?\z"))
         {
@@ -216,6 +226,38 @@ public static class MySqlSchemaPlanner
         if(requested!=precision)return false;
         normalized=precision=="0"?"CURRENT_TIMESTAMP":"CURRENT_TIMESTAMP("+precision+")";return true;
     }
+    private static readonly DateTime MaximumCalendarDefault = new DateTime(9999, 12, 31, 23, 59, 59).AddTicks(4_999_990);
+
+    /// <summary>反查仅允许已知的直接日期字面量，按物理列精度校验，避免服务器静默舍入。</summary>
+    internal static bool TryCalendarDefault(string type, string? value, out string normalized, bool fromSnapshot)
+    {
+        normalized = "";
+        if (string.IsNullOrEmpty(value)) return false;
+        var dateOnly = type == "date";
+        var precision = 0;
+        if (type is not ("date" or "datetime") &&
+            (!type.StartsWith("datetime(", StringComparison.Ordinal) ||
+             !MetadataColumnTypePolicy.TryTemporalPhysicalType(type, out _, out precision)))
+            return false;
+        if (fromSnapshot && value.Length >= 2 && value[0] == (char)39 && value[^1] == (char)39)
+            value = value[1..^1];
+        if (!CalendarColumnDefault.TryParse(value, dateOnly, out var parsed) || parsed.Year < 1000 || parsed > MaximumCalendarDefault)
+            return false;
+        if (!dateOnly && parsed.ToString("ffffff", CultureInfo.InvariantCulture).AsSpan(precision).Trim('0').Length != 0)
+            return false;
+        normalized = CalendarColumnDefault.Format(parsed, dateOnly);
+        return true;
+    }
+
+    /// <summary>只输出经过日期、范围和精度验证的固定字面量；函数和表达式仍走原拒绝路径。</summary>
+    private static string? CompileCalendarDefault(string type, string value)
+    {
+        if (string.IsNullOrEmpty(value)) return null;
+        if (!TryCalendarDefault(type, value, out var calendar, fromSnapshot: false))
+            throw new InvalidOperationException("日期默认值必须是范围、类型与小数秒精度匹配的固定日历值。");
+        return "'" + calendar.Replace('T', ' ') + "'";
+    }
+
     /// <summary>时间默认只编译受控的TIME常量；精度不匹配必须在DDL前拒绝。</summary>
     private static string? CompileTimeDefault(ColumnMetadata column)
     {

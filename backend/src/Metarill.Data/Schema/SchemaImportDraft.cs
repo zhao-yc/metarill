@@ -123,6 +123,8 @@ public static class SchemaImportDraftCompiler
             {
                 column.DefaultValue = Metarill.Core.Contracts.BinaryFieldValue.EncodeDefault(MySqlBinaryDefault.Read(value));
             }
+            else if (MySqlSchemaPlanner.TryCalendarDefault(type, value, out var calendar, fromSnapshot: true))
+                column.DefaultValue = calendar;
             else if(column.LogicalType=="time")column.DefaultValue=value.Length>=2&&value[0]=='\''&&value[^1]=='\''?value[1..^1]:value;
             else column.DefaultValue = value;
         }

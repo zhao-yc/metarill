@@ -57,6 +57,50 @@ public sealed class SchemaTemporalDefinitionTests
     /// <summary>动态默认不扩大到普通业务字段、软删列、其它函数、不同精度或生成列。</summary>
     [Theory][InlineData("value","now()")][InlineData("delete_no","now()")][InlineData("insert_time","now(6)")][InlineData("insert_time","CURRENT_TIMESTAMP + INTERVAL 1 DAY")][InlineData("insert_time","now();DROP TABLE x")]
     public void Unproven_dynamic_defaults_are_rejected(string name,string value)=>Assert.Throws<InvalidOperationException>(()=>MySqlSchemaPlanner.CompileColumn(Column("datetime",0,name,value)));
+    /// <summary>以物理反查文本为输入，日期默认值能反向生成配置、正向出 DDL 并消除重复同步差异。</summary>
+    [Theory]
+    [InlineData("date", "2024-02-29", "2024-02-29", "'2024-02-29'")]
+    [InlineData("date", "'2026-11-24'", "2026-11-24", "'2026-11-24'")]
+    [InlineData("datetime", "2026-11-24 12:34:56", "2026-11-24T12:34:56", "'2026-11-24 12:34:56'")]
+    [InlineData("datetime(0)", "'2026-11-24 12:34:56'", "2026-11-24T12:34:56", "'2026-11-24 12:34:56'")]
+    [InlineData("datetime(3)", "2026-11-24 12:34:56.120", "2026-11-24T12:34:56.12", "'2026-11-24 12:34:56.12'")]
+    [InlineData("datetime(6)", "2026-11-24 12:34:56.123456", "2026-11-24T12:34:56.123456", "'2026-11-24 12:34:56.123456'")]
+    public void Calendar_literals_roundtrip_through_draft_and_ddl(string physical, string snapshot, string metadata, string ddl)
+    {
+        var schema = new DatabaseSchema("temporal_test", [new("temporal_record",
+            [new("id", "bigint", false, true), new("value", physical, false, DefaultSql: snapshot)], Indexes: [])]);
+        var draft = SchemaImportDraftCompiler.Compile(new(new("mysql", schema, "read-only"), []), "1");
+        Assert.True(draft.ColumnsAndIndexesRepresentable, string.Join("、", draft.Issues.Select(issue => issue.Message)));
+        var column = Assert.Single(draft.LogicalMetadata.ConfigColumns, item => item.ColumnName == "value");
+        Assert.Equal(metadata, column.DefaultValue);
+        var expected = MySqlSchemaPlanner.Compile(draft.LogicalMetadata, schema.Database);
+        Assert.Equal(ddl, MySqlSchemaPlanner.CompileColumn(column).DefaultSql);
+        Assert.Contains("DEFAULT " + ddl, Assert.Single(MySqlSchemaPlanner.Compare(new(schema.Database, []), expected)).Sql);
+        Assert.Empty(MySqlSchemaPlanner.Compare(schema, expected));
+        Assert.Equal(MySqlSchemaPlanner.Fingerprint(schema), MySqlSchemaPlanner.Fingerprint(expected));
+    }
+
+    /// <summary>不能靠日期转换接受错误日历、精度舍入、时区或 SQL 表达式。</summary>
+    [Theory]
+    [InlineData("date", 0, "2026-02-29")]
+    [InlineData("date", 0, "0999-12-31")]
+    [InlineData("date", 0, "0000-00-00")]
+    [InlineData("date", 0, "2026-11-24T01:00:00")]
+    [InlineData("date", 0, "CURRENT_DATE")]
+    [InlineData("datetime", 0, "2026-11-24 12:34:56.001")]
+    [InlineData("datetime", 3, "2026-11-24 12:34:56.123456")]
+    [InlineData("datetime", 6, "2026-11-24T12:34:56.1234567")]
+    [InlineData("datetime", 6, "2026-11-24T12:34:56.")]
+    [InlineData("datetime", 6, "2026-11-24T12:34:56+08:00")]
+    [InlineData("datetime", 6, "9999-12-31T23:59:59.500000")]
+    [InlineData("datetime", 6, "'2026-11-24 12:34:56' + INTERVAL 1 SECOND")]
+    public void Calendar_literals_reject_values_that_cannot_roundtrip(string kind, int precision, string value)
+    {
+        var column = Column(kind, precision, value: value);
+        if (kind == "date") column.ColumnType = kind;
+        Assert.Throws<InvalidOperationException>(() => MySqlSchemaPlanner.CompileColumn(column));
+    }
+
     /// <summary>基础设施同名字段若时间精度不同不能被物理合并去重隐藏。</summary>
     [Fact]
     public void Physical_composition_checks_effective_temporal_precision()

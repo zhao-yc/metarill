@@ -861,7 +861,14 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 if(!Metarill.Core.Contracts.ExactNumericValue.TryDouble(raw,out var floating))throw new InvalidOperationException("浮点默认值必须是有效有限值，不能溢出或下溢为零："+column.Source.ColumnName);
                 raw=floating==0?"0":global::Metarill.Core.Contracts.ExactNumericValue.FormatDouble(floating);
             }
-            if (column.Type is "DateTime?") raw = Literal(raw);
+            if (column.Type is "DateTime?")
+            {
+                // 普通日历默认兼容原空格输入；生成 DTO 所用的 JSON 时间格式必须保留微秒。
+                var dateOnly = column.Source.LogicalType.Equals("date", StringComparison.OrdinalIgnoreCase);
+                if (global::Metarill.Core.Contracts.CalendarColumnDefault.TryParse(raw, dateOnly, out var calendar))
+                    raw = global::Metarill.Core.Contracts.CalendarColumnDefault.Format(calendar, dateOnly);
+                raw = Literal(raw);
+            }
             using var parsed = JsonDocument.Parse(raw);
             return $"JsonSerializer.Deserialize<{column.Type}>({Literal(raw)}, JsonOptions)";
         }
