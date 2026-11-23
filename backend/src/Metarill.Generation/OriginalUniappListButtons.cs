@@ -26,7 +26,13 @@ internal static partial class OriginalUniappListRenderer
         if (ImportRenderer.Enabled(page))
         {
             markup.Append("<button size='mini' @click='initImport'>导入</button>");
-            methods.Append("initImport(){var that=this;yzp.chooseImportFile(function(importData){yzp.request({url:").Append(J(endpoint+"/importDatas"+page.Source.Id)).Append(",data:{parentId:that.parent_id,requestJson:importData},method:'POST',sendSessionId:true,success(res){if(res.code==200)that.notifyMenuMutation();yzp.importSuccessAction(res,that);}});});},");
+            // 只向标准导入传递后端的 TIME 白名单，手写导入和无 TIME 的页面继续用原调用参数。
+            var timeHeaders = ImportRenderer.Mode(page) == "custom"
+                ? []
+                : ImportRenderer.Columns(page).Where(column => column.Type == "TimeSpan?").Select(ImportRenderer.Header).ToArray();
+            methods.Append("initImport(){var that=this;yzp.chooseImportFile(function(importData){yzp.request({url:").Append(J(endpoint+"/importDatas"+page.Source.Id))
+                .Append(",data:{parentId:that.parent_id,requestJson:importData},method:'POST',sendSessionId:true,success(res){if(res.code==200)that.notifyMenuMutation();yzp.importSuccessAction(res,that);}});}")
+                .Append(timeHeaders.Length == 0 ? "" : "," + J(timeHeaders)).Append(");},");
         }
         foreach (var button in grid)
         {

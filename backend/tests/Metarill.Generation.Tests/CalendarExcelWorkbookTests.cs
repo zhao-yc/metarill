@@ -1,8 +1,10 @@
 using System.Reflection;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Metarill.Core.Contracts;
 using Metarill.Core.Exports;
+using Metarill.Data;
 using Metarill.Core.Persistence;
 using Metarill.Runtime.Exports;
 using Xunit;
@@ -188,8 +190,98 @@ public sealed class CalendarExcelWorkbookTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>生成页面标注 TIME 标题，真实工作簿经原上传回调进入追加或首列覆盖事务。</summary>
+    [Theory]
+    [InlineData("OnlyNew")]
+    [InlineData("OverWriteByFirstColumn")]
+    public async Task Native_elapsed_time_cells_execute_generated_imports(string importMode)
+    {
+        var catalog = ClockTimeGenerationTests.Catalog();
+        catalog.ConfigPages.Single().Extra["importMethod"] = JsonSerializer.SerializeToElement(importMode);
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-calendar-excel");
+        var directory = Directory.CreateDirectory(Path.Combine(boundary, Guid.NewGuid().ToString("N"))).FullName;
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, "Example.GuardContract");
+            var list = Assert.Single(Directory.EnumerateFiles(output, "*-list-101.vue", SearchOption.AllDirectories));
+            var button = Assert.Single(await File.ReadAllLinesAsync(list), line => line.Contains("chooseImportFile(", StringComparison.Ordinal));
+            var hint = Regex.Match(button, @"\}\);\},(\[[^\]]+\])\);");
+            Assert.True(hint.Success, "必须由原导入按钮传递 TIME 字段标题。");
+            var titles = JsonSerializer.Deserialize<string[]>(hint.Groups[1].Value)!;
+            Assert.Equal(new[] { "时刻", "时长", "默认时刻" }.Order(StringComparer.Ordinal), titles.Order(StringComparer.Ordinal));
+
+            var valid = Path.Combine(directory, "native-time.xlsx");
+            var negativeDuration = importMode == "OverWriteByFirstColumn";
+            WriteNativeTimeWorkbook(valid, crossDay: false, negativeDuration: negativeDuration);
+            var duration = negativeDuration ? "-30:45:10.250001" : "30:45:10.250001";
+            var payload = Path.Combine(directory, "original-callback.json");
+            await ReadOriginalWorkbookAsync(valid, new[]
+            {
+                new Dictionary<string, string> { ["名称"] = "本轮", ["时刻"] = "09:15:03.125456", ["时长"] = duration, ["默认时刻"] = "2026-03-08T02:30:00.125", ["备注"] = "1899-12-31T01:00:00.000" }
+            }, payload, "America/Los_Angeles", titles);
+
+
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            object Request()
+            {
+                var type = assembly.GetType("Example.GuardContract.Generated.DTOs.CustomerPage101ImportRequest", true)!;
+                var request = Activator.CreateInstance(type)!;
+                type.GetProperty("RequestJson")!.SetValue(request, JsonSerializer.Deserialize<JsonElement>(File.ReadAllText(payload)));
+                return request;
+            }
+
+            using var run = new GeneratedMutationGuardRun(assembly, new MySqlDatabaseProvider().ValidateTimeValue);
+            run.SeedRow = entity =>
+            {
+                entity.GetType().GetProperty("Id")!.SetValue(entity, 1L);
+                entity.GetType().GetProperty("Name")!.SetValue(entity, "本轮");
+            };
+            var observer = new ImportedCalendarRow();
+            var service = run.Service([], [observer]);
+            await run.Invoke(service, RecordMutationOperation.Import, Request());
+            var written = Assert.Single(observer.Written);
+            Assert.Equal(ClockTimeValue.ParseText("09:15:03.125456"), written.SubmittedFields["clock"]);
+            Assert.Equal(SqlTimeValue.ParseText(duration), written.SubmittedFields["duration"]);
+            Assert.Equal(ClockTimeValue.ParseText("02:30:00.125"), written.SubmittedFields["clock_default"]);
+            Assert.Equal(importMode == "OnlyNew", written.IsCreate);
+
+            var negative = Path.Combine(directory, "invalid-clock.xlsx");
+            WriteNativeTimeWorkbook(negative, crossDay: true, negativeDuration: true);
+            await ReadOriginalWorkbookAsync(negative, new[]
+            {
+                new Dictionary<string, string> { ["名称"] = "本轮", ["时刻"] = "25:15:00", ["时长"] = "-30:45:10.250001", ["默认时刻"] = "2026-03-08T02:30:00.125", ["备注"] = "1899-12-31T01:00:00.000" }
+            }, payload, "Asia/Shanghai", titles);
+            var error = await Assert.ThrowsAsync<PageImportException>(() => run.Invoke(service, RecordMutationOperation.Import, Request()));
+            Assert.Equal("时刻", error.ColumnName);
+            Assert.Single(observer.Written);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>使用有列格式的数值创建真实日期与原生时长，普通字段也含相同时间格式。</summary>
+    private static void WriteNativeTimeWorkbook(string path, bool crossDay, bool negativeDuration)
+    {
+        using var workbook = new XLWorkbook();
+        var sheet = workbook.AddWorksheet("时长样本");
+        var headers = new[] { "名称", "时刻", "时长", "默认时刻", "备注" };
+        for (var index = 0; index < headers.Length; index++)
+            sheet.Cell(1, index + 1).Value = headers[index];
+
+        sheet.Cell(2, 1).Value = "本轮";
+        sheet.Cell(2, 2).Value = (crossDay ? 25 * 3600 + 15 * 60 : 9 * 3600 + 15 * 60 + 3.125456) / 86_400;
+        sheet.Cell(2, 2).Style.DateFormat.Format = "hh:mm:ss.000000";
+        sheet.Cell(2, 3).Value = (negativeDuration ? -1 : 1) * (30 * 3600 + 45 * 60 + 10.250001) / 86_400;
+        sheet.Cell(2, 3).Style.DateFormat.Format = "[h]:mm:ss.000000;[Red]-[h]:mm:ss.000000";
+        sheet.Cell(2, 4).Value = new DateTime(2026, 3, 8, 2, 30, 0, 125);
+        sheet.Cell(2, 4).Style.DateFormat.Format = "yyyy-mm-dd hh:mm:ss.000";
+        sheet.Cell(2, 5).Value = 1.0 / 24;
+        sheet.Cell(2, 5).Style.DateFormat.Format = "hh:mm:ss";
+        workbook.SaveAs(path);
+    }
+
     /// <summary>从真实工作簿执行原文件选择回调，指定时区只作用于本轮 Node 进程。</summary>
-    private static async Task ReadOriginalWorkbookAsync(string workbook, object rows, string? outputPath = null, string? timeZone = null)
+    private static async Task ReadOriginalWorkbookAsync(string workbook, object rows, string? outputPath = null, string? timeZone = null, string[]? timeHeaders = null)
     {
         var expected = Path.Combine(Path.GetDirectoryName(workbook)!, "expected.json");
         await File.WriteAllTextAsync(expected, JsonSerializer.Serialize(rows));
@@ -197,6 +289,8 @@ public sealed class CalendarExcelWorkbookTests
         var start = NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("NODE_HOST_PATH") ?? "node", root);
         if (timeZone is not null)
             start.Environment["TZ"] = timeZone;
+        if (timeHeaders is not null)
+            start.Environment["METARILL_EXCEL_TIME_HEADERS"] = JsonSerializer.Serialize(timeHeaders);
 
         foreach (var argument in new[] { Path.Combine(root, "backend/tests/Metarill.Generation.Tests/OriginalExcelImportProbe.mjs"), root, workbook, expected })
             start.ArgumentList.Add(argument);

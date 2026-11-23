@@ -251,7 +251,7 @@ var yzp = {
 			})
 		}
 	},
-	chooseImportFile(onSelect) {
+	chooseImportFile(onSelect, timeHeaders = []) {
 		uni.chooseFile({
 			count: 1, //默认100
 			extension: ['.xls', '.xlsx', '.csv'],
@@ -268,11 +268,13 @@ var yzp = {
 						const firstSheetName = workbook.SheetNames[0];
 						const worksheet = workbook.Sheets[firstSheetName];
 						const dateCells = Object.entries(worksheet ?? {}).filter(([, cell]) => cell?.t === 'd');
+						const isCsv = /\.csv$/i.test(file.name);
+						// 读取首表原始数字以恢复日历毫秒，含 TIME 的生成页还需原始数值格式来区分时长和日期。
+						const rawSheet = !isCsv && (dateCells.length > 0 || timeHeaders.length > 0)
+							? XLSX.read(data, { type: "binary", cellDates: false, cellNF: timeHeaders.length > 0, sheets: 0 }).Sheets[firstSheetName]
+							: undefined;
 
 						if (dateCells.length > 0) {
-							const isCsv = /\.csv$/i.test(file.name);
-							// 先用日期类型定位单元格，再读取首表的原始数字，避免 SheetJS 构造 Date 时截断毫秒。
-							const rawSheet = isCsv ? undefined : XLSX.read(data, { type: "binary", cellDates: false, sheets: 0 }).Sheets[firstSheetName];
 							const dateOffset = workbook.Workbook?.WBProps?.date1904 ? 1462 : 0;
 							for (const [address, cell] of dateCells) {
 								if (isCsv) {
@@ -294,11 +296,43 @@ var yzp = {
 							}
 						}
 
-						// Excel 日期是无时区的本地日历值。按 UTC 读取原始数字，再去掉序列化的时区标记。
+						// TIME 只按生成页已开放的导入标题处理。沿用 SheetJS 从首行取标题并给重复标题编号的规则。
+						const timeColumns = new Map();
+						if (timeHeaders.length > 0 && rawSheet?.['!ref']) {
+							const { s: first, e: last } = XLSX.utils.decode_range(worksheet['!ref']);
+							const used = new Set();
+							for (let column = first.c; column <= last.c; column++) {
+								const headerCell = worksheet[XLSX.utils.encode_cell({ r: first.r, c: column })];
+								const base = headerCell ? XLSX.utils.format_cell(headerCell) : '__EMPTY';
+								let header = base;
+								for (let suffix = 1; used.has(header); suffix++) header = base + '_' + suffix;
+								used.add(header);
+								if (timeHeaders.includes(header)) timeColumns.set(header, column);
+							}
+						}
+
+						// Excel 日期是无时区的本地日历值，移除时区标记后再交给原导入协议。
 						const rows = XLSX.utils.sheet_to_json(worksheet, { UTC: true });
 						for (const row of rows) {
 							for (const [column, value] of Object.entries(row)) {
-								if (Object.prototype.toString.call(value) === '[object Date]') {
+								const columnIndex = timeColumns.get(column);
+								const raw = columnIndex === undefined ? undefined : rawSheet[XLSX.utils.encode_cell({ r: row.__rowNum__, c: columnIndex })];
+								// 忽略格式中的常量、颜色、条件和区域标记，保留经过时间标记 [h]、[m]、[s]。
+								const tokens = raw?.z?.replace(/"[^"]*"|\\.|[_*].|\[(?![hms]+\])[^\]]*\]/gi, '').replace(/AM\/PM|A\/P/gi, '');
+								if (raw?.t === 'n' && tokens && !/[dyeg]/i.test(tokens) && /[hs]|\[m+\]/i.test(tokens)) {
+									const micros = Math.round(Math.abs(raw.v) * 86_400_000_000);
+									if (!Number.isSafeInteger(micros)) {
+										// 用原数值交给已存在的字段校验，避免超范围时被 Date 折回日内。
+										row[column] = raw.v;
+										continue;
+									}
+									const seconds = Math.floor(micros / 1_000_000);
+									const hours = String(Math.floor(seconds / 3600)).padStart(2, '0');
+									const minutes = String(Math.floor(seconds / 60) % 60).padStart(2, '0');
+									const remainder = String(seconds % 60).padStart(2, '0');
+									const fraction = String(micros % 1_000_000).padStart(6, '0').replace(/0+$/, '');
+									row[column] = (raw.v < 0 && micros > 0 ? '-' : '') + hours + ':' + minutes + ':' + remainder + (fraction ? '.' + fraction : '');
+								} else if (Object.prototype.toString.call(value) === '[object Date]') {
 									row[column] = value.toISOString().slice(0, -1);
 								}
 							}

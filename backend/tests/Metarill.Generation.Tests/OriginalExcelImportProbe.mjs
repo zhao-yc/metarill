@@ -7,7 +7,7 @@ import {pathToFileURL} from 'node:url';
 // 执行原选择函数本体，不复制其SheetJS参数或自行重写Excel解析。
 const [root, workbook, expectedPath, outputPath] = process.argv.slice(2);
 const source = fs.readFileSync(path.join(root, 'frontend/metarill_uni_admin/common/yzp_runtime/yzp-runtime.js'), 'utf8');
-const marker = 'chooseImportFile(onSelect) {';
+const marker = 'chooseImportFile(';
 assert.equal(source.split(marker).length, 2, '原Excel选择方法必须唯一');
 const start = source.indexOf(marker);
 const end = source.indexOf('\n\tback: function', start);
@@ -39,7 +39,8 @@ const handlers = vm.runInNewContext('({' + method + '})', {
   FileReader: class { readAsBinaryString() { this.onload({target: {result: bytes.toString('binary')}}); } },
   console: {error(...args) { throw new Error(args.map(String).join(' ')); }},
 });
-handlers.chooseImportFile(rows => { result = rows; });
+const timeHeaders = JSON.parse(process.env.METARILL_EXCEL_TIME_HEADERS ?? '[]');
+handlers.chooseImportFile(rows => { result = rows; }, timeHeaders);
 assert.equal(choices, 1); assert.ok(reads === 1 || reads === 2); assert.equal(conversions, 1);
 assert.deepEqual(JSON.parse(JSON.stringify(result)), JSON.parse(fs.readFileSync(expectedPath, 'utf8')));
 // 可选输出仍来自原回调，仅交给外部实际HTTP用例；本脚本不自行发送请求。
