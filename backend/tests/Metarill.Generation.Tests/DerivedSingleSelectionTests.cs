@@ -656,6 +656,11 @@ public sealed class DerivedSingleSelectionTests
     [InlineData(0, 1, false, true, "source-compound")]
     [InlineData(1, 0, false, false, "source-compound")]
     [InlineData(1, 1, true, false, "source-pair")]
+    [InlineData(0, 0, false, false, "split-source-single")]
+    [InlineData(0, 1, true, false, "split-source-single")]
+    [InlineData(0, 1, false, true, "split-source-pair")]
+    [InlineData(0, 0, true, false, "split-source-dictionary")]
+    [InlineData(0, 1, true, false, "split-source-dictionary")]
     public async Task Project_multiselect_uses_fixed_dictionary_scope(int sourceStorage, int targetStorage, bool explicitProject,
         bool nameOverride, string parentMode)
     {
@@ -677,7 +682,9 @@ public sealed class DerivedSingleSelectionTests
         foreign.ColumnLength = "max";
         var literal = parentMode != "only";
         var hasParent = parentMode.Length != 0;
-        var sourcePair = parentMode.StartsWith("source-", StringComparison.Ordinal);
+        var splitSource = parentMode.StartsWith("split-source-", StringComparison.Ordinal);
+        var splitDictionary = parentMode == "split-source-dictionary";
+        var sourcePair = splitSource || parentMode.StartsWith("source-", StringComparison.Ordinal);
         var compound = parentMode.StartsWith("compound-", StringComparison.Ordinal) || parentMode == "source-compound";
         var formParent = parentMode is "form" or "compound-form";
         foreign.ControlDetail = JsonSerializer.Serialize(new
@@ -733,6 +740,45 @@ public sealed class DerivedSingleSelectionTests
             foreach (var item in catalog.ConfigPages.Where(item => item.ConfigTableId == source.Id))
                 item.WhereSql += " AND secondary_group_id=@parent_id";
         }
+        if (splitSource)
+        {
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "1199", ConfigTableId = source.Id, YzProjectId = catalog.YzProjectId,
+                ColumnName = "other_group_id", LogicalType = "string", LinkConfigTableId = "3"
+            });
+            var alternateSource = catalog.ConfigPages.Single(item => item.Id == "104");
+            alternateSource.WhereSql = "yz_project_id=@current_yz_project_id AND other_group_id=@parent_id";
+            if (parentMode == "split-source-pair") alternateSource.WhereSql += " AND secondary_group_id=@parent_id";
+            var original = catalog.ConfigPages.Single(item => item.Id == "101");
+            alternateSource.IsImport = original.IsImport;
+            alternateSource.IsExport = original.IsExport;
+            if (original.Extra.TryGetValue("importMethod", out var importMethod))
+                alternateSource.Extra["importMethod"] = importMethod;
+            catalog.ConfigPageColumns.Single(item => item.ConfigPageId == alternateSource.Id && item.ConfigColumnId == display.Id)
+                .Extra["isSearch"] = JsonSerializer.SerializeToElement(0);
+            var field = JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(
+                catalog.ConfigPageColumns.Single(item => item.ConfigPageId == "101" && item.ConfigColumnId == foreign.Id)))!;
+            field.Id = "10415";
+            field.ConfigPageId = alternateSource.Id;
+            field.Extra.Remove("controlDetail");
+            if (splitDictionary)
+            {
+                var alternateTarget = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(page))!;
+                alternateTarget.Id = "202";
+                alternateTarget.WhereSql += " AND notes <> '停用备用名称'";
+                catalog.ConfigPages.Add(alternateTarget);
+                foreach (var targetField in catalog.ConfigPageColumns.Where(item => item.ConfigPageId == page.Id).ToArray())
+                {
+                    var targetCopy = JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(targetField))!;
+                    targetCopy.Id = "202" + targetField.Id;
+                    targetCopy.ConfigPageId = alternateTarget.Id;
+                    catalog.ConfigPageColumns.Add(targetCopy);
+                }
+                field.Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"pageId":"202","nameField":"notes"}""");
+            }
+            catalog.ConfigPageColumns.Add(field);
+        }
 
         var model = GenerationModel.Create(catalog, ns);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
@@ -769,6 +815,40 @@ public sealed class DerivedSingleSelectionTests
                 await VerifyCompoundSourceWrite(assembly, ns, catalog.YzProjectId);
             }
             var service = assembly.GetType(ns + ".Generated.Services.ScopeMultiOrderService", true)!;
+            if (splitSource)
+            {
+                var alternateRead = Assert.IsType<NonRedundantReadPlan>(
+                    service.GetField("ReadPlan104", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+                var expression = Expression(MySql(alternateRead));
+                Assert.Contains("b.`other_group_id`", expression);
+                Assert.DoesNotContain("b.`group_id`", expression);
+                Assert.Contains(splitDictionary ? ".`notes`" : ".`name`", expression);
+                Assert.Contains(".`status`", expression);
+                if (splitDictionary)
+                {
+                    var read = MySql(alternateRead);
+                    var constants = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
+                        read.GetType().GetProperty("Constants", hidden)!.GetValue(read));
+                    Assert.Contains("停用备用名称", constants.Values);
+                }
+                Assert.Equal(parentMode == "split-source-pair", expression.Contains("b.`secondary_group_id`", StringComparison.Ordinal));
+                var serviceCode = File.ReadAllText(Path.Combine(directory, "generated/Services/ScopeMultiOrderService.g.cs"));
+                Assert.Contains("ForTextParent(\"other_group_id\"", serviceCode);
+                Assert.Contains("ImportMulti104_15Async(", serviceCode);
+                Assert.Contains("Export104Async(", serviceCode);
+                var exported = Assert.IsType<NonRedundantReadPlan>(
+                    service.GetField("ExportReadPlan104", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null));
+                Assert.Equal(expression, Expression(MySql(exported)));
+                var filter = service.GetMethod("ReadFilters104", BindingFlags.Static | BindingFlags.NonPublic)!;
+                var request = new PageRequest { ParentId = "9007199254740993" };
+                var actor = new RuntimeActor(7, "合成账号", false, catalog.YzProjectId, "5");
+                var filters = Assert.IsAssignableFrom<IReadOnlyList<FixedReadFilter>>(filter.Invoke(null, [request, actor]));
+                Assert.Equal(request.ParentId, Assert.Single(filters, item => item.Field == "other_group_id").Value);
+                Assert.DoesNotContain(filters, item => item.Field == "group_id");
+                request.ParentId = "09007199254740993";
+                var invalid = Assert.Throws<TargetInvocationException>(() => filter.Invoke(null, [request, actor]));
+                Assert.IsType<ArgumentException>(invalid.InnerException);
+            }
             var lookup = service.GetField("MultiDerivedPlan101_15", BindingFlags.Static | BindingFlags.NonPublic);
             Assert.NotNull(lookup);
             var plan = Assert.IsType<NonRedundantReadPlan>(lookup.GetValue(null));

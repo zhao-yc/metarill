@@ -59,9 +59,13 @@ internal static class MultiSelectFieldRenderer
             {
                 result.AppendLine(def.LogicalSourceParent?"        var targetParentId = logicalRelationParentId;":$"        var targetParentId = Convert.ToString(entity.{parentExpression!.Property}, CultureInfo.InvariantCulture);")
                     .AppendLine("        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException(\"多选目标要求有效父记录。\");");
-                if(def.CompoundProjectSource)
+                if(def.PublishedPhysicalSource)
+                {
+                    if(def.CompoundSourceDependencies.Count==0&&parentExpression!.Type=="string?")
+                        result.AppendLine("        if (targetParentId != targetParentKey.ToString(CultureInfo.InvariantCulture)) throw new InvalidOperationException(\"多选来源父键必须使用规范正整数。\");");
                     foreach(var peer in def.CompoundSourceDependencies)
                         result.AppendLine($"        if (Convert.ToString(entity.{peer.Property}, CultureInfo.InvariantCulture) != targetParentKey.ToString(CultureInfo.InvariantCulture)) throw new InvalidOperationException(\"多选来源父字段必须指向同一条记录。\");");
+                }
                 if(def.GlobalParent)result.AppendLine(MultiGlobalParentCompilation.Check("MultiGlobalParent"+suffix,"targetParentKey","true"));
                 foreach (var parent in def.TargetParents.Where(_=>!def.GlobalParent))
                 {

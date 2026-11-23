@@ -11,7 +11,7 @@ internal static class DerivedMultiNamesImportRenderer
         if(!logicalImport)DerivedMultiNamesCompilation.Require(model,table,multi.Target,multi.TargetPage,multi.Name,multi.ExactTarget);
         var suffix=page.Source.Id+"_"+multi.Source.Source.Id;var parent=multi.TargetParentField is not null?dependency.Parents[multi.Source.Source.Id]:null;
         var typed=multi.TypedLabel||multi.Name.IsId;
-        var canonicalParent=multi.CompoundProjectSource?"||targetParentId!=parentKey.ToString(CultureInfo.InvariantCulture)":"";
+        var canonicalParent=multi.PublishedPhysicalSource?"||targetParentId!=parentKey.ToString(CultureInfo.InvariantCulture)":"";
         var readPlan=(logicalImport?"MultiImportReadPlan":"MultiDerivedPlan")+suffix;
         var targetCondition=logicalImport||multi.ExactTarget is not null||multi.TargetPage.Condition is null||FixedPageConditionCompilation.HasMultiTargetScope(model,multi.Target,multi.TargetPage)
             ?null:FixedPageConditionCompilation.Bound(multi.TargetPage,"MultiPageCondition"+suffix);

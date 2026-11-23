@@ -9,7 +9,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
 {
     internal bool LogicalSourceParent { get; init; }
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
-    internal bool CompoundProjectSource { get; init; }
+    internal bool PublishedPhysicalSource { get; init; }
     internal bool UsesPageRead { get; init; }
     internal bool UsesNameOverride { get; init; }
     internal bool GlobalParent { get; init; }
@@ -101,7 +101,10 @@ internal static class MultiSelectCompilation
             var fixedPage=Scalar(root,"pageId");
             if(fixedPage.Length==0)fixedPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
             var pageOverride=pageId!=fixedPage;
-            var pageRead=table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&!table.IsGlobal&&!target.IsGlobal;
+            // 实时名称按实际业务页解析，普通冗余字典也可用已发布的物理常量和父键。
+            var pageRead=table.Source.IsRongyu==0&&!table.IsGlobal&&!target.IsGlobal&&
+                (target.Source.IsRongyu==0||
+                    Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,target.Source,targetPage.Source));
             if(!functionForm&&pageOverride&&!pageRead&&(scoped||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate))))
                 return Gap("限定范围的目标页必须与表级读取和缓存绑定一致。");
             var query=FixedPageQueryCompilation.For(target,targetPage);
@@ -155,7 +158,7 @@ internal static class MultiSelectCompilation
             var usesPageRead=pageRead&&(pageOverride||targetParents.Length>0||!scoped&&targetPage.Condition is not null);
             var usesNameOverride=false;
             var logicalSourceParent=false;
-            var compoundProjectSource=false;
+            var publishedPhysicalSource=false;
             IReadOnlyList<ColumnModel> compoundSourceDependencies=[];
             if(scopedParent is not null && !functionForm)
             {
@@ -166,11 +169,12 @@ internal static class MultiSelectCompilation
                 logicalSourceParent=owner.LogicalPages.Count>0;
                 if(actual?.Source.Id!=owner.Column.Id||logicalSourceParent&&(!same||!NonRedundantCrossParentCompilation.Managed(model,table,page,actual)))
                     return Gap("目标页父字段须与来源记录的固定父键一致。");
+                publishedPhysicalSource=same&&!scopedParent.Global&&!logicalSourceParent&&!table.IsGlobal&&!target.IsGlobal&&
+                    (usesPageRead||owner.AdditionalColumns.Count>0);
                 if(owner.AdditionalColumns.Count>0)
                 {
                     if(scopedParent.Global)
                         Metarill.Data.Queries.NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,targetPage.Source.Id,owner);
-                    compoundProjectSource=same&&!scopedParent.Global&&!logicalSourceParent&&!table.IsGlobal&&!target.IsGlobal;
                     compoundSourceDependencies=NonRedundantCrossParentCompilation.Dependencies(model,table,page,sourceScopes);
                 }
             }
@@ -224,7 +228,7 @@ internal static class MultiSelectCompilation
                 {
                     LogicalSourceParent=logicalSourceParent,
                     CompoundSourceDependencies=compoundSourceDependencies,
-                    CompoundProjectSource=compoundProjectSource,
+                    PublishedPhysicalSource=publishedPhysicalSource,
                     GlobalParent=scopedParent?.Global==true,
                     UsesPageRead=usesPageRead,
                     UsesNameOverride=usesNameOverride,

@@ -401,7 +401,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
     }
 
-    /// <summary>仅允许同一普通非冗余目标表和名称字段上的实际候选页覆盖。</summary>
+    /// <summary>保留实际候选页。原多选可在同一目标表用另一物理文本名称。</summary>
     private static PageMetadata? DeclaredMultiPageOverride(MetadataCatalog catalog,TableMetadata target,string name,
         ColumnMetadata relation,PageMetadata sourcePage)
     {
@@ -431,8 +431,15 @@ public static partial class MySqlNonRedundantReadCompiler
             var tableId=MultiDefinitionId(definition,"tableId");
             var tableName=Value(definition,"table");
             var nameOverride=Value(definition,"nameField");
-            if(tableId.Length>0&&tableId!=target.Id||tableName.Length>0&&tableName!=target.TableName||
-                nameOverride.Length>0&&nameOverride!=name)return null;
+            if(tableId.Length>0&&tableId!=target.Id||tableName.Length>0&&tableName!=target.TableName)return null;
+            if(nameOverride.Length>0&&nameOverride!=name)
+            {
+                if(checkbox)return null;
+                var storage=MetadataStoragePolicy.ForTable(catalog,target);
+                var labels=storage.PhysicalColumns;
+                if(!PhysicalTextMultiLabel(storage,labels.SingleOrDefault(column=>column.ColumnName==name))||
+                    !PhysicalTextMultiLabel(storage,labels.SingleOrDefault(column=>column.ColumnName==nameOverride)))return null;
+            }
             var pageId=MultiPageId(definition);
             if(checkbox&&pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
             return catalog.ConfigPages.SingleOrDefault(page=>page.ConfigTableId==target.Id&&page.Id==pageId&&

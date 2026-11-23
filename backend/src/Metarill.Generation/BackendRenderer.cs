@@ -304,7 +304,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var result = new StringBuilder().Append(multiGlobal is null?SharedGlobalParentCompilation.KeyService(model,table,page):MultiGlobalParentCompilation.Declaration(model,multiGlobal,multiPlan)).AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
             .AppendLine($"    private async Task ValidateParents{page.Source.Id}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken{(NonRedundantCrossParentCompilation.Enabled(model,table,page)?",bool includeManaged=true":"")}{(supportsReadOnlyParent?", bool locking=true":"")})")
             .AppendLine("    {");
-        if(UsesProjectCompoundMultiSource(model,table,page))
+        if(UsesPublishedPhysicalMultiSource(model,table,page))
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前多选页要求已发布的来源父键使用规范正整数。\");");
         if(sharedRedundant)result.AppendLine("        ValidateActor(actor);").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);");
         else if(multiGlobal is not null)result.AppendLine("        ValidateActor(actor);");
@@ -347,16 +347,16 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if (!page.Scopes.Any(scope => scope.Source == "parent")) result.AppendLine("        await Task.CompletedTask;");
         return result.AppendLine("    }").ToString();
     }
-    /// <summary>普通多选来源页的多个物理父字段必须在真实发布的关系中共同出现。</summary>
-    private static bool UsesProjectCompoundMultiSource(GenerationModel model,TableModel table,PageModel page)=>
-        page.Scopes.Count(scope=>scope.Source=="parent")>1&&
-        MultiSelectCompilation.ForService(model,table,page).Any(definition=>definition.CompoundProjectSource);
+    /// <summary>真实发布的本页物理父字段既决定实时名称，也必须留在写入范围中。</summary>
+    private static bool UsesPublishedPhysicalMultiSource(GenerationModel model,TableModel table,PageModel page)=>
+        page.Scopes.Any(scope=>scope.Source=="parent")&&
+        MultiSelectCompilation.ForService(model,table,page).Any(definition=>definition.PublishedPhysicalSource);
 
     /// <summary>原多选目标和同父来源的项目内文本父键都按规范 ID 二进制比较。</summary>
     private static bool UsesFixedTextParent(GenerationModel model,TableModel table,PageModel page)=>
         page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="string?")&&
         (Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source)||
-            UsesProjectCompoundMultiSource(model,table,page));
+            UsesPublishedPhysicalMultiSource(model,table,page));
 
     private static string Query(GenerationModel model, TableModel table, PageModel page)
     {
@@ -665,7 +665,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if(GlobalCachedParentCompilation.ForSelfTree(model,table,page) is {} parent)
             return Check(parent.Foreign);
         if(NonRedundantCrossParentCompilation.Enabled(model,table,page)||
-            !UsesProjectCompoundMultiSource(model,table,page)&&
+            !UsesPublishedPhysicalMultiSource(model,table,page)&&
             MultiGlobalParentCompilation.CompoundSourceTarget(model,table,page) is null)return "";
         return string.Concat(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>Check(scope.Column)));
 

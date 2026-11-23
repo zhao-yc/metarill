@@ -13,6 +13,11 @@ public static partial class MySqlNonRedundantReadCompiler
         return fields;
     }
 
+    /// <summary>精简发布与实际查询都只接受同一目标的普通物理文本。</summary>
+    private static bool PhysicalTextMultiLabel(MetadataStoragePlan policy,ColumnMetadata? label)=>
+        label is {LogicalType:"string"}&&label.ControlKind is not ("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase")&&
+        !ExactDataManageValues.IsSensitiveField(label.ColumnName)&&policy.IsPhysical(label);
+
     private sealed partial class Builder
     {
         internal IReadOnlyDictionary<string,NonRedundantMultiTargetScope> ProjectMultiTargets { get; init; }=
@@ -92,13 +97,15 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(pageId.Length==0)pageId=MultiPageId(Definition(relation));
                 if(pageId.Length==0)pageId=Text(relation,"linkConfigPageId");
             }
-            // 冗余目标的纯名称覆盖复用原项目可见性，额外范围继续由现有复选分支证明。
+            // 冗余目标的多选页面必须按精简目录重新证明物理范围，不能仅信任生成标志。
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             var scopedPhysicalCheckbox=checkbox&&target.IsRongyu==1&&(binding.ApplyPageScope||control is not null);
+            var scopedPhysicalMultiSelect=relation.ControlKind=="MultiSelectPage"&&target.IsRongyu==1&&
+                binding.ApplyPageScope&&selected is not null&&IsProjectFixedMultiPage(catalog,target,selected);
             var physicalNameOverride=name is not null&&target.IsRongyu==1&&!binding.ApplyPageScope;
             var globalOwnedCheckbox=checkbox&&binding.ApplyPageScope&&selected is not null&&
                 StoredAccountMultiPage(catalog,target,selected,checkbox:true);
-            if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!physicalNameOverride||
+            if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!scopedPhysicalMultiSelect&&!physicalNameOverride||
                 GlobalCrossTableTarget.Declared(table)&&!globalOwnedCheckbox||
                 GlobalCrossTableTarget.Declared(target)&&!checkbox||pageId!=(selected?.Id??"")||
                 selected is null&&(binding.ApplyPageScope||control is null&&name is null)||
@@ -147,8 +154,7 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>仅允许可信声明的普通物理文本进入名称投影。</summary>
         private bool PhysicalTextMultiLabel(TableMetadata target,ColumnMetadata label)=>
-            label.LogicalType=="string"&&label.ControlKind is not ("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase")&&
-            !ExactDataManageValues.IsSensitiveField(label.ColumnName)&&storage[target.Id].IsPhysical(label);
+            MySqlNonRedundantReadCompiler.PhysicalTextMultiLabel(storage[target.Id],label);
 
         /// <summary>派生多值名称使用独立固定别名域，联接保持在目标子查询内，不把来源扩成多行。</summary>
         private (string Sql,string Type) DerivedMultiDisplay(TableMetadata table,string owner,ColumnMetadata relation,TableMetadata target,
