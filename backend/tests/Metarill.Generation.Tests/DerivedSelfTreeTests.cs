@@ -254,7 +254,10 @@ public sealed class DerivedSelfTreeTests
     [InlineData(false, "shared")]
     [InlineData(true, "shared")]
     [InlineData(true,"cachedGlobal")]
-    public async Task Global_derived_self_tree_builds_fixed_name_and_scope(bool rowProject,string sourceScope="ordinary")
+    [InlineData(false,"ordinary",true)]
+    [InlineData(true,"ordinary",true,true)]
+    [InlineData(true,"cachedGlobal",true)]
+    public async Task Global_derived_self_tree_builds_fixed_name_and_scope(bool rowProject,string sourceScope="ordinary",bool alternateDictionary=false,bool dictionaryOrder=false)
     {
         const string ns = "Example.GlobalDerivedTree";
         var catalog = Catalog("nr_tree", "string", "int64", true);
@@ -275,7 +278,28 @@ public sealed class DerivedSelfTreeTests
             Id = field, ConfigTableId = target.Id, YzProjectId = catalog.YzProjectId, ColumnName = field, LogicalType = "string",
             Extra = new() { ["isJoinColumn"] = JsonSerializer.SerializeToElement(1), ["columnFullName"] = JsonSerializer.SerializeToElement(path) }
         });
-        catalog.ConfigPages.Single(page => page.ConfigTableId == upstream.Id).WhereSql = "";
+        var dictionaryPage=catalog.ConfigPages.Single(page => page.ConfigTableId == upstream.Id);
+        dictionaryPage.WhereSql="";
+        if(alternateDictionary)
+        {
+            catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",ColumnName="enabled_flag",LogicalType="int32",YzProjectId=catalog.YzProjectId});
+            dictionaryPage.WhereSql="enabled_flag=17";
+            catalog.ConfigPages.Add(new(){Id="402",ConfigTableId="4",YzProjectId=catalog.YzProjectId,YzAdminTypeId=dictionaryPage.YzAdminTypeId,WhereSql="enabled_flag=7"});
+            catalog.ConfigPageColumns.Add(new(){Id="40242",ConfigPageId="402",ConfigColumnId="42",YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1});
+            catalog.ConfigColumns.Single(field=>field.Id=="38").ControlDetail="""{"tableId":"4","pageId":"401","nameField":"name"}""";
+            catalog.ConfigPageColumns.Single(column=>column.Id=="30138").Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"pageId":"402"}""");
+            catalog.ConfigPages.Add(new(){Id="302",ConfigTableId=target.Id,YzProjectId=catalog.YzProjectId,YzAdminTypeId=targetPage.YzAdminTypeId,WhereSql="status=1"});
+            catalog.ConfigPageColumns.Add(new(){Id="30238",ConfigPageId="302",ConfigColumnId="38",YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1});
+            if(dictionaryOrder)
+            {
+                catalog.ConfigPageColumns.Add(new(){Id="301company_name",ConfigPageId="301",ConfigColumnId="company_name",
+                    YzProjectId=catalog.YzProjectId,IsShow=1});
+                var field=catalog.ConfigColumns.Single(item=>item.Id=="25");
+                var settings=System.Text.Json.Nodes.JsonNode.Parse(field.ControlDetail)!;
+                settings["selfTree"]!["orderBy"]="company_name desc, id asc";
+                field.ControlDetail=settings.ToJsonString();
+            }
+        }
         if (!rowProject)
         {
             var field = catalog.ConfigColumns.Single(column => column.ConfigTableId == target.Id && column.ColumnName == "yz_project_id");
@@ -299,8 +323,15 @@ public sealed class DerivedSelfTreeTests
         var model = GenerationModel.Create(catalog, ns);
         var source = model.Tables.Single(table => table.Source.Id == "2");
         var page = Assert.Single(source.Pages);
+        var resolved=CascadeTreeReadCompilation.Resolve(model,source,page,source.Columns.Single(column=>column.Source.Id=="25"));
+        Assert.True(resolved.Definition is not null,resolved.Reason);
         var plan = Assert.Single(CascadeTreeReadCompilation.ForPage(model, source, page));
         Assert.True(plan.DerivedName);
+        if(alternateDictionary)
+        {
+            var targetModel=model.Tables.Single(table=>table.Source.Id==target.Id);
+            _=NonRedundantReadCompilation.ForPage(model,targetModel,targetModel.Pages.Single(candidate=>candidate.Source.Id==targetPage.Id));
+        }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         Assert.Contains(rowProject ? "CompileGlobalCandidate" : "CompileRelation", DerivedCascadeNamesRenderer.Reader(model, source, page, plan));
         new FrontendPackager().Validate(catalog);
@@ -316,6 +347,39 @@ public sealed class DerivedSelfTreeTests
             var read = Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
                 service.GetField("DerivedCascadePlan201_25", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.GetValue(null));
             Assert.Equal("string", read.OutputTypes["name"]);
+            if(alternateDictionary)
+            {
+                const BindingFlags staticPlan=BindingFlags.NonPublic|BindingFlags.Static;
+                const BindingFlags sqlPlan=BindingFlags.NonPublic|BindingFlags.Instance;
+                var actor=new Metarill.Core.Security.RuntimeActor(5,"自树字典页",false,catalog.YzProjectId,page.Source.YzAdminTypeId);
+                AssertDictionaryScope(read);
+                var targetService=assembly.GetType(ns+".Generated.Services.NrTreeTreeService",true)!;
+                var targetRead=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    targetService.GetField("ReadPlan301",staticPlan)!.GetValue(null));
+                AssertDictionaryScope(targetRead);
+                var sort=service.GetField("DerivedCascadeSortPlan201_25",staticPlan);
+                Assert.Equal(dictionaryOrder,sort is not null);
+                if(sort is not null)
+                {
+                    var sortPlan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(sort.GetValue(null));
+                    AssertDictionaryScope(sortPlan);
+                    Assert.DoesNotContain("name",sortPlan.OutputTypes.Keys);
+                }
+                Assert.NotNull(service.GetMethod("CascadeOptions201_25Async"));
+                Assert.NotNull(service.GetMethod("CascadePath201_25Async"));
+                Assert.NotNull(service.GetMethod("Import201Async"));
+                Assert.NotNull(service.GetMethod("Export201Async"));
+
+                void AssertDictionaryScope(Metarill.Data.Queries.NonRedundantReadPlan scoped)
+                {
+                    var selected=scoped.RequiresAccount?scoped.BindAccount(actor):scoped;
+                    var sql=selected.GetType().GetProperty("MySql",sqlPlan)!.GetValue(selected)!;
+                    var scope=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                        sql.GetType().GetProperty("Constants",sqlPlan)!.GetValue(sql));
+                    Assert.Contains(7,scope.Values);
+                    Assert.DoesNotContain(17,scope.Values);
+                }
+            }
             if(sourceScope=="cachedGlobal")
             {
                 var maintenance=MixedRelationPropagationCompilation.ForModel(model);

@@ -7,7 +7,7 @@ internal static class NonRedundantCrossTargetsRenderer
     /// <summary>名称、父键与排序在生成期证明；授权及固定范围沿原CrossScope。</summary>
     internal static string Service(GenerationModel model,TableModel owner,PageModel page,CrossTableReadModel plan,int index)
     {
-        var level=plan.Levels[index];var suffix=page.Source.Id+"_"+plan.Source.Source.Id+"_"+index;var (dependencies,sortDependencies,targets)=NonRedundantCrossTargetsCompilation.Plans(model,level);var outputs=new[]{"id",level.Name.Source.ColumnName}.Concat(level.Parent is{} p?new[]{p.Source.ColumnName}:[]).ToArray();var parent=level.Parent is not{} parentColumn?"null":parentColumn.Type=="string?"?"NonRedundantReads.Value<string?>(row,"+Literal(parentColumn.Source.ColumnName)+")":"NonRedundantReads.Value<long?>(row,"+Literal(parentColumn.Source.ColumnName)+")?.ToString(CultureInfo.InvariantCulture)";var scopes=level.Page.Scopes.Select(scope=>"        bound.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+(scope.Column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")+"));");
+        var level=plan.Levels[index];var suffix=page.Source.Id+"_"+plan.Source.Source.Id+"_"+index;var (dependencies,sortDependencies,targets,sortTargets)=NonRedundantCrossTargetsCompilation.Plans(model,level);var outputs=new[]{"id",level.Name.Source.ColumnName}.Concat(level.Parent is{} p?new[]{p.Source.ColumnName}:[]).ToArray();var parent=level.Parent is not{} parentColumn?"null":parentColumn.Type=="string?"?"NonRedundantReads.Value<string?>(row,"+Literal(parentColumn.Source.ColumnName)+")":"NonRedundantReads.Value<long?>(row,"+Literal(parentColumn.Source.ColumnName)+")?.ToString(CultureInfo.InvariantCulture)";var scopes=level.Page.Scopes.Select(scope=>"        bound.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+(scope.Column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")+"));");
         var label=MultiSelectExcelRenderer.LabelText(level.Name,$"NonRedundantReads.Value<{level.Name.Type}>(row,{Literal(level.Name.Source.ColumnName)})");
         var scoped=FixedPageConditionCompilation.HasLogicalFields(level.Page);
         var start=scoped?$"CompileCrossPageCandidate({Literal(level.Target.Source.Id)},{Literal(level.Page.Source.Id)}":
@@ -15,12 +15,12 @@ internal static class NonRedundantCrossTargetsRenderer
         var separateOrder = sortDependencies.Count > 0;
         var bindings = NonRedundantReadCompilation.SingleTargetArgument(targets, "singleTargets");
         var bindAccount = scoped || level.Target.IsGlobal && FixedPageConditionCompilation.HasAccountVariables(level.Page)
-            || !separateOrder && targets.Count > 0;
+            || targets.Count > 0;
         var baseOrder = separateOrder ? "[new(\"id\")]" : "CrossTargetOrder" + suffix;
         var nodes = $$"""rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(NonRedundantReads.Value<long>(row,"id"),{{label}},{{parent}})).ToArray()""";
         var sortPlan = separateOrder ? $$"""
     /// <summary>排序的字典条件独立于原名称投影，候选排序只返回 ID。</summary>
-    private static readonly NonRedundantReadPlan CrossTargetSortPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{start}},new string[]{"id"},new string[]{ {{string.Join(",",sortDependencies.Select(Literal))}} }{{bindings}});
+    private static readonly NonRedundantReadPlan CrossTargetSortPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{start}},new string[]{"id"},new string[]{ {{string.Join(",",sortDependencies.Select(Literal))}} }{{NonRedundantReadCompilation.SingleTargetArgument(sortTargets,"singleTargets")}});
 """ : "";
         var result = separateOrder ? $$"""
         var labels = {{nodes}};
@@ -30,7 +30,7 @@ internal static class NonRedundantCrossTargetsRenderer
 """ : "        return " + nodes + ";";
         return $$"""
     /// <summary>跨表本级计划只编译一次，不暴露外部字段、排序或SQL。</summary>
-    private static readonly NonRedundantReadPlan CrossTargetPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{start}},new string[]{ {{string.Join(",",outputs.Select(Literal))}} },new string[]{ {{string.Join(",",dependencies.Select(Literal))}} }{{(separateOrder ? "" : bindings)}});
+    private static readonly NonRedundantReadPlan CrossTargetPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{start}},new string[]{ {{string.Join(",",outputs.Select(Literal))}} },new string[]{ {{string.Join(",",dependencies.Select(Literal))}} }{{bindings}});
 {{sortPlan}}
     private static readonly FixedReadOrder[] CrossTargetOrder{{suffix}}=[{{string.Join(",",level.Order.Select(item=>"new("+Literal(item.Column.Source.ColumnName)+","+(item.Descending?"true":"false")+")"))}}];
     /// <summary>公开授权由原逐层工厂执行；身份／项目／条件不能因名称派生而扩大。</summary>

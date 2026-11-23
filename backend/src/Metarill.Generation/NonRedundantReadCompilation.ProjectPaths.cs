@@ -89,7 +89,7 @@ internal static partial class NonRedundantReadCompilation
                 return scope with{ApplyPageCondition=scoped,NestedTargets=nested,SourcePageId=globalLiteralScope?page.Source.Id:scope.SourcePageId};
             }
             return downstream is null?null:new(foreign.Source.Id,relation.TargetPage.Source.Id)
-                {ApplyPageCondition=false,NestedTargets=nested};
+                {ApplyPageCondition=false,NestedTargets=nested,SourcePageId=relation.Target.IsGlobal?page.Source.Id:null};
         }
     }
 

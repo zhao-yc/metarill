@@ -22,7 +22,7 @@ internal static class NonRedundantCrossTargetsCompilation
 
     /// <summary>名称、父键、账号归属及逻辑条件分别走实际固定字段证明。</summary>
     internal static (IReadOnlyList<string> Dependencies, IReadOnlyList<string> SortDependencies,
-        IReadOnlyList<NonRedundantSingleTargetScope> Targets) Plans(GenerationModel model,CrossTableLevelModel level)
+        IReadOnlyList<NonRedundantSingleTargetScope> Targets,IReadOnlyList<NonRedundantSingleTargetScope> SortTargets) Plans(GenerationModel model,CrossTableLevelModel level)
     {
         var target=level.Target;var fields=level.Page.Scopes.Select(scope=>scope.Column).Concat(level.Page.Condition?.Syntax.Fields.Select(field=>target.Columns.Single(column=>column.Source.ColumnName==field))??[]).Concat(level.Parent is{} parent?new[]{parent}:[]).DistinctBy(column=>column.Source.Id).ToArray();
         var condition=level.Page.Condition;
@@ -48,6 +48,6 @@ internal static class NonRedundantCrossTargetsCompilation
             :NonRedundantReads.Compile(model.Catalog,target.Source.Id,outputs,dependencies);
         if(read.OutputTypes["id"]!="int64"||read.OutputTypes[level.Name.Source.ColumnName]!=level.Name.Source.LogicalType)
             throw new InvalidOperationException("跨表名称必须落到同类型的固定单值。");
-        return (dependencies, [], targets);
+        return (dependencies, [], targets, []);
     }
 }

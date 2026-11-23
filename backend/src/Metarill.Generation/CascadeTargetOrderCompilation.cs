@@ -18,17 +18,18 @@ internal static class CascadeTargetOrderCompilation
 
     /// <summary>生成前验证名称与排序字段的类型。共用条件联接时，原名称及排序使用各自的查询。</summary>
     internal static (IReadOnlyList<string> Dependencies, IReadOnlyList<string> SortDependencies,
-        IReadOnlyList<NonRedundantSingleTargetScope> Targets) Require(GenerationModel model, TableModel target,
+        IReadOnlyList<NonRedundantSingleTargetScope> Targets,IReadOnlyList<NonRedundantSingleTargetScope> SortTargets) Require(GenerationModel model, TableModel target,
         PageModel page, ColumnModel name, ColumnModel? parent, bool derivedName, bool derivedOrder,
         IReadOnlyList<(ColumnModel Column, bool Descending)> order, IEnumerable<ColumnModel> identity)
     {
         var orderFields = JoinedFields(model, target, name, order, derivedOrder);
         var targets = Targets(model, target, page, orderFields);
-        var labelTargets = derivedName && targets.Count > 0
-            ? NonRedundantReadCompilation.ProjectPathTargets(model, target, page,
-                [name.Source.ColumnName], multiValuePath: true)
-            : [];
-        var separateOrder = targets.Any(candidate => labelTargets.Any(label => label.ColumnId == candidate.ColumnId));
+        var labelTargets = NameTargets(model,target,page,name,derivedName);
+        var overlappingLabels = !target.IsGlobal && derivedName && targets.Count>0
+            ? NonRedundantReadCompilation.ProjectPathTargets(model,target,page,[name.Source.ColumnName],multiValuePath:true)
+            : labelTargets;
+        var separateOrder = targets.Any(candidate => overlappingLabels.Any(label => label.ColumnId == candidate.ColumnId));
+        var readTargets=separateOrder?targets:NonRedundantReadCompilation.MergeProjectTargets(labelTargets.Concat(targets));
         var identityFields = identity.Select(column => column.Source.ColumnName).Append("id");
         var labelOutputs = new[] { "id", name.Source.ColumnName }
             .Concat(parent is null ? [] : new[] { parent.Source.ColumnName }).ToArray();
@@ -37,14 +38,14 @@ internal static class CascadeTargetOrderCompilation
             .Concat(order.Select(item => item.Column.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var orderOutputs = (separateOrder ? new[] { "id" } : labelOutputs)
             .Concat(orderFields.Select(column => column.Source.ColumnName)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var ordered = Compile(orderOutputs, orderDependencies, targets);
-        var labels = separateOrder ? Compile(labelOutputs, labelDependencies, []) : ordered;
+        var ordered = Compile(orderOutputs, orderDependencies, readTargets);
+        var labels = separateOrder ? Compile(labelOutputs, labelDependencies, labelTargets) : ordered;
         if (labels.OutputTypes["id"] != "int64" || labels.OutputTypes[name.Source.ColumnName] != name.Source.LogicalType)
             throw new InvalidOperationException("级联名称未落到同类型的固定单值列。");
         if (orderFields.Any(column => ordered.OutputTypes[column.Source.ColumnName] != column.Source.LogicalType))
             throw new InvalidOperationException("级联排序列未落到同类型的固定单值列。");
 
-        return separateOrder ? (labelDependencies, orderDependencies, targets) : (orderDependencies, [], targets);
+        return separateOrder ? (labelDependencies, orderDependencies, labelTargets, targets) : (orderDependencies, [], readTargets, []);
 
         NonRedundantReadPlan Compile(string[] outputs, string[] dependencies, IReadOnlyList<NonRedundantSingleTargetScope> scopes)
         {
@@ -59,6 +60,11 @@ internal static class CascadeTargetOrderCompilation
                 : NonRedundantReads.Compile(model.Catalog, target.Source.Id, outputs, dependencies);
         }
     }
+
+    /// <summary>名称查询始终按实际全局候选页冻结关联，与排序采用的额外联接各自保留。</summary>
+    internal static IReadOnlyList<NonRedundantSingleTargetScope> NameTargets(GenerationModel model,TableModel target,
+        PageModel page,ColumnModel name,bool derivedName)=>
+        target.IsGlobal&&derivedName?NonRedundantReadCompilation.ProjectPathTargets(model,target,page,[name.Source.ColumnName]):[];
 
     /// <summary>下发排序所需的实际字典页和中间页，保留这些页的固定范围。</summary>
     internal static IReadOnlyList<NonRedundantSingleTargetScope> OrderTargets(GenerationModel model, TableModel target,

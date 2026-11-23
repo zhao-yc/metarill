@@ -96,8 +96,11 @@ internal static partial class BackendRenderer
         // 排序单值联接也需要固定中间页和字典条件，发布目录按实际依赖保留。
         var checkboxOrders=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForPage(model,table,page)))
             .Select(checkbox=>checkbox.CandidateOrderTargets).OfType<IReadOnlyList<Metarill.Data.Queries.NonRedundantSingleTargetScope>>().ToArray();
-        var candidateOrderPages=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page)))
-            .Where(tree=>tree.DerivedOrder).SelectMany(tree=>NamePages(DerivedCascadeNamesCompilation.OrderTargets(model,tree)))
+        var selfTrees=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page))).ToArray();
+        var candidateRelationPages=selfTrees.Where(tree=>tree.DerivedOrder)
+            .SelectMany(tree=>NamePages(DerivedCascadeNamesCompilation.OrderTargets(model,tree)))
+            .Concat(selfTrees.Where(tree=>tree.DerivedName).SelectMany(tree=>NamePages(
+                CascadeTargetOrderCompilation.NameTargets(model,tree.Target,tree.TargetPage,tree.Name,tree.DerivedName))))
             .Concat(model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>CrossTableReadCompilation.ForService(model,table,page)))
                 .SelectMany(plan=>plan.Levels).Where(level=>level.DerivedOrder).SelectMany(level=>NamePages(
                     CascadeTargetOrderCompilation.OrderTargets(model,level.Target,level.Page,level.Name,level.Order,level.DerivedOrder))))
@@ -105,7 +108,7 @@ internal static partial class BackendRenderer
             .Concat(relations.Where(relation => relation.IndependentOrder.Count > 0)
                 .SelectMany(relation => NamePages(DerivedRelationNamesCompilation.CandidateOrderTargets(model, relation))))
             .ToHashSet(StringComparer.Ordinal);
-        scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>candidateOrderPages.Contains(page.Source.Id))
+        scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>candidateRelationPages.Contains(page.Source.Id))
             .Select(page=>(table,page))));
         foreach(var checkbox in realtimeCheckboxes.Where(checkbox=>checkbox.GlobalRealtimeNameOverride))
             multiNamePages.UnionWith(Metarill.Data.Queries.NonRedundantReads.PublishedGlobalCheckboxNamePages(model.Catalog,

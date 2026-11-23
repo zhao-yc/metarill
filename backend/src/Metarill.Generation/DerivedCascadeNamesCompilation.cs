@@ -8,7 +8,7 @@ internal static class DerivedCascadeNamesCompilation
 {
     /// <summary>生成候选、图和Excel共用目标读取计划，不能借名称联接放开拓扑或缓存维护。</summary>
     internal static (IReadOnlyList<string> Dependencies, IReadOnlyList<string> SortDependencies,
-        IReadOnlyList<NonRedundantSingleTargetScope> Targets) Require(
+        IReadOnlyList<NonRedundantSingleTargetScope> Targets,IReadOnlyList<NonRedundantSingleTargetScope> SortTargets) Require(
         GenerationModel model,TableModel owner,CascadeTreeReadModel plan)
     {
         var target=plan.Target;if(owner.Source.IsRongyu is not(0 or 1)||target.Source.IsRongyu!=0||target.Source.IsView!=0||target.Source.IsFunctionTable!=0||plan.Name.Source.LogicalType!="string"&&!MultiValueLabel.IsTyped(plan.Name.Source.LogicalType)||plan.Name.IsJsonArray)throw new InvalidOperationException("派生自树名称要求已证明来源与普通R0目标的单值标量。");
