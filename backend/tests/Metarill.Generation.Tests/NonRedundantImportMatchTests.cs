@@ -208,10 +208,19 @@ public sealed class NonRedundantImportMatchTests
     [InlineData(0, true)]
     [InlineData(1, false)]
     [InlineData(1, true)]
-    public async Task Stored_list_requires_both_physical_source_parent_columns(int storage, bool compoundTarget)
+    [InlineData(0, false, true, false)]
+    [InlineData(0, true, true, false)]
+    [InlineData(0, true, true, true)]
+    [InlineData(1, false, true, false)]
+    [InlineData(1, true, true, false)]
+    [InlineData(1, true, true, true)]
+    public async Task List_requires_both_physical_source_parent_columns(int storage, bool compoundTarget,
+        bool liveTarget=false,bool controlParent=true)
     {
         var catalog=Catalog("string");
-        AddStoredPickerTarget(catalog,compoundTarget,splitControl:compoundTarget);
+        var splitControl=compoundTarget&&controlParent;
+        AddStoredPickerTarget(catalog,compoundTarget,splitControl);
+        if(liveTarget)catalog.ConfigTables.Single(table=>table.Id=="6").IsRongyu=0;
         catalog.ConfigTables.Add(new(){Id="7",TableName="compound_picker_owner",IsRongyu=storage});
         catalog.ConfigColumns.AddRange([
             new(){Id="7011",ConfigTableId="7",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
@@ -227,10 +236,18 @@ public sealed class NonRedundantImportMatchTests
         ]);
         var page=new PageMetadata{Id="701",ConfigTableId="7",IsNew=1,IsSave=1,IsCopy=1,IsImport=1,IsExport=1,
             WhereSql="yz_project_id=@current_yz_project_id AND review_country_id=@parent_id AND country_id=@parentId"};
-        page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(compoundTarget?"edit":"list");
+        page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(compoundTarget&&(!liveTarget||!splitControl)?"edit":"list");
         catalog.ConfigPages.Add(page);
         catalog.ConfigPageColumns.Add(new(){Id="7017015",ConfigPageId="701",ConfigColumnId="7015",IsShow=1});
-        AddStoredPickerRole(catalog,"7","701","7016",compoundTarget);
+        // 分写父条件的非冗余字典同时用原首列覆盖路径，真实物理首列与名称回显列分开。
+        var overwrite=liveTarget&&splitControl;
+        if(overwrite)
+        {
+            page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+            catalog.ConfigColumns.Add(new(){Id="7018",ConfigTableId="7",ColumnName="name",Name="记录名",LogicalType="string",SortNo=-100});
+            catalog.ConfigPageColumns.Add(new(){Id="7017018",ConfigPageId="701",ConfigColumnId="7018",SortNo=-100});
+        }
+        AddStoredPickerRole(catalog,"7","701","7016",splitControl);
         RedundantMultiNameCacheTests.Published(catalog);
 
         var model=GenerationModel.Create(catalog,"Example.CompoundListOwner");
@@ -255,12 +272,25 @@ public sealed class NonRedundantImportMatchTests
             Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
             var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
             sql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["picker_name"]));
+            var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("Reverse",hidden)!.GetValue(read));
+            Assert.Contains(reverse.Cast<object>(),item=>Equals("logical_overwrite_picker",item.GetType().GetProperty("TargetTable")!.GetValue(item))&&
+                Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(item.GetType().GetProperty("Outputs")!.GetValue(item))
+                    .TryGetValue("picker_name",out var fields)&&fields.Contains("logical_overwrite_country_id")&&
+                        (!compoundTarget||fields.Contains("approval_country_id")));
         }
         Assert.Contains("CAST(b."+(char)96+"review_country_id"+(char)96+" AS CHAR)",sql);
         Assert.Contains("CAST(b."+(char)96+"country_id"+(char)96+" AS CHAR)",sql);
         Assert.Equal(compoundTarget,sql.Contains("approval_country_id",StringComparison.Ordinal));
         var generated=BackendRenderer.Render(model).Single(file=>file.Path=="Services/CompoundPickerOwnerService.g.cs").Content;
-        Assert.Contains("OptionsScope701_7016Async(request.ParentId, groupPickerId.Key",generated);
+        if(liveTarget&&compoundTarget&&!splitControl)
+        {
+            Assert.Contains("DerivedOptionsRows701_7016Async(request.ParentId,groupPickerId.Key",generated);
+            Assert.Contains("FixedReadFilter.ForTextParent(\"approval_country_id\",targetParentId!)",generated);
+        }
+        else
+            Assert.Contains("OptionsScope701_7016Async(request.ParentId, groupPickerId.Key",generated);
+        if(compoundTarget)Assert.Contains("ApplyTextParent(query,session,\"approval_country_id\",targetParentId!",generated);
+        if(overwrite)Assert.Contains("var key = matchValue.Deserialize",generated);
         Assert.Contains("Import701Async",generated);
         Assert.Contains("Export701Async",generated);
         Assert.Contains("targetParentId!=parentId",generated);
@@ -290,7 +320,7 @@ public sealed class NonRedundantImportMatchTests
         var target=catalog.ConfigTables.Single(table=>table.Id=="6");
         var targetFields=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).Select(column=>column.ColumnName);
         var targetTerms=FixedConditionPlan.Compile(catalog.ConfigPages.Single(item=>item.Id=="601").WhereSql,targetFields).Terms;
-        var parent=MultiTargetParentScope.CompileStoredListPage(catalog,target,targetTerms)!;
+        var parent=MultiTargetParentScope.CompileListPage(catalog,target,targetTerms)!;
         var source=catalog.ConfigTables.Single(table=>table.Id=="7");
         var picker=catalog.ConfigColumns.Single(column=>column.Id=="7016");
         Assert.Equal("7017",Assert.Single(parent.SingleSource(catalog,source,picker,page).AdditionalColumns).Id);

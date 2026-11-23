@@ -625,11 +625,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 item=>item.Id==binding.ControlSourcePageId&&item.ConfigTableId==owner.Id);
             var control=controlPage is null?null:ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,controlPage);
             var projectParent=global?null:ProjectScopedSingleRelationTarget.PageParent(catalog,target,page);
-            var parent=global?proof!.Parent:projectParent??MultiParent(catalog,page);
-            var controlParent=control is null?null:MultiTargetParentScope.Compile(catalog,target,control);
-            if(controlParent is {Logical:true}||parent is not null&&controlParent is not null&&!parent.HasTarget(controlParent.Target.Id))
-                throw new InvalidOperationException("单值读取的目标页与控件父范围不一致。");
-            parent??=controlParent;
+            var pageParent=global?proof!.Parent:projectParent??MultiParent(catalog,page);
+            var parent=SingleParentWithControl(target,relation,page,pageParent,control);
             if((parent is null)!=(binding.SourceParentId is null)||
                 !global&&parent is {Global:true,Logical:false}&&projectParent is null)
                 throw new InvalidOperationException("项目内单值读取缺少已证明的父绑定。");
@@ -679,6 +676,11 @@ public static partial class MySqlNonRedundantReadCompiler
                     throw new InvalidOperationException("项目内单值读取父键与目标发布页不一致。");
                 predicate+=" AND "+SinglePhysicalParentCondition(owner,ownerAlias,prefix,parent,field);
             }
+            // 目标页子计划只包含本页的范围，来自控件的物理父字段也必须与同一实际父键相等。
+            if(parent is {Logical:false,AdditionalTargets.Count:>0}&&!global&&control is {Terms.Count:>0}&&
+                (pageParent?.Target.Id!=parent.Target.Id||parent.AdditionalTargets.Any(item=>pageParent?.HasTarget(item.Target.Id)!=true)))
+                foreach(var scope in parent.AdditionalTargets)
+                    predicate+=" AND "+SameSingleParent(prefix+"."+Q(scope.Target.ColumnName),prefix+"."+Q(parent.Target.ColumnName));
             // 根记录锁不会传递到目标页的条件子查询，附件在事务里也要核对当前目标范围。
             return "EXISTS (SELECT 1"+plan.From+" WHERE "+predicate+PublishedJoinLock+")";
         }

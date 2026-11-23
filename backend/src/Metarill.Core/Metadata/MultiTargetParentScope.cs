@@ -39,8 +39,8 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public static MultiTargetParentScope? CompileGlobalPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox=false)=>
         CompilePublishedPage(catalog,table,condition,checkbox,globalTarget:true,allowGlobalParent:true);
 
-    /// <summary>普通冗余字典把实际页面和控件的父参数合成一组物理父范围。</summary>
-    public static MultiTargetParentScope? CompileStoredListPage(MetadataCatalog catalog,TableMetadata table,
+    /// <summary>下拉字典把实际页面和控件的父参数合成同一组发布范围。</summary>
+    public static MultiTargetParentScope? CompileListPage(MetadataCatalog catalog,TableMetadata table,
         IEnumerable<FixedConditionTerm> terms)
     {
         // 同一物理列可重复声明，原前端的两种父参数拼法语义一致。
@@ -189,7 +189,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         var projectTarget=catalog.ConfigTables.SingleOrDefault(table=>table.Id==Target.ConfigTableId&&!GlobalCrossTableTarget.Declared(table));
         var projectSource=!Global&&source.IsRongyu is (0 or 1)&&!GlobalCrossTableTarget.Declared(source)&&projectTarget is not null;
         var projectPhysicalSource=projectSource&&(relation.ControlKind=="MultiSelectPage"||checkbox&&allowProjectPhysicalCheckbox);
-        var storedListSource=projectSource&&single&&relation.ControlKind=="List"&&projectTarget!.IsRongyu==1;
+        var projectListSource=projectSource&&single&&relation.ControlKind=="List";
         var selected=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&
             (sourcePageId is null||page.Id==sourcePageId)).Select(page=>
         {
@@ -239,7 +239,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
             // 下拉来源页已经约束目标所属父表时，所有物理范围都必须纳入证明，不能遇到不同父表就退回单列。
             bool TargetKey(FixedConditionTerm term)=>keys.Any(column=>column.ColumnName==term.Field);
             var compoundPhysical=projectPhysicalSource&&scoped.All(TargetKey)||
-                storedListSource&&scoped.Any(TargetKey)&&scoped.All(term=>
+                projectListSource&&scoped.Any(TargetKey)&&scoped.All(term=>
                     columns.Any(column=>column.ColumnName==term.Field&&PhysicalKey(catalog,source,column)));
             if(scoped.Length>1&&(checkboxRelation||multiSelection||compoundGlobal||compoundPhysical||singleSelection&&allowLogical))
             {

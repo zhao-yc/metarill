@@ -12,7 +12,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
 {
     internal bool ListPageOverride { get; init; }
     internal bool ScopedStoredList { get; init; }
-    internal bool CompoundStoredSource { get; init; }
+    internal bool CompoundProjectSource { get; init; }
     internal IReadOnlyList<ColumnModel> IndependentOrder { get; init; } = [];
     internal RelationConditionModel? ImportCondition { get; init; }
     internal bool ExcelOnly { get; init; }
@@ -210,22 +210,24 @@ internal static class RelationCompilation
                 (globalListPageScope||projectListPage&&
                     ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)==targetPage.Source.Id)&&
                 (HasStoredListRange(targetPage)||conditions is not null||scopes.Any(scope=>scope.Source=="parent"));
-            MultiSourceParent? compoundStoredSource=null;
+            MultiSourceParent? compoundProjectSource=null;
             var sourceKeys=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
                 .DistinctBy(column=>column.Source.Id).ToArray();
-            if(scopedStoredList&&!binding.Declared&&!owner.IsGlobal&&!target.IsGlobal&&sourceKeys.Length>1&&
+            // 普通下拉的物理来源字段与实际目标页共同证明，冗余与实时名称使用同一个父键集合。
+            if((scopedStoredList||source.Source.ControlKind=="List"&&target.Source.IsRongyu==0)&&
+                !functionForm&&!binding.Declared&&!owner.IsGlobal&&!target.IsGlobal&&sourceKeys.Length>1&&
                 sourceParents is [var sourceParent]&&targetParents is [var targetParent]&&sourceParent.Source.Id==targetParent.Source.Id&&
                 sourceKeys.All(column=>NonRedundantReadCompilation.Physical(model,owner,column)))
             {
                 var fields=target.Columns.Select(column=>column.Source.ColumnName);
                 var targetTerms=FixedConditionPlan.Compile(targetPage.Source.WhereSql,fields).Terms;
                 var controlTerms=FixedConditionPlan.Compile(where,fields).Terms;
-                var storedParent=MultiTargetParentScope.CompileStoredListPage(model.Catalog,target.Source,targetTerms.Concat(controlTerms));
-                compoundStoredSource=storedParent?.SingleSource(model.Catalog,owner.Source,source.Source,page.Source);
-                if(compoundStoredSource is not {AdditionalColumns.Count:>0})
+                var listParent=MultiTargetParentScope.CompileListPage(model.Catalog,target.Source,targetTerms.Concat(controlTerms));
+                compoundProjectSource=listParent?.SingleSource(model.Catalog,owner.Source,source.Source,page.Source);
+                if(compoundProjectSource is not {AdditionalColumns.Count:>0})
                     throw new InvalidOperationException("原下拉缺少已发布的来源复合物理父键。");
             }
-            var sourceBinding=compoundStoredSource??(fixedParent is null||functionForm?null:
+            var sourceBinding=compoundProjectSource??(fixedParent is null||functionForm?null:
                 owner.Source.IsRongyu==0&&(globalListPageScope||!owner.IsGlobal&&!target.IsGlobal)
                     ?fixedParent.SingleSource(model.Catalog,owner.Source,source.Source,page.Source)
                     :fixedParent.SingleSource(model.Catalog,owner.Source,source.Source));
@@ -241,7 +243,7 @@ internal static class RelationCompilation
             {
                 ListPageOverride = listPageOverride,
                 ScopedStoredList = scopedStoredList,
-                CompoundStoredSource = compoundStoredSource is not null,
+                CompoundProjectSource = compoundProjectSource is not null,
                 IndependentOrder = independentOrder,
                 FunctionForm = functionForm,
                 ImportCondition = selection?.ImportCondition,

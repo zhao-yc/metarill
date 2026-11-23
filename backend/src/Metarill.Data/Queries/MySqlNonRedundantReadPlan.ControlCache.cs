@@ -16,19 +16,34 @@ public static partial class MySqlNonRedundantReadCompiler
             if(target.IsRongyu==1&&foreign.ControlKind=="List"&&!GlobalCrossTableTarget.Declared(target))
             {
                 var condition=FixedConditionPlan.Compile(page.WhereSql,columns[target.Id].Keys);
-                parent=MultiTargetParentScope.CompileStoredListPage(catalog,target,condition.Terms.Concat(control.Terms));
+                parent=MultiTargetParentScope.CompileListPage(catalog,target,condition.Terms.Concat(control.Terms));
             }
             else
             {
                 var pageParent=ProjectScopedSingleRelationTarget.PageParent(catalog,target,page)??MultiParent(catalog,page);
-                var controlParent=MultiTargetParentScope.Compile(catalog,target,control);
-                if(controlParent is {Logical:true}||pageParent is not null&&controlParent is not null&&!pageParent.HasTarget(controlParent.Target.Id))
-                    throw new InvalidOperationException("名称副本的目标页与控件父范围不一致。");
-                parent=pageParent??controlParent;
+                parent=SingleParentWithControl(target,foreign,page,pageParent,control);
             }
             var binding=sourcePage is null?parent?.SingleSource(catalog,table,foreign):
                 parent?.SingleSource(catalog,table,foreign,sourcePage);
             return JoinScopedSingleCache(table,owner,foreign,target,source,page,cacheOwner,parent,binding,control);
+        }
+
+        /// <summary>项目内下拉允许在实际页面和控件分别声明同父的物理列。</summary>
+        private MultiTargetParentScope? SingleParentWithControl(TableMetadata target,ColumnMetadata relation,
+            PageMetadata page,MultiTargetParentScope? pageParent,FixedConditionPlan? control)
+        {
+            if(control is not {Terms.Count:>0})return pageParent;
+            if(relation.ControlKind=="List"&&!GlobalCrossTableTarget.Declared(target)&&
+                pageParent is not ({Logical:true} or {Global:true}))
+            {
+                var pageTerms=FixedConditionPlan.Compile(page.WhereSql,columns[target.Id].Keys).Terms;
+                var combined=MultiTargetParentScope.CompileListPage(catalog,target,pageTerms.Concat(control.Terms));
+                if(combined is {Logical:false,Global:false})return combined;
+            }
+            var controlParent=MultiTargetParentScope.Compile(catalog,target,control);
+            if(controlParent is {Logical:true}||pageParent is not null&&controlParent is not null&&!pageParent.HasTarget(controlParent.Target.Id))
+                throw new InvalidOperationException("单值读取的目标页与控件父范围不一致。");
+            return pageParent??controlParent;
         }
 
         /// <summary>控件条件附加到物理联接后的可见性，记录变为不可见时仍可反查并清空副本。</summary>
@@ -110,7 +125,7 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             else
             {
-                parent=MultiTargetParentScope.CompileStoredListPage(catalog,target,terms);
+                parent=MultiTargetParentScope.CompileListPage(catalog,target,terms);
             }
             if (parent is {Logical:true} || (parent is null)!=(sourceParentId is null) ||
                 page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)

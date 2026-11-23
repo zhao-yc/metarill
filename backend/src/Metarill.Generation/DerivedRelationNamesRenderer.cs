@@ -14,7 +14,8 @@ internal static class DerivedRelationNamesRenderer
         var accountParent = SharedRedundantParentCompilation.HasAccountPath(model,relation.Target,relation.TargetPage);
         var logical=DerivedRelationNamesCompilation.UsesLogicalPage(relation);
         var globalAccount=DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage);
-        var validateCurrent=exact is not null||accountParent||logical||FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
+        var validateCurrent=exact is not null||accountParent||logical||relation.CompoundProjectSource||
+            FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
         var projectTargets=DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation,exact);
         var bindParent=validateCurrent||projectTargets.Count>0?".BindAccount(actor)":"";
         var globalExact=DerivedRelationNamesCompilation.IsGlobalExactSingle(relation);
@@ -76,7 +77,12 @@ internal static class DerivedRelationNamesRenderer
                 ?await reader.OrderedRowsAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},{{sortArgument}}filters,[{{order}}],200,cancellationToken,actor.ProjectId,scope.Condition)
                 :await reader.RowsAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},filters,[{{originalOrder}}],200,cancellationToken,actor.ProjectId,scope.Condition);
 """ : $"            var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{suffix}{bindParent},filters,[{originalOrder}],200,cancellationToken,actor.ProjectId,scope.Condition);";
-        var filters=string.Join("\n",relation.TargetPage.Scopes.Concat(relation.Scopes).DistinctBy(scope=>scope.Column.Source.Id).Select(scope=>"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+ScopeValue(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));"));
+        // 固定名称查询另外执行自己的筛选，文本父字段要沿用普通候选的规范字节比较。
+        var filters=string.Join("\n",relation.TargetPage.Scopes.Concat(relation.Scopes).DistinctBy(scope=>scope.Column.Source.Id)
+            .Select(scope=>relation.CompoundProjectSource&&scope.Source=="parent"&&scope.Column.Type=="string?"&&
+                relation.FixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true
+                ?$"        filters.Add(FixedReadFilter.ForTextParent({Literal(scope.Column.Source.ColumnName)},targetParentId!));"
+                :"        filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+ScopeValue(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));"));
         var same=ControlRenderer.RelationContext(page,relation,false).SameParent;
         var variables=relation.Conditions is not{} condition?"":RelationConditionsCompilation.Variables(condition,"targetParentId");
         var bind=relation.Conditions is null?"":"        var bound=OptionsCondition"+suffix+".BindVariables(new Dictionary<string,object?>{"+variables+"});condition=condition is null?bound:condition.And(bound);";

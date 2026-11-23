@@ -179,7 +179,7 @@ internal static class RelationConditionsCompilation
         if(target is not null&&!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(target.Source))throw new InvalidOperationException("固定条件目标父必须来自真实物理字段。");
         var sourceParent=WriteSourceParent(model,table,page,parent);
         var sameParent="";
-        if(relation.CompoundStoredSource)
+        if(relation.CompoundProjectSource)
         {
             // 手写规则可修改实体，按候选读取前的最终字段复核全部来源父键。
             sourceParent=Value(relation.FixedSourceParent);
@@ -230,12 +230,12 @@ internal static class RelationConditionsCompilation
         var result=new List<ColumnModel>();
         var fixedTargets=RelationCompilation.ForPage(model,page,true)
             .Where(relation=>RelationCompilation.HasProjectTargetScope(relation.Target,relation.TargetPage)||
-                RelationCompilation.HasFixedListIdParent(relation)||relation.CompoundStoredSource);
+                RelationCompilation.HasFixedListIdParent(relation)||relation.CompoundProjectSource);
         foreach(var relation in RelationCompilation.ForPage(model,page).Where(relation=>relation.Conditions is not null)
             .Concat(fixedTargets).DistinctBy(relation=>relation.SourceColumn.Source.Id))
         {
             result.Add(relation.SourceColumn);
-            if(relation.CompoundStoredSource)result.AddRange(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column));
+            if(relation.CompoundProjectSource)result.AddRange(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column));
             if(relation.Conditions is {} conditions)result.AddRange(conditions.Forms.Select(binding=>binding.Column));
             var targetParent=ControlRenderer.RelationContext(page,relation,false).TargetParentField;
             if(targetParent is not null)result.Add(table.Columns.Single(column=>column.JsonName==targetParent));

@@ -357,7 +357,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     /// <summary>仅对已证明的普通下拉来源页启用同父复合物理范围。</summary>
     private static bool UsesPublishedCompoundListSource(GenerationModel model,PageModel page)=>
         page.Scopes.Count(scope=>scope.Source=="parent")>1&&
-        RelationCompilation.ForPage(model,page,true).Any(relation=>relation.CompoundStoredSource);
+        RelationCompilation.ForPage(model,page,true).Any(relation=>relation.CompoundProjectSource);
 
     /// <summary>已发布的文本父键按规范 ID 二进制比较。</summary>
     private static bool UsesFixedTextParent(GenerationModel model,TableModel table,PageModel page)=>
@@ -993,7 +993,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var fixedWriteExact = !relation.FunctionForm && DerivedRelationNamesCompilation.UsesFixedRead(model,relation) &&
                 ExactDataManageCompilation.Declared(relation.TargetPage) &&
                 (logicalPlan is not null || DerivedRelationNamesCompilation.UsesExactSingle(relation));
-            var lockScope=fixedWriteExact||relation.ScopedStoredList||relation.LogicalSourceParent||relation.Conditions is not null||logicalPlan is not null||
+            var lockScope=fixedWriteExact||relation.ScopedStoredList||relation.CompoundProjectSource||relation.LogicalSourceParent||
+                relation.Conditions is not null||logicalPlan is not null||
                 relation.Target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
             result.Append(FixedPageConditionCompilation.Declaration(relation.TargetPage,"OptionsPageCondition"+suffix))
@@ -1028,7 +1029,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if (relation.TargetParents.Count > 0)
             {
                 if (relation.LogicalSourceParent||sameParent&&
-                    (compoundStoredParent||relation.CompoundStoredSource||relation.FixedParent is {AdditionalTargets.Count:>0}||
+                    (compoundStoredParent||relation.CompoundProjectSource||relation.FixedParent is {AdditionalTargets.Count:>0}||
                         !relation.Target.IsGlobal&&fixedGlobalParent is not null))
                 {
                     var conflict=relation.LogicalSourceParent?"关联目标父必须与来源页的逻辑父一致。":"关联目标父必须与来源页的父记录一致。";
@@ -1036,7 +1037,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 }
                 if (sameParent) result.AppendLine("        targetParentId ??= parentId; // 元数据证明同父时兼容原 parentId。");
                 result.AppendLine($"        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException({Literal("关联目标范围要求有效 targetParentId，请使用 " + relation.Endpoint + "/page 分页合同。")});");
-                if(compoundStoredParent||relation.CompoundStoredSource)
+                if(compoundStoredParent||relation.CompoundProjectSource)
                     result.AppendLine("        if(targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"关联目标范围要求规范正整数 targetParentId。\");");
                 if (relation.ParentBinding?.Binding is null)
                 {
@@ -1067,7 +1068,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             foreach (var (column, _) in targetParentScopes)
             {
                 // 与名称联接使用同一种规范十进制比较，字符串父键不能因数据库排序规则而跨范围。
-                if(compoundStoredParent&&column.Type=="string?")
+                if((compoundStoredParent||relation.CompoundProjectSource)&&column.Type=="string?")
                     result.AppendLine($"        query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},targetParentId!);");
                 else
                     result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");

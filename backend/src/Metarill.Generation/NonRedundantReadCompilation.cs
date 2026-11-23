@@ -344,7 +344,8 @@ internal static partial class NonRedundantReadCompilation
         }
         return new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id,parent?.Source.Id)
         {
-            SourcePageId=relation.ScopedStoredList||UsesPageBoundGlobalList(relation)||relation.FixedParent is not null||relation.Target.IsGlobal&&parent is not null?page.Source.Id:null,
+            SourcePageId=relation.ScopedStoredList||relation.CompoundProjectSource||UsesPageBoundGlobalList(relation)||
+                relation.FixedParent is not null||relation.Target.IsGlobal&&parent is not null?page.Source.Id:null,
             ControlSourcePageId=relation.ScopedStoredList||UsesProjectControlRead(relation)?page.Source.Id:null
         };
     }
