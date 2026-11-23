@@ -32,10 +32,12 @@ public sealed class GlobalDerivedTargetGenerationTests
     }
     /// <summary>实时派生名称、源列表及选择回读沿全局中间页使用同一实际下拉范围。</summary>
     [Theory][InlineData("constant")][InlineData("form")][InlineData("account")][InlineData("rowProject")]
+    [InlineData("alternatePage")][InlineData("storedAlternatePage")]
     public async Task Global_R0_live_name_follows_the_actual_intermediate_control(string mode)
     {
         var catalog=Catalog(0,"int64","int64");
-        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
+        var alternatePage=mode is "alternatePage" or "storedAlternatePage";
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=mode=="storedAlternatePage"?1:0;
         Add("25","2","segment","int32");
         var selector=catalog.ConfigColumns.Single(column=>column.Id=="13");
         selector.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="20",nameField="name",whereSql="segment=17"});
@@ -60,6 +62,21 @@ public sealed class GlobalDerivedTargetGenerationTests
             Add("29","2","yz_project_id","string");
         }
 
+        if(alternatePage)
+        {
+            // 中间页 10 选择字典页 21，另一发布页 11 保留字典页 20。
+            selector.ControlDetail=JsonSerializer.Serialize(new{tableId="2",pageId="20",nameField="name"});
+            catalog.ConfigPages.Single(page=>page.Id=="20").WhereSql="status=1 AND segment=17";
+            catalog.ConfigPages.Add(new(){Id="21",ConfigTableId="2",YzProjectId="100",YzAdminTypeId="9",
+                WhereSql="status=1 AND segment=3"});
+            catalog.ConfigPageColumns.Add(new(){Id="2122",ConfigPageId="21",ConfigColumnId="22",YzProjectId="100",IsShow=1,IsEdit=1});
+            catalog.ConfigPageColumns.Single(field=>field.Id=="1013").Extra["controlDetail"]=
+                JsonSerializer.SerializeToElement("""{"pageId":"21"}""");
+            catalog.ConfigPages.Add(new(){Id="11",ConfigTableId="1",YzProjectId="100",YzAdminTypeId="9",WhereSql="status=1"});
+            catalog.ConfigPageColumns.Add(new(){Id="1113",ConfigPageId="11",ConfigColumnId="13",YzProjectId="100",IsShow=1,IsEdit=1});
+            catalog.ConfigPageColumns.Add(new(){Id="1114",ConfigPageId="11",ConfigColumnId="14",YzProjectId="100",IsShow=1});
+        }
+
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-live-control");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -77,20 +94,45 @@ public sealed class GlobalDerivedTargetGenerationTests
                 (consumer,"DerivedOptionsPlan30_38","global_target_name"),
                 (intermediate,"ReadPlan10","global_target_name")};
             if(mode=="rowProject")output.Add((intermediate,"CandidateReadPlan10","global_target_name"));
+            if(alternatePage)
+            {
+                output.Add((consumer,"ReadPlan30","selected_global_source_global_target_name"));
+                output.Add((consumer,"ExportReadPlan30","selected_global_source_global_target_name"));
+                output.Add((intermediate,"ReadPlan11","global_target_name"));
+                Assert.NotNull(consumer.GetMethod("Import30Async"));
+                Assert.NotNull(consumer.GetMethod("Export30Async"));
+            }
             foreach(var (owner,plan,field) in output)
             {
                 var current=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
                     owner.GetField(plan,flags|System.Reflection.BindingFlags.Static)!.GetValue(null)).BindAccount(actor);
                 var mysql=current.GetType().GetProperty("MySql",flags|System.Reflection.BindingFlags.Instance)!.GetValue(current)!;
-                Assert.True(Assert.IsType<bool>(mysql.GetType().GetProperty("RequiresPublishedProjectIdentity",flags|System.Reflection.BindingFlags.Instance)!.GetValue(mysql)));
                 var expression=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",flags|System.Reflection.BindingFlags.Instance)!.Invoke(mysql,[field]));
-                Assert.Contains("EXISTS (SELECT 1 FROM `global_target`",expression);
-                Assert.Contains(".`segment`",expression);
-                Assert.Contains(".`status`",expression);
-                var values=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
-                    mysql.GetType().GetProperty("Constants",flags|System.Reflection.BindingFlags.Instance)!.GetValue(mysql)).Values;
-                Assert.Contains(3,values);
-                Assert.DoesNotContain(17,values);
+                var scope=expression;
+                if(alternatePage)
+                {
+                    // 同一业务页包含两个字典角色，只核对当前名称表达式使用的真实末端联接。
+                    var label=Assert.Single(System.Text.RegularExpressions.Regex.Matches(expression,@"([a-zA-Z_]\w*)\.`name`"));
+                    var prefix="`global_target` "+label.Groups[1].Value+" ON ";
+                    var from=Assert.IsType<string>(mysql.GetType().GetProperty("From",flags|System.Reflection.BindingFlags.Instance)!.GetValue(mysql));
+                    scope+=Assert.Single(from.Split(" LEFT JOIN ",StringSplitOptions.None),join=>join.StartsWith(prefix,StringComparison.Ordinal));
+                }
+                else
+                {
+                    Assert.True(Assert.IsType<bool>(mysql.GetType().GetProperty("RequiresPublishedProjectIdentity",flags|System.Reflection.BindingFlags.Instance)!.GetValue(mysql)));
+                    Assert.Contains("EXISTS (SELECT 1 FROM `global_target`",expression);
+                }
+                Assert.Contains(".`segment`",scope);
+                Assert.Contains(".`status`",scope);
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    mysql.GetType().GetProperty("Constants",flags|System.Reflection.BindingFlags.Instance)!.GetValue(mysql));
+                var values=constants.Values;
+                var expected=plan=="ReadPlan11"?17:3;
+                var excluded=plan=="ReadPlan11"?3:17;
+                Assert.Contains(expected,values);
+                Assert.DoesNotContain(excluded,values);
+                if(alternatePage)
+                    Assert.Contains(constants,parameter=>Equals(parameter.Value,expected)&&scope.Contains(parameter.Key,StringComparison.Ordinal));
                 if(mode=="form")Assert.Contains((owner==consumer&&plan.StartsWith("Read",StringComparison.Ordinal)||plan.StartsWith("Export",StringComparison.Ordinal)
                     ?"r0":"b")+".`lookup_segment`",expression);
                 if(mode=="account")Assert.Contains(6351L,values);

@@ -273,15 +273,13 @@ internal static class RelationCompilation
             sourceParents.All(column=>Parent(model,column,owner,sourcePage).Source.Id==parent.Parent.Id)?parent:null;
     }
 
-    /// <summary>实时下拉按实际使用页证明目标；冗余副本保持全表唯一绑定。</summary>
+    /// <summary>实时下拉和单选按实际使用页证明派生名称；冗余副本保持全表唯一绑定。</summary>
     internal static GlobalSingleRelationPlan GlobalTargetForPage(GenerationModel model,TableModel owner,PageModel page,
         ColumnModel source,TableModel target)
     {
         if(owner.Source.IsRongyu==1)
             return GlobalSingleRelationTarget.RequireCached(model.Catalog,owner.Source,source.Source,target.Source);
-        return source.Source.ControlKind=="List"
-            ? GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source,page.Source)
-            : GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source);
+        return GlobalSingleRelationTarget.Require(model.Catalog,owner.Source,source.Source,target.Source,page.Source);
     }
 
     /// <summary>有账号或逻辑范围的下拉即使隐藏，也须复核默认值和最终持久化值。</summary>

@@ -530,14 +530,14 @@ public static partial class MySqlNonRedundantReadCompiler
             };
         }
 
-        /// <summary>全局下拉使用生成计划中的来源页，与多值名称的实际中间页同时存在时必须一致。</summary>
+        /// <summary>全局单值名称使用生成计划中的实际来源页；同时存在的页级证明必须一致。</summary>
         private PageMetadata? GlobalSingleSourcePage(string alias,TableMetadata source,ColumnMetadata relation)
         {
             var actual=MultiNameSourcePage(alias)??(alias==rootAlias?candidatePage??SelectedMultiPage:null)??CrossNamePage(alias);
-            if(relation.ControlKind!="List"||ExplicitSingleBinding(alias,relation) is not {} binding||
+            if(relation.ControlKind is not("List" or "SelectPage")||ExplicitSingleBinding(alias,relation) is not {} binding||
                 (binding.SourcePageId??binding.ControlSourcePageId) is not {} pageId)return actual;
             if(actual is not null&&actual.Id!=pageId||binding.ControlSourcePageId is {} controlPage&&controlPage!=pageId)
-                throw new InvalidOperationException("全局下拉的读取范围必须来自同一实际来源页。");
+                throw new InvalidOperationException("全局单值名称的读取范围必须来自同一实际来源页。");
             return catalog.ConfigPages.Single(page=>page.Id==pageId&&page.ConfigTableId==source.Id);
         }
 
