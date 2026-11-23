@@ -177,7 +177,17 @@ internal static class RelationConditionsCompilation
         var parent=page.Scopes.FirstOrDefault(scope=>scope.Source=="parent").Column;
         var target=context.TargetParentField is null?null:table.Columns.Single(column=>column.JsonName==context.TargetParentField);
         if(target is not null&&!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(target.Source))throw new InvalidOperationException("固定条件目标父必须来自真实物理字段。");
-        return $"            var relationQuery{number} = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async({WriteSourceParent(model,table,page,parent)}, {Value(target)}, actor, cancellationToken, true, false{WriteArgument(relation)});\n"
+        var sourceParent=WriteSourceParent(model,table,page,parent);
+        var sameParent="";
+        if(relation.CompoundStoredSource)
+        {
+            // 手写规则可修改实体，按候选读取前的最终字段复核全部来源父键。
+            sourceParent=Value(relation.FixedSourceParent);
+            var mismatch=page.Scopes.Where(scope=>scope.Source=="parent"&&scope.Column!=relation.FixedSourceParent)
+                .Select(scope=>$"{Value(scope.Column)}!={sourceParent}").Distinct(StringComparer.Ordinal);
+            sameParent=$"            if ({string.Join(" || ",mismatch)}) throw new InvalidOperationException(\"下拉来源记录的父键必须一致。\");\n";
+        }
+        return sameParent+$"            var relationQuery{number} = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async({sourceParent}, {Value(target)}, actor, cancellationToken, true, false{WriteArgument(relation)});\n"
             +$"            relationQuery{number} = relationQuery{number}.Where(row => relationIds{number}.Contains(row.Id));\n";
     }
     /// <summary>逻辑父级来自已授权的页范围，不能读取稀疏实体的原始父槽。</summary>
@@ -220,11 +230,12 @@ internal static class RelationConditionsCompilation
         var result=new List<ColumnModel>();
         var fixedTargets=RelationCompilation.ForPage(model,page,true)
             .Where(relation=>RelationCompilation.HasProjectTargetScope(relation.Target,relation.TargetPage)||
-                RelationCompilation.HasFixedListIdParent(relation));
+                RelationCompilation.HasFixedListIdParent(relation)||relation.CompoundStoredSource);
         foreach(var relation in RelationCompilation.ForPage(model,page).Where(relation=>relation.Conditions is not null)
             .Concat(fixedTargets).DistinctBy(relation=>relation.SourceColumn.Source.Id))
         {
             result.Add(relation.SourceColumn);
+            if(relation.CompoundStoredSource)result.AddRange(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column));
             if(relation.Conditions is {} conditions)result.AddRange(conditions.Forms.Select(binding=>binding.Column));
             var targetParent=ControlRenderer.RelationContext(page,relation,false).TargetParentField;
             if(targetParent is not null)result.Add(table.Columns.Single(column=>column.JsonName==targetParent));

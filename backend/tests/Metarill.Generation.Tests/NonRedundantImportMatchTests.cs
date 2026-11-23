@@ -202,6 +202,102 @@ public sealed class NonRedundantImportMatchTests
         Assert.Contains("同一真实父表",error.Message);
     }
 
+    /// <summary>两个来源父键同时约束原下拉，实时回显和名称副本都复核实际记录。</summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    public async Task Stored_list_requires_both_physical_source_parent_columns(int storage, bool compoundTarget)
+    {
+        var catalog=Catalog("string");
+        AddStoredPickerTarget(catalog,compoundTarget,splitControl:compoundTarget);
+        catalog.ConfigTables.Add(new(){Id="7",TableName="compound_picker_owner",IsRongyu=storage});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="7011",ConfigTableId="7",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="7012",ConfigTableId="7",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="7013",ConfigTableId="7",ColumnName="delete_no",LogicalType="datetime"},
+            new(){Id="7014",ConfigTableId="7",ColumnName="country_id",LogicalType="int64",LinkConfigTableId="3"},
+            new(){Id="7017",ConfigTableId="7",ColumnName="review_country_id",LogicalType="string",LinkConfigTableId="3"},
+            new(){Id="7015",ConfigTableId="7",ColumnName="picker_name",LogicalType="string",Extra=new()
+            {
+                ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                ["columnFullName"]=JsonSerializer.SerializeToElement("picker.name")
+            }}
+        ]);
+        var page=new PageMetadata{Id="701",ConfigTableId="7",IsNew=1,IsSave=1,IsCopy=1,IsImport=1,IsExport=1,
+            WhereSql="yz_project_id=@current_yz_project_id AND review_country_id=@parent_id AND country_id=@parentId"};
+        page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(compoundTarget?"edit":"list");
+        catalog.ConfigPages.Add(page);
+        catalog.ConfigPageColumns.Add(new(){Id="7017015",ConfigPageId="701",ConfigColumnId="7015",IsShow=1});
+        AddStoredPickerRole(catalog,"7","701","7016",compoundTarget);
+        RedundantMultiNameCacheTests.Published(catalog);
+
+        var model=GenerationModel.Create(catalog,"Example.CompoundListOwner");
+        string sql;
+        const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+        if(storage==0)
+        {
+            var owner=model.Tables.Single(table=>table.Source.Id=="7");
+            var publishedPage=Assert.Single(owner.Pages);
+            var view=NonRedundantReadCompilation.ForPage(model,owner,publishedPage);
+            var read=NonRedundantReadCompilation.CompilePage(model,owner,["id","picker_name"],["picker_name"],
+                [],view.SingleTargets,view.MultiTargets);
+            var mysql=typeof(NonRedundantReadPlan).GetProperty("MySql",hidden)!.GetValue(read)!;
+            sql=Assert.IsType<string>(mysql.GetType().GetProperty("From",hidden)!.GetValue(mysql));
+        }
+        else
+        {
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("picker_name",maintenance.MixedSourceColumns["compound_picker_owner"]);
+            var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+            var plan=plans["7"]!;
+            Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
+            var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+            sql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["picker_name"]));
+        }
+        Assert.Contains("CAST(b."+(char)96+"review_country_id"+(char)96+" AS CHAR)",sql);
+        Assert.Contains("CAST(b."+(char)96+"country_id"+(char)96+" AS CHAR)",sql);
+        Assert.Equal(compoundTarget,sql.Contains("approval_country_id",StringComparison.Ordinal));
+        var generated=BackendRenderer.Render(model).Single(file=>file.Path=="Services/CompoundPickerOwnerService.g.cs").Content;
+        Assert.Contains("OptionsScope701_7016Async(request.ParentId, groupPickerId.Key",generated);
+        Assert.Contains("Import701Async",generated);
+        Assert.Contains("Export701Async",generated);
+        Assert.Contains("targetParentId!=parentId",generated);
+        Assert.Contains("ApplyTextParent(query,session,\"review_country_id\",parentId!",generated);
+        Assert.Contains("entity.ReviewCountryId!=entity.CountryId?.ToString(CultureInfo.InvariantCulture)",generated);
+        Assert.Contains("originalCandidateValues.ReviewCountryId",generated);
+        Assert.Contains("当前下拉来源页要求规范正整数父键",generated);
+
+        // 编译实际生成包，证明宿主内嵌的目录仍能重新绑定两个来源字段。
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-compound-list-owner");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(model.Namespace+".Generated.Services.CompoundPickerOwnerService",true)!;
+            Assert.NotNull(service.GetMethod("Create701Async"));
+            Assert.NotNull(service.GetMethod("Update701Async"));
+            Assert.NotNull(service.GetMethod("Copy701Async"));
+            Assert.NotNull(service.GetMethod("Import701Async"));
+            Assert.NotNull(service.GetMethod("Export701Async"));
+            if(storage==0)
+                Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan701",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+
+        var target=catalog.ConfigTables.Single(table=>table.Id=="6");
+        var targetFields=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).Select(column=>column.ColumnName);
+        var targetTerms=FixedConditionPlan.Compile(catalog.ConfigPages.Single(item=>item.Id=="601").WhereSql,targetFields).Terms;
+        var parent=MultiTargetParentScope.CompileStoredListPage(catalog,target,targetTerms)!;
+        var source=catalog.ConfigTables.Single(table=>table.Id=="7");
+        var picker=catalog.ConfigColumns.Single(column=>column.Id=="7016");
+        Assert.Equal("7017",Assert.Single(parent.SingleSource(catalog,source,picker,page).AdditionalColumns).Id);
+        catalog.ConfigColumns.Single(column=>column.Id=="7017").LinkConfigTableId="4";
+        Assert.Throws<InvalidOperationException>(()=>parent.SingleSource(catalog,source,picker,page));
+    }
+
     /// <summary>原字典页和控件可分别声明同一父记录的物理字段。</summary>
     private static void AddStoredPickerTarget(MetadataCatalog catalog,bool compoundTarget,bool splitControl)
     {

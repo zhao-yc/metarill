@@ -16,7 +16,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(target.IsRongyu==1&&foreign.ControlKind=="List"&&!GlobalCrossTableTarget.Declared(target))
             {
                 var condition=FixedConditionPlan.Compile(page.WhereSql,columns[target.Id].Keys);
-                parent=StoredProjectListParent(target,condition.Terms.Concat(control.Terms));
+                parent=MultiTargetParentScope.CompileStoredListPage(catalog,target,condition.Terms.Concat(control.Terms));
             }
             else
             {
@@ -89,19 +89,6 @@ public static partial class MySqlNonRedundantReadCompiler
             }
         }
 
-        /// <summary>普通冗余字典的页条件和控件条件一起证明同一个实际父记录，保留全部目标物理字段。</summary>
-        private MultiTargetParentScope? StoredProjectListParent(TableMetadata target,IEnumerable<FixedConditionTerm> terms)
-        {
-            // 同一列的重复声明仍属单父范围，旧的两种 parent 参数拼法使用同一比较。
-            var declarations=terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
-                MultiTargetParentScope.IsParameter(value.Text)))
-                .Select(term=>term is {Comparison:FixedConditionComparison.Equal,Values:[{Kind:FixedConditionValueKind.Variable} value]}&&
-                    MultiTargetParentScope.IsParameter(value.Text)?term.Field+"=@parentId":term.ToDefinition())
-                .Distinct(StringComparer.Ordinal);
-            var condition=FixedConditionPlan.Compile(string.Join(" AND ",declarations),columns[target.Id].Keys);
-            return MultiTargetParentScope.CompileSelectionPage(catalog,target,condition,allowGlobalParent:true,
-                allowStoredPhysicalParents:true);
-        }
 
         /// <summary>冗余字典按实际页面验证物理条件，实时读取绑定请求账号，维护绑定来源行账号与表单值。</summary>
         private string ProjectStoredListCondition(TableMetadata source,string owner,ColumnMetadata relation,TableMetadata target,
@@ -123,7 +110,7 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             else
             {
-                parent=StoredProjectListParent(target,terms);
+                parent=MultiTargetParentScope.CompileStoredListPage(catalog,target,terms);
             }
             if (parent is {Logical:true} || (parent is null)!=(sourceParentId is null) ||
                 page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)

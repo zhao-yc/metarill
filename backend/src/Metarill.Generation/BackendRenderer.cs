@@ -306,6 +306,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("    {");
         if(UsesPublishedPhysicalMultiSource(model,table,page))
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前多选页要求已发布的来源父键使用规范正整数。\");");
+        else if(UsesPublishedCompoundListSource(model,page))
+            result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前下拉来源页要求规范正整数父键。\");");
         if(sharedRedundant)result.AppendLine("        ValidateActor(actor);").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);");
         else if(multiGlobal is not null)result.AppendLine("        ValidateActor(actor);");
         var checkedGlobalParent=false;
@@ -352,11 +354,16 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         page.Scopes.Any(scope=>scope.Source=="parent")&&
         MultiSelectCompilation.ForService(model,table,page).Any(definition=>definition.PublishedPhysicalSource);
 
-    /// <summary>原多选目标和同父来源的项目内文本父键都按规范 ID 二进制比较。</summary>
+    /// <summary>仅对已证明的普通下拉来源页启用同父复合物理范围。</summary>
+    private static bool UsesPublishedCompoundListSource(GenerationModel model,PageModel page)=>
+        page.Scopes.Count(scope=>scope.Source=="parent")>1&&
+        RelationCompilation.ForPage(model,page,true).Any(relation=>relation.CompoundStoredSource);
+
+    /// <summary>已发布的文本父键按规范 ID 二进制比较。</summary>
     private static bool UsesFixedTextParent(GenerationModel model,TableModel table,PageModel page)=>
         page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="string?")&&
         (Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source)||
-            UsesPublishedPhysicalMultiSource(model,table,page));
+            UsesPublishedPhysicalMultiSource(model,table,page)||UsesPublishedCompoundListSource(model,page));
 
     private static string Query(GenerationModel model, TableModel table, PageModel page)
     {
@@ -665,7 +672,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if(GlobalCachedParentCompilation.ForSelfTree(model,table,page) is {} parent)
             return Check(parent.Foreign);
         if(NonRedundantCrossParentCompilation.Enabled(model,table,page)||
-            !UsesPublishedPhysicalMultiSource(model,table,page)&&
+            !UsesPublishedPhysicalMultiSource(model,table,page)&&!UsesPublishedCompoundListSource(model,page)&&
             MultiGlobalParentCompilation.CompoundSourceTarget(model,table,page) is null)return "";
         return string.Concat(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>Check(scope.Column)));
 
@@ -1021,7 +1028,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             if (relation.TargetParents.Count > 0)
             {
                 if (relation.LogicalSourceParent||sameParent&&
-                    (compoundStoredParent||relation.FixedParent is {AdditionalTargets.Count:>0}||
+                    (compoundStoredParent||relation.CompoundStoredSource||relation.FixedParent is {AdditionalTargets.Count:>0}||
                         !relation.Target.IsGlobal&&fixedGlobalParent is not null))
                 {
                     var conflict=relation.LogicalSourceParent?"关联目标父必须与来源页的逻辑父一致。":"关联目标父必须与来源页的父记录一致。";
@@ -1029,7 +1036,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 }
                 if (sameParent) result.AppendLine("        targetParentId ??= parentId; // 元数据证明同父时兼容原 parentId。");
                 result.AppendLine($"        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException({Literal("关联目标范围要求有效 targetParentId，请使用 " + relation.Endpoint + "/page 分页合同。")});");
-                if(compoundStoredParent)
+                if(compoundStoredParent||relation.CompoundStoredSource)
                     result.AppendLine("        if(targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"关联目标范围要求规范正整数 targetParentId。\");");
                 if (relation.ParentBinding?.Binding is null)
                 {

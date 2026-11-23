@@ -39,6 +39,20 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public static MultiTargetParentScope? CompileGlobalPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox=false)=>
         CompilePublishedPage(catalog,table,condition,checkbox,globalTarget:true,allowGlobalParent:true);
 
+    /// <summary>普通冗余字典把实际页面和控件的父参数合成一组物理父范围。</summary>
+    public static MultiTargetParentScope? CompileStoredListPage(MetadataCatalog catalog,TableMetadata table,
+        IEnumerable<FixedConditionTerm> terms)
+    {
+        // 同一物理列可重复声明，原前端的两种父参数拼法语义一致。
+        var declarations=terms.Where(ParentTerm).Select(term=>
+            term is {Comparison:FixedConditionComparison.Equal,Values:[{Kind:FixedConditionValueKind.Variable} value]}&&
+            IsParameter(value.Text)?term.Field+"=@parentId":term.ToDefinition()).Distinct(StringComparer.Ordinal);
+        var fields=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
+            .Select(column=>column.ColumnName);
+        var condition=FixedConditionPlan.Compile(string.Join(" AND ",declarations),fields);
+        return CompileSelectionPage(catalog,table,condition,allowGlobalParent:true,allowStoredPhysicalParents:true);
+    }
+
     private static MultiTargetParentScope? CompilePublishedPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,
         bool checkbox,bool globalTarget=false,bool allowGlobalParent=false,bool allowStoredPhysicalParents=false)
     {
@@ -172,10 +186,10 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         var explicitKeys=keys.Where(column=>column.LinkConfigTableId==Parent.Id).ToArray();
         var allFields=RelationStorageColumns.Expand(source,columns);
         // 项目内物理组合只扩展普通字典，显式全局字典继续要求原发布证明。
-        var projectPhysicalSource=(relation.ControlKind=="MultiSelectPage"||checkbox&&allowProjectPhysicalCheckbox)&&
-            !Global&&source.IsRongyu is (0 or 1)&&
-            !GlobalCrossTableTarget.Declared(source)&&catalog.ConfigTables.Any(table=>
-                table.Id==Target.ConfigTableId&&!GlobalCrossTableTarget.Declared(table));
+        var projectTarget=catalog.ConfigTables.SingleOrDefault(table=>table.Id==Target.ConfigTableId&&!GlobalCrossTableTarget.Declared(table));
+        var projectSource=!Global&&source.IsRongyu is (0 or 1)&&!GlobalCrossTableTarget.Declared(source)&&projectTarget is not null;
+        var projectPhysicalSource=projectSource&&(relation.ControlKind=="MultiSelectPage"||checkbox&&allowProjectPhysicalCheckbox);
+        var storedListSource=projectSource&&single&&relation.ControlKind=="List"&&projectTarget!.IsRongyu==1;
         var selected=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&
             (sourcePageId is null||page.Id==sourcePageId)).Select(page=>
         {
@@ -222,8 +236,11 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
                 scoped.Any(term=>CrossTableStorageColumns.IsLogicalPathField(source,columns,term.Field));
             var singleSelection=single&&relation.ControlKind is ("List" or "SelectPage");
             var compoundGlobal=Global&&(singleSelection||multiRelation||checkboxRelation);
-            // 普通项目的多选来源也可以绑定同一父表的多个实际物理字段。
-            var compoundPhysical=projectPhysicalSource&&scoped.All(term=>keys.Any(column=>column.ColumnName==term.Field));
+            // 下拉来源页已经约束目标所属父表时，所有物理范围都必须纳入证明，不能遇到不同父表就退回单列。
+            bool TargetKey(FixedConditionTerm term)=>keys.Any(column=>column.ColumnName==term.Field);
+            var compoundPhysical=projectPhysicalSource&&scoped.All(TargetKey)||
+                storedListSource&&scoped.Any(TargetKey)&&scoped.All(term=>
+                    columns.Any(column=>column.ColumnName==term.Field&&PhysicalKey(catalog,source,column)));
             if(scoped.Length>1&&(checkboxRelation||multiSelection||compoundGlobal||compoundPhysical||singleSelection&&allowLogical))
             {
                 // 只有所有范围指向同一父表时才能绑定原 parentId，独立表单父字段仍按原定义解析。
@@ -233,7 +250,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
                 if(parents.Length==scoped.Length&&parents.All(parent=>parent.Parent.Id==Parent.Id&&(!parent.Logical||allowLogical)))
                 {
                     var logicalParents=parents.Where(parent=>parent.Logical);
-                    // 跨页读取固定代表列，多选同父关系保留来源的全部实际字段。
+                    // 跨页读取固定代表列，已证明的同父关系保留来源的全部实际字段。
                     var keepAll=multiSelection||compoundGlobal||compoundPhysical;
                     var representative=keepAll
                         ?logicalParents.MinBy(parent=>parent.Target.Id,StringComparer.Ordinal)??parents.MinBy(parent=>parent.Target.Id,StringComparer.Ordinal)!
