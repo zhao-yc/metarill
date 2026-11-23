@@ -11,7 +11,7 @@ public sealed class FileMetadataContext
     public IReadOnlyList<MetadataCatalog> Catalogs { get; }
     /// <summary>带逻辑父范围的文件来源从真实路径核验父身份。</summary>
     internal bool HasLogicalFileParents{get;}
-    /// <summary>路径条件、逻辑父与附件引用读取须共用快照。</summary>
+    /// <summary>固定条件与父范围涉及多条查询，读取时和附件引用共用快照。</summary>
     internal bool NeedsFileReadSnapshot{get;}
     private readonly Dictionary<(string Project,string Table),IReadOnlyList<ColumnMetadata>> physicalColumns=[];
     private readonly Dictionary<(string Project,string Page,string Field),NonRedundantReadPlan> derivedExactPlans=[];
@@ -87,8 +87,8 @@ public sealed class FileMetadataContext
             .Select(page=>pageScopes[(catalog.YzProjectId,page.Id)])).ToArray();
         HasLogicalFileParents=fileScopes.Any(scope=>scope is {Crosses.Count:>0});
         foreach(var catalog in snapshots)foreach(var page in catalog.ConfigPages)CompileDerivedExact(catalog,page);
-        NeedsFileReadSnapshot=HasLogicalFileParents||fileScopes.Any(scope=>scope?.LogicalConditionPlan is not null)||
-            derivedExactPlans.Count>0;
+        NeedsFileReadSnapshot = HasLogicalFileParents || fileScopes.Any(scope => scope is { Parents.Count: > 0 } ||
+            scope?.LogicalConditionPlan is not null) || derivedExactPlans.Count > 0;
     }
     /// <summary>文件父范围和精确读取使用同一张已发布表的规范字段身份。</summary>
     internal static ColumnMetadata ResolveExactColumn(MetadataCatalog catalog,TableMetadata table,string field)=>

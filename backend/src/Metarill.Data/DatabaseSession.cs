@@ -9,9 +9,10 @@ namespace Metarill.Data;
 /// <summary>一个实例可供多个请求使用；事务仅沿当前异步调用链传播。</summary>
 public sealed class DatabaseSession : IDisposable
 {
-    private sealed class TransactionScope(DbTransaction transaction,bool scalarCacheWrite=false)
+    private sealed class TransactionScope(DbTransaction transaction, bool readSnapshot, bool scalarCacheWrite)
     {
         public DbTransaction Transaction { get; } = transaction;
+        public bool IsReadSnapshot { get; } = readSnapshot;
         public bool RollbackOnly { get; set; }
         public List<Func<Task>>? RollbackActions { get; set; }
         public bool ScalarCacheWrite { get; } = scalarCacheWrite;
@@ -41,6 +42,8 @@ public sealed class DatabaseSession : IDisposable
         }
     }
     public DbTransaction? CurrentTransaction => _transaction.Value?.Transaction;
+    /// <summary>已有的只读快照可以复用，但不能在其上发出业务当前锁读。</summary>
+    public bool HasWriteTransaction => _transaction.Value is { IsReadSnapshot: false };
     internal bool UsesOwnedOrm => _ownsOrm;
 
     /// <summary>证明连接只读且不借用业务池，避免持有事务的请求等待同池第二条连接。</summary>
@@ -163,7 +166,7 @@ public sealed class DatabaseSession : IDisposable
         }
         catch(Exception error){beginObservation?.Complete(null,error);throw;}
         await using var ownedTransaction=transaction;
-        var current = new TransactionScope(transaction,scalarCacheWrite);
+        var current = new TransactionScope(transaction, readSnapshot, scalarCacheWrite);
         _transaction.Value = current;
         var commitAttempted = false;
         try

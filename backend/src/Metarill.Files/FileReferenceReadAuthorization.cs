@@ -16,9 +16,9 @@ internal static class FileReferenceReadAuthorization
     internal static Task<bool> CanReadAsync(SqlRowStore store,FileMetadataContext registry,IRuntimeAuthorization authorization,long fileId,RuntimeActor actor,CancellationToken token)
     {
         if(registry.NeedsFileReadSnapshot&&store.Session.CurrentTransaction is null)return store.Session.InReadSnapshotAsync(()=>CanReadCoreAsync(store,registry,authorization,fileId,actor,token,false),token);
-        return CanReadCoreAsync(store,registry,authorization,fileId,actor,token,store.Session.CurrentTransaction is not null);
+        return CanReadCoreAsync(store,registry,authorization,fileId,actor,token,store.Session.HasWriteTransaction);
     }
-    /// <summary>外部逻辑父读取固定同一快照，已有写事务使用当前读，不让旧RR来源或父链提供权限。</summary>
+    /// <summary>带父范围的外部读取使用同一快照，已有写事务从当前引用、来源和父记录核验。</summary>
     private static async Task<bool> CanReadCoreAsync(SqlRowStore store,FileMetadataContext registry,IRuntimeAuthorization authorization,long fileId,RuntimeActor actor,CancellationToken token,bool currentRead)
     {
         var project=FileReferenceScope.PositiveId(actor.ProjectId);
@@ -34,7 +34,13 @@ internal static class FileReferenceReadAuthorization
             FilePageScope scope;IReadOnlyList<FileParentScope> scopes;ExactFileScope? exact;FixedConditionSqlPlan? condition;NonRedundantReadPlan? logicalScope;
             try{scope=registry.PageScope(catalog,page);scopes=scope.Parents;condition=scope.Condition?.BindAccount(actor);logicalScope=scope.LogicalConditionPlan?.BindAccount(actor);exact=ExactScope(registry,catalog,physical,page,authorization);}
             catch(Exception denied)when(denied is NotSupportedException or ArgumentException or UnauthorizedAccessException or SecurityException){continue;}
-            var references=await store.ReadAsync("yz_file_ref",new Dictionary<string,object?>{{"file_id",fileId},{"page_id",FileReferenceScope.PositiveId(page.Id)},{"yz_project_id",project}},token);
+            var referenceFilters = new Dictionary<string,object?>
+            {
+                ["file_id"] = fileId, ["page_id"] = FileReferenceScope.PositiveId(page.Id), ["yz_project_id"] = project
+            };
+            var references = currentRead
+                ? await store.ReadForUpdateAsync("yz_file_ref", referenceFilters, token)
+                : await store.ReadAsync("yz_file_ref", referenceFilters, token);
             foreach(var reference in references)
             {
                 var name=SqlRowStore.Text(reference,"field_name");if(!fields.TryGetValue(name,out var field))continue;
@@ -60,7 +66,7 @@ internal static class FileReferenceReadAuthorization
                     var valid=true;
                     foreach(var parent in parents)
                     {
-                        if(!await ParentExistsAsync(store,parent.Scope,parent.Id,project,token)){valid=false;break;}
+                        if(!await ParentExistsAsync(store, parent.Scope, parent.Id, project, currentRead, token)){valid=false;break;}
                     }
                     if(valid)return true;
                 }
@@ -92,7 +98,7 @@ internal static class FileReferenceReadAuthorization
         var projection = exact is { Derived:true }?registry.DerivedExactPlan(catalog,page,field)?.BindAccount(actor):null;
         var row = await ReadRecordAsync(store, table, physical, field, scope, exact, projection, recordId,
             FileReferenceScope.PositiveId(actor.ProjectId), logicalScope is null ? condition : null, token,
-            currentRead: true, forceCurrent: true);
+            currentRead: true);
         if (row is null) throw new UnauthorizedAccessException("文件记录不在本页修改范围。");
     }
 
@@ -119,7 +125,7 @@ internal static class FileReferenceReadAuthorization
     }
 
     /// <summary>只投影必要列；观察者内复用真实事务以读取本批刚写的记录，独立请求才创建自有连接。</summary>
-    private static async Task<Dictionary<string,object?>?> ReadRecordAsync(SqlRowStore store,TableMetadata table,IReadOnlyList<ColumnMetadata> columns,ColumnMetadata field,FilePageScope scope,ExactFileScope? exact,NonRedundantReadPlan? derivedPlan,long record,long project,FixedConditionSqlPlan? condition,CancellationToken token,bool currentRead=false,bool forceCurrent=false)
+    private static async Task<Dictionary<string,object?>?> ReadRecordAsync(SqlRowStore store,TableMetadata table,IReadOnlyList<ColumnMetadata> columns,ColumnMetadata field,FilePageScope scope,ExactFileScope? exact,NonRedundantReadPlan? derivedPlan,long record,long project,FixedConditionSqlPlan? condition,CancellationToken token,bool currentRead=false)
     {
         var scopes=scope.Parents;
         if(exact is not null&&exact.Values.Count==0)return null;
@@ -149,17 +155,23 @@ internal static class FileReferenceReadAuthorization
         if(columns.Any(column=>column.ColumnName=="delete_no"))query+=" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL";
         if(exact is not null)query+=" AND "+provider.QuoteIdentifier(exact.Column.ColumnName)+" IN ("+string.Join(",",exact.Values.Select((value,index)=>Parameter(command,store,"exact_"+index,value!)))+")";
         if(condition is not null)query+=" AND "+condition.BindConstants(command,store.Session,"file_page");
-        command.CommandText=currentRead&&(forceCurrent||scope.Crosses.Count>0||scope.LogicalConditionPlan is not null)?provider.BuildSelectForUpdate(query):query;await using var reader=await command.ExecuteReaderAsync(token);if(!await reader.ReadAsync(token))return null;var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<reader.FieldCount;index++)row.Add(reader.GetName(index),await reader.IsDBNullAsync(index,token)?null:reader.GetValue(index));return row;
+        command.CommandText = currentRead ? provider.BuildSelectForUpdate(query) : query;await using var reader=await command.ExecuteReaderAsync(token);if(!await reader.ReadAsync(token))return null;var row=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<reader.FieldCount;index++)row.Add(reader.GetName(index),await reader.IsDBNullAsync(index,token)?null:reader.GetValue(index));return row;
     }
     /// <summary>父身份从实际记录读取，复用当前事务可看见本批刚建父；父仍须有效且同项目。</summary>
-    private static async Task<bool> ParentExistsAsync(SqlRowStore store,FileParentScope scope,long id,long project,CancellationToken token)
+    private static async Task<bool> ParentExistsAsync(SqlRowStore store,FileParentScope scope,long id,long project,bool currentRead,CancellationToken token)
     {
         var provider=store.Session.Provider;var transaction=store.Session.CurrentTransaction;
         await using var ownedConnection=transaction is null?provider.CreateConnection(store.Session.Options):null;
         var connection=transaction?.Connection??ownedConnection??throw new InvalidOperationException("文件读取事务连接不可用。");
         if(ownedConnection is not null)await connection.OpenAsync(token);
         await using var command=provider.CreateCommand(connection);command.Transaction=transaction;
-        command.CommandText="SELECT "+provider.QuoteIdentifier("id")+" FROM "+provider.QuoteIdentifier(scope.Parent.TableName)+" WHERE "+provider.QuoteIdentifier("id")+"="+Parameter(command,store,"parent_id",id)+(scope.Project is{} owner?" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter(command,store,"parent_project",FileReferenceScope.IdentityValue(owner,project)):"")+(scope.HasSoftDelete?" AND "+provider.QuoteIdentifier("delete_no")+" IS NULL":"");return await command.ExecuteScalarAsync(token) is not null;
+        var query = "SELECT " + provider.QuoteIdentifier("id") + " FROM " + provider.QuoteIdentifier(scope.Parent.TableName)
+            + " WHERE " + provider.QuoteIdentifier("id") + "=" + Parameter(command, store, "parent_id", id);
+        if (scope.Project is { } owner)
+            query += " AND " + provider.QuoteIdentifier("yz_project_id") + "=" + Parameter(command, store, "parent_project", FileReferenceScope.IdentityValue(owner, project));
+        if (scope.HasSoftDelete) query += " AND " + provider.QuoteIdentifier("delete_no") + " IS NULL";
+        command.CommandText = currentRead ? provider.BuildSelectForUpdate(query) : query;
+        return await command.ExecuteScalarAsync(token) is not null;
     }
     /// <summary>固定参数名和值分开传递，不拼接用户值。</summary>
     private static string Parameter(DbCommand command,SqlRowStore store,string name,object value){var parameter=command.CreateParameter();parameter.ParameterName=name;parameter.Value=value;command.Parameters.Add(parameter);return store.Session.Provider.ParameterPlaceholder(name);}

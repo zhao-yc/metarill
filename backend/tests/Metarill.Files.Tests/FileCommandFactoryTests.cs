@@ -269,12 +269,15 @@ public sealed class FileCommandFactoryTests
 
     /// <summary>保护文件读取和原引用同步核对同一个实际存储父键，文本父键必须逐字对应真实父记录。</summary>
     [Theory]
-    [InlineData("string", false)]
-    [InlineData("text", false)]
-    [InlineData("varchar", false)]
-    [InlineData("string", true)]
-    [InlineData("int64", false)]
-    public async Task File_read_and_reference_sync_share_project_parent_identity(string type, bool noncanonical)
+    [InlineData("string", false, "identity")]
+    [InlineData("text", false, "identity")]
+    [InlineData("varchar", false, "identity")]
+    [InlineData("string", true, "identity")]
+    [InlineData("int64", false, "identity")]
+    [InlineData("string", false, "current")]
+    [InlineData("int64", false, "snapshot")]
+    [InlineData("string", false, "nested-snapshot")]
+    public async Task File_read_and_reference_sync_share_project_parent_identity(string type, bool noncanonical, string mode)
     {
         const long parentId = 9007199254740993;
         const long recordId = 71;
@@ -319,6 +322,17 @@ public sealed class FileCommandFactoryTests
         var synchronizing = false;
         var writes = 0;
         var parentChecks = 0;
+        var authorizationReadCount = 0;
+        DbTransaction? authorizationTransaction = null;
+        void AssertAuthorizationRead(DbCommand command)
+        {
+            if (mode == "identity" || synchronizing) return;
+            Assert.Equal(mode == "current", command.CommandText.EndsWith("FOR UPDATE", StringComparison.Ordinal));
+            Assert.NotNull(command.Transaction);
+            authorizationTransaction ??= command.Transaction;
+            Assert.Same(authorizationTransaction, command.Transaction);
+            authorizationReadCount++;
+        }
         provider.Scalar = command =>
         {
             Assert.Same(session.CurrentTransaction, command.Transaction);
@@ -331,7 +345,9 @@ public sealed class FileCommandFactoryTests
             Assert.Contains("FROM `parent_record`", command.CommandText);
             Assert.Contains(command.Parameters.Cast<DbParameter>(), parameter => Equals(parameter.Value, parentId));
             Assert.Contains(command.Parameters.Cast<DbParameter>(), parameter => Equals(parameter.Value, 1L));
-            Assert.Equal(synchronizing, command.CommandText.EndsWith("FOR UPDATE", StringComparison.Ordinal));
+            AssertAuthorizationRead(command);
+            if (mode == "identity" || synchronizing)
+                Assert.Equal(synchronizing, command.CommandText.EndsWith("FOR UPDATE", StringComparison.Ordinal));
             parentChecks++;
             return parentId;
         };
@@ -339,6 +355,7 @@ public sealed class FileCommandFactoryTests
         {
             var data = new DataTable();
             var sql = command.CommandText;
+            AssertAuthorizationRead(command);
             if (sql.Contains("FROM `child_record`", StringComparison.Ordinal))
             {
                 data.Columns.Add("id", typeof(long));
@@ -375,8 +392,15 @@ public sealed class FileCommandFactoryTests
             return 1;
         };
 
-        var canRead = await FileReferenceReadAuthorization.CanReadAsync(store, registry, authorization, fileId,
+        Task<bool> CanRead() => FileReferenceReadAuthorization.CanReadAsync(store, registry, authorization, fileId,
             authorization.RequireActor(), default);
+        var canRead = mode switch
+        {
+            "current" => await session.InTransactionAsync(CanRead),
+            "nested-snapshot" => await session.InReadSnapshotAsync(CanRead),
+            _ => await CanRead()
+        };
+        if (mode != "identity") Assert.Equal(3, authorizationReadCount);
         synchronizing = true;
         var request = new FileReferenceSyncRequest("20", "10", "14", "child_record", "71", parentText, "attachments", ["81"]);
         if (noncanonical)
