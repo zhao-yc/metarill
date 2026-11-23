@@ -32,6 +32,10 @@ public sealed class AccountScopedCrossCache
             globalSingleSource:globalSingleSource,allowFixedOnly:allowFixedOnly,separateExactScope:separateExactScope,
             additionalParents:additionalParents);
 
+    /// <summary>全局物理多值字典的显式项目等值由固定查询作用域绑定，账号仍取实际来源行。</summary>
+    internal static AccountScopedCrossCache CompileStoredMulti(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage)=>
+        Compile(catalog,source,target,targetPage,recursive:false,globalSingleSource:GlobalCrossTableTarget.Declared(source),storedMulti:true);
+
     /// <summary>递归候选允许逻辑字段的常量条件，账号等值仍须对应来源行真实物理归属。</summary>
     internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,
         ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null,
@@ -43,7 +47,7 @@ public sealed class AccountScopedCrossCache
     private static AccountScopedCrossCache Compile(MetadataCatalog catalog, TableMetadata source, TableMetadata target,
         PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,
         IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false,bool allowFixedOnly=false,bool separateExactScope=false,
-        IReadOnlySet<string>? additionalParents=null)
+        IReadOnlySet<string>? additionalParents=null,bool storedMulti=false)
     {
         if(globalTreeSource)GlobalCachedRelationSource.RequireSelfTree(catalog,source);
         // 仅经发布证明的全局单值或物理账号多选缓存可绑定来源行；根查询另行约束行项目。
@@ -77,8 +81,9 @@ public sealed class AccountScopedCrossCache
             }
             var variable = Variable(term);
             if((multiParent?.ColumnName==term.Field||additionalParents?.Contains(term.Field)==true)&&MultiTargetParentScope.IsParameter(variable))continue;
-            if (term.Field == "yz_project_id" && variable.Equals("current_yz_project_id", StringComparison.OrdinalIgnoreCase) &&
-                !GlobalCrossTableTarget.Declared(target)) continue;
+            if(GlobalMultipleRelationTarget.IsProjectScope(term)&&
+                (!GlobalCrossTableTarget.Declared(target)||storedMulti&&target.IsRongyu==1&&
+                    targets.TryGetValue(term.Field,out var project)&&project.LogicalType is "int64" or "string"))continue;
             if (term.Field == "yz_project_id" || !AccountConditionVariables.IsPageField(variable, term.Field) ||
                 selfTreeFields?.Contains(term.Field)==true||!targets.TryGetValue(term.Field,out var targetOwner)||targetOwner.LogicalType is not ("int32" or "int64" or "string")) throw Invalid();
             account.Add((targetOwner, variable));

@@ -108,7 +108,8 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
     }
 
     /// <summary>只从真实目标表解析类型；调用方已证明页面和目标同属发布目录。</summary>
-    internal static MySqlPublishedRelationCondition? Compile(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowAccount=false,bool projectParent=false)
+    internal static MySqlPublishedRelationCondition? Compile(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        bool allowAccount=false,bool projectParent=false,bool storedProject=false)
     {
         if(string.IsNullOrWhiteSpace(page.WhereSql))return null;
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
@@ -118,6 +119,13 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var definition=projectParent?GlobalSingleRelationTarget.ProjectParentConstants(page,physical.Keys):page.WhereSql;
         if(definition.Length==0)return null;
         var syntax=FixedConditionPlan.Compile(definition,physical.Keys);
+        if(storedProject)
+        {
+            // 项目等值已在 MySQL 范围内绑定，剩余门店和常量保持原类型及绑定时机。
+            definition=string.Join(" AND ",syntax.Terms.Where(term=>!GlobalMultipleRelationTarget.IsProjectScope(term))
+                .Select(term=>term.ToDefinition()));
+            syntax=FixedConditionPlan.Compile(definition,physical.Keys);
+        }
         if(!allowAccount&&syntax.Variables.Count!=0)throw new NotSupportedException("全局候选只支持已发布的物理常量条件。");
         return new(definition,Array.AsReadOnly(syntax.Fields.ToArray()),FixedConditionSqlPlan.Compile(syntax,physical));
     }

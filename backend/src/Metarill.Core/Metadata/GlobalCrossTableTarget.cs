@@ -92,6 +92,13 @@ public static class GlobalCrossTableTarget
         else RequirePublishedName(catalog,table,page,name,true,allowAccount:true);
     }
 
+    /// <summary>物理冗余多值字典可以同时限定当前项目和账号，其他全局关系沿用各自证明。</summary>
+    public static void RequireStoredMultiAccountCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
+        if(table.IsRongyu!=1)throw new NotSupportedException("全局账号多值候选要求物理冗余字典。");
+        RequireTarget(catalog,table,page,true,allowAccount:true,allowStoredProject:true);
+    }
+
     /// <summary>仅跨表固定用途接受由完整路径读取的逻辑条件，名称和发布身份仍按原规则校验。</summary>
     public static void RequireCrossTableCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata? name=null)
     {
@@ -141,7 +148,7 @@ public static class GlobalCrossTableTarget
     }
 
     /// <summary>只按明确用途开放R0，逻辑成员须在实际级联计划中进一步证明。</summary>
-    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false)
+    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false,bool allowStoredProject=false)
     {
         if(!Declared(table)||(table.IsRongyu!=1&&!(allowR0&&table.IsRongyu==0))||table.IsView!=0||table.IsFunctionTable!=0)throw new NotSupportedException("全局跨表目标要求显式声明的普通R0或R1实体。");
         if(table.IsRongyu==0)GlobalDerivedRelationSource.RequireTable(catalog,table);
@@ -162,6 +169,13 @@ public static class GlobalCrossTableTarget
             if((multiParent?.Target.ColumnName==term.Field||multiParent?.AdditionalTargets.Any(scope=>scope.Target.ColumnName==term.Field)==true)&&
                 term.Values.Count==1&&
                 MultiTargetParentScope.IsParameter(term.Values[0].Text))continue;
+            if(allowStoredProject&&GlobalMultipleRelationTarget.IsProjectScope(term))
+            {
+                var project=columns.Single(item=>item.ColumnName==term.Field);
+                if(project.LogicalType is not ("int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(storage,table,project))
+                    throw new NotSupportedException("全局多值项目条件必须使用真实物理项目ID。");
+                continue;
+            }
             if(!allowAccount||term.Field=="yz_project_id"||term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||
                 !AccountConditionVariables.IsPageField(term.Values[0].Text,term.Field))
                 throw new NotSupportedException("全局跨表目标只允许已发布的固定条件或明确账号等值。");

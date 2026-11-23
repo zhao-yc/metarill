@@ -32,7 +32,14 @@ public static class GlobalMultipleRelationTarget
         (checkbox?page.Extra.GetValueOrDefault("type").ToString() is "" or "0" or "1" or "2":
             page.Extra.GetValueOrDefault("type").ToString()=="2")&&
         string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString())&&
-        condition.Variables.Count>0&&condition.Variables.All(AccountConditionVariables.IsSupported);
+        condition.Variables.Any(AccountConditionVariables.IsSupported)&&condition.Terms.All(term=>
+            IsProjectScope(term)||term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable)
+                .All(value=>AccountConditionVariables.IsSupported(value.Text)));
+
+    /// <summary>全局字典的显式项目范围仅接受真实项目列与当前认证项目的等值。</summary>
+    public static bool IsProjectScope(FixedConditionTerm term)=>
+        term is {Field:"yz_project_id",Comparison:FixedConditionComparison.Equal,Values:[var value]}&&
+        value.Kind==FixedConditionValueKind.Variable&&value.Text.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase);
 
     /// <summary>实时派生与缓存维护分别验证来源存储模式，其余发布和终点约束完全相同。</summary>
     private static GlobalMultipleRelationPlan RequireSource(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target,bool cached)
@@ -68,7 +75,7 @@ public static class GlobalMultipleRelationTarget
             _=GlobalCrossTableTarget.ExactPageParent(catalog,target,page);
         else if(selfTreeScope)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page,allowMultiParent:true);
         else if(storedAccount)
-            GlobalCrossTableTarget.RequireAccountCandidate(catalog,target,page);
+            GlobalCrossTableTarget.RequireStoredMultiAccountCandidate(catalog,target,page);
         else if(scoped||target.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported))
             GlobalCrossTableTarget.RequireMultiCandidate(catalog,target,page);
         else GlobalCrossTableTarget.RequireMultiple(catalog,target,page);

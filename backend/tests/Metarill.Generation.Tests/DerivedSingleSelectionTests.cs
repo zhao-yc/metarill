@@ -317,7 +317,12 @@ public sealed class DerivedSingleSelectionTests
     [InlineData(1, false, true, true)]
     [InlineData(0, true, true, true)]
     [InlineData(1, true, true, true)]
-    public async Task Stored_global_selection_uses_published_account_dictionary(int storage, bool globalSource, bool managedDictionary = false, bool multiple = false)
+    [InlineData(0, false, true, true, true)]
+    [InlineData(1, false, true, true, true)]
+    [InlineData(0, true, true, true, true)]
+    [InlineData(1, true, true, true, true)]
+    public async Task Stored_global_selection_uses_published_account_dictionary(int storage, bool globalSource,
+        bool managedDictionary = false, bool multiple = false, bool pageProject = false)
     {
         const string ns = "Example.GlobalAccountSelection";
         var catalog = Catalog("account_selection", false);
@@ -354,6 +359,7 @@ public sealed class DerivedSingleSelectionTests
         }
         var cacheName = display.ColumnName;
         targetPage.WhereSql = "status=1 AND store_id=@current_store_id";
+        if(pageProject)targetPage.WhereSql+=" AND yz_project_id=@current_yz_project_id";
         foreach (var page in catalog.ConfigPages.Where(page => page.ConfigTableId == source.Id))
         {
             page.WhereSql += " AND store_id=@current_store_id";
@@ -382,7 +388,7 @@ public sealed class DerivedSingleSelectionTests
             {
                 var owned = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(targetPage))!;
                 owned.Id = id;
-                owned.WhereSql += " AND yz_project_id=@current_yz_project_id";
+                if(!pageProject)owned.WhereSql += " AND yz_project_id=@current_yz_project_id";
                 if (id == "202") owned.Extra.Remove("type");
                 catalog.ConfigPages.Add(owned);
                 foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigPageId == targetPage.Id).ToArray())
@@ -472,7 +478,7 @@ public sealed class DerivedSingleSelectionTests
                 var sqlType = typeof(DerivedSingleSelectionTests).GetMethod(nameof(SelectionSql), BindingFlags.Static | BindingFlags.NonPublic)!
                     .MakeGenericMethod(assembly.GetType(ns + ".Generated.Entities.AccountSelectionParty", true)!);
                 var candidate = Sql("Query201", new PageRequest(), actor);
-                Assert.DoesNotContain("`yz_project_id`", candidate);
+                Assert.Equal(pageProject,candidate.Contains("`yz_project_id`",StringComparison.Ordinal));
                 Assert.Contains("`store_id`", candidate);
                 Assert.Contains("`status`", candidate);
                 Assert.Contains("`delete_no`", candidate);
@@ -481,7 +487,7 @@ public sealed class DerivedSingleSelectionTests
                     var selectedSql = Sql("Query201", new PageRequest { SelectedIds = ["9007199254740995"] }, actor);
                     Assert.Contains("`id`", selectedSql);
                     Assert.Contains("`store_id`", selectedSql);
-                    Assert.DoesNotContain("`yz_project_id`", selectedSql);
+                    Assert.Equal(pageProject,selectedSql.Contains("`yz_project_id`",StringComparison.Ordinal));
                     var selectedCode = await File.ReadAllTextAsync(Path.Combine(output, "Controllers", targetModel.Name + "Controller.g.cs"));
                     Assert.Contains("""[HttpPost("selection/selected")]""", selectedCode);
                     Assert.Contains("""SelectionSelected201Async(request, Actor("list"), cancellationToken)""", selectedCode);
@@ -491,13 +497,16 @@ public sealed class DerivedSingleSelectionTests
                 Assert.Contains("`yz_project_id`", Sql("Scope201", actor, null));
                 Assert.Contains("`yz_project_id`", Sql("Scope202", actor, null));
                 Assert.Contains("`yz_project_id`", Sql("Query203", new PageRequest(), actor));
-                Assert.Contains("`yz_project_id`", Sql("Query201", new PageRequest(), actor, false));
-                Assert.Contains("Query201(request, actor, candidateRows: false)", dictionaryCode);
+                if(!pageProject)
+                {
+                    Assert.Contains("`yz_project_id`", Sql("Query201", new PageRequest(), actor, false));
+                    Assert.Contains("Query201(request, actor, candidateRows: false)", dictionaryCode);
+                }
                 var error = Assert.Throws<TargetInvocationException>(
                     () => Sql("Query201", new PageRequest(), actor with { StoreId = null }));
                 Assert.IsType<UnauthorizedAccessException>(error.InnerException);
                 var query = FixedPageQueryCompilation.For(target, targetModel);
-                Assert.False(FixedPageQueryCompilation.TryProveSelection(query,
+                Assert.Equal(pageProject,FixedPageQueryCompilation.TryProveSelection(query,
                     new(targetPage.Id, "name", "选择", "yz_project_id=@current_yz_project_id", ""), out _));
 
                 string Sql(string method, params object?[] values)
@@ -511,6 +520,20 @@ public sealed class DerivedSingleSelectionTests
             }
 
             const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+            const string dictionaryProject = "multi_value.`yz_project_id`=@project_scope_";
+            if(pageProject)
+            {
+                // Excel 反查和写入校验复用字典计划，不能靠弹窗列表补齐项目条件。
+                var labelPlan=Assert.IsType<NonRedundantReadPlan>(service.GetField(
+                    "MultiDerivedPlan101_15",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                var missingStore=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5");
+                Assert.Throws<UnauthorizedAccessException>(()=>labelPlan.BindAccount(missingStore));
+                var readLabel=labelPlan.BindAccount(missingStore with {StoreId=9007199254740993L});
+                var fixedLabel=readLabel.GetType().GetProperty("MySql",hidden)!.GetValue(readLabel)!;
+                var scopeLabel=Assert.IsType<string>(fixedLabel.GetType().GetProperty("Scope",hidden)!.GetValue(fixedLabel));
+                Assert.Contains(".`yz_project_id`=@project_scope_",scopeLabel);
+                Assert.Contains(".`store_id`=",scopeLabel);
+            }
             if (storage == 0)
             {
                 // 原业务列表的名称联接须绑定真实认证门店，读取和筛选共用该计划。
@@ -521,6 +544,11 @@ public sealed class DerivedSingleSelectionTests
                 var bound = plan.BindAccount(new RuntimeActor(7, "合成账号", false, catalog.YzProjectId, "5")
                     { StoreId = 9007199254740993L });
                 var read = bound.GetType().GetProperty("MySql", hidden)!.GetValue(bound)!;
+                if(pageProject)
+                {
+                    var label=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,[cacheName]));
+                    Assert.Contains(dictionaryProject,label);
+                }
                 if (globalSource && multiple)
                     Assert.Contains("`yz_project_id`", Assert.IsType<string>(read.GetType().GetProperty("Scope", hidden)!.GetValue(read)));
                 var constants = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
@@ -549,6 +577,7 @@ public sealed class DerivedSingleSelectionTests
                     Assert.Contains("`yz_project_id`", Assert.IsType<string>(read.GetType().GetProperty("Scope", hidden)!.GetValue(read)));
                 var label = Assert.IsType<string>(read.GetType().GetMethod("Expression", hidden)!
                     .Invoke(read, [cacheName]));
+                if(pageProject)Assert.Contains(dictionaryProject,label);
                 Assert.Matches(@"BINARY CAST\((?!b\.)\w+\.`store_id` AS CHAR\)=BINARY CAST\(b\.`store_id` AS CHAR\)", label);
 
 

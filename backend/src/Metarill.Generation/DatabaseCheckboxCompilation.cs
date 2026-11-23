@@ -114,7 +114,8 @@ internal static class DatabaseCheckboxCompilation
                 // 复选的搜索、回读与 Excel 必须沿已发布缓存目标页的同一固定范围。
                 publishedGlobalPage=target.Pages.Single(page=>page.Source.Id==proof.Page.Id);
                 // 物理字典的账号条件直接进入复选查询，名称副本仍沿同一发布页重算。
-                storedAccountPage=publishedGlobalPage is {Scopes.Count:0,Condition:{} publishedCondition}&&
+                storedAccountPage=publishedGlobalPage.Condition is {} publishedCondition&&
+                    publishedGlobalPage.Scopes.All(scope=>scope.Source=="project")&&
                     GlobalMultipleRelationTarget.IsStoredAccountPage(target.Source,publishedGlobalPage.Source,publishedCondition.Syntax,checkbox:true);
                 if(storedAccountPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage)||
                     GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name)||
@@ -204,6 +205,10 @@ internal static class DatabaseCheckboxCompilation
             var globalRealtimeNameOverride=realtimeRead&&target.IsGlobal&&target.Source.IsRongyu==0&&usesNameOverride;
             var controlRead=realtimeRead&&(conditions is not null||
                 scopes.Any(scope=>scope.Source=="parent"||target.IsGlobal&&scope.Source=="project"));
+            // 固定页的项目条件进入候选、写和 Excel，实时名称已从实际发布页读取该条件。
+            if(storedAccountPage)
+                scopes=scopes.Concat(publishedGlobalPage!.Scopes)
+                    .DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
             // 旧复选允许只绑定表。具有物理行项目归属的全局目录仍按真实身份限定。
             if (functionForm && NonRedundantReadCompilation.HasGlobalRowProject(target))
             {
@@ -412,7 +417,8 @@ internal static class DatabaseCheckboxCompilation
         if(definition.DerivedName&&!definition.SharedDerivedPageScope)return false;
         // 账号字典的全称和简称可共享控件显式声明的项目等值；各页的完整条件已与表级核对。
         return definition.Target.IsGlobal
-            ? definition.NameTargetPage is {Scopes.Count:0} globalPage&&
+            ? definition.NameTargetPage is {} globalPage&&
+                (globalPage.Scopes.Count==0||definition.HasStoredAccountScope&&globalPage.Scopes.All(scope=>scope.Source=="project"))&&
                 (definition.Scopes.Count==0||definition.HasStoredAccountScope&&definition.Scopes.All(scope=>scope.Source=="project"))&&
                 (globalPage.Condition is null||globalPage.Condition.Syntax.Variables.Count==0||definition.SharedAccountScope)
             : (definition.NameTargetPage?.Condition is null||definition.PhysicalTargetPage?.Condition is {Syntax.Variables.Count:0}||

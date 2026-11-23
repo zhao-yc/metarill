@@ -355,6 +355,7 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 if (exactSingleCandidate) _=GlobalCrossTableTarget.ExactPageParent(catalog,root,candidatePage);
                 else if (physicalCandidate&&!accountPhysicalCandidate) GlobalCrossTableTarget.Require(catalog, root, candidatePage);
+                else if (physicalCandidate&&multiLabel) GlobalCrossTableTarget.RequireStoredMultiAccountCandidate(catalog,root,candidatePage);
                 else GlobalCrossTableTarget.RequireAccountCandidate(catalog, root, candidatePage);
             }
             if(tables.Values.GroupBy(table=>table.TableName,StringComparer.OrdinalIgnoreCase).Any(group=>group.Count()!=1))throw new InvalidOperationException("项目表名重复。");
@@ -889,7 +890,10 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>全局候选和联接用同一固定页面条件，逻辑删除仍由物理字段约束。</summary>
         private string PublishedScope(TableMetadata table,string alias,PageMetadata page,string parameterKey,bool allowAccount=false,bool projectParent=false,bool scopedSingle=false,bool scopedCrossTable=false,MultiTargetParentScope? accountParent=null,string? sourceParent=null)
         {
-            var scope=Scope(table,alias,projectScoped:projectParent);
+            var storedProject=accountPhysicalCandidate&&multiLabel&&table.Id==root.Id&&alias==rootAlias&&
+                table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&
+                FixedConditionPlan.Compile(page.WhereSql,columns[table.Id].Keys).Terms.Any(GlobalMultipleRelationTarget.IsProjectScope);
+            var scope=Scope(table,alias,projectScoped:projectParent||storedProject);
             if(scopedSingle||accountParent is not null)
             {
                 // 原单值联接和候选一样携带全部同父字段，隐藏名称也不能绕过附加父范围。
@@ -897,11 +901,12 @@ public static partial class MySqlNonRedundantReadCompiler
                     PublishedSingleCondition(table,alias,page,parentField:accountParent?.Target,additionalScopes:accountParent?.AdditionalTargets);
                 return scope.Length==0?logical:scope+" AND "+logical;
             }
-            var condition=PublishedCondition(table,alias,page,allowAccount,projectParent);
+            var condition=PublishedCondition(table,alias,page,allowAccount,projectParent,storedProject);
             if(condition is null)return scope;
             if(accountPhysicalCandidate&&table.Id==root.Id&&alias==rootAlias&&cascadeCacheOwner is {} owner&&condition.Variables.Count>0)
             {
-                var proof=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,globalSingleSource:owner.GlobalSingleSource);
+                var proof=storedProject?AccountScopedCrossCache.CompileStoredMulti(catalog,owner.Table,table,page):
+                    AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,globalSingleSource:owner.GlobalSingleSource);
                 cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                 var owned=AccountCacheScope(proof,table,alias,owner.Alias,render:true,owner.Table,"mt_global_scope_"+parameterKey);
                 return scope.Length==0?owned:scope+" AND "+owned;
@@ -915,9 +920,10 @@ public static partial class MySqlNonRedundantReadCompiler
         }
 
         /// <summary>候选固定条件只能读取真实非敏感列，并登记为改名传播和维护的依赖。</summary>
-        private FixedConditionSqlPlan? PublishedCondition(TableMetadata table,string alias,PageMetadata page,bool allowAccount=false,bool projectParent=false)
+        private FixedConditionSqlPlan? PublishedCondition(TableMetadata table,string alias,PageMetadata page,
+            bool allowAccount=false,bool projectParent=false,bool storedProject=false)
         {
-            var condition=MySqlPublishedRelationCondition.Compile(catalog,table,page,allowAccount,projectParent);
+            var condition=MySqlPublishedRelationCondition.Compile(catalog,table,page,allowAccount,projectParent,storedProject);
             if(condition is null)return null;
             foreach(var field in condition.Fields){Use(table,Column(table,field));Touch(alias,field);}
             return condition.Plan;
