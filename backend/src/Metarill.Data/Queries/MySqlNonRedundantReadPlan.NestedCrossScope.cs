@@ -1,4 +1,5 @@
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
 using Metarill.Data.Relations;
 
 namespace Metarill.Data.Queries;
@@ -9,6 +10,18 @@ public static partial class MySqlNonRedundantReadCompiler
     internal static MySqlNonRedundantReadPlan CompileProjectRelation(MetadataCatalog catalog,string tableId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope> singleTargets)=>
         CompileRelationScope(catalog,tableId,outputs,[],dependencies,deferCascadeNames:false,singleTargets:singleTargets);
+
+    /// <summary>按实际候选页编译固定名称，沿页级控件绑定字典并校验单值来源。</summary>
+    internal static MySqlNonRedundantReadPlan CompilePublishedScalarMatch(MetadataCatalog catalog,string tableId,string pageId,string field)
+    {
+        MetadataValidation.Validate(catalog);
+        var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
+        var plan=new Builder(catalog,tableId,matching:true){CrossNameSourcePage=page}.Compile([field],[]);
+        if(!plan.Origins.TryGetValue(field,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column)||
+            plan.MultiProjections.Count>0||plan.Crosses.Count>0)
+            throw new NotSupportedException("关系名称必须落到实际发布页的非凭据单值终点。");
+        return plan;
+    }
 
     /// <summary>候选与实际父路径使用同一发布页范围；调用端不能替换其中任一逻辑条件。</summary>
     internal static MySqlNonRedundantReadPlan CompileCrossPageCandidate(MetadataCatalog catalog,string tableId,string pageId,

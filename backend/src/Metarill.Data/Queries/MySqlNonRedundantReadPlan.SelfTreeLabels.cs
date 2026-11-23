@@ -12,18 +12,6 @@ public static partial class MySqlNonRedundantReadCompiler
     private sealed record SelfTreeLabelProof(TableMetadata Target,ColumnMetadata Name,ColumnMetadata Parent,
         PageMetadata Page,FixedConditionSqlPlan? Condition,bool Scoped,bool SelfTreeScoped);
 
-    /// <summary>按实际自树候选页编译叶名终点，沿页级控件绑定字典并校验标量来源。</summary>
-    internal static string PublishedSelfTreeLabelType(MetadataCatalog catalog,string tableId,string pageId,string field)
-    {
-        MetadataValidation.Validate(catalog);
-        var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
-        var plan=new Builder(catalog,tableId,matching:true){CrossNameSourcePage=page}.Compile([field],[]);
-        if(!plan.Origins.TryGetValue(field,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column)||
-            plan.MultiProjections.Count>0||plan.Crosses.Count>0)
-            throw new NotSupportedException("自树叶名必须落到实际发布页的非凭据单值终点。");
-        return plan.Types[field];
-    }
-
     /// <summary>只将原控件的叶子名称标为逻辑来源，完整路径显示文本仍由原前端合同输出。</summary>
     private static bool IsSelfTreeLabel(ColumnMetadata control,string field)=>
         control.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&

@@ -86,10 +86,8 @@ internal static class SelectionNameFilterCompilation
                         { Gap("非冗余名称列没有绑定同一单值外键和目标名称。"); continue; }
                         var field=storage.Source.ColumnName;
                         // 同一稳定名称键必须使用实际业务页的联接表达式，不能按表级名称验证。
-                        var read=overrideSelection is null
-                            ?Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[field])
-                            :NonRedundantReadCompilation.CompilePage(model,table,[field],[],[],
-                                NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,[field]),[]);
+                        var read=NonRedundantReadCompilation.CompilePage(model,table,[field],[],[],
+                            NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,[field]),[]);
                         if (read.OutputTypes[storage.Source.ColumnName] != DerivedRelationNamesCompilation.NameType(selection.Name))
                         { Gap("非冗余名称筛选路径的终点类型与辅助列不一致。"); continue; }
                         kind = integerStorage ? SelectionNameFilterKind.JoinedIntegerLike :

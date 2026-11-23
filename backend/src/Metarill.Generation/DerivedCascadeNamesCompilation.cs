@@ -21,7 +21,7 @@ internal static class DerivedCascadeNamesCompilation
             throw new InvalidOperationException("自树的身份和条件必须为物理标量或固定级联路径。");
         // 项目内的树也要用实际页面证明各段名称，否则无法继承全局字典的发布条件。
         if(!target.IsGlobal)
-            _=NonRedundantReads.PublishedSelfTreeLabelType(model.Catalog,target.Source.Id,plan.TargetPage.Source.Id,plan.Name.Source.ColumnName);
+            _=NonRedundantReads.CompilePublishedScalarMatch(model.Catalog,target.Source.Id,plan.TargetPage.Source.Id,plan.Name.Source.ColumnName);
         return CascadeTargetOrderCompilation.Require(model, target, plan.TargetPage, plan.Name, plan.Parent,
             plan.DerivedName, plan.DerivedOrder, plan.Order, fields);
     }

@@ -84,7 +84,7 @@ public static class SelfTreeCache
         {
             var labelType=publishedPageId is null
                 ?NonRedundantReads.CompileMatch(catalog,target.Id,value.ColumnName).OutputTypes[value.ColumnName]
-                :NonRedundantReads.PublishedSelfTreeLabelType(catalog,target.Id,publishedPageId,value.ColumnName);
+                :NonRedundantReads.CompilePublishedScalarMatch(catalog,target.Id,publishedPageId,value.ColumnName).OutputTypes[value.ColumnName];
             if(labelType!=value.LogicalType)throw Invalid();
         }
         var name=foreign.ColumnName[..^3]+"_name";var cache=sourceColumns.Single(c=>c.ColumnName==name);if(cache.Id==foreign.Id||cache.LogicalType!="string"||cache.IsVirtualColumn!=0||!sourceStorage.IsPhysical(cache)||cache.ControlKind is not("" or "TextArea")||cache.LinkConfigTableId.Length>0||cache.Extra.GetValueOrDefault("joinTable").ToString().Length>0||cache.Extra.GetValueOrDefault("linkConfigPageId").ToString().Length>0)throw Invalid();

@@ -24,6 +24,75 @@ public sealed class DerivedSingleSelectionTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>项目内单选页使用实际备用全局字典，原查询和 Excel 继续绑定门店及表单值。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Project_selection_uses_the_published_global_dictionary(bool parent)
+    {
+        const string ns="Example.ProjectSelectionDictionary";
+        var catalog=Catalog("scope_select",parent);
+        catalog.ConfigTables.Single(table=>table.Id=="4").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="42");
+        catalog.ConfigColumns.AddRange([
+            new(){Id="45",ConfigTableId="4",ColumnName="store_id",LogicalType="int64"},
+            new(){Id="46",ConfigTableId="4",ColumnName="option_group",LogicalType="int32"},
+            new(){Id="213",ConfigTableId="2",ColumnName="dictionary_group",LogicalType="int32"}
+        ]);
+        var primary=catalog.ConfigPages.Single(page=>page.Id=="401");
+        primary.WhereSql="option_group=17";
+        catalog.ConfigPages.Add(new(){Id="402",ConfigTableId="4",YzProjectId=catalog.YzProjectId,
+            YzAdminTypeId=primary.YzAdminTypeId,WhereSql="option_group>=7 AND store_id=@current_store_id"});
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="40244",ConfigPageId="402",ConfigColumnId="44",IsShow=1},
+            new(){Id="201213",ConfigPageId="201",ConfigColumnId="213",IsShow=1,IsEdit=1}
+        ]);
+        catalog.ConfigColumns.Single(column=>column.Id=="27").ControlDetail=
+            """{"tableId":"4","pageId":"401","nameField":"name"}""";
+        var dictionary=catalog.ConfigPageColumns.Single(field=>field.Id=="20127");
+        dictionary.IsShow=1;
+        dictionary.IsEdit=1;
+        dictionary.Extra["controlDetail"]=JsonSerializer.SerializeToElement(
+            """{"pageId":"402","whereSql":"option_group=@formParameters.dictionaryGroup"}""");
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-project-selection-dictionary");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.ScopeSelectOrderService",true)!;
+            var actor=new RuntimeActor(9,"实际门店",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L};
+            const BindingFlags fields=BindingFlags.Static|BindingFlags.NonPublic;
+            const BindingFlags properties=BindingFlags.Instance|BindingFlags.NonPublic;
+
+            foreach(var member in new[]{"DerivedOptionsPlan101_15","ReadPlan101","ExportReadPlan101"})
+            {
+                var plan=Assert.IsType<NonRedundantReadPlan>(service.GetField(member,fields)!.GetValue(null));
+                Assert.True(plan.RequiresAccount);
+                Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+                var sql=typeof(NonRedundantReadPlan).GetProperty("MySql",properties)!.GetValue(plan.BindAccount(actor))!;
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    sql.GetType().GetProperty("Constants",properties)!.GetValue(sql));
+                Assert.Contains(actor.StoreId,constants.Values);
+                Assert.Contains(7,constants.Values);
+                Assert.DoesNotContain(17,constants.Values);
+                var from=Assert.IsType<string>(sql.GetType().GetProperty("From",properties)!.GetValue(sql));
+                var nameField=member=="DerivedOptionsPlan101_15"?"company_name":"customer_company_name";
+                var label=Assert.IsType<string>(sql.GetType().GetMethod("Expression",properties)!.Invoke(sql,[nameField]));
+                Assert.Contains(".`dictionary_group`",from+label);
+                Assert.Contains(".`store_id`",from+label);
+            }
+            Assert.NotNull(service.GetMethod("OptionsSelected101_15Async"));
+            Assert.NotNull(service.GetMethod("Import101Async"));
+            Assert.NotNull(service.GetMethod("Export101Async"));
+        }
+        finally
+        {
+            if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);
+        }
+    }
+
     /// <summary>从生成服务执行两个筛选入口，验证模糊联接名称、目标精确筛选和回执的原 JSON 类型。</summary>
     [Theory]
     [InlineData("int32", "-2000000001", false)]

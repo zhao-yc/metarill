@@ -412,11 +412,11 @@ public static class NonRedundantReads
         new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,["id",field],[],
             singleTargets,conditionFields,importPageType:"1"));
 
-    /// <summary>自树候选与维护都按实际发布页核对同一派生叶名终点。</summary>
-    public static string PublishedSelfTreeLabelType(MetadataCatalog catalog,string tableId,string pageId,string field)
+    /// <summary>生成及维护按实际发布页核对派生名称的固定单值终点。</summary>
+    public static NonRedundantReadPlan CompilePublishedScalarMatch(MetadataCatalog catalog,string tableId,string pageId,string field)
     {
-        if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("该数据库尚未完成自树叶名适配。");
-        return MySqlNonRedundantReadCompiler.PublishedSelfTreeLabelType(catalog,tableId,pageId,field);
+        if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("该数据库尚未完成实际发布页的固定名称适配。");
+        return new(MySqlNonRedundantReadCompiler.CompilePublishedScalarMatch(catalog,tableId,pageId,field));
     }
 
     /// <summary>生成期取得固定单值名称实际读取的来源物理列；同表其它角色可能形成安全超集，不返回SQL。</summary>

@@ -177,10 +177,10 @@ internal static class DerivedRelationNamesCompilation
             else if (name.Type == "string?") GlobalCrossTableTarget.RequireSingleName(model.Catalog, target.Source, page.Source, name.Source);
             else GlobalCrossTableTarget.RequireSingle(model.Catalog, target.Source, page.Source);
         }
-        // 以实际候选页编译全局名称的下游关系，避免在资格校验阶段退回无页面的投影。
+        // 项目内和全局单选均从实际候选页证明下游字典，保留各段的固定条件。
         var outputs=new[]{name.Source.ColumnName};
         var exact=ExactDataManageCompilation.Resolve(model,target,page);
-        var targets=target.IsGlobal?NonRedundantReadCompilation.ProjectPathTargets(model,target,page,outputs):[];
+        var targets=NonRedundantReadCompilation.ProjectPathTargets(model,target,page,outputs);
         var plan=globalExact
             ?NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,target.Source.Id,page.Source.Id,
                 outputs,[exact!.Column.Source.ColumnName],
@@ -190,7 +190,7 @@ internal static class DerivedRelationNamesCompilation
             :HasGlobalAccountScope(target,page)
                 ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,[],targets)
                 :target.IsGlobal?NonRedundantReads.CompileProjectRelation(model.Catalog,target.Source.Id,outputs,[],targets)
-                    :NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,name.Source.ColumnName);
+                    :NonRedundantReads.CompilePublishedScalarMatch(model.Catalog,target.Source.Id,page.Source.Id,name.Source.ColumnName);
         if (plan.OutputTypes[name.Source.ColumnName] != NameType(name))
             throw new InvalidOperationException("派生单选名称未落到与声明一致的固定标量。");
     }
