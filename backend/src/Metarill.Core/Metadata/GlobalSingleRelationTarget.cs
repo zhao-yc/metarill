@@ -192,9 +192,9 @@ public static class GlobalSingleRelationTarget
             !catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName=="yz_project_id"));
         var scopedSelfTree=allowsLogical&&condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
         var scopedCrossTable=allowsLogical&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,expanded,field));
-        // 实时读取使用实际页，冗余消费者须固定到同一已发布页并在回填计划证明持久归属。
+        // 冗余消费者已通过物理来源证明，固定到同一发布页后由回填计划核对所有入口的持久归属。
         var boundStoredList=owner.IsRongyu==0?sourcePage is not null:
-            cacheControl&&pageId.Length>0&&!GlobalCrossTableTarget.Declared(owner);
+            cacheControl&&pageId.Length>0;
         var storedListAccount=allowsLogical&&target.IsRongyu==1&&fixedList&&boundStoredList&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
         var usesListPageScope=alternateListPage||pageOnlyList||storedListAccount;

@@ -1086,8 +1086,9 @@ public sealed class DerivedRelationNamesTests
     [InlineData(1, "parent")]
     [InlineData(1, "account")]
     [InlineData(1, "account", true)]
+    [InlineData(1, "account", true, true)]
     public async Task List_uses_the_selected_page_of_a_stored_dictionary(int sourceStorage, string scope,
-        bool globalTarget=false)
+        bool globalTarget=false, bool globalSource=false)
     {
         const string ns = "Example.StoredListPage";
         var catalog = Catalog("dr_names", scope == "parent");
@@ -1127,6 +1128,15 @@ public sealed class DerivedRelationNamesTests
             targetTable.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             target.WhereSql="status=1";
             alternate.WhereSql="status=87 AND store_id=@current_store_id";
+        }
+        if (globalSource)
+        {
+            ownerTable.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+            // 显式全局来源以名称副本为本用例目标，普通夹具的其它联接字段仍由其原用例覆盖。
+            catalog.ConfigColumns.RemoveAll(column => column.Id is "16" or "17");
+            catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId is "16" or "17");
+            foreach (var sourcePage in catalog.ConfigPages.Where(page => page.ConfigTableId == ownerTable.Id))
+                sourcePage.OrderBy = "id desc";
         }
         catalog.ConfigPages.Add(alternate);
         foreach (var column in catalog.ConfigPageColumns.Where(field => field.ConfigPageId == "201").ToArray())
@@ -1185,8 +1195,20 @@ public sealed class DerivedRelationNamesTests
                     var read=published.GetType().GetProperty("Read")!.GetValue(published)!;
                     var label=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!
                         .Invoke(read,["customer_name"]));
-                    Assert.Contains("b.`store_id`",label);
-                    Assert.Contains(".`store_id`",label);
+                    // 同时核对字典与来源行的门店，两侧必须按原整数 ID 精确比较。
+                    Assert.Matches(@"BINARY CAST\((?!b\.)\w+\.`store_id` AS CHAR\)=BINARY CAST\(b\.`store_id` AS CHAR\)", label);
+                    if (globalSource)
+                    {
+                        Assert.Contains("OptionsPageCondition101_15.BindAccount(actor)", code);
+                        var start = code.IndexOf(" Scope101(RuntimeActor", StringComparison.Ordinal);
+                        Assert.True(start >= 0);
+                        var finish = code.IndexOf("return query;", start, StringComparison.Ordinal);
+                        Assert.True(finish > start);
+                        var businessScope = code[start..finish];
+                        Assert.Contains("query = query.Where(entity => entity.YzProjectId == ", businessScope);
+                        Assert.Contains("PageCondition101.BindAccount(actor)", businessScope);
+                        Assert.Contains("Export101Async", code);
+                    }
                     var missingScope=JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Serialize(catalog))!;
                     var businessPage=missingScope.ConfigPages.Single(page=>page.Id=="101");
                     businessPage.WhereSql=businessPage.WhereSql.Replace(" AND store_id=@current_store_id","",StringComparison.Ordinal);
