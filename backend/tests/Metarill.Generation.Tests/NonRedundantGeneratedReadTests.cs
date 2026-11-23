@@ -625,7 +625,7 @@ public sealed class NonRedundantGeneratedReadTests
     }
 
     /// <summary>调用已生成的查询方法，并使用 FreeSql 构造 SQL，无需数据库连接。</summary>
-    private static Func<string,object?[],string> CreateDictionarySql(Assembly assembly,string ns,string entityName,DatabaseSession session)
+    internal static Func<string,object?[],string> CreateDictionarySql(Assembly assembly,string ns,string entityName,DatabaseSession session)
     {
         var mapper=Activator.CreateInstance(assembly.GetType(ns+".Generated.Mappers."+entityName+"Mapper",true)!,session);
         var type=assembly.GetType(ns+".Generated.Services."+entityName+"Service",true)!;

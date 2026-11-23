@@ -33,14 +33,14 @@ internal static class FixedPageQueryCompilation
     internal static bool UsesStoredGlobalSelectionRows(MetadataCatalog catalog,TableModel table,PageModel page)
     {
         var pageType=page.Source.Extra.GetValueOrDefault("type").ToString();
-        // 单选按实际固定条件发布，或由真实详情控件明确引用无条件字典。
-        var fixedSingle=pageType=="1"&&(page.PublishedUnfilteredSingleCandidate||
-            page.Condition?.Syntax is {Terms.Count:>0,Variables.Count:0});
+        // 单选和多选均可按已发布的物理常量选档。无条件候选仍单独核验真实单选引用。
+        var fixedSelection=page.Condition?.Syntax is {Terms.Count:>0,Variables.Count:0}||
+            pageType=="1"&&page.PublishedUnfilteredSingleCandidate;
         return table.IsGlobal&&table.Source.IsRongyu==1&&ManagedGlobalProject(table) is not null&&
             pageType is "1" or "2"&&
             !ExactDataManageCompilation.Declared(page)&&!FixedPageConditionCompilation.HasLogicalFields(page)&&
             !page.Scopes.Any(scope=>scope.Source=="project")&&
-            (page.Scopes.Count==0&&(fixedSingle||FixedPageConditionCompilation.HasAccountVariables(page))||
+            (page.Scopes.Count==0&&(fixedSelection||FixedPageConditionCompilation.HasAccountVariables(page))||
                 HasStoredGlobalSelectionParent(catalog,table,page));
     }
 

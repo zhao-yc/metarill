@@ -1,6 +1,9 @@
 using System.Reflection;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
+using Metarill.Data;
 using Xunit;
 namespace Metarill.Generation.Tests;
 
@@ -130,7 +133,20 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     [InlineData(1,1)]
     [InlineData(0,0,true)]
     [InlineData(1,0,true)]
-    public async Task Published_global_multiselect_text_keeps_fixed_dictionary_status(int mode,int targetStorage,bool derivedName=false)
+    public Task Published_global_multiselect_text_keeps_fixed_dictionary_status(int mode,int targetStorage,bool derivedName=false)=>
+        VerifyPublishedGlobalMultiselect(mode,targetStorage,derivedName,null);
+
+    /// <summary>原多选的固定字典候选与字典自身业务分开查询，复用原 Excel 和名称维护合同。</summary>
+    [Theory]
+    [InlineData(0,"int64")]
+    [InlineData(0,"string")]
+    [InlineData(1,"int64")]
+    [InlineData(1,"string")]
+    public Task Stored_global_multiselect_fixed_dictionary_uses_published_candidate_range(int mode,string projectType)=>
+        VerifyPublishedGlobalMultiselect(mode,1,false,projectType);
+
+    /// <summary>从实际生成程序集核对名称、关联选档、项目隔离和数据维护计划。</summary>
+    private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType)
     {
         const string application="Example.GlobalTextDictionary";
         var names=derivedName?"global_source_global_target_names":"global_source_captions";
@@ -141,6 +157,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "38" or "40");
         var dictionary=catalog.ConfigPages.Single(page=>page.Id=="10");
         dictionary.WhereSql="status=17";
+        if(projectType is not null)ConfigureStoredGlobalDictionary(catalog,projectType);
         if(derivedName)
         {
             var source=catalog.ConfigColumns.Single(column=>column.Id=="34");
@@ -158,6 +175,45 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             Assert.Contains("MultiPageCondition30_34",serviceCode);
             Assert.Contains("Export30Async",serviceCode);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            if(projectType is not null)
+            {
+                var model=GenerationModel.Create(catalog,application);
+                var target=model.Tables.Single(table=>table.Source.Id=="1");
+                Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(target));
+                Assert.Empty(GenerationCapabilityAudit.Collect(model));
+                Assert.Contains("ImportMulti31_34Async",serviceCode);
+                Assert.Contains("MultiPageCondition31_34",serviceCode);
+                Assert.Contains("Export31Async",serviceCode);
+                var targetCode=await File.ReadAllTextAsync(Path.Combine(output,"Services/GlobalSourceService.g.cs"));
+                using var session=new DatabaseSession(new()
+                {
+                    Provider="mysql",ExpectedDatabase="offline",
+                    ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
+                });
+                var sql=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,application,"GlobalSource",session);
+                var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"9");
+                var list=sql("Query10",[new PageRequest(),actor]);
+                Assert.DoesNotContain("yz_project_id",list);
+                Assert.Contains("status",list);
+                Assert.Contains("delete_no",list);
+                var selected=sql("Query10",[new PageRequest{SelectedIds=["9007199254740993"]},actor]);
+                Assert.Contains("`id`",selected);
+                Assert.Contains("status",selected);
+                Assert.DoesNotContain("yz_project_id",selected);
+                Assert.Contains("yz_project_id",sql("Scope10",[actor,null]));
+                Assert.Contains("yz_project_id",sql("Query10",[new PageRequest(),actor,false]));
+                Assert.Contains("yz_project_id",sql("Query11",[new PageRequest(),actor]));
+                Assert.Contains("yz_project_id",sql("Query12",[new PageRequest(),actor]));
+                Assert.Contains("Query10(request, actor, candidateRows: false)",targetCode);
+                Assert.Contains("Query10(request, actor).CountAsync",targetCode);
+                Assert.Contains("Query10(new PageRequest { ParentId = request.ParentId, SelectedIds",targetCode);
+                var plan=FixedPageQueryCompilation.For(target,target.Pages.Single(page=>page.Source.Id=="10"));
+                Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择","status = 17",""),out _));
+                Assert.False(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择",
+                    "status = 17 AND yz_project_id=@current_yz_project_id",""),out _));
+                var package=new ApplicationPackager().Create(catalog,Path.Combine(directory,"application"),application,NonRedundantApplicationFixture.Root());
+                Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+            }
             const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
             object read;
             if(mode==0)
@@ -199,6 +255,46 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             Assert.Contains(17,constants.Values);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>字典本身也可维护按项目存储的行；额外页面检验独立项目条件和两种原 Excel 入口。</summary>
+    private static void ConfigureStoredGlobalDictionary(MetadataCatalog catalog,string projectType)
+    {
+        catalog.ConfigColumns.Add(new()
+        {
+            Id="17",ConfigTableId="1",YzProjectId=catalog.YzProjectId,ColumnName="yz_project_id",LogicalType=projectType
+        });
+        catalog.ConfigColumns.Single(column=>column.Id=="13").ControlKind="SelectPage";
+        foreach(var (id,type,where) in new[]
+        {
+            ("11",0,""),
+            ("12",2,"status=17 AND yz_project_id=@current_yz_project_id")
+        })
+        {
+            catalog.ConfigPages.Add(new()
+            {
+                Id=id,ConfigTableId="1",YzAdminTypeId="9",YzProjectId=catalog.YzProjectId,WhereSql=where,IsSave=1,
+                Extra=new(){{"type",JsonSerializer.SerializeToElement(type)}}
+            });
+            catalog.ConfigPageColumns.Add(new()
+            {
+                Id=id+"16",ConfigPageId=id,ConfigColumnId="16",YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1
+            });
+        }
+        catalog.ConfigColumns.Single(column=>column.Id=="36").SortNo=-10;
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="30"&&field.ConfigColumnId=="36").SortNo=-10;
+        var overwrite=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(catalog.ConfigPages.Single(page=>page.Id=="30")))!;
+        overwrite.Id="31";
+        overwrite.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+        overwrite.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+        catalog.ConfigPages.Add(overwrite);
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="30").ToArray())
+        {
+            var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+            copy.Id="31"+field.ConfigColumnId;
+            copy.ConfigPageId="31";
+            catalog.ConfigPageColumns.Add(copy);
+        }
     }
 
     /// <summary>实际复选候选页可以是普通字典页，账号归属、搜索、Excel 和持久名称用同一发布条件。</summary>
