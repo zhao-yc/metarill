@@ -54,7 +54,16 @@ internal static class ImportDependencyCompilation
             if(fields.Count>0)dependencies.Add(multi.Source.Source.Id,fields.DistinctBy(column=>column.Source.Id).ToArray());
         }
         foreach(var checkbox in DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>columns.Any(column=>column.Source.Id==def.Source.Source.Id)))
-        {var fields=(checkbox.Conditions?.Forms.Select(binding=>binding.Column)??[]).DistinctBy(column=>column.Source.Id).ToArray();if(fields.Length>0)dependencies.Add(checkbox.Source.Source.Id,fields);}
+        {
+            var fields=new List<ColumnModel>(checkbox.Conditions?.Forms.Select(binding=>binding.Column)??[]);
+            if(table.Source.IsRongyu==0&&checkbox.FormParentField is {} parent)
+            {
+                // 非冗余名称反查从本行表单父键取值，覆盖导入可回读已锁定记录。
+                parents.Add(checkbox.Source.Source.Id,parent);
+                fields.Add(parent);
+            }
+            if(fields.Count>0)dependencies.Add(checkbox.Source.Source.Id,fields.DistinctBy(column=>column.Source.Id).ToArray());
+        }
         if(dependencies.Count==0)return new(columns,parents,new HashSet<string>(StringComparer.Ordinal),dependencies);
         // 级联单元格同时产生隐式祖先ID，关联候选依赖这些ID时必须先解析其控件。
         var producers=CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>columns.Any(column=>column.Source.Id==plan.Read.Source.Source.Id))

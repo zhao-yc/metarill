@@ -195,10 +195,13 @@ public static partial class MySqlNonRedundantReadCompiler
             var parent=pageParent??controlParents.FirstOrDefault();
             if(parent is not null&&controlParents.Any(candidate=>candidate.Parent.Id!=parent.Parent.Id))
                 throw new InvalidOperationException("复选目标页与控件必须绑定同一实际来源父表。");
+            // 账号字典的父键可来自已开放的物理表单字段，回显和回填均从实际来源记录读取。
+            var projectCheckbox=checkbox&&projectFixedScope;
             var sourceBinding=fixedParent is {} paired?new MultiSourceParent(paired.Source,[]):
-                sharedCheckbox?parent?.CheckboxSource(catalog,table,relation):
+                sharedCheckbox||projectCheckbox&&sourcePage is null?parent?.CheckboxSource(catalog,table,relation):
                 sourcePage is null?parent?.Source(catalog,table,relation):
-                controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage):parent?.Source(catalog,table,relation,sourcePage);
+                projectCheckbox||controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage,allowFormParent:projectCheckbox):
+                parent?.Source(catalog,table,relation,sourcePage);
             var sourceParent=sourceBinding?.Column;
             var logicalSource=sourceBinding?.LogicalPages.Count>0;
             if(pageParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0})

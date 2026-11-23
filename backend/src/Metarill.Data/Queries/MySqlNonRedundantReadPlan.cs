@@ -267,19 +267,20 @@ public static partial class MySqlNonRedundantReadCompiler
         if(outputs.Count==0||outputs.Distinct(StringComparer.OrdinalIgnoreCase).Count()!=outputs.Count||
             !long.TryParse(catalog.YzProjectId,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var project)||project<=0)
             throw new InvalidOperationException("多值名称的项目或输出字段无效。");
-        var parent=cacheOwner is null||selectedPage is null?null:MultiParent(catalog,selectedPage,relation?.ControlKind=="MultiCheckBoxDatabase");
+        var target=catalog.ConfigTables.Single(table=>table.Id==tableId);
+        var checkbox=relation?.ControlKind=="MultiCheckBoxDatabase";
+        var projectFixedScope=selectedPage is not null&&relation is {ControlKind:"MultiSelectPage" or "MultiCheckBoxDatabase"}&&
+            IsProjectFixedMultiPage(catalog,target,selectedPage,checkboxAccount:checkbox);
+        var parent=cacheOwner is null||selectedPage is null?null:MultiParent(catalog,selectedPage,checkbox);
         MultiSourceParent? source=null;
         if(parent is not null)
         {
             var publishedRelation=relation??throw new InvalidOperationException("多值缓存缺少发布关系。");
-            source=sharedCheckbox?parent.CheckboxSource(catalog,cacheOwner!.Table,publishedRelation):
+            source=sharedCheckbox||checkbox&&projectFixedScope?parent.CheckboxSource(catalog,cacheOwner!.Table,publishedRelation):
                 parent.Source(catalog,cacheOwner!.Table,publishedRelation);
         }
         if(parent is {Global:true}&&source is {AdditionalColumns.Count:>0})
             RequireCompoundGlobalSourceParent(catalog,tableId,selectedPage!.Id,source);
-        var target=catalog.ConfigTables.Single(table=>table.Id==tableId);
-        var projectFixedScope=selectedPage is not null&&relation is {ControlKind:"MultiSelectPage" or "MultiCheckBoxDatabase"}&&
-            IsProjectFixedMultiPage(catalog,target,selectedPage,checkboxAccount:relation.ControlKind=="MultiCheckBoxDatabase");
         return new Builder(catalog,tableId,true,multiLabel:true,cascadeLabelField:field,cascadeCacheOwner:cacheOwner,
             scopedPhysicalCandidate:projectFixedScope&&target.IsRongyu==1)
         {

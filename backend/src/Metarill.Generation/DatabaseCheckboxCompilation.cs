@@ -307,12 +307,15 @@ internal static class DatabaseCheckboxCompilation
                 parents=[model.Tables.Single(candidate=>candidate.Source.Id==binding.Parent.Id)];
             }
 
-            // 无页面父路由时，固定目标父可绑定来源详情中唯一的真实表单外键。
-            if(sharedFixedPage&&sourceScopeColumns.Length==0&&physicalParents.Length==1)
+            // 无页面父路由时，固定目标页的全部实际父字段绑定来源详情中唯一的真实表单外键。
+            if(sourceScopeColumns.Length==0&&(sharedFixedPage&&physicalParents.Length==1||
+                projectStoredAccount&&physicalParents.Length>0))
             {
-                var binding=MultiTargetParentScope.CompileCheckboxParent(model.Catalog,target.Source,
-                    FixedConditionPlan.Compile(namePage!.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName)));
-                if(binding is null||binding.Global||binding.Logical||binding.Target.Id!=physicalParents[0].Column.Source.Id||
+                var syntax=FixedConditionPlan.Compile(namePage!.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
+                var binding=projectStoredAccount
+                    ?MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax,allowStoredPhysicalParents:true)
+                    :MultiTargetParentScope.CompileCheckboxParent(model.Catalog,target.Source,syntax);
+                if(binding is null||binding.Global||binding.Logical||physicalParents.Any(scope=>!binding.HasTarget(scope.Column.Source.Id))||
                     Protected(model.Tables.Single(candidate=>candidate.Source.Id==binding.Parent.Id)))
                     return Gap("表单父范围须绑定实际普通目标父键。");
                 BindFormParent(binding,binding.CheckboxSource(model.Catalog,table.Source,source.Source,page.Source,allowFormParent:true));

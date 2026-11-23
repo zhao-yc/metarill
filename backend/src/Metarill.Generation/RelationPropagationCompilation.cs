@@ -150,22 +150,25 @@ internal static class RelationPropagationCompilation
         }
         return pages;
     }
-    /// <summary>冻结全局或固定逻辑范围的复选多缓存所需的目标字段及来源名称声明。</summary>
+    /// <summary>冻结复选名称回填所需的目标、备用名称及详情开放的物理父字段。</summary>
     internal static IReadOnlySet<(string Page,string Column)> PublishedCheckboxProofFields(GenerationModel model,
         IEnumerable<RelationCacheDefinition> definitions)
     {
         var fields=new HashSet<(string,string)>();
         foreach(var definition in definitions)
         {
-            if(definition.CheckboxTargetPageId is not {} targetPage)continue;
-            fields.Add((targetPage,definition.ValueColumnId));
+            if(!definition.Multiple)continue;
             var source=model.Tables.Single(table=>table.Source.Id==definition.SourceTableId);
             var relation=source.Columns.Single(column=>column.Source.Id==definition.ForeignColumnId);
+            if(relation.Source.ControlKind!="MultiCheckBoxDatabase")continue;
+            var shared=definition.CheckboxTargetPageId is not null;
+            if(definition.CheckboxTargetPageId is {} targetPage)fields.Add((targetPage,definition.ValueColumnId));
             foreach(var page in source.Pages)
             {
-                if(!fields.Add((page.Source.Id,definition.ForeignColumnId))||page.Scopes.Any(scope=>scope.Source=="parent"))continue;
+                if(shared&&!fields.Add((page.Source.Id,definition.ForeignColumnId))||page.Scopes.Any(scope=>scope.Source=="parent"))continue;
                 var checkbox=DatabaseCheckboxCompilation.Resolve(model,source,page,relation,forService:true).Definition;
-                if(checkbox is {SharedLogicalParentScope:true,FormParentField:{} formParent})
+                if(checkbox is {FormParentField:{} formParent}&&
+                    (checkbox.HasProjectStoredAccountScope||shared&&checkbox.SharedLogicalParentScope))
                     fields.Add((page.Source.Id,formParent.Source.Id));
             }
         }

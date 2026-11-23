@@ -30,13 +30,21 @@ internal static class DatabaseCheckboxExcelRenderer
                 ?MultiSelectExcelRenderer.ParseLabel(def.Name,"item.ToString()","name")
                 :"var name=item.GetString();";
             var form="new Dictionary<string,object?>{"+string.Join(",",(def.Conditions?.Forms??[]).Select(binding=>"["+Literal(binding.Variable)+"]=Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(relationContext["+Literal(binding.Column.JsonName)+"],"+Literal(binding.Column.Source.LogicalType)+")"))+"}";
-            result.AppendLine($"        _=await CheckboxScope{suffix}Async(parentId,actor,{form},true,cancellationToken);")
+            var targetParent="parentId";
+            if(dependency.Parents.TryGetValue(def.Source.Source.Id,out var parent))
+            {
+                // 空选择和空表单父可以一起保存。非空选项继续走事务内的同一候选范围。
+                targetParent="targetParentId";
+                result.AppendLine($"        var targetParentId=relationContext[{Literal(parent.JsonName)}] is {{ValueKind:not JsonValueKind.Null}} parentCell?parentCell.ToString():null;")
+                    .AppendLine("        if(cell.GetArrayLength()==0&&string.IsNullOrWhiteSpace(targetParentId))return JsonSerializer.SerializeToElement(Array.Empty<string>());");
+            }
+            result.AppendLine($"        _=await CheckboxScope{suffix}Async({targetParent},actor,{form},true,cancellationToken);")
                 .AppendLine("        var selected=new List<string>();")
                 .AppendLine("        foreach(var item in cell.EnumerateArray())")
                 .AppendLine("        {")
                 .AppendLine($"            if({MultiSelectExcelRenderer.InvalidLabelKind(def.Name,def.TypedLabel&&!def.IntegerLabel)})throw PageImportException.Input(PageImportError.Relation);"+parseLabel)
-                .Append(def.DerivedName?"":$"            var currentScope=await CheckboxScope{suffix}Async(parentId,actor,{form},true,cancellationToken);\n")
-                .AppendLine(def.DerivedName?$"            var matches=await DerivedCheckboxRows{suffix}Async(parentId,actor,{form},null,name,true,2,true,cancellationToken);":$"            var matches=await currentScope.Where(row=>row.{def.Name.Property}==name).OrderBy(row=>row.Id).Limit(2).ToListAsync(row=>new{{row.Id}},cancellationToken);")
+                .Append(def.DerivedName?"":$"            var currentScope=await CheckboxScope{suffix}Async({targetParent},actor,{form},true,cancellationToken);\n")
+                .AppendLine(def.DerivedName?$"            var matches=await DerivedCheckboxRows{suffix}Async({targetParent},actor,{form},null,name,true,2,true,cancellationToken);":$"            var matches=await currentScope.Where(row=>row.{def.Name.Property}==name).OrderBy(row=>row.Id).Limit(2).ToListAsync(row=>new{{row.Id}},cancellationToken);")
                 .AppendLine("            if(matches.Count!=1)throw PageImportException.Input(PageImportError.Relation);")
                 .AppendLine("            var id=matches[0].Id.ToString(CultureInfo.InvariantCulture);if(selected.Contains(id))throw PageImportException.Input(PageImportError.Relation);selected.Add(id);")
                 .AppendLine("        }")
@@ -48,6 +56,8 @@ internal static class DatabaseCheckboxExcelRenderer
     internal static string Export(TableModel table,PageModel page,DatabaseCheckboxModel def)
     {
         var suffix=DatabaseCheckboxRenderer.Suffix(page,def);
+        // 未设置表单父且没有选项时，只保留原 null 或空数组，无需候选查询。
+        var emptyParent=def.FormParentField is null?"":$"            if(selected.Length==0&&string.IsNullOrWhiteSpace({DatabaseCheckboxRenderer.ParentValue(def,"entity")})){{values[entity.Id]=entity.{def.Source.Property} is null?null:\"[]\";continue;}}\n";
         return $$"""
     /// <summary>源行及候选共用读取快照，名字按数据库真实比较规则唯一性核验。</summary>
     private async Task<IReadOnlyDictionary<long,string?>> ExportCheckbox{{suffix}}Async(IReadOnlyList<{{table.EntityType}}> entities,RuntimeActor actor,CancellationToken cancellationToken)
@@ -59,7 +69,7 @@ internal static class DatabaseCheckboxExcelRenderer
         foreach(var entity in entities)
         {
             var selected=DatabaseCheckboxValue.Parse(entity.{{def.Source.Property}});
-            var scope=await CheckboxScope{{suffix}}Async({{DatabaseCheckboxRenderer.ParentValue(def,"entity")}},actor,{{DatabaseCheckboxRenderer.EntityForm(def,"entity")}},false,cancellationToken);
+{{emptyParent}}            var scope=await CheckboxScope{{suffix}}Async({{DatabaseCheckboxRenderer.ParentValue(def,"entity")}},actor,{{DatabaseCheckboxRenderer.EntityForm(def,"entity")}},false,cancellationToken);
             {{(def.DerivedName?"var rows=await DerivedCheckboxRows"+suffix+"Async("+DatabaseCheckboxRenderer.ParentValue(def,"entity")+",actor,"+DatabaseCheckboxRenderer.EntityForm(def,"entity")+",selected,null,false,DatabaseCheckboxValue.MaximumItems,false,cancellationToken);":"var rows=await scope.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>new{row.Id,Name=row."+def.Name.Property+"},cancellationToken);")}}
             if(rows.Count!=selected.Length{{(def.Name.IsId?"":"||rows.Any(row=>row.Name is null)")}})throw new InvalidOperationException("复选名称导出存在缺失、删除或离开候选范围的目标，不能生成会重映射的名称数组。");
             var names=rows.ToDictionary(row=>row.Id,row=>row.Name);

@@ -235,8 +235,13 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(0, true, false, true)]
     [InlineData(1, true, false, true)]
     [InlineData(1, true, true, true)]
+    [InlineData(0, true, false, false, "form")]
+    [InlineData(0, true, false, true, "form")]
+    [InlineData(1, true, false, true, "form")]
+    [InlineData(1, true, true, true, "form")]
+    [InlineData(1, true, true, true, "mixed")]
     public async Task Project_stored_checkbox_preserves_published_account_scope(int sourceStorage, bool withParent,
-        bool alternateName = false, bool compoundTarget = false)
+        bool alternateName = false, bool compoundTarget = false, string sourceParentMode = "")
     {
         const string ns = "Example.ProjectStoredCheckbox";
         const string output = "target_names";
@@ -264,11 +269,27 @@ public sealed class DerivedCheckboxNamesTests
                 ColumnName = "store_id", LogicalType = "int64"
             });
         var scope = "yz_project_id=@current_yz_project_id AND store_id=@current_store_id";
-        if (withParent) scope += " AND parent_id=@parentId";
+        var parentScope = withParent ? scope + " AND parent_id=@parentId" : scope;
         foreach (var sourcePage in catalog.ConfigPages.Where(page => page.ConfigTableId == owner.Id))
-            sourcePage.WhereSql = scope;
+        {
+            var formParent = sourceParentMode == "form" || sourceParentMode == "mixed" && sourcePage.Id == "201";
+            sourcePage.WhereSql = formParent ? scope : parentScope;
+            if (formParent)
+                catalog.ConfigPageColumns.Add(new()
+                {
+                    Id = sourcePage.Id + "26", ConfigPageId = sourcePage.Id, ConfigColumnId = "26",
+                    YzProjectId = catalog.YzProjectId, IsShow = 1, IsEdit = 1,
+                    Extra = new() { ["isSearch"] = JsonSerializer.SerializeToElement(1) }
+                });
+        }
+        if (sourceStorage == 0 && sourceParentMode == "form" && compoundTarget)
+        {
+            var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
+            sourcePage.Extra["importMethod"] = JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+            sourcePage.Extra["exportMethod"] = JsonSerializer.SerializeToElement("edit");
+        }
         var dictionaryPage = catalog.ConfigPages.Single(page => page.Id == "301");
-        dictionaryPage.WhereSql = scope + " AND status=41";
+        dictionaryPage.WhereSql = parentScope + " AND status=41";
         if (compoundTarget)
         {
             var mainParent = catalog.ConfigColumns.Single(column =>
@@ -311,8 +332,10 @@ public sealed class DerivedCheckboxNamesTests
             var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
             var copy = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(sourcePage))!;
             copy.Id = "204";
+            if (sourceParentMode == "mixed") copy.WhereSql = parentScope;
             catalog.ConfigPages.Add(copy);
-            foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigPageId == "201").ToArray())
+            foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigPageId == "201" &&
+                         (sourceParentMode != "mixed" || field.ConfigColumnId != "26")).ToArray())
             {
                 var mapped = JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
                 mapped.Id = "204" + field.Id;
@@ -341,6 +364,32 @@ public sealed class DerivedCheckboxNamesTests
             Assert.Contains("CheckboxTargetCondition201_25.BindAccount(actor).ApplyConstants", code);
             Assert.Contains("CheckboxOptions201_25Async", code);
             Assert.Contains("ValidateCheckbox201_25Async", code);
+            if (sourceParentMode.Length > 0)
+            {
+                var sourceTable = model.Tables.Single(table => table.Source.Id == owner.Id);
+                var sourceField = sourceTable.Columns.Single(column => column.Source.Id == relation.Id);
+                var page = sourceTable.Pages.Single(page => page.Source.Id == "201");
+                var definition = DatabaseCheckboxCompilation.Resolve(model, sourceTable, page, sourceField).Definition;
+                Assert.Equal("26", definition?.FormParentField?.Source.Id);
+                Assert.Contains("var rows=selected.Length==0&&string.IsNullOrWhiteSpace(entity.ParentId", code);
+                Assert.Contains("submitted.Contains(\"parent_id\")", code);
+                var list = File.ReadAllText(Path.Combine(directory, "generated/frontend/pages/yzp/stored_checkbox_source-list-201.vue"));
+                var detail = File.ReadAllText(Path.Combine(directory, "generated/frontend/pages/yzp/stored_checkbox_source-detail-201.vue"));
+                Assert.Contains("\"formParentField\":\"parentId\"", list);
+                Assert.Contains("this.$watch(()=>this.entity.parentId", detail);
+                Assert.Contains("parentId:optionParent", detail);
+                if (sourceStorage == 0)
+                {
+                    var dependency = ImportDependencyCompilation.ForPage(model, sourceTable, page);
+                    Assert.Equal("26", dependency.Parents[relation.Id].Source.Id);
+                    var order = dependency.Order.Select(column => column.Source.Id).ToList();
+                    Assert.InRange(order.IndexOf("26"), 0, order.IndexOf(relation.Id) - 1);
+                    Assert.Contains("var targetParentId=relationContext[\"parentId\"]", code);
+                    Assert.Contains("CheckboxScope201_25Async(targetParentId,actor", code);
+                    Assert.Contains("if(cell.GetArrayLength()==0&&string.IsNullOrWhiteSpace(targetParentId))", code);
+                    Assert.Contains("values[entity.Id]=entity.TargetIds is null?null:\"[]\";continue;", code);
+                }
+            }
             if (compoundTarget)
                 Assert.Contains("ApplyTextParent(query,session,\"review_parent_id\"", code);
             Assert.NotNull(service.GetMethod("Import201Async"));
@@ -375,7 +424,9 @@ public sealed class DerivedCheckboxNamesTests
                 Assert.Contains("b.`store_id`", sql);
                 Assert.Contains("multi_value.`store_id`", sql);
                 Assert.Equal(withParent, sql.Contains("b.`parent_id`", StringComparison.Ordinal));
-                Assert.Contains("store_id", Property<IReadOnlyList<string>>(read, "SourceDependencies"));
+                var dependencies = Property<IReadOnlyList<string>>(read, "SourceDependencies");
+                Assert.Contains("store_id", dependencies);
+                if (withParent) Assert.Contains("parent_id", dependencies);
                 Assert.Equal(compoundTarget, sql.Contains("review_parent_id", StringComparison.Ordinal));
                 if (alternateName)
                 {
@@ -399,6 +450,18 @@ public sealed class DerivedCheckboxNamesTests
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+
+        if (sourceParentMode.Length > 0)
+        {
+            var field = catalog.ConfigPageColumns.Single(setting => setting.ConfigPageId == "201" && setting.ConfigColumnId == "26");
+            catalog.ConfigPageColumns.Remove(field);
+            var invalid = GenerationModel.Create(catalog, ns);
+            var sourceTable = invalid.Tables.Single(table => table.Source.Id == owner.Id);
+            var sourceField = sourceTable.Columns.Single(column => column.Source.Id == relation.Id);
+            var sourcePage = sourceTable.Pages.Single(page => page.Source.Id == "201");
+            Assert.Null(DatabaseCheckboxCompilation.Resolve(invalid, sourceTable, sourcePage, sourceField).Definition);
+            catalog.ConfigPageColumns.Add(field);
+        }
 
         if (sourceStorage == 1)
         {
