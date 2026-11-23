@@ -734,6 +734,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 }
                 return visible;
             }
+            // 冗余单选的条件都是已验证的物理列。实际父范围由独立的父键谓词处理。
+            if(table.IsRongyu==1&&parentField is not null&&logical.Count==0&&!trackReverse)
+                return condition is null?"":CascadeLabelCondition(table,page,condition,alias,"mt_stored_single_"+alias);
             return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
                 alias,cacheOwner,parentField,fields,sourceParent,storedSingleExact:storedExact,
                 additionalParents:additional,compareAdditionalParents:true);

@@ -129,7 +129,9 @@ public static class GlobalCrossTableTarget
     private static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
         bool allowLogical,bool allowExactSingle=false,bool allowSelectionParentOnly=false)
     {
-        if(!Declared(table)||table.IsRongyu!=0)return null;
+        // 冗余目标只开放原 type=1 页的物理父范围；逻辑父仍由 R0 计划还原。
+        var storedSelection=table.IsRongyu==1&&allowSelectionParentOnly&&page.Extra.GetValueOrDefault("type").ToString()=="1";
+        if(!Declared(table)||table.IsRongyu!=0&&!storedSelection)return null;
         var columns=ConditionColumns(catalog,table,allowLogical:true);
         var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         if(!condition.Variables.Any(MultiTargetParentScope.IsParameter))return null;
@@ -139,14 +141,14 @@ public static class GlobalCrossTableTarget
         var selectionParentOnly=allowSelectionParentOnly&&!cross&&!tree&&SelectionParentOnly(page,condition);
         if(cross||tree)
         {
-            if(!allowLogical)return null;
+            if(!allowLogical||storedSelection)return null;
         }
         else if(!selectionParentOnly&&!(allowExactSingle&&DeclaresExactMulti(table,page))&&
             !condition.Variables.Any(AccountConditionVariables.IsSupported))return null;
         var parent=MultiTargetParentScope.CompileGlobalPage(catalog,table,condition);
         if(parent is null||parent.Logical&&(!allowLogical||page.Extra.GetValueOrDefault("type").ToString()=="2"&&!allowExactSingle))return null;
         RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:cross||tree,allowMultiParent:true,
-            allowSelfTree:tree,allowExactSingle:allowExactSingle);
+            allowSelfTree:tree,allowExactSingle:allowExactSingle,allowStoredSingleParent:storedSelection);
         return parent;
     }
 
@@ -156,7 +158,7 @@ public static class GlobalCrossTableTarget
         condition.Variables.All(MultiTargetParentScope.IsParameter);
 
     /// <summary>只按明确用途开放R0，逻辑成员须在实际级联计划中进一步证明。</summary>
-    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false,bool allowStoredProject=false)
+    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false,bool allowStoredProject=false,bool allowStoredSingleParent=false)
     {
         if(!Declared(table)||(table.IsRongyu!=1&&!(allowR0&&table.IsRongyu==0))||table.IsView!=0||table.IsFunctionTable!=0)throw new NotSupportedException("全局跨表目标要求显式声明的普通R0或R1实体。");
         if(table.IsRongyu==0)GlobalDerivedRelationSource.RequireTable(catalog,table);
@@ -167,7 +169,7 @@ public static class GlobalCrossTableTarget
             LogicalConditionField(table,columns,column,allowLogical,allowSelfTree)).Select(column=>column.ColumnName);
         var condition=FixedConditionPlan.Compile(page.WhereSql,allowed);
         // 只有显式通过父范围证明的用途才解析父参数，同时保留原账号和逻辑字段校验。
-        var multiParent=allowMultiParent&&(table.IsRongyu==0&&
+        var multiParent=allowMultiParent&&((table.IsRongyu==0||allowStoredSingleParent)&&
             (condition.Variables.Any(AccountConditionVariables.IsSupported)||allowExactSingle&&DeclaresExactMulti(table,page)||
                 SelectionParentOnly(page,condition))||
             condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)||

@@ -1,3 +1,5 @@
+using Metarill.Core.Metadata;
+
 namespace Metarill.Generation;
 
 /// <summary>实际固定查询的范围和有效默认排序；作用域只描述行约束，不替代身份、页面授权或真实父记录校验。</summary>
@@ -10,6 +12,10 @@ internal static class FixedPageQueryCompilation
 {
     /// <summary>Mapper的软删除起点也由同一入口识别；字段不存在时保持原有无过滤行为。</summary>
     internal static ColumnModel? SoftDeleteColumn(TableModel table) => table.Columns.SingleOrDefault(column => column.Source.ColumnName == "delete_no");
+
+    /// <summary>全局冗余单选直接分页、详情及导出同样须校验真实物理父记录。</summary>
+    internal static bool HasStoredGlobalSelectionParent(GenerationModel model,TableModel table,PageModel page)=>
+        table.IsGlobal&&table.Source.IsRongyu==1&&GlobalCrossTableTarget.SingleParent(model.Catalog,table.Source,page.Source) is {Logical:false};
 
     /// <summary>有真实项目列的全局 R1 自树来源按项目管理自己的行，目标候选仍使用已发布的全局树。</summary>
     internal static ColumnModel? GlobalSelfTreeProject(TableModel table)=>

@@ -88,7 +88,7 @@ internal static partial class NonRedundantReadCompilation
     internal static bool Requires(GenerationModel model,TableModel table)=>HasGlobalRowProject(table)||
         table.Source.IsRongyu==0&&table.Pages.Any(page=>GlobalCrossTableTarget.DeclaresExactMulti(table.Source,page.Source))||
         table.Pages.Any(page=>GlobalAccountMultiPage(table,page)||GlobalSingleParentPage(table,page)||
-            MultiGlobalParentCompilation.PhysicalSingleTarget(model,table,page) is not null)||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
+            table.Source.IsRongyu==0&&MultiGlobalParentCompilation.PhysicalSingleTarget(model,table,page) is not null)||table.Source.IsRongyu==0&&model.Catalog.ConfigColumns.Any(column=>column.ConfigTableId==table.Source.Id&&column.IsVirtualColumn==0&&(!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column)||MetadataStoragePolicy.IsRelationColumn(column)));
     /// <summary>所有实体写入复用同一存储计划，不把读取派生属性持久化。</summary>
     internal static bool Physical(GenerationModel model,TableModel table,ColumnModel column)=>MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(column.Source);
     /// <summary>仅识别本页声明的非冗余叶名，不从请求或显示列推断精确范围。</summary>

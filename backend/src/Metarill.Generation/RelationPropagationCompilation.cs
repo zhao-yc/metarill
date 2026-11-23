@@ -76,7 +76,8 @@ internal static class RelationPropagationCompilation
             {
                 var global=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source);
                 // 物理全局字典的账号单选与固定下拉一样需要按来源行归属回填。
-                if(!global.RequiresScopedCache||target.Source.IsRongyu!=0&&!global.UsesListPageScope&&!global.ScopedAccount)continue;
+                if(!global.RequiresScopedCache||target.Source.IsRongyu!=0&&!global.UsesListPageScope&&
+                    !global.ScopedAccount&&!global.ScopedPhysicalSelectionParent)continue;
                 proof=(global.Page,global.Name);
             }
             else if(ProjectScopedSingleRelationTarget.Resolve(model.Catalog,table.Source,foreign.Source,target.Source) is {} project)

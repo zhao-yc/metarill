@@ -174,15 +174,18 @@ public static partial class MySqlNonRedundantReadCompiler
             ??throw new InvalidOperationException("全局候选页必须属于固定目标表。");
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
-        if(!exactSingleCandidate&&pageType!="2"&&GlobalCrossTableTarget.SingleParent(catalog,table,page) is not null)
+        if(table.IsRongyu==0&&!exactSingleCandidate&&pageType!="2"&&GlobalCrossTableTarget.SingleParent(catalog,table,page) is not null)
             return CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies??[],accountParentPageType:pageType,singleTargets:singleTargets);
         // 冗余单选沿已发布 type=1 页绑定账号条件，候选、回显和 Excel 共用同一范围。
         var storedSingle=table.IsRongyu==1&&pageType=="1"&&!exactSingleCandidate&&!deferCascadeNames;
-        return new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames,exactSingleCandidate:exactSingleCandidate,
+        var builder=new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames,exactSingleCandidate:exactSingleCandidate,
             accountPhysicalCandidate:storedSingle,globalCandidate:table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table))
         {
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
-        }.Compile(outputs,dependencies??[]);
+        };
+        var fields=dependencies??[];
+        if(builder.MultiCandidateParent is {} parent)fields=fields.Append(parent.Target.ColumnName).ToArray();
+        return builder.Compile(outputs,fields);
     }
 
     /// <summary>普通读取及导出按对象本身的行项目归属。</summary>
@@ -368,6 +371,13 @@ public static partial class MySqlNonRedundantReadCompiler
                 if (exactSingleCandidate) _=GlobalCrossTableTarget.ExactPageParent(catalog,root,candidatePage);
                 else if (physicalCandidate&&!accountPhysicalCandidate) GlobalCrossTableTarget.Require(catalog, root, candidatePage);
                 else if (physicalCandidate&&multiLabel) GlobalCrossTableTarget.RequireStoredMultiAccountCandidate(catalog,root,candidatePage);
+                else if (physicalCandidate&&GlobalCrossTableTarget.SingleParent(catalog,root,candidatePage) is {} parent)
+                {
+                    // 候选必须带已发布的父过滤字段，并验证实际父记录及发布页。
+                    MultiCandidateParent=parent;
+                    MultiCandidatePage=candidatePage;
+                    LockPublishedJoinScopes=true;
+                }
                 else GlobalCrossTableTarget.RequireAccountCandidate(catalog, root, candidatePage);
             }
             if(tables.Values.GroupBy(table=>table.TableName,StringComparer.OrdinalIgnoreCase).Any(group=>group.Count()!=1))throw new InvalidOperationException("项目表名重复。");
@@ -492,7 +502,8 @@ public static partial class MySqlNonRedundantReadCompiler
             var sharedRefresh=globalSource&&!columns[root.Id].ContainsKey("yz_project_id");
             var scope=candidatePage is null
                 ?Scope(root,rootAlias,projectScoped:!sharedRefresh&&!GlobalCrossCandidate&&(!globalDerivedSource||HasGlobalRowProject(root)))
-                :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:!physicalCandidate||accountPhysicalCandidate);
+                :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:!physicalCandidate||accountPhysicalCandidate,
+                    accountParent:physicalCandidate?MultiCandidateParent:null);
             if((globalSource||globalDerivedSource)&&scope.Length==0)scope="1=1";
             if(CrossCandidateCondition is not null||ScopedRootControls.Count>0)scope=FixedCrossCandidateScope(scope,expressions);
             if(SelectedMultiPage is not null)scope=SelectedMultiScope(scope);

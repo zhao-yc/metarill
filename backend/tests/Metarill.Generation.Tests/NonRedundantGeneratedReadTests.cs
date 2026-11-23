@@ -418,15 +418,23 @@ public sealed class NonRedundantGeneratedReadTests
     [InlineData(0,true,false,true,true)]
     [InlineData(1,false,false,true,true)]
     [InlineData(1,true,true,true,true)]
+    [InlineData(0,false,false,false,false,true)]
+    [InlineData(0,true,false,true,false,true)]
+    [InlineData(1,false,false,true,false,true)]
+    [InlineData(1,true,false,false,false,true)]
+    [InlineData(1,true,true,false,false,true)]
+    [InlineData(1,true,true,true,true,true)]
+    [InlineData(0,false,false,false,false,true,true)]
+    [InlineData(1,true,true,true,true,true,true)]
     public async Task Global_single_with_only_physical_parent_keeps_selection_workbook_and_cache(
-        int storage,bool globalParent,bool globalSource,bool idLabel,bool excelOverride=false)
+        int storage,bool globalParent,bool globalSource,bool idLabel,bool excelOverride=false,bool storedTarget=false,bool textParent=false)
     {
         const string ns="Example.GlobalPhysicalParent";
         var catalog=NonRedundantApplicationFixture.Catalog("mt_parent_only");
         var owner=catalog.ConfigTables.Single(table=>table.Id=="1");
         var target=catalog.ConfigTables.Single(table=>table.Id=="2");
         owner.IsRongyu=storage;
-        target.IsRongyu=0;
+        target.IsRongyu=storedTarget?1:0;
         target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         if(globalSource)owner.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         var removed=new HashSet<string>(["16","17","22"],StringComparer.Ordinal);
@@ -451,7 +459,9 @@ public sealed class NonRedundantGeneratedReadTests
         if(excelOverride)
             foreach(var field in catalog.ConfigPageColumns.Where(field=>(field.ConfigPageId is "104" or "105")&&field.ConfigColumnId=="15"))
                 field.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"whereSql":"amount >= 12.34"}""");
+        if(textParent)catalog.ConfigColumns.Single(column=>column.Id=="27").LogicalType="string";
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        if(storedTarget)targetPage.WhereSql+=" AND amount >= 1";
         targetPage.IsExport=1;
         var independent=catalog.ConfigPages.Single(page=>page.Id=="104");
         independent.IsExport=1;
@@ -471,7 +481,20 @@ public sealed class NonRedundantGeneratedReadTests
             new CSharpGenerator().Generate(catalog,generated,ns);
             var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtParentOnlyOrderService.g.cs"));
             var targetService=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtParentOnlyPartyService.g.cs"));
-            Assert.Contains("CompileGlobalSingleParentPage",targetService);
+            if(storedTarget)
+            {
+                Assert.Contains("ValidateParents201Async(request.ParentId, actor, cancellationToken, locking:false)",targetService);
+                Assert.Contains("ValidateParents201Async(parentId, actor, cancellationToken, locking:false)",targetService);
+                Assert.Contains("ValidateParents201Async(request.ParentId, actor, cancellationToken, locking: false)",targetService);
+                Assert.Contains("PageCondition201",targetService);
+                Assert.Contains("if(targetParentId is not null&&targetParentId!=parentId)",service);
+                if(textParent)
+                {
+                    Assert.Contains("ApplyTextParent(query,session,\"group_id\",parentId!)",targetService);
+                    Assert.Contains("ApplyTextParent(query,session,\"group_id\",targetParentId!)",service);
+                }
+            }
+            else Assert.Contains("CompileGlobalSingleParentPage",targetService);
             Assert.Contains("ImportRelation103_15Async",service);
             Assert.Contains("ImportRelation105_15Async",service);
             Assert.Contains("Export101Async",service);
@@ -486,12 +509,22 @@ public sealed class NonRedundantGeneratedReadTests
             var serviceType=assembly.GetType(ns+".Generated.Services.MtParentOnlyOrderService",true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
             const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic;
-            var candidate=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
-                candidateType.GetField("CandidateReadPlan201",hidden|System.Reflection.BindingFlags.Static)!.GetValue(null));
+            var candidate=storedTarget
+                ?Metarill.Data.Queries.NonRedundantReads.CompileGlobalCandidate(catalog,"2","201",idLabel?["id"]:["id","name"])
+                :Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    candidateType.GetField("CandidateReadPlan201",hidden|System.Reflection.BindingFlags.Static)!.GetValue(null));
             Assert.False(candidate.RequiresAccount);
             var mysql=candidate.GetType().GetProperty("MySql",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(candidate)!;
             Assert.Equal("group_id",mysql.GetType().GetProperty("RequiredMultiParent",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(mysql));
-            if(excelOverride)
+            if(excelOverride&&storedTarget)
+            {
+                foreach(var pageId in new[]{"104","105"})
+                {
+                    Assert.Contains("SingleImportCondition"+pageId+"_15.BindVariables",service);
+                    Assert.Contains("importCondition.ApplyConstants(query,session,\"single_control_import_"+pageId+"_15\")",service);
+                }
+            }
+            if(excelOverride&&!storedTarget)
             {
                 const System.Reflection.BindingFlags instance=hidden|System.Reflection.BindingFlags.Instance;
                 const System.Reflection.BindingFlags members=hidden|System.Reflection.BindingFlags.Static;

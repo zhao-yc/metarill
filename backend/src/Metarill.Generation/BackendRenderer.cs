@@ -299,7 +299,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var sharedRedundant=SharedRedundantParentCompilation.Enabled(model,table,page);
         var multiGlobal=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page);
         var buttonParent=page.Scopes.Any(scope=>scope.Source=="parent")&&BusinessRecordButtons(model,page).Count>0;
-        var supportsReadOnlyParent=multiGlobal is not null||GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null||sharedRedundant||NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page)||buttonParent;
+        var supportsReadOnlyParent=multiGlobal is not null||FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model,table,page)||
+            GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null||sharedRedundant||
+            NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page)||buttonParent;
         var locking=supportsReadOnlyParent?"locking":"true";
         var multiPlan="PageMultiGlobalParent"+page.Source.Id;
         var result = new StringBuilder().Append(multiGlobal is null?SharedGlobalParentCompilation.KeyService(model,table,page):MultiGlobalParentCompilation.Declaration(model,multiGlobal,multiPlan)).AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
@@ -384,7 +386,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="string?")&&
         (Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source)||
             UsesPublishedPhysicalMultiSource(model,table,page)||UsesPublishedPhysicalSingleSource(model,table,page)||
-            UsesPublishedPhysicalCheckboxSource(model,table,page)||
+            UsesPublishedPhysicalCheckboxSource(model,table,page)||FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model,table,page)||
             ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null);
 
     private static string Query(GenerationModel model, TableModel table, PageModel page)
@@ -395,6 +397,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var selectionRows = FixedPageQueryCompilation.UsesStoredGlobalSelectionRows(table, page);
         if (selectionRows) GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog, table.Source, page.Source);
         var globalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
+            FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model,table,page)||
             GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null;
         var snapshot=globalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
         string ParentCheck(string key)=>SelectionPageRenderer.Enabled(page)
@@ -1066,11 +1069,12 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .DistinctBy(scope=>scope.Column.Source.Id).ToArray();
             // 目标复合父键本身就要求规范 ID，独立表单和仅单列的来源也使用相同的比较。
             var canonicalParent=relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent||
-                relation.ScopedStoredSingle&&!relation.Target.IsGlobal&&targetParentScopes.Length>1;
+                relation.ScopedStoredSingle&&!relation.Target.IsGlobal&&targetParentScopes.Length>1||
+                relation.FixedGlobalSelection&&targetParentScopes.Any(scope=>scope.Column.Type=="string?");
             if (relation.TargetParents.Count > 0)
             {
                 if (relation.LogicalSourceParent||sameParent&&
-                    (canonicalParent||relation.FixedParent is {AdditionalTargets.Count:>0}||
+                    (canonicalParent||relation.FixedGlobalSelection||relation.FixedParent is {AdditionalTargets.Count:>0}||
                         !relation.Target.IsGlobal&&fixedGlobalParent is not null))
                 {
                     var conflict=relation.LogicalSourceParent?"关联目标父必须与来源页的逻辑父一致。":"关联目标父必须与来源页的父记录一致。";
@@ -1236,7 +1240,8 @@ public partial class {{table.Name}}Service
             result.AppendLine("        services.AddScoped<global::Metarill.Runtime.Security.IAdminAccountInitializer, global::Metarill.Runtime.Security.AdminAccountInitializationBusiness>();");
         }
         return result.AppendLine("        return services;").AppendLine("    }").Append(TrustedSecurityPhysicalCompilation.Method(model)).AppendLine("}").Append(model.Tables.Any(table => NonRedundantReadCompilation.Requires(model, table) ||
-            table.Pages.Any(page => MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null||
+            table.Pages.Any(page => MultiGlobalParentCompilation.SingleTarget(model,table,page) is not null||
+                MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null||
                 MultiSelectCompilation.ForService(model,table,page).Any(multi=>DerivedMultiNamesCompilation.UsesFixedRead(model,multi))||
                 table.Source.IsFunctionTable==1&&DatabaseCheckboxCompilation.ForPage(model,table,page).Any(checkbox=>checkbox.GlobalParent)||
                 RelationCompilation.ForPage(model, page, true,forExcel:true).Any(relation => DerivedRelationNamesCompilation.UsesFixedRead(model, relation))))

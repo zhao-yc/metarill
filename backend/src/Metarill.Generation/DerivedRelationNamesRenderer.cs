@@ -80,7 +80,8 @@ internal static class DerivedRelationNamesRenderer
 """ : $"            var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{suffix}{bindParent},filters,[{originalOrder}],200,cancellationToken,actor.ProjectId,scope.Condition);";
         // 固定名称查询另外执行自己的筛选，文本父字段要沿用普通候选的规范字节比较。
         var filters=string.Join("\n",relation.TargetPage.Scopes.Concat(relation.Scopes).DistinctBy(scope=>scope.Column.Source.Id)
-            .Select(scope=>(relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent)&&
+            .Select(scope=>(relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent||
+                relation.FixedGlobalSelection)&&
                 scope.Source=="parent"&&scope.Column.Type=="string?"&&
                 relation.FixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true
                 ?$"        filters.Add(FixedReadFilter.ForTextParent({Literal(scope.Column.Source.ColumnName)},targetParentId!));"

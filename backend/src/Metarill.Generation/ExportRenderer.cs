@@ -47,6 +47,7 @@ internal static class ExportRenderer
         var columns = Columns(page); var relations = Relations(model, page); var role = HasFixedRole(model,table,page); var admin = FixedAdmin(model,table,page);var multis=MultiNames(model,table,page);var checkboxes=table.Source.IsRongyu==0?DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>IncludesColumn(page,def.Source)).ToArray():[];
         var crossDependencies=CrossTableExcelRenderer.ExportDependencies(model,table,page,columns);
         var physicalGlobalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
+            FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model,table,page)||
             GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null;
         var snapshot=physicalGlobalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page)||crossDependencies.Count>0;
         var contexts = relations.ToDictionary(relation => relation.SourceColumn.Source.Id, relation => ControlRenderer.RelationContext(page, relation, false));
