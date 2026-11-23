@@ -18,6 +18,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 var condition=FixedConditionPlan.Compile(page.WhereSql,columns[target.Id].Keys);
                 parent=MultiTargetParentScope.CompileListPage(catalog,target,condition.Terms.Concat(control.Terms));
             }
+            else if(target.IsRongyu==1&&foreign.ControlKind=="SelectPage"&&!GlobalCrossTableTarget.Declared(target))
+                parent=ProjectScopedSingleRelationTarget.PhysicalSelectionParent(catalog,target,page);
             else
             {
                 var pageParent=ProjectScopedSingleRelationTarget.PageParent(catalog,target,page)??MultiParent(catalog,page);
@@ -125,7 +127,9 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             else
             {
-                parent=MultiTargetParentScope.CompileListPage(catalog,target,terms);
+                parent=relation.ControlKind=="SelectPage"
+                    ?ProjectScopedSingleRelationTarget.PhysicalSelectionParent(catalog,target,page)
+                    :MultiTargetParentScope.CompileListPage(catalog,target,terms);
             }
             if (parent is {Logical:true} || (parent is null)!=(sourceParentId is null) ||
                 page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)

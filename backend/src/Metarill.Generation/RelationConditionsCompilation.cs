@@ -174,26 +174,23 @@ internal static class RelationConditionsCompilation
     {
         var context=ControlRenderer.RelationContext(page,relation,false);
         if(context.UnresolvedTarget)throw new InvalidOperationException("固定条件写入缺少已证明的目标父上下文。");
-        var parent=page.Scopes.FirstOrDefault(scope=>scope.Source=="parent").Column;
         var target=context.TargetParentField is null?null:table.Columns.Single(column=>column.JsonName==context.TargetParentField);
         if(target is not null&&!MetadataStoragePolicy.ForTable(model.Catalog,table.Source).IsPhysical(target.Source))throw new InvalidOperationException("固定条件目标父必须来自真实物理字段。");
-        var sourceParent=WriteSourceParent(model,table,page,parent);
-        var sameParent="";
-        if(relation.CompoundProjectSource)
-        {
-            // 手写规则可修改实体，按候选读取前的最终字段复核全部来源父键。
-            sourceParent=Value(relation.FixedSourceParent);
-            var mismatch=page.Scopes.Where(scope=>scope.Source=="parent"&&scope.Column!=relation.FixedSourceParent)
-                .Select(scope=>$"{Value(scope.Column)}!={sourceParent}").Distinct(StringComparer.Ordinal);
-            sameParent=$"            if ({string.Join(" || ",mismatch)}) throw new InvalidOperationException(\"下拉来源记录的父键必须一致。\");\n";
-        }
-        return sameParent+$"            var relationQuery{number} = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async({sourceParent}, {Value(target)}, actor, cancellationToken, true, false{WriteArgument(relation)});\n"
+        var (check,sourceParent)=WriteSourceScope(model,table,page,relation);
+        return check+$"            var relationQuery{number} = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async({sourceParent}, {Value(target)}, actor, cancellationToken, true, false{WriteArgument(relation)});\n"
             +$"            relationQuery{number} = relationQuery{number}.Where(row => relationIds{number}.Contains(row.Id));\n";
     }
-    /// <summary>逻辑父级来自已授权的页范围，不能读取稀疏实体的原始父槽。</summary>
-    internal static string WriteSourceParent(GenerationModel model,TableModel table,PageModel page,ColumnModel? parent)=>
-        NonRedundantCrossParentCompilation.Enabled(model,table,page)
-            ?"logicalRelationParentId":Value(parent);
+    /// <summary>原单选和下拉按钩子处理后的实际来源字段校验，稀疏逻辑父使用已授权的页范围。</summary>
+    internal static (string Check,string Parent) WriteSourceScope(GenerationModel model,TableModel table,PageModel page,RelationModel relation)
+    {
+        if(!relation.CompoundProjectSource)
+            return ("",NonRedundantCrossParentCompilation.Enabled(model,table,page)?"logicalRelationParentId":
+                Value(page.Scopes.FirstOrDefault(scope=>scope.Source=="parent").Column));
+        var sourceParent=Value(relation.FixedSourceParent);
+        var mismatch=page.Scopes.Where(scope=>scope.Source=="parent"&&scope.Column!=relation.FixedSourceParent)
+            .Select(scope=>$"{Value(scope.Column)}!={sourceParent}").Distinct(StringComparer.Ordinal);
+        return ($"            if ({string.Join(" || ",mismatch)}) throw new InvalidOperationException(\"单值关联来源记录的父键必须一致。\");\n",sourceParent);
+    }
 
     /// <summary>只有声明表单依赖的候选签名增加私有窄值槽，其他生成产物逐字保持。</summary>
     internal static string Signature(RelationModel relation)=>HasForms(relation)?", IReadOnlyDictionary<string, object?>? formValues = null":"";

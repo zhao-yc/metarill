@@ -62,7 +62,7 @@ internal static partial class NonRedundantReadCompilation
             var relation=RelationCompilation.ForPage(model,page,scopeSourceId:foreign.Source.Id).SingleOrDefault();
             if(relation is null||table.IsGlobal&&!relation.Target.IsGlobal||relation.ParentBinding?.Declared==true)
                 return null;
-            if(relation.ScopedStoredList)
+            if(relation.ScopedStoredSingle)
                 return ProjectTarget(model,table,page,relation);
             if(relation.Target.Source.IsRongyu!=0)
             {

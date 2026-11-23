@@ -306,8 +306,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("    {");
         if(UsesPublishedPhysicalMultiSource(model,table,page))
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前多选页要求已发布的来源父键使用规范正整数。\");");
-        else if(UsesPublishedCompoundListSource(model,page))
-            result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前下拉来源页要求规范正整数父键。\");");
+        else if(UsesPublishedCompoundSingleSource(model,page))
+            result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前单值关联来源页要求规范正整数父键。\");");
         if(sharedRedundant)result.AppendLine("        ValidateActor(actor);").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);");
         else if(multiGlobal is not null)result.AppendLine("        ValidateActor(actor);");
         var checkedGlobalParent=false;
@@ -354,8 +354,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         page.Scopes.Any(scope=>scope.Source=="parent")&&
         MultiSelectCompilation.ForService(model,table,page).Any(definition=>definition.PublishedPhysicalSource);
 
-    /// <summary>仅对已证明的普通下拉来源页启用同父复合物理范围。</summary>
-    private static bool UsesPublishedCompoundListSource(GenerationModel model,PageModel page)=>
+    /// <summary>仅对已证明的普通单值来源页启用同父复合物理范围。</summary>
+    private static bool UsesPublishedCompoundSingleSource(GenerationModel model,PageModel page)=>
         page.Scopes.Count(scope=>scope.Source=="parent")>1&&
         RelationCompilation.ForPage(model,page,true).Any(relation=>relation.CompoundProjectSource);
 
@@ -363,7 +363,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     private static bool UsesFixedTextParent(GenerationModel model,TableModel table,PageModel page)=>
         page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="string?")&&
         (Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source)||
-            UsesPublishedPhysicalMultiSource(model,table,page)||UsesPublishedCompoundListSource(model,page));
+            UsesPublishedPhysicalMultiSource(model,table,page)||UsesPublishedCompoundSingleSource(model,page)||
+            ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null);
 
     private static string Query(GenerationModel model, TableModel table, PageModel page)
     {
@@ -672,7 +673,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if(GlobalCachedParentCompilation.ForSelfTree(model,table,page) is {} parent)
             return Check(parent.Foreign);
         if(NonRedundantCrossParentCompilation.Enabled(model,table,page)||
-            !UsesPublishedPhysicalMultiSource(model,table,page)&&!UsesPublishedCompoundListSource(model,page)&&
+            !UsesPublishedPhysicalMultiSource(model,table,page)&&!UsesPublishedCompoundSingleSource(model,page)&&
             MultiGlobalParentCompilation.CompoundSourceTarget(model,table,page) is null)return "";
         return string.Concat(page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>Check(scope.Column)));
 
@@ -993,7 +994,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var fixedWriteExact = !relation.FunctionForm && DerivedRelationNamesCompilation.UsesFixedRead(model,relation) &&
                 ExactDataManageCompilation.Declared(relation.TargetPage) &&
                 (logicalPlan is not null || DerivedRelationNamesCompilation.UsesExactSingle(relation));
-            var lockScope=fixedWriteExact||relation.ScopedStoredList||relation.CompoundProjectSource||relation.LogicalSourceParent||
+            var lockScope=fixedWriteExact||relation.ScopedStoredSingle||relation.CompoundProjectSource||relation.LogicalSourceParent||
                 relation.Conditions is not null||logicalPlan is not null||
                 relation.Target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
@@ -1025,7 +1026,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var targetParentScopes=relation.TargetPage.Scopes.Concat(relation.Scopes).Where(scope=>scope.Source=="parent"&&
                 relation.FixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true)
                 .DistinctBy(scope=>scope.Column.Source.Id).ToArray();
-            var compoundStoredParent=relation.ScopedStoredList&&!relation.Target.IsGlobal&&targetParentScopes.Length>1;
+            var compoundStoredParent=relation.ScopedStoredSingle&&!relation.Target.IsGlobal&&targetParentScopes.Length>1;
             if (relation.TargetParents.Count > 0)
             {
                 if (relation.LogicalSourceParent||sameParent&&

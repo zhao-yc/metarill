@@ -11,7 +11,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     RelationConditionModel? Conditions = null, ColumnModel? FixedSourceParent = null, MultiTargetParentScope? FixedParent = null, bool LogicalSourceParent = false)
 {
     internal bool ListPageOverride { get; init; }
-    internal bool ScopedStoredList { get; init; }
+    internal bool ScopedStoredSingle { get; init; }
     internal bool CompoundProjectSource { get; init; }
     internal IReadOnlyList<ColumnModel> IndependentOrder { get; init; } = [];
     internal RelationConditionModel? ImportCondition { get; init; }
@@ -210,11 +210,14 @@ internal static class RelationCompilation
                 (globalListPageScope||projectListPage&&
                     ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)==targetPage.Source.Id)&&
                 (HasStoredListRange(targetPage)||conditions is not null||scopes.Any(scope=>scope.Source=="parent"));
+            var selectionParent=selection is null?null:
+                ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,target.Source,targetPage.Source);
+            var storedSelectionParent=target.Source.IsRongyu==1?selectionParent:null;
             MultiSourceParent? compoundProjectSource=null;
             var sourceKeys=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
                 .DistinctBy(column=>column.Source.Id).ToArray();
-            // 普通下拉的物理来源字段与实际目标页共同证明，冗余与实时名称使用同一个父键集合。
-            if((scopedStoredList||source.Source.ControlKind=="List"&&target.Source.IsRongyu==0)&&
+            // 原弹窗和下拉均用已发布目标页证明来源物理父键，冗余与实时名称使用同一个集合。
+            if((selectionParent is not null||scopedStoredList||source.Source.ControlKind=="List"&&target.Source.IsRongyu==0)&&
                 !functionForm&&!binding.Declared&&!owner.IsGlobal&&!target.IsGlobal&&sourceKeys.Length>1&&
                 sourceParents is [var sourceParent]&&targetParents is [var targetParent]&&sourceParent.Source.Id==targetParent.Source.Id&&
                 sourceKeys.All(column=>NonRedundantReadCompilation.Physical(model,owner,column)))
@@ -222,15 +225,16 @@ internal static class RelationCompilation
                 var fields=target.Columns.Select(column=>column.Source.ColumnName);
                 var targetTerms=FixedConditionPlan.Compile(targetPage.Source.WhereSql,fields).Terms;
                 var controlTerms=FixedConditionPlan.Compile(where,fields).Terms;
-                var listParent=MultiTargetParentScope.CompileListPage(model.Catalog,target.Source,targetTerms.Concat(controlTerms));
-                compoundProjectSource=listParent?.SingleSource(model.Catalog,owner.Source,source.Source,page.Source);
+                var physicalParent=selectionParent??MultiTargetParentScope.CompileListPage(model.Catalog,target.Source,targetTerms.Concat(controlTerms));
+                compoundProjectSource=physicalParent?.SingleSource(model.Catalog,owner.Source,source.Source,page.Source);
                 if(compoundProjectSource is not {AdditionalColumns.Count:>0})
-                    throw new InvalidOperationException("原下拉缺少已发布的来源复合物理父键。");
+                    throw new InvalidOperationException("原单值关联缺少已发布的来源复合物理父键。");
             }
-            var sourceBinding=compoundProjectSource??(fixedParent is null||functionForm?null:
+            var parentProof=fixedParent??storedSelectionParent;
+            var sourceBinding=compoundProjectSource??(parentProof is null||functionForm?null:
                 owner.Source.IsRongyu==0&&(globalListPageScope||!owner.IsGlobal&&!target.IsGlobal)
-                    ?fixedParent.SingleSource(model.Catalog,owner.Source,source.Source,page.Source)
-                    :fixedParent.SingleSource(model.Catalog,owner.Source,source.Source));
+                    ?parentProof.SingleSource(model.Catalog,owner.Source,source.Source,page.Source)
+                    :parentProof.SingleSource(model.Catalog,owner.Source,source.Source));
             if(fixedParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0})
                 NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,targetPage.Source.Id,sourceBinding);
             if (functionForm && targetParents.Length > 1)
@@ -242,7 +246,7 @@ internal static class RelationCompilation
                 fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0)
             {
                 ListPageOverride = listPageOverride,
-                ScopedStoredList = scopedStoredList,
+                ScopedStoredSingle = scopedStoredList||storedSelectionParent is not null,
                 CompoundProjectSource = compoundProjectSource is not null,
                 IndependentOrder = independentOrder,
                 FunctionForm = functionForm,
@@ -325,7 +329,8 @@ internal static class RelationCompilation
         // 只有内部保存和选档需要追加精确权限专用的范围。普通弹窗仍直接打开实际单选页。
         bool HasScope(PageModel candidate)=>includeExact&&DerivedRelationNamesCompilation.UsesExactSingleTarget(target,candidate)||
             target.Source.IsRongyu==0&&(HasFixedTargetScope(target,candidate)||
-                NonRedundantReadCompilation.SelfTreeExactColumn(target,candidate) is not null);
+                NonRedundantReadCompilation.SelfTreeExactColumn(target,candidate) is not null)||
+            target.Source.IsRongyu==1&&ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,target.Source,candidate.Source) is not null;
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var definition=SelectionControlDefinition.Resolve(source,field);
         return target.Pages.Any(candidate=>candidate.Source.Id==definition.PageId&&HasScope(candidate));

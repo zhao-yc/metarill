@@ -41,7 +41,7 @@ internal static partial class BackendRenderer
                 NonRedundantReadCompilation.UsesProjectSingleRead(relation)).ToArray();
         scopedPages=scopedPages.Concat(scopedRelations.Select(relation=>(relation.Target,relation.TargetPage)));
         // 固定单值读取在宿主重新装载时，从实际来源页重新验证物理或逻辑父键。
-        var scopedOwners=scopedRelations.Where(relation=>relation.ScopedStoredList||relation.CompoundProjectSource||
+        var scopedOwners=scopedRelations.Where(relation=>relation.ScopedStoredSingle||relation.CompoundProjectSource||
             relation.ListPageOverride||relation.LogicalSourceParent||relation.CompoundGlobalSource||
             NonRedundantReadCompilation.UsesProjectControlRead(relation)||
             !relation.Target.IsGlobal&&relation.FixedParent is not null)

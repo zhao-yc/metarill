@@ -189,7 +189,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         var projectTarget=catalog.ConfigTables.SingleOrDefault(table=>table.Id==Target.ConfigTableId&&!GlobalCrossTableTarget.Declared(table));
         var projectSource=!Global&&source.IsRongyu is (0 or 1)&&!GlobalCrossTableTarget.Declared(source)&&projectTarget is not null;
         var projectPhysicalSource=projectSource&&(relation.ControlKind=="MultiSelectPage"||checkbox&&allowProjectPhysicalCheckbox);
-        var projectListSource=projectSource&&single&&relation.ControlKind=="List";
+        var projectSingleSource=projectSource&&single&&relation.ControlKind is ("List" or "SelectPage");
         var selected=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&
             (sourcePageId is null||page.Id==sourcePageId)).Select(page=>
         {
@@ -236,10 +236,10 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
                 scoped.Any(term=>CrossTableStorageColumns.IsLogicalPathField(source,columns,term.Field));
             var singleSelection=single&&relation.ControlKind is ("List" or "SelectPage");
             var compoundGlobal=Global&&(singleSelection||multiRelation||checkboxRelation);
-            // 下拉来源页已经约束目标所属父表时，所有物理范围都必须纳入证明，不能遇到不同父表就退回单列。
+            // 单值来源页已经约束目标所属父表时，所有物理范围都必须纳入证明，不能遇到不同父表就退回单列。
             bool TargetKey(FixedConditionTerm term)=>keys.Any(column=>column.ColumnName==term.Field);
             var compoundPhysical=projectPhysicalSource&&scoped.All(TargetKey)||
-                projectListSource&&scoped.Any(TargetKey)&&scoped.All(term=>
+                projectSingleSource&&scoped.Any(TargetKey)&&scoped.All(term=>
                     columns.Any(column=>column.ColumnName==term.Field&&PhysicalKey(catalog,source,column)));
             if(scoped.Length>1&&(checkboxRelation||multiSelection||compoundGlobal||compoundPhysical||singleSelection&&allowLogical))
             {

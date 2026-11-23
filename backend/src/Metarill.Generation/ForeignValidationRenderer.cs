@@ -61,10 +61,10 @@ internal static class ForeignValidationRenderer
                 .AppendLine($"        if ((creating || submitted.Contains({Literal(binding.ForeignKey.Source.ColumnName)})) && entity.{binding.ForeignKey.Property} is null) {{ entity.{binding.Storage.Property} = null; submitted.Add({Literal(binding.Storage.Source.ColumnName)}); }}");
         var constantRelations = RelationCompilation.ForPage(model,page).Concat(RelationCompilation.ForPage(model,page,true)
             .Where(relation=>DerivedRelationNamesCompilation.UsesFixedRead(model,relation)||DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
-                RelationCompilation.HasFixedTargetScope(relation.Target,relation.TargetPage)||relation.ScopedStoredList||relation.Target.IsGlobal))
+                RelationCompilation.HasFixedTargetScope(relation.Target,relation.TargetPage)||relation.ScopedStoredSingle||relation.Target.IsGlobal))
             .DistinctBy(relation=>relation.SourceColumn.Source.Id)
             .Where(relation=>relation.Conditions is not null||relation.TargetPage.Condition is not null||relation.Target.IsGlobal||
-                RelationCompilation.HasFixedTargetScope(relation.Target,relation.TargetPage)||relation.ScopedStoredList||
+                RelationCompilation.HasFixedTargetScope(relation.Target,relation.TargetPage)||relation.ScopedStoredSingle||
                 RelationCompilation.HasFixedListIdParent(relation)||
                 DerivedRelationNamesCompilation.UsesSelfTreeExact(relation)||DerivedRelationNamesCompilation.UsesExactSingle(relation))
             .ToDictionary(relation=>relation.SourceColumn.Source.Id);

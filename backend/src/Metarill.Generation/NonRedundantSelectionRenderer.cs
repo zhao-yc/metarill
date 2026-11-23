@@ -11,7 +11,7 @@ internal static class NonRedundantSelectionRenderer
         var relation=RelationCompilation.ForPage(model,page,true).Single(relation=>relation.SourceColumn.Source.Id==source.Source.Id);
         var context=ControlRenderer.RelationContext(page,relation,false);
         if(context.UnresolvedTarget)throw new InvalidOperationException("非冗余单选写入缺少可证明的目标父上下文。");
-        var parent=page.Scopes.FirstOrDefault(scope=>scope.Source=="parent").Column;
+        var (check,sourceParent)=RelationConditionsCompilation.WriteSourceScope(model,table,page,relation);
         var target=context.TargetParentField is null?null:table.Columns.Single(column=>column.JsonName==context.TargetParentField);
         if(target is not null&&!NonRedundantReadCompilation.Physical(model,table,target))throw new InvalidOperationException("单选目标父必须绑定物理外键。");
         var trigger="creating || submitted.Contains("+JsonSerializer.Serialize(source.Source.ColumnName)+")"+(target is null?"":" || submitted.Contains("+JsonSerializer.Serialize(target.Source.ColumnName)+")");
@@ -20,7 +20,7 @@ internal static class NonRedundantSelectionRenderer
         if (({{trigger}}) && entity.{{source.Property}} is not null)
         {
             // 当前对象操作已经授权；普通单选仍按原import/create/update动作，不额外加目标列表权限。
-            var selected{{source.Source.Id}} = await OptionsScope{{suffix}}Async({{RelationConditionsCompilation.WriteSourceParent(model,table,page,parent)}}, {{Value(target)}}, actor, cancellationToken, true, false);
+{{check}}            var selected{{source.Source.Id}} = await OptionsScope{{suffix}}Async({{sourceParent}}, {{Value(target)}}, actor, cancellationToken, true, false);
             var valid{{source.Source.Id}} = await selected{{source.Source.Id}}.Where(row => row.Id == entity.{{source.Property}}.Value).Limit(1).ForUpdate().ToListAsync(row => new { row.Id }, cancellationToken);
             if (valid{{source.Source.Id}}.Count != 1) throw new InvalidOperationException("单选记录不在当前真实候选范围。");
         }

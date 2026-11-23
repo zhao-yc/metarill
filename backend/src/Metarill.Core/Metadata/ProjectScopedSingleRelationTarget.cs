@@ -65,12 +65,24 @@ public static class ProjectScopedSingleRelationTarget
         return MultiTargetParentScope.CompileSelectionPage(catalog,target,condition,allowGlobalParent:true);
     }
 
+    /// <summary>原弹窗直达已发布的 type=1 页面，父范围只取该页实际物理外键。</summary>
+    public static MultiTargetParentScope? PhysicalSelectionParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
+    {
+        if(target.IsRongyu is not (0 or 1)||GlobalCrossTableTarget.Declared(target)||page.ConfigTableId!=target.Id||
+            page.Extra.GetValueOrDefault("type").ToString()!="1")return null;
+        var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
+        var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+        var scope=MultiTargetParentScope.CompileListPage(catalog,target,condition.Terms);
+        return scope is {Logical:false,Global:false}?scope:null;
+    }
+
     /// <summary>路径任一实际目标页有额外范围时，所有写入入口必须共享同一固定名称来源。</summary>
     public static (PageMetadata Page, ColumnMetadata Name)? Resolve(
         MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)
     {
         var storedList = target.IsRongyu==1 && foreign.ControlKind=="List" && UsesFixedListCandidates(catalog);
-        if(owner.IsRongyu!=1||!IsProjectRole(owner,foreign,target,allowStoredTarget:storedList))return null;
+        var storedSelection=target.IsRongyu==1&&foreign.ControlKind=="SelectPage";
+        if(owner.IsRongyu!=1||!IsProjectRole(owner,foreign,target,allowStoredTarget:storedList||storedSelection))return null;
         var sourcePages=catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id).ToArray();
         if(storedList && !sourcePages.Any(page=>ListPageId(catalog,page,foreign).Length>0))return null;
         var pages=TargetPages(catalog,target);
@@ -88,6 +100,8 @@ public static class ProjectScopedSingleRelationTarget
             columns.Any(column=>column.ColumnName=="id"&&column.LogicalType=="int64");
         var matches=sourcePages
             .Select(page=>TargetFor(catalog,page,foreign,definition,selected,nameField,pages,names,integerListId,fixedList)).ToArray();
+        if(storedSelection&&!matches.Any(match=>match.Page is {} page&&PhysicalSelectionParent(catalog,target,page) is not null))
+            return null;
         var hasNameCache=foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
             catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName==foreign.ColumnName[..^3]+"_"+nameField);
         var controlScope=hasNameCache?ControlScope(catalog,owner,foreign,target):null;

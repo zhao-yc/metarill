@@ -214,8 +214,16 @@ public sealed class NonRedundantImportMatchTests
     [InlineData(1, false, true, false)]
     [InlineData(1, true, true, false)]
     [InlineData(1, true, true, true)]
-    public async Task List_requires_both_physical_source_parent_columns(int storage, bool compoundTarget,
-        bool liveTarget=false,bool controlParent=true)
+    [InlineData(0, false, false, false, true)]
+    [InlineData(0, true, false, false, true)]
+    [InlineData(1, false, false, false, true)]
+    [InlineData(1, true, false, false, true)]
+    [InlineData(0, false, true, false, true)]
+    [InlineData(0, true, true, false, true)]
+    [InlineData(1, false, true, false, true)]
+    [InlineData(1, true, true, false, true)]
+    public async Task Single_relation_requires_both_physical_source_parent_columns(int storage,bool compoundTarget,
+        bool liveTarget=false,bool controlParent=true,bool popup=false)
     {
         var catalog=Catalog("string");
         var splitControl=compoundTarget&&controlParent;
@@ -240,14 +248,20 @@ public sealed class NonRedundantImportMatchTests
         catalog.ConfigPages.Add(page);
         catalog.ConfigPageColumns.Add(new(){Id="7017015",ConfigPageId="701",ConfigColumnId="7015",IsShow=1});
         // 分写父条件的非冗余字典同时用原首列覆盖路径，真实物理首列与名称回显列分开。
-        var overwrite=liveTarget&&splitControl;
+        var overwrite=liveTarget&&splitControl||popup&&compoundTarget;
         if(overwrite)
         {
             page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
             catalog.ConfigColumns.Add(new(){Id="7018",ConfigTableId="7",ColumnName="name",Name="记录名",LogicalType="string",SortNo=-100});
             catalog.ConfigPageColumns.Add(new(){Id="7017018",ConfigPageId="701",ConfigColumnId="7018",SortNo=-100});
         }
-        AddStoredPickerRole(catalog,"7","701","7016",splitControl);
+        var pickerRole=AddStoredPickerRole(catalog,"7","701","7016",splitControl);
+        if(popup)
+        {
+            catalog.ConfigPages.Single(item=>item.Id=="601").Extra["type"]=JsonSerializer.SerializeToElement(1);
+            pickerRole.ControlKind="SelectPage";
+            pickerRole.ControlDetail=JsonSerializer.Serialize(new{pageId="601",nameField="name",buttonText="选择字典"});
+        }
         RedundantMultiNameCacheTests.Published(catalog);
 
         var model=GenerationModel.Create(catalog,"Example.CompoundListOwner");
@@ -297,7 +311,7 @@ public sealed class NonRedundantImportMatchTests
         Assert.Contains("ApplyTextParent(query,session,\"review_country_id\",parentId!",generated);
         Assert.Contains("entity.ReviewCountryId!=entity.CountryId?.ToString(CultureInfo.InvariantCulture)",generated);
         Assert.Contains("originalCandidateValues.ReviewCountryId",generated);
-        Assert.Contains("当前下拉来源页要求规范正整数父键",generated);
+        Assert.Contains("当前单值关联来源页要求规范正整数父键",generated);
 
         // 编译实际生成包，证明宿主内嵌的目录仍能重新绑定两个来源字段。
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-compound-list-owner");
@@ -307,6 +321,19 @@ public sealed class NonRedundantImportMatchTests
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service=assembly.GetType(model.Namespace+".Generated.Services.CompoundPickerOwnerService",true)!;
+            if(popup)
+            {
+                var detail=await File.ReadAllTextAsync(Path.Combine(directory,"generated/frontend/pages/yzp/compound_picker_owner-detail-701.vue"));
+                Assert.Contains("OriginalSelection7016",detail);
+                Assert.Contains(":parent_id=\"parent_id\"",detail);
+                Assert.Contains("onPopSelect7016",detail);
+                if(compoundTarget)
+                {
+                    var actualTarget=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LogicalOverwritePickerService.g.cs"));
+                    Assert.Contains(liveTarget?"FixedReadFilter.ForTextParent(\"approval_country_id\",request.ParentId!)":
+                        "ApplyTextParent(query,session,\"approval_country_id\",parentId!",actualTarget);
+                }
+            }
             Assert.NotNull(service.GetMethod("Create701Async"));
             Assert.NotNull(service.GetMethod("Update701Async"));
             Assert.NotNull(service.GetMethod("Copy701Async"));
