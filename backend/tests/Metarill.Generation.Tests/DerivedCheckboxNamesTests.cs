@@ -224,6 +224,173 @@ public sealed class DerivedCheckboxNamesTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>普通冗余复选字典按登录归属筛选，冗余来源的维护则从实际记录取归属。</summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(1, true)]
+    [InlineData(1, false, true)]
+    [InlineData(1, true, true)]
+    public async Task Project_stored_checkbox_preserves_published_account_scope(int sourceStorage, bool withParent,
+        bool alternateName = false)
+    {
+        const string ns = "Example.ProjectStoredCheckbox";
+        const string output = "target_names";
+        const BindingFlags instance = BindingFlags.Instance | BindingFlags.NonPublic;
+        const BindingFlags fields = BindingFlags.Static | BindingFlags.NonPublic;
+        const long store = 9007199254740993L;
+        var catalog = Catalog("stored_checkbox", false);
+        var owner = catalog.ConfigTables.Single(table => table.Id == "2");
+        owner.IsRongyu = sourceStorage;
+        var target = catalog.ConfigTables.Single(table => table.Id == "3");
+        target.IsRongyu = 1;
+        var name = catalog.ConfigColumns.Single(column => column.Id == "32");
+        name.Extra.Remove("isJoinColumn");
+        name.Extra.Remove("columnFullName");
+        var relation = catalog.ConfigColumns.Single(column => column.Id == "25");
+        relation.ControlDetail = JsonSerializer.Serialize(new
+        {
+            tableId = "3", pageId = "301", nameField = "name",
+            whereSql = sourceStorage == 1 && withParent && !alternateName ? "status = 41" : ""
+        });
+        foreach (var tableId in new[] { owner.Id, target.Id })
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = tableId + "991", ConfigTableId = tableId, YzProjectId = catalog.YzProjectId,
+                ColumnName = "store_id", LogicalType = "int64"
+            });
+        var scope = "yz_project_id=@current_yz_project_id AND store_id=@current_store_id";
+        if (withParent) scope += " AND parent_id=@parentId";
+        foreach (var sourcePage in catalog.ConfigPages.Where(page => page.ConfigTableId == owner.Id))
+            sourcePage.WhereSql = scope;
+        var dictionaryPage = catalog.ConfigPages.Single(page => page.Id == "301");
+        dictionaryPage.WhereSql = scope + " AND status=41";
+        if (alternateName && withParent)
+            catalog.ConfigColumns.Single(column => column.ConfigTableId == target.Id && column.ColumnName == "parent_id")
+                .LogicalType = "string";
+        if (alternateName)
+        {
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "3992", ConfigTableId = target.Id, YzProjectId = catalog.YzProjectId,
+                ColumnName = "title", LogicalType = "string"
+            });
+            catalog.ConfigPageColumns.Add(new()
+            {
+                Id = "3013992", ConfigPageId = "301", ConfigColumnId = "3992",
+                YzProjectId = catalog.YzProjectId, IsShow = 1, IsEdit = 1
+            });
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "2992", ConfigTableId = owner.Id, YzProjectId = catalog.YzProjectId,
+                ColumnName = "target_titles", LogicalType = "string", ColumnLength = "max",
+                Extra = new()
+                {
+                    ["isJoinColumn"] = JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"] = JsonSerializer.SerializeToElement("target.title")
+                }
+            });
+            var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
+            var copy = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(sourcePage))!;
+            copy.Id = "204";
+            catalog.ConfigPages.Add(copy);
+            foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigPageId == "201").ToArray())
+            {
+                var mapped = JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+                mapped.Id = "204" + field.Id;
+                mapped.ConfigPageId = "204";
+                if (mapped.ConfigColumnId == relation.Id)
+                    mapped.Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"nameField":"title"}""");
+                catalog.ConfigPageColumns.Add(mapped);
+            }
+            catalog.ConfigPageColumns.Add(new()
+            {
+                Id = "2042992", ConfigPageId = "204", ConfigColumnId = "2992",
+                YzProjectId = catalog.YzProjectId, IsShow = 1, IsEdit = 0
+            });
+        }
+        var actor = new Metarill.Core.Security.RuntimeActor(7, "合成门店", false, catalog.YzProjectId, "5") { StoreId = store };
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-project-stored-checkbox");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var model = GenerationModel.Create(catalog, ns);
+            Assert.Empty(GenerationCapabilityAudit.Collect(model));
+            new CSharpGenerator().Generate(catalog, Path.Combine(directory, "generated"), ns);
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType(ns + ".Generated.Services.StoredCheckboxSourceService", true)!;
+            var code = File.ReadAllText(Path.Combine(directory, "generated/Services/StoredCheckboxSourceService.g.cs"));
+            Assert.Contains("CheckboxTargetCondition201_25.BindAccount(actor).ApplyConstants", code);
+            Assert.Contains("CheckboxOptions201_25Async", code);
+            Assert.Contains("ValidateCheckbox201_25Async", code);
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+            var condition = Assert.IsType<FixedConditionSqlPlan>(
+                service.GetField("CheckboxTargetCondition201_25", fields)!.GetValue(null));
+            Assert.Throws<UnauthorizedAccessException>(() => condition.BindAccount(actor with { StoreId = null }));
+            if (sourceStorage == 0)
+            {
+                var plan = Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan201", fields)!.GetValue(null));
+                Assert.True(plan.RequiresAccount);
+                Assert.Throws<UnauthorizedAccessException>(() => plan.BindAccount(actor with { StoreId = null }));
+                var bound = plan.BindAccount(actor);
+                var read = bound.GetType().GetProperty("MySql", instance)!.GetValue(bound)!;
+                var predicate = Assert.Single(Property<IReadOnlyDictionary<string, string>>(read, "ArrayNamePredicates")).Value;
+                Assert.Contains("multi_value.`store_id`", predicate);
+                Assert.Contains(store, Property<IReadOnlyDictionary<string, object?>>(read, "Constants").Values);
+                Assert.Equal(withParent, predicate.Contains("b.`parent_id`", StringComparison.Ordinal));
+            }
+            else
+            {
+                var maintenance = Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    assembly.GetType(ns + ".Generated.GeneratedRelationMaintenance", true)!.GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains(output, maintenance.MixedSourceColumns[owner.TableName]);
+                var plans = Property<System.Collections.IDictionary>(maintenance, "Plans");
+                var published = plans[owner.Id]!;
+                Assert.Null(published.GetType().GetProperty("Error")!.GetValue(published));
+                var read = published.GetType().GetProperty("Read")!.GetValue(published)!;
+                Assert.False(Property<bool>(read, "RequiresAccount"));
+                var sql = Assert.IsType<string>(read.GetType().GetMethod("Expression", instance)!.Invoke(read, [output]));
+                Assert.Contains("b.`store_id`", sql);
+                Assert.Contains("multi_value.`store_id`", sql);
+                Assert.Equal(withParent, sql.Contains("b.`parent_id`", StringComparison.Ordinal));
+                Assert.Contains("store_id", Property<IReadOnlyList<string>>(read, "SourceDependencies"));
+                if (alternateName)
+                {
+                    Assert.Contains("target_titles", maintenance.MixedSourceColumns[owner.TableName]);
+                    Assert.Contains("CheckboxTargetCondition204_25.BindAccount(actor).ApplyConstants", code);
+                    if (withParent) Assert.Contains("ApplyTextParent(query,session,\"parent_id\"", code);
+                    Assert.NotNull(service.GetMethod("Import204Async"));
+                    Assert.NotNull(service.GetMethod("Export204Async"));
+                    var title = Assert.IsType<string>(read.GetType().GetMethod("Expression", instance)!
+                        .Invoke(read, ["target_titles"]));
+                    Assert.Contains("multi_value.`title`", title);
+                    Assert.Contains("b.`store_id`", title);
+                    Assert.Equal(withParent, title.Contains("b.`parent_id`", StringComparison.Ordinal));
+                }
+                Assert.Contains(Property<System.Collections.IEnumerable>(read, "Reverse").Cast<object>(), item =>
+                    Equals(target.TableName, item.GetType().GetProperty("TargetTable")!.GetValue(item)) &&
+                    Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlySet<string>>>(
+                        item.GetType().GetProperty("Outputs")!.GetValue(item)).TryGetValue(output, out var changes) &&
+                    changes.Contains("store_id") && changes.Contains("name"));
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+
+        if (sourceStorage == 1)
+        {
+            var hidden = catalog.ConfigPages.Single(page => page.Id == "202");
+            hidden.WhereSql = hidden.WhereSql.Replace(" AND store_id=@current_store_id", "", StringComparison.Ordinal);
+            var model = GenerationModel.Create(catalog, ns);
+            var error = Assert.Throws<InvalidOperationException>(() => RelationPropagationCompilation.DerivedBindings(model));
+            Assert.Contains("物理账号归属", error.Message);
+        }
+
+        static T Property<T>(object item, string property) =>
+            Assert.IsAssignableFrom<T>(item.GetType().GetProperty(property, instance)!.GetValue(item));
+    }
+
     /// <summary>业务名称投影和筛选执行显式物理目标页条件，并按原数组顺序保留未命中位置。</summary>
     [Theory]
     [InlineData(0, false, false)]

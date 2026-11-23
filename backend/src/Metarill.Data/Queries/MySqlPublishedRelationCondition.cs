@@ -93,7 +93,8 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var syntax=FixedConditionPlan.Compile(page.WhereSql,fields.Select(column=>column.ColumnName));
         var parent=MultiTargetParentScope.CompileCheckboxParent(catalog,target,syntax);
         if(parent is null||parent.Global||parent.Logical||syntax.Variables.Any(variable=>
-            !MultiTargetParentScope.IsParameter(variable)&&!variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)))
+            !MultiTargetParentScope.IsParameter(variable)&&!variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))&&
+            !MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(catalog,target,page,checkboxAccount:true))
             throw new InvalidOperationException("复选多名称要求实际普通物理目标父键。");
         var sourcePages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==source.Id).ToArray();
         ColumnMetadata? sourceKey=null;

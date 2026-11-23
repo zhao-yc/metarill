@@ -172,7 +172,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var syntax=FixedConditionPlan.Compile(DatabaseCheckboxDefinition.Parse(relation.ControlDetail).WhereSql,columns[target.Id].Keys);
                 if(syntax.Terms.Count>0)control=syntax;
             }
-            var projectFixedScope=!checkbox&&selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope);
+            var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,checkboxAccount:checkbox);
             var physicalScope=storedAccount||target.IsRongyu==1&&projectFixedScope||
                 checkbox&&target.IsRongyu==1&&(fixedParent is not null||
                 table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));
@@ -214,7 +214,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 :GlobalCrossTableTarget.DeclaresExactMulti(target,candidatePage));
             var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:candidatePage,multiLabel:true,cascadeLabelField:value.ColumnName,
-                cascadeCacheOwner:refreshFields is null||fixedParent is not null&&storage[target.Id].IsPhysical(value)?null:
+                cascadeCacheOwner:refreshFields is null||fixedParent is not null&&!projectFixedScope&&storage[target.Id].IsPhysical(value)?null:
                     new(table,owner,GlobalSingleSource:storedAccount&&GlobalCrossTableTarget.Declared(table)),
                 globalCandidate:global&&target.IsRongyu==0&&candidatePage is not null,
                 scopedPhysicalCandidate:physicalScope&&!global,accountPhysicalCandidate:storedAccount,

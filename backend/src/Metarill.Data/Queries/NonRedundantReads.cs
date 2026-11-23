@@ -345,6 +345,10 @@ public static class NonRedundantReads
             new Dictionary<string,object?>{{parameter,parent}});
     }
 
+    /// <summary>原数据库复选可绑定同项目普通冗余字典的物理账号等值范围。</summary>
+    public static bool IsProjectStoredCheckboxAccountPage(MetadataCatalog metadata,TableMetadata target,PageMetadata page)=>
+        MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(metadata,target,page,checkboxAccount:true);
+
     /// <summary>原多选可绑定只受当前项目限制的冗余候选页。</summary>
     public static bool IsProjectOnlyStoredMultiSelectPage(MetadataCatalog metadata,TableMetadata target,PageMetadata page)=>
         MySqlNonRedundantReadCompiler.IsProjectOnlyStoredMultiSelectPage(metadata,target,page);

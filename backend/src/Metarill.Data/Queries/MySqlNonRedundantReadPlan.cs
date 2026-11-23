@@ -278,8 +278,8 @@ public static partial class MySqlNonRedundantReadCompiler
         if(parent is {Global:true}&&source is {AdditionalColumns.Count:>0})
             RequireCompoundGlobalSourceParent(catalog,tableId,selectedPage!.Id,source);
         var target=catalog.ConfigTables.Single(table=>table.Id==tableId);
-        var projectFixedScope=selectedPage is not null&&relation?.ControlKind=="MultiSelectPage"&&
-            IsProjectFixedMultiPage(catalog,target,selectedPage);
+        var projectFixedScope=selectedPage is not null&&relation is {ControlKind:"MultiSelectPage" or "MultiCheckBoxDatabase"}&&
+            IsProjectFixedMultiPage(catalog,target,selectedPage,checkboxAccount:relation.ControlKind=="MultiCheckBoxDatabase");
         return new Builder(catalog,tableId,true,multiLabel:true,cascadeLabelField:field,cascadeCacheOwner:cacheOwner,
             scopedPhysicalCandidate:projectFixedScope&&target.IsRongyu==1)
         {

@@ -69,7 +69,14 @@ internal static class DatabaseCheckboxRenderer
             }
             result.AppendLine(def.Target.IsGlobal?$"        var query=session.Select<{def.Target.EntityType}>();":$"        var query=session.Select<{def.Target.EntityType}>().Where(row=>row.{project!.Property}=={Scope(project,"actor.ProjectId")});");
             if(def.Target.Columns.Any(column=>column.Source.ColumnName=="delete_no"))result.AppendLine("        query=query.Where(row=>row.DeleteNo==null);");
-            foreach(var (column,source) in def.Scopes.Where(scope=>def.LogicalTargetPage is null||!NonRedundantCrossParentCompilation.Managed(model,def.Target,def.LogicalTargetPage,scope.Column)))result.AppendLine($"        query=query.Where(row=>row.{column.Property}=={Scope(column,source=="project"?"actor.ProjectId":"parentId!")});");
+            foreach(var (column,source) in def.Scopes.Where(scope=>def.LogicalTargetPage is null||!NonRedundantCrossParentCompilation.Managed(model,def.Target,def.LogicalTargetPage,scope.Column)))
+            {
+                // 物理字典的字符串父键与回填共用规范十进制比较，避免数据库文本排序规则扩大范围。
+                if(def.HasProjectStoredAccountScope&&source=="parent"&&column.Type=="string?")
+                    result.AppendLine($"        query=global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},parentId!);");
+                else
+                    result.AppendLine($"        query=query.Where(row=>row.{column.Property}=={Scope(column,source=="project"?"actor.ProjectId":"parentId!")});");
+            }
             if(def.GlobalPage is not null&&!def.DerivedName)
                 result.Append(FixedPageConditionCompilation.Apply(def.GlobalPage,"CheckboxGlobalCondition"+suffix,"checkbox_global_"+suffix));
             if(def.Conditions is {} condition)

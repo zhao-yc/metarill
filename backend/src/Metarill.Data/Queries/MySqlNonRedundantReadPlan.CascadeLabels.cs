@@ -158,6 +158,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var page=candidates[0];
         return table.IsRongyu==0||
             stored&&(checkbox||pageId.Length>0)&&StoredAccountMultiPage(catalog,table,page,checkbox)||
+            checkbox&&IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true)||
             relation.ControlKind=="MultiSelectPage"&&IsProjectFixedMultiPage(catalog,table,page)?page:null;
     }
 
@@ -184,10 +185,13 @@ public static partial class MySqlNonRedundantReadCompiler
     }
 
     /// <summary>项目内多选字典保留物理常量、实际父键和冗余字典的原账号等值条件。</summary>
-    internal static bool IsProjectFixedMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    internal static bool IsProjectFixedMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        bool checkboxAccount=false)
     {
+        var pageType=page.Extra.GetValueOrDefault("type").ToString();
         if(GlobalCrossTableTarget.Declared(table)||table.IsRongyu is not(0 or 1)||table.IsView!=0||table.IsFunctionTable!=0||
-            page.ConfigTableId!=table.Id||page.Extra.GetValueOrDefault("type").ToString()!="2"||page.WhereSql.Length==0||
+            page.ConfigTableId!=table.Id||page.WhereSql.Length==0||
+            (checkboxAccount?table.IsRongyu!=1||pageType is not("" or "0" or "1" or "2"):pageType!="2")||
             page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)return false;
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
         var syntax=FixedConditionPlan.Compile(page.WhereSql,
@@ -195,16 +199,18 @@ public static partial class MySqlNonRedundantReadCompiler
                 .Select(column=>column.ColumnName));
         var parents=syntax.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
             MultiTargetParentScope.IsParameter(value.Text))).ToArray();
-        if(!syntax.Terms.Any(term=>!GlobalMultipleRelationTarget.IsProjectScope(term))||
+        if(checkboxAccount&&!syntax.Terms.Any(IsStoredAccount)||
+            !syntax.Terms.Any(term=>!GlobalMultipleRelationTarget.IsProjectScope(term))||
             syntax.Terms.Any(term=>!GlobalMultipleRelationTarget.IsProjectScope(term)&&!parents.Contains(term)&&
                 term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)&&!IsStoredAccount(term))||
             syntax.Fields.Any(field=>!storage.PhysicalColumns.Any(column=>column.ColumnName==field&&
                 GlobalPhysicalRelationValue.IsScalar(storage,table,column))||
                 CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field)))
             return false;
-        return parents.Length==0||
-            MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,
-                allowStoredPhysicalParents:true) is {Global:false,Logical:false};
+        return parents.Length==0||(checkboxAccount
+            ?MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax)
+            :MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,
+                allowStoredPhysicalParents:true)) is {Global:false,Logical:false};
 
         // 请求通过认证快照绑定，冗余名称回填则由现有归属计划逐页证明来源物理字段。
         bool IsStoredAccount(FixedConditionTerm term)=>table.IsRongyu==1&&term.Field!="yz_project_id"&&
@@ -287,7 +293,7 @@ public static partial class MySqlNonRedundantReadCompiler
             importColumns=declared.Where(column=>extraFields.Contains(column.ColumnName)).ToArray();
             if(crossFields.Count>0)crossBindings=CrossMembershipBindings(catalog,table,page,crossFields);
         }
-        var projectFixedScope=!storedExactCheckbox&&IsProjectFixedMultiPage(catalog,table,page);
+        var projectFixedScope=IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:storedExactCheckbox);
         var plan=new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field,crossTables:crossBindings,
             scopedPhysicalCandidate:projectFixedScope&&table.IsRongyu==1)
         {

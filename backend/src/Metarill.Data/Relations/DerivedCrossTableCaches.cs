@@ -18,9 +18,12 @@ public static class DerivedCrossTableCaches
                     throw new InvalidOperationException("复选父级缓存缺少实际发布的多值目标页。");
                 var targetValue=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id))
                     .Single(column=>column.Id==d.ValueColumnId);
-                if(MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(targetValue))
+                var checkboxPage=catalog.ConfigPages.SingleOrDefault(page=>page.Id==d.CheckboxTargetPageId&&page.ConfigTableId==target.Id);
+                var storedAccount=checkboxPage is not null&&Metarill.Data.Queries.NonRedundantReads
+                    .IsProjectStoredCheckboxAccountPage(catalog,target,checkboxPage);
+                if(MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(targetValue)&&!storedAccount)
                 {
-                    // 物理副本沿用原列证明，其父范围由维护投影重新读取。
+                    // 物理副本沿用原列证明，其父范围由维护投影重新读取。账号范围则在下方与来源行一同验证。
                     _=RelationMutationPlan.Compile(catalog,[d with{CheckboxTargetPageId=null,CheckboxSourceParentId=null}]);
                     var cacheColumn=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id))
                         .Single(column=>column.Id==d.CacheColumnId);

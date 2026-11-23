@@ -25,6 +25,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool SharedDerivedPageScope { get; init; }
     internal bool SharedLogicalParentScope { get; init; }
     internal bool HasStoredAccountScope { get; init; }
+    internal bool HasProjectStoredAccountScope { get; init; }
 
     /// <summary>原列表勾选的加载和冗余数组匹配共用同一候选范围证明。</summary>
     internal bool SupportsRedundantArrayFilter =>
@@ -142,6 +143,12 @@ internal static class DatabaseCheckboxCompilation
             if(functionForm&&explicitPage.Length>0&&namePage is null)return Gap("功能表复选的显式目标页未在实际目标表发布。");
             var exactTarget=namePage is null?null:ExactDataManageCompilation.Resolve(model,target,namePage);
             var fixedPage=baseline.PageId.Length>0?baseline.PageId:linkedPage;
+            bool UsesProjectStoredAccount(PageModel candidate)=>!functionForm&&
+                Metarill.Data.Queries.NonRedundantReads.IsProjectStoredCheckboxAccountPage(model.Catalog,target.Source,candidate.Source);
+            var projectStoredAccount=namePage is not null&&UsesProjectStoredAccount(namePage);
+            if(table.Source.IsRongyu==1&&explicitPage!=fixedPage&&(projectStoredAccount||
+                target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&UsesProjectStoredAccount(candidate))))
+                return Gap("复选物理名称副本必须沿用表级账号候选范围。");
             var pageNames=table.Source.IsRongyu==1&&!functionForm&&namePage is not null&&namePage.Source.Id==fixedPage
                 ?model.Catalog.ConfigPageColumns.Where(setting=>setting.ConfigColumnId==source.Source.Id&&
                     table.Pages.Any(candidate=>candidate.Source.Id==setting.ConfigPageId))
@@ -153,7 +160,8 @@ internal static class DatabaseCheckboxCompilation
                 !FixedPageConditionCompilation.HasLogicalFields(namePage!);
             var sharedScalarPage=sharedFixedR0Page&&namePage!.Scopes.All(scope=>scope.Source=="project");
             var sharedStoredAccountScope=sharedNamesPage&&storedAccountPage;
-            var sharedAccountScope=sharedStoredAccountScope||sharedScalarPage&&FixedPageConditionCompilation.HasAccountVariables(namePage!);
+            var sharedAccountScope=sharedStoredAccountScope||projectStoredAccount&&table.Source.IsRongyu==1||
+                sharedScalarPage&&FixedPageConditionCompilation.HasAccountVariables(namePage!);
             var literalConditions=sharedFixedR0Page&&(namePage!.Condition is null||namePage.Condition.Syntax.Variables.Count==0);
             var sharedLiteralScope=sharedScalarPage&&literalConditions;
             // 普通物理目标父沿用原路由及独立表单的持久外键证明。
@@ -161,7 +169,7 @@ internal static class DatabaseCheckboxCompilation
                 namePage!.Scopes.Count(scope=>scope.Source=="parent")==1&&namePage.Scopes.Any(scope=>
                     scope.Source=="parent"&&NonRedundantReadCompilation.Physical(model,target,scope.Column)&&
                     !NonRedundantCrossParentCompilation.Managed(model,target,namePage,scope.Column));
-            if(sharedAccountScope&&!sharedStoredAccountScope)
+            if(sharedAccountScope&&!sharedStoredAccountScope&&!projectStoredAccount)
                 _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,namePage!.Source);
             // 任一副本来自联接时，各页的写入口都必须使用可以一次投影全部名称的计划。
             var sharedDerivedPageScope=(!sharedStoredAccountScope&&sharedAccountScope||sharedLiteralScope||sharedPhysicalParentScope)&&
@@ -200,7 +208,16 @@ internal static class DatabaseCheckboxCompilation
                 (explicitPage!=fixedPage||logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true);
             if(explicitPage!=fixedPage&&!pageRead&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate,includeProjectFixedScope:false))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
-            var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,definition.WhereSql);
+            var whereSql=definition.WhereSql;
+            if(projectStoredAccount&&table.Source.IsRongyu==1&&!string.IsNullOrWhiteSpace(whereSql))
+            {
+                // 回填只能重现实际字典页的范围。控件重复条件已由该页执行，无需再绑定一次。
+                var requested=new SelectionControlDefinition(explicitPage,definition.NameField,"",whereSql,"");
+                if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,namePage!),requested,out var reason))
+                    return Gap(reason??"复选名称副本的控件范围无法由实际字典页证明。");
+                whereSql="";
+            }
+            var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,whereSql);
             var realtimeRead=table.Source.IsRongyu==0&&!functionForm;
             var globalRealtimeNameOverride=realtimeRead&&target.IsGlobal&&target.Source.IsRongyu==0&&usesNameOverride;
             var controlRead=realtimeRead&&(conditions is not null||
@@ -224,7 +241,7 @@ internal static class DatabaseCheckboxCompilation
                 (namePage.Condition is {Syntax.Variables.Count:0}||namePage.Condition is null&&namePage.Scopes.Any(scope=>scope.Source=="parent"))&&
                 !FixedPageConditionCompilation.HasLogicalFields(namePage)&&namePage.Scopes.Count(scope=>scope.Source=="parent")<=1;
             // 普通全局派生名称没有行项目列时，固定发布条件由复选查询显式合并。
-            if((realtimeRead||functionForm||globalPage is not null||exactTarget is not null||sharedFixedPage)&&!scopeAlreadyBound&&namePage is not null&&
+            if((realtimeRead||functionForm||globalPage is not null||exactTarget is not null||sharedFixedPage||projectStoredAccount)&&!scopeAlreadyBound&&namePage is not null&&
                 (functionForm||namePage.Condition is not null||namePage.Scopes.Any(scope=>scope.Source=="parent")))
             {
                 physicalPage=namePage;
@@ -372,6 +389,7 @@ internal static class DatabaseCheckboxCompilation
                 SharedDerivedPageScope=sharedDerivedPageScope,
                 SharedLogicalParentScope=sharedLogicalParentScope,
                 HasStoredAccountScope=storedAccountPage,
+                HasProjectStoredAccountScope=projectStoredAccount,
                 GlobalRealtimeNameOverride=globalRealtimeNameOverride,
                 RealtimeLogicalParentScope=realtimeRead&&exactTarget is null&&logicalPage is not null&&
                     logicalPage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column)),
