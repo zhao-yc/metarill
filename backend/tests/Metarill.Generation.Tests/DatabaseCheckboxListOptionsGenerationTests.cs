@@ -18,16 +18,22 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
     [InlineData("stored_global")]
     [InlineData("stored_dropdown")]
     [InlineData("stored_global_dropdown")]
+    [InlineData("stored_project")]
+    [InlineData("stored_project_dropdown")]
+    [InlineData("stored_project_parent")]
+    [InlineData("stored_project_parent_dropdown")]
     public async Task Original_checkbox_only_loads_candidates_with_its_published_scope(string scenario)
     {
         var stored = scenario.StartsWith("stored", StringComparison.Ordinal);
         var catalog = RedundantMultiNameCacheTests.Published(DatabaseCheckboxGenerationTests.Catalog(scenario != "redundant" && !stored));
         var checkbox = catalog.ConfigColumns.Single(column => column.Id == "25");
         var dropdown = scenario.EndsWith("_dropdown", StringComparison.Ordinal);
+        var projectScoped = scenario.StartsWith("stored_project", StringComparison.Ordinal);
+        var parentScoped = scenario.StartsWith("stored_project_parent", StringComparison.Ordinal);
         if (!dropdown) checkbox.Extra["filterControlKind"] = JsonSerializer.SerializeToElement("CheckBox");
         if (stored)
         {
-            ConfigureStoredCheckbox(catalog, scenario.StartsWith("stored_global", StringComparison.Ordinal));
+            ConfigureStoredCheckbox(catalog, scenario.StartsWith("stored_global", StringComparison.Ordinal), projectScoped, parentScoped);
             catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "25").Extra["queryDefaultValue"] =
                 JsonSerializer.SerializeToElement(dropdown ? "9007199254740993" : """["9007199254740993"]""");
         }
@@ -69,7 +75,8 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
             if (stored)
             {
                 var service = await File.ReadAllTextAsync(Path.Combine(output, "backend/generated/Services/RelationSourceService.g.cs"));
-                Assert.Contains("CheckboxGlobalCondition201_25.BindAccount(actor)", service);
+                Assert.Contains(projectScoped ? "CheckboxTargetCondition201_25.BindAccount(actor)" :
+                    "CheckboxGlobalCondition201_25.BindAccount(actor)", service);
                 Assert.Contains(dropdown ? "DatabaseCheckboxValue.ReadId(filter.Value)" : "DatabaseCheckboxValue.ReadSelected(filter.Value)", service);
                 Assert.Contains(dropdown ? "ApplyJsonArrayHasId" : "ApplyJsonArrayHasAnyId", service);
             }
@@ -197,21 +204,24 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
     }
 
     /// <summary>列表与生成查询使用同一合成门店字典，项目和门店分别存储。</summary>
-    internal static void ConfigureStoredCheckbox(Metarill.Core.Metadata.MetadataCatalog catalog, bool globalSource)
+    internal static void ConfigureStoredCheckbox(Metarill.Core.Metadata.MetadataCatalog catalog, bool globalSource,
+        bool projectScoped = false, bool parentScoped = false)
     {
         var checkbox = catalog.ConfigColumns.Single(column => column.Id == "25");
         var target = catalog.ConfigTables.Single(table => table.Id == "3");
-        target.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        if (!projectScoped) target.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
         if (globalSource)
             catalog.ConfigTables.Single(table => table.Id == "2").Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
-        // 全局字典候选按账号门店；记录仍以实际项目和门店存储及维护。
+        // 合成字典候选按账号门店，项目内字典还需验证真实项目和可选父记录。
         foreach (var definition in new[] { (Table: "2", Column: "61", Page: "201"), (Table: "3", Column: "62", Page: "301") })
         {
             catalog.ConfigColumns.Add(new() { Id = definition.Column, ConfigTableId = definition.Table,
                 YzProjectId = catalog.YzProjectId, ColumnName = "store_id", LogicalType = "int64" });
-            catalog.ConfigPages.Single(page => page.Id == definition.Page).WhereSql = definition.Table == "2"
+            var scope = definition.Table == "2" || projectScoped
                 ? "yz_project_id=@current_yz_project_id AND store_id=@current_store_id"
                 : "store_id=@current_store_id";
+            catalog.ConfigPages.Single(page => page.Id == definition.Page).WhereSql =
+                parentScoped ? scope + " AND parent_id=@parentId" : scope;
         }
         checkbox.ControlDetail = """{"tableId":"3","pageId":"301","nameField":"name"}""";
     }

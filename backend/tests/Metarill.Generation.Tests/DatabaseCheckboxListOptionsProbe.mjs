@@ -11,7 +11,8 @@ assert(source.includes(dropdown
   ? "<zxz-uni-data-select v-model='filters.targetIds' :localdata='target__list'"
   : "multiple v-model='filters.targetIds' :localdata='targetIdsRange'"))
 const stored = scenario.startsWith('stored')
-const root = scenario === 'root' || stored
+const parentScoped = scenario === 'parent' || scenario.startsWith('stored_project_parent')
+const root = scenario === 'root' || (stored && !parentScoped)
 const page = mountGenerated(source, root ? {} : { parent_id: '71', is_son_page: true }, {}, {
   runtimeDirectory: join(frontend, 'common/yzp_runtime')
 })
@@ -66,7 +67,7 @@ try {
       assert.deepEqual(plain(second.options.data), { parentId: '71', formParameters: { relationSource: { categoryId: nextKey } } })
     }
 
-    if (scenario === 'parent') {
+    if (parentScoped) {
       page.setProps({ parent_id: '72' })
       await page.flush()
       assert.equal(first.aborted, true)
@@ -81,7 +82,7 @@ try {
       assert.equal(currentPage.options.data.parentId, '72')
       assert.equal(currentPage.options.data.filters.targetIds, undefined)
       page.respond(second, [option(nextKey, '新父级')])
-      assert.deepEqual(range(), [{ text: '新父级', value: nextKey }])
+      assert.deepEqual(range(), displayed(option(nextKey, '新父级')))
     }
 
     const pending = optionRequests().at(-1)

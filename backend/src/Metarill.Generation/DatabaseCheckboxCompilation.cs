@@ -29,7 +29,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
 
     /// <summary>原列表勾选的加载和冗余数组匹配共用同一候选范围证明。</summary>
     internal bool SupportsRedundantArrayFilter =>
-        FormParentField is not null || SharedLogicalParentScope || HasStoredAccountScope;
+        FormParentField is not null || SharedLogicalParentScope || HasStoredAccountScope || HasProjectStoredAccountScope;
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
