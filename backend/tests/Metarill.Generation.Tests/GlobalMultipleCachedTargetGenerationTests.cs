@@ -122,6 +122,85 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     {
         var c=PhysicalLabelCatalog(mode,automatic);var model=GenerationModel.Create(c,"Example.GlobalPhysicalLabel");Assert.Empty(GenerationCapabilityAudit.Collect(model));var table=model.Tables.Single(x=>x.Source.Id=="3");var page=table.Pages.Single(x=>x.Source.Id=="30");var multi=Assert.Single(MultiSelectCompilation.ForPage(model,table,page));var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,page));Assert.Equal("16",multi.Name.Source.Id);Assert.Equal("16",checkbox.Name.Source.Id);Assert.Equal("global_source_captions",multi.Names!.Source.ColumnName);Assert.Equal("selected_global_source_captions",checkbox.Names.Source.ColumnName);
     }
+    /// <summary>原多选的普通文本名称在生成程序集重建后仍使用字典页的固定范围。</summary>
+    [Theory]
+    [InlineData(0,0)]
+    [InlineData(0,1)]
+    [InlineData(1,0)]
+    [InlineData(1,1)]
+    [InlineData(0,0,true)]
+    [InlineData(1,0,true)]
+    public async Task Published_global_multiselect_text_keeps_fixed_dictionary_status(int mode,int targetStorage,bool derivedName=false)
+    {
+        const string application="Example.GlobalTextDictionary";
+        var names=derivedName?"global_source_global_target_names":"global_source_captions";
+        var catalog=derivedName?GlobalMultipleDerivedTargetGenerationTests.Catalog(mode,false,"string"):PhysicalLabelCatalog(mode,false);
+        catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=targetStorage;
+        // 同一固定字典由原多选使用。独立复选不参与此样本，以免其发布逻辑替多选保留页面。
+        catalog.ConfigColumns.RemoveAll(column=>column.Id is "38" or "40");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "38" or "40");
+        var dictionary=catalog.ConfigPages.Single(page=>page.Id=="10");
+        dictionary.WhereSql="status=17";
+        if(derivedName)
+        {
+            var source=catalog.ConfigColumns.Single(column=>column.Id=="34");
+            source.ControlDetail=source.ControlDetail.Insert(1,"\"whereSql\":\"status = 17\",");
+        }
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-text-dictionary");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,output,application);
+            var serviceCode=await File.ReadAllTextAsync(Path.Combine(output,"Services/CachedConsumerService.g.cs"));
+            Assert.Contains("ImportMulti30_34Async",serviceCode);
+            Assert.Contains("MultiPageCondition30_34",serviceCode);
+            Assert.Contains("Export30Async",serviceCode);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+            object read;
+            if(mode==0)
+            {
+                var service=assembly.GetType(application+".Generated.Services.CachedConsumerService",true)!;
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("ReadPlan30",
+                    BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                read=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+                var filters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                    read.GetType().GetProperty("ArrayNamePredicates",hidden)!.GetValue(read));
+                Assert.Contains("multi_value.`status`",filters[names]);
+            }
+            else
+            {
+                var generated=assembly.GetType(application+".Generated.GeneratedRelationMaintenance",true)!;
+                var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    generated.GetProperty("Catalog")!.GetValue(null));
+                var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                    maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+                var plan=plans["3"]!;
+                Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
+                read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+                if(derivedName)
+                    Assert.Contains(names,maintenance.MixedSourceColumns["cached_consumer"]);
+                else
+                {
+                    var propagation=maintenance.GetType().GetProperty("Propagation",hidden)!.GetValue(maintenance)!;
+                    var bindings=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
+                        propagation.GetType().GetProperty("Bindings",hidden)!.GetValue(propagation)).Cast<object>();
+                    var binding=Assert.Single(bindings,item=>Equals(names,item.GetType().GetProperty("Cache")!.GetValue(item)));
+                    var condition=binding.GetType().GetProperty("PublishedCondition")!.GetValue(binding);
+                    Assert.NotNull(condition);
+                    Assert.Equal("status=17",condition.GetType().GetProperty("Definition")!.GetValue(condition));
+                }
+            }
+            Assert.Contains("multi_value.`status`",CheckboxNameExpression(read,names));
+            var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                read.GetType().GetProperty("Constants",hidden)!.GetValue(read));
+            Assert.Contains(17,constants.Values);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>实际复选候选页可以是普通字典页，账号归属、搜索、Excel 和持久名称用同一发布条件。</summary>
     [Theory]
     [InlineData(0, true)]

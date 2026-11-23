@@ -85,6 +85,10 @@ internal static partial class BackendRenderer
                 .Concat(NamePages(target.NestedTargets)));
         var multiSelections=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
             .SelectMany(table=>table.Pages.SelectMany(page=>MultiSelectCompilation.ForService(model,table,page))).ToArray();
+        // 即使名称是普通物理文本，业务回显和筛选也要保留全局多选页实际发布的范围。
+        accountPages.UnionWith(multiSelections.Where(multi=>multi.Target.IsGlobal&&
+                !string.IsNullOrWhiteSpace(multi.TargetPage.Source.WhereSql))
+            .Select(multi=>multi.TargetPage.Source.Id));
         var multiNamePages=realtimeCheckboxes.SelectMany(checkbox=>NamePages(
             NonRedundantReadCompilation.ProjectPathTargets(model,checkbox.Target,checkbox.NameTargetPage!,
                 [checkbox.Name.Source.ColumnName],multiValuePath:true)))

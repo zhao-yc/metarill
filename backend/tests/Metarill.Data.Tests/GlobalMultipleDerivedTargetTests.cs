@@ -113,14 +113,17 @@ public sealed class GlobalMultipleDerivedTargetTests
             using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"});await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>new ProjectRelationMutationPropagator(session).AfterMutationAsync(plan,"global_source",1,"999",new HashSet<string>{"caption"},false,false));Assert.Null(session.CurrentTransaction);
         }
     }
-    /// <summary>复选发布条件参与物理事件、派生事件和按原 ID 回填，离开范围保留空名称位置。</summary>
+    /// <summary>原多值发布条件参与读取、筛选、传播和按原 ID 回填，离开范围仍保留空名称位置。</summary>
     [Theory]
-    [InlineData(1,false)]
-    [InlineData(0,false)]
-    [InlineData(0,true)]
-    public void Global_checkbox_refresh_keeps_published_conditions(int targetStorage,bool derivedName)
+    [InlineData(1,false,"MultiCheckBoxDatabase")]
+    [InlineData(0,false,"MultiCheckBoxDatabase")]
+    [InlineData(0,true,"MultiCheckBoxDatabase")]
+    [InlineData(1,false,"MultiSelectPage")]
+    [InlineData(0,false,"MultiSelectPage")]
+    [InlineData(0,true,"MultiSelectPage")]
+    public void Global_array_refresh_keeps_published_conditions(int targetStorage,bool derivedName,string kind)
     {
-        var catalog=Catalog(1,"MultiCheckBoxDatabase","string");
+        var catalog=Catalog(0,kind,"string");
         catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=targetStorage;
         var field="global_source_global_target_names";
         if(!derivedName)
@@ -133,7 +136,16 @@ public sealed class GlobalMultipleDerivedTargetTests
             cache.Extra["columnFullName"]=JsonSerializer.SerializeToElement("global_source.caption");
         }
         catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",ColumnName="status",LogicalType="int32",YzProjectId="100"});
-        catalog.ConfigPages.Single(page=>page.Id=="10").WhereSql="status=38";
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="10");
+        targetPage.WhereSql="status=38";
+        if(!derivedName)
+            catalog.ConfigPageColumns.Add(new(){Id="1016",ConfigPageId=targetPage.Id,ConfigColumnId="16",
+                YzProjectId=catalog.YzProjectId,IsShow=1});
+        var read=MySqlNonRedundantReadCompiler.Compile(catalog,"3",[field]);
+        Assert.Contains("multi_value.`status`",read.Expression(field));
+        Assert.Contains("multi_value.`status`",read.ArrayNamePredicates[field]);
+
+        catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=1;
         var binding=new RelationCacheDefinition("3","34","1",derivedName?"14":"16","35",true);
         var plan=derivedName?RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],[binding]):
             RelationMaintenanceCatalog.Compile(catalog,[binding]);
@@ -150,6 +162,8 @@ public sealed class GlobalMultipleDerivedTargetTests
         Assert.Contains(refresh.PhysicalReferences,reference=>reference.Table=="global_source"&&reference.Column.Name=="status");
         if(derivedName)
         {
+            Assert.Contains("BINARY CAST(",projection.Joins);
+            Assert.Contains("=BINARY multi_value.`global_target_id`",projection.Joins);
             Assert.Contains(refresh.Reverse,reverse=>reverse.TargetTable=="global_source"&&
                 reverse.Outputs[field].Contains("status"));
             Assert.Contains(plan.MixedTargets,tableName=>tableName=="global_target");

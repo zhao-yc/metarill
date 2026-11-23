@@ -117,12 +117,12 @@ internal static class RelationPropagationCompilation
         {
             if(definition.CheckboxTargetPageId is {} checkboxPage)pages.Add(checkboxPage);
             if(definition.Multiple&&model.Catalog.ConfigColumns.Single(column=>column.Id==definition.ForeignColumnId) is
-                {ControlKind:"MultiCheckBoxDatabase"} checkbox&&
+                {ControlKind:"MultiCheckBoxDatabase" or "MultiSelectPage"} multi&&
                 model.Catalog.ConfigTables.Single(table=>table.Id==definition.TargetTableId) is {} target&&GlobalCrossTableTarget.Declared(target))
             {
-                // 物理传播和派生回填在宿主重新装载后也需保留同一全局复选发布页。
+                // 物理传播和派生回填在宿主重新装载后仍从实际全局多值发布页读取条件。
                 var source=model.Catalog.ConfigTables.Single(table=>table.Id==definition.SourceTableId);
-                pages.Add(GlobalMultipleRelationTarget.RequireCached(model.Catalog,source,checkbox,target).Page.Id);
+                pages.Add(GlobalMultipleRelationTarget.RequireCached(model.Catalog,source,multi,target).Page.Id);
             }
             if(definition.SelfTreePageId is{} treePage)
             {

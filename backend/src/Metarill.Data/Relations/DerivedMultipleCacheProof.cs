@@ -65,7 +65,9 @@ internal static class DerivedMultipleCacheProof
         var fields=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id))
             .Select(column=>column.ColumnName).ToArray();
         var requested=FixedConditionPlan.Compile(definition,fields);
-        var pageConditions=MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign)?.Id==page.Id
+        var pageScoped=GlobalCrossTableTarget.Declared(target)||
+            MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign)?.Id==page.Id;
+        var pageConditions=pageScoped
             ?FixedConditionPlan.Compile(page.WhereSql,fields).Terms.Select(term=>term.ToDefinition()).ToHashSet(StringComparer.Ordinal)
             :[];
         var projectScoped=!GlobalCrossTableTarget.Declared(target);

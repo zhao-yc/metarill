@@ -713,8 +713,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(proof.Name.ColumnName!=display&&nameOverride is null)
                         throw new NotSupportedException("全局多值显示必须与固定名称声明一致。");
                     // 名称副本的读取、筛选及回填使用同一发布候选范围。
-                    if(HasGlobalRowProject(target)||typedCache||
-                        relation.ControlKind=="MultiCheckBoxDatabase"&&!string.IsNullOrWhiteSpace(proof.Page.WhereSql))
+                    if(HasGlobalRowProject(target)||typedCache||!string.IsNullOrWhiteSpace(proof.Page.WhereSql))
                         publishedPage=proof.Page;
                 }
                 if(trackReverse&&target.IsRongyu==0||typedCache)publishedArrayIdentity=true;
@@ -780,8 +779,8 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>同一路径复用别名，不同角色到同表和自关联分别命名。</summary>
         private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType,bool validatedCrossGlobal=false,bool ordinaryRelation=false,PageMetadata? cachePage=null,AccountScopedCrossCache? account=null,bool scopedCacheLink=false)
         {
-            // 生成的单值控件将物理字符串外键保存为规范整数文本。读联接按同一表示匹配，避免相邻 bigint 被折叠。
-            var fixedTextKey = sourceType=="string" && ordinaryRelation &&
+            // 单值读取和已证明的缓存联接都按物理外键的规范整数文本匹配，避免相邻 bigint 被折叠。
+            var fixedTextKey = sourceType=="string" && (ordinaryRelation||scopedCacheLink) &&
                 relation.ControlKind is ("List" or "SelectPage") && relation.ColumnName.EndsWith("_id",StringComparison.Ordinal) &&
                 storage[relation.ConfigTableId].IsPhysical(relation) && source==ownerAlias+"."+Q(relation.ColumnName);
             if(matching&&sourceType!="int64"&&!(multiLabel&&fixedTextKey))
