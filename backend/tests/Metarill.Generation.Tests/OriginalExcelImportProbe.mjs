@@ -20,7 +20,15 @@ const filename = path.basename(workbook);
 let result, reads = 0, conversions = 0, choices = 0;
 const XLSX = {
   ...xlsx,
-  read(...args) { reads++; return xlsx.read(...args); },
+  read(...args) {
+    reads++;
+    if (reads === 2) {
+      assert.notEqual(path.extname(filename).toLowerCase(), '.csv');
+      assert.equal(args[1].cellDates, false);
+      assert.equal(args[1].sheets, 0);
+    }
+    return xlsx.read(...args);
+  },
   utils: {...xlsx.utils, sheet_to_json(...args) { conversions++; return xlsx.utils.sheet_to_json(...args); }},
 };
 const handlers = vm.runInNewContext('({' + method + '})', {
@@ -32,7 +40,7 @@ const handlers = vm.runInNewContext('({' + method + '})', {
   console: {error(...args) { throw new Error(args.map(String).join(' ')); }},
 });
 handlers.chooseImportFile(rows => { result = rows; });
-assert.equal(choices, 1); assert.equal(reads, 1); assert.equal(conversions, 1);
+assert.equal(choices, 1); assert.ok(reads === 1 || reads === 2); assert.equal(conversions, 1);
 assert.deepEqual(JSON.parse(JSON.stringify(result)), JSON.parse(fs.readFileSync(expectedPath, 'utf8')));
 // 可选输出仍来自原回调，仅交给外部实际HTTP用例；本脚本不自行发送请求。
 if (outputPath) fs.writeFileSync(outputPath, JSON.stringify(result));

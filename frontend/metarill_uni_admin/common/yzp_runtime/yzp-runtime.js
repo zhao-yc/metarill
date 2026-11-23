@@ -263,16 +263,34 @@ var yzp = {
 				const fileReader = new FileReader();
 				fileReader.onload = ev => {
 					try {
-						const workbook = XLSX.read(ev.target.result, { type: "binary", cellDates: true });
-						const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+						const data = ev.target.result;
+						const workbook = XLSX.read(data, { type: "binary", cellDates: true });
+						const firstSheetName = workbook.SheetNames[0];
+						const worksheet = workbook.Sheets[firstSheetName];
+						const dateCells = Object.entries(worksheet ?? {}).filter(([, cell]) => cell?.t === 'd');
 
-						// CSV 已有原始日期文本，保留其中的微秒和夏令时缺口时刻。
-						if (/\.csv$/i.test(file.name)) {
-							for (const cell of Object.values(worksheet)) {
-								if (cell?.t === 'd' && typeof cell.w === 'string') {
-									cell.t = 's';
-									cell.v = cell.w;
+						if (dateCells.length > 0) {
+							const isCsv = /\.csv$/i.test(file.name);
+							// 先用日期类型定位单元格，再读取首表的原始数字，避免 SheetJS 构造 Date 时截断毫秒。
+							const rawSheet = isCsv ? undefined : XLSX.read(data, { type: "binary", cellDates: false, sheets: 0 }).Sheets[firstSheetName];
+							const dateOffset = workbook.Workbook?.WBProps?.date1904 ? 1462 : 0;
+							for (const [address, cell] of dateCells) {
+								if (isCsv) {
+									// CSV 自带日期文本，保留微秒和夏令时缺口时刻。
+									if (typeof cell.w === 'string') {
+										cell.t = 's';
+										cell.v = cell.w;
+									}
+									continue;
 								}
+
+								const raw = rawSheet?.[address];
+								if (raw?.t !== 'n' || !Number.isFinite(raw.v)) continue;
+								const serial = raw.v + dateOffset;
+								// Excel 1900 日期系统有一个虚构的闰日，沿用库对这个序列的原处理。
+								if (serial >= 60 && serial < 61) continue;
+								const epoch = Date.UTC(1899, 11, serial < 60 ? 31 : 30);
+								cell.v = new Date(epoch + Math.round(serial * 86_400_000));
 							}
 						}
 

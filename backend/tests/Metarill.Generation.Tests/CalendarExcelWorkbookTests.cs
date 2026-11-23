@@ -117,7 +117,7 @@ public sealed class CalendarExcelWorkbookTests
 
                 sheet.Cell(2, 1).Value = new DateTime(2026, 11, 24);
                 sheet.Cell(2, 1).Style.DateFormat.Format = "yyyy-mm-dd";
-                sheet.Cell(2, 2).Value = new DateTime(2026, 3, 8, 2, 30, 0);
+                sheet.Cell(2, 2).Value = new DateTime(2026, 3, 8, 2, 30, 0, 125);
                 sheet.Cell(2, 2).Style.DateFormat.Format = "yyyy-mm-dd hh:mm:ss.000";
                 sheet.Cell(2, 3).Value = 42;
                 sheet.Cell(2, 4).Value = true;
@@ -129,10 +129,40 @@ public sealed class CalendarExcelWorkbookTests
             {
                 new Dictionary<string, object>
                 {
-                    ["日期"] = "2026-11-24T00:00:00.000", ["日期时间"] = "2026-03-08T02:30:00.000",
+                    ["日期"] = "2026-11-24T00:00:00.000", ["日期时间"] = "2026-03-08T02:30:00.125",
                     ["数量"] = 42, ["启用"] = true, ["原文本"] = "2026-11-24T01:00:00Z"
                 }
             }, timeZone: timeZone);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
+    /// <summary>从真实 XLS 和 XLSX 取回日期序列的毫秒，覆盖两种日期系统、进位和显式日期。</summary>
+    [Theory]
+    [InlineData("xls", false)]
+    [InlineData("xls", true)]
+    [InlineData("xlsx", true)]
+    public async Task Native_excel_serials_round_to_the_nearest_millisecond(string extension, bool date1904)
+    {
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-calendar-excel");
+        var directory = Directory.CreateDirectory(Path.Combine(boundary, Guid.NewGuid().ToString("N"))).FullName;
+        try
+        {
+            var book = Path.Combine(directory, $"native-calendar.{extension}");
+            var root = NonRedundantApplicationFixture.Root();
+            var start = NonRedundantApplicationFixture.Start(Environment.GetEnvironmentVariable("NODE_HOST_PATH") ?? "node", root);
+            foreach (var argument in new[] { Path.Combine(root, "backend/tests/Metarill.Generation.Tests/NativeCalendarWorkbookFixture.mjs"), root, book, date1904 ? "1904" : "1900" })
+                start.ArgumentList.Add(argument);
+            await NonRedundantApplicationFixture.RunAsync(start);
+
+            var row = new Dictionary<string, object>
+            {
+                ["Stamp"] = "2026-03-08T02:30:00.125", ["Rollover"] = "2026-11-25T00:00:00.000", ["Number"] = 42
+            };
+            if (extension == "xlsx")
+                row["Explicit"] = "2026-11-24T12:34:00.125";
+
+            await ReadOriginalWorkbookAsync(book, new[] { row }, timeZone: "America/Los_Angeles");
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
