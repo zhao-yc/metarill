@@ -226,7 +226,7 @@ internal static class DerivedRelationNamesCompilation
             // 全局来源沿用发布证明中的两种原外键路径写法。
             var sameDisplay = owner.IsGlobal
                 ? GlobalCachedSourceCompilation.ForModel(model).Any(binding =>
-                    binding.Foreign.Source.Id == relation.SourceColumn.Source.Id && binding.Cache.Source.Id == cache.Source.Id)
+                    binding.Foreign.Source.Id == relation.SourceColumn.Source.Id && binding.Cache?.Source.Id == cache.Source.Id)
                 : NonRedundantSelectionCompilation.IsDisplay(relation.SourceColumn, cache, name);
             if (!sameDisplay || !NonRedundantReadCompilation.Physical(model, owner, cache) ||
                 page.Readable.Contains(relation.SourceColumn) && !page.Readable.Contains(cache) ||

@@ -15,7 +15,7 @@ internal static class GlobalCachedParentCompilation
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
         if(parents.Length!=1)return null;
         var binding=ForColumn(model,table,page,parents[0].Column);
-        return binding is not null&&binding.Target.Source.Id!=table.Source.Id&&
+        return binding is {Cache:not null}&&binding.Target.Source.Id!=table.Source.Id&&
             binding.Page.Scopes.All(scope=>!binding.Target.IsGlobal&&scope.Source=="project")&&
             !FixedPageConditionCompilation.HasCrossFields(binding.Page)&&!FixedPageConditionCompilation.HasAccountVariables(binding.Page)
             ?binding:null;
@@ -30,7 +30,7 @@ internal static class GlobalCachedParentCompilation
             &&relation.ParentBinding?.Declared!=true&&relation.TargetParents.Count==0&&relation.Scopes.Count==0
             &&relation.TargetPage.Scopes.Count==0&&relation.SourceParents.Count==1&&relation.SourceParents[0].Source.Id==relation.Target.Source.Id
             &&page.Scopes.Count(scope=>scope.Source=="parent")==1
-            &&ForColumn(model,table,page,relation.SourceColumn)?.Target.Source.Id==relation.Target.Source.Id
+            &&ForColumn(model,table,page,relation.SourceColumn) is {Cache:not null} binding&&binding.Target.Source.Id==relation.Target.Source.Id
             &&SharedGlobalParentCompilation.ForTable(model,table,page,relation.Target).Count==0
             &&SharedRedundantParentCompilation.ForTable(model,table,page,relation.Target).Count==0;
     /// <summary>只有独立标量追加、单一固定物理父且无其他关联写入校验，才允许合并后续行。</summary>
@@ -40,7 +40,7 @@ internal static class GlobalCachedParentCompilation
             BackendRenderer.HasPhysicalFileColumns(model,table)||TrustedSecurityServiceCompilation.Applies(model,table)||
             ExactDataManageCompilation.Declared(page)||ImportRenderer.RelationOperationAware(model,table,page)||
             NonRedundantCrossParentCompilation.Enabled(model,table,page)||
-            GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id)!=1||
+            GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id&&binding.Cache is not null)!=1||
             BoundRelationValidationRenderer.RequiresAuthorization(table)||
             SharedCrossTableRenderer.ValidateAll(model,table,page).Length!=0||
             page.Writable.Any(column=>column.IsJsonArray))
@@ -67,7 +67,8 @@ internal static class GlobalCachedParentCompilation
     internal static bool CanDeferAppendCandidate(GenerationModel model,TableModel table,PageModel page)
     {
         if(!CanBatchAppendInsert(model,table,page))return false;
-        var cache=GlobalCachedSourceCompilation.ForModel(model).Single(binding=>binding.Source.Source.Id==table.Source.Id).Cache;
+        var cache=GlobalCachedSourceCompilation.ForModel(model)
+            .Single(binding=>binding.Source.Source.Id==table.Source.Id&&binding.Cache is not null).Cache!;
         // 本次合并维护的唯一缓存允许保留派生标记，生成实体只能以空值进入原关联校验。
         return table.Columns.All(column=>column.Type is "long" or "long?" or "int?" or "string?" or "decimal?" or "bool?" or "DateTime?")&&
             table.Columns.All(column=>!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")||

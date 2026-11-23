@@ -65,7 +65,7 @@ public sealed partial class {{page.Name}}ImportRequest
         // 缺失的首列不能由父参数或同一行的其它路径补成覆盖匹配键。
         var requireExplicitKey=crossOverwrite||logicalMatch?.Key.Source.ControlKind=="CascadeTree";
         // 原追加入口显式固定 MySQL 可重复读，只有单一全局物理名称副本可能使用合并写回。
-        var transaction=!overwrite&&GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id)==1
+        var transaction=!overwrite&&GlobalCachedSourceCompilation.ForModel(model).Count(binding=>binding.Source.Source.Id==table.Source.Id&&binding.Cache is not null)==1
             ?"InScalarCacheImportTransactionAsync":"InTransactionAsync";
         var appendParent=GlobalCachedParentCompilation.ForAppendRecheck(model,table,page);
         var mergeParent=appendParent is not null;

@@ -27,7 +27,7 @@ internal static class NonRedundantSelectionCompilation
             ManagerCredentialCompilation.IsCredential(target, name))
             throw new InvalidOperationException("非冗余单选目标名称必须是已开放的非凭据标量。");
         var idLabel=name.IsId&&name.Type=="long"&&NonRedundantReadCompilation.Physical(model,target,name)&&
-            (!table.IsGlobal||table.Source.IsRongyu==0&&target.IsGlobal);
+            (!table.IsGlobal||target.IsGlobal&&(table.Source.IsRongyu==0||globalCached));
         // 主键展示沿来源外键协议；即使覆盖表级名称也无需新的辅助名称列。
         var displayOverride=idLabel||definition.NameField==baseline.NameField?null:
             NonRedundantReadCompilation.PageSingleDisplayOverride(model,table,source,target,name)??

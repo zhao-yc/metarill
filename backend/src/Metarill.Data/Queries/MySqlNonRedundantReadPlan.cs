@@ -176,8 +176,10 @@ public static partial class MySqlNonRedundantReadCompiler
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
         if(!exactSingleCandidate&&pageType!="2"&&GlobalCrossTableTarget.SingleParent(catalog,table,page) is not null)
             return CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies??[],accountParentPageType:pageType,singleTargets:singleTargets);
+        // 冗余单选沿已发布 type=1 页绑定账号条件，候选、回显和 Excel 共用同一范围。
+        var storedSingle=table.IsRongyu==1&&pageType=="1"&&!exactSingleCandidate&&!deferCascadeNames;
         return new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames,exactSingleCandidate:exactSingleCandidate,
-            globalCandidate:table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table))
+            accountPhysicalCandidate:storedSingle,globalCandidate:table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table))
         {
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
         }.Compile(outputs,dependencies??[]);

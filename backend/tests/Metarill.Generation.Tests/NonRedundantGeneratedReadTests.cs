@@ -178,6 +178,14 @@ public sealed class NonRedundantGeneratedReadTests
     [InlineData(0,1,true,true,false,true,true)]
     [InlineData(0,0,true,false,false,true,true)]
     [InlineData(0,1,true,false,false,true)]
+    [InlineData(1,0,true,true,false,true)]
+    [InlineData(1,1,true,true,false,true,true)]
+    [InlineData(1,0,true,false,false,true,true)]
+    [InlineData(1,1,true,false,false,true)]
+    [InlineData(1,0,true,true,false,true,true)]
+    [InlineData(1,1,true,true,false,true)]
+    [InlineData(1,0,true,false,false,true)]
+    [InlineData(1,1,true,false,false,true,true)]
     public async Task Single_id_display_preserves_exact_web_filter_and_excel(
         int storage,int targetStorage,bool global=false,bool fieldId=false,bool accountParent=false,
         bool globalSource=false,bool rowProject=false)
@@ -222,6 +230,21 @@ public sealed class NonRedundantGeneratedReadTests
             catalog.ConfigPageColumns.RemoveAll(field => field.ConfigPageId == "102" || omitted.Contains(field.ConfigColumnId));
             foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
                 sourcePage.WhereSql=rowProject?"yz_project_id=@current_yz_project_id":"";
+            if(storage==1)
+            {
+                // 复用全局单选已支持的账号范围，并保留原固定状态过滤。
+                catalog.ConfigColumns.Add(new(){Id="213",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
+                    ColumnName="store_id",LogicalType="int64"});
+                catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND store_id=@current_store_id";
+                if(!fieldId)
+                {
+                    // 冗余名称回填从实际业务行取归属，所有该表入口必须写入同一归属。
+                    catalog.ConfigColumns.Add(new(){Id="113",ConfigTableId="1",YzProjectId=catalog.YzProjectId,
+                        ColumnName="store_id",LogicalType="int64"});
+                    foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+                        sourcePage.WhereSql=rowProject?sourcePage.WhereSql+" AND store_id=@current_store_id":"store_id=@current_store_id";
+                }
+            }
         }
 
         // R1 对照保留原名称缓存，本用例只在 ID 页开启筛选。
@@ -241,7 +264,8 @@ public sealed class NonRedundantGeneratedReadTests
         if (globalSource)
         {
             Assert.True(table.IsGlobal);
-            Assert.Equal(rowProject, NonRedundantReadCompilation.HasGlobalRowProject(table));
+            Assert.Equal(rowProject, FixedPageQueryCompilation.For(table,actual).IdentityScopes
+                .Any(scope=>scope.Source=="project"&&scope.Column.Source.ColumnName=="yz_project_id"));
         }
         var selection=NonRedundantSelectionCompilation.Resolve(model,table,actual,table.Columns.Single(column=>column.Source.Id=="15"));
         Assert.True(selection.Name.IsId);
@@ -251,6 +275,24 @@ public sealed class NonRedundantGeneratedReadTests
         if (storage == 1 && !global)
             Assert.Contains("customer_name", MixedRelationPropagationCompilation.ForModel(model)
                 .MixedSourceColumns["mt_single_id_order"]);
+        if(storage==1&&globalSource)
+        {
+            var binding=Assert.Single(GlobalCachedSourceCompilation.ForModel(model),
+                candidate=>candidate.Source.Source.Id=="1"&&candidate.Foreign.Source.Id=="15");
+            var caches=MixedRelationPropagationCompilation.ForModel(model)
+                .MixedSourceColumns.GetValueOrDefault("mt_single_id_order",[]);
+            if(fieldId)
+            {
+                Assert.Null(binding.Cache);
+                Assert.Empty(caches);
+                Assert.DoesNotContain(table.Columns,column=>column.Source.ColumnName=="customer_id_id");
+            }
+            else
+            {
+                Assert.Equal("customer_name",binding.Cache?.Source.ColumnName);
+                Assert.Contains("customer_name",caches);
+            }
+        }
         var root=Path.Combine(Path.GetTempPath(),"metarill-single-id",Guid.NewGuid().ToString("N"));
         try
         {
@@ -279,14 +321,15 @@ public sealed class NonRedundantGeneratedReadTests
                 const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic;
                 var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
                     serviceType.GetField("DerivedOptionsPlan104_15",hidden|System.Reflection.BindingFlags.Static)!.GetValue(null));
-                Assert.Equal(accountParent,plan.RequiresAccount);
-                if(accountParent)plan=plan.BindAccount(new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5")
+                var requiresAccount=accountParent||globalSource&&storage==1;
+                Assert.Equal(requiresAccount,plan.RequiresAccount);
+                if(requiresAccount)plan=plan.BindAccount(new Metarill.Core.Security.RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5")
                     {StoreId=9007199254740993L});
                 var sql=plan.GetType().GetProperty("MySql",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(plan)!;
                 var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
                     sql.GetType().GetProperty("Constants",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(sql));
                 Assert.Contains(83,constants.Values);
-                if(accountParent)Assert.Contains(9007199254740993L,constants.Values);
+                if(requiresAccount)Assert.Contains(9007199254740993L,constants.Values);
                 var option=serviceType.GetMethod("ReadDerivedOption104_15",hidden|System.Reflection.BindingFlags.Static)!
                     .Invoke(null,[new Dictionary<string,object?>{["id"]=9007199254740993L}]);
                 var jsonOptions=new JsonSerializerOptions(JsonSerializerDefaults.Web);

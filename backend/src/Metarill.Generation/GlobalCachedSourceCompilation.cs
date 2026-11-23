@@ -5,13 +5,13 @@ using Metarill.Core.Metadata;
 using Metarill.Data.Relations;
 namespace Metarill.Generation;
 
-internal sealed record GlobalCachedSourceBinding(TableModel Source,ColumnModel Foreign,TableModel Target,PageModel Page,ColumnModel Name,ColumnModel Cache,bool ScopedSingle=false);
+internal sealed record GlobalCachedSourceBinding(TableModel Source,ColumnModel Foreign,TableModel Target,PageModel Page,ColumnModel Name,ColumnModel? Cache,bool ScopedSingle=false);
 
-/// <summary>全局R1下拉及符合固定范围的原单选共用缓存发布证明，服务使用编译好的目录。</summary>
+/// <summary>验证全局R1下拉及原单选的固定目标页。仅显示业务名称的关系需要物理副本。</summary>
 internal static class GlobalCachedSourceCompilation
 {
     private static readonly ConditionalWeakTable<GenerationModel,IReadOnlyList<GlobalCachedSourceBinding>> Bindings=new();
-    /// <summary>来源/目标/名称/副本必须同时成立；不从无项目字段猜权限，不悄悄舍弃缺失副本。</summary>
+    /// <summary>统一检查真实来源、已发布目标及仓储字段。表级主键单选直接复用外键。</summary>
     internal static IReadOnlyList<GlobalCachedSourceBinding> ForModel(GenerationModel model)=>Bindings.GetValue(model,Compile);
     /// <summary>单值控件的隐式名称加入响应字段，页面控件及可写列继续取原配置。</summary>
     internal static GenerationModel AddReadAliases(GenerationModel model)
@@ -25,7 +25,7 @@ internal static class GlobalCachedSourceCompilation
             {
                 Readable=page.Readable.Concat(byTable[table.Source.Id]
                     .Where(binding=>page.Readable.Any(column=>column.Source.Id==binding.Foreign.Source.Id))
-                    .Select(binding=>binding.Cache)).DistinctBy(column=>column.Source.Id).ToArray()
+                    .Select(binding=>binding.Cache).OfType<ColumnModel>()).DistinctBy(column=>column.Source.Id).ToArray()
             }).ToArray()
         }).ToArray()};
     }
@@ -33,7 +33,9 @@ internal static class GlobalCachedSourceCompilation
     internal static void RequireComplete(GenerationModel model,RelationMaintenanceCatalog catalog)
     {
         foreach(var binding in ForModel(model))
-            if(!catalog.MixedSourceColumns.GetValueOrDefault(binding.Source.Source.TableName,[]).Contains(binding.Cache.Source.ColumnName,StringComparer.Ordinal))throw new NotSupportedException("全局List来源尚未形成完整保存/传播/维护计划："+binding.Source.Source.TableName+"."+binding.Cache.Source.ColumnName);
+            if(binding.Cache is {} cache&&
+                !catalog.MixedSourceColumns.GetValueOrDefault(binding.Source.Source.TableName,[]).Contains(cache.Source.ColumnName,StringComparer.Ordinal))
+                throw new NotSupportedException("全局单值来源尚未形成完整保存/传播/维护计划："+binding.Source.Source.TableName+"."+cache.Source.ColumnName);
     }
     /// <summary>完整目录的全局来源存在时，所有生成服务均固定Actor项目，目标事件也不能切换消费者目录。</summary>
     internal static bool BindsActor(GenerationModel model)=>ForModel(model).Count>0||
@@ -43,7 +45,7 @@ internal static class GlobalCachedSourceCompilation
     internal static string ReadSession(GenerationModel model)=>BindsActor(model)?"PublishedReadSession(actor)":"session";
     /// <summary>只为固定发布身份的生成服务添加轻量守卫，不重写正文或元数据字面量。</summary>
     internal static string ReadSessionDeclaration(GenerationModel model)=>BindsActor(model)?"    /// <summary>先核验发布身份再获取读快照，不向错误项目打开数据库连接。</summary>\n    private DatabaseSession PublishedReadSession(RuntimeActor actor) { ValidateActor(actor); return session; }\n":"";
-    /// <summary>来源字段不接受改变目标含义的页级覆盖，所有页面共享同一物理名称副本。</summary>
+    /// <summary>各页共用同一物理关系。表级单选显示主键时无需副本，页级显示主键时保留表级副本。</summary>
     private static IReadOnlyList<GlobalCachedSourceBinding> Compile(GenerationModel model)
     {
         var result=new List<GlobalCachedSourceBinding>();
@@ -56,24 +58,33 @@ internal static class GlobalCachedSourceCompilation
                 GlobalCachedRelationSource.RowProjectSelfTreeParentPages(model.Catalog,table.Source,foreign.Source).Count==0))continue;
             var single=target.IsGlobal?GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,foreign.Source,target.Source)
                 :GlobalSingleRelationTarget.RequireProjectParent(model.Catalog,table.Source,foreign.Source,target.Source);
-            var cache=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==foreign.Source.ColumnName[..^3]+"_"+single.Name.ColumnName)??throw new NotSupportedException("全局List来源必须声明原物理名称副本。");
-            var proof=GlobalCachedRelationSource.RequireCache(model.Catalog,table.Source,cache.Source);
+            ColumnModel? cache=null;
+            if(foreign.Source.ControlKind!="SelectPage"||single.Name.ColumnName!="id")
+            {
+                cache=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==foreign.Source.ColumnName[..^3]+"_"+single.Name.ColumnName)
+                    ??throw new NotSupportedException("全局单值来源必须声明原物理名称副本。");
+                GlobalCachedRelationSource.RequireCache(model.Catalog,table.Source,cache.Source);
+            }
+            var binding=new GlobalCachedSourceBinding(table,foreign,target,
+                target.Pages.Single(page=>page.Source.Id==single.Page.Id),
+                target.Columns.Single(column=>column.Source.Id==single.Name.Id),cache,single.RequiresScopedCache);
             foreach(var field in model.Catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==foreign.Source.Id))
-                RequireSameTarget(foreign,field,proof);
-            result.Add(new(table,foreign,target,target.Pages.Single(page=>page.Source.Id==proof.Page.Id),target.Columns.Single(column=>column.Source.Id==proof.Name.Id),cache,proof.ScopedSingle));
+                RequireSameTarget(binding,field);
+            result.Add(binding);
         }
         return result;
     }
 
-    /// <summary>单选沿用原页面文案继承。后端固定页、名称、筛选和排序仍使用同一副本声明。</summary>
-    private static void RequireSameTarget(ColumnModel foreign,PageColumnMetadata field,GlobalCachedRelationBinding binding)
+    /// <summary>原页面可指定按真实主键显示。固定目标页、来源外键和表级名称副本仍由原证明确定。</summary>
+    private static void RequireSameTarget(GlobalCachedSourceBinding binding,PageColumnMetadata field)
     {
+        var foreign=binding.Foreign;
         var overlay=field.Extra.GetValueOrDefault("controlDetail").ToString();
         if(string.IsNullOrWhiteSpace(overlay)||
             JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(foreign.Source.ControlDetail)))return;
 
         // 下拉副本的作用域已由各实际来源页统一证明，只允许这些页面重复声明等价条件。
-        if(foreign.Source.ControlKind=="List"&&binding.Target.IsRongyu==0&&binding.ScopedSingle&&
+        if(foreign.Source.ControlKind=="List"&&binding.Target.Source.IsRongyu==0&&binding.ScopedSingle&&
             JsonNode.Parse(overlay) is JsonObject detail&&detail.All(pair=>pair.Key=="whereSql"))return;
 
         if(foreign.Source.ControlKind=="SelectPage")
@@ -88,8 +99,10 @@ internal static class GlobalCachedSourceCompilation
                 (string.IsNullOrWhiteSpace(value.ToString())||value.ToString()==expected);
 
             // 单选的附加条件只用于来源页 Excel，编译时仍逐页证明字段、值及父范围。
-            if(baseline==(effective with{ButtonText=baseline.ButtonText,WhereSql=baseline.WhereSql})&&
-                Matches("tableId",binding.Target.Id)&&Matches("table",binding.Target.TableName))return;
+            var displaysId=binding.Target.IsGlobal&&binding.ScopedSingle&&foreign.Type=="long?"&&effective.NameField=="id";
+            var display=displaysId?baseline.NameField:effective.NameField;
+            if(baseline==(effective with{ButtonText=baseline.ButtonText,WhereSql=baseline.WhereSql,NameField=display})&&
+                Matches("tableId",binding.Target.Source.Id)&&Matches("table",binding.Target.Source.TableName))return;
         }
 
         throw new NotSupportedException("全局单值来源页覆盖不能改变固定关系定义。");

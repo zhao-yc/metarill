@@ -64,6 +64,7 @@ public sealed class GlobalCachedSourceGenerationTests
 
         // 有实际文本默认值时，继续走原逐行校验，避免批量路径把已赋值的缓存当作未赋值。
         var cache = GlobalCachedSourceCompilation.ForModel(model).Single(plan => plan.Source.Source.Id == table.Source.Id).Cache;
+        Assert.NotNull(cache);
         cache.Source.DefaultValue = " \t ";
         var withDefault = GenerationModel.Create(metadata, "Example.GlobalSource");
         var tableWithDefault = withDefault.Tables.Single(candidate => candidate.Source.Id == table.Source.Id);
