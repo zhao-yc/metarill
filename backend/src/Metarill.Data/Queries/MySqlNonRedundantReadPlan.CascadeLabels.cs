@@ -208,7 +208,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field)))
             return false;
         return parents.Length==0||(checkboxAccount
-            ?MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax)
+            ?MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowStoredPhysicalParents:true)
             :MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,
                 allowStoredPhysicalParents:true)) is {Global:false,Logical:false};
 
@@ -345,7 +345,8 @@ public static partial class MySqlNonRedundantReadCompiler
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         if(GlobalCrossTableTarget.Declared(table))return MultiTargetParentScope.CompileGlobalPage(catalog,table,syntax,checkbox);
-        if(checkbox)return MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true);
+        if(checkbox)return MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true,
+            allowStoredPhysicalParents:IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true));
         return page.Extra.GetValueOrDefault("type").ToString()=="2"
             ?MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,
                 allowStoredPhysicalParents:table.IsRongyu==1&&IsProjectFixedMultiPage(catalog,table,page))

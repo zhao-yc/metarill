@@ -445,7 +445,7 @@ internal static class DatabaseCheckboxCompilation
                     FixedCacheParent(definition) is not null);
     }
 
-    /// <summary>来源和目标须各有一个实际物理父字段，所有名称缓存绑定同一个来源行键。</summary>
+    /// <summary>所有名称缓存绑定同一个来源行键。账号字典的多个实际目标父字段必须全部一致。</summary>
     internal static string? FixedCacheParent(DatabaseCheckboxModel definition)
     {
         if(definition.PhysicalTargetPage is null||definition.LogicalSourceParent||definition.GlobalParent||
@@ -454,7 +454,8 @@ internal static class DatabaseCheckboxCompilation
             return null;
         var target=definition.PhysicalTargetPage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();
         var effective=definition.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();
-        return target.Length==1&&target.SequenceEqual(effective,StringComparer.Ordinal)?definition.SourceParent?.Source.Id:null;
+        return (target.Length==1||target.Length>1&&definition.HasProjectStoredAccountScope)&&
+            target.ToHashSet(StringComparer.Ordinal).SetEquals(effective)?definition.SourceParent?.Source.Id:null;
     }
 
     /// <summary>全局固定目录及含物理条件的普通发布页随名称缓存下发。</summary>

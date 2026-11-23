@@ -232,8 +232,11 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(1, true)]
     [InlineData(1, false, true)]
     [InlineData(1, true, true)]
+    [InlineData(0, true, false, true)]
+    [InlineData(1, true, false, true)]
+    [InlineData(1, true, true, true)]
     public async Task Project_stored_checkbox_preserves_published_account_scope(int sourceStorage, bool withParent,
-        bool alternateName = false)
+        bool alternateName = false, bool compoundTarget = false)
     {
         const string ns = "Example.ProjectStoredCheckbox";
         const string output = "target_names";
@@ -266,6 +269,20 @@ public sealed class DerivedCheckboxNamesTests
             sourcePage.WhereSql = scope;
         var dictionaryPage = catalog.ConfigPages.Single(page => page.Id == "301");
         dictionaryPage.WhereSql = scope + " AND status=41";
+        if (compoundTarget)
+        {
+            var mainParent = catalog.ConfigColumns.Single(column =>
+                column.ConfigTableId == target.Id && column.ColumnName == "parent_id");
+            var parentTableId = mainParent.LinkConfigTableId.Length > 0
+                ? mainParent.LinkConfigTableId
+                : catalog.ConfigTables.Single(table => table.TableName == "stored_checkbox_parent").Id;
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "3993", ConfigTableId = target.Id, YzProjectId = catalog.YzProjectId,
+                ColumnName = "review_parent_id", LogicalType = "string", LinkConfigTableId = parentTableId
+            });
+            dictionaryPage.WhereSql += " AND review_parent_id=@parentId";
+        }
         if (alternateName && withParent)
             catalog.ConfigColumns.Single(column => column.ConfigTableId == target.Id && column.ColumnName == "parent_id")
                 .LogicalType = "string";
@@ -324,6 +341,8 @@ public sealed class DerivedCheckboxNamesTests
             Assert.Contains("CheckboxTargetCondition201_25.BindAccount(actor).ApplyConstants", code);
             Assert.Contains("CheckboxOptions201_25Async", code);
             Assert.Contains("ValidateCheckbox201_25Async", code);
+            if (compoundTarget)
+                Assert.Contains("ApplyTextParent(query,session,\"review_parent_id\"", code);
             Assert.NotNull(service.GetMethod("Import201Async"));
             Assert.NotNull(service.GetMethod("Export201Async"));
             var condition = Assert.IsType<FixedConditionSqlPlan>(
@@ -339,6 +358,7 @@ public sealed class DerivedCheckboxNamesTests
                 var predicate = Assert.Single(Property<IReadOnlyDictionary<string, string>>(read, "ArrayNamePredicates")).Value;
                 Assert.Contains("multi_value.`store_id`", predicate);
                 Assert.Contains(store, Property<IReadOnlyDictionary<string, object?>>(read, "Constants").Values);
+                Assert.Equal(compoundTarget, predicate.Contains("review_parent_id", StringComparison.Ordinal));
                 Assert.Equal(withParent, predicate.Contains("b.`parent_id`", StringComparison.Ordinal));
             }
             else
@@ -356,6 +376,7 @@ public sealed class DerivedCheckboxNamesTests
                 Assert.Contains("multi_value.`store_id`", sql);
                 Assert.Equal(withParent, sql.Contains("b.`parent_id`", StringComparison.Ordinal));
                 Assert.Contains("store_id", Property<IReadOnlyList<string>>(read, "SourceDependencies"));
+                Assert.Equal(compoundTarget, sql.Contains("review_parent_id", StringComparison.Ordinal));
                 if (alternateName)
                 {
                     Assert.Contains("target_titles", maintenance.MixedSourceColumns[owner.TableName]);
@@ -373,7 +394,8 @@ public sealed class DerivedCheckboxNamesTests
                     Equals(target.TableName, item.GetType().GetProperty("TargetTable")!.GetValue(item)) &&
                     Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlySet<string>>>(
                         item.GetType().GetProperty("Outputs")!.GetValue(item)).TryGetValue(output, out var changes) &&
-                    changes.Contains("store_id") && changes.Contains("name"));
+                    changes.Contains("store_id") && changes.Contains("name") &&
+                    (!compoundTarget || changes.Contains("review_parent_id")));
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
@@ -385,6 +407,15 @@ public sealed class DerivedCheckboxNamesTests
             var model = GenerationModel.Create(catalog, ns);
             var error = Assert.Throws<InvalidOperationException>(() => RelationPropagationCompilation.DerivedBindings(model));
             Assert.Contains("物理账号归属", error.Message);
+        }
+
+        if (compoundTarget)
+        {
+            var conflicting = catalog.ConfigColumns.Single(column => column.Id == "3993");
+            conflicting.LinkConfigTableId = "4";
+            var error = Assert.Throws<InvalidOperationException>(() =>
+                NonRedundantReads.IsProjectStoredCheckboxAccountPage(catalog, target, dictionaryPage));
+            Assert.Contains("同一真实父表", error.Message);
         }
 
         static T Property<T>(object item, string property) =>

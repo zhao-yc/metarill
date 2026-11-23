@@ -29,10 +29,11 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         CompilePublishedPage(catalog,table,condition,checkbox:false,allowGlobalParent:allowGlobalParent,
             allowStoredPhysicalParents:allowStoredPhysicalParents);
 
-    /// <summary>原数据库复选的实际发布页也可用已声明的自定义物理父字段。</summary>
+    /// <summary>数据库复选发布页可用显式物理父字段，项目内冗余目标的同父组合须由调用方证明。</summary>
     public static MultiTargetParentScope? CompileCheckboxPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,
-        bool allowGlobalParent=false)=>
-        CompilePublishedPage(catalog,table,condition,checkbox:true,allowGlobalParent:allowGlobalParent);
+        bool allowGlobalParent=false,bool allowStoredPhysicalParents=false)=>
+        CompilePublishedPage(catalog,table,condition,checkbox:true,allowGlobalParent:allowGlobalParent,
+            allowStoredPhysicalParents:allowStoredPhysicalParents);
 
     /// <summary>全局发布页可使用同一真实父表的物理父字段和已声明级联层位，父页由调用方逐项核对。</summary>
     public static MultiTargetParentScope? CompileGlobalPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox=false)=>
