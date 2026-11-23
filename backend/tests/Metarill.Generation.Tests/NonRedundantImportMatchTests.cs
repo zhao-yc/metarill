@@ -4,6 +4,7 @@ using Metarill.Core.Metadata;
 using Metarill.Core.Contracts;
 using Metarill.Core.Persistence;
 using Metarill.Core.Security;
+using Metarill.Data;
 using Metarill.Data.Queries;
 using Xunit;
 
@@ -273,7 +274,20 @@ public sealed class NonRedundantImportMatchTests
     [InlineData(1, false, false, false, true, 6)]
     [InlineData(1, false, true, false, true, 6)]
     public async Task Single_relation_keeps_all_published_parent_columns(int storage,bool compoundTarget,
-        bool liveTarget=false,bool controlParent=true,bool popup=false,int parentMode=0)
+        bool liveTarget=false,bool controlParent=true,bool popup=false,int parentMode=0) =>
+        await VerifyPublishedParentsAsync(storage, compoundTarget, liveTarget, controlParent, popup, parentMode);
+
+    /// <summary>派生只读规则以完整生成服务检查单文本父键、同父文本和整数交集。</summary>
+    [Theory]
+    [InlineData(3, false)]
+    [InlineData(0, true)]
+    public Task Derived_rule_records_use_the_published_text_parent(int parentMode, bool compoundTarget) =>
+        VerifyPublishedParentsAsync(0, compoundTarget, liveTarget: true, controlParent: true, popup: false, parentMode,
+            ruleRecord: true);
+
+    /// <summary>共享来源页夹具分别运行原CRUD／Excel范围和必要的派生规则读取。</summary>
+    private static async Task VerifyPublishedParentsAsync(int storage, bool compoundTarget, bool liveTarget,
+        bool controlParent, bool popup, int parentMode, bool ruleRecord = false)
     {
         var catalog=Catalog("string");
         var splitControl=compoundTarget&&controlParent;
@@ -315,6 +329,7 @@ public sealed class NonRedundantImportMatchTests
             page.WhereSql="yz_project_id=@current_yz_project_id";
         }
         page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(compoundTarget&&(!liveTarget||!splitControl)?"edit":"list");
+        if (ruleRecord) page.Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("pickerName == '已审核'");
         catalog.ConfigPages.Add(page);
         catalog.ConfigPageColumns.Add(new(){Id="7017015",ConfigPageId="701",ConfigColumnId="7015",IsShow=1});
         // 分写父条件的非冗余字典同时用原首列覆盖路径，真实物理首列与名称回显列分开。
@@ -427,6 +442,9 @@ public sealed class NonRedundantImportMatchTests
             Assert.NotNull(service.GetMethod("Import701Async"));
             Assert.NotNull(service.GetMethod("Export701Async"));
             if(textSource)await AssertPublishedTextSourceGuards(service,storage,catalog.YzProjectId);
+            if (ruleRecord)
+                await AssertRuleTextParentAsync(service, generated, textSource ? "country_id" : "review_country_id",
+                    mixedParent: !textSource, catalog.YzProjectId);
             if(storage==0)
                 Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan701",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
         }
@@ -470,6 +488,60 @@ public sealed class NonRedundantImportMatchTests
             const string large="9007199254740993";
             var actual=Assert.IsAssignableFrom<IReadOnlyList<FixedReadFilter>>(filters.Invoke(null,[new PageRequest{ParentId=large},actor]));
             Assert.Equal(FixedReadFilter.ForTextParent("country_id",large),Assert.Single(actual,value=>value.Field=="country_id"));
+        }
+    }
+
+    /// <summary>实际生成程序集从固定计划发出规则 SQL，传输替身既不联网也不解释权限。</summary>
+    private static async Task AssertRuleTextParentAsync(Type service, string generated, string textParent,
+        bool mixedParent, string projectId)
+    {
+        var method = service.GetMethod("ReadRuleRecord701CoreAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        Assert.NotNull(method);
+        var definition = generated[generated.IndexOf("> ReadRuleRecord701CoreAsync", StringComparison.Ordinal)..];
+        var filters = definition[..definition.IndexOf("var reader=", StringComparison.Ordinal)];
+        Assert.Contains($"""FixedReadFilter.ForTextParent("{textParent}",parentId!)""", filters);
+        if (mixedParent)
+            Assert.Contains("""new("country_id",FixedReadComparison.Equal,long.Parse(parentId!, CultureInfo.InvariantCulture))""", filters);
+
+        var plan = Assert.IsType<NonRedundantReadPlan>(service.GetField("RuleRecordPlan701", BindingFlags.NonPublic |
+            BindingFlags.Static)!.GetValue(null));
+        Assert.Contains(textParent, plan.OutputTypes.Keys);
+        Assert.Contains("picker_name", plan.OutputTypes.Keys);
+        var transport = new DerivedRuleRecordGenerationTests.Transport(plan.OutputTypes) { HasRow = false };
+        using var session = new DatabaseSession(new()
+        {
+            ExpectedDatabase = "offline",
+            ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused"
+        }, null, transport);
+        var mapperType = service.Assembly.GetType(service.Namespace!.Replace(".Services", ".Mappers") + ".CompoundPickerOwnerMapper", true)!;
+        var mapper = Activator.CreateInstance(mapperType, session)!;
+        var target = Activator.CreateInstance(service, [session, mapper, new SnowflakeIdGenerator(1),
+            Array.Empty<IRecordMutationObserver>(), Array.Empty<IRecordMutationGuard>(), null])!;
+        var actor = new RuntimeActor(1, "文本父字段合同", false, projectId, "1");
+
+        async Task Read(string parent, bool locking)
+        {
+            var task = (Task)method.Invoke(target, [1L, parent, "update", actor, false, locking, CancellationToken.None])!;
+            await task;
+            Assert.Null(task.GetType().GetProperty("Result")!.GetValue(task));
+        }
+
+        foreach (var invalid in new[] { "071", "71 ", "+71", "0", "9223372036854775808" })
+            await Assert.ThrowsAsync<ArgumentException>(() => Read(invalid, false));
+        Assert.Empty(transport.Commands);
+
+        const string large = "9007199254740993";
+        await session.InReadSnapshotAsync(async () => { await Read(large, false); return true; });
+        await session.InTransactionAsync(async () => { await Read(large, true); return true; });
+        Assert.Equal(2, transport.Commands.Count);
+        for (var i = 0; i < transport.Commands.Count; i++)
+        {
+            var command = transport.Commands[i];
+            Assert.Contains("BINARY (b.`" + textParent + "`)=BINARY ", command.Sql);
+            Assert.Contains(large, command.Values);
+            Assert.DoesNotContain(large, command.Sql);
+            if (mixedParent) Assert.Contains(9007199254740993L, command.Values);
+            Assert.Equal(i == 1, command.Sql.EndsWith("FOR SHARE", StringComparison.Ordinal));
         }
     }
 

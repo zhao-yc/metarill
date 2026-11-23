@@ -180,7 +180,7 @@ public sealed class RuleProbeController:ControllerBase
     private sealed class Resources(Metarill.Core.Metadata.MetadataCatalog catalog):IAgentHostResources
     {public AgentHostCatalog AgentCatalog{get;}=AgentHostCatalog.ForApplication(catalog);public IReadOnlyList<Metarill.Runtime.Security.SecurityResourceCatalog> PublishedCatalogs=>[];public bool IsPlatformRealm(string project,string admin)=>false;}
     /// <summary>传输记录真实命令/参数/事务，仅返回固定测试行，不解析或模拟SQL授权判断。</summary>
-    private sealed class Transport(IReadOnlyDictionary<string,string> outputs):IDatabaseProvider
+    internal sealed class Transport(IReadOnlyDictionary<string,string> outputs):IDatabaseProvider
     {
         internal const long Id=9007199254740993;internal string ProjectId="54";internal string? DerivedValue="禁止";internal string TargetIds="[101,102]";internal string[] TargetNames=["快照甲","快照乙"];internal Action? OnRootRead;internal Func<string,string,object?>? RowValue;internal bool HasRow=true;internal int Commits,Rollbacks;internal readonly List<(string Sql,object?[] Values,IsolationLevel Isolation,DbTransaction Transaction)> Commands=[];
         public string Name=>"mysql";public DatabaseCapabilities Capabilities=>new("mysql",true,false);public void Validate(DatabaseOptions options){}public IFreeSql CreateOrm(DatabaseOptions options)=>new MySqlDatabaseProvider().CreateOrm(options);public DbConnection CreateConnection(DatabaseOptions options)=>new Connection(this);public string QuoteIdentifier(string name)=>new MySqlDatabaseProvider().QuoteIdentifier(name);public string ParameterPlaceholder(string name)=>"@"+name;
@@ -192,8 +192,31 @@ public sealed class RuleProbeController:ControllerBase
             var data=new DataTable();
             if(command.CommandText.StartsWith("SELECT multi_value.",StringComparison.Ordinal))
             {data.Columns.Add("id",typeof(long));data.Columns.Add("name",typeof(string));var names=((Transaction)transaction).Names;for(var index=0;index<names.Length;index++)data.Rows.Add(101L+index,names[index]);return data.CreateDataReader();}
-            var extras=System.Text.RegularExpressions.Regex.Matches(command.CommandText,@" AS `(metarill_(?:multi_input|cross_input|cross_valid|rule_value)_[0-9]+)`").Select(match=>match.Groups[1].Value).ToArray();foreach(var name in outputs.Keys.Concat(extras))data.Columns.Add(name,typeof(object));
-            if(HasRow)data.Rows.Add(outputs.Keys.Concat(extras).Select(name=>RowValue is not null?RowValue(name,command.CommandText)??DBNull.Value:extras.Contains(name)?(object)TargetIds:name switch{"id"=>(object)Id,"customer_notes"=>DerivedValue??(object)DBNull.Value,"target_ids"=>TargetIds,"name" or "private_payload"=>"只允许甲","yz_project_id"=>ProjectId,"customer_id"=>"9","group_id" or "parent_id"=>"71",_=>DBNull.Value}).ToArray());OnRootRead?.Invoke();return data.CreateDataReader();
+            var extras = System.Text.RegularExpressions.Regex.Matches(command.CommandText,
+                @" AS `(metarill_(?:multi_input|cross_input|cross_valid|rule_value)_[0-9]+)`")
+                .Select(match => match.Groups[1].Value).ToArray();
+            // 分批补名的所有权参数来自根记录投影。替身按实际别名回送父字段，不能只回传多选 ID。
+            var owners = System.Text.RegularExpressions.Regex.Matches(command.CommandText,
+                @"`([A-Za-z0-9_]+)` AS `(metarill_multi_owner_[0-9]+)`")
+                .ToDictionary(match => match.Groups[2].Value, match => match.Groups[1].Value, StringComparer.Ordinal);
+            var columns = outputs.Keys.Concat(extras).Concat(owners.Keys).ToArray();
+            foreach (var name in columns) data.Columns.Add(name, typeof(object));
+            if (HasRow) data.Rows.Add(columns.Select(Value).ToArray());
+            OnRootRead?.Invoke();
+            return data.CreateDataReader();
+
+            object Value(string name)
+            {
+                name = owners.GetValueOrDefault(name, name);
+                if (RowValue is not null) return RowValue(name, command.CommandText) ?? DBNull.Value;
+                if (extras.Contains(name)) return TargetIds;
+                return name switch
+                {
+                    "id" => Id, "customer_notes" => DerivedValue ?? (object)DBNull.Value, "target_ids" => TargetIds,
+                    "name" or "private_payload" => "只允许甲", "yz_project_id" => ProjectId, "customer_id" => "9",
+                    "group_id" or "parent_id" => "71", _ => DBNull.Value
+                };
+            }
         }
     }
     private sealed class Connection(Transport owner):DbConnection

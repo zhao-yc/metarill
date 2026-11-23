@@ -60,8 +60,15 @@ internal static partial class BackendRenderer
         if(ManagerCredentialCompilation.Unsupported(table,page))result.AppendLine("        ManagerCredentialValue.RequirePublishedPage(false);");
         if(NonRedundantCrossParentCompilation.Enabled(model,table,page))result.AppendLine($"        _=LogicalParentId{page.Source.Id}(parentId);");
         result.AppendLine("        var filters=new List<FixedReadFilter>{new(\"id\",FixedReadComparison.Equal,id)};");
+        var fixedTextParent=UsesFixedTextParent(model,table,page);
         foreach(var(column,source)in fixedQuery.IdentityScopes)
         {
+            // 派生规则读取与普通行读取使用同一规范文本父键，不能用排序规则放宽原范围。
+            if(source=="parent"&&fixedTextParent&&column.Type=="string?")
+            {
+                result.AppendLine($"        filters.Add(FixedReadFilter.ForTextParent({Literal(column.Source.ColumnName)},parentId!));");
+                continue;
+            }
             if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求parentId。\");");
             result.AppendLine($"        filters.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,{ScopeValue(column,source=="project"?"actor.ProjectId":"parentId!")}));");
         }
