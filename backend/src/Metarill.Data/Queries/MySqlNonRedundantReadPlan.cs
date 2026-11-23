@@ -523,7 +523,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(refresh.CrossTableRecursivePageId is not null)return RecursiveCacheValue(table,alias,foreign,target,value,refresh);
                     // 标量级联缓存的精确目标由已验证定义确定，叶子无需伪装成普通List关系。
                     ValidateTarget(target);var crossGlobal=refresh.CrossTableColumnId is not null&&GlobalCrossTableTarget.Declared(target);
-                    if(crossGlobal)_=CrossTableCacheProof.Require(catalog,table,foreign,target,value,column!,refresh,refreshMultiples);
+                    var joinedCross=refresh.CrossTableColumnId is not null&&target.IsRongyu==0&&
+                        storage[target.Id].Kind(value)==MetadataFieldStorage.Join;
+                    if(crossGlobal||joinedCross)_=CrossTableCacheProof.Require(catalog,table,foreign,target,value,column!,refresh,refreshMultiples);
                     var pageId=refresh.SelfTreePageId??(crossGlobal&&(target.IsRongyu==0||MultiValueLabel.IsTyped(value.LogicalType))&&
                         refresh.CrossTableAccountPageId is null?refresh.CrossTablePageId:null);
                     var publishedPage=pageId is null?null:catalog.ConfigPages.Single(page=>page.Id==pageId);
@@ -533,10 +535,13 @@ public static partial class MySqlNonRedundantReadCompiler
                     var id=Resolve(table,alias,foreign.ColumnName);
                     var targetAlias=Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||publishedPage is not null,cachePage:publishedPage,account:account);
                     CascadeCacheOwner? nameOwner=null;
-                    if(crossGlobal&&target.IsRongyu==0&&storage[target.Id].Kind(value)==MetadataFieldStorage.Join)
+                    // 旧项目内纯物理联接定义可以没有目标页，仍沿原项目及物理终点校验。
+                    if(joinedCross&&(crossGlobal||catalog.ConfigPages.Any(page=>page.ConfigTableId==target.Id)))
                     {
-                        // 级联层绑定的实际页决定内层名称范围。过滤只影响名称可见性，保留字典变化的物理反查。
-                        singleCachePages[targetAlias]=catalog.ConfigPages.Single(page=>page.Id==refresh.CrossTablePageId&&page.ConfigTableId==target.Id);
+                        // 有发布页时，以真实层位解析字典范围并保留物理反查。
+                        singleCachePages[targetAlias]=crossGlobal
+                            ?catalog.ConfigPages.Single(page=>page.Id==refresh.CrossTablePageId&&page.ConfigTableId==target.Id)
+                            :CrossTableCacheProof.NamePage(catalog,target,value,refresh).Page;
                         nameOwner=new CascadeCacheOwner(table,alias);
                     }
                     var projected=Resolve(target,targetAlias,value.ColumnName,nameOwner);

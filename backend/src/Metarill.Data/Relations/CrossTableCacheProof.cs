@@ -15,13 +15,7 @@ internal static class CrossTableCacheProof
     {
         if(target.IsRongyu!=0||definition.CrossTableRecursivePageId is not { } id)
             throw new InvalidOperationException("递归名称缓存缺少已发布的非冗余候选页。");
-        var source=catalog.ConfigColumns.Single(column=>column.Id==definition.CrossTableColumnId&&column.ConfigTableId==definition.SourceTableId);
-        using var json=JsonDocument.Parse(source.ControlDetail);
-        var levels=json.RootElement.GetProperty("levels").EnumerateArray().ToArray();
-        var index=Array.FindIndex(levels,level=>Text(level,"key",Text(level,"table",""))==definition.CrossTableLevelKey);
-        if(index<0)throw new InvalidOperationException("递归名称缓存缺少固定层位。");
-        var parent=index==0?"":Text(levels[index],"parentField","");
-        var (page,condition)=MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,name.ColumnName,parent,allowSelfTree:true);
+        var (page,condition)=NamePage(catalog,target,name,definition);
         var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
         var treeNames=MySqlNonRedundantReadCompiler.PublishedSelfTreeConditionFields(catalog,target,page,columns);
         var scope=CrossTableParentCondition.Compile(catalog,target,page,MetadataStoragePolicy.ForTable(catalog,target),
@@ -30,6 +24,19 @@ internal static class CrossTableCacheProof
             GlobalCrossTableTarget.Declared(target)&&definition.CrossTablePageId!=id)
             throw new InvalidOperationException("递归名称缓存与已发布候选页的完整逻辑范围不一致。");
         return(page,condition,treeNames);
+    }
+
+    /// <summary>按固定控制列、目标层位和公开名称重新找到实际候选页，不读取调用方传入的页。</summary>
+    internal static (PageMetadata Page,FixedConditionSqlPlan? Condition) NamePage(MetadataCatalog catalog,
+        TableMetadata target,ColumnMetadata name,RelationCacheDefinition definition)
+    {
+        var source=catalog.ConfigColumns.Single(column=>column.Id==definition.CrossTableColumnId&&column.ConfigTableId==definition.SourceTableId);
+        using var json=JsonDocument.Parse(source.ControlDetail);
+        var levels=json.RootElement.GetProperty("levels").EnumerateArray().ToArray();
+        var index=Array.FindIndex(levels,level=>Text(level,"key",Text(level,"table",""))==definition.CrossTableLevelKey);
+        if(index<0)throw new InvalidOperationException("名称缓存缺少固定跨表层位。");
+        var parent=index==0?"":Text(levels[index],"parentField","");
+        return MySqlNonRedundantReadCompiler.CascadeLabelPage(catalog,target,name.ColumnName,parent,allowSelfTree:true);
     }
 
     /// <summary>完整检查固定链，返回所选层是否为物理字符串名称缓存；不读取业务库或接受SQL。</summary>

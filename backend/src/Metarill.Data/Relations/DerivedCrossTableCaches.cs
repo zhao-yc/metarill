@@ -100,9 +100,9 @@ public static class DerivedCrossTableCaches
 
         bool HasJoinedCrossName(RelationCacheDefinition definition)
         {
-            if(definition.CrossTablePageId is null)return false;
+            if(definition.CrossTableColumnId is null)return false;
             var target=catalog.ConfigTables.Single(table=>table.Id==definition.TargetTableId);
-            if(target.IsRongyu!=0||!GlobalCrossTableTarget.Declared(target))return false;
+            if(target.IsRongyu!=0)return false;
             var label=catalog.ConfigColumns.SingleOrDefault(column=>column.Id==definition.ValueColumnId);
             return label is not null&&MetadataStoragePolicy.ForTable(catalog,target).Kind(label)==MetadataFieldStorage.Join;
         }

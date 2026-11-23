@@ -39,7 +39,7 @@ internal static class NonRedundantCrossTargetsCompilation
             .Append("id").Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var outputs=new[]{"id",level.Name.Source.ColumnName}.Concat(level.Parent is{} p?new[]{p.Source.ColumnName}:[]).ToArray();
         // 级联候选及运行时共用实际目标页的名称路径和条件。
-        var targets=target.IsGlobal?NonRedundantReadCompilation.ProjectPathTargets(model,target,level.Page,outputs.Concat(dependencies)):[];
+        var targets=NonRedundantReadCompilation.ProjectPathTargets(model,target,level.Page,outputs.Concat(dependencies));
         var read=FixedPageConditionCompilation.HasLogicalFields(level.Page)
             ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,level.Page.Source.Id,outputs,dependencies,null,targets)
             :NonRedundantReadCompilation.HasGlobalRowProject(target)

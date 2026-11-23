@@ -61,10 +61,10 @@ internal static class CascadeTargetOrderCompilation
         }
     }
 
-    /// <summary>名称查询始终按实际全局候选页冻结关联，与排序采用的额外联接各自保留。</summary>
+    /// <summary>名称查询始终按实际候选页冻结关联，与排序采用的额外联接各自保留。</summary>
     internal static IReadOnlyList<NonRedundantSingleTargetScope> NameTargets(GenerationModel model,TableModel target,
         PageModel page,ColumnModel name,bool derivedName)=>
-        target.IsGlobal&&derivedName?NonRedundantReadCompilation.ProjectPathTargets(model,target,page,[name.Source.ColumnName]):[];
+        derivedName?NonRedundantReadCompilation.ProjectPathTargets(model,target,page,[name.Source.ColumnName]):[];
 
     /// <summary>下发排序所需的实际字典页和中间页，保留这些页的固定范围。</summary>
     internal static IReadOnlyList<NonRedundantSingleTargetScope> OrderTargets(GenerationModel model, TableModel target,

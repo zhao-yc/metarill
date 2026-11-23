@@ -601,6 +601,8 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             if(proof is not null&&proof.Page.Id!=page.Id)
                 throw new InvalidOperationException("全局单值读取与发布目标页不一致。");
+            // 项目内跨表名称的后续联接也须保留当前字典页，空范围的中间段不能丢失来源。
+            if(CrossNamePage(ownerAlias) is not null)crossNameSourcePages[alias]=page;
             if(binding.NestedTargets.Count>0)
                 projectAliasTargets.Add(alias,binding.NestedTargets.ToDictionary(item=>item.ColumnId,StringComparer.Ordinal));
             if(!binding.ApplyPageCondition)return "";
@@ -1045,7 +1047,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var row=new CascadeCacheOwner(table,owner);
             var visible=NestedCrossCondition(level,alias,row,selfTreeFields:treeNames);
             CascadeCacheOwner? nameOwner=null;
-            if(GlobalCrossTableTarget.Declared(target)&&storage[target.Id].Kind(value)==MetadataFieldStorage.Join)
+            if(storage[target.Id].Kind(value)==MetadataFieldStorage.Join)
             {
                 // 递归条件与派生名称共用实际发布页。保留物理反查，使内层字典变化能触发回填。
                 singleCachePages[alias]=page;

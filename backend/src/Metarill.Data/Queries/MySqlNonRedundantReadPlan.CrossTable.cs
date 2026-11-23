@@ -64,7 +64,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     }
                     if(target.IsRongyu==0)
                     {
-                        var proof=new Builder(catalog,target.Id,matching:!global,deferCascadeNames:selfTreeFields.Count>0){CrossNameSourcePage=global?page:null}.Compile([display.ColumnName],[]);if(proof.Types[display.ColumnName]!=display.LogicalType||proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
+                        var proof=new Builder(catalog,target.Id,matching:!global,deferCascadeNames:selfTreeFields.Count>0){CrossNameSourcePage=page}.Compile([display.ColumnName],[]);if(proof.Types[display.ColumnName]!=display.LogicalType||proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
                     }
                     else if(!global&&!CrossPhysical(target,display))throw new NotSupportedException("冗余目标联接名称仍需独立物理缓存证明。");
                     ColumnMetadata? parent=null;
@@ -136,7 +136,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(trackReverse&&(labelPath||scopeOnly)&&level.Table.IsRongyu==1)Touch(labelAlias,level.Name.ColumnName);
                     CascadeCacheOwner? nameOwner=null;
                     // 同一表可以在不同层担任不同角色，各名称联接使用本级发布页。
-                    if(level.Table.IsRongyu==0&&GlobalCrossTableTarget.Declared(level.Table))
+                    if(level.Table.IsRongyu==0)
                     {
                         crossNameSourcePages[labelAlias]=level.Page;
                         if((cacheOwner??cascadeCacheOwner) is {} row&&storage[level.Table.Id].Kind(level.Name)==MetadataFieldStorage.Join)
