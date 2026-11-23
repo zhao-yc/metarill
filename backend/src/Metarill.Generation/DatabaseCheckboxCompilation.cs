@@ -308,14 +308,22 @@ internal static class DatabaseCheckboxCompilation
                 parents=[model.Tables.Single(candidate=>candidate.Source.Id==binding.Parent.Id)];
             }
 
-            // 无页面父路由时，固定目标页的全部实际父字段绑定来源详情中唯一的真实表单外键。
+            // 无页面父路由时，固定目标页的实际父字段绑定来源详情中唯一的真实表单外键。
+            var ordinaryFormParent=sourceScopeColumns.Length==0&&realtimeRead&&!table.IsGlobal&&
+                exactTarget is null&&physicalPage is {} published&&physicalParents.Length==1
+                ?MultiTargetParentScope.CompileProjectCheckboxFormPage(model.Catalog,target.Source,published.Source)
+                :null;
             if(sourceScopeColumns.Length==0&&(sharedFixedPage&&physicalParents.Length==1||
-                projectStoredAccount&&physicalParents.Length>0))
+                projectStoredAccount&&physicalParents.Length>0||ordinaryFormParent is not null))
             {
-                var syntax=FixedConditionPlan.Compile(namePage!.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
-                var binding=projectStoredAccount
-                    ?MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax,allowStoredPhysicalParents:true)
-                    :MultiTargetParentScope.CompileCheckboxParent(model.Catalog,target.Source,syntax);
+                var binding=ordinaryFormParent;
+                if(binding is null)
+                {
+                    var syntax=FixedConditionPlan.Compile(namePage!.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
+                    binding=projectStoredAccount
+                        ?MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax,allowStoredPhysicalParents:true)
+                        :MultiTargetParentScope.CompileCheckboxParent(model.Catalog,target.Source,syntax);
+                }
                 if(binding is null||binding.Global||binding.Logical||physicalParents.Any(scope=>!binding.HasTarget(scope.Column.Source.Id))||
                     Protected(model.Tables.Single(candidate=>candidate.Source.Id==binding.Parent.Id)))
                     return Gap("表单父范围须绑定实际普通目标父键。");

@@ -47,7 +47,12 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(true,0,false,"text-target")]
     [InlineData(false,1,true,"text-both")]
     [InlineData(true,0,false,"text-both")]
-    public async Task Checkbox_page_label_override_reuses_candidate_range_and_name_array(bool automatic,int targetStorage,bool explicitPage,string textParents="")
+    [InlineData(false,0,true,"","form-list")]
+    [InlineData(true,0,true,"text-both","form-checkbox")]
+    [InlineData(false,1,true,"","form-checkbox")]
+    [InlineData(true,1,true,"text-both","form-list")]
+    public async Task Checkbox_page_label_override_reuses_candidate_range_and_name_array(bool automatic,int targetStorage,bool explicitPage,
+        string textParents="",string parentMode="")
     {
         var catalog=Published(Catalog(true,automatic));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");target.IsRongyu=targetStorage;
@@ -59,6 +64,19 @@ public sealed class DatabaseCheckboxGenerationTests
         var settings=catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId==source.Id);
         settings.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"short_name"}""");
         var page=catalog.ConfigPages.Single(page=>page.Id=="201");page.IsImport=1;page.IsExport=1;
+        var formParent=parentMode.Length>0;
+        if(formParent)
+        {
+            source.ControlDetail="""{"tableId":"3","pageId":"301","nameField":"name"}""";
+            if(parentMode=="form-checkbox")source.Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
+            page.WhereSql="yz_project_id=@current_yz_project_id";
+            var dictionary=catalog.ConfigPages.Single(candidate=>candidate.Id=="301");
+            dictionary.WhereSql+=" AND active_flag=1";
+            catalog.ConfigColumns.Add(new(){Id="399",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
+                ColumnName="active_flag",LogicalType="int32"});
+            catalog.ConfigPageColumns.Add(new(){Id="2026",ConfigPageId=page.Id,ConfigColumnId="26",
+                YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1,Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
+        }
         if(automatic)
         {
             page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
@@ -72,6 +90,7 @@ public sealed class DatabaseCheckboxGenerationTests
         Assert.Equal("short_name",effective.Name.Source.ColumnName);
         Assert.Equal("targetNames",effective.Names.JsonName);
         Assert.Contains(effective.Scopes,scope=>scope.Source=="parent"&&scope.Column.Source.ColumnName=="parent_id");
+        if(formParent)Assert.Equal("26",effective.FormParentField?.Source.Id);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-page-label");
@@ -88,7 +107,7 @@ public sealed class DatabaseCheckboxGenerationTests
             if(!automatic)Assert.Contains("FixedReadComparison.JsonArrayAnyContains",service);
             if(textParents is "text-target" or "text-both")
                 Assert.Contains("""query=global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,"parent_id",parentId!);""",service);
-            if(textParents is "text-source" or "text-both")
+            if(!formParent&&textParents is ("text-source" or "text-both"))
             {
                 Assert.Contains("""query=NonRedundantReads.ApplyTextParent(query,session,"parent_id",parentId!);""",service);
                 Assert.Contains("""result.Add(FixedReadFilter.ForTextParent("parent_id",request.ParentId!));""",service);
@@ -97,6 +116,51 @@ public sealed class DatabaseCheckboxGenerationTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
             var serviceType=assembly.GetTypes().Single(type=>type.Name=="RelationSourceService");
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
+            if(formParent)
+            {
+                var list=await File.ReadAllTextAsync(Path.Combine(generated,"frontend/pages/yzp/relation_source-list-201.vue"));
+                Assert.Contains("this.$watch(()=>this.entity.parentId",detail);
+                Assert.Contains("parentId:optionParent",detail);
+                Assert.Contains("\"formParentField\":\"parentId\"",list);
+                Assert.Contains("CheckboxTargetCondition201_25.ApplyConstants",service);
+                Assert.Contains("var targetParentId=relationContext[\"parentId\"]",service);
+                Assert.Contains("CheckboxScope201_25Async(targetParentId,actor",service);
+                Assert.Contains(parentMode=="form-checkbox"?"FixedReadComparison.JsonArrayHasAnyId":"FixedReadComparison.JsonArrayHasId",service);
+                var dependency=ImportDependencyCompilation.ForPage(model,table,pageModel);
+                Assert.Equal("26",dependency.Parents[source.Id].Source.Id);
+                var plan=Assert.IsType<NonRedundantReadPlan>(serviceType.GetField("ReadPlan201",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                var sql=plan.GetType().GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(plan)!;
+                var predicate=Assert.Single(Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(sql.GetType()
+                    .GetProperty("ArrayNamePredicates",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(sql))).Value;
+                Assert.Contains("BINARY CAST(b.`parent_id` AS CHAR)",predicate);
+                Assert.Contains("multi_value.`active_flag`",predicate);
+                var parentSettings=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId=="26");
+                catalog.ConfigPageColumns.Remove(parentSettings);
+                AssertParentUnresolved();
+                catalog.ConfigPageColumns.Add(parentSettings);
+                var alternateParent=new ColumnMetadata
+                {
+                    Id="29",ConfigTableId=table.Source.Id,YzProjectId=catalog.YzProjectId,
+                    ColumnName="alternate_parent_id",LogicalType="int64",LinkConfigTableId="1"
+                };
+                var alternateSettings=new PageColumnMetadata
+                {
+                    Id="2029",ConfigPageId=page.Id,ConfigColumnId=alternateParent.Id,YzProjectId=catalog.YzProjectId,IsEdit=1
+                };
+                catalog.ConfigColumns.Add(alternateParent);
+                catalog.ConfigPageColumns.Add(alternateSettings);
+                AssertParentUnresolved();
+                catalog.ConfigPageColumns.Remove(alternateSettings);
+                catalog.ConfigColumns.Remove(alternateParent);
+
+                void AssertParentUnresolved()
+                {
+                    var invalid=GenerationModel.Create(catalog,ns);
+                    var sourceTable=invalid.Tables.Single(candidate=>candidate.Source.Id==table.Source.Id);
+                    var relation=sourceTable.Columns.Single(column=>column.Source.Id==source.Id);
+                    Assert.Null(DatabaseCheckboxCompilation.Resolve(invalid,sourceTable,sourceTable.Pages.Single(),relation).Definition);
+                }
+            }
             Assert.NotNull(serviceType.GetMethod("Import201Async"));
             Assert.NotNull(serviceType.GetMethod("Export201Async"));
             var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());

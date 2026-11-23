@@ -193,19 +193,25 @@ public static partial class MySqlNonRedundantReadCompiler
             // 全局单值路径已证明字符串键的二进制读取；这里不是仅允许int64键的精确管理匹配用途。
             var prefixForNames=publishedPage is null&&publishedArrayScopeCount==0?"multi_name_":aliasPrefix+"array"+publishedArrayScopeCount+"_";
             publishedArrayScopeCount++;
-            var pageParent=fixedParent?.Target??(selectedScope is null?null:MultiParent(catalog,selectedScope,checkbox));
+            var formPageParent=checkbox&&table.IsRongyu==0&&!GlobalCrossTableTarget.Declared(table)&&
+                sourcePage is not null&&selectedScope is not null
+                ?MultiTargetParentScope.CompileProjectCheckboxFormPage(catalog,target,selectedScope)
+                :null;
+            var pageParent=fixedParent?.Target??formPageParent??(selectedScope is null?null:MultiParent(catalog,selectedScope,checkbox));
             var controlParents=CheckboxControlParents(target,control);
             var parent=pageParent??controlParents.FirstOrDefault();
             if(parent is not null&&controlParents.Any(candidate=>candidate.Parent.Id!=parent.Parent.Id))
                 throw new InvalidOperationException("复选目标页与控件必须绑定同一实际来源父表。");
-            // 账号字典的父键可来自已开放的物理表单字段，回显和回填均从实际来源记录读取。
+            // 复选的物理表单父键必须经过实际字典页和来源详情的共同证明，名称读取按来源行绑定。
             var projectCheckbox=checkbox&&projectFixedScope;
+            var allowFormParent=projectCheckbox||formPageParent is not null&&
+                controlParents.All(range=>range.Target.Id==formPageParent.Target.Id);
             var sourceBinding=fixedParent is {} paired?paired.Source:
                 sharedCheckbox||projectCheckbox&&sourcePage is null?parent?.CheckboxSource(catalog,table,relation,
                     allowProjectPhysicalColumns:projectCheckbox):
                 sourcePage is null?parent?.Source(catalog,table,relation):
-                projectCheckbox||controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage,
-                    allowFormParent:projectCheckbox,allowProjectPhysicalColumns:projectCheckbox):
+                allowFormParent||controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage,
+                    allowFormParent:allowFormParent,allowProjectPhysicalColumns:projectCheckbox):
                 parent?.Source(catalog,table,relation,sourcePage);
             var sourceParent=sourceBinding?.Column;
             var logicalSource=sourceBinding?.LogicalPages.Count>0;

@@ -87,6 +87,31 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public static MultiTargetParentScope? CompileCheckboxParent(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)=>
         Compile(catalog,table,condition,checkbox:true);
 
+    /// <summary>普通字典的独立表单父级只使用实际发布页的唯一物理项目父键。</summary>
+    public static MultiTargetParentScope? CompileProjectCheckboxFormPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
+        if (table.IsRongyu is not (0 or 1) || table.IsView!=0 || table.IsFunctionTable!=0 ||
+            GlobalCrossTableTarget.Declared(table) || page.ConfigTableId!=table.Id ||
+            table.YzProjectId.Length>0 && table.YzProjectId!=catalog.YzProjectId ||
+            page.YzProjectId.Length>0 && page.YzProjectId!=catalog.YzProjectId ||
+            page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
+            return null;
+
+        var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
+        var fields=RelationStorageColumns.Expand(table,columns);
+        var condition=FixedConditionPlan.Compile(page.WhereSql,fields.Select(column=>column.ColumnName));
+        var storage=MetadataStoragePolicy.ForTable(catalog,table);
+        if (condition.Terms.Count(ParentTerm)!=1 ||
+            condition.Variables.Any(variable=>!IsParameter(variable) &&
+                !variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)) ||
+            condition.Fields.Any(field=>!storage.PhysicalColumns.Any(column=>column.ColumnName==field &&
+                GlobalPhysicalRelationValue.IsScalar(storage,table,column)) ||
+                CrossTableStorageColumns.IsLogicalPathField(table,columns,field)))
+            return null;
+
+        return CompileCheckboxParent(catalog,table,condition) is { Global:false, Logical:false } parent ? parent : null;
+    }
+
     private static MultiTargetParentScope? Compile(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox)
     {
         var terms=condition.Terms.Where(ParentTerm).ToArray();
