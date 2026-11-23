@@ -184,10 +184,10 @@ internal static class DatabaseCheckboxRenderer
     private static string ParentValue(ColumnModel? field,string entity)=>field is null?"null":field.Type=="string?"
         ?entity+"."+field.Property:entity+"."+field.Property+"?.ToString(CultureInfo.InvariantCulture)";
 
-    /// <summary>普通账号字典的同父来源需逐一核对物理字段，保存及名称导出共用精确十进制字符串。</summary>
+    /// <summary>逐一核对来源页的同父物理字段，保存及名称导出共用精确十进制字符串。</summary>
     internal static string RequireMatchingParents(DatabaseCheckboxModel def,string entity,string indent)
     {
-        if(!def.HasProjectStoredAccountScope||def.SourceScopeColumns.Count<2)return "";
+        if(!def.CompoundPhysicalSource)return "";
         var parent=ParentValue(def,entity);
         return string.Concat(def.SourceScopeColumns.Where(column=>column.Source.Id!=def.SourceParent?.Source.Id)
             .Select(column=>$"{indent}if(!string.Equals({parent},{ParentValue(column,entity)},StringComparison.Ordinal))throw new InvalidOperationException(\"复选的来源父字段必须属于同一父记录。\");\n"));

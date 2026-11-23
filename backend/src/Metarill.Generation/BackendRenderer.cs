@@ -369,11 +369,12 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     /// <summary>已证明同父的物理复选来源页与账号字典共用规范父键。</summary>
     private static bool UsesPublishedPhysicalCheckboxSource(GenerationModel model,TableModel table,PageModel page)=>
         table.Source.IsFunctionTable==0&&
-        page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="string?")&&
+        page.Scopes.Any(scope=>scope.Source=="parent")&&
         DatabaseCheckboxCompilation.ForService(model,table,page).Any(definition=>
             definition is { LogicalSourceParent:false, FormParentField:null, GlobalParent:false }&&
             definition.SourceParents is [{ IsGlobal:false }]&&
-            (definition.HasProjectStoredAccountScope||definition.Scopes.Any(scope=>scope.Source=="parent")));
+            (definition.CompoundPhysicalSource||definition.SourceScopeColumns.Any(column=>column.Type=="string?")&&
+                (definition.HasProjectStoredAccountScope||definition.Scopes.Any(scope=>scope.Source=="parent"))));
 
     /// <summary>已发布的文本父键按规范 ID 二进制比较。</summary>
     private static bool UsesFixedTextParent(GenerationModel model,TableModel table,PageModel page)=>

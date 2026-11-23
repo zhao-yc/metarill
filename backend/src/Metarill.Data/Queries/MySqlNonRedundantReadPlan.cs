@@ -276,8 +276,12 @@ public static partial class MySqlNonRedundantReadCompiler
         if(parent is not null)
         {
             var publishedRelation=relation??throw new InvalidOperationException("多值缓存缺少发布关系。");
+            // 已发布的普通复选缓存与实时名称复用全部来源物理父字段。
+            var physicalCheckbox=sharedCheckbox&&checkbox&&parent is {Global:false,Logical:false}&&
+                !GlobalCrossTableTarget.Declared(cacheOwner!.Table)&&
+                MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(catalog,target,selectedPage!) is not null;
             source=sharedCheckbox||checkbox&&projectFixedScope?parent.CheckboxSource(catalog,cacheOwner!.Table,publishedRelation,
-                allowProjectPhysicalColumns:projectFixedScope):
+                allowProjectPhysicalColumns:projectFixedScope||physicalCheckbox):
                 parent.Source(catalog,cacheOwner!.Table,publishedRelation);
         }
         if(parent is {Global:true}&&source is {AdditionalColumns.Count:>0})

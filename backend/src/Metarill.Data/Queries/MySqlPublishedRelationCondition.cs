@@ -105,9 +105,8 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
             !projectStoredAccount)
             throw new InvalidOperationException("复选多名称要求实际普通物理目标父键。");
         // 重证所有来源页的完整物理父键集合，维护不能把复合范围降成第一个外键。
-        var sourceKey=parent.CheckboxSource(catalog,source,relation,allowProjectPhysicalColumns:projectStoredAccount);
-        if(sourceKey.Column.Id!=sourceParentId||sourceKey.LogicalPages.Count>0||
-            !projectStoredAccount&&sourceKey.AdditionalColumns.Count>0)
+        var sourceKey=parent.CheckboxSource(catalog,source,relation,allowProjectPhysicalColumns:true);
+        if(sourceKey.Column.Id!=sourceParentId||sourceKey.LogicalPages.Count>0)
             throw new InvalidOperationException("复选多名称要求所有来源页使用同一物理父键。");
         return (page,parent,sourceKey);
     }

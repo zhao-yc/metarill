@@ -211,7 +211,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     allowProjectPhysicalColumns:projectCheckbox):
                 sourcePage is null?parent?.Source(catalog,table,relation):
                 allowFormParent||controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage,
-                    allowFormParent:allowFormParent,allowProjectPhysicalColumns:projectCheckbox):
+                    allowFormParent:allowFormParent,allowProjectPhysicalColumns:allowFormParent):
                 parent?.Source(catalog,table,relation,sourcePage);
             var sourceParent=sourceBinding?.Column;
             var logicalSource=sourceBinding?.LogicalPages.Count>0;

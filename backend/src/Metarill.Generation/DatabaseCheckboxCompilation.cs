@@ -26,6 +26,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool SharedLogicalParentScope { get; init; }
     internal bool HasStoredAccountScope { get; init; }
     internal bool HasProjectStoredAccountScope { get; init; }
+    internal bool CompoundPhysicalSource { get; init; }
 
     /// <summary>原列表勾选的加载和冗余数组匹配共用同一候选范围证明。</summary>
     internal bool SupportsRedundantArrayFilter =>
@@ -155,10 +156,11 @@ internal static class DatabaseCheckboxCompilation
                     .Select(setting=>baseline.WithPageOverride(setting.Extra.GetValueOrDefault("controlDetail").ToString()).NameField)
                     .ToHashSet(StringComparer.Ordinal):[];
             var sharedNamesPage=pageNames.Any(field=>field!=baseline.NameField);
-            // 仅将普通物理路由或独立表单的同父字典交给物理查询，保留逻辑来源的既有路径。
+            // 普通物理父范围由实际两端页面证明，逻辑来源继续使用已有的级联路径。
+            var sourceScopeColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var ordinaryCompoundParent=!functionForm&&!table.IsGlobal&&exactTarget is null&&namePage is {} actualTarget&&
-                actualTarget.Scopes.Count(scope=>scope.Source=="parent")>1&&page.Scopes.Count(scope=>scope.Source=="parent")<=1&&
-                !page.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,table,page,scope.Column))
+                (sourceScopeColumns.Length>1||actualTarget.Scopes.Count(scope=>scope.Source=="parent")>1)&&
+                !sourceScopeColumns.Any(column=>NonRedundantCrossParentCompilation.Managed(model,table,page,column))
                 ?MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(model.Catalog,target.Source,actualTarget.Source)
                 :null;
             // 保存按实际身份读取，维护从每条来源记录的持久归属绑定同一账号范围。
@@ -262,7 +264,6 @@ internal static class DatabaseCheckboxCompilation
                 NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,column);
             if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)&&!FunctionLogicalParent(scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量。");
             TableModel Parent(ColumnModel column)=>model.Tables.SingleOrDefault(parent=>column.Source.LinkConfigTableId.Length>0?parent.Source.Id==column.Source.LinkConfigTableId:parent.Source.TableName+"_id"==column.Source.ColumnName)??throw new InvalidOperationException("复选父范围缺少明确真实父表。");
-            var sourceScopeColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             if(sourceScopeColumns.Any(column=>!NonRedundantReadCompilation.Physical(model,table,column)||column.IsJsonArray||
                 column.Type is not("long?" or "string?")))return Gap("来源父必须为固定标量ID。");
             var sourceBindings=sourceScopeColumns.Select(column=>(Column:column,Path:NonRedundantCrossParentCompilation.Find(model,table,page,column))).ToArray();
@@ -275,6 +276,17 @@ internal static class DatabaseCheckboxCompilation
             var sourceParent=logicalBindings.FirstOrDefault().Column??(projectStoredAccount
                 ?sourceScopeColumns.MinBy(column=>column.Source.Id,StringComparer.Ordinal):sourceScopeColumns.FirstOrDefault());
             var physicalParents=scopes.Where(scope=>scope.Source=="parent").ToArray();
+            var ordinaryCompoundSource=ordinaryCompoundParent is not null&&sourceScopeColumns.Length>1;
+            if(ordinaryCompoundSource)
+            {
+                var binding=ordinaryCompoundParent!;
+                var owner=binding.CheckboxSource(model.Catalog,table.Source,source.Source,page.Source,allowProjectPhysicalColumns:true);
+                if(owner.LogicalPages.Count>0||physicalParents.Any(scope=>!binding.HasTarget(scope.Column.Source.Id))||
+                    !owner.AdditionalColumns.Select(column=>column.Id).Append(owner.Column.Id).ToHashSet(StringComparer.Ordinal)
+                        .SetEquals(sourceScopeColumns.Select(column=>column.Source.Id)))
+                    return Gap("复选来源页必须证明完整的同父物理字段。");
+                sourceParent=sourceScopeColumns.Single(column=>column.Source.Id==owner.Column.Id);
+            }
             var pageHasParent=logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true;
             if(logicalSource&&physicalParents.Length==0&&!pageHasParent)
                 return Gap("来源逻辑父键须对应明确的控件或目标页父范围。");
@@ -409,6 +421,7 @@ internal static class DatabaseCheckboxCompilation
                 SharedLogicalParentScope=sharedLogicalParentScope,
                 HasStoredAccountScope=storedAccountPage,
                 HasProjectStoredAccountScope=projectStoredAccount,
+                CompoundPhysicalSource=ordinaryCompoundSource||projectStoredAccount&&sourceScopeColumns.Length>1,
                 GlobalRealtimeNameOverride=globalRealtimeNameOverride,
                 RealtimeLogicalParentScope=realtimeRead&&exactTarget is null&&logicalPage is not null&&
                     logicalPage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column)),
@@ -470,7 +483,7 @@ internal static class DatabaseCheckboxCompilation
     {
         if(definition.PhysicalTargetPage is null||definition.LogicalSourceParent||definition.GlobalParent||
             definition.SourceScopeColumns.Count==0&&definition.FormParentField is null||
-            definition.SourceScopeColumns.Count>1&&!definition.HasProjectStoredAccountScope||
+            definition.SourceScopeColumns.Count>1&&!definition.CompoundPhysicalSource||
             definition.SourceParents.Count!=1||definition.SourceParents[0].IsGlobal)
             return null;
         var target=definition.PhysicalTargetPage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();

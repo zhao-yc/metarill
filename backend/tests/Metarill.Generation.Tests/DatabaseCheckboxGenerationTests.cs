@@ -55,8 +55,12 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(true,1,true,"text-both","form-checkbox","ordinary-compound")]
     [InlineData(false,0,true,"text-source","","ordinary-compound")]
     [InlineData(true,1,true,"","","ordinary-compound")]
+    [InlineData(false,0,true,"","","","compound-owner")]
+    [InlineData(true,1,true,"text-both","","","compound-owner")]
+    [InlineData(false,0,true,"","","ordinary-compound","compound-owner")]
+    [InlineData(true,1,true,"","","ordinary-compound","compound-owner-numeric")]
     public async Task Checkbox_page_label_override_reuses_candidate_range_and_name_array(bool automatic,int targetStorage,bool explicitPage,
-        string textParents="",string parentMode="",string targetParentMode="")
+        string textParents="",string parentMode="",string targetParentMode="",string sourceParentMode="")
     {
         var catalog=Published(Catalog(true,automatic));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");target.IsRongyu=targetStorage;
@@ -82,6 +86,7 @@ public sealed class DatabaseCheckboxGenerationTests
                 YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1,Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
         }
         var compoundParent=targetParentMode=="ordinary-compound"?AddCompoundCheckboxTarget(catalog):null;
+        var compoundOwner=sourceParentMode.Length>0?AddCompoundCheckboxSource(catalog,sourceParentMode,page):null;
         if(automatic)
         {
             page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
@@ -123,6 +128,17 @@ public sealed class DatabaseCheckboxGenerationTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
             var serviceType=assembly.GetTypes().Single(type=>type.Name=="RelationSourceService");
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
+            if(compoundOwner is not null)
+            {
+                AssertCompoundSourceParentScope(service,compoundOwner);
+                const BindingFlags hidden=BindingFlags.Instance|BindingFlags.NonPublic;
+                var plan=Assert.IsType<NonRedundantReadPlan>(serviceType.GetField("ReadPlan201",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                var read=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+                var predicates=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(read.GetType()
+                    .GetProperty("ArrayNamePredicates",hidden)!.GetValue(read));
+                Assert.Contains("BINARY CAST(b.`backup_parent_id` AS CHAR)",Assert.Single(predicates).Value);
+                AssertRejectsDifferentCheckboxParent(catalog,ns,compoundOwner,"3");
+            }
             if(compoundParent is not null)
             {
                 Assert.Contains("""ApplyTextParent(query,session,"review_parent_id",parentId!)""",service);
@@ -221,9 +237,13 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(1,true,true,true,false,false,false,"","","","","text-source","ordinary-compound")]
     [InlineData(0,true,true,true,true,false,false,"","","","","text-both","ordinary-compound")]
     [InlineData(1,true,true,true,true,false,false,"","","","","","ordinary-compound")]
+    [InlineData(0,true,true,true,false,false,false,"","","","","","","compound-owner")]
+    [InlineData(1,true,true,true,false,false,false,"","","","","text-both","","compound-owner")]
+    [InlineData(0,true,true,true,false,false,false,"","","","","","ordinary-compound","compound-owner-numeric")]
+    [InlineData(1,true,true,true,false,false,false,"","","","","","ordinary-compound","compound-owner")]
     public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,
         bool fixedParent,bool independentParent,bool global=false,bool globalRowProject=false,string accountVariable="",string joinedNames="",
-        string parentMode="",string dictionaryMode="",string textParents="",string targetParentMode="")
+        string parentMode="",string dictionaryMode="",string textParents="",string targetParentMode="",string sourceParentMode="")
     {
         var catalog=Published(Catalog(false));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
@@ -321,10 +341,12 @@ public sealed class DatabaseCheckboxGenerationTests
                 YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1,Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
             if(targetStorage==1)source.Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
         }
+        var compoundOwner=sourceParentMode.Length>0?AddCompoundCheckboxSource(catalog,sourceParentMode,current):null;
         if(includeNamePage)
         {
             var original=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(current))!;
             original.Id="202";
+            if(compoundOwner is not null)original.WhereSql="yz_project_id=@current_yz_project_id AND backup_parent_id=@parentId AND parent_id=@parentId";
             if(parentMode=="parent-mixed")original.WhereSql+=" AND parent_id=@parentId";
             original.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
             original.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
@@ -389,6 +411,7 @@ public sealed class DatabaseCheckboxGenerationTests
 
             var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/RelationSourceService.g.cs"));
             Assert.Contains("case \"targetAlias\":",service);
+            if(compoundOwner is not null)AssertCompoundSourceParentScope(service,compoundOwner);
             Assert.Contains("ApplyJsonArrayAnyLike(session,query,entity=>entity.TargetAlias",service);
             if(independentParent&&targetStorage==1)
                 Assert.Contains("ApplyJsonArrayHasAnyId(session,query,entity=>entity.TargetIds",service);
@@ -536,6 +559,7 @@ public sealed class DatabaseCheckboxGenerationTests
                     var sql=Assert.IsType<string>(expression.Invoke(read,[name]));
                     Assert.Contains("b.`parent_id`",sql);
                     Assert.Contains("multi_value.`parent_id`",sql);
+                    if(compoundOwner is not null)Assert.Contains("BINARY CAST(b.`backup_parent_id` AS CHAR)",sql);
                     if(textParents.Length>0||compoundParent is not null)
                         Assert.Contains("BINARY CAST(b.`parent_id` AS CHAR)",sql);
                     if(compoundParent is not null)
@@ -545,6 +569,19 @@ public sealed class DatabaseCheckboxGenerationTests
                 var affected=(IReadOnlyList<string>)maintenance.GetType().GetProperty("MixedTargets")!.GetValue(maintenance)!;
                 Assert.Contains("relation_parent",affected);
                 Assert.Contains("relation_target",affected);
+                if(compoundOwner is not null)
+                {
+                    AssertRejectsDifferentCheckboxParent(catalog,ns,compoundOwner,"3");
+                    var alternatePage=catalog.ConfigPages.Single(page=>page.Id=="202");
+                    var publishedScope=alternatePage.WhereSql;
+                    alternatePage.WhereSql=publishedScope.Replace(" AND backup_parent_id=@parentId","",StringComparison.Ordinal);
+                    try
+                    {
+                        Assert.Throws<InvalidOperationException>(()=>
+                            RelationPropagationCompilation.DerivedBindings(GenerationModel.Create(catalog,ns)));
+                    }
+                    finally { alternatePage.WhereSql=publishedScope; }
+                }
                 if(compoundParent is not null)
                 {
                     var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType()
@@ -1074,6 +1111,30 @@ public sealed class DatabaseCheckboxGenerationTests
         if(kind=="kindOverlay")catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="25").Extra["controlKind"]=JsonSerializer.SerializeToElement("List");
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-reject");var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(catalog,output,"Example.RejectedCheckbox",NonRedundantApplicationFixture.Root()));Assert.False(Directory.Exists(output));}finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
+    /// <summary>生成业务页的两个父字段都必须在写入口和名称读取中保持。</summary>
+    private static ColumnMetadata AddCompoundCheckboxSource(MetadataCatalog catalog,string mode,PageMetadata page)
+    {
+        var field=new ColumnMetadata{Id="2993",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="backup_parent_id",
+            LogicalType=mode=="compound-owner-numeric"?"int64":"string",LinkConfigTableId="1"};
+        catalog.ConfigColumns.Add(field);
+        page.WhereSql+=" AND backup_parent_id=@parentId";
+        return field;
+    }
+
+    /// <summary>原保存和导出共用一致性校验，保存也不能被对象钩子改写来源父值。</summary>
+    private static void AssertCompoundSourceParentScope(string code,ColumnMetadata second)
+    {
+        Assert.Contains("复选的来源父字段必须属于同一父记录",code);
+        Assert.Contains("当前数据库复选来源页要求规范正整数父键",code);
+        var parent="long.Parse(parentId!, CultureInfo.InvariantCulture)";
+        if(second.LogicalType=="string")
+        {
+            parent+=".ToString(CultureInfo.InvariantCulture)";
+            Assert.Contains("""ApplyTextParent(query,session,"backup_parent_id",parentId!)""",code);
+        }
+        Assert.Contains($"if(entity.BackupParentId!={parent})",code);
+    }
+
     /// <summary>实际发布页两个物理外键同时限定同一父记录。</summary>
     private static ColumnMetadata AddCompoundCheckboxTarget(MetadataCatalog catalog)
     {
@@ -1097,10 +1158,11 @@ public sealed class DatabaseCheckboxGenerationTests
     }
 
     /// <summary>两个真实父表即便主键相等，也不能用一个父参数合并。</summary>
-    private static void AssertRejectsDifferentCheckboxParent(MetadataCatalog catalog,string ns)
+    private static void AssertRejectsDifferentCheckboxParent(MetadataCatalog catalog,string ns,
+        ColumnMetadata? second=null,string otherParent="2")
     {
-        var second=catalog.ConfigColumns.Single(column=>column.Id=="3993");
-        second.LinkConfigTableId="2";
+        second??=catalog.ConfigColumns.Single(column=>column.Id=="3993");
+        second.LinkConfigTableId=otherParent;
         try
         {
             var model=GenerationModel.Create(catalog,ns);
