@@ -165,8 +165,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 var syntax=FixedConditionPlan.Compile(DatabaseCheckboxDefinition.Parse(relation.ControlDetail).WhereSql,columns[target.Id].Keys);
                 if(syntax.Terms.Count>0)control=syntax;
             }
-            var projectLiteral=!checkbox&&selectedScope is not null&&IsProjectLiteralMultiPage(catalog,target,selectedScope);
-            var physicalScope=storedAccount||target.IsRongyu==1&&projectLiteral||
+            var projectFixedScope=!checkbox&&selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope);
+            var physicalScope=storedAccount||target.IsRongyu==1&&projectFixedScope||
                 checkbox&&target.IsRongyu==1&&(fixedParent is not null||
                 table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
@@ -220,7 +220,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent,[]),
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
                 MultiNamePathPage=namePage,
-                AllowLiteralMultiScope=sourcePage is not null||fixedParent is not null||sharedCheckbox||projectLiteral,
+                AllowLiteralMultiScope=sourcePage is not null||fixedParent is not null||sharedCheckbox||projectFixedScope,
                 GlobalCrossCandidate=global&&(selectedPage is not null||candidatePage is not null)
             };
             var parents=new List<string>();

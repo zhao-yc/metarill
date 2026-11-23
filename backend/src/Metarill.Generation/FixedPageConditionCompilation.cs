@@ -123,9 +123,9 @@ internal static class FixedPageConditionCompilation
         GlobalMultipleRelationTarget.IsStoredAccountPage(table.Source,page.Source,condition.Syntax);
 
     /// <summary>多值限定页包含账号、逻辑条件或实际发布的父范围。复选单独处理普通物理页面条件。</summary>
-    internal static bool HasMultiTargetScope(GenerationModel model,TableModel table,PageModel page,bool includeProjectLiteral=true)=>HasLogicalFields(page)||
+    internal static bool HasMultiTargetScope(GenerationModel model,TableModel table,PageModel page,bool includeProjectFixedScope=true)=>HasLogicalFields(page)||
         HasStoredGlobalMultiScope(table,page)||
-        includeProjectLiteral&&NonRedundantReads.IsProjectLiteralMultiSelectTarget(model.Catalog,table.Source,page.Source)||
+        includeProjectFixedScope&&NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source)||
         table.Source.IsRongyu==0&&(HasAccountVariables(page)||SelectionPageRenderer.Enabled(page)&&
             page.Scopes.Count(scope=>scope.Source=="parent")>1)||page.Scopes.Any(scope=>
         scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName))||

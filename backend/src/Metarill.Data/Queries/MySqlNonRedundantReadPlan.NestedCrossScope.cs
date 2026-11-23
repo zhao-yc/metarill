@@ -344,7 +344,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 Use(parent.Parent,Column(parent.Parent,"id"));
                 var key=alias+".`id`";
                 var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY ("+target+")":key+"="+target;
-                predicate="EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+alias+" WHERE "+same+" AND "+key+">0 AND "+Scope(parent.Parent,alias)+")";
+                predicate="EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+alias+" WHERE "+same+" AND "+key+">0 AND "+Scope(parent.Parent,alias)+PublishedJoinLock+")";
             }
             else if(!parent.Logical)predicate=PhysicalGlobalParentPredicate(parent,target);
             if(MultiParentOwner is not {} binding)return predicate;

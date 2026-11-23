@@ -333,10 +333,10 @@ public static class NonRedundantReads
     public static bool IsScopedMultiSelectTarget(MetadataCatalog metadata,TableMetadata target,string pageId)=>
         MySqlNonRedundantReadCompiler.IsScopedMultiTarget(metadata,target,pageId,selectOnly:true);
 
-    /// <summary>实际绑定的项目内多选字典可以把物理常量纳入名称及匹配计划。</summary>
-    public static bool IsProjectLiteralMultiSelectTarget(MetadataCatalog metadata,TableMetadata target,PageMetadata page)=>
-        MySqlNonRedundantReadCompiler.IsProjectLiteralMultiPage(metadata,target,page)&&
-        IsScopedMultiSelectTarget(metadata,target,page.Id);
+    /// <summary>实际绑定的项目内多选字典可把物理常量和父键纳入名称及匹配计划。</summary>
+    public static bool IsProjectFixedMultiSelectTarget(MetadataCatalog metadata,TableMetadata target,PageMetadata page)=>
+        page.Extra.GetValueOrDefault("type").ToString()=="2"&&IsScopedMultiSelectTarget(metadata,target,page.Id)&&
+        MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(metadata,target,page);
 
     public static bool HasScopedMultiPage(MetadataCatalog metadata,TableMetadata target,ColumnMetadata relation)=>
         MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(metadata,target,relation) is not null;

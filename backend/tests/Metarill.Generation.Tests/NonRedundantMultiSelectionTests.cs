@@ -29,7 +29,9 @@ public sealed class NonRedundantMultiSelectionTests
             Assert.Equal(typeof(JsonElement?),vo.GetProperty("TargetNames")!.PropertyType);Assert.Equal(typeof(JsonElement?),vo.GetProperty("TargetIds")!.PropertyType);
             var request=assembly.GetTypes().Single(type=>type.Name=="RelationSourcePage201CreateRequest");Assert.Null(request.GetProperty("TargetNames"));
             var source=File.ReadAllText(Path.Combine(directory,"generated/Services/RelationSourceService.g.cs"));
-            Assert.DoesNotContain("entity.TargetNames =",source);Assert.Contains("query=query.ForUpdate()",source);
+            Assert.DoesNotContain("entity.TargetNames =",source);
+            // 同父条件由固定计划执行，保存仍必须走事务内当前读。
+            Assert.Contains("CurrentRowsAsync(MultiDerivedPlan201_25.BindAccount(actor)",source);
             Assert.DoesNotContain("target_names",MetadataStoragePolicy.ForTable(catalog,catalog.ConfigTables.Single(table=>table.Id=="2")).PhysicalColumns.Select(field=>field.ColumnName));
             await RunOriginalVueProbe(Path.Combine(directory,"generated"));
             if(searchable)
@@ -88,10 +90,12 @@ public sealed class NonRedundantMultiSelectionTests
             Assert.Contains("selectedNames=\"entity.targetNames\"",detail);
             var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/RelationSourceService.g.cs"));
             Assert.Contains("target_names", service);
-            Assert.Contains("ShortName", service);
+            Assert.Contains("new(\"short_name\",FixedReadComparison.Equal",service);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
-            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
-                assembly.GetType("Example.MultiPageLabel.Generated.Services.RelationSourceService",true)!.TypeHandle);
+            var serviceType=assembly.GetType("Example.MultiPageLabel.Generated.Services.RelationSourceService",true)!;
+            var plan=Assert.IsType<NonRedundantReadPlan>(
+                serviceType.GetField("MultiDerivedPlan201_25",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+            Assert.Equal("string",plan.OutputTypes["short_name"]);
             var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),
                 model.Namespace,NonRedundantApplicationFixture.Root());
             Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);

@@ -634,13 +634,21 @@ public sealed class DerivedSingleSelectionTests
 
     /// <summary>本项目多选固定范围对候选、名称读取和物理缓存重算使用同一份已发布条件。</summary>
     [Theory]
-    [InlineData(0, 0, false, false)]
-    [InlineData(0, 1, true, false)]
-    [InlineData(1, 0, true, false)]
-    [InlineData(1, 1, false, false)]
-    [InlineData(0, 0, true, true)]
-    [InlineData(0, 1, false, true)]
-    public async Task Project_multiselect_uses_literal_dictionary_scope(int sourceStorage, int targetStorage, bool explicitProject, bool nameOverride)
+    [InlineData(0, 0, false, false, "")]
+    [InlineData(0, 1, true, false, "")]
+    [InlineData(1, 0, true, false, "")]
+    [InlineData(1, 1, false, false, "")]
+    [InlineData(0, 0, true, true, "")]
+    [InlineData(0, 1, false, true, "")]
+    [InlineData(0, 0, false, false, "shared")]
+    [InlineData(0, 1, true, false, "form")]
+    [InlineData(1, 0, true, false, "form")]
+    [InlineData(1, 1, false, false, "shared")]
+    [InlineData(1, 1, false, false, "only")]
+    [InlineData(0, 1, true, true, "shared")]
+    [InlineData(1, 1, true, false, "text")]
+    public async Task Project_multiselect_uses_fixed_dictionary_scope(int sourceStorage, int targetStorage, bool explicitProject,
+        bool nameOverride, string parentMode)
     {
         const string ns = "Example.ProjectMultiLiteral";
         const string nameField = "customer_names";
@@ -658,7 +666,12 @@ public sealed class DerivedSingleSelectionTests
         foreign.DefaultValue = "";
         foreign.LogicalType = "string";
         foreign.ColumnLength = "max";
-        foreign.ControlDetail = """{"tableId":"2","pageId":"201","nameField":"name","whereSql":"status = 17"}""";
+        var literal = parentMode != "only";
+        var hasParent = parentMode.Length != 0;
+        foreign.ControlDetail = JsonSerializer.Serialize(new
+        {
+            tableId = target.Id, pageId = "201", nameField = "name", whereSql = literal ? "status = 17" : ""
+        });
         if (nameOverride)
             catalog.ConfigPageColumns.Single(field => field.ConfigPageId == "101" && field.ConfigColumnId == foreign.Id)
                 .Extra["controlDetail"] = JsonSerializer.SerializeToElement("""{"nameField":"notes"}""");
@@ -669,7 +682,26 @@ public sealed class DerivedSingleSelectionTests
         var page = catalog.ConfigPages.Single(page => page.Id == "201");
         foreach (var item in catalog.ConfigPages) item.OrderBy = "id desc";
         page.Extra["type"] = JsonSerializer.SerializeToElement(2);
-        page.WhereSql = explicitProject ? "yz_project_id=@current_yz_project_id AND status=17" : "status=17";
+        List<string> conditions = [];
+        if (explicitProject) conditions.Add("yz_project_id=@current_yz_project_id");
+        if (literal) conditions.Add("status=17");
+        if (hasParent)
+        {
+            conditions.Add("group_id=@parent_id");
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "29", ConfigTableId = target.Id, YzProjectId = catalog.YzProjectId,
+                ColumnName = "group_id", LogicalType = parentMode == "text" ? "string" : "int64", LinkConfigTableId = "3"
+            });
+            if (parentMode == "form")
+            {
+                foreach (var item in catalog.ConfigPages.Where(item => item.ConfigTableId == source.Id))
+                    item.WhereSql = "yz_project_id=@current_yz_project_id";
+                foreach (var field in catalog.ConfigPageColumns.Where(field => field.ConfigColumnId == "19"))
+                    field.IsEdit = field.IsShow = 1;
+            }
+        }
+        page.WhereSql = string.Join(" AND ", conditions);
 
         var model = GenerationModel.Create(catalog, ns);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
@@ -679,6 +711,8 @@ public sealed class DerivedSingleSelectionTests
         var selection = MultiSelectCompilation.Resolve(model, owner, sourcePage, control, forService: true);
         Assert.True(selection.Definition is not null, selection.Reason);
         Assert.True(FixedPageConditionCompilation.HasMultiTargetScope(model, selection.Definition.Target, selection.Definition.TargetPage));
+        Assert.Equal(hasParent && parentMode != "form", selection.Definition.SameParent);
+        if (parentMode == "form") Assert.Equal("groupId", selection.Definition.TargetParentField);
         var boundary = Path.Combine(Path.GetTempPath(), "metarill-project-multi-literal");
         var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
         try
@@ -690,7 +724,10 @@ public sealed class DerivedSingleSelectionTests
             Assert.NotNull(lookup);
             var plan = Assert.IsType<NonRedundantReadPlan>(lookup.GetValue(null));
             var matching = MySql(plan);
-            HasDictionaryRange(Assert.IsType<string>(matching.GetType().GetProperty("Scope", hidden)!.GetValue(matching)), matching);
+            var matchingScope = Assert.IsType<string>(matching.GetType().GetProperty("Scope", hidden)!.GetValue(matching));
+            HasDictionaryRange(matchingScope, matching);
+            if (hasParent) Assert.Contains("/*metarill:nested-current*/", matchingScope);
+            if (parentMode == "text") Assert.Contains("BINARY CAST(", matchingScope);
 
             if (sourceStorage == 0)
             {
@@ -700,6 +737,7 @@ public sealed class DerivedSingleSelectionTests
                 var expression = Expression(read);
                 HasDictionaryRange(expression, read);
                 Assert.Contains(nameOverride ? ".`notes`" : ".`name`", expression);
+                if (hasParent) Assert.Contains("b.`group_id`", expression);
             }
             else
             {
@@ -711,14 +749,23 @@ public sealed class DerivedSingleSelectionTests
                 var published = plans[source.Id]!;
                 Assert.Null(published.GetType().GetProperty("Error")!.GetValue(published));
                 var read = published.GetType().GetProperty("Read")!.GetValue(published)!;
-                HasDictionaryRange(Expression(read), read);
+                var expression = Expression(read);
+                HasDictionaryRange(expression, read);
+                if (hasParent) Assert.Contains("b.`group_id`", expression);
                 var reverse = Assert.IsAssignableFrom<System.Collections.IEnumerable>(
                     read.GetType().GetProperty("Reverse", hidden)!.GetValue(read));
                 Assert.Contains(reverse.Cast<object>(), item =>
                     Equals(target.TableName, item.GetType().GetProperty("TargetTable")!.GetValue(item)) &&
                     Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlySet<string>>>(
                         item.GetType().GetProperty("Outputs")!.GetValue(item)).TryGetValue(nameField, out var fields) &&
-                    fields.Contains("status") && fields.Contains("name"));
+                    (!literal || fields.Contains("status")) && fields.Contains("name") &&
+                    (!hasParent || fields.Contains("group_id")));
+                if (hasParent)
+                    Assert.Contains(reverse.Cast<object>(), item =>
+                        Equals("scope_multi_group", item.GetType().GetProperty("TargetTable")!.GetValue(item)) &&
+                        Assert.IsAssignableFrom<IReadOnlyDictionary<string, IReadOnlySet<string>>>(
+                            item.GetType().GetProperty("Outputs")!.GetValue(item)).TryGetValue(nameField, out var fields) &&
+                        fields.Contains("delete_no") && fields.Contains("yz_project_id"));
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
@@ -726,13 +773,18 @@ public sealed class DerivedSingleSelectionTests
         static object MySql(NonRedundantReadPlan plan) => plan.GetType().GetProperty("MySql", hidden)!.GetValue(plan)!;
         static string Expression(object read) =>
             Assert.IsType<string>(read.GetType().GetMethod("Expression", hidden)!.Invoke(read, [nameField]));
-        static void HasDictionaryRange(string sql, object read)
+        void HasDictionaryRange(string sql, object read)
         {
-            Assert.Contains(".`status`", sql);
+            Assert.Equal(literal, sql.Contains(".`status`", StringComparison.Ordinal));
             Assert.Contains(".`yz_project_id`", sql);
+            if (hasParent)
+            {
+                Assert.Contains(".`group_id`", sql);
+                Assert.Contains("`scope_multi_group`", sql);
+            }
             var values = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
                 read.GetType().GetProperty("Constants", hidden)!.GetValue(read)).Values;
-            Assert.Contains(17, values);
+            if (literal) Assert.Contains(17, values);
         }
     }
 

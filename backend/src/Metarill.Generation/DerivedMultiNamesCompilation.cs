@@ -16,7 +16,7 @@ internal static class DerivedMultiNamesCompilation
         ExactDataManageModel? exact=null)
     {
         var scopedPhysicalTarget=target.Source.IsRongyu==1&&!target.IsGlobal&&
-            NonRedundantReads.IsProjectLiteralMultiSelectTarget(model.Catalog,target.Source,page.Source);
+            NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,target.Source,page.Source);
         if(owner.Source.IsRongyu is not(0 or 1)||target.Source.IsRongyu!=0&&!scopedPhysicalTarget&&
             !FixedPageConditionCompilation.HasStoredGlobalMultiScope(target,page)||
             target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&
