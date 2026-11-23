@@ -104,15 +104,42 @@ public sealed partial class DerivedRuleRecordGenerationTests
             var denied=await Assert.ThrowsAsync<AgentTaskException>(()=>capabilities.ValidateRecordWriteInvocationAsync("page:101:update",context,body));Assert.Equal("YZP_CAPABILITY_DENIED",denied.Code);Assert.Equal("not_applied",denied.Outcome);
             var action=services.GetRequiredService<IActionDescriptorCollectionProvider>().ActionDescriptors.Items.OfType<ControllerActionDescriptor>().Single(action=>action.MethodInfo.GetCustomAttribute<AgentActionAttribute>()?.Id=="derived-rule-probe");
             var actionContext=new DefaultHttpContext{RequestServices=services};actionContext.Request.Method="POST";actionContext.Request.Path="/"+action.AttributeRouteInfo!.Template;actionContext.Request.ContentType="application/json";actionContext.Request.QueryString=new("?parentId=71");actionContext.SetEndpoint(new Endpoint(_=>Task.CompletedTask,new EndpointMetadataCollection(action),"真实显式动作"));
-            await Assert.ThrowsAsync<BusinessRuleException>(()=>capabilities.ValidateActionInvocationAsync("action:derived-rule-probe",actionContext,Encoding.UTF8.GetBytes("{\"id\":\"9007199254740993\"}")));Assert.Equal(0,guard.Calls);Assert.Equal(0,handler.Calls);
+            var actionBody = Encoding.UTF8.GetBytes("""{"id":"9007199254740993"}""");
+            Task ValidateAction() => capabilities.ValidateActionInvocationAsync("action:derived-rule-probe", actionContext, actionBody);
+            if (webWithoutParent)
+                await Assert.ThrowsAsync<BusinessRuleException>(ValidateAction);
+            else
+            {
+                // 先核对真实 Agent 入口的父查询。替身不能冒充 MySqlConnection，派生读取在后面独立执行。
+                void ParentQuery(object? sender, FreeSql.Aop.CurdBeforeEventArgs args)
+                {
+                    Assert.Contains("FROM `mt_exact_nr_group`", args.Sql);
+                    Assert.DoesNotContain("FOR UPDATE", args.Sql, StringComparison.OrdinalIgnoreCase);
+                    Assert.Equal(IsolationLevel.RepeatableRead, session.CurrentTransaction!.IsolationLevel);
+                    Assert.Contains(args.DbParms, parameter => Convert.ToString(parameter.Value,
+                        System.Globalization.CultureInfo.InvariantCulture) == "71");
+                    throw new CapturedParentRead();
+                }
+                session.Orm.Aop.CurdBefore += ParentQuery;
+                try { await Assert.ThrowsAsync<CapturedParentRead>(ValidateAction); }
+                finally { session.Orm.Aop.CurdBefore -= ParentQuery; }
+            }
+            Assert.Equal(0,guard.Calls);Assert.Equal(0,handler.Calls);
             var original=new OriginalBusinessButtonRequest("86000",Transport.Id.ToString(),JsonSerializer.SerializeToElement(new{id=Transport.Id.ToString(),customerNotes="允许"}));var web=services.GetRequiredService<OriginalBusinessButtonExecutor>();
             if(webWithoutParent)await Assert.ThrowsAsync<BusinessRuleException>(()=>web.ExecuteAsync(original,context));else await Assert.ThrowsAsync<NotSupportedException>(()=>web.ExecuteAsync(original,context));Assert.Equal(0,guard.Calls);Assert.Equal(0,handler.Calls);
-            transport.DerivedValue=null;await capabilities.ValidateActionInvocationAsync("action:derived-rule-probe",actionContext,Encoding.UTF8.GetBytes("{\"id\":\"9007199254740993\"}"));
+            transport.DerivedValue=null;
+            if(webWithoutParent) await ValidateAction();
             if(webWithoutParent){var allowed=Assert.IsType<OkObjectResult>(await web.ExecuteAsync(original,context));Assert.Equal(200,Assert.IsType<R<object>>(allowed.Value).Code);Assert.Equal(1,guard.Calls);Assert.Equal(1,handler.Calls);}
             await capabilities.ValidateRecordWriteInvocationAsync("page:101:update",context,body);var nullable=Assert.IsAssignableFrom<IGeneratedRuleRecord>(await Read("update"));Assert.True(nullable.TryGetLoadedRuleValue("customer_notes",out var nullValue));Assert.Null(nullValue);
             transport.HasRow=false;Assert.Null(await Read("delete"));authorization.Operation="update";var missing=await Assert.ThrowsAsync<AgentTaskException>(()=>capabilities.ValidateRecordWriteInvocationAsync("page:101:update",context,body));Assert.Equal("not_applied",missing.Outcome);transport.HasRow=true;
             var count=transport.Commands.Count;authorization.Allow=false;await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Read("copy"));Assert.Equal(count,transport.Commands.Count);authorization.Allow=true;
-            var buttonTask=(Task)serviceType.GetMethod("ReadButtonRecord101Async")!.Invoke(service,[Transport.Id,"71","86000",actor,CancellationToken.None])!;await buttonTask;Assert.Equal("86000",authorization.LastButtonScope);
+            // 父查询在实际入口验证，随后实际派生计划仍必须按按钮精确授权装载，而非改用普通页面授权。
+            var buttonTask = webWithoutParent
+                ? (Task)serviceType.GetMethod("ReadButtonRecord101Async")!.Invoke(service, [Transport.Id, "71", "86000", actor, CancellationToken.None])!
+                : (Task)serviceType.GetMethod("ReadRuleRecord101Async", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .Invoke(service, [Transport.Id, "71", "86000", actor, true, false, CancellationToken.None])!;
+            await buttonTask;
+            Assert.Equal("86000",authorization.LastButtonScope);
             AssertScopedTarget(transport.Commands[^1].Sql,transport.Commands[^1].Values);
             var lockTask=(Task)serviceType.GetMethod("LockButtonRecord101Async")!.Invoke(service,[Transport.Id,"71","86000",actor,CancellationToken.None])!;await Assert.ThrowsAsync<InvalidOperationException>(async()=>await lockTask);Assert.Null(session.CurrentTransaction);
             // FreeSql MySQL驱动要求实际MySqlConnection；离线分别验证原排他SQL和同事务派生当前读。
@@ -165,6 +192,9 @@ public sealed class RuleProbeController:ControllerBase
     {internal int Calls;public async Task<T> ExecuteAsync<T>(string project,string button,Func<Task<T>> action,CancellationToken cancellationToken=default){Calls++;return await action();}}
     private sealed class RuleHandler:IOriginalBusinessButtonHandler
     {internal int Calls;public string ButtonId=>"86000";public string Path=>"/admin/custom/derived-rule/probe";public Task<IActionResult> ExecuteAsync(OriginalBusinessButtonRequest request,CancellationToken cancellationToken){Calls++;return Task.FromResult<IActionResult>(new OkObjectResult(R<object>.Success(new{id=request.EntityId})));}}
+    /// <summary>记录实际执行前父查询，在替身需要连接驱动前停止读取。</summary>
+    private sealed class CapturedParentRead : Exception;
+
     /// <summary>固定授权替身仅给当前写操作与指定按钮，不提供普通query补权。</summary>
     private sealed class Authorization(RuntimeActor actor,string expectedPage="101"):IRuntimeAuthorization
     {

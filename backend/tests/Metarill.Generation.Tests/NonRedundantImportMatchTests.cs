@@ -585,23 +585,36 @@ public sealed class NonRedundantImportMatchTests
         var textPredicate = $"BINARY (`a`.`{textParent}`)=BINARY @mt_parent_{textParent}";
         var commands = 0;
         var parentLocks = 0;
+        var parentReads = 0;
         var writing = false;
+        var checkingReadableParent = false;
         session.Orm.Aop.CurdBefore += (_, args) =>
         {
-            if (writing)
+            if (writing || checkingReadableParent)
             {
-                // 父记录校验必须在按钮当前授权之后和子记录锁之前完成。
-                Assert.Equal(parentLocks + 1, authorization.CurrentChecks);
-                Assert.Same(session.CurrentTransaction, authorization.LastTransaction);
+                Assert.NotNull(session.CurrentTransaction);
+                Assert.Equal(writing, session.HasWriteTransaction);
+                if (writing)
+                {
+                    // 父记录锁在按钮当前授权之后、锁定子记录之前取得。
+                    Assert.Equal(parentLocks + 1, authorization.CurrentChecks);
+                    Assert.Same(session.CurrentTransaction, authorization.LastTransaction);
+                }
+                else
+                {
+                    Assert.Equal(System.Data.IsolationLevel.RepeatableRead, session.CurrentTransaction.IsolationLevel);
+                    Assert.Equal(0, authorization.CurrentChecks);
+                }
                 Assert.Contains("FROM `logical_overwrite_country`", args.Sql);
                 Assert.Contains("`delete_no`", args.Sql);
-                Assert.Contains("FOR UPDATE", args.Sql, StringComparison.OrdinalIgnoreCase);
+                Assert.Equal(writing, args.Sql.Contains("FOR UPDATE", StringComparison.OrdinalIgnoreCase));
                 Assert.Contains(args.DbParms, parameter =>
                     Convert.ToString(parameter.Value, System.Globalization.CultureInfo.InvariantCulture) == largeParent);
                 Assert.Contains(args.DbParms, parameter =>
                     Convert.ToString(parameter.Value, System.Globalization.CultureInfo.InvariantCulture) == projectId);
                 Assert.DoesNotContain("compound_picker_owner", args.Sql);
-                parentLocks++;
+                if (writing) parentLocks++;
+                else parentReads++;
                 throw new CapturedButtonParentSql();
             }
             commands++;
@@ -620,10 +633,18 @@ public sealed class NonRedundantImportMatchTests
         };
         Task Read(string? parent) => (Task)read.Invoke(target, [1L, parent, "86000", actor, CancellationToken.None])!;
 
+        var entityType = read.ReturnType.GetGenericArguments().Single();
+        var root = rootQuery.Invoke(target, [1L, largeParent, "86000", actor, false])!;
+        await Assert.ThrowsAsync<CapturedButtonParentSql>(() => BusinessRecordScopeGenerationTests.FirstAsync(entityType, root));
+
+        checkingReadableParent = true;
         await Assert.ThrowsAsync<CapturedButtonParentSql>(() => Read(largeParent));
         foreach (var invalid in new[] { null, "071", "71 ", "+71", "0", "9223372036854775808" })
             await Assert.ThrowsAsync<ArgumentException>(() => Read(invalid));
+        checkingReadableParent = false;
+        Assert.Equal(1, parentReads);
         Assert.Equal(1, commands);
+        var rollbacksBeforeWrite = transport.Rollbacks;
 
         await session.InTransactionAsync(() =>
         {
@@ -647,7 +668,7 @@ public sealed class NonRedundantImportMatchTests
         await Assert.ThrowsAsync<CapturedButtonParentSql>(async () =>
             await (Task)update.Invoke(target, [request, largeParent, "86000", actor, CancellationToken.None])!);
         Assert.Equal(2, parentLocks);
-        Assert.Equal(2, transport.Rollbacks);
+        Assert.Equal(rollbacksBeforeWrite + 2, transport.Rollbacks);
         Assert.Empty(transport.Commands);
     }
 

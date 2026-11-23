@@ -47,7 +47,9 @@ public sealed class BusinessRecordScopeGenerationTests
             // 截获ORM真正准备执行的命令，在建立连接前中止；大ID必须是long参数，范围值也不能被拼成SQL。
             string? actualSql=null;object?[] actualParameters=[];
             session.Orm.Aop.CurdBefore+=(_,args)=>{actualSql=args.Sql;actualParameters=args.DbParms.Select(parameter=>parameter.Value).ToArray();throw new CapturedSql();};
-            await Assert.ThrowsAsync<CapturedSql>(async()=>await(Task)type.GetMethod("ReadButtonRecord101Async")!.Invoke(service,[id,parent,"86000",actor,CancellationToken.None])!);
+            // 父记录的公开快照入口由专用用例捕获；这里只比较生成业务根实际绑定的范围。
+            await Assert.ThrowsAsync<CapturedSql>(() => nonredundant ? FirstAsync(entity, Query()) :
+                (Task)type.GetMethod("ReadButtonRecord101Async")!.Invoke(service, [id, parent, "86000", actor, CancellationToken.None])!);
             Assert.NotNull(actualSql);Assert.Contains(actualParameters,value=>value is long key&&key==id);Assert.Contains("只允许甲",actualParameters);Assert.Contains("只允许乙",actualParameters);Assert.DoesNotContain("只允许甲",actualSql);Assert.DoesNotContain("9007199254740993",actualSql);
             authorization.Values="[]";Assert.Contains("1=0",Sql());authorization.Values="[{}]";Assert.IsType<ArgumentException>(Failure(()=>Query()));
             authorization.Restricted=false;var unrestricted=Sql();Assert.DoesNotContain(" IN (",unrestricted);Assert.Contains("IS NOT NULL",unrestricted,StringComparison.OrdinalIgnoreCase);
@@ -63,6 +65,13 @@ public sealed class BusinessRecordScopeGenerationTests
     private static Exception Failure(Func<object> action)=>Assert.Throws<TargetInvocationException>(()=>action()).InnerException!;
     /// <summary>真实ORM按生成实体解析SQL，连接保持未打开。</summary>
     internal static string SqlOf(Type entity,object query)=>(string)typeof(BusinessRecordScopeGenerationTests).GetMethod(nameof(TypedSql),BindingFlags.NonPublic|BindingFlags.Static)!.MakeGenericMethod(entity).Invoke(null,[query])!;
+    /// <summary>断开父查询探针后单独读取业务根，以检查实际 ORM 参数。</summary>
+    internal static Task FirstAsync(Type entity, object query) =>
+        (Task)typeof(BusinessRecordScopeGenerationTests).GetMethod(nameof(TypedFirstAsync), BindingFlags.NonPublic |
+            BindingFlags.Static)!.MakeGenericMethod(entity).Invoke(null, [query])!;
+
+    private static async Task TypedFirstAsync<T>(object query) where T : class => await ((ISelect<T>)query).FirstAsync();
+
     /// <summary>类型只在生成后已知，运行时仍执行FreeSql原ToSql。</summary>
     private static string TypedSql<T>(object query)where T:class=>((ISelect<T>)query).ToSql();
     /// <summary>仅用于命令准备阶段中止，不允许测试继续建立真实连接。</summary>

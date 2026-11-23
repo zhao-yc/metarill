@@ -298,7 +298,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     {
         var sharedRedundant=SharedRedundantParentCompilation.Enabled(model,table,page);
         var multiGlobal=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page);
-        var supportsReadOnlyParent=multiGlobal is not null||GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null||sharedRedundant||NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page);
+        var buttonParent=page.Scopes.Any(scope=>scope.Source=="parent")&&BusinessRecordButtons(model,page).Count>0;
+        var supportsReadOnlyParent=multiGlobal is not null||GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null||sharedRedundant||NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page)||buttonParent;
         var locking=supportsReadOnlyParent?"locking":"true";
         var multiPlan="PageMultiGlobalParent"+page.Source.Id;
         var result = new StringBuilder().Append(multiGlobal is null?SharedGlobalParentCompilation.KeyService(model,table,page):MultiGlobalParentCompilation.Declaration(model,multiGlobal,multiPlan)).AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
@@ -310,6 +311,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前单值关联来源页要求规范正整数父键。\");");
         else if(UsesPublishedPhysicalCheckboxSource(model,table,page))
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前数据库复选来源页要求规范正整数父键。\");");
+        else if(buttonParent&&UsesFixedTextParent(model,table,page))
+            result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var buttonParentKey)||buttonParentKey<=0||parentId!=buttonParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前业务按钮页要求规范正整数父键。\");");
         if(sharedRedundant)result.AppendLine("        ValidateActor(actor);").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);");
         else if(multiGlobal is not null)result.AppendLine("        ValidateActor(actor);");
         var checkedGlobalParent=false;

@@ -15,13 +15,31 @@ internal static partial class BackendRenderer
     {
         var buttons=BusinessRecordButtons(model,page);if(buttons.Count==0)return "";
         var suffix=page.Source.Id;var fixedQuery=FixedPageQueryCompilation.For(table,page);
-        // 业务事务先核对父记录的当前范围，再锁业务根。复用生成页已有的物理及逻辑父校验。
-        var lockParent = page.Scopes.Any(scope => scope.Source == "parent")
-            ? $"await ValidateParents{suffix}Async(parentId,actor,cancellationToken);" : "";
-        var result=new StringBuilder().AppendLine("    /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>")
-            .AppendLine(RuleRecordFields(model,table,page).Count>0?$"    public async Task<{table.EntityType}?> ReadButtonRecord{suffix}Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){{RequireButtonRecordAccess{suffix}(id,buttonId,actor);return await ReadRuleRecord{suffix}Async(id,parentId,buttonId,actor,true,false,cancellationToken);}}":$"    public async Task<{table.EntityType}?> ReadButtonRecord{suffix}Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery{suffix}(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);")
-            .AppendLine("    /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>")
-            .AppendLine(RuleRecordFields(model,table,page).Count>0?$"    public async Task<{table.EntityType}?> LockButtonRecord{suffix}Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){{await RequireButtonCurrent{suffix}Async(id,buttonId,actor,cancellationToken);{lockParent}var stored=await ButtonRecordQuery{suffix}(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);return stored is null?null:await ReadRuleRecord{suffix}Async(id,parentId,buttonId,actor,true,true,cancellationToken);}}":$"    public async Task<{table.EntityType}?> LockButtonRecord{suffix}Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){{await RequireButtonCurrent{suffix}Async(id,buttonId,actor,cancellationToken);{lockParent}return await ButtonRecordQuery{suffix}(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);}}")
+        var hasParent = page.Scopes.Any(scope => scope.Source == "parent");
+        var hasDerivedRules = RuleRecordFields(model,table,page).Count>0;
+        var lockParent = hasParent ? $"await ValidateParents{suffix}Async(parentId,actor,cancellationToken);" : "";
+        var readHeader = $"    public async Task<{table.EntityType}?> ReadButtonRecord{suffix}Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)";
+        var result=new StringBuilder().AppendLine("    /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>");
+        if (hasParent)
+        {
+            // 执行前读取不能把两个时间点的父、子状态拼成一个有效范围。
+            var read = hasDerivedRules ? $"ReadRuleRecord{suffix}CoreAsync(id,parentId,buttonId,actor,true,false,cancellationToken)"
+                : $"ButtonRecordQuery{suffix}(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken)";
+            result.AppendLine(readHeader).AppendLine("    {")
+                .AppendLine($"        RequireButtonRecordAccess{suffix}(id,buttonId,actor);")
+                .AppendLine($"        return await session.InReadSnapshotAsync<{table.EntityType}?>(async () =>")
+                .AppendLine("        {")
+                .AppendLine($"            await ValidateParents{suffix}Async(parentId,actor,cancellationToken,locking:false);")
+                .AppendLine($"            return await {read};")
+                .AppendLine("        },cancellationToken);")
+                .AppendLine("    }");
+        }
+        else
+            result.AppendLine(hasDerivedRules
+                ? $"{readHeader}{{RequireButtonRecordAccess{suffix}(id,buttonId,actor);return await ReadRuleRecord{suffix}Async(id,parentId,buttonId,actor,true,false,cancellationToken);}}"
+                : $"{readHeader}=>await ButtonRecordQuery{suffix}(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);");
+        result.AppendLine("    /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>")
+            .AppendLine(hasDerivedRules?$"    public async Task<{table.EntityType}?> LockButtonRecord{suffix}Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){{await RequireButtonCurrent{suffix}Async(id,buttonId,actor,cancellationToken);{lockParent}var stored=await ButtonRecordQuery{suffix}(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);return stored is null?null:await ReadRuleRecord{suffix}Async(id,parentId,buttonId,actor,true,true,cancellationToken);}}":$"    public async Task<{table.EntityType}?> LockButtonRecord{suffix}Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){{await RequireButtonCurrent{suffix}Async(id,buttonId,actor,cancellationToken);{lockParent}return await ButtonRecordQuery{suffix}(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);}}")
             .AppendLine("    /// <summary>服务端固定按钮及真实主体校验在打开写事务前也可执行。</summary>")
             .AppendLine($"    private void RequireButtonRecordAccess{suffix}(long id,string buttonId,RuntimeActor actor)")
             .AppendLine("    {").AppendLine("        ValidateActor(actor);if(id<=0)throw new ArgumentException(\"业务记录标识无效。\");")

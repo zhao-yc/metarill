@@ -44,12 +44,13 @@ public partial class ConfigColumnService
         }
     }
     /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>
-    private async Task ValidateParents6217715532627968Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
+    private async Task ValidateParents6217715532627968Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken, bool locking=true)
     {
         if (string.IsNullOrWhiteSpace(parentId)) throw new ArgumentException("当前页面要求 parentId。");
         var parent1 = session.Select<global::Metarill.Platform.Generated.Entities.ConfigTable>().Where(entity => entity.Id == long.Parse(parentId, CultureInfo.InvariantCulture)).Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId, CultureInfo.InvariantCulture));
         parent1 = parent1.Where(entity => entity.DeleteNo == null);
-        if ((await parent1.ForUpdate().Limit(1).ToListAsync(entity => entity.Id, cancellationToken)).Count != 1) throw new InvalidOperationException("父记录不存在或不属于当前项目。");
+        if (locking) parent1 = parent1.ForUpdate();
+        if ((await parent1.Limit(1).ToListAsync(entity => entity.Id, cancellationToken)).Count != 1) throw new InvalidOperationException("父记录不存在或不属于当前项目。");
     }
     /// <summary>固定页面范围先进入 SQL，再执行明细、数量或分页查询。</summary>
     private ISelect<global::Metarill.Platform.Generated.Entities.ConfigColumn> Scope6217715532627968(RuntimeActor actor, string? parentId)
@@ -144,7 +145,15 @@ public partial class ConfigColumnService
         return entity is null ? null : ConfigColumnPage6217715532627968Vo.FromEntity(entity);
     }
     /// <summary>只供固定业务动作读取实际实体，不暴露HTTP查询/锁定开关。</summary>
-    public async Task<global::Metarill.Platform.Generated.Entities.ConfigColumn?> ReadButtonRecord6217715532627968Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)=>await ButtonRecordQuery6217715532627968(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
+    public async Task<global::Metarill.Platform.Generated.Entities.ConfigColumn?> ReadButtonRecord6217715532627968Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken)
+    {
+        RequireButtonRecordAccess6217715532627968(id,buttonId,actor);
+        return await session.InReadSnapshotAsync<global::Metarill.Platform.Generated.Entities.ConfigColumn?>(async () =>
+        {
+            await ValidateParents6217715532627968Async(parentId,actor,cancellationToken,locking:false);
+            return await ButtonRecordQuery6217715532627968(id,parentId,buttonId,actor,false).FirstAsync(cancellationToken);
+        },cancellationToken);
+    }
     /// <summary>业务外层事务中按真实范围锁定当前实体，后续标准Service写入加入同一事务。</summary>
     public async Task<global::Metarill.Platform.Generated.Entities.ConfigColumn?> LockButtonRecord6217715532627968Async(long id,string? parentId,string buttonId,RuntimeActor actor,CancellationToken cancellationToken){await RequireButtonCurrent6217715532627968Async(id,buttonId,actor,cancellationToken);await ValidateParents6217715532627968Async(parentId,actor,cancellationToken);return await ButtonRecordQuery6217715532627968(id,parentId,buttonId,actor,true).FirstAsync(cancellationToken);}
     /// <summary>服务端固定按钮及真实主体校验在打开写事务前也可执行。</summary>
