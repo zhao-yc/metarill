@@ -27,10 +27,11 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool HasStoredAccountScope { get; init; }
     internal bool HasProjectStoredAccountScope { get; init; }
     internal bool CompoundPhysicalSource { get; init; }
+    internal bool ProjectFormScope { get; init; }
 
     /// <summary>原列表勾选的加载和冗余数组匹配共用同一候选范围证明。</summary>
     internal bool SupportsRedundantArrayFilter =>
-        FormParentField is not null || SharedLogicalParentScope || HasStoredAccountScope || HasProjectStoredAccountScope;
+        FormParentField is not null || SharedLogicalParentScope || HasStoredAccountScope || HasProjectStoredAccountScope || ProjectFormScope;
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
@@ -218,6 +219,15 @@ internal static class DatabaseCheckboxCompilation
             if(explicitPage!=fixedPage&&!pageRead&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate,includeProjectFixedScope:false))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
             var whereSql=definition.WhereSql;
+            var projectForm=table.Source.IsRongyu==1&&!functionForm&&!table.IsGlobal&&exactTarget is null&&
+                namePage is {} formPage&&explicitPage==fixedPage&&logicalPage is null
+                ?baseline.AdditionalPhysicalFormConditions(model.Catalog,target.Source,formPage.Source):null;
+            if(projectForm is not null)
+            {
+                if(projectForm!=definition.AdditionalPhysicalFormConditions(model.Catalog,target.Source,namePage!.Source))
+                    return Gap("同一名称副本的页面必须沿用表级复选候选条件。");
+                whereSql=projectForm;
+            }
             if(projectStoredAccount&&table.Source.IsRongyu==1)
             {
                 // 缓存只能重现表级候选与物理记录条件。重复项由实际字典页执行，等价页可独立选择显示名称。
@@ -227,6 +237,9 @@ internal static class DatabaseCheckboxCompilation
                     return Gap("同一名称副本的页面必须沿用表级复选候选条件。");
             }
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,whereSql);
+            if(projectForm is not null&&page.Searchable.Contains(source)&&conditions!.Forms.Any(binding=>
+                !sourceScopeColumns.Contains(binding.Column)&&!ControlRenderer.HasScalarSourceFilter(model,page,binding.Column)))
+                return Gap("启用复选列表筛选时须开启表单依赖字段的标量筛选。");
             var realtimeRead=table.Source.IsRongyu==0&&!functionForm;
             var globalRealtimeNameOverride=realtimeRead&&target.IsGlobal&&target.Source.IsRongyu==0&&usesNameOverride;
             var controlRead=realtimeRead&&(conditions is not null||
@@ -250,8 +263,8 @@ internal static class DatabaseCheckboxCompilation
                 (namePage.Condition is {Syntax.Variables.Count:0}||namePage.Condition is null&&namePage.Scopes.Any(scope=>scope.Source=="parent"))&&
                 !FixedPageConditionCompilation.HasLogicalFields(namePage)&&namePage.Scopes.Count(scope=>scope.Source=="parent")<=1;
             // 普通全局派生名称没有行项目列时，固定发布条件由复选查询显式合并。
-            if((realtimeRead||functionForm||globalPage is not null||exactTarget is not null||sharedFixedPage||projectStoredAccount||ordinaryCompoundParent is not null)&&!scopeAlreadyBound&&namePage is not null&&
-                (functionForm||namePage.Condition is not null||namePage.Scopes.Any(scope=>scope.Source=="parent")))
+            if((realtimeRead||functionForm||globalPage is not null||exactTarget is not null||sharedFixedPage||projectStoredAccount||ordinaryCompoundParent is not null||projectForm is not null)&&!scopeAlreadyBound&&namePage is not null&&
+                (functionForm||projectForm is not null||namePage.Condition is not null||namePage.Scopes.Any(scope=>scope.Source=="parent")))
             {
                 physicalPage=namePage;
                 scopes=scopes.Concat(physicalPage.Scopes.Where(scope=>scope.Source=="parent"||target.IsGlobal))
@@ -422,6 +435,7 @@ internal static class DatabaseCheckboxCompilation
                 HasStoredAccountScope=storedAccountPage,
                 HasProjectStoredAccountScope=projectStoredAccount,
                 CompoundPhysicalSource=ordinaryCompoundSource||projectStoredAccount&&sourceScopeColumns.Length>1,
+                ProjectFormScope=projectForm is not null,
                 GlobalRealtimeNameOverride=globalRealtimeNameOverride,
                 RealtimeLogicalParentScope=realtimeRead&&exactTarget is null&&logicalPage is not null&&
                     logicalPage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column)),
@@ -460,7 +474,7 @@ internal static class DatabaseCheckboxCompilation
     private static bool CanSharePhysicalNames(DatabaseCheckboxModel definition)
     {
         if(definition.Name.Type!="string?"||definition.ExactTarget is not null||
-            definition.Conditions is not null&&!definition.HasStoredAccountScope&&!definition.HasProjectStoredAccountScope)
+            definition.Conditions is not null&&!definition.HasStoredAccountScope&&!definition.HasProjectStoredAccountScope&&!definition.ProjectFormScope)
             return false;
         if(definition.SharedLogicalParentScope)
             return !definition.LogicalSourceParent&&definition.SourceParent is not null&&
@@ -495,7 +509,7 @@ internal static class DatabaseCheckboxCompilation
     private static string? FixedCachePage(DatabaseCheckboxModel definition) => definition.Target.IsGlobal||
         definition.SharedLogicalParentScope||definition.SharedDerivedPageScope
         ? definition.NameTargetPage?.Source.Id
-        : definition.PhysicalTargetPage is {} page&&(page.Condition is not null||FixedCacheParent(definition) is not null)?page.Source.Id:null;
+        : definition.PhysicalTargetPage is {} page&&(page.Condition is not null||definition.ProjectFormScope||FixedCacheParent(definition) is not null)?page.Source.Id:null;
 
     /// <summary>所有写入口以同一事务写齐各页和表级的名称副本。</summary>
     internal static IReadOnlyList<MultiNameWriteBinding> Caches(GenerationModel model,TableModel table)
@@ -507,6 +521,7 @@ internal static class DatabaseCheckboxCompilation
         {
             var actual=relation.Select(item=>item.Definition).ToList();
             var alternate=relation.FirstOrDefault(item=>item.Definition.UsesNameOverride);
+            if(alternate.Definition is null)alternate=relation.FirstOrDefault(item=>item.Definition.ProjectFormScope);
             string? fixedPage=null;
             string? fixedParent=null;
             if(alternate.Definition is {} changed)

@@ -12,18 +12,23 @@ public static class DerivedCrossTableCaches
         foreach(var d in derived)
         {
             var source=catalog.ConfigTables.SingleOrDefault(t=>t.Id==d.SourceTableId)??throw new InvalidOperationException("跨表来源未发布。");var target=catalog.ConfigTables.SingleOrDefault(t=>t.Id==d.TargetTableId)??throw new InvalidOperationException("派生目标未发布。");
+            var checkboxPage=d.CheckboxTargetPageId is {} formPageId
+                ?catalog.ConfigPages.SingleOrDefault(page=>page.Id==formPageId&&page.ConfigTableId==target.Id):null;
+            var checkboxRelation=checkboxPage is null?null:
+                catalog.ConfigColumns.SingleOrDefault(column=>column.Id==d.ForeignColumnId&&column.ConfigTableId==source.Id);
+            var projectForm=d.Multiple&&checkboxPage is not null&&checkboxRelation is {ControlKind:"MultiCheckBoxDatabase"}&&
+                DatabaseCheckboxDefinition.Parse(checkboxRelation.ControlDetail).AdditionalPhysicalFormConditions(catalog,target,checkboxPage) is not null;
             if(d.CheckboxSourceParentId is not null)
             {
                 if(!d.Multiple||d.CheckboxTargetPageId is null)
                     throw new InvalidOperationException("复选父级缓存缺少实际发布的多值目标页。");
                 var targetValue=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id))
                     .Single(column=>column.Id==d.ValueColumnId);
-                var checkboxPage=catalog.ConfigPages.SingleOrDefault(page=>page.Id==d.CheckboxTargetPageId&&page.ConfigTableId==target.Id);
                 var storedAccount=checkboxPage is not null&&Metarill.Data.Queries.NonRedundantReads
                     .IsProjectStoredCheckboxAccountPage(catalog,target,checkboxPage);
                 var relation=catalog.ConfigColumns.Single(column=>column.Id==d.ForeignColumnId&&column.ConfigTableId==source.Id);
                 var scoped=Metarill.Data.Queries.NonRedundantReads.HasScopedMultiPage(catalog,target,relation);
-                if(MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(targetValue)&&!storedAccount&&!scoped)
+                if(MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(targetValue)&&!storedAccount&&!scoped&&!projectForm)
                 {
                     // 普通物理副本沿用原列证明；已带固定范围的副本走下方完整维护计划。
                     _=RelationMutationPlan.Compile(catalog,[d with{CheckboxTargetPageId=null,CheckboxSourceParentId=null}]);
@@ -47,7 +52,7 @@ public static class DerivedCrossTableCaches
                 throw new InvalidOperationException("派生级联缓存要求已发布的R1来源和固定单值目标。");
             var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var columns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(c=>c.ConfigTableId==source.Id));var foreign=columns.SingleOrDefault(c=>c.Id==d.ForeignColumnId);var cache=columns.SingleOrDefault(c=>c.Id==d.CacheColumnId);var value=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id)).SingleOrDefault(c=>c.Id==d.ValueColumnId);
             var scopedTree=SelfTreeCache.UsesWholePath(catalog,source,d.SelfTreePageId);
-            var scopedMultiple=d.Multiple&&foreign is not null&&
+            var scopedMultiple=projectForm||d.Multiple&&foreign is not null&&
                 Metarill.Data.Queries.NonRedundantReads.HasScopedMultiPage(catalog,target,foreign);
             if(target.IsRongyu!=0&&d.CrossTableAccountPageId is null&&!globalTree&&!scopedMultiple)
                 throw new InvalidOperationException("派生级联缓存要求已发布的R1来源和固定单值目标。");
@@ -85,7 +90,7 @@ public static class DerivedCrossTableCaches
                 !string.IsNullOrWhiteSpace(Metarill.Core.Metadata.DatabaseCheckboxDefinition.Parse(foreign.ControlDetail).WhereSql)&&
                 Metarill.Data.Queries.MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign) is {} controlPage&&
                 Metarill.Data.Queries.NonRedundantReads.IsProjectStoredCheckboxAccountPage(catalog,target,controlPage);
-            if(d.CheckboxSourceParentId is not null||projectCheckboxControl)
+            if(d.CheckboxSourceParentId is not null||projectCheckboxControl||projectForm)
                 _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cache.ColumnName],[d]);
             // 嵌套叶名条件的归属要在整条 SQL 中证明，仅凭外层候选能查到不能发布副本。
             if(self&&SelfTreeCache.HasSelfTreeScopedPage(catalog,d.SelfTreePageId))

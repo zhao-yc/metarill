@@ -165,19 +165,22 @@ public static partial class MySqlNonRedundantReadCompiler
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             var storedAccount=selectedScope is not null&&StoredAccountMultiPage(catalog,target,selectedScope,checkbox);
             var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,checkboxAccount:checkbox);
-            var storedCheckboxOwner=(storedAccount||projectFixedScope)&&checkbox&&refreshFields is not null
+            var ordinaryForm=checkbox&&refreshFields is not null&&selectedScope is not null&&(sharedCheckbox||fixedParent is not null)
+                ?DatabaseCheckboxDefinition.Parse(relation.ControlDetail).AdditionalPhysicalFormConditions(catalog,target,selectedScope)
+                :null;
+            var storedCheckboxOwner=(storedAccount||projectFixedScope||ordinaryForm is not null)&&checkbox&&refreshFields is not null
                 ?new CascadeCacheOwner(table,owner,GlobalSingleSource:GlobalCrossTableTarget.Declared(table)):null;
             if(storedCheckboxOwner is not null)
             {
                 // 回填从表级条件和来源实际行重算，与候选和锁读使用同一门店、表单及常量。
                 var definition=DatabaseCheckboxDefinition.Parse(relation.ControlDetail);
                 var fields=columns[target.Id].Keys;
-                var where=projectFixedScope?definition.AdditionalProjectConditions(selectedScope!.WhereSql,fields):definition.WhereSql;
+                var where=ordinaryForm??(projectFixedScope?definition.AdditionalProjectConditions(selectedScope!.WhereSql,fields):definition.WhereSql);
                 var syntax=FixedConditionPlan.Compile(where,fields);
                 if(syntax.Terms.Count>0)control=syntax;
             }
             var physicalScope=storedAccount||target.IsRongyu==1&&projectFixedScope||
-                checkbox&&target.IsRongyu==1&&(fixedParent is not null||
+                checkbox&&target.IsRongyu==1&&(fixedParent is not null||ordinaryForm is not null||
                 table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
                 throw new NotSupportedException("多值名称要求已证明的目标及原多选或数据库复选。");

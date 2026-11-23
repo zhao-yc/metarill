@@ -71,6 +71,21 @@ public sealed record DatabaseCheckboxDefinition(string TableId,string Table,stri
             ?term.Field+"=@parentId":term.ToDefinition();
     }
 
+    /// <summary>普通项目字典仅把实际表单标量和附加常量纳入共享名称范围。</summary>
+    public string? AdditionalPhysicalFormConditions(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
+    {
+        if(!WhereSql.Contains("@formParameters.",StringComparison.Ordinal)||
+            MultiTargetParentScope.ProjectCheckboxPhysicalConditions(catalog,target,page) is null)
+            return null;
+        var storage=MetadataStoragePolicy.ForTable(catalog,target);
+        var physical=storage.PhysicalColumns.Where(column=>GlobalPhysicalRelationValue.IsScalar(storage,target,column))
+            .Select(column=>column.ColumnName).ToArray();
+        var additional=AdditionalProjectConditions(page.WhereSql,physical);
+        var condition=FixedConditionPlan.Compile(additional,physical);
+        return condition.Variables.Count>0&&condition.Variables.All(variable=>variable.StartsWith("formParameters.",StringComparison.Ordinal))
+            ?additional:null;
+    }
+
     /// <summary>仅供固定读取编译，名称和候选范围各走自己的静态用途；旧目标提示仅在没有明确绑定时使用。</summary>
     public JsonElement ReadDefinition(ColumnMetadata source)
     {

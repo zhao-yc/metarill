@@ -38,7 +38,10 @@ internal static class DerivedMultipleCacheProof
         if(foreign.ControlKind=="MultiCheckBoxDatabase")
         {
             RequireCheckbox(catalog,foreign,target,value,cache,sharedPage is not null);
-            RequireValue(catalog,source,foreign,target,value,sharedPage);
+            // 带物理表单条件的名称由统一维护入口直接编译完整来源行投影。
+            if(sharedPage is null||DatabaseCheckboxDefinition.Parse(foreign.ControlDetail)
+                .AdditionalPhysicalFormConditions(catalog,target,sharedPage) is null)
+                RequireValue(catalog,source,foreign,target,value,sharedPage);
             return;
         }
         if(foreign.ControlKind!="MultiSelectPage")throw Invalid();using var doc=JsonDocument.Parse(foreign.ControlDetail);var root=doc.RootElement;if(root.ValueKind!=JsonValueKind.Object||root.EnumerateObject().Select(p=>p.Name).Distinct(StringComparer.Ordinal).Count()!=root.EnumerateObject().Count())throw Invalid();

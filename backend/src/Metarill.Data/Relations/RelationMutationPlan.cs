@@ -109,6 +109,8 @@ public sealed class RelationMutationPlan
             {
                 if(!definition.Multiple)throw new InvalidOperationException("复选固定目标页必须绑定多值缓存。");
                 var page=MySqlPublishedRelationCondition.RequireProjectCheckboxPage(catalog,source,foreign,target,checkboxPage);
+                if(DatabaseCheckboxDefinition.Parse(foreign.ControlDetail).AdditionalPhysicalFormConditions(catalog,target,page) is not null)
+                    throw new InvalidOperationException("复选表单名称必须使用统一维护计划。");
                 publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,page,projectParent:true);
             }
             if(global)

@@ -33,11 +33,11 @@ internal static class DerivedCheckboxNamesCompilation
             var cache=new Metarill.Data.Relations.RelationCacheDefinition(owner.Source.Id,def.Source.Source.Id,
                 def.Target.Source.Id,def.Name.Source.Id,def.Names.Source.Id,true)
             {
-                CheckboxTargetPageId=def.SharedLogicalParentScope||def.SharedDerivedPageScope?ScopedCheckboxPage(def).Source.Id:null,
-                CheckboxSourceParentId=def.SharedDerivedPageScope?DatabaseCheckboxCompilation.FixedCacheParent(def):null
+                CheckboxTargetPageId=def.SharedLogicalParentScope||def.SharedDerivedPageScope||def.ProjectFormScope?ScopedCheckboxPage(def).Source.Id:null,
+                CheckboxSourceParentId=def.SharedDerivedPageScope||def.ProjectFormScope?DatabaseCheckboxCompilation.FixedCacheParent(def):null
             };
             // 无父级的固定常量页沿用原物理传播，具有持久父级的副本统一验证实际父范围。
-            if(def.SharedDerivedPageScope&&!def.SharedAccountScope&&cache.CheckboxSourceParentId is null&&
+            if(def.SharedDerivedPageScope&&!def.SharedAccountScope&&!def.ProjectFormScope&&cache.CheckboxSourceParentId is null&&
                 NonRedundantReadCompilation.Physical(model,def.Target,def.Name))
                 _=Metarill.Data.Relations.RelationMutationPlan.Compile(model.Catalog,[cache]);
             else Metarill.Data.Relations.DerivedCrossTableCaches.Validate(model.Catalog,[cache],[]);
@@ -133,7 +133,7 @@ internal static class DerivedCheckboxNamesCompilation
 
     /// <summary>实际复选页承担多父条件，也承担单物理全局父叠加精确匹配的范围。</summary>
     internal static bool UsesScopedCheckboxLabel(GenerationModel model,DatabaseCheckboxModel def)=>
-        !UsesGlobalExactPage(def)&&(def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||
+        !UsesGlobalExactPage(def)&&(def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
             def.RealtimeLogicalParentScope||def.CompoundTargetParents||
             def.GlobalParent&&def.LogicalTargetPage is not null&&def.ExactTarget is not null&&!HasExactLogicalParent(model,def));
 

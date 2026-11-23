@@ -90,6 +90,16 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     /// <summary>普通复选字典的发布物理父字段可以有多个，但必须指向同一真实项目父表。</summary>
     public static MultiTargetParentScope? CompileProjectCheckboxPhysicalPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
     {
+        var condition=ProjectCheckboxPhysicalConditions(catalog,table,page);
+        if(condition is null||!condition.Terms.Any(ParentTerm))return null;
+        var parent=CompileCheckboxPage(catalog,table,condition,allowStoredPhysicalParents:true);
+        return parent is { Global:false, Logical:false } && parent.AdditionalTargets.All(scope=>!scope.Logical)
+            ? parent : null;
+    }
+
+    /// <summary>普通字典页只允许项目归属、物理父字段和固定物理条件。</summary>
+    internal static FixedConditionPlan? ProjectCheckboxPhysicalConditions(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
         if (table.IsRongyu is not (0 or 1) || table.IsView!=0 || table.IsFunctionTable!=0 ||
             GlobalCrossTableTarget.Declared(table) || page.ConfigTableId!=table.Id ||
             table.YzProjectId.Length>0 && table.YzProjectId!=catalog.YzProjectId ||
@@ -101,17 +111,14 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         var fields=RelationStorageColumns.Expand(table,columns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,fields.Select(column=>column.ColumnName));
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
-        if (!condition.Terms.Any(ParentTerm) ||
-            condition.Variables.Any(variable=>!IsParameter(variable) &&
+        if (condition.Variables.Any(variable=>!IsParameter(variable) &&
                 !variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)) ||
             condition.Fields.Any(field=>!storage.PhysicalColumns.Any(column=>column.ColumnName==field &&
                 GlobalPhysicalRelationValue.IsScalar(storage,table,column)) ||
                 CrossTableStorageColumns.IsLogicalPathField(table,columns,field)))
             return null;
 
-        var parent=CompileCheckboxPage(catalog,table,condition,allowStoredPhysicalParents:true);
-        return parent is { Global:false, Logical:false } && parent.AdditionalTargets.All(scope=>!scope.Logical)
-            ? parent : null;
+        return condition;
     }
 
     private static MultiTargetParentScope? Compile(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox)

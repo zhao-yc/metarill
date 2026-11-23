@@ -95,6 +95,9 @@ internal static class RelationPropagationCompilation
     private static bool Derived(GenerationModel model,RelationPropagationBinding binding)=>
         binding.CrossTableAccountPageId is not null||binding.CrossTableRecursivePageId is not null||binding.ScopedSinglePageId is not null||binding.CheckboxSourceParentId is not null||
         SelfTreeCache.UsesWholePath(model.Catalog,binding.Source.Source,binding.SelfTreePageId)||
+        binding.CheckboxTargetPageId is {} checkboxPage&&model.Catalog.ConfigPages.SingleOrDefault(page=>page.Id==checkboxPage) is {} published&&
+            DatabaseCheckboxDefinition.Parse(binding.Foreign.Source.ControlDetail)
+                .AdditionalPhysicalFormConditions(model.Catalog,binding.Target.Source,published) is not null||
         !NonRedundantReadCompilation.Physical(model,binding.Target,binding.Value)||
         binding.Multiple&&Metarill.Data.Queries.NonRedundantReads.HasScopedMultiPage(model.Catalog,binding.Target.Source,binding.Foreign.Source);
     /// <summary>只有静态绑定的精确来源才发布传播能力，不按后缀扩大范围。</summary>
@@ -165,10 +168,12 @@ internal static class RelationPropagationCompilation
             if(definition.CheckboxTargetPageId is {} targetPage)fields.Add((targetPage,definition.ValueColumnId));
             foreach(var page in source.Pages)
             {
-                if(shared&&!fields.Add((page.Source.Id,definition.ForeignColumnId))||page.Scopes.Any(scope=>scope.Source=="parent"))continue;
+                if(shared&&!fields.Add((page.Source.Id,definition.ForeignColumnId)))continue;
                 var checkbox=DatabaseCheckboxCompilation.Resolve(model,source,page,relation,forService:true).Definition;
-                if(checkbox is {FormParentField:{} formParent}&&
-                    (checkbox.HasProjectStoredAccountScope||shared&&checkbox.SharedLogicalParentScope))
+                if(checkbox is {ProjectFormScope:true,Conditions:{} condition})
+                    fields.UnionWith(condition.Forms.Select(binding=>(page.Source.Id,binding.Column.Source.Id)));
+                if(!page.Scopes.Any(scope=>scope.Source=="parent")&&checkbox is {FormParentField:{} formParent}&&
+                    (checkbox.HasProjectStoredAccountScope||shared&&(checkbox.SharedLogicalParentScope||checkbox.ProjectFormScope)))
                     fields.Add((page.Source.Id,formParent.Source.Id));
             }
         }

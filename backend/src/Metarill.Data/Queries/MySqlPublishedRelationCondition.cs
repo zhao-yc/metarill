@@ -43,8 +43,9 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
             GlobalMultipleRelationTarget.IsStoredAccountPage(target,page,FixedConditionPlan.Compile(page.WhereSql,fields),checkbox:true);
         var projectAccount=global is null&&MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(catalog,target,page,checkboxAccount:true);
         var baselineExtra=projectAccount?baseline.AdditionalProjectConditions(page.WhereSql,fields):"";
+        var ordinaryForm=global is null?baseline.AdditionalPhysicalFormConditions(catalog,target,page):null;
         if(relation.ControlKind!="MultiCheckBoxDatabase"||page.Id!=pageId||
-            !storedAccount&&!projectAccount&&!string.IsNullOrWhiteSpace(baseline.WhereSql)||
+            !storedAccount&&!projectAccount&&ordinaryForm is null&&!string.IsNullOrWhiteSpace(baseline.WhereSql)||
             page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0||
             !PublishedText(original)||!PublishedText(value))
             throw new InvalidOperationException("复选多名称必须使用固定目标页的已证明文本。");
@@ -55,25 +56,25 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
             if(scoped is null)_=Compile(catalog,target,page,projectParent:global is null);
             else if(scoped.Id!=page.Id)throw new InvalidOperationException("复选名称与实际目标页范围不一致。");
         }
-        if(value.Id==original.Id)return page;
-
+        if(value.Id==original.Id&&ordinaryForm is null)return page;
         var sourcePages=catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&page.YzProjectId==catalog.YzProjectId)
             .Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
-        bool PublishedOverride(PageColumnMetadata field)
-        {
-            var kind=field.Extra.GetValueOrDefault("controlKind").ToString();
-            if(kind.Length>0&&kind!="MultiCheckBoxDatabase")return false;
-            var definition=baseline.WithPageOverride(field.Extra.GetValueOrDefault("controlDetail").ToString());
-            return definition.NameField==value.ColumnName&&
-                (storedAccount?baseline.HasSameCondition(definition,fields):
-                    projectAccount?baselineExtra==definition.AdditionalProjectConditions(page.WhereSql,fields):
-                    string.IsNullOrWhiteSpace(definition.WhereSql))&&
-                (definition.TableId.Length==0||definition.TableId==target.Id)&&
-                (definition.Table.Length==0||definition.Table==target.TableName)&&
-                (definition.PageId.Length==0||definition.PageId==pageId);
-        }
+        var overrides=catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId==relation.Id&&sourcePages.Contains(field.ConfigPageId)&&
+                field.Extra.GetValueOrDefault("controlKind").ToString() is "" or "MultiCheckBoxDatabase")
+            .Select(field=>baseline.WithPageOverride(field.Extra.GetValueOrDefault("controlDetail").ToString())).ToArray();
+        bool SameRange(DatabaseCheckboxDefinition definition)=>
+            (storedAccount?baseline.HasSameCondition(definition,fields):
+                projectAccount?baselineExtra==definition.AdditionalProjectConditions(page.WhereSql,fields):
+                ordinaryForm is not null?ordinaryForm==definition.AdditionalPhysicalFormConditions(catalog,target,page):
+                string.IsNullOrWhiteSpace(definition.WhereSql))&&
+            (definition.TableId.Length==0||definition.TableId==target.Id)&&
+            (definition.Table.Length==0||definition.Table==target.TableName)&&
+            (definition.PageId.Length==0||definition.PageId==pageId);
+        if(ordinaryForm is not null&&overrides.Any(definition=>!SameRange(definition)))
+            throw new InvalidOperationException("复选名称副本各来源页须使用同一表单条件。");
+        if(value.Id==original.Id)return page;
         if(!CheckboxLabelPublished(catalog,pageId,value.Id)||
-            !catalog.ConfigPageColumns.Any(field=>field.ConfigColumnId==relation.Id&&sourcePages.Contains(field.ConfigPageId)&&PublishedOverride(field)))
+            !overrides.Any(definition=>definition.NameField==value.ColumnName&&SameRange(definition)))
             throw new InvalidOperationException("复选名称副本缺少已发布的来源覆盖或目标显示字段。");
         return page;
     }

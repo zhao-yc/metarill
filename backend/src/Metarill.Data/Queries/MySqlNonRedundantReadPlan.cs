@@ -709,6 +709,13 @@ public static partial class MySqlNonRedundantReadCompiler
                     catalog,table,relation,target,checkboxPageId??throw new InvalidOperationException("缺少复选目标页。"),checkboxSourceParentId);
                 return DerivedMultiDisplay(table,owner,relation,target,value,null,page,page,null,null,(targetParent,sourceParent));
             }
+            // 普通复选的固定表单条件由真实来源行绑定，物理名称也不能走只按 ID 的缓存计划。
+            if(!global&&checkboxPageId is {} formPageId&&catalog.ConfigPages.SingleOrDefault(page=>page.Id==formPageId) is {} formPage&&
+                DatabaseCheckboxDefinition.Parse(relation.ControlDetail).AdditionalPhysicalFormConditions(catalog,target,formPage) is not null)
+            {
+                _=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,table,relation,target,value,formPageId);
+                return DerivedMultiDisplay(table,owner,relation,target,value,null,formPage,formPage,null,null,sharedCheckbox:true);
+            }
             var typedCache=GlobalPhysicalRelationValue.IsPublishedTypedCache(catalog,storage[target.Id],target,value);
             PageMetadata? publishedPage=null;
             PageMetadata? sharedCheckboxPage=null;

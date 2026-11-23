@@ -241,9 +241,10 @@ public sealed class DatabaseCheckboxGenerationTests
     [InlineData(1,true,true,true,false,false,false,"","","","","text-both","","compound-owner")]
     [InlineData(0,true,true,true,false,false,false,"","","","","","ordinary-compound","compound-owner-numeric")]
     [InlineData(1,true,true,true,false,false,false,"","","","","","ordinary-compound","compound-owner")]
+
     public async Task Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(int targetStorage,bool includeNamePage,bool fixedTarget,
         bool fixedParent,bool independentParent,bool global=false,bool globalRowProject=false,string accountVariable="",string joinedNames="",
-        string parentMode="",string dictionaryMode="",string textParents="",string targetParentMode="",string sourceParentMode="")
+        string parentMode="",string dictionaryMode="",string textParents="",string targetParentMode="",string sourceParentMode="",string controlScope="")
     {
         var catalog=Published(Catalog(false));
         var target=catalog.ConfigTables.Single(table=>table.Id=="3");
@@ -325,6 +326,17 @@ public sealed class DatabaseCheckboxGenerationTests
         catalog.ConfigColumns.Add(cache);
         var current=catalog.ConfigPages.Single(page=>page.Id=="201");
         current.IsImport=current.IsExport=1;
+        var formScoped=controlScope=="ordinary-form";
+        if(formScoped)
+        {
+            if(!fixedParent)current.WhereSql="yz_project_id=@current_yz_project_id";
+            foreach(var tableId in new[]{"2","3"})
+                catalog.ConfigColumns.Add(new(){Id=tableId+"996",ConfigTableId=tableId,YzProjectId=catalog.YzProjectId,
+                    ColumnName="segment",LogicalType="int32"});
+            catalog.ConfigPageColumns.Add(new(){Id="2012996",ConfigPageId="201",ConfigColumnId="2996",
+                YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1,Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
+            source.ControlDetail="""{"tableId":"3","pageId":"301","nameField":"name","whereSql":"yz_project_id=@current_yz_project_id AND segment=@formParameters.relationSource.segment AND active_flag=1 AND segment>0"}""";
+        }
         if(global)
         {
             current.WhereSql="yz_project_id=@current_yz_project_id";
@@ -360,7 +372,9 @@ public sealed class DatabaseCheckboxGenerationTests
             }
         }
         catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==current.Id&&field.ConfigColumnId==source.Id)
-            .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"alias"}""");
+            .Extra["controlDetail"]=JsonSerializer.SerializeToElement(formScoped
+                ?"""{"nameField":"alias","whereSql":"segment>0 AND segment=@formParameters.relationSource.segment"}"""
+                :"""{"nameField":"alias"}""");
         catalog.ConfigPageColumns.Add(new(){Id="2029",ConfigPageId=current.Id,ConfigColumnId=cache.Id,
             YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1,Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
 
@@ -374,7 +388,7 @@ public sealed class DatabaseCheckboxGenerationTests
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var cacheBindings=joinedFields.Length>0&&!accountScoped
             ?RelationPropagationCompilation.DerivedBindings(model).Concat(RelationPropagationCompilation.Bindings(model))
-            :fixedParent||accountScoped?RelationPropagationCompilation.DerivedBindings(model):RelationPropagationCompilation.Bindings(model);
+            :fixedParent||accountScoped||formScoped?RelationPropagationCompilation.DerivedBindings(model):RelationPropagationCompilation.Bindings(model);
         var propagation=cacheBindings.Where(binding=>binding.Foreign.Source.Id==source.Id)
             .OrderBy(binding=>binding.Cache.Source.ColumnName,StringComparer.Ordinal).ToArray();
         Assert.Equal(new[]{"target_alias","target_names"},propagation.Select(binding=>binding.Cache.Source.ColumnName));
@@ -403,7 +417,7 @@ public sealed class DatabaseCheckboxGenerationTests
                 Assert.DoesNotContain("targetParentId:optionParent",detail);
                 Assert.Contains("this.$watch(()=>this.entity.parentId",detail);
                 Assert.Contains("\"formParentField\":\"parentId\"",list);
-                Assert.Contains("\"formFields\":[\"parentId\"]",list);
+                Assert.Contains(formScoped?"\"formFields\":[\"segment\",\"parentId\"]":"\"formFields\":[\"parentId\"]",list);
                 Assert.Contains(targetStorage==1?"targetIdsRange":"target__list",list);
             }
             if(includeNamePage)
@@ -425,6 +439,12 @@ public sealed class DatabaseCheckboxGenerationTests
                 Assert.Contains("entity.TargetAlias=",write);
                 Assert.Contains("entity.TargetNames=",write);
                 Assert.Contains("selected.Select(id=>",write);
+                if(formScoped)
+                {
+                    Assert.Contains("entity.Segment",write);
+                    Assert.Contains("submitted.Contains(\"segment\")",service);
+                    Assert.Contains("formParameters.relationSource.segment",service);
+                }
                 if(fixedTarget&&joinedFields.Length==0)
                 {
                     Assert.Contains((global?"CheckboxGlobalCondition":"CheckboxTargetCondition")+page.Source.Id+"_25",service);
@@ -514,6 +534,32 @@ public sealed class DatabaseCheckboxGenerationTests
             Assert.Null(maintenancePlan.GetType().GetProperty("Error")!.GetValue(maintenancePlan));
             var read=maintenancePlan.GetType().GetProperty("Read")!.GetValue(maintenancePlan)!;
             Assert.NotNull(read);
+            if(formScoped)
+            {
+                var expression=read.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                var dependencies=Assert.IsAssignableFrom<IReadOnlyList<string>>(read.GetType()
+                    .GetProperty("SourceDependencies",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(read));
+                Assert.Contains("segment",dependencies);
+                foreach(var name in new[]{"target_alias","target_names"})
+                {
+                    var sql=Assert.IsType<string>(expression.Invoke(read,[name]));
+                    Assert.Contains("b.`segment`",sql);
+                    Assert.Contains("multi_value.`segment`",sql);
+                    Assert.Contains("multi_value.`active_flag`",sql);
+                    var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType()
+                        .GetProperty("Reverse",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(read));
+                    Assert.Contains(reverse.Cast<object>(),entry=>
+                        Equals(entry.GetType().GetProperty("TargetTable")!.GetValue(entry),"relation_target")&&
+                        Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(entry.GetType()
+                            .GetProperty("Outputs")!.GetValue(entry)).TryGetValue(name,out var affected)&&affected.Contains("segment"));
+                }
+                var definitions=RelationPropagationCompilation.Definitions(propagation);
+                var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,definitions);
+                published.ConfigPageColumns.Single(field=>field.ConfigPageId==current.Id&&field.ConfigColumnId==source.Id)
+                    .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"alias","whereSql":"segment=99"}""");
+                Assert.Throws<InvalidOperationException>(()=>
+                    Metarill.Data.Relations.RelationMaintenanceCatalog.CompileWithDerivedCrossTables(published,[],definitions));
+            }
             if(joinedFields.Length>0&&!accountScoped)
             {
                 var expression=read.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.NonPublic)!;
@@ -633,7 +679,7 @@ public sealed class DatabaseCheckboxGenerationTests
                 Assert.Throws<InvalidOperationException>(()=>
                     Metarill.Data.Relations.RelationMaintenanceCatalog.CompileWithDerivedCrossTables(published,[],definitions));
             }
-            else if(fixedTarget)
+            else if(fixedTarget&&!formScoped)
             {
                 var expression=read.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)!;
                 foreach(var name in new[]{"target_alias","target_names"})
@@ -654,9 +700,47 @@ public sealed class DatabaseCheckboxGenerationTests
                     whereSql=joinedFields.Length>0?"id=5":"name='固定名称'"});
             var mismatch=GenerationModel.Create(catalog,ns);
             Assert.Contains(GenerationCapabilityAudit.Collect(mismatch), gap=>gap.PageId==current.Id&&
-                gap.Reason.Contains("同一固定目标范围",StringComparison.Ordinal));
+                gap.Reason.Contains(formScoped?"表级复选候选条件":"同一固定目标范围",StringComparison.Ordinal));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(root,boundary);}
+    }
+
+    /// <summary>普通字典从实际来源表单取附加条件，名称和简称使用同一维护计划。</summary>
+    [Theory]
+    [InlineData(0,false,false)]
+    [InlineData(1,false,false)]
+    [InlineData(0,true,false)]
+    [InlineData(1,true,true)]
+    public Task Project_checkbox_form_conditions_share_cache(int targetStorage,bool compound,bool independent)=>
+        Redundant_checkbox_page_label_uses_its_own_cache_and_updates_all(targetStorage,true,true,compound,independent,
+            textParents:compound&&!independent?"text-both":"",targetParentMode:compound?"ordinary-compound":"",
+            sourceParentMode:compound&&!independent?"compound-owner":"",controlScope:"ordinary-form");
+
+    /// <summary>只有主名称的普通字典也必须按实际来源表单条件登记完整回填。</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void Project_checkbox_form_conditions_keep_primary_name_without_page_alias(int targetStorage)
+    {
+        var catalog=Published(Catalog(false));
+        const string scope="yz_project_id=@current_yz_project_id";
+        catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=targetStorage;
+        foreach(var page in catalog.ConfigPages)page.WhereSql=scope;
+        foreach(var tableId in new[]{"2","3"})
+            catalog.ConfigColumns.Add(new(){Id=tableId+"996",ConfigTableId=tableId,YzProjectId=catalog.YzProjectId,
+                ColumnName="segment",LogicalType="int32"});
+        catalog.ConfigPageColumns.Add(new(){Id="2012996",ConfigPageId="201",ConfigColumnId="2996",
+            YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1,Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
+        catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail=
+            """{"tableId":"3","pageId":"301","nameField":"name","whereSql":"segment=@formParameters.segment"}""";
+        var model=GenerationModel.Create(catalog,"Example.CheckboxPrimaryForm");
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var binding=Assert.Single(RelationPropagationCompilation.DerivedBindings(model));
+        var definitions=RelationPropagationCompilation.Definitions([binding]);
+        Assert.Equal("301",Assert.Single(definitions).CheckboxTargetPageId);
+        var published=RelationPropagationCompilation.PublishedMaintenanceMetadata(model,definitions);
+        var maintenance=Metarill.Data.Relations.RelationMaintenanceCatalog.CompileWithDerivedCrossTables(published,[],definitions);
+        Assert.Contains("target_names",maintenance.MixedSourceColumns["relation_source"]);
     }
 
     /// <summary>同一逻辑目标父范围连接原候选、写入和两份名称回填，实际父键由稀疏级联还原。</summary>
