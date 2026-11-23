@@ -564,9 +564,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 cascadeLabelPages.Add(storedSource.Id);
                 cascadeLabelPages.Add(stored.Id);
                 var storedControl=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,storedSource);
-                return !global||binding.ControlSourcePageId==storedSource.Id
-                    ? ProjectStoredListCondition(owner,ownerAlias,relation,target,alias,storedSource,stored,binding.SourceParentId,storedControl)
-                    : StoredSingleCondition(target,alias,stored,storedControl);
+                return ProjectStoredListCondition(owner,ownerAlias,relation,target,alias,storedSource,stored,binding.SourceParentId,storedControl);
             }
             // 全局多值候选的编译入口也会传入名称路径。按来源页重新证明内层字典的物理条件。
             if(global&&target.IsRongyu==1&&binding is
@@ -578,7 +576,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     throw new InvalidOperationException("多值名称联接必须使用已发布的冗余字典页。");
                 cascadeLabelPages.Add(nameSource.Id);
                 cascadeLabelPages.Add(fixedName.Page.Id);
-                return StoredSingleCondition(target,alias,fixedName.Page,fixedName.Control);
+                return ProjectStoredListCondition(owner,ownerAlias,relation,target,alias,nameSource,fixedName.Page,
+                    null,fixedName.Control);
             }
             if(owner.IsRongyu!=0||target.IsRongyu!=0||!global&&GlobalCrossTableTarget.Declared(owner)||
                 relation.ControlKind is not("List" or "SelectPage")||!storage[owner.Id].IsPhysical(relation))
@@ -684,23 +683,6 @@ public static partial class MySqlNonRedundantReadCompiler
             var parentScope=sourceParent is null?"":" AND "+SameSingleParent(
                 plan.Expression(plan.RequiredMultiParent??throw new InvalidOperationException("固定单值目标缺少逻辑父表达式。")),sourceParent);
             return "EXISTS (SELECT 1"+plan.From+" WHERE "+plan.Expression("id")+"="+alias+".`id` AND "+plan.Scope+parentScope+")";
-        }
-
-        /// <summary>冗余字典使用实际页面和下拉的物理常量，项目及删除范围由原外键联接保留。</summary>
-        private string StoredSingleCondition(TableMetadata target,string alias,PageMetadata page,FixedConditionPlan control)
-        {
-            if(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
-                throw new NotSupportedException("多值名称联接的冗余字典固定页须使用物理常量条件。");
-            if(control.Terms.Count>0)
-                page=new(){Id=page.Id,ConfigTableId=page.ConfigTableId,WhereSql=string.Join(" AND ",
-                    new[]{page.WhereSql}.Concat(control.Terms.Select(term=>term.ToDefinition()))
-                        .Where(definition=>!string.IsNullOrWhiteSpace(definition)))};
-            var condition=PublishedCondition(target,alias,page,projectParent:!GlobalCrossTableTarget.Declared(target));
-            if(condition is null)return "";
-            var clause=condition.RenderConstants(new MySqlDatabaseProvider(),ConditionParameterPrefix("mt_stored_single_"+alias),
-                field=>alias+"."+Q(field));
-            foreach(var pair in clause.Parameters)crossConstants.Add(pair.Key,pair.Value);
-            return clause.Sql;
         }
 
         /// <summary>单值副本按来源行归属重算，逻辑条件沿目标页的实际级联路径读取。</summary>
@@ -911,7 +893,9 @@ public static partial class MySqlNonRedundantReadCompiler
             cascadeLabelPages.Add(published.Page.Id);
             var alias=Join(owner,foreign,target,source.Sql,source.Type,ordinaryRelation:true,validatedCrossGlobal:true,
                 scopedCacheLink:cacheOwner is not null);
-            return(alias,StoredSingleCondition(target,alias,published.Page,published.Control));
+            var visibility=ProjectStoredListCondition(table,owner,foreign,target,alias,sourcePage,published.Page,
+                null,published.Control,cacheOwner);
+            return(alias,visibility);
         }
 
         /// <summary>名称副本和同外键的其他联接字段共用实际发布页，逐项保留各自的反向依赖。</summary>

@@ -261,6 +261,14 @@ public sealed class DerivedMultiNamesTests
     [InlineData(false,1,false,"stored-account")]
     [InlineData(true,0,false,"stored-account")]
     [InlineData(true,1,false,"stored-account")]
+    [InlineData(false,0,false,"global-stored-account")]
+    [InlineData(false,1,false,"global-stored-account")]
+    [InlineData(true,0,false,"global-stored-account")]
+    [InlineData(true,1,false,"global-stored-account")]
+    [InlineData(false,0,false,"global-stored-page-account")]
+    [InlineData(false,1,false,"global-stored-page-account")]
+    [InlineData(true,0,false,"global-stored-page-account")]
+    [InlineData(true,1,false,"global-stored-page-account")]
     public async Task Array_label_matching_uses_the_actual_nested_page(bool checkbox,int storage,bool globalAccount,string dictionaryMode="")
     {
         const string ns="Example.DerivedArrayScope";
@@ -268,15 +276,22 @@ public sealed class DerivedMultiNamesTests
         var source=catalog.ConfigTables.Single(table=>table.Id=="2");
         source.IsRongyu=storage;
         var companyTable=catalog.ConfigTables.Single(table=>table.Id=="4");
-        var globalStored=dictionaryMode=="global-stored-dictionary";
+        var globalStoredPageAccount=dictionaryMode=="global-stored-page-account";
+        var globalStoredAccount=dictionaryMode=="global-stored-account"||globalStoredPageAccount;
+        var globalStored=dictionaryMode=="global-stored-dictionary"||globalStoredAccount;
         var globalPageConstant=dictionaryMode=="global-page-constant";
-        var storedAccount=dictionaryMode=="stored-account";
+        var storedAccount=dictionaryMode=="stored-account"||globalStoredAccount;
         var hasAccount=globalAccount||storedAccount;
         var stored=dictionaryMode=="stored-dictionary"||globalStored||storedAccount;
         companyTable.IsRongyu=stored?1:0;
         var company=catalog.ConfigColumns.Single(column=>column.Id=="37");
         company.ControlDetail=JsonSerializer.Serialize(new{tableId="4",pageId="401",nameField="name",
             whereSql=globalPageConstant?"":"status=17"});
+        if(globalStoredPageAccount)
+        {
+            company.LinkConfigTableId="";
+            company.ControlDetail=JsonSerializer.Serialize(new{pageId="401",nameField="name",whereSql="status=17"});
+        }
         var companyPage=catalog.ConfigPages.Single(page=>page.Id=="401");
         companyPage.WhereSql+=" AND status>=1";
         catalog.ConfigColumns.Add(new(){Id="45",ConfigTableId="4",ColumnName="status",LogicalType="int32"});
@@ -298,7 +313,7 @@ public sealed class DerivedMultiNamesTests
         }
         if(storedAccount)
         {
-            // 项目内物理字典按账号限定，List 覆盖使用实际多选目标行的持久表单值。
+            // 物理字典按账号限定，List 覆盖使用实际多选目标行的持久表单值。
             catalog.ConfigColumns.AddRange([
                 new(){Id="46",ConfigTableId="4",ColumnName="store_id",LogicalType="int64"},
                 new(){Id="47",ConfigTableId="4",ColumnName="option_group",LogicalType="int32"},
@@ -342,6 +357,12 @@ public sealed class DerivedMultiNamesTests
                 var filters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(read.GetType()
                     .GetProperty("ArrayNamePredicates",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance)!.GetValue(read));
                 Assert.Contains(".`status`",filters["target_names"]);
+                if(globalStoredAccount)
+                {
+                    // 名称筛选沿同一个字典页绑定门店和实际中间记录的表单值。
+                    Assert.Contains(".`store_id`",filters["target_names"]);
+                    Assert.Contains(".`stored_group`",filters["target_names"]);
+                }
                 AssertActualPage(service.GetField("ExportReadPlan201",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
             }
             else
