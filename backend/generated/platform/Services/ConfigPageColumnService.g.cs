@@ -142,6 +142,7 @@ public partial class ConfigPageColumnService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigPageColumnPage6218036784398336Vo?> Detail6218036784398336Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
+
         var entity = await Scope6218036784398336(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigPageColumn { Id = entity.Id, Name = entity.Name, ConfigColumnId = entity.ConfigColumnId, ConfigPageId = entity.ConfigPageId, IsInGrid = entity.IsInGrid, IsInFilter = entity.IsInFilter, IsInEdit = entity.IsInEdit, IsReadOnly = entity.IsReadOnly, Width = entity.Width, DefaultValue = entity.DefaultValue, MatchType = entity.MatchType, IsMust = entity.IsMust, ControlDetail = entity.ControlDetail, InitValue = entity.InitValue, QueryDefaultValue = entity.QueryDefaultValue, DefaultSaveValue = entity.DefaultSaveValue, CombineCell = entity.CombineCell, Hint = entity.Hint, IsPrint = entity.IsPrint, IsAutoFocus = entity.IsAutoFocus, DeveloperRemarks = entity.DeveloperRemarks, Description = entity.Description, ConfigColumnColumnName = entity.ConfigColumnColumnName, ConfigColumnSortNo = entity.ConfigColumnSortNo, IsImportant = entity.IsImportant, IsAutoSaveAfterChange = entity.IsAutoSaveAfterChange, SumKind = entity.SumKind, ConfigColumnName = entity.ConfigColumnName, ConfigPageName = entity.ConfigPageName, LinkConfigTableId = entity.LinkConfigTableId, LinkConfigTableName = entity.LinkConfigTableName, LinkConfigPageId = entity.LinkConfigPageId, LinkConfigPageName = entity.LinkConfigPageName, CombineSuperColumnId = entity.CombineSuperColumnId, CombineSuperColumnName = entity.CombineSuperColumnName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, YzProjectId = entity.YzProjectId }, cancellationToken);
         return entity is null ? null : ConfigPageColumnPage6218036784398336Vo.FromEntity(entity);
     }
@@ -303,7 +304,7 @@ public partial class ConfigPageColumnService
         if (request.ConfigPageId.IsSpecified) mutationScopeValues["config_page_id"] = request.ConfigPageId.Value;
         if (parentId is not null) mutationScopeValues["config_page_id"] = long.Parse(parentId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("6218036784398336", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues);
-        var entity = await Scope6218036784398336(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope6218036784398336(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.IsImportant.IsSpecified) { entity.IsImportant = request.IsImportant.Value; submitted.Add("is_important"); }
@@ -363,7 +364,7 @@ public partial class ConfigPageColumnService
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         if (parentId is not null) mutationScopeValues["config_page_id"] = long.Parse(parentId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("6218036784398336", RecordMutationOperation.Delete, actor, cancellationToken, id, mutationScopeValues);
-        var entity = await Scope6218036784398336(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope6218036784398336(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         if ((true))

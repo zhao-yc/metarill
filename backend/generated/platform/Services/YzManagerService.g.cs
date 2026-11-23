@@ -126,6 +126,7 @@ public partial class YzManagerService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzManagerPage6031906822946816Vo?> Detail6031906822946816Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
+
         var entity = await Scope6031906822946816(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.YzManager { Id = entity.Id, Name = entity.Name, RealName = entity.RealName, Mobile = entity.Mobile, LockIp = entity.LockIp, LastLoginTime = entity.LastLoginTime, LoginIp = entity.LoginIp, Email = entity.Email, Phone = entity.Phone, IsDisabled = entity.IsDisabled, Notes = entity.Notes, IsEditPwd = entity.IsEditPwd, EditPwdTime = entity.EditPwdTime, Openid = entity.Openid, Avatar = entity.Avatar, LoginRiseTime = entity.LoginRiseTime, LoginStopTime = entity.LoginStopTime, ValidityTime = entity.ValidityTime, InsertTime = entity.InsertTime, YzAdminTypeId = entity.YzAdminTypeId, YzRoleIds = entity.YzRoleIds, DingUserid = entity.DingUserid, DingUnionid = entity.DingUnionid, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
         return entity is null ? null : (await ProjectRoleNames6031906822946816Async([entity], actor, "detail", cancellationToken))[0];
     }
@@ -277,9 +278,9 @@ public partial class YzManagerService
         BeforeSave(entity, actor, true, submitted);
         ManagerCredentialValue.RequireDigest(entity.Password);
         await ValidateRelations6031906822946816Async(entity, actor, true, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u7528\u6237\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Password)) throw new ArgumentException("\u5BC6\u7801\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.YzAdminTypeId is null) throw new ArgumentException("\u540E\u53F0\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u7528\u6237\u540D");
+        if (string.IsNullOrWhiteSpace(entity.Password)) throw BusinessRuleException.RequiredField("\u5BC6\u7801");
+        if (entity.YzAdminTypeId is null) throw BusinessRuleException.RequiredField("\u540E\u53F0\u7C7B\u578B");
         await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyYzManagerAsync("6031906822946816", entity, actor, submitted, false, true, cancellationToken);
@@ -292,7 +293,7 @@ public partial class YzManagerService
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         if (request.YzAdminTypeId.IsSpecified) mutationScopeValues["yz_admin_type_id"] = request.YzAdminTypeId.Value;
         await PrepareMutationAsync("6031906822946816", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues);
-        var entity = await Scope6031906822946816(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope6031906822946816(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
@@ -326,9 +327,9 @@ public partial class YzManagerService
         BeforeSave(entity, actor, false, submitted);
         if (submitted.Contains("password")) ManagerCredentialValue.RequireDigest(entity.Password);
         await ValidateRelations6031906822946816Async(entity, actor, false, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u7528\u6237\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Password)) throw new ArgumentException("\u5BC6\u7801\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.YzAdminTypeId is null) throw new ArgumentException("\u540E\u53F0\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u7528\u6237\u540D");
+        if (string.IsNullOrWhiteSpace(entity.Password)) throw BusinessRuleException.RequiredField("\u5BC6\u7801");
+        if (entity.YzAdminTypeId is null) throw BusinessRuleException.RequiredField("\u540E\u53F0\u7C7B\u578B");
         await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyYzManagerAsync("6031906822946816", entity, actor, submitted, false, false, cancellationToken);
@@ -339,7 +340,7 @@ public partial class YzManagerService
     {
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         await PrepareMutationAsync("6031906822946816", RecordMutationOperation.Delete, actor, cancellationToken, id, mutationScopeValues);
-        var entity = await Scope6031906822946816(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope6031906822946816(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("6031906822946816", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);

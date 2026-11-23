@@ -121,6 +121,7 @@ public partial class YzManagerDevicesProjectService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzManagerDevicesProjectPage6220608155484160Vo?> Detail6220608155484160Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
+
         var entity = await Scope6220608155484160(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.YzManagerDevicesProject { Id = entity.Id, YzProjectId = entity.YzProjectId, YzManagerId = entity.YzManagerId, IsJava = entity.IsJava, IsUniapp = entity.IsUniapp, JavaPath = entity.JavaPath, UniappPath = entity.UniappPath, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName }, cancellationToken);
         return entity is null ? null : YzManagerDevicesProjectPage6220608155484160Vo.FromEntity(entity);
     }
@@ -253,7 +254,7 @@ public partial class YzManagerDevicesProjectService
         entity.YzManagerDevicesId = long.Parse(parentId, CultureInfo.InvariantCulture);
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations6220608155484160Async(entity, actor, true, submitted, cancellationToken);
-        if (entity.YzManagerId is null) throw new ArgumentException("\u8D26\u53F7\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (entity.YzManagerId is null) throw BusinessRuleException.RequiredField("\u8D26\u53F7");
         await ValidateMutationAsync("6220608155484160", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyYzManagerDevicesProjectAsync("6220608155484160", entity, actor, submitted, false, true, cancellationToken);
@@ -266,7 +267,7 @@ public partial class YzManagerDevicesProjectService
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         if (parentId is not null) mutationScopeValues["yz_manager_devices_id"] = long.Parse(parentId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("6220608155484160", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues);
-        var entity = await Scope6220608155484160(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope6220608155484160(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.YzManagerId.IsSpecified) { entity.YzManagerId = request.YzManagerId.Value; submitted.Add("yz_manager_id"); }
@@ -282,7 +283,7 @@ public partial class YzManagerDevicesProjectService
         submitted.Add("update_manager_real_name");
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations6220608155484160Async(entity, actor, false, submitted, cancellationToken);
-        if (entity.YzManagerId is null) throw new ArgumentException("\u8D26\u53F7\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (entity.YzManagerId is null) throw BusinessRuleException.RequiredField("\u8D26\u53F7");
         if (entity.YzManagerDevicesId != long.Parse(parentId!, CultureInfo.InvariantCulture)) throw new InvalidOperationException("不能修改页面归属字段。");
         await ValidateMutationAsync("6220608155484160", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
@@ -295,7 +296,7 @@ public partial class YzManagerDevicesProjectService
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         if (parentId is not null) mutationScopeValues["yz_manager_devices_id"] = long.Parse(parentId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("6220608155484160", RecordMutationOperation.Delete, actor, cancellationToken, id, mutationScopeValues);
-        var entity = await Scope6220608155484160(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope6220608155484160(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("6220608155484160", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);

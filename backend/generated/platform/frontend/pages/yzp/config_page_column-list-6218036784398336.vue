@@ -210,7 +210,10 @@ handleChildDetailChange(change){this.handleDetailChange(change);},
     },
     toDetail(id) {
       var that = this;
-      this.clicked_id = id;const detailIdentity=this.originalListIdentity();const detailCurrent=()=>this._originalListAlive && detailIdentity===this.originalListIdentity();
+      this.clicked_id = id;
+      // 回执只影响打开详情时的登录和父级上下文。
+      const detailIdentity = this.originalListIdentity();
+      const detailCurrent = () => this._originalListAlive && detailIdentity === this.originalListIdentity();
       if (this.is_son_page && utils.isBlank(this.parent_id)) {
         uni.showModal({
           showCancel: false,
@@ -227,7 +230,7 @@ if (id === '' && (this.readOnlyCondition || !this.page_is_new)) {    return;}if 
         url: '/pages/yzp/config_page_column-detail-6218036784398336?id=' + encodeURIComponent(id) + '&parent_id=' + encodeURIComponent(this.parent_id || '') + '&parent_page_sn=' + encodeURIComponent(this.parent_page_sn || '') + '&yzpMenuId=' + encodeURIComponent(this.yzpMenuId || ''),
         events: {
           onChange: function (change) {
-            if(detailCurrent())that.handleDetailChange(change);
+            if (detailCurrent()) that.handleDetailChange(change);
           }
         }
       })

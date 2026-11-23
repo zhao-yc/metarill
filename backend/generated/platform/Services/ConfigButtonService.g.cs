@@ -148,6 +148,7 @@ break; }
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigButtonPage1870796062470516738Vo?> Detail1870796062470516738Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
+
         var entity = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, ConfigPageId = entity.ConfigPageId, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
         return entity is null ? null : ConfigButtonPage1870796062470516738Vo.FromEntity(entity);
     }
@@ -188,6 +189,7 @@ break; }
         if (request.IsBatchSelectButton.IsSpecified) { entity.IsBatchSelectButton = request.IsBatchSelectButton.Value; submitted.Add("is_batch_select_button"); }
         if (request.IsAutoCloseAfterAction.IsSpecified) { entity.IsAutoCloseAfterAction = request.IsAutoCloseAfterAction.Value; submitted.Add("is_auto_close_after_action"); }
         else entity.IsAutoCloseAfterAction = JsonSerializer.Deserialize<int?>("0", JsonOptions);
+        entity.IsAutoCloseAfterAction = 0; submitted.Add("is_auto_close_after_action");
         entity.InsertTime = BusinessCalendar.Now;
         entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
@@ -197,15 +199,15 @@ break; }
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations1870796062470516738Async(entity, actor, true, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.ActionType is null) throw new ArgumentException("\u884C\u4E3A\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Sql)) throw new ArgumentException("sql\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Place)) throw new ArgumentException("\u4F4D\u7F6E\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.ConfigPageId is null) throw new ArgumentException("\u89C6\u56FE\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.VisibleScheme)) throw new ArgumentException("\u663E\u793A\u65B9\u6848\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.SortNo is null) throw new ArgumentException("\u6392\u5E8F\u53F7\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.SaveOption)) throw new ArgumentException("\u4FDD\u5B58\u9009\u9879\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.IsAutoCloseAfterAction is null) throw new ArgumentException("\u6267\u884C\u540E\u81EA\u52A8\u5173\u95ED\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
+        if (entity.ActionType is null) throw BusinessRuleException.RequiredField("\u884C\u4E3A\u7C7B\u578B");
+        if (string.IsNullOrWhiteSpace(entity.Sql)) throw BusinessRuleException.RequiredField("sql");
+        if (string.IsNullOrWhiteSpace(entity.Place)) throw BusinessRuleException.RequiredField("\u4F4D\u7F6E");
+        if (entity.ConfigPageId is null) throw BusinessRuleException.RequiredField("\u89C6\u56FE");
+        if (string.IsNullOrWhiteSpace(entity.VisibleScheme)) throw BusinessRuleException.RequiredField("\u663E\u793A\u65B9\u6848");
+        if (entity.SortNo is null) throw BusinessRuleException.RequiredField("\u6392\u5E8F\u53F7");
+        if (string.IsNullOrWhiteSpace(entity.SaveOption)) throw BusinessRuleException.RequiredField("\u4FDD\u5B58\u9009\u9879");
+        if (entity.IsAutoCloseAfterAction is null) throw BusinessRuleException.RequiredField("\u6267\u884C\u540E\u81EA\u52A8\u5173\u95ED");
         await ValidateMutationAsync("1870796062470516738", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyConfigButtonAsync("1870796062470516738", entity, actor, submitted, false, true, cancellationToken);
@@ -218,7 +220,7 @@ break; }
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("1870796062470516738", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues);
-        var entity = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
@@ -246,15 +248,15 @@ break; }
         submitted.Add("update_manager_real_name");
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations1870796062470516738Async(entity, actor, false, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.ActionType is null) throw new ArgumentException("\u884C\u4E3A\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Sql)) throw new ArgumentException("sql\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Place)) throw new ArgumentException("\u4F4D\u7F6E\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.ConfigPageId is null) throw new ArgumentException("\u89C6\u56FE\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.VisibleScheme)) throw new ArgumentException("\u663E\u793A\u65B9\u6848\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.SortNo is null) throw new ArgumentException("\u6392\u5E8F\u53F7\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.SaveOption)) throw new ArgumentException("\u4FDD\u5B58\u9009\u9879\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.IsAutoCloseAfterAction is null) throw new ArgumentException("\u6267\u884C\u540E\u81EA\u52A8\u5173\u95ED\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
+        if (entity.ActionType is null) throw BusinessRuleException.RequiredField("\u884C\u4E3A\u7C7B\u578B");
+        if (string.IsNullOrWhiteSpace(entity.Sql)) throw BusinessRuleException.RequiredField("sql");
+        if (string.IsNullOrWhiteSpace(entity.Place)) throw BusinessRuleException.RequiredField("\u4F4D\u7F6E");
+        if (entity.ConfigPageId is null) throw BusinessRuleException.RequiredField("\u89C6\u56FE");
+        if (string.IsNullOrWhiteSpace(entity.VisibleScheme)) throw BusinessRuleException.RequiredField("\u663E\u793A\u65B9\u6848");
+        if (entity.SortNo is null) throw BusinessRuleException.RequiredField("\u6392\u5E8F\u53F7");
+        if (string.IsNullOrWhiteSpace(entity.SaveOption)) throw BusinessRuleException.RequiredField("\u4FDD\u5B58\u9009\u9879");
+        if (entity.IsAutoCloseAfterAction is null) throw BusinessRuleException.RequiredField("\u6267\u884C\u540E\u81EA\u52A8\u5173\u95ED");
         await ValidateMutationAsync("1870796062470516738", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyConfigButtonAsync("1870796062470516738", entity, actor, submitted, false, false, cancellationToken);
@@ -266,7 +268,7 @@ break; }
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("1870796062470516738", RecordMutationOperation.Delete, actor, cancellationToken, id, mutationScopeValues);
-        var entity = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("1870796062470516738", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
@@ -282,7 +284,7 @@ break; }
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("1870796062470516738", RecordMutationOperation.Copy, actor, cancellationToken, id, mutationScopeValues);
         await ValidateParents1870796062470516738Async(parentId, actor, cancellationToken);
-        var source = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var source = await Scope1870796062470516738(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(source);
         var entity = new global::Metarill.Platform.Generated.Entities.ConfigButton { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
@@ -314,15 +316,15 @@ break; }
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations1870796062470516738Async(entity, actor, true, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.ActionType is null) throw new ArgumentException("\u884C\u4E3A\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Sql)) throw new ArgumentException("sql\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Place)) throw new ArgumentException("\u4F4D\u7F6E\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.ConfigPageId is null) throw new ArgumentException("\u89C6\u56FE\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.VisibleScheme)) throw new ArgumentException("\u663E\u793A\u65B9\u6848\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.SortNo is null) throw new ArgumentException("\u6392\u5E8F\u53F7\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.SaveOption)) throw new ArgumentException("\u4FDD\u5B58\u9009\u9879\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.IsAutoCloseAfterAction is null) throw new ArgumentException("\u6267\u884C\u540E\u81EA\u52A8\u5173\u95ED\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
+        if (entity.ActionType is null) throw BusinessRuleException.RequiredField("\u884C\u4E3A\u7C7B\u578B");
+        if (string.IsNullOrWhiteSpace(entity.Sql)) throw BusinessRuleException.RequiredField("sql");
+        if (string.IsNullOrWhiteSpace(entity.Place)) throw BusinessRuleException.RequiredField("\u4F4D\u7F6E");
+        if (entity.ConfigPageId is null) throw BusinessRuleException.RequiredField("\u89C6\u56FE");
+        if (string.IsNullOrWhiteSpace(entity.VisibleScheme)) throw BusinessRuleException.RequiredField("\u663E\u793A\u65B9\u6848");
+        if (entity.SortNo is null) throw BusinessRuleException.RequiredField("\u6392\u5E8F\u53F7");
+        if (string.IsNullOrWhiteSpace(entity.SaveOption)) throw BusinessRuleException.RequiredField("\u4FDD\u5B58\u9009\u9879");
+        if (entity.IsAutoCloseAfterAction is null) throw BusinessRuleException.RequiredField("\u6267\u884C\u540E\u81EA\u52A8\u5173\u95ED");
         await ValidateMutationAsync("1870796062470516738", RecordMutationOperation.Copy, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("复制失败。");
         await NotifyConfigButtonAsync("1870796062470516738", entity, actor, submitted, false, true, cancellationToken);
@@ -432,6 +434,7 @@ break; }
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigButtonPage7097193256583168Vo?> Detail7097193256583168Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
+
         var entity = await Scope7097193256583168(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigButton { Id = entity.Id, IsAutoCloseAfterAction = entity.IsAutoCloseAfterAction, Name = entity.Name, Sql = entity.Sql, SortNo = entity.SortNo, IsNeedConfirm = entity.IsNeedConfirm, VisibleScheme = entity.VisibleScheme, SaveOption = entity.SaveOption, ConfirmMsg = entity.ConfirmMsg, Place = entity.Place, Type = entity.Type, InsertTime = entity.InsertTime, VisibleRuleJson = entity.VisibleRuleJson, IsBatchSelectButton = entity.IsBatchSelectButton, ActionType = entity.ActionType, ConfigTableName = entity.ConfigTableName, ConfigPageName = entity.ConfigPageName, ImportNo = entity.ImportNo, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, YzProjectName = entity.YzProjectName }, cancellationToken);
         return entity is null ? null : ConfigButtonPage7097193256583168Vo.FromEntity(entity);
     }
@@ -471,6 +474,7 @@ break; }
         if (request.IsBatchSelectButton.IsSpecified) { entity.IsBatchSelectButton = request.IsBatchSelectButton.Value; submitted.Add("is_batch_select_button"); }
         if (request.IsAutoCloseAfterAction.IsSpecified) { entity.IsAutoCloseAfterAction = request.IsAutoCloseAfterAction.Value; submitted.Add("is_auto_close_after_action"); }
         else entity.IsAutoCloseAfterAction = JsonSerializer.Deserialize<int?>("0", JsonOptions);
+        entity.IsAutoCloseAfterAction = 0; submitted.Add("is_auto_close_after_action");
         entity.InsertTime = BusinessCalendar.Now;
         entity.UpdateTime = BusinessCalendar.Now;
         entity.InsertManagerId = actor.AccountId;
@@ -482,14 +486,14 @@ break; }
         entity.ConfigPageId = long.Parse(parentId, CultureInfo.InvariantCulture);
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations7097193256583168Async(entity, actor, true, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.ActionType is null) throw new ArgumentException("\u884C\u4E3A\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Sql)) throw new ArgumentException("sql\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Place)) throw new ArgumentException("\u4F4D\u7F6E\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.VisibleScheme)) throw new ArgumentException("\u663E\u793A\u65B9\u6848\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.SortNo is null) throw new ArgumentException("\u6392\u5E8F\u53F7\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.SaveOption)) throw new ArgumentException("\u4FDD\u5B58\u9009\u9879\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.IsAutoCloseAfterAction is null) throw new ArgumentException("\u6267\u884C\u540E\u81EA\u52A8\u5173\u95ED\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
+        if (entity.ActionType is null) throw BusinessRuleException.RequiredField("\u884C\u4E3A\u7C7B\u578B");
+        if (string.IsNullOrWhiteSpace(entity.Sql)) throw BusinessRuleException.RequiredField("sql");
+        if (string.IsNullOrWhiteSpace(entity.Place)) throw BusinessRuleException.RequiredField("\u4F4D\u7F6E");
+        if (string.IsNullOrWhiteSpace(entity.VisibleScheme)) throw BusinessRuleException.RequiredField("\u663E\u793A\u65B9\u6848");
+        if (entity.SortNo is null) throw BusinessRuleException.RequiredField("\u6392\u5E8F\u53F7");
+        if (string.IsNullOrWhiteSpace(entity.SaveOption)) throw BusinessRuleException.RequiredField("\u4FDD\u5B58\u9009\u9879");
+        if (entity.IsAutoCloseAfterAction is null) throw BusinessRuleException.RequiredField("\u6267\u884C\u540E\u81EA\u52A8\u5173\u95ED");
         await ValidateMutationAsync("7097193256583168", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyConfigButtonAsync("7097193256583168", entity, actor, submitted, false, true, cancellationToken);
@@ -502,7 +506,7 @@ break; }
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         if (parentId is not null) mutationScopeValues["config_page_id"] = long.Parse(parentId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("7097193256583168", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues);
-        var entity = await Scope7097193256583168(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope7097193256583168(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
@@ -529,14 +533,14 @@ break; }
         submitted.Add("update_manager_real_name");
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations7097193256583168Async(entity, actor, false, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.ActionType is null) throw new ArgumentException("\u884C\u4E3A\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Sql)) throw new ArgumentException("sql\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Place)) throw new ArgumentException("\u4F4D\u7F6E\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.VisibleScheme)) throw new ArgumentException("\u663E\u793A\u65B9\u6848\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.SortNo is null) throw new ArgumentException("\u6392\u5E8F\u53F7\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.SaveOption)) throw new ArgumentException("\u4FDD\u5B58\u9009\u9879\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.IsAutoCloseAfterAction is null) throw new ArgumentException("\u6267\u884C\u540E\u81EA\u52A8\u5173\u95ED\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
+        if (entity.ActionType is null) throw BusinessRuleException.RequiredField("\u884C\u4E3A\u7C7B\u578B");
+        if (string.IsNullOrWhiteSpace(entity.Sql)) throw BusinessRuleException.RequiredField("sql");
+        if (string.IsNullOrWhiteSpace(entity.Place)) throw BusinessRuleException.RequiredField("\u4F4D\u7F6E");
+        if (string.IsNullOrWhiteSpace(entity.VisibleScheme)) throw BusinessRuleException.RequiredField("\u663E\u793A\u65B9\u6848");
+        if (entity.SortNo is null) throw BusinessRuleException.RequiredField("\u6392\u5E8F\u53F7");
+        if (string.IsNullOrWhiteSpace(entity.SaveOption)) throw BusinessRuleException.RequiredField("\u4FDD\u5B58\u9009\u9879");
+        if (entity.IsAutoCloseAfterAction is null) throw BusinessRuleException.RequiredField("\u6267\u884C\u540E\u81EA\u52A8\u5173\u95ED");
         if (entity.ConfigPageId != long.Parse(parentId!, CultureInfo.InvariantCulture)) throw new InvalidOperationException("不能修改页面归属字段。");
         await ValidateMutationAsync("7097193256583168", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
@@ -549,7 +553,7 @@ break; }
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         if (parentId is not null) mutationScopeValues["config_page_id"] = long.Parse(parentId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("7097193256583168", RecordMutationOperation.Delete, actor, cancellationToken, id, mutationScopeValues);
-        var entity = await Scope7097193256583168(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope7097193256583168(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("7097193256583168", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
@@ -565,7 +569,7 @@ break; }
         if (parentId is not null) mutationScopeValues["config_page_id"] = long.Parse(parentId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("7097193256583168", RecordMutationOperation.Copy, actor, cancellationToken, id, mutationScopeValues);
         await ValidateParents7097193256583168Async(parentId, actor, cancellationToken);
-        var source = await Scope7097193256583168(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var source = await Scope7097193256583168(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(source);
         var entity = new global::Metarill.Platform.Generated.Entities.ConfigButton { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
@@ -597,14 +601,14 @@ break; }
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations7097193256583168Async(entity, actor, true, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.ActionType is null) throw new ArgumentException("\u884C\u4E3A\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Sql)) throw new ArgumentException("sql\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.Place)) throw new ArgumentException("\u4F4D\u7F6E\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.VisibleScheme)) throw new ArgumentException("\u663E\u793A\u65B9\u6848\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.SortNo is null) throw new ArgumentException("\u6392\u5E8F\u53F7\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.SaveOption)) throw new ArgumentException("\u4FDD\u5B58\u9009\u9879\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.IsAutoCloseAfterAction is null) throw new ArgumentException("\u6267\u884C\u540E\u81EA\u52A8\u5173\u95ED\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
+        if (entity.ActionType is null) throw BusinessRuleException.RequiredField("\u884C\u4E3A\u7C7B\u578B");
+        if (string.IsNullOrWhiteSpace(entity.Sql)) throw BusinessRuleException.RequiredField("sql");
+        if (string.IsNullOrWhiteSpace(entity.Place)) throw BusinessRuleException.RequiredField("\u4F4D\u7F6E");
+        if (string.IsNullOrWhiteSpace(entity.VisibleScheme)) throw BusinessRuleException.RequiredField("\u663E\u793A\u65B9\u6848");
+        if (entity.SortNo is null) throw BusinessRuleException.RequiredField("\u6392\u5E8F\u53F7");
+        if (string.IsNullOrWhiteSpace(entity.SaveOption)) throw BusinessRuleException.RequiredField("\u4FDD\u5B58\u9009\u9879");
+        if (entity.IsAutoCloseAfterAction is null) throw BusinessRuleException.RequiredField("\u6267\u884C\u540E\u81EA\u52A8\u5173\u95ED");
         await ValidateMutationAsync("7097193256583168", RecordMutationOperation.Copy, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("复制失败。");
         await NotifyConfigButtonAsync("7097193256583168", entity, actor, submitted, false, true, cancellationToken);

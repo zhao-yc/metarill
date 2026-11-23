@@ -156,6 +156,7 @@ public partial class ConfigTableService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigTablePage6191083005411328Vo?> Detail6191083005411328Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
+
         var entity = await Scope6191083005411328(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigTable { Id = entity.Id, Name = entity.Name, TableName = entity.TableName, IsRongyu = entity.IsRongyu, IsFunctionTable = entity.IsFunctionTable, IsView = entity.IsView, Sql = entity.Sql, OracleSql = entity.OracleSql, WhereSql = entity.WhereSql, OrderBy = entity.OrderBy, GroupBy = entity.GroupBy, PageSize = entity.PageSize, IsEdit = entity.IsEdit, IsNew = entity.IsNew, IsSave = entity.IsSave, IsDelete = entity.IsDelete, IsSearch = entity.IsSearch, BeforeDeleteSql = entity.BeforeDeleteSql, AfterSaveSql = entity.AfterSaveSql, AfterImportSql = entity.AfterImportSql, IsImport = entity.IsImport, IsExport = entity.IsExport, IsMultiSelect = entity.IsMultiSelect, IsLazyQuery = entity.IsLazyQuery, GridEdit = entity.GridEdit, Title = entity.Title, Title2 = entity.Title2, Title3 = entity.Title3, IsSum = entity.IsSum, GridWidth = entity.GridWidth, IsPrintPreview = entity.IsPrintPreview, IsBatchDelete = entity.IsBatchDelete, ImportMethod = entity.ImportMethod, ReadOnlyCondition = entity.ReadOnlyCondition, PopWindowWidth = entity.PopWindowWidth, PopWindowHeight = entity.PopWindowHeight, IsExportEdit = entity.IsExportEdit, IsNoSaveAndClose = entity.IsNoSaveAndClose, IsUpdate = entity.IsUpdate, IsHeadGroup = entity.IsHeadGroup, IsModifyLog = entity.IsModifyLog, Layout = entity.Layout, ConnString = entity.ConnString, ExportMethod = entity.ExportMethod, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, InsertUserName = entity.InsertUserName, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, UpdateUserName = entity.UpdateUserName, CopyMethod = entity.CopyMethod, SqlMore = entity.SqlMore, AuthorizeScheme = entity.AuthorizeScheme, ClearMethod = entity.ClearMethod, IsRaw = entity.IsRaw, SameEditCode = entity.SameEditCode, SqlGrid = entity.SqlGrid, DataSrc = entity.DataSrc, MainColumn = entity.MainColumn, BatchNewPageName = entity.BatchNewPageName, EditTableId = entity.EditTableId, EditTableName = entity.EditTableName, EditPageId = entity.EditPageId, EditPageName = entity.EditPageName, EditKeyColumn = entity.EditKeyColumn, ButtonVisible = entity.ButtonVisible, AutoSave = entity.AutoSave, ChildPlace = entity.ChildPlace, SuperColumnName = entity.SuperColumnName, EditPageUrl = entity.EditPageUrl, DisplayOption = entity.DisplayOption, BpmStepKind = entity.BpmStepKind, DocumentReady = entity.DocumentReady, Help = entity.Help, EditWidth = entity.EditWidth, YzProjectName = entity.YzProjectName, IsPlatform = entity.IsPlatform, IsSys = entity.IsSys, IsRepeatPwd = entity.IsRepeatPwd, YzAdminTypeId = entity.YzAdminTypeId, ScopeKind = entity.ScopeKind }, cancellationToken);
         return entity is null ? null : (await ProjectRoleAdminNames6191083005411328Async([entity], actor, "detail", cancellationToken))[0];
     }
@@ -376,11 +377,11 @@ public partial class ConfigTableService
         entity.UpdateManagerRealName = actor.AccountRealName;
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations6191083005411328Async(entity, actor, true, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.TableName)) throw new ArgumentException("\u8868\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.IsRongyu is null) throw new ArgumentException("\u5B58\u50A8\u6A21\u5F0F\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.IsFunctionTable is null) throw new ArgumentException("\u529F\u80FD\u8868\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.IsView is null) throw new ArgumentException("\u6570\u636E\u5E93\u89C6\u56FE\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
+        if (string.IsNullOrWhiteSpace(entity.TableName)) throw BusinessRuleException.RequiredField("\u8868\u540D");
+        if (entity.IsRongyu is null) throw BusinessRuleException.RequiredField("\u5B58\u50A8\u6A21\u5F0F");
+        if (entity.IsFunctionTable is null) throw BusinessRuleException.RequiredField("\u529F\u80FD\u8868");
+        if (entity.IsView is null) throw BusinessRuleException.RequiredField("\u6570\u636E\u5E93\u89C6\u56FE");
         await ValidateMutationAsync("6191083005411328", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyConfigTableAsync("6191083005411328", entity, actor, submitted, false, true, cancellationToken);
@@ -406,7 +407,7 @@ public partial class ConfigTableService
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("6191083005411328", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues, businessButtonId);
         if(businessButtonId is not null)await RequireButtonCurrent6191083005411328Async(request.Id,businessButtonId,actor,cancellationToken);
-        var entity = await (businessButtonId is null ? Scope6191083005411328(actor, parentId).Where(row => row.Id == request.Id).ForUpdate() : ButtonRecordQuery6191083005411328(request.Id,parentId,businessButtonId,actor,true)).FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await (businessButtonId is null ? Scope6191083005411328(actor, parentId).Where(row => row.Id == request.Id).ForUpdate() : ButtonRecordQuery6191083005411328(request.Id,parentId,businessButtonId,actor,true)).FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
@@ -491,11 +492,11 @@ public partial class ConfigTableService
         submitted.Add("update_manager_real_name");
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations6191083005411328Async(entity, actor, false, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.TableName)) throw new ArgumentException("\u8868\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.IsRongyu is null) throw new ArgumentException("\u5B58\u50A8\u6A21\u5F0F\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.IsFunctionTable is null) throw new ArgumentException("\u529F\u80FD\u8868\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.IsView is null) throw new ArgumentException("\u6570\u636E\u5E93\u89C6\u56FE\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
+        if (string.IsNullOrWhiteSpace(entity.TableName)) throw BusinessRuleException.RequiredField("\u8868\u540D");
+        if (entity.IsRongyu is null) throw BusinessRuleException.RequiredField("\u5B58\u50A8\u6A21\u5F0F");
+        if (entity.IsFunctionTable is null) throw BusinessRuleException.RequiredField("\u529F\u80FD\u8868");
+        if (entity.IsView is null) throw BusinessRuleException.RequiredField("\u6570\u636E\u5E93\u89C6\u56FE");
         if(businessButtonId is not null)RequireButtonRecordAccess6191083005411328(request.Id,businessButtonId,actor);
         await ValidateMutationAsync("6191083005411328", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken, businessButtonId);
         if(businessButtonId is not null)await RequireButtonCurrent6191083005411328Async(request.Id,businessButtonId,actor,cancellationToken);
@@ -509,7 +510,7 @@ public partial class ConfigTableService
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("6191083005411328", RecordMutationOperation.Delete, actor, cancellationToken, id, mutationScopeValues);
-        var entity = await Scope6191083005411328(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope6191083005411328(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("6191083005411328", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);

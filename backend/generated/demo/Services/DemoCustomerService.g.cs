@@ -115,6 +115,7 @@ public partial class DemoCustomerService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<DemoCustomerPage2200000000000100020Vo?> Detail2200000000000100020Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
+
         var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Demo.Generated.Entities.DemoCustomer { Id = entity.Id, YzProjectId = entity.YzProjectId, Name = entity.Name, Notes = entity.Notes, Amount = entity.Amount, IsEnabled = entity.IsEnabled }, cancellationToken);
         return entity is null ? null : DemoCustomerPage2200000000000100020Vo.FromEntity(entity);
     }
@@ -176,6 +177,10 @@ public partial class DemoCustomerService
             catch (PageImportException error) when (error.IsInputError)
             {
                 throw error.AtRow(rowNumber);
+            }
+            catch (BusinessRuleException error) when (error.RequiredFieldName is not null)
+            {
+                throw PageImportException.Input(PageImportError.Required, rowNumber, error.RequiredFieldName, error);
             }
             catch (Exception error) when (error is not OperationCanceledException and not UnauthorizedAccessException and not System.Security.SecurityException and not BusinessRuleException)
             {
@@ -306,7 +311,7 @@ public partial class DemoCustomerService
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations2200000000000100020Async(entity, actor, true, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
         await ValidateMutationAsync("2200000000000100020", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyDemoCustomerAsync("2200000000000100020", entity, actor, submitted, false, true, cancellationToken);
@@ -319,7 +324,7 @@ public partial class DemoCustomerService
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("2200000000000100020", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues);
-        var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == request.Id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
@@ -334,7 +339,7 @@ public partial class DemoCustomerService
         submitted.Add("update_manager_real_name");
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations2200000000000100020Async(entity, actor, false, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
         await ValidateMutationAsync("2200000000000100020", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException("修改失败。");
         await NotifyDemoCustomerAsync("2200000000000100020", entity, actor, submitted, false, false, cancellationToken);
@@ -346,7 +351,7 @@ public partial class DemoCustomerService
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("2200000000000100020", RecordMutationOperation.Delete, actor, cancellationToken, id, mutationScopeValues);
-        var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("2200000000000100020", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
@@ -362,7 +367,7 @@ public partial class DemoCustomerService
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("2200000000000100020", RecordMutationOperation.Copy, actor, cancellationToken, id, mutationScopeValues);
         await ValidateParents2200000000000100020Async(parentId, actor, cancellationToken);
-        var source = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var source = await Scope2200000000000100020(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(source);
         var entity = new global::Metarill.Demo.Generated.Entities.DemoCustomer { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
@@ -379,7 +384,7 @@ public partial class DemoCustomerService
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations2200000000000100020Async(entity, actor, true, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
         await ValidateMutationAsync("2200000000000100020", RecordMutationOperation.Copy, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("复制失败。");
         await NotifyDemoCustomerAsync("2200000000000100020", entity, actor, submitted, false, true, cancellationToken);

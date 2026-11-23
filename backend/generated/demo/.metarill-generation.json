@@ -30,7 +30,7 @@
     },
     {
       "path": "Services/DemoCustomerService.g.cs",
-      "sha256": "30a965d908ecfa6c047768377d88bea87d2c12b324240b4875da1517f1a81b27"
+      "sha256": "c7533a51b9be01c01513c916133d176a0c9cfb8abbfef31fc6aaf1610d9c5150"
     },
     {
       "path": "VOs/DemoCustomerPage2200000000000100020Vo.g.cs",
@@ -50,11 +50,11 @@
     },
     {
       "path": "frontend/pages/yzp/demo_customer-detail-2200000000000100020.vue",
-      "sha256": "bdb3175a756d7fa1ba4ba49cdb98aae8247d53d5108c95e0b4037f2b14f1243c"
+      "sha256": "bf209906a0fb275313a5b1e2e2ec85a953a443d30c85699761637f87ce6cf5fa"
     },
     {
       "path": "frontend/pages/yzp/demo_customer-list-2200000000000100020.vue",
-      "sha256": "1448ffa215eb1da3abd2027cedc17b7957940196066375009e50eaf78bb6fde7"
+      "sha256": "e47b1f0eca460b0d99181a40fe673e0f474aa7d6b90a12f6d815a559ad0205fc"
     },
     {
       "path": "generation-capabilities.json",

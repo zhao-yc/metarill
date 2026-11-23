@@ -122,6 +122,7 @@ public partial class ConfigIndexColumnService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<ConfigIndexColumnPage2076977554350190593Vo?> Detail2076977554350190593Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
+
         var entity = await Scope2076977554350190593(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.ConfigIndexColumn { Id = entity.Id, ConfigIndexId = entity.ConfigIndexId, ConfigColumnId = entity.ConfigColumnId, ColumnName = entity.ColumnName, SortNo = entity.SortNo, SortDirection = entity.SortDirection, ConfigIndexIndexName = entity.ConfigIndexIndexName, ConfigColumnName = entity.ConfigColumnName, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName }, cancellationToken);
         return entity is null ? null : ConfigIndexColumnPage2076977554350190593Vo.FromEntity(entity);
     }

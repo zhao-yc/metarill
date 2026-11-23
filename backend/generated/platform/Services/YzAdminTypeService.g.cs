@@ -100,6 +100,7 @@ public partial class YzAdminTypeService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzAdminTypePage1696799309006348290Vo?> Detail1696799309006348290Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
+
         var entity = await Scope1696799309006348290(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.YzAdminType { Id = entity.Id, Name = entity.Name, UserName = entity.UserName, Password = entity.Password, ExactDataManageMatchField = entity.ExactDataManageMatchField, YzProjectName = entity.YzProjectName, ImportNo = entity.ImportNo, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName }, cancellationToken);
         return entity is null ? null : YzAdminTypePage1696799309006348290Vo.FromEntity(entity);
     }
@@ -165,7 +166,7 @@ public partial class YzAdminTypeService
         entity.UpdateManagerRealName = actor.AccountRealName;
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations1696799309006348290Async(entity, actor, true, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
         if (entity.UserName is { Length: > 50 }) throw new ArgumentException("\u7528\u6237\u540D\u957F\u5EA6\u4E0D\u80FD\u8D85\u8FC750\u4E2A\u5B57\u7B26\u3002");
         if (entity.Password is { Length: > 50 }) throw new ArgumentException("\u5BC6\u7801\u957F\u5EA6\u4E0D\u80FD\u8D85\u8FC750\u4E2A\u5B57\u7B26\u3002");
         await ValidateMutationAsync("1696799309006348290", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
@@ -192,7 +193,7 @@ public partial class YzAdminTypeService
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("1696799309006348290", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues, businessButtonId);
         if(businessButtonId is not null)await RequireButtonCurrent1696799309006348290Async(request.Id,businessButtonId,actor,cancellationToken);
-        var entity = await (businessButtonId is null ? Scope1696799309006348290(actor, parentId).Where(row => row.Id == request.Id).ForUpdate() : ButtonRecordQuery1696799309006348290(request.Id,parentId,businessButtonId,actor,true)).FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await (businessButtonId is null ? Scope1696799309006348290(actor, parentId).Where(row => row.Id == request.Id).ForUpdate() : ButtonRecordQuery1696799309006348290(request.Id,parentId,businessButtonId,actor,true)).FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
@@ -208,7 +209,7 @@ public partial class YzAdminTypeService
         submitted.Add("update_manager_real_name");
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations1696799309006348290Async(entity, actor, false, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
         if (submitted.Contains("user_name") && entity.UserName is { Length: > 50 }) throw new ArgumentException("\u7528\u6237\u540D\u957F\u5EA6\u4E0D\u80FD\u8D85\u8FC750\u4E2A\u5B57\u7B26\u3002");
         if (submitted.Contains("password") && entity.Password is { Length: > 50 }) throw new ArgumentException("\u5BC6\u7801\u957F\u5EA6\u4E0D\u80FD\u8D85\u8FC750\u4E2A\u5B57\u7B26\u3002");
         if(businessButtonId is not null)RequireButtonRecordAccess1696799309006348290(request.Id,businessButtonId,actor);
@@ -224,7 +225,7 @@ public partial class YzAdminTypeService
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         mutationScopeValues["yz_project_id"] = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         await PrepareMutationAsync("1696799309006348290", RecordMutationOperation.Delete, actor, cancellationToken, id, mutationScopeValues);
-        var entity = await Scope1696799309006348290(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope1696799309006348290(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("1696799309006348290", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);

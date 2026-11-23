@@ -132,6 +132,7 @@ public partial class YzRolePermissionService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzRolePermissionPage2063264600601714690Vo?> Detail2063264600601714690Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
+
         var entity = await Scope2063264600601714690(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.YzRolePermission { Id = entity.Id, ConfigMenuId = entity.ConfigMenuId, PermissionValues = entity.PermissionValues, YzRoleId = entity.YzRoleId, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId, ConfigPageId = entity.ConfigPageId, ConfigButtonId = entity.ConfigButtonId }, cancellationToken);
         return entity is null ? null : YzRolePermissionPage2063264600601714690Vo.FromEntity(entity);
     }

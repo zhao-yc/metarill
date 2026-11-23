@@ -114,6 +114,7 @@ public partial class YzProjectService
     /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>
     public async Task<YzProjectPage6186303424888832Vo?> Detail6186303424888832Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken)
     {
+
         var entity = await Scope6186303424888832(actor, parentId).Where(row => row.Id == id).ToOneAsync(entity => new global::Metarill.Platform.Generated.Entities.YzProject { Id = entity.Id, Name = entity.Name, MysqlConnStr = entity.MysqlConnStr, ShortName = entity.ShortName, DbName = entity.DbName, ContextRoot = entity.ContextRoot, X5AdminName = entity.X5AdminName, EclipseBaseName = entity.EclipseBaseName, YzYzpVersionId = entity.YzYzpVersionId, DbType = entity.DbType, IsHide = entity.IsHide, DbUrl = entity.DbUrl, DbUsername = entity.DbUsername, PrimaryColor = entity.PrimaryColor, IsSmall = entity.IsSmall, InsertTime = entity.InsertTime, UpdateTime = entity.UpdateTime, InsertManagerId = entity.InsertManagerId, UpdateManagerId = entity.UpdateManagerId, InsertUserName = entity.InsertUserName, UpdateUserName = entity.UpdateUserName, InsertManagerRealName = entity.InsertManagerRealName, UpdateManagerRealName = entity.UpdateManagerRealName, YzProjectId = entity.YzProjectId }, cancellationToken);
         return entity is null ? null : YzProjectPage6186303424888832Vo.FromEntity(entity);
     }
@@ -186,15 +187,15 @@ public partial class YzProjectService
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations6186303424888832Async(entity, actor, true, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.MysqlConnStr)) throw new ArgumentException("\u6570\u636E\u5E93\u8FDE\u63A5\u5B57\u7B26\u4E32\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.ShortName)) throw new ArgumentException("\u7F29\u7565\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.DbName)) throw new ArgumentException("\u6570\u636E\u5E93\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.ContextRoot)) throw new ArgumentException("api\u8DEF\u5F84\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.EclipseBaseName)) throw new ArgumentException("java\u9879\u76EE\u5305\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.YzYzpVersionId is null) throw new ArgumentException("yzp\u7248\u672C\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.DbType is null) throw new ArgumentException("\u6570\u636E\u5E93\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.PrimaryColor)) throw new ArgumentException("PrimaryColor\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
+        if (string.IsNullOrWhiteSpace(entity.MysqlConnStr)) throw BusinessRuleException.RequiredField("\u6570\u636E\u5E93\u8FDE\u63A5\u5B57\u7B26\u4E32");
+        if (string.IsNullOrWhiteSpace(entity.ShortName)) throw BusinessRuleException.RequiredField("\u7F29\u7565\u540D");
+        if (string.IsNullOrWhiteSpace(entity.DbName)) throw BusinessRuleException.RequiredField("\u6570\u636E\u5E93\u540D\u79F0");
+        if (string.IsNullOrWhiteSpace(entity.ContextRoot)) throw BusinessRuleException.RequiredField("api\u8DEF\u5F84");
+        if (string.IsNullOrWhiteSpace(entity.EclipseBaseName)) throw BusinessRuleException.RequiredField("java\u9879\u76EE\u5305\u540D");
+        if (entity.YzYzpVersionId is null) throw BusinessRuleException.RequiredField("yzp\u7248\u672C");
+        if (entity.DbType is null) throw BusinessRuleException.RequiredField("\u6570\u636E\u5E93\u7C7B\u578B");
+        if (string.IsNullOrWhiteSpace(entity.PrimaryColor)) throw BusinessRuleException.RequiredField("PrimaryColor");
         await ValidateMutationAsync("6186303424888832", RecordMutationOperation.Create, entity, actor, null, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("新增失败。");
         await NotifyYzProjectAsync("6186303424888832", entity, actor, submitted, false, true, cancellationToken);
@@ -218,7 +219,7 @@ public partial class YzProjectService
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         await PrepareMutationAsync("6186303424888832", RecordMutationOperation.Update, actor, cancellationToken, request.Id, mutationScopeValues, businessButtonId);
         if(businessButtonId is not null)await RequireButtonCurrent6186303424888832Async(request.Id,businessButtonId,actor,cancellationToken);
-        var entity = await (businessButtonId is null ? Scope6186303424888832(actor, parentId).Where(row => row.Id == request.Id).ForUpdate() : ButtonRecordQuery6186303424888832(request.Id,parentId,businessButtonId,actor,true)).FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await (businessButtonId is null ? Scope6186303424888832(actor, parentId).Where(row => row.Id == request.Id).ForUpdate() : ButtonRecordQuery6186303424888832(request.Id,parentId,businessButtonId,actor,true)).FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         var submitted = new HashSet<string>(StringComparer.Ordinal);
         if (request.Name.IsSpecified) { entity.Name = request.Name.Value; submitted.Add("name"); }
@@ -243,15 +244,15 @@ public partial class YzProjectService
         submitted.Add("update_manager_real_name");
         BeforeSave(entity, actor, false, submitted);
         await ValidateRelations6186303424888832Async(entity, actor, false, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.MysqlConnStr)) throw new ArgumentException("\u6570\u636E\u5E93\u8FDE\u63A5\u5B57\u7B26\u4E32\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.ShortName)) throw new ArgumentException("\u7F29\u7565\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.DbName)) throw new ArgumentException("\u6570\u636E\u5E93\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.ContextRoot)) throw new ArgumentException("api\u8DEF\u5F84\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.EclipseBaseName)) throw new ArgumentException("java\u9879\u76EE\u5305\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.YzYzpVersionId is null) throw new ArgumentException("yzp\u7248\u672C\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.DbType is null) throw new ArgumentException("\u6570\u636E\u5E93\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.PrimaryColor)) throw new ArgumentException("PrimaryColor\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
+        if (string.IsNullOrWhiteSpace(entity.MysqlConnStr)) throw BusinessRuleException.RequiredField("\u6570\u636E\u5E93\u8FDE\u63A5\u5B57\u7B26\u4E32");
+        if (string.IsNullOrWhiteSpace(entity.ShortName)) throw BusinessRuleException.RequiredField("\u7F29\u7565\u540D");
+        if (string.IsNullOrWhiteSpace(entity.DbName)) throw BusinessRuleException.RequiredField("\u6570\u636E\u5E93\u540D\u79F0");
+        if (string.IsNullOrWhiteSpace(entity.ContextRoot)) throw BusinessRuleException.RequiredField("api\u8DEF\u5F84");
+        if (string.IsNullOrWhiteSpace(entity.EclipseBaseName)) throw BusinessRuleException.RequiredField("java\u9879\u76EE\u5305\u540D");
+        if (entity.YzYzpVersionId is null) throw BusinessRuleException.RequiredField("yzp\u7248\u672C");
+        if (entity.DbType is null) throw BusinessRuleException.RequiredField("\u6570\u636E\u5E93\u7C7B\u578B");
+        if (string.IsNullOrWhiteSpace(entity.PrimaryColor)) throw BusinessRuleException.RequiredField("PrimaryColor");
         if(businessButtonId is not null)RequireButtonRecordAccess6186303424888832(request.Id,businessButtonId,actor);
         await ValidateMutationAsync("6186303424888832", RecordMutationOperation.Update, entity, actor, originalScopeValues, submitted, cancellationToken, businessButtonId);
         if(businessButtonId is not null)await RequireButtonCurrent6186303424888832Async(request.Id,businessButtonId,actor,cancellationToken);
@@ -264,7 +265,7 @@ public partial class YzProjectService
     {
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         await PrepareMutationAsync("6186303424888832", RecordMutationOperation.Delete, actor, cancellationToken, id, mutationScopeValues);
-        var entity = await Scope6186303424888832(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var entity = await Scope6186303424888832(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(entity);
         BeforeDelete(entity, actor);
         await ValidateMutationAsync("6186303424888832", RecordMutationOperation.Delete, entity, actor, originalScopeValues, new HashSet<string>(StringComparer.Ordinal), cancellationToken);
@@ -279,7 +280,7 @@ public partial class YzProjectService
         var mutationScopeValues = new Dictionary<string, object?>(StringComparer.Ordinal);
         await PrepareMutationAsync("6186303424888832", RecordMutationOperation.Copy, actor, cancellationToken, id, mutationScopeValues);
         await ValidateParents6186303424888832Async(parentId, actor, cancellationToken);
-        var source = await Scope6186303424888832(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new InvalidOperationException("数据不存在或无权限。");
+        var source = await Scope6186303424888832(actor, parentId).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException("数据不存在或无权限");
         var originalScopeValues = MutationScopeValues(source);
         var entity = new global::Metarill.Platform.Generated.Entities.YzProject { Id = ids.NextId() };
         var submitted = new HashSet<string>(StringComparer.Ordinal);
@@ -308,15 +309,15 @@ public partial class YzProjectService
         entity.YzProjectId = long.Parse(actor.ProjectId, CultureInfo.InvariantCulture);
         BeforeSave(entity, actor, true, submitted);
         await ValidateRelations6186303424888832Async(entity, actor, true, submitted, cancellationToken);
-        if (string.IsNullOrWhiteSpace(entity.Name)) throw new ArgumentException("\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.MysqlConnStr)) throw new ArgumentException("\u6570\u636E\u5E93\u8FDE\u63A5\u5B57\u7B26\u4E32\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.ShortName)) throw new ArgumentException("\u7F29\u7565\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.DbName)) throw new ArgumentException("\u6570\u636E\u5E93\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.ContextRoot)) throw new ArgumentException("api\u8DEF\u5F84\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.EclipseBaseName)) throw new ArgumentException("java\u9879\u76EE\u5305\u540D\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.YzYzpVersionId is null) throw new ArgumentException("yzp\u7248\u672C\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (entity.DbType is null) throw new ArgumentException("\u6570\u636E\u5E93\u7C7B\u578B\u4E0D\u80FD\u4E3A\u7A7A\u3002");
-        if (string.IsNullOrWhiteSpace(entity.PrimaryColor)) throw new ArgumentException("PrimaryColor\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+        if (string.IsNullOrWhiteSpace(entity.Name)) throw BusinessRuleException.RequiredField("\u540D\u79F0");
+        if (string.IsNullOrWhiteSpace(entity.MysqlConnStr)) throw BusinessRuleException.RequiredField("\u6570\u636E\u5E93\u8FDE\u63A5\u5B57\u7B26\u4E32");
+        if (string.IsNullOrWhiteSpace(entity.ShortName)) throw BusinessRuleException.RequiredField("\u7F29\u7565\u540D");
+        if (string.IsNullOrWhiteSpace(entity.DbName)) throw BusinessRuleException.RequiredField("\u6570\u636E\u5E93\u540D\u79F0");
+        if (string.IsNullOrWhiteSpace(entity.ContextRoot)) throw BusinessRuleException.RequiredField("api\u8DEF\u5F84");
+        if (string.IsNullOrWhiteSpace(entity.EclipseBaseName)) throw BusinessRuleException.RequiredField("java\u9879\u76EE\u5305\u540D");
+        if (entity.YzYzpVersionId is null) throw BusinessRuleException.RequiredField("yzp\u7248\u672C");
+        if (entity.DbType is null) throw BusinessRuleException.RequiredField("\u6570\u636E\u5E93\u7C7B\u578B");
+        if (string.IsNullOrWhiteSpace(entity.PrimaryColor)) throw BusinessRuleException.RequiredField("PrimaryColor");
         await ValidateMutationAsync("6186303424888832", RecordMutationOperation.Copy, entity, actor, originalScopeValues, submitted, cancellationToken);
         if (await mapper.InsertAsync(entity, cancellationToken) != 1) throw new InvalidOperationException("复制失败。");
         await NotifyYzProjectAsync("6186303424888832", entity, actor, submitted, false, true, cancellationToken);
