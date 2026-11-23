@@ -14,6 +14,33 @@ public sealed partial class FixedConditionSqlTests
         var sql=Compile("duration=@value").Apply(session.Select<Row>(),session,new Dictionary<string,object?>{{"value",text}},"time_contract").ToSql();
         Assert.Contains("@time_contract_0",sql);Assert.DoesNotContain(text,sql);
     }
+    /// <summary>实际联动时间进入 MySQL 参数，空值保留 SQL 三值逻辑，方言继续检查范围。</summary>
+    [Theory]
+    [InlineData(true, "2026-11-24T12:34:56.123456", "12:34:56.123456")]
+    [InlineData(false, "-30:01:02.123456", "-30:01:02.123456")]
+    public void Time_form_values_reach_the_mysql_plan_as_typed_parameters(bool clock, string input, string canonical)
+    {
+        var plan = Compile("duration >= @formParameters.allowed");
+        var provider = new Metarill.Data.MySqlDatabaseProvider();
+        var values = new Dictionary<string, object?>
+        {
+            ["formParameters.allowed"] = Metarill.Data.Queries.FixedConditionSqlPlan.BindTimeFormValue(
+                System.Text.Json.JsonSerializer.SerializeToElement(input), clock)
+        };
+        var clause = plan.Render(provider, values, "time_form", provider.QuoteIdentifier);
+        Assert.Equal("(`duration`>=@time_form_0)", clause.Sql);
+        Assert.Equal(SqlTimeValue.ParseText(canonical), Assert.IsType<TimeSpan>(clause.Parameters["time_form_0"]));
+        values["formParameters.allowed"] = Metarill.Data.Queries.FixedConditionSqlPlan.BindTimeFormValue(
+            System.Text.Json.JsonSerializer.SerializeToElement(""), clock);
+        clause = plan.Render(provider, values, "time_form", provider.QuoteIdentifier);
+        Assert.Equal("(`duration`>=NULL)", clause.Sql);
+        Assert.Empty(clause.Parameters);
+
+        values["formParameters.allowed"] = Metarill.Data.Queries.FixedConditionSqlPlan.BindTimeFormValue(
+            System.Text.Json.JsonSerializer.SerializeToElement("839:00:00"), false);
+        Assert.Throws<ArgumentOutOfRangeException>(() => plan.Render(provider, values, "time_form", provider.QuoteIdentifier));
+    }
+
     /// <summary>日数、偏移和超出MySQL范围在构造SQL前明确拒绝，不交给服务器截断。</summary>
     [Theory][InlineData("1.06:00:00")][InlineData("12:34:56Z")][InlineData("839:00:00")][InlineData("838:59:59.000001")]
     public void Invalid_time_fixed_conditions_fail_before_orm(string text)

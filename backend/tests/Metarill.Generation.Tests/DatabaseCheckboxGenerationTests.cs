@@ -743,6 +743,35 @@ public sealed class DatabaseCheckboxGenerationTests
         Assert.Contains("target_names",maintenance.MixedSourceColumns["relation_source"]);
     }
 
+    /// <summary>原非冗余复选的候选和名称型 Excel 使用同一个 TIME 依赖，保存取最终实体值。</summary>
+    [Fact]
+    public void Time_checkbox_form_dependency_reaches_candidate_write_and_excel_name_lookup()
+    {
+        var catalog = Published(Catalog(true));
+        foreach (var page in catalog.ConfigPages) page.WhereSql = "yz_project_id=@current_yz_project_id";
+        catalog.ConfigPages.Single(page => page.Id == "201").IsImport = 1;
+        foreach (var tableId in new[] { "2", "3" })
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = tableId + "996", ConfigTableId = tableId, YzProjectId = catalog.YzProjectId,
+                ColumnName = "opens_at", LogicalType = "time", ColumnType = "time", ControlKind = "time"
+            });
+        catalog.ConfigPageColumns.Add(new()
+        {
+            Id = "2012996", ConfigPageId = "201", ConfigColumnId = "2996",
+            YzProjectId = catalog.YzProjectId, IsShow = 1, IsEdit = 1
+        });
+        catalog.ConfigColumns.Single(column => column.Id == "25").ControlDetail =
+            """{"tableId":"3","pageId":"301","nameField":"name","whereSql":"opens_at=@formParameters.opensAt"}""";
+
+        var model = GenerationModel.Create(catalog, "Example.TimeCheckboxForm");
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var code = BackendRenderer.Render(model).Single(file => file.Path == "Services/RelationSourceService.g.cs").Content;
+        Assert.Contains("BindTimeFormValue(Metarill.Core.Contracts.FixedConditionFormValue.Read(formParameters", code);
+        Assert.Contains("BindTimeFormValue(relationContext[\"opensAt\"], true)", code);
+        Assert.Contains("[\"formParameters.opensAt\"]=entity.OpensAt", code);
+    }
+
     /// <summary>同一逻辑目标父范围连接原候选、写入和两份名称回填，实际父键由稀疏级联还原。</summary>
     [Theory]
     [InlineData(null,false)]

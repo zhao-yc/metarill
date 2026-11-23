@@ -76,6 +76,19 @@ public sealed class FixedConditionSqlPlan
     private static readonly JsonSerializerOptions ComparisonJson=new(){Converters={new FiniteDoubleJsonConverter()}};
     /// <summary>表单依赖先按发布的源字段类型绑定，再由目标条件复核，避免源int32借目标int64放宽范围。</summary>
     public static object? BindScalar(object? value,string logicalType)=>Scalar(value,Type(logicalType));
+    /// <summary>联动条件沿用来源字段的时间输入合同，同时把结果交给目标条件的参数绑定。</summary>
+    public static TimeSpan? BindTimeFormValue(JsonElement value, bool clock)
+    {
+        try
+        {
+            return clock ? ClockTimeValue.Parse(value) : SqlTimeValue.Parse(value);
+        }
+        catch (JsonException)
+        {
+            throw Invalid();
+        }
+    }
+
     /// <summary>条件总是作为原查询的AND追加，值用命名参数绑定；调用方仍须先建立真实身份和对象范围。</summary>
     public ISelect<T> Apply<T>(ISelect<T> query,DatabaseSession session,IReadOnlyDictionary<string,object?> variables,string parameterPrefix)where T:class
     {

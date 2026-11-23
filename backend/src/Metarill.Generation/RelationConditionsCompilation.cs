@@ -107,8 +107,7 @@ internal static class RelationConditionsCompilation
     {
         var forms=condition.Forms.Count==0?"":"        var formValues=new Dictionary<string,object?>{"+
             string.Join(",",condition.Forms.Select(binding=>"["+JsonSerializer.Serialize(binding.Variable)+
-                "]=Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(relationContext["+JsonSerializer.Serialize(binding.Column.JsonName)+"],"+
-                JsonSerializer.Serialize(binding.Column.Source.LogicalType)+")"))+"};\n";
+                "]="+BindFormValue(binding.Column,"relationContext["+JsonSerializer.Serialize(binding.Column.JsonName)+"]",",")))+"};\n";
         return forms+$"        var importCondition={plan}.BindVariables(new Dictionary<string,object?>{{{Variables(condition,parent)}}});\n";
     }
 
@@ -201,16 +200,22 @@ internal static class RelationConditionsCompilation
     /// <summary>生成固定路径提取器，不复制整个请求或让客户端选择属性路径。</summary>
     internal static string Reader(RelationModel relation,string suffix)=>!HasForms(relation)?"":
         "    /// <summary>只提取已发布联动依赖的标量，不信任客户端身份键。</summary>\n"
-        +$"    private static IReadOnlyDictionary<string, object?> ReadOptionsForm{suffix}(JsonElement? formParameters) => new Dictionary<string, object?> {{ "+string.Join(", ",relation.Conditions!.Forms.Select(binding=>"["+JsonSerializer.Serialize(binding.Variable)+"] = Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(Metarill.Core.Contracts.FixedConditionFormValue.Read(formParameters, new string[] { "+string.Join(", ",binding.Path.Select(part=>JsonSerializer.Serialize(part)))+" }, new string[] { "+string.Join(", ",binding.FallbackPath.Select(part=>JsonSerializer.Serialize(part)))+" }), "+JsonSerializer.Serialize(binding.Column.Source.LogicalType)+")"))+" };\n";
+        +$"    private static IReadOnlyDictionary<string, object?> ReadOptionsForm{suffix}(JsonElement? formParameters) => new Dictionary<string, object?> {{ "+string.Join(", ",relation.Conditions!.Forms.Select(binding=>"["+JsonSerializer.Serialize(binding.Variable)+"] = "+BindFormValue(binding.Column,"Metarill.Core.Contracts.FixedConditionFormValue.Read(formParameters, new string[] { "+string.Join(", ",binding.Path.Select(part=>JsonSerializer.Serialize(part)))+" }, new string[] { "+string.Join(", ",binding.FallbackPath.Select(part=>JsonSerializer.Serialize(part)))+" })")))+" };\n";
     /// <summary>最终写入从真实实体取值，不能用候选请求缓存伪造依赖。</summary>
     private static string WriteArgument(RelationModel relation)=>!HasForms(relation)?"":", "+EntityValues(relation,"entity");
     /// <summary>写入和导出都从窄投影实际实体取值，生成表达式不接受客户端替换。</summary>
     internal static string EntityValues(RelationModel relation,string entity)=>"new Dictionary<string, object?> { "+string.Join(", ",relation.Conditions!.Forms.Select(binding=>"["+JsonSerializer.Serialize(binding.Variable)+"] = "+entity+"."+binding.Column.Property))+" }";
     /// <summary>导入使用解析拓扑中的默认/原记录/单元格值，缺失时整体拒绝。</summary>
-    internal static string ImportArgument(RelationModel relation)=>!HasForms(relation)?"":", new Dictionary<string, object?> { "+string.Join(", ",relation.Conditions!.Forms.Select(binding=>"["+JsonSerializer.Serialize(binding.Variable)+"] = Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(relationContext["+JsonSerializer.Serialize(binding.Column.JsonName)+"], "+JsonSerializer.Serialize(binding.Column.Source.LogicalType)+")"))+" }";
+    internal static string ImportArgument(RelationModel relation)=>!HasForms(relation)?"":", new Dictionary<string, object?> { "+string.Join(", ",relation.Conditions!.Forms.Select(binding=>"["+JsonSerializer.Serialize(binding.Variable)+"] = "+BindFormValue(binding.Column,"relationContext["+JsonSerializer.Serialize(binding.Column.JsonName)+"]")))+" }";
+
+    /// <summary>普通标量按逻辑类型绑定，TIME 按来源控件分流日内时刻和总小时。</summary>
+    internal static string BindFormValue(ColumnModel column, string json, string separator = ", ") =>
+        column.Type == "TimeSpan?"
+            ? $"Metarill.Data.Queries.FixedConditionSqlPlan.BindTimeFormValue({json}, {(TimeFieldCompilation.IsClock(column) ? "true" : "false")})"
+            : $"Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar({json}{separator}{JsonSerializer.Serialize(column.Source.LogicalType)})";
     /// <summary>逻辑类型兼容只在生成时判定，实际数值范围仍由参数计划严格核验。</summary>
     private static string Kind(string type)=>type.ToLowerInvariant() switch
-    {"id" or "long" or "int64" or "bigint" or "integer" or "int" or "int32"=>"integer","string" or "text" or "varchar"=>"string","decimal" or "money" or "number"=>"decimal","double"=>"double","date" or "datetime" or "timestamp"=>"date","bool" or "boolean"=>"bool",_=>throw new InvalidOperationException("表单条件依赖类型尚未证明。")};
+    {"id" or "long" or "int64" or "bigint" or "integer" or "int" or "int32"=>"integer","string" or "text" or "varchar"=>"string","decimal" or "money" or "number"=>"decimal","double"=>"double","date" or "datetime" or "timestamp"=>"date","time"=>"time","bool" or "boolean"=>"bool",_=>throw new InvalidOperationException("表单条件依赖类型尚未证明。")};
     /// <summary>仅保留候选外键、依赖及目标父的窄原值，不缓存整个实体或账号。</summary>
     internal static string CaptureMutation(GenerationModel model,TableModel table,PageModel page)
     {

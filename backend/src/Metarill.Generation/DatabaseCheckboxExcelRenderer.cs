@@ -29,7 +29,7 @@ internal static class DatabaseCheckboxExcelRenderer
             var parseLabel=def.TypedLabel
                 ?MultiSelectExcelRenderer.ParseLabel(def.Name,"item.ToString()","name")
                 :"var name=item.GetString();";
-            var form="new Dictionary<string,object?>{"+string.Join(",",(def.Conditions?.Forms??[]).Select(binding=>"["+Literal(binding.Variable)+"]=Metarill.Data.Queries.FixedConditionSqlPlan.BindScalar(relationContext["+Literal(binding.Column.JsonName)+"],"+Literal(binding.Column.Source.LogicalType)+")"))+"}";
+            var form="new Dictionary<string,object?>{"+string.Join(",",(def.Conditions?.Forms??[]).Select(binding=>"["+Literal(binding.Variable)+"]="+RelationConditionsCompilation.BindFormValue(binding.Column,"relationContext["+Literal(binding.Column.JsonName)+"]",",")))+"}";
             var targetParent="parentId";
             if(dependency.Parents.TryGetValue(def.Source.Source.Id,out var parent))
             {

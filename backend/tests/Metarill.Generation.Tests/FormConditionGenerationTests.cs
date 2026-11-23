@@ -59,6 +59,55 @@ public sealed class FormConditionGenerationTests
         Assert.Contains("PageImportError.OverwriteKeyChanged, columnName:", service);
     }
 
+    /// <summary>真实生成服务使用原时钟或原生时长的表单值查候选，Excel 继续通过同一依赖。</summary>
+    [Theory]
+    [InlineData(true, "2026-11-24 12:34:56.123456", "12:34:56.123456", "-30:00:00")]
+    [InlineData(false, "-30:01:02.123456", "-30:01:02.123456", "2026-11-24 12:34:56")]
+    public async Task Time_form_dependencies_bind_the_original_options_and_import_contract(bool clock,
+        string input, string canonical, string invalid)
+    {
+        var catalog = Catalog();
+        var source = catalog.ConfigColumns.Single(column => column.Id == "27");
+        source.LogicalType = source.ColumnType = "time";
+        source.ControlKind = clock ? "time" : "";
+        source.DefaultValue = canonical;
+        var target = catalog.ConfigColumns.Single(column => column.Id == "35");
+        target.LogicalType = target.ColumnType = "time";
+        catalog.ConfigColumns.Single(column => column.Id == "25").ControlDetail =
+            """{"tableId":"3","nameField":"name","whereSql":"parent_id=@parentId AND alias=@formParameters.relationSource.allowed"}""";
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-time-relation-form");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, "Example.TimeForm");
+            await File.WriteAllTextAsync(Path.Combine(directory, "Directory.Build.props"),
+                "<Project><PropertyGroup><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>");
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service = assembly.GetType("Example.TimeForm.Generated.Services.RelationSourceService", true)!;
+            var reader = service.GetMethod("ReadOptionsForm201_25",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            Assert.NotNull(reader);
+            IReadOnlyDictionary<string, object?> Read(JsonElement values) =>
+                (IReadOnlyDictionary<string, object?>)reader.Invoke(null, [values])!;
+            const string variable = "formParameters.relationSource.allowed";
+            Assert.Equal(Metarill.Core.Contracts.SqlTimeValue.ParseText(canonical), Read(
+                JsonSerializer.SerializeToElement(new { relationSource = new { allowed = input } }))[variable]);
+            Assert.Null(Read(JsonSerializer.SerializeToElement(new { allowed = "" }))[variable]);
+            Assert.Null(Read(JsonSerializer.SerializeToElement(new { allowed = (string?)null }))[variable]);
+            var error = Assert.Throws<System.Reflection.TargetInvocationException>(() =>
+                Read(JsonSerializer.SerializeToElement(new { allowed = invalid })));
+            Assert.IsType<ArgumentException>(error.InnerException);
+
+            var code = await File.ReadAllTextAsync(Path.Combine(output, "Services/RelationSourceService.g.cs"));
+            Assert.Contains("relationContext[\"allowed\"] = JsonSerializer.SerializeToElement(existing is null ?", code);
+            Assert.Contains("BindTimeFormValue(relationContext[\"allowed\"], " + (clock ? "true" : "false") + ")", code);
+            Assert.Contains("[\"formParameters.relationSource.allowed\"] = entity.Allowed", code);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+
+    }
+
     /// <summary>联动字段本身是另一个关系时，循环必须在原子批次写盘前拒绝。</summary>
     [Fact]
     public void Form_dependencies_cannot_cycle_through_another_relation()
