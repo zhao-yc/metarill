@@ -37,9 +37,16 @@ internal static partial class BackendRenderer
             .AppendLine("    {").AppendLine($"        RequireButtonRecordAccess{suffix}(id,buttonId,actor);")
             .AppendLine("        if(locking&&session.CurrentTransaction is null)throw new InvalidOperationException(\"业务记录锁定必须加入真实写事务。\");")
             .AppendLine("        var query=mapper.Query().Where(entity=>entity.Id==id);");
+        var fixedTextParent = UsesFixedTextParent(model, table, page);
         foreach(var (column,source) in fixedQuery.IdentityScopes)
         {
             if(source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,table,page,column))continue;
+            // 按钮读取和写事务根锁沿用发布页的精确父键，避免普通排序规则改变记录范围。
+            if(source=="parent"&&fixedTextParent&&column.Type=="string?")
+            {
+                result.AppendLine($"        query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},parentId!);");
+                continue;
+            }
             if(source=="parent")result.AppendLine("        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求parentId。\");");
             result.AppendLine($"        query=query.Where(entity=>entity.{column.Property}=={ScopeValue(column,source=="project"?"actor.ProjectId":"parentId!")});");
         }

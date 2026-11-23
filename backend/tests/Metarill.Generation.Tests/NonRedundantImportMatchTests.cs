@@ -285,9 +285,18 @@ public sealed class NonRedundantImportMatchTests
         VerifyPublishedParentsAsync(0, compoundTarget, liveTarget: true, controlParent: true, popup: false, parentMode,
             ruleRecord: true);
 
-    /// <summary>共享来源页夹具分别运行原CRUD／Excel范围和必要的派生规则读取。</summary>
+    /// <summary>实际业务按钮查询和写事务根锁沿用普通页面的文本父键过滤。</summary>
+    [Theory]
+    [InlineData(0, 3, false)]
+    [InlineData(0, 0, true)]
+    [InlineData(1, 3, true)]
+    public Task Business_button_record_uses_the_published_text_parent(int storage, int parentMode, bool compoundTarget) =>
+        VerifyPublishedParentsAsync(storage, compoundTarget, liveTarget: true, controlParent: true, popup: false,
+            parentMode, buttonRecord: true);
+
+    /// <summary>共享来源页夹具运行原CRUD／Excel范围，以及适用的派生规则和业务按钮。</summary>
     private static async Task VerifyPublishedParentsAsync(int storage, bool compoundTarget, bool liveTarget,
-        bool controlParent, bool popup, int parentMode, bool ruleRecord = false)
+        bool controlParent, bool popup, int parentMode, bool ruleRecord = false, bool buttonRecord = false)
     {
         var catalog=Catalog("string");
         var splitControl=compoundTarget&&controlParent;
@@ -330,6 +339,12 @@ public sealed class NonRedundantImportMatchTests
         }
         page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(compoundTarget&&(!liveTarget||!splitControl)?"edit":"list");
         if (ruleRecord) page.Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("pickerName == '已审核'");
+        if (buttonRecord)
+            catalog.ConfigButtons.Add(JsonSerializer.SerializeToElement(new
+            {
+                id = "86000", configPageId = page.Id, yzProjectId = catalog.YzProjectId, actionType = 1,
+                name = "固定业务", place = "Edit", sql = "/admin/custom/parent-scope/check"
+            }));
         catalog.ConfigPages.Add(page);
         catalog.ConfigPageColumns.Add(new(){Id="7017015",ConfigPageId="701",ConfigColumnId="7015",IsShow=1});
         // 分写父条件的非冗余字典同时用原首列覆盖路径，真实物理首列与名称回显列分开。
@@ -445,6 +460,9 @@ public sealed class NonRedundantImportMatchTests
             if (ruleRecord)
                 await AssertRuleTextParentAsync(service, generated, textSource ? "country_id" : "review_country_id",
                     mixedParent: !textSource, catalog.YzProjectId);
+            if (buttonRecord)
+                await AssertButtonTextParentAsync(service, textSource ? "country_id" : "review_country_id",
+                    mixedParent: !textSource, catalog.YzProjectId);
             if(storage==0)
                 Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan701",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
         }
@@ -543,6 +561,72 @@ public sealed class NonRedundantImportMatchTests
             if (mixedParent) Assert.Contains(9007199254740993L, command.Values);
             Assert.Equal(i == 1, command.Sql.EndsWith("FOR SHARE", StringComparison.Ordinal));
         }
+    }
+
+    /// <summary>执行实际生成的按钮读入口，捕获 ORM 参数并核对写事务构造的排他查询。</summary>
+    private static async Task AssertButtonTextParentAsync(Type service, string textParent, bool mixedParent, string projectId)
+    {
+        var transport = new DerivedRuleRecordGenerationTests.Transport(new Dictionary<string, string>());
+        using var session = new DatabaseSession(new()
+        {
+            ExpectedDatabase = "offline",
+            ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused"
+        }, null, transport);
+        var mapper = Activator.CreateInstance(service.Assembly.GetType(service.Namespace!.Replace(".Services", ".Mappers") +
+            ".CompoundPickerOwnerMapper", true)!, session)!;
+        var actor = new RuntimeActor(1, "业务按钮记录范围", false, projectId, "1");
+        var authorization = new ButtonParentAuthorization(actor);
+        var target = Activator.CreateInstance(service, [session, mapper, new SnowflakeIdGenerator(1),
+            Array.Empty<IRecordMutationObserver>(), Array.Empty<IRecordMutationGuard>(), authorization])!;
+        var read = service.GetMethod("ReadButtonRecord701Async")!;
+        var rootQuery = service.GetMethod("ButtonRecordQuery701", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        const string largeParent = "9007199254740993";
+        var textPredicate = $"BINARY (`a`.`{textParent}`)=BINARY @mt_parent_{textParent}";
+        var commands = 0;
+        session.Orm.Aop.CurdBefore += (_, args) =>
+        {
+            commands++;
+            Assert.Contains(textPredicate, args.Sql);
+            Assert.DoesNotContain(largeParent, args.Sql);
+            Assert.Equal(largeParent, Assert.Single(args.DbParms, parameter => parameter.ParameterName.TrimStart('@') == $"mt_parent_{textParent}").Value);
+            if (mixedParent)
+            {
+                var bound = System.Text.RegularExpressions.Regex.Match(args.Sql, @"a\.`country_id`\s*=\s*(?:cast\(\s*)?(@[A-Za-z0-9_]+)");
+                Assert.True(bound.Success, args.Sql);
+                var integerParent = Assert.Single(args.DbParms, parameter =>
+                    parameter.ParameterName.TrimStart('@') == bound.Groups[1].Value.TrimStart('@'));
+                Assert.Equal(largeParent, Convert.ToString(integerParent.Value, System.Globalization.CultureInfo.InvariantCulture));
+            }
+            throw new CapturedButtonParentSql();
+        };
+        Task Read(string? parent) => (Task)read.Invoke(target, [1L, parent, "86000", actor, CancellationToken.None])!;
+
+        await Assert.ThrowsAsync<CapturedButtonParentSql>(() => Read(largeParent));
+        foreach (var invalid in new[] { null, "071", "71 ", "+71", "0", "9223372036854775808" })
+            await Assert.ThrowsAsync<ArgumentException>(() => Read(invalid));
+        Assert.Equal(1, commands);
+
+        await session.InTransactionAsync(() =>
+        {
+            var query = rootQuery.Invoke(target, [1L, largeParent, "86000", actor, true])!;
+            var entity = read.ReturnType.GetGenericArguments().Single();
+            var sql = BusinessRecordScopeGenerationTests.SqlOf(entity, query);
+            Assert.Contains(textPredicate, sql);
+            Assert.Contains("FOR UPDATE", sql, StringComparison.OrdinalIgnoreCase);
+            return Task.FromResult(true);
+        });
+        Assert.Empty(transport.Commands);
+    }
+
+    /// <summary>在 ORM 建立真实连接前停止；用例只验证固定 SQL 与参数。</summary>
+    private sealed class CapturedButtonParentSql : Exception;
+
+    /// <summary>只授已登记按钮，普通查询权限不参与测试合同。</summary>
+    private sealed class ButtonParentAuthorization(RuntimeActor actor) : IRuntimeAuthorization
+    {
+        public RuntimeActor RequireActor() => actor;
+        public void RequirePagePermission(string pageId, string operation) => throw new UnauthorizedAccessException();
+        public void RequireButtonPermission(string pageId, string buttonId) => Assert.Equal(("701", "86000"), (pageId, buttonId));
     }
 
     /// <summary>原字典页和控件可分别声明同一父记录的物理字段。</summary>

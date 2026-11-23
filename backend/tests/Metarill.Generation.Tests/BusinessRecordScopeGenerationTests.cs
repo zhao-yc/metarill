@@ -62,7 +62,7 @@ public sealed class BusinessRecordScopeGenerationTests
     /// <summary>反射入口只解包实际生成方法抛出的异常，不用替身断言代替生成执行。</summary>
     private static Exception Failure(Func<object> action)=>Assert.Throws<TargetInvocationException>(()=>action()).InnerException!;
     /// <summary>真实ORM按生成实体解析SQL，连接保持未打开。</summary>
-    private static string SqlOf(Type entity,object query)=>(string)typeof(BusinessRecordScopeGenerationTests).GetMethod(nameof(TypedSql),BindingFlags.NonPublic|BindingFlags.Static)!.MakeGenericMethod(entity).Invoke(null,[query])!;
+    internal static string SqlOf(Type entity,object query)=>(string)typeof(BusinessRecordScopeGenerationTests).GetMethod(nameof(TypedSql),BindingFlags.NonPublic|BindingFlags.Static)!.MakeGenericMethod(entity).Invoke(null,[query])!;
     /// <summary>类型只在生成后已知，运行时仍执行FreeSql原ToSql。</summary>
     private static string TypedSql<T>(object query)where T:class=>((ISelect<T>)query).ToSql();
     /// <summary>仅用于命令准备阶段中止，不允许测试继续建立真实连接。</summary>
