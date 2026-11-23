@@ -14,6 +14,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     internal bool ScopedStoredSingle { get; init; }
     internal bool CompoundProjectSource { get; init; }
     internal bool CompoundProjectTarget { get; init; }
+    internal bool CanonicalProjectParent { get; init; }
     internal IReadOnlyList<ColumnModel> IndependentOrder { get; init; } = [];
     internal RelationConditionModel? ImportCondition { get; init; }
     internal bool ExcelOnly { get; init; }
@@ -218,15 +219,19 @@ internal static class RelationCompilation
                 .DistinctBy(column=>column.Source.Id).ToArray();
             var projectParentScope=!functionForm&&!binding.Declared&&!owner.IsGlobal&&!target.IsGlobal&&
                 (selectionParent is not null||scopedStoredList||source.Source.ControlKind=="List"&&target.Source.IsRongyu==0);
-            var compoundSource=projectParentScope&&sourceKeys.Length>1&&
-                sourceParents is [var sourceParent]&&targetParents is [var targetParent]&&sourceParent.Source.Id==targetParent.Source.Id&&
+            var sameParentTable=sourceParents is [var sourceParent]&&targetParents is [var targetParent]&&
+                sourceParent.Source.Id==targetParent.Source.Id;
+            var compoundSource=projectParentScope&&sameParentTable&&sourceKeys.Length>1&&
                 sourceKeys.All(column=>NonRedundantReadCompilation.Physical(model,owner,column));
-            // 来源只有一个父字段时，目标页和控件上的多个同父字段仍使用已发布的完整证明。
-            var compoundTarget=projectParentScope&&targetParents.Length==1&&
-                targetPage.Scopes.Concat(scopes).Where(scope=>scope.Source=="parent")
-                    .Select(scope=>scope.Column.Source.Id).Distinct(StringComparer.Ordinal).Skip(1).Any();
+            var targetKeys=targetPage.Scopes.Concat(scopes).Where(scope=>scope.Source=="parent")
+                .Select(scope=>scope.Column).DistinctBy(column=>column.Source.Id).Take(2).ToArray();
+            // 目标复合范围及一对一的文本父键都使用实际发布字段，同父关系不依赖字符串隐式等值。
+            var compoundTarget=projectParentScope&&targetParents.Length==1&&targetKeys.Length>1;
+            var singleTextParent=projectParentScope&&sameParentTable&&sourceKeys is [var singleSource]&&targetKeys is [var singleTarget]&&
+                (singleSource.Type=="string?"||singleTarget.Type=="string?")&&
+                NonRedundantReadCompilation.Physical(model,owner,singleSource)&&NonRedundantReadCompilation.Physical(model,target,singleTarget);
             var publishedParent=selectionParent;
-            if(publishedParent is null&&(compoundSource||compoundTarget))
+            if(publishedParent is null&&(compoundSource||compoundTarget||singleTextParent))
             {
                 var fields=target.Columns.Select(column=>column.Source.ColumnName);
                 var targetTerms=FixedConditionPlan.Compile(targetPage.Source.WhereSql,fields).Terms;
@@ -236,6 +241,8 @@ internal static class RelationCompilation
             var compoundProjectSource=compoundSource?publishedParent?.SingleSource(model.Catalog,owner.Source,source.Source,page.Source):null;
             if(compoundSource&&compoundProjectSource is not {AdditionalColumns.Count:>0})
                 throw new InvalidOperationException("原单值关联缺少已发布的来源复合物理父键。");
+            var canonicalProjectParent=singleTextParent&&publishedParent is {Logical:false,Global:false}&&
+                publishedParent.SingleSource(model.Catalog,owner.Source,source.Source,page.Source).Column.Id==sourceKeys[0].Source.Id;
             var parentProof=fixedParent??storedSelectionParent;
             var sourceBinding=compoundProjectSource??(parentProof is null||functionForm?null:
                 owner.Source.IsRongyu==0&&(globalListPageScope||!owner.IsGlobal&&!target.IsGlobal)
@@ -255,6 +262,7 @@ internal static class RelationCompilation
                 ScopedStoredSingle = scopedStoredList||storedSelectionParent is not null,
                 CompoundProjectSource = compoundProjectSource is not null,
                 CompoundProjectTarget = compoundTarget&&publishedParent is {Logical:false,Global:false,AdditionalTargets.Count:>0},
+                CanonicalProjectParent = canonicalProjectParent,
                 IndependentOrder = independentOrder,
                 FunctionForm = functionForm,
                 ImportCondition = selection?.ImportCondition,

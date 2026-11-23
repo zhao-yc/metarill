@@ -252,12 +252,34 @@ public sealed class NonRedundantImportMatchTests
     [InlineData(1, true, true, false, true, 3)]
     [InlineData(1, true, false, true, false, 3)]
     [InlineData(1, true, false, false, true, 3)]
+    [InlineData(0, false, false, false, false, 4)]
+    [InlineData(0, false, false, false, true, 4)]
+    [InlineData(0, false, true, false, false, 4)]
+    [InlineData(0, false, true, false, true, 4)]
+    [InlineData(1, false, false, false, false, 4)]
+    [InlineData(1, false, false, false, true, 4)]
+    [InlineData(1, false, true, false, false, 4)]
+    [InlineData(1, false, true, false, true, 4)]
+    [InlineData(0, false, false, false, false, 5)]
+    [InlineData(0, false, false, false, true, 5)]
+    [InlineData(0, false, true, false, false, 5)]
+    [InlineData(0, false, true, false, true, 5)]
+    [InlineData(1, false, false, false, false, 5)]
+    [InlineData(1, false, false, false, true, 5)]
+    [InlineData(1, false, true, false, false, 5)]
+    [InlineData(1, false, true, false, true, 5)]
+    [InlineData(0, false, false, false, false, 6)]
+    [InlineData(0, false, true, false, false, 6)]
+    [InlineData(1, false, false, false, true, 6)]
+    [InlineData(1, false, true, false, true, 6)]
     public async Task Single_relation_keeps_all_published_parent_columns(int storage,bool compoundTarget,
         bool liveTarget=false,bool controlParent=true,bool popup=false,int parentMode=0)
     {
         var catalog=Catalog("string");
         var splitControl=compoundTarget&&controlParent;
         AddStoredPickerTarget(catalog,compoundTarget,splitControl);
+        var textTarget=parentMode is 5 or 6;
+        if(textTarget)catalog.ConfigColumns.Single(column=>column.Id=="65").LogicalType="string";
         if(liveTarget)catalog.ConfigTables.Single(table=>table.Id=="6").IsRongyu=0;
         catalog.ConfigTables.Add(new(){Id="7",TableName="compound_picker_owner",IsRongyu=storage});
         catalog.ConfigColumns.AddRange([
@@ -274,8 +296,8 @@ public sealed class NonRedundantImportMatchTests
         ]);
         var page=new PageMetadata{Id="701",ConfigTableId="7",IsNew=1,IsSave=1,IsCopy=1,IsImport=1,IsExport=1,
             WhereSql="yz_project_id=@current_yz_project_id AND review_country_id=@parent_id AND country_id=@parentId"};
-        var textSource=parentMode==3;
-        if(parentMode==1||textSource)
+        var textSource=parentMode is 3 or 4 or 6;
+        if(parentMode is 1 or 5||textSource)
         {
             catalog.ConfigColumns.Remove(catalog.ConfigColumns.Single(column=>column.Id=="7017"));
             page.WhereSql="yz_project_id=@current_yz_project_id AND country_id=@parentId";
@@ -296,7 +318,7 @@ public sealed class NonRedundantImportMatchTests
         catalog.ConfigPages.Add(page);
         catalog.ConfigPageColumns.Add(new(){Id="7017015",ConfigPageId="701",ConfigColumnId="7015",IsShow=1});
         // 分写父条件的非冗余字典同时用原首列覆盖路径，真实物理首列与名称回显列分开。
-        var overwrite=textSource||liveTarget&&splitControl||popup&&compoundTarget;
+        var overwrite=textSource||textTarget||liveTarget&&splitControl||popup&&compoundTarget;
         if(overwrite)
         {
             page.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
@@ -352,6 +374,7 @@ public sealed class NonRedundantImportMatchTests
         else
             Assert.Contains("OptionsScope701_7016Async(request.ParentId, groupPickerId.Key",generated);
         if(compoundTarget)Assert.Contains("ApplyTextParent(query,session,\"approval_country_id\",targetParentId!",generated);
+        if(textTarget)Assert.Contains("ApplyTextParent(query,session,\"logical_overwrite_country_id\",targetParentId!",generated);
         if(overwrite)Assert.Contains("var key = matchValue.Deserialize",generated);
         Assert.Contains("Import701Async",generated);
         Assert.Contains("Export701Async",generated);
@@ -390,11 +413,12 @@ public sealed class NonRedundantImportMatchTests
                 Assert.Contains("OriginalSelection7016",detail);
                 Assert.Contains(parentMode==2?":parent_id=\"entity.reviewCountryId\"":":parent_id=\"parent_id\"",detail);
                 Assert.Contains("onPopSelect7016",detail);
-                if(compoundTarget)
+                if(compoundTarget||textTarget)
                 {
                     var actualTarget=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LogicalOverwritePickerService.g.cs"));
-                    Assert.Contains(liveTarget?"FixedReadFilter.ForTextParent(\"approval_country_id\",request.ParentId!)":
-                        "ApplyTextParent(query,session,\"approval_country_id\",parentId!",actualTarget);
+                    var parentColumn=textTarget?"logical_overwrite_country_id":"approval_country_id";
+                    Assert.Contains(liveTarget?$"FixedReadFilter.ForTextParent(\"{parentColumn}\",request.ParentId!)":
+                        $"ApplyTextParent(query,session,\"{parentColumn}\",parentId!",actualTarget);
                 }
             }
             Assert.NotNull(service.GetMethod("Create701Async"));
@@ -420,7 +444,7 @@ public sealed class NonRedundantImportMatchTests
             Assert.Equal("7017",Assert.Single(binding.AdditionalColumns).Id);
         else
             Assert.Empty(binding.AdditionalColumns);
-        catalog.ConfigColumns.Single(column=>column.Id==(parentMode is 1 or 3?"7014":"7017")).LinkConfigTableId="4";
+        catalog.ConfigColumns.Single(column=>column.Id==(parentMode is 0 or 2?"7017":"7014")).LinkConfigTableId="4";
         Assert.Throws<InvalidOperationException>(()=>parent.SingleSource(catalog,source,picker,page));
     }
 

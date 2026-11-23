@@ -354,13 +354,14 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         page.Scopes.Any(scope=>scope.Source=="parent")&&
         MultiSelectCompilation.ForService(model,table,page).Any(definition=>definition.PublishedPhysicalSource);
 
-    /// <summary>复合来源范围和引用同父复合字典的单个文本父字段均使用已发布的物理父键。</summary>
+    /// <summary>复合来源范围和已发布同父关系中的文本父字段均按物理父键精确限定。</summary>
     private static bool UsesPublishedPhysicalSingleSource(GenerationModel model,TableModel table,PageModel page)
     {
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
         var text=parents is [var parent]&&parent.Type=="string?"&&NonRedundantReadCompilation.Physical(model,table,parent);
         return (parents.Length>1||text)&&RelationCompilation.ForPage(model,page,true).Any(relation=>
-            relation.CompoundProjectSource||text&&relation.CompoundProjectTarget&&ControlRenderer.RelationContext(page,relation,false).SameParent);
+            relation.CompoundProjectSource||text&&(relation.CompoundProjectTarget||relation.CanonicalProjectParent)&&
+                ControlRenderer.RelationContext(page,relation,false).SameParent);
     }
 
     /// <summary>已发布的文本父键按规范 ID 二进制比较。</summary>
@@ -999,7 +1000,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 ExactDataManageCompilation.Declared(relation.TargetPage) &&
                 (logicalPlan is not null || DerivedRelationNamesCompilation.UsesExactSingle(relation));
             var lockScope=fixedWriteExact||relation.ScopedStoredSingle||relation.CompoundProjectSource||relation.CompoundProjectTarget||
-                relation.LogicalSourceParent||
+                relation.CanonicalProjectParent||relation.LogicalSourceParent||
                 relation.Conditions is not null||logicalPlan is not null||
                 relation.Target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
             result.Append(RelationConditionsCompilation.Declaration(relation, suffix)).Append(RelationConditionsCompilation.Reader(relation,suffix));
@@ -1032,7 +1033,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 relation.FixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true)
                 .DistinctBy(scope=>scope.Column.Source.Id).ToArray();
             // 目标复合父键本身就要求规范 ID，独立表单和仅单列的来源也使用相同的比较。
-            var canonicalParent=relation.CompoundProjectSource||relation.CompoundProjectTarget||
+            var canonicalParent=relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent||
                 relation.ScopedStoredSingle&&!relation.Target.IsGlobal&&targetParentScopes.Length>1;
             if (relation.TargetParents.Count > 0)
             {
