@@ -25,7 +25,20 @@ public sealed partial class ButtonVisibilityRule
         catch(JsonException){throw Invalid();}
     }
     /// <summary>记录只能由宿主真实生成读取结果提供；规则不接收调用方的筛选或值覆盖。</summary>
-    public bool Matches(IReadOnlyDictionary<string,object?> record)=>root.Matches(record);
+    public bool Matches(IReadOnlyDictionary<string,object?> record)=>Matches(record,null);
+
+    /// <summary>只有发布页批准的 JSON 根才解码文本，整个字段仍按原值比较。</summary>
+    public bool Matches(IReadOnlyDictionary<string,object?> record,IReadOnlySet<string>? jsonObjectFields)=>
+        root.Matches(path=>Read(record,path,jsonObjectFields));
+
+    /// <summary>验证可供生成页和执行端共同使用的 JSON 对象路径。</summary>
+    public static string? JsonPathRoot(string path)
+    {
+        var segments=path.Split('.');
+        return path.Length<=512&&segments.Length is >=2 and <=17&&
+            segments.All(part=>!string.IsNullOrWhiteSpace(part)&&part is not("__proto__" or "prototype" or "constructor"))
+            ? segments[0] : null;
+    }
     /// <summary>完整验证所有分组后才执行；OR分支不能隐藏非法运算符或无限递归。</summary>
     private static Group ParseGroup(JsonElement value,List<string> fields,ref int budget,int depth)
     {
@@ -56,16 +69,16 @@ public sealed partial class ButtonVisibilityRule
         }
         return new((String(value,"logic")??"AND").ToUpperInvariant()=="OR",nodes.ToArray());
     }
-    private abstract record Node {internal abstract bool Matches(IReadOnlyDictionary<string,object?> record);}
+    private abstract record Node {internal abstract bool Matches(Func<string,object?> read);}
     private sealed record Group(bool Or,Node[] Children):Node
     {
-        internal override bool Matches(IReadOnlyDictionary<string,object?> record)=>Children.Length==0|| (Or?Children.Any(node=>node.Matches(record)):Children.All(node=>node.Matches(record)));
+        internal override bool Matches(Func<string,object?> read)=>Children.Length==0||(Or?Children.Any(node=>node.Matches(read)):Children.All(node=>node.Matches(read)));
     }
     private sealed record Condition(string Field,string Operation,object? Expected,object?[] Candidates):Node
     {
-        internal override bool Matches(IReadOnlyDictionary<string,object?> record)
+        internal override bool Matches(Func<string,object?> read)
         {
-            var actual=Read(record,Field);
+            var actual=read(Field);
             return Operation switch
             {
                 "isBlank"=>Blank(actual),"isNotBlank"=>!Blank(actual),
@@ -75,11 +88,23 @@ public sealed partial class ButtonVisibilityRule
             };
         }
     }
-    /// <summary>原点路径只读取Map/JSON对象，不反射任意对象成员，也不把字符串当JSON再次执行。</summary>
-    private static object? Read(IReadOnlyDictionary<string,object?> record,string path)
+    /// <summary>只读取字典和 JSON 对象；数据库文本只在已声明的 JSON 子路径内解码。</summary>
+    private static object? Read(IReadOnlyDictionary<string,object?> record,string path,IReadOnlySet<string>? jsonObjectFields)
     {
-        if(BlankText(path))return null;object? current=record;
-        foreach(var part in path.Split('.'))
+        if(BlankText(path))return null;
+        var segments=path.Split('.');
+        var name=segments[0];
+        object? current=record.GetValueOrDefault(name);
+        if(segments.Length>1&&jsonObjectFields?.Contains(name)==true)
+        {
+            current=current switch
+            {
+                string text=>Contracts.RequiredFieldValue.VisibilityObject(text),
+                JsonElement{ValueKind:JsonValueKind.String} text=>Contracts.RequiredFieldValue.VisibilityObject(text.GetString()),
+                _=>current
+            };
+        }
+        foreach(var part in segments.Skip(1))
         {
             if(current is IReadOnlyDictionary<string,object?> dictionary)current=dictionary.GetValueOrDefault(part);
             else if(current is IDictionary map)current=map.Contains(part)?map[part]:null;

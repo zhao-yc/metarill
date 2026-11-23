@@ -25,6 +25,7 @@ public sealed record AgentPublishedPage(string ProjectId, string Id, string Name
     public bool HasOwnedActionSource { get; init; }
     internal IReadOnlyDictionary<string,string>? RecordNames {get;init;}
     internal IReadOnlySet<string> RecordJsonColumns { get; init; } = FrozenSet<string>.Empty;
+    internal IReadOnlySet<string> ButtonJsonColumns { get; init; } = FrozenSet<string>.Empty;
 }
 
 /// <summary>按钮路径、确认与可见规则来自发布快照，不能被调用方元数据或请求覆盖。</summary>
@@ -32,6 +33,7 @@ public sealed record AgentPublishedButton(string Id, AgentPublishedPage Page, st
     string ConfirmationMessage, string Visibility)
 {
     internal ButtonVisibilityRule? Rule {get;init;}
+    internal IReadOnlySet<string> JsonRuleFields { get; init; } = FrozenSet<string>.Empty;
     internal ReadOnlyConditionRule? ReadOnlyRule {get;init;}
     internal IReadOnlyDictionary<string,string> RecordNames {get;init;} = FrozenDictionary<string,string>.Empty;
 }
@@ -57,7 +59,13 @@ public sealed class AgentHostCatalog
         var definitions = catalogs.SelectMany(catalog => catalog.ConfigPages.Select(page =>
         {
             var table = catalog.ConfigTables.Single(table => table.Id == page.ConfigTableId);
-            var required = catalog.ConfigPageColumns.Where(field => field.ConfigPageId == page.Id && DeclaresRequiredInput(field))
+            var fields = catalog.ConfigPageColumns.Where(field => field.ConfigPageId == page.Id).ToArray();
+            var visibleFieldIds = fields.Where(IsVisibleRecordField).Select(field => field.ConfigColumnId).ToHashSet(StringComparer.Ordinal);
+            var jsonColumns = catalog.ConfigColumns.Where(column => column.ConfigTableId == table.Id &&
+                column.LogicalType.Equals("json", StringComparison.OrdinalIgnoreCase) &&
+                column.ControlKind is not ("FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage") &&
+                !ExactDataManageValues.IsSensitiveField(column.ColumnName)).ToArray();
+            var required = fields.Where(DeclaresRequiredInput)
                 .Select(field => (Field: field, Column: catalog.ConfigColumns.Single(column => column.Id == field.ConfigColumnId)))
                 .Where(entry => RequiresCreateInput(entry.Field, entry.Column)).Select(entry => JsonName(entry.Column.ColumnName))
                 .Distinct(StringComparer.Ordinal).ToArray();
@@ -65,10 +73,9 @@ public sealed class AgentHostCatalog
                 page.WhereSql.Contains("@parent", StringComparison.OrdinalIgnoreCase), Array.AsReadOnly(required))
             {
                 TableId = table.Id, IsFunctionTable = table.IsFunctionTable == 1, RecordNames=CompileRecordNames(catalog,table.Id),
-                RecordJsonColumns = catalog.ConfigColumns.Where(column => column.ConfigTableId == table.Id &&
-                        column.LogicalType.Equals("json", StringComparison.OrdinalIgnoreCase) &&
-                        column.ControlKind is not ("FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage") &&
-                        !ExactDataManageValues.IsSensitiveField(column.ColumnName))
+                RecordJsonColumns = jsonColumns.Select(column => column.ColumnName).ToFrozenSet(StringComparer.Ordinal),
+                ButtonJsonColumns = jsonColumns.Where(column => visibleFieldIds.Contains(column.Id) && column.IsVirtualColumn == 0 &&
+                        column.ControlKind is not ("Image" or "MultiImage" or "Upload" or "Video"))
                     .Select(column => column.ColumnName).ToFrozenSet(StringComparer.Ordinal),
                 CanUpdate = PageUpdatePolicy.CanUpdate(page),
                 ReadOnlyCondition = page.Extra.GetValueOrDefault("readOnlyCondition").ToString(),
@@ -115,7 +122,20 @@ public sealed class AgentHostCatalog
         catch(ArgumentException){return null;}
         var names=page.RecordNames;if(names is null)return null;
         if(readOnly is not null&&readOnly.Fields.Any(field=>!names.ContainsKey(field.Split('.')[0])))return null;
-        return new(id, page, path, Text(button, "isNeedConfirm") == "1" || Text(button, "isNeedConfirm").Equals("true", StringComparison.OrdinalIgnoreCase), Text(button, "confirmMsg"), visibility){Rule=rule,ReadOnlyRule=readOnly,RecordNames=names.ToFrozenDictionary(StringComparer.Ordinal)};
+        // Web 和 Agent 使用同一发布绑定，只按实际页面开放的 JSON 列解释点路径。
+        var jsonFields = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var field in rule.Fields.Where(value => value.Contains('.')))
+        {
+            var root = ButtonVisibilityRule.JsonPathRoot(field);
+            if (root is null || !names.TryGetValue(root, out var physical) || !page.ButtonJsonColumns.Contains(physical))
+                return null;
+            jsonFields.Add(root);
+        }
+        return new(id, page, path, Text(button, "isNeedConfirm") == "1" || Text(button, "isNeedConfirm").Equals("true", StringComparison.OrdinalIgnoreCase), Text(button, "confirmMsg"), visibility)
+        {
+            Rule=rule, ReadOnlyRule=readOnly, RecordNames=names.ToFrozenDictionary(StringComparer.Ordinal),
+            JsonRuleFields=jsonFields.ToFrozenSet(StringComparer.Ordinal)
+        };
     }
     /// <summary>沿用生成表单的原编辑开关优先级，只读字段不能成为创建参数。</summary>
     private static bool DeclaresRequiredInput(PageColumnMetadata field)
@@ -124,8 +144,14 @@ public sealed class AgentHostCatalog
         return inEdit && !Enabled(field.Extra.GetValueOrDefault("isReadOnly")) &&
             (field.IsRequired == 1 || Enabled(field.Extra.GetValueOrDefault("isMust")));
 
-        static bool Enabled(JsonElement value) => value.ValueKind == JsonValueKind.True || value.ToString() == "1";
     }
+
+    /// <summary>与生成列表和详情一致，原显式开关优先于旧标志。</summary>
+    private static bool IsVisibleRecordField(PageColumnMetadata field) =>
+        (field.Extra.TryGetValue("isInGrid", out var grid) ? Enabled(grid) : field.IsShow == 1) ||
+        (field.Extra.TryGetValue("isInEdit", out var edit) ? Enabled(edit) : field.IsEdit == 1);
+
+    private static bool Enabled(JsonElement value) => value.ValueKind == JsonValueKind.True || value.ToString() == "1";
 
     /// <summary>Agent 仅预要求无默认、无初始值的固定必填字段，条件必填由实际生成服务判断。</summary>
     private static bool RequiresCreateInput(PageColumnMetadata field, ColumnMetadata column)

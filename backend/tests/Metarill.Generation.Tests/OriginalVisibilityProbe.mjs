@@ -107,23 +107,27 @@ if (process.argv[3] === 'numeric' || process.argv[3] === 'json-numeric') {
     assert.equal(detail.state.customerButtonShow900, false, '相邻雪花 ID 不可匹配目标编号')
     assert.equal(hasRemark(detail.tree), false)
     assert.equal(detail.state.visibleDetailGroups.length, 0)
-    assert.equal(list.state.customerButtonShow900({ id: '7', ownerId: '9007199254740992' }), false)
+    assert.equal(list.state.customerButtonShow900({ id: '7', ownerId: '9007199254740992',
+      ...(jsonMember ? { approvalPayload: payload('9007199254740992') } : {}) }), false)
     detail.state.entity.ownerId = '9007199254740993'
     if (jsonMember) detail.state.entity.approvalPayload = payload('9007199254740993')
     await detail.flush()
     assert.equal(detail.state.customerButtonShow900, true)
     assert.equal(hasRemark(detail.tree), true)
     assert.deepEqual(detail.state.visibleDetailGroups.map(group => group.key), ['review'])
-    assert.equal(list.state.customerButtonShow900({ id: '7', ownerId: '9007199254740993' }), true)
+    assert.equal(list.state.customerButtonShow900({ id: '7', ownerId: '9007199254740993',
+      ...(jsonMember ? { approvalPayload: payload('9007199254740993') } : {}) }), true)
     assert.equal(detail.state.entity.ownerId, '9007199254740993')
     if (jsonMember) {
       assert.equal(detail.state.entity.approvalPayload, payload('9007199254740993'))
       detail.state.entity.approvalPayload = '{"review":[9007199254740993]}'
       await detail.flush()
       assert.equal(hasRemark(detail.tree), false)
+      assert.equal(detail.state.customerButtonShow900, false)
       detail.state.entity.approvalPayload = '{"review":{"owner":9007199254740993}'
       await detail.flush()
       assert.equal(hasRemark(detail.tree), false)
+      assert.equal(detail.state.customerButtonShow900, false)
     }
 
     const compare = (actual, operator, expected) =>

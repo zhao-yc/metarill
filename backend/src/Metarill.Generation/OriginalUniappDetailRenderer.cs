@@ -109,7 +109,7 @@ internal static class OriginalUniappDetailRenderer
             {
                 var rule = Text(field.Column.Source.Extra, "visibleCondition");
                 var options = new Dictionary<string, object> { ["name"] = field.Column.JsonName, ["groupKey"] = field.GroupKey, ["visibleCondition"] = rule };
-                foreach (var (key, value) in OriginalVisibilityCompilation.Options(page, rule, includeJsonPaths: true))
+                foreach (var (key, value) in OriginalVisibilityCompilation.Options(page, rule))
                     options.Add(key, value);
                 return options;
             });

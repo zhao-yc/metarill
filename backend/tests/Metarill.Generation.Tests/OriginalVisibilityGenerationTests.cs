@@ -69,11 +69,11 @@ public sealed class OriginalVisibilityGenerationTests
                 Id = "17", ConfigTableId = "1", ColumnName = "approval_payload", LogicalType = "json", Name = "审批参数", ControlKind = "TextArea",
                 ColumnLength = "max"
             });
-            catalog.ConfigPageColumns.Add(new() { Id = "117", ConfigPageId = page.Id, ConfigColumnId = "17", IsShow = 1, IsEdit = 1 });
+            catalog.ConfigPageColumns.Add(new() { Id = "117", ConfigPageId = page.Id, ConfigColumnId = "17", IsShow = 0, IsEdit = 1 });
             columnRule = columnRule.Replace(owner, payload + ".review.owner", StringComparison.Ordinal);
         }
         var buttonRule = """{"groups":[{"logic":"AND","conditions":[{"field":"ownerId","operator":"in","valueList":[9007199254740993,9007199254740996]}]}]}"""
-            .Replace("ownerId", owner, StringComparison.Ordinal);
+            .Replace("ownerId", jsonMember ? payload + ".review.owner" : owner, StringComparison.Ordinal);
         catalog.ConfigColumns.Single(column => column.ColumnName == "remark").Extra["visibleCondition"] =
             JsonSerializer.SerializeToElement(columnRule);
         catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "13").Extra["detailGroupKey"] = JsonSerializer.SerializeToElement("review");
@@ -95,9 +95,12 @@ public sealed class OriginalVisibilityGenerationTests
         var plan = ReadProjectionCompilation.ForPage(model, table, table.Pages.Single());
         Assert.True(plan.List.CanCompile, string.Join("；", plan.List.Gaps.Select(gap => gap.Reason)));
         Assert.True(plan.Detail.CanCompile, string.Join("；", plan.Detail.Gaps.Select(gap => gap.Reason)));
-        Assert.Contains(plan.List.Dependencies, dependency => dependency.ColumnId == "16");
+        Assert.Contains(plan.List.Dependencies, dependency => dependency.ColumnId == (jsonMember ? "17" : "16"));
         if (jsonMember)
+        {
+            Assert.Contains(plan.List.OutputFields, field => field.JsonName == "approvalPayload");
             Assert.Contains(plan.Detail.Dependencies, dependency => dependency.ColumnId == "17");
+        }
         await Probe(catalog, jsonMember ? "json-numeric" : "numeric");
 
         Dictionary<string, object?> Record(long id) => new()

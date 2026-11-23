@@ -73,6 +73,51 @@ public sealed partial class AgentBusinessActionTests
         Assert.Equal(1, handler.Calls);
     }
 
+    /// <summary>Web 和 Agent 用真实记录里的已发布 JSON 子字段判定，完整文本字段仍使用原比较语义。</summary>
+    [Fact]
+    public async Task Button_condition_reads_published_json_paths_from_server_record()
+    {
+        const string rule = """
+        {"conditions":[{"field":"rule_payload.flags.audit","operator":"eq","value":9007199254740993},
+                       {"field":"rule_payload","operator":"eq","value":"{\"flags\":{\"audit\":9007199254740993}}"}]}
+        """;
+        using var fixture = new Fixture(rule: rule);
+        var context = fixture.Context("Preview");
+        var handler = new WebHandler();
+        var executor = new OriginalBusinessButtonExecutor(fixture.Resources,fixture.Authorization,fixture.Services,
+            fixture.Services.GetRequiredService<IActionDescriptorCollectionProvider>(),[handler],fixture.Guard);
+        var request = new OriginalBusinessButtonRequest("31", "7", JsonSerializer.SerializeToElement(new { id = "7", rulePayload = new { flags = new { audit = 9007199254740993L } } }));
+        var arguments = Encoding.UTF8.GetBytes("""{"recordKey":7}""");
+
+        foreach (var value in new[] { """{"flags":{"audit":9007199254740992}}""", """{"flags":[9007199254740993]}""", """{"flags":{""" })
+        {
+            fixture.Reader.Row.RulePayload = value;
+            await Assert.ThrowsAsync<BusinessRuleException>(() => executor.ExecuteAsync(request, context));
+            await Assert.ThrowsAsync<BusinessRuleException>(() => fixture.Catalog.ValidateActionInvocationAsync("action:fixture.preview", context, arguments));
+        }
+        Assert.Equal(0, handler.Calls);
+        Assert.Equal(0, fixture.Guard.Calls);
+
+        fixture.Reader.Row.RulePayload = """{"flags":{"audit":9007199254740993}}""";
+        await fixture.Catalog.ValidateActionInvocationAsync("action:fixture.preview", context, arguments);
+        await executor.ExecuteAsync(request, context);
+        Assert.Equal(1, handler.Calls);
+        Assert.Equal(1, fixture.Guard.Calls);
+    }
+
+    /// <summary>只发布实际页面配置中的 JSON 对象路径，拒绝文本、隐藏字段和不安全的路径段。</summary>
+    [Theory]
+    [InlineData("", "realName.status")]
+    [InlineData("hidden-json", "rulePayload.flags.locked")]
+    [InlineData("", "rulePayload.flags.constructor")]
+    [InlineData("", "rulePayload..locked")]
+    public void Button_json_paths_must_use_an_exposed_object(string variant, string path)
+    {
+        var rule = JsonSerializer.Serialize(new { conditions = new[] { new { field = path, @operator = "isBlank" } } });
+        using var fixture = new Fixture(variant, rule: rule);
+        Assert.Null(fixture.Resources.AgentCatalog.FindButton("31"));
+    }
+
     /// <summary>普通按钮保持自身授权，不因页面设置只读条件就被统一增加修改权限。</summary>
     [Fact]
     public async Task Normal_button_does_not_inherit_writable_visibility_condition()

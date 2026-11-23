@@ -14,7 +14,7 @@ internal static class OriginalUniappDetailFields
     {
         var column = f.Column; var name = column.JsonName; var ro = name + "ReadOnly";
         var visible = Text(column.Source.Extra, "visibleCondition"); var description = Text(column.Source.Extra, "description");
-        var bindings = OriginalVisibilityCompilation.Options(c.Page, visible, includeJsonPaths: true);
+        var bindings = OriginalVisibilityCompilation.Options(c.Page, visible);
         var visibilityConfig = string.Concat(bindings.Select(binding => ", " + binding.Key + ": " + Html(Js(binding.Value))));
         var span = f.Span > 1 ? $" style='grid-column: span {f.Span};'" : "";
         var grouped = tabs ? $" id='yzp-detail-field-{name}'" + (group.Length > 0 ? $" v-show='activeDetailGroupKey === {Html(Js(group))}'" : "") : "";

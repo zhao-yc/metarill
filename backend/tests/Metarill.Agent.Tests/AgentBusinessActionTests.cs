@@ -303,6 +303,8 @@ namespace Metarill.Agent.Tests
                 Metadata.ConfigColumns.Add(new(){Id="14",ConfigTableId="11",ColumnName="computed_name",Name="派生名称",YzProjectId="100"});
                 Metadata.ConfigColumns.Add(new(){Id="13",ConfigTableId="11",ColumnName="amount",Name="金额",LogicalType="decimal",YzProjectId="100"});
                 Metadata.ConfigColumns.Add(new(){Id="16",ConfigTableId="11",ColumnName="rule_payload",LogicalType="json",YzProjectId="100"});
+                if (variant != "hidden-json")
+                    Metadata.ConfigPageColumns.Add(new(){Id="17",ConfigPageId="21",ConfigColumnId="16",IsEdit=1,YzProjectId="100"});
                 if (variant == "unsupported-readonly-expression") Metadata.ConfigPages[0].Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("amount.toFixed(2)");
                 if(readOnly is not null)Metadata.ConfigPages[0].Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement(readOnly);
                 foreach (var (id, method, confirm) in new[] { ("31", "preview", 0), ("32", "complete", 1), ("33", "query", 0), ("34", "raw", 0), ("35", "ambiguous", 0) })

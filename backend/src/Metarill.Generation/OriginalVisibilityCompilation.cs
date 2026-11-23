@@ -10,7 +10,7 @@ internal static class OriginalVisibilityCompilation
         page.Readable.SingleOrDefault(column => column.JsonName == name || column.Source.ColumnName == name);
 
     /// <summary>只发布规则实际引用的别名、布尔控件和已声明 JSON 对象。</summary>
-    internal static Dictionary<string, object> Options(PageModel page, string rule, bool includeJsonPaths = false)
+    internal static Dictionary<string, object> Options(PageModel page, string rule)
     {
         var options = new Dictionary<string, object>(StringComparer.Ordinal);
         if (string.IsNullOrWhiteSpace(rule)) return options;
@@ -26,8 +26,7 @@ internal static class OriginalVisibilityCompilation
         {
             var names = path.Split('.', 2);
             var nested = names.Length == 2;
-            if (nested && !includeJsonPaths) continue;
-            var column = nested ? ReadProjectionCompilation.DetailVisibilityJsonRoot(page, path) : ResolveField(page, names[0]);
+            var column = nested ? ReadProjectionCompilation.VisibilityJsonRoot(page, path) : ResolveField(page, names[0]);
             if (column is null) continue;
             if (nested) jsonFields.Add(column.JsonName);
             if (!nested && BackendRenderer.UsesBooleanOptionWireFormat(column))

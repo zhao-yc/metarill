@@ -43,16 +43,14 @@ internal static class ReadProjectionCompilation
         return new(list.Finish(), detail.Finish(), selection.Finish());
     }
 
-    /// <summary>详情字段可见条件只允许访问本页可读的明确 JSON 对象，不遍历普通文本、数组或原型成员。</summary>
-    internal static ColumnModel? DetailVisibilityJsonRoot(PageModel page, string path)
+    /// <summary>显示规则只读取本页已开放的 JSON 对象，不能借点路径读取隐藏字段、数组或凭据。</summary>
+    internal static ColumnModel? VisibilityJsonRoot(PageModel page, string path)
     {
-        var segments = path.Split('.');
-        if (segments.Length is < 2 or > 17 || path.Length > 512 ||
-            segments.Any(segment => string.IsNullOrWhiteSpace(segment) || segment is "__proto__" or "prototype" or "constructor"))
-            return null;
-        var column = OriginalVisibilityCompilation.ResolveField(page, segments[0]);
+        var name = ButtonVisibilityRule.JsonPathRoot(path);
+        if (name is null) return null;
+        var column = OriginalVisibilityCompilation.ResolveField(page, name);
         return column is not null && column.Source.LogicalType.Equals("json", StringComparison.OrdinalIgnoreCase) &&
-            !column.IsJsonArray ? column : null;
+            !column.IsJsonArray && !Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.Source.ColumnName) ? column : null;
     }
 
     /// <summary>按稳定字段ID收集去重依赖，未知来源只留缺口，不能扩成全表或全Readable。</summary>
@@ -538,7 +536,7 @@ internal static class ReadProjectionCompilation
             }
             catch (InvalidOperationException error) { Gap("", error.Message); }
             foreach (var column in page.DetailColumns)
-                if (column.Source.Extra.TryGetValue("visibleCondition", out var rule)) Rule(rule, "详情可见条件：" + column.JsonName, column.Source.Id, detailField: true);
+                if (column.Source.Extra.TryGetValue("visibleCondition", out var rule)) Rule(rule, "详情可见条件：" + column.JsonName, column.Source.Id);
         }
 
         /// <summary>列表顶部按钮不按行判断；只有原Grid/Edit按钮实际使用的规则参与字段依赖。</summary>
@@ -560,7 +558,7 @@ internal static class ReadProjectionCompilation
         }
 
         /// <summary>仅收集原JSON规则明确读取的field；value/valueList始终是常量，不递归猜列。</summary>
-        private void Rule(JsonElement value, string reason, string owner, bool detailField = false)
+        private void Rule(JsonElement value, string reason, string owner)
         {
             if (value.ValueKind == JsonValueKind.Null || value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(value.GetString())) return;
             try
@@ -587,8 +585,8 @@ internal static class ReadProjectionCompilation
                             if (string.IsNullOrWhiteSpace(key)) continue;
                             if (key.Contains('.'))
                             {
-                                var root = detailField ? DetailVisibilityJsonRoot(page, key) : null;
-                                if (root is null) throw new InvalidOperationException("JSON点路径必须绑定本页可读的详情 JSON 对象：" + key);
+                                var root = VisibilityJsonRoot(page, key);
+                                if (root is null) throw new InvalidOperationException("JSON点路径必须绑定本页可读的 JSON 对象：" + key);
                                 Add(root, reason, false);
                                 continue;
                             }

@@ -572,7 +572,7 @@ var yzp = {
 				return false;
 			}
 		}
-		return evaluateButtonVisibleRuleCore(currentConfig.visibleRuleJson, entity || {}, undefined, currentConfig.booleanOptionFields, currentConfig.fieldAliases);
+		return evaluateButtonVisibleRuleCore(currentConfig.visibleRuleJson, entity || {}, currentConfig.jsonObjectFields, currentConfig.booleanOptionFields, currentConfig.fieldAliases);
 	},
 	isColumnVisible(config, entity) {
 		const currentConfig = config || {};
