@@ -18,13 +18,16 @@ public sealed class MultipleIdCheckboxFilterGenerationTests
     [Theory]
     [InlineData(false, "multi")]
     [InlineData(false, "checkbox")]
+    [InlineData(false, "stored")]
+    [InlineData(false, "stored_global")]
     [InlineData(true, "multi")]
     [InlineData(true, "checkbox")]
     [InlineData(true, "constant")]
     public async Task Published_multi_id_checkboxes_preserve_the_original_storage_comparisons(bool nonRedundant, string control)
     {
         const string ns = "Example.MultiIdCheckbox";
-        var draft = control == "checkbox" ? DatabaseCheckboxGenerationTests.Catalog(nonRedundant) : nonRedundant
+        var stored = control.StartsWith("stored", StringComparison.Ordinal);
+        var draft = control == "checkbox" || stored ? DatabaseCheckboxGenerationTests.Catalog(nonRedundant) : nonRedundant
             ? NonRedundantMultiSelectionTests.Catalog() : GeneratedMultiSelectContractTests.Catalog();
         if (control == "constant")
         {
@@ -35,6 +38,7 @@ public sealed class MultipleIdCheckboxFilterGenerationTests
             draft.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == "27");
         }
         var catalog = RedundantMultiNameCacheTests.Published(draft);
+        if (stored) DatabaseCheckboxListOptionsGenerationTests.ConfigureStoredCheckbox(catalog, control == "stored_global");
         var field = catalog.ConfigPageColumns.Single(field => field.ConfigPageId == "201" && field.ConfigColumnId == "25");
         field.Extra["isSearch"] = JsonSerializer.SerializeToElement(1);
         if (control == "constant") field.IsEdit = 0;
@@ -57,8 +61,8 @@ public sealed class MultipleIdCheckboxFilterGenerationTests
             new CSharpGenerator().Generate(catalog, generated, ns);
             var actual = await GeneratedRelationOptionsMySqlTests.BuildGenerated(fixture);
             var service = actual.GetType(ns + ".Generated.Services.RelationSourceService", true)!;
-            var actor = new RuntimeActor(1, "多值筛选", false, catalog.YzProjectId, "5");
-            var request = new PageRequest { ParentId = "71", Filters = new() };
+            var actor = new RuntimeActor(1, "多值筛选", false, catalog.YzProjectId, "5") { StoreId = 9007199254740995L };
+            var request = new PageRequest { ParentId = stored ? null : "71", Filters = new() };
             if (nonRedundant)
             {
                 var read = service.GetMethod("ReadFilters201", BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -80,7 +84,9 @@ public sealed class MultipleIdCheckboxFilterGenerationTests
             }
             else
             {
-                request.Filters["targetIds"] = JsonSerializer.SerializeToElement(new[] { "[\"1\"]", "[\"11\",\"9007199254740993\"]" });
+                request.Filters["targetIds"] = stored
+                    ? JsonSerializer.SerializeToElement(new[] { "1", "9007199254740993" })
+                    : JsonSerializer.SerializeToElement(new[] { "[\"1\"]", "[\"11\",\"9007199254740993\"]" });
                 using var orm = new FreeSqlBuilder().UseConnectionFactory(DataType.MySql,
                     () => throw new InvalidOperationException("离线多值验收禁止建立数据库连接。")).UseAutoSyncStructure(false).Build();
                 using var session = new DatabaseSession(new()
@@ -96,10 +102,28 @@ public sealed class MultipleIdCheckboxFilterGenerationTests
                 var query = service.GetMethod("Query201", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(instance, [request, actor]);
                 var sql = (string)typeof(MultipleIdCheckboxFilterGenerationTests).GetMethod(nameof(Sql), BindingFlags.NonPublic | BindingFlags.Static)!
                     .MakeGenericMethod(actual.GetType(ns + ".Generated.Entities.RelationSource", true)!).Invoke(null, [query])!;
-                Assert.Matches(@"(?i)`target_ids`\s*\)*\s*IN\s*\(", sql);
-                Assert.Contains("[\"1\"]", sql);
-                Assert.Contains("[\"11\",\"9007199254740993\"]", sql);
-                Assert.DoesNotContain("JSON_TABLE", sql);
+                if (stored)
+                {
+                    Assert.Contains("JSON_TABLE", sql);
+                    Assert.Contains("CAST(checkbox_ids.member_id AS BINARY) IN", sql);
+                    Assert.DoesNotContain("[\"1\",\"9007199254740993\"]", sql);
+                    // 高位 ID 以十进制字符串放入独立 JSON 参数，避免浮点转换。
+                    var provider = Assert.IsAssignableFrom<FreeSql.Internal.CommonProvider.Select0Provider>(query);
+                    var parameter = Assert.Single(provider._params, item =>
+                        item.ParameterName.TrimStart('@').StartsWith("mt_json_ids_", StringComparison.Ordinal));
+                    Assert.Contains("@" + parameter.ParameterName.TrimStart('@'), sql);
+                    Assert.Equal("[\"1\",\"9007199254740993\"]", parameter.Value);
+                    Assert.Contains("`yz_project_id`", sql);
+                    Assert.Contains("`store_id`", sql);
+                    Assert.DoesNotMatch(@"(?i)`target_ids`\s*\)*\s*IN\s*\(", sql);
+                }
+                else
+                {
+                    Assert.Matches(@"(?i)`target_ids`\s*\)*\s*IN\s*\(", sql);
+                    Assert.Contains("[\"1\"]", sql);
+                    Assert.Contains("[\"11\",\"9007199254740993\"]", sql);
+                    Assert.DoesNotContain("JSON_TABLE", sql);
+                }
             }
             if (nonRedundant && control == "multi")
                 foreach (var operation in new[] { "restore", "build" })

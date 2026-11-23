@@ -24,6 +24,11 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool SharedAccountScope { get; init; }
     internal bool SharedDerivedPageScope { get; init; }
     internal bool SharedLogicalParentScope { get; init; }
+    internal bool HasStoredAccountScope { get; init; }
+
+    /// <summary>原列表勾选的加载和冗余数组匹配共用同一候选范围证明。</summary>
+    internal bool SupportsRedundantArrayFilter =>
+        FormParentField is not null || SharedLogicalParentScope || HasStoredAccountScope;
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
@@ -358,6 +363,7 @@ internal static class DatabaseCheckboxCompilation
                 SharedAccountScope=sharedAccountScope,
                 SharedDerivedPageScope=sharedDerivedPageScope,
                 SharedLogicalParentScope=sharedLogicalParentScope,
+                HasStoredAccountScope=storedAccountPage,
                 GlobalRealtimeNameOverride=globalRealtimeNameOverride,
                 RealtimeLogicalParentScope=realtimeRead&&exactTarget is null&&logicalPage is not null&&
                     logicalPage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column)),

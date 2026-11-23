@@ -7,7 +7,9 @@ const [output, scenario] = process.argv.slice(2)
 const frontend = join(output, 'frontend')
 const source = await readFile(join(frontend, 'pages/yzp/relation_source-list-201.vue'), 'utf8')
 assert(source.includes("multiple v-model='filters.targetIds' :localdata='targetIdsRange'"))
-const page = mountGenerated(source, scenario === 'root' ? {} : { parent_id: '71', is_son_page: true }, {}, {
+const stored = scenario.startsWith('stored')
+const root = scenario === 'root' || stored
+const page = mountGenerated(source, root ? {} : { parent_id: '71', is_son_page: true }, {}, {
   runtimeDirectory: join(frontend, 'common/yzp_runtime')
 })
 const key = '9007199254740993'
@@ -32,12 +34,13 @@ try {
     assert(first)
     assert.equal(first.options.method, 'POST')
     assert.equal(first.options.sendSessionId, true)
-    const expected = scenario === 'root' ? {} : { parentId: '71' }
+    const expected = root ? {} : { parentId: '71' }
     if (scenario === 'form') expected.formParameters = { relationSource: { categoryId: key } }
     assert.deepEqual(plain(first.options.data), expected)
     page.respond(first, [option(key, '甲'), option(nextKey, '乙')])
     assert.deepEqual(range(), [{ text: '甲', value: key }, { text: '乙', value: nextKey }])
 
+    if (stored) assert.deepEqual(plain(page.state.filters.targetIds), [key])
     page.state.filters.targetIds = [key, nextKey]
     page.state.filterList()
     assert.deepEqual(plain(page.pages().at(-1).options.data.filters.targetIds), [key, nextKey])

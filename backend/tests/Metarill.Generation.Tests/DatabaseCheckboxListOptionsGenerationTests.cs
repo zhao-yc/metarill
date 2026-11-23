@@ -14,11 +14,20 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
     [InlineData("form")]
     [InlineData("unbound")]
     [InlineData("redundant")]
+    [InlineData("stored")]
+    [InlineData("stored_global")]
     public async Task Original_checkbox_only_loads_candidates_with_its_published_scope(string scenario)
     {
-        var catalog = RedundantMultiNameCacheTests.Published(DatabaseCheckboxGenerationTests.Catalog(scenario != "redundant"));
+        var stored = scenario.StartsWith("stored", StringComparison.Ordinal);
+        var catalog = RedundantMultiNameCacheTests.Published(DatabaseCheckboxGenerationTests.Catalog(scenario != "redundant" && !stored));
         var checkbox = catalog.ConfigColumns.Single(column => column.Id == "25");
         checkbox.Extra["filterControlKind"] = JsonSerializer.SerializeToElement("CheckBox");
+        if (stored)
+        {
+            ConfigureStoredCheckbox(catalog, scenario == "stored_global");
+            catalog.ConfigPageColumns.Single(field => field.ConfigColumnId == "25").Extra["queryDefaultValue"] =
+                JsonSerializer.SerializeToElement("""["9007199254740993"]""");
+        }
         if (scenario == "root")
         {
             foreach (var page in catalog.ConfigPages)
@@ -54,8 +63,35 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
             Assert.Contains("[HttpPost(\"findNameIdTarget25\")]", controller);
             Assert.Contains("RelationOptionAuthorization.Require(authorization,\"201\"", controller);
             await RunVue(output, scenario);
+            if (stored)
+            {
+                var service = await File.ReadAllTextAsync(Path.Combine(output, "backend/generated/Services/RelationSourceService.g.cs"));
+                Assert.Contains("CheckboxGlobalCondition201_25.BindAccount(actor)", service);
+                Assert.Contains("DatabaseCheckboxValue.ReadSelected(filter.Value)", service);
+                Assert.Contains("ApplyJsonArrayHasAnyId", service);
+            }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
+    }
+
+    /// <summary>列表与生成查询使用同一合成门店字典，项目和门店分别存储。</summary>
+    internal static void ConfigureStoredCheckbox(Metarill.Core.Metadata.MetadataCatalog catalog, bool globalSource)
+    {
+        var checkbox = catalog.ConfigColumns.Single(column => column.Id == "25");
+        var target = catalog.ConfigTables.Single(table => table.Id == "3");
+        target.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        if (globalSource)
+            catalog.ConfigTables.Single(table => table.Id == "2").Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        // 全局字典候选按账号门店；记录仍以实际项目和门店存储及维护。
+        foreach (var definition in new[] { (Table: "2", Column: "61", Page: "201"), (Table: "3", Column: "62", Page: "301") })
+        {
+            catalog.ConfigColumns.Add(new() { Id = definition.Column, ConfigTableId = definition.Table,
+                YzProjectId = catalog.YzProjectId, ColumnName = "store_id", LogicalType = "int64" });
+            catalog.ConfigPages.Single(page => page.Id == definition.Page).WhereSql = definition.Table == "2"
+                ? "yz_project_id=@current_yz_project_id AND store_id=@current_store_id"
+                : "store_id=@current_store_id";
+        }
+        checkbox.ControlDetail = """{"tableId":"3","pageId":"301","nameField":"name"}""";
     }
 
     /// <summary>真实挂载生成页面，捕获公共请求接口接收的参数。</summary>

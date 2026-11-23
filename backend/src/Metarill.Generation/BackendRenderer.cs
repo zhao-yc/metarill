@@ -399,8 +399,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .AppendLine($"                    if (filter.Value.ValueKind == JsonValueKind.Null || (filter.Value.ValueKind == JsonValueKind.String && {blankCheck}(filter.Value.GetString())) || (filter.Value.ValueKind == JsonValueKind.Array && filter.Value.GetArrayLength() == 0)) break;");
             var checkbox=DatabaseCheckboxCompilation.Generic(table,column)?DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition:null;
             var multiIdCheckbox=ControlRenderer.UsesMultiIdCheckboxFilter(column);
-            // 使用父范围候选的显式复选按精确数组成员查询，普通下拉仍提交单个成员。
-            if(multiIdCheckbox&&(checkbox?.FormParentField is not null||checkbox?.SharedLogicalParentScope==true))
+            // 已发布的原列表复选按精确数组成员查询，使用和候选加载相同的能力判断。
+            if(multiIdCheckbox&&checkbox?.SupportsRedundantArrayFilter==true)
                 result.AppendLine("                    var selectedIds=DatabaseCheckboxValue.ReadSelected(filter.Value);")
                     .AppendLine($"                    if(selectedIds.Length>0)query=Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayHasAnyId(session,query,entity=>entity.{column.Property},selectedIds);");
             else if(checkbox is not null&&!multiIdCheckbox)result.AppendLine($"                    query=Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayHasId(session,query,entity=>entity.{column.Property},DatabaseCheckboxValue.ReadId(filter.Value));");

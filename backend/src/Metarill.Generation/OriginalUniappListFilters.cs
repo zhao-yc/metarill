@@ -43,7 +43,7 @@ internal static partial class OriginalUniappListRenderer
                     "List" when ControlRenderer.UsesScalarCheckboxFilter(column) =>
                         AppendListCheckboxFilterOptions(model, table, page, column, requests),
                     "MultiCheckBoxDatabase" when DatabaseCheckboxCompilation.Resolve(model, table, page, column).Definition is { } checkbox &&
-                        (table.Source.IsRongyu==0||checkbox.FormParentField is not null||checkbox.SharedLogicalParentScope) =>
+                        (table.Source.IsRongyu==0||checkbox.SupportsRedundantArrayFilter) =>
                         AppendArrayCheckboxFilterOptions(model, table, page, column, checkbox.Endpoint,
                             checkbox.SourceParent is not null && checkbox.FormParentField is null, checkbox.Conditions, requests,
                             formParentField:checkbox.FormParentField),
