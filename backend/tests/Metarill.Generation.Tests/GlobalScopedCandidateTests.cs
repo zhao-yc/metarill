@@ -16,9 +16,33 @@ public sealed partial class GlobalScopedCandidateTests
     [InlineData(false,1,"string")]
     [InlineData(true,0,"string")]
     [InlineData(true,1,"int64")]
-    public async Task Generated_global_candidate_and_owned_service_paths_are_distinct(bool multiple,int storage,string projectType)
+    [InlineData(true,0,"string",true)]
+    [InlineData(true,1,"int64",true)]
+    public async Task Generated_global_candidate_and_owned_service_paths_are_distinct(bool multiple,int storage,string projectType,
+        bool accountDictionary=false)
     {
         var catalog=Catalog(multiple,storage,projectType);
+        if(accountDictionary)
+        {
+            // 公开候选页附加门店及候选行的实际表单值，普通业务页仍沿自己的项目条件。
+            AddColumn("27","2","store_id","int64");
+            AddColumn("28","2","dictionary_group","int32");
+            AddColumn("190","1","option_group","int32");
+            catalog.ConfigPageColumns.Add(new(){Id="10190",ConfigPageId="10",ConfigColumnId="190",YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1});
+            catalog.ConfigPages.Single(page=>page.Id=="20").WhereSql+=" AND store_id=@current_store_id";
+            catalog.ConfigPageColumns.Single(field=>field.Id=="1013").Extra["controlDetail"]=JsonSerializer.SerializeToElement(
+                """{"whereSql":"dictionary_group=@formParameters.optionGroup"}""");
+            if(storage==1)
+            {
+                AddColumn("309","3","store_id","int64");
+                catalog.ConfigPages.Single(page=>page.Id=="30").WhereSql+=" AND store_id=@current_store_id";
+            }
+        }
+
+        void AddColumn(string id,string tableId,string name,string type)=>catalog.ConfigColumns.Add(new()
+        {
+            Id=id,ConfigTableId=tableId,YzProjectId=catalog.YzProjectId,ColumnName=name,LogicalType=type
+        });
         var model=GenerationModel.Create(catalog,ApplicationNamespace);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var table=model.Tables.Single(table=>table.Source.Id=="1");
@@ -47,6 +71,31 @@ public sealed partial class GlobalScopedCandidateTests
             foreach(var service in new[]{"GlobalSourceService","CachedConsumerService"})
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
                     assembly.GetType(ApplicationNamespace+".Generated.Services."+service,throwOnError:true)!.TypeHandle);
+            if(accountDictionary)
+            {
+                const System.Reflection.BindingFlags properties=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                const System.Reflection.BindingFlags fields=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+                var host=assembly.GetType(ApplicationNamespace+".Generated.Services.GlobalSourceService",throwOnError:true)!;
+                var actor=new Metarill.Core.Security.RuntimeActor(8,"候选门店",false,catalog.YzProjectId,"9"){StoreId=51};
+                var candidate=Sql("CandidateReadPlan10");
+                var business=Sql("ReadPlan19");
+                Assert.DoesNotContain("@project_scope_",candidate.GetType().GetProperty("Scope",properties)!.GetValue(candidate)!.ToString());
+                Assert.Contains("@project_scope_",business.GetType().GetProperty("Scope",properties)!.GetValue(business)!.ToString());
+                var selected=Assert.IsType<string>(candidate.GetType().GetMethod("Expression",properties)!
+                    .Invoke(candidate,["global_target_name"]));
+                Assert.Contains(".`option_group`",selected);
+
+                object Sql(string member)
+                {
+                    var plan=Assert.IsType<NonRedundantReadPlan>(host.GetField(member,fields)!.GetValue(null));
+                    Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+                    var sql=typeof(NonRedundantReadPlan).GetProperty("MySql",properties)!.GetValue(plan.BindAccount(actor))!;
+                    var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(sql.GetType()
+                        .GetProperty("Constants",properties)!.GetValue(sql));
+                    Assert.Contains(51L,constants.Values);
+                    return sql;
+                }
+            }
         }
         finally
         {

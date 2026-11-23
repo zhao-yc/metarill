@@ -192,8 +192,10 @@ public static class GlobalSingleRelationTarget
             !catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName=="yz_project_id"));
         var scopedSelfTree=allowsLogical&&condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
         var scopedCrossTable=allowsLogical&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,expanded,field));
-        // 冗余字典的账号条件必须绑定实际使用页，保存名称副本时由独立维护计划解析行归属。
-        var storedListAccount=allowsLogical&&target.IsRongyu==1&&owner.IsRongyu==0&&fixedList&&sourcePage is not null&&
+        // 实时读取使用实际页，冗余消费者须固定到同一已发布页并在回填计划证明持久归属。
+        var boundStoredList=owner.IsRongyu==0?sourcePage is not null:
+            cacheControl&&pageId.Length>0&&!GlobalCrossTableTarget.Declared(owner);
+        var storedListAccount=allowsLogical&&target.IsRongyu==1&&fixedList&&boundStoredList&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
         var usesListPageScope=alternateListPage||pageOnlyList||storedListAccount;
         var scopedAccount=storedListAccount||allowsLogical&&target.IsRongyu==0&&!scopedSelfTree&&!scopedCrossTable&&

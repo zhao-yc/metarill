@@ -1085,7 +1085,9 @@ public sealed class DerivedRelationNamesTests
     [InlineData(1, "constant")]
     [InlineData(1, "parent")]
     [InlineData(1, "account")]
-    public async Task List_uses_the_selected_page_of_a_stored_dictionary(int sourceStorage, string scope)
+    [InlineData(1, "account", true)]
+    public async Task List_uses_the_selected_page_of_a_stored_dictionary(int sourceStorage, string scope,
+        bool globalTarget=false)
     {
         const string ns = "Example.StoredListPage";
         var catalog = Catalog("dr_names", scope == "parent");
@@ -1118,6 +1120,13 @@ public sealed class DerivedRelationNamesTests
             foreach (var page in catalog.ConfigPages.Where(page => page.ConfigTableId == "1"))
                 page.WhereSql += " AND store_id=@current_store_id";
             alternate.WhereSql += " AND store_id=@current_store_id";
+        }
+        if(globalTarget)
+        {
+            // 全局字典的项目列继续真实存在，选择页只按实际门店限制。
+            targetTable.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            target.WhereSql="status=1";
+            alternate.WhereSql="status=87 AND store_id=@current_store_id";
         }
         catalog.ConfigPages.Add(alternate);
         foreach (var column in catalog.ConfigPageColumns.Where(field => field.ConfigPageId == "201").ToArray())
@@ -1166,6 +1175,25 @@ public sealed class DerivedRelationNamesTests
                     assembly.GetType(ns + ".Generated.GeneratedRelationMaintenance", true)!.GetProperty("Catalog")!.GetValue(null));
                 Assert.Contains("customer_name", maintenance.MixedSourceColumns["dr_names_order"]);
                 Assert.Contains("dr_names_party", maintenance.MixedTargets);
+                if(globalTarget)
+                {
+                    const BindingFlags hidden=BindingFlags.Instance|BindingFlags.NonPublic;
+                    var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                        maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+                    var published=plans["1"]!;
+                    Assert.Null(published.GetType().GetProperty("Error")!.GetValue(published));
+                    var read=published.GetType().GetProperty("Read")!.GetValue(published)!;
+                    var label=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!
+                        .Invoke(read,["customer_name"]));
+                    Assert.Contains("b.`store_id`",label);
+                    Assert.Contains(".`store_id`",label);
+                    var missingScope=JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Serialize(catalog))!;
+                    var businessPage=missingScope.ConfigPages.Single(page=>page.Id=="101");
+                    businessPage.WhereSql=businessPage.WhereSql.Replace(" AND store_id=@current_store_id","",StringComparison.Ordinal);
+                    var missingScopeModel=GenerationModel.Create(missingScope,ns);
+                    var error=Assert.Throws<InvalidOperationException>(()=>RelationPropagationCompilation.DerivedBindings(missingScopeModel));
+                    Assert.Contains("物理账号归属",error.Message);
+                }
                 if (scope == "parent") Assert.Contains("dr_names_group", maintenance.MixedTargets);
             }
             else
