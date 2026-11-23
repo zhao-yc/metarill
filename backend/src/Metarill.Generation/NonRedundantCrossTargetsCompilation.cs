@@ -31,7 +31,9 @@ internal static class NonRedundantCrossTargetsCompilation
                 condition?.SelfTreeFields.Contains(column.Source.ColumnName)!=true||
             GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&condition?.SelfTreeFields.Contains(column.Source.ColumnName)!=true))
             throw new InvalidOperationException("非冗余跨表父键和身份必须为物理标量，逻辑条件须来自已证明的级联。");
-        if(!target.IsGlobal)_=NonRedundantReads.CompileMatch(model.Catalog,target.Source.Id,level.Name.Source.ColumnName);
+        // 项目内层位沿实际发布页证明下游关系，保留全局字典的页级覆盖。
+        if(!target.IsGlobal)
+            _=NonRedundantReads.CompilePublishedScalarMatch(model.Catalog,target.Source.Id,level.Page.Source.Id,level.Name.Source.ColumnName);
         if (level.DerivedOrder)
             return CascadeTargetOrderCompilation.Require(model, target, level.Page, level.Name, level.Parent,
                 level.DerivedName, level.DerivedOrder, level.Order, fields);

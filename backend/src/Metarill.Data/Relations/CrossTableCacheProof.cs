@@ -66,7 +66,16 @@ internal static class CrossTableCacheProof
             if(!storage.IsPhysical(name))
             {
                 if(node.IsRongyu!=0||storage.Kind(name)!=MetadataFieldStorage.Join)throw new InvalidOperationException("跨表派生名称只能来自R0固定单值路径。");
-                if(!global&&Metarill.Data.Queries.NonRedundantReads.CompileMatch(catalog,node.Id,name.ColumnName).OutputTypes[name.ColumnName]!=name.LogicalType)throw new InvalidOperationException("跨表派生名称必须落到同类型的非凭据终点。");
+                if(!global)
+                {
+                    // 缓存沿当前层位的实际候选页解析字典。旧无页面模型保留原物理联接证明。
+                    var read=catalog.ConfigPages.Any(page=>page.ConfigTableId==node.Id)
+                        ?NonRedundantReads.CompilePublishedScalarMatch(catalog,node.Id,
+                            NamePage(catalog,node,name,definition with{CrossTableLevelKey=key}).Page.Id,name.ColumnName)
+                        :NonRedundantReads.CompileMatch(catalog,node.Id,name.ColumnName);
+                    if(read.OutputTypes[name.ColumnName]!=name.LogicalType)
+                        throw new InvalidOperationException("跨表派生名称必须落到同类型的非凭据终点。");
+                }
             }
             if(global)
             {

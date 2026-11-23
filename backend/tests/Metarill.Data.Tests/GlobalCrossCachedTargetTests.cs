@@ -25,7 +25,7 @@ public sealed class GlobalCrossCachedTargetTests
         var c=GlobalCrossCachedTargetFixture.Create(1,role,key,parent,allGlobal);var defs=Definitions(c);var mutation=RelationMutationPlan.Compile(c,defs);Assert.Equal(3,Get<IEnumerable>(mutation,"Bindings").Cast<object>().Count());var maintenance=RelationMaintenanceCatalog.Compile(c,defs);var pair=Assert.Single(Get<IEnumerable>(maintenance,"Plans").Cast<object>(),x=>Get<string>(x,"Key")=="3");var plan=Get<object>(pair,"Value");Assert.Null(Get<object?>(plan,"Error"));Assert.Contains("b.`yz_project_id`=@project_scope_number",Get<string>(Get<object>(plan,"Read"),"Scope"));
     }
     /// <summary>新全局缓存资格不能放宽来源、父键、其它全局层或缓存生产链的旧门槛。</summary>
-    [Theory][InlineData("sourceProject")][InlineData("sourceGlobal")][InlineData("producerProject")][InlineData("privateTerminal")][InlineData("unpublished")][InlineData("pageForeign")][InlineData("pageVariable")][InlineData("cacheCondition")][InlineData("badPath")][InlineData("credential")][InlineData("virtual")][InlineData("file")][InlineData("arrayProducer")][InlineData("parentJoin")][InlineData("fakeOtherCache")]
+    [Theory][InlineData("sourceProject")][InlineData("producerProject")][InlineData("privateTerminal")][InlineData("unpublished")][InlineData("pageForeign")][InlineData("pageVariable")][InlineData("cacheCondition")][InlineData("badPath")][InlineData("credential")][InlineData("virtual")][InlineData("file")][InlineData("arrayProducer")][InlineData("parentJoin")][InlineData("fakeOtherCache")]
     public void Unproven_cached_role_rejects_whole_read_and_write_chain(string invalid)
     {
         foreach(var mode in new[]{0,1})
@@ -34,7 +34,6 @@ public sealed class GlobalCrossCachedTargetTests
             switch(invalid)
             {
                 case "sourceProject":c.ConfigColumns.RemoveAll(x=>x.Id=="303");break;
-                case "sourceGlobal":c.ConfigTables.Single(x=>x.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");break;
                 case "producerProject":c.ConfigColumns.Add(new(){Id="199",ConfigTableId="1",YzProjectId="100",ColumnName="yz_project_id",LogicalType="int64"});break;
                 case "privateTerminal":c.ConfigTables.Single(x=>x.Id=="2").Extra.Clear();break;
                 case "unpublished":c.ConfigTables.Single(x=>x.Id=="1").YzProjectId="";break;
@@ -52,6 +51,28 @@ public sealed class GlobalCrossCachedTargetTests
             if(mode==0)Assert.ThrowsAny<Exception>(()=>MySqlNonRedundantReadCompiler.CompileWithCrossTables(c,"3",["country_name","area_name","place_name"],Scopes(c)));else Assert.ThrowsAny<Exception>(()=>RelationMutationPlan.Compile(c,Definitions(c)));
         }
     }
+    /// <summary>带物理项目列的全局 R0 业务来源保留按行限定的项目范围。</summary>
+    [Fact]
+    public void Global_live_source_with_a_project_column_keeps_its_project_scope()
+    {
+        var catalog=GlobalCrossCachedTargetFixture.Create(0,1,"string","int64",true);
+        catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        var plan=MySqlNonRedundantReadCompiler.CompileWithCrossTables(catalog,"3",
+            ["country_name","area_name","place_name"],Scopes(catalog));
+        Assert.Contains("b.`yz_project_id`=@project_scope_number",Get<string>(plan,"Scope"));
+        Assert.Contains("LEFT JOIN `cached_global`",Get<string>(plan,"From"));
+        Assert.Contains("`lookup_name`",Get<IReadOnlyDictionary<string,string>>(plan,"Expressions")["area_name"]);
+    }
+
+    /// <summary>全局 R1 来源仍须取得自己的缓存发布证明。</summary>
+    [Fact]
+    public void Global_stored_source_cannot_borrow_the_ordinary_project_cache_proof()
+    {
+        var catalog=GlobalCrossCachedTargetFixture.Create(1,1,"string","int64",true);
+        catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        Assert.Throws<InvalidOperationException>(()=>RelationMutationPlan.Compile(catalog,Definitions(catalog)));
+    }
+
     /// <summary>目标页绑定不能被换成另一表页面，即使名称生产链本身正确也拒绝。</summary>
     [Fact]
     public void Read_binding_cannot_replace_a_published_role_page()

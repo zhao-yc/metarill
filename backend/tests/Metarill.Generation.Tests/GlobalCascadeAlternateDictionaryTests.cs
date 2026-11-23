@@ -15,7 +15,10 @@ public sealed class GlobalCascadeAlternateDictionaryTests
     [InlineData(true,0,false)]
     [InlineData(false,0,true)]
     [InlineData(true,0,true)]
-    public async Task Global_cascade_label_uses_the_published_dictionary_page(bool cachedSource,int dictionaryStorage,bool secondHop)
+    [InlineData(false,1,false,true)]
+    [InlineData(true,1,false,true)]
+    public async Task Global_cascade_label_uses_the_published_dictionary_page(bool cachedSource,int dictionaryStorage,bool secondHop,
+        bool localNode=false)
     {
         var catalog=cachedSource?GlobalCrossCachedFreshCatalogTests.Catalog("cross3"):GlobalCrossFreshCatalogTests.Catalog("cross3");
         var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
@@ -45,6 +48,26 @@ public sealed class GlobalCascadeAlternateDictionaryTests
         AddField("30138","301","38").Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"pageId":"602","whereSql":"segment=9"}""");
         AddPage("302","3","status=1");
         AddField("30238","302","38");
+        if(localNode)
+        {
+            // 项目内层位从实际候选页读取全局字典，保留来源项目及字典门店。
+            root.Extra.Remove("scopeKind");
+            if(!catalog.ConfigColumns.Any(column=>column.ConfigTableId=="3"&&column.ColumnName=="yz_project_id"))
+                AddColumn("333","3","yz_project_id","int64");
+            foreach(var nodePage in catalog.ConfigPages.Where(page=>page.ConfigTableId=="3"))
+                nodePage.WhereSql+=" AND yz_project_id=@current_yz_project_id";
+            AddColumn("66","6","store_id","int64");
+            AddColumn("39","3","dictionary_group","int32");
+            AddField("30139","301","39");
+            catalog.ConfigPages.Single(page=>page.Id=="602").WhereSql+=" AND store_id=@current_store_id";
+            catalog.ConfigPageColumns.Single(field=>field.Id=="30138").Extra["controlDetail"]=
+                JsonSerializer.SerializeToElement("""{"pageId":"602","whereSql":"segment=@formParameters.dictionaryGroup"}""");
+            if(cachedSource)
+            {
+                AddColumn("299","2","store_id","int64");
+                sourcePage.WhereSql+=" AND store_id=@current_store_id";
+            }
+        }
         if(secondHop)
         {
             var dictionaryName=catalog.ConfigColumns.Single(column=>column.Id=="62");
@@ -101,6 +124,11 @@ public sealed class GlobalCascadeAlternateDictionaryTests
                 var expression=Assert.IsType<string>(refresh.GetType().GetMethod("Expression",instance)!.Invoke(refresh,["country_name"]));
                 Assert.Contains("CASE WHEN",expression);
                 Assert.Contains(".`segment`",expression);
+                if(localNode)
+                {
+                    Assert.Contains(".`dictionary_group`",expression);
+                    Assert.Contains("b.`store_id`",expression);
+                }
                 var from=Assert.IsType<string>(refresh.GetType().GetProperty("From",instance)!.GetValue(refresh));
                 Assert.DoesNotContain(".`segment`",from);
                 var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
@@ -116,7 +144,18 @@ public sealed class GlobalCascadeAlternateDictionaryTests
 
             object ReadPlan(string name)
             {
-                var read=service.GetField(name,plans)!.GetValue(null)!;
+                var read=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField(name,plans)!.GetValue(null));
+                if(localNode)
+                {
+                    Assert.True(read.RequiresAccount);
+                    var actor=new Metarill.Core.Security.RuntimeActor(8,"级联字典",false,catalog.YzProjectId,sourcePage.YzAdminTypeId);
+                    Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(actor));
+                    read=read.BindAccount(actor with{StoreId=9007199254740993L});
+                    var bound=read.GetType().GetProperty("MySql",instance)!.GetValue(read)!;
+                    var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                        bound.GetType().GetProperty("Constants",instance)!.GetValue(bound));
+                    Assert.Contains(9007199254740993L,constants.Values);
+                }
                 return read.GetType().GetProperty("MySql",instance)!.GetValue(read)!;
             }
             void AssertDictionaryScope(object read)
@@ -124,7 +163,7 @@ public sealed class GlobalCascadeAlternateDictionaryTests
                 var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
                     read.GetType().GetProperty("Constants",instance)!.GetValue(read));
                 Assert.Contains(3,constants.Values);
-                Assert.Contains(9,constants.Values);
+                if(!localNode)Assert.Contains(9,constants.Values);
                 Assert.DoesNotContain(17,constants.Values);
                 Assert.DoesNotContain(19,constants.Values);
                 if(secondHop)Assert.Contains(5,constants.Values);
