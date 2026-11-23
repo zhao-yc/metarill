@@ -113,7 +113,7 @@ internal static class MultiSelectCompilation
             var query=FixedPageQueryCompilation.For(target,targetPage);
             var definition=new SelectionControlDefinition(pageId,name.Source.ColumnName,Value("buttonText"),Value("whereSql"),"");
             RelationConditionModel? importCondition=null;
-            if(!FixedPageQueryCompilation.TryProveSelection(query,definition,out _))
+            if(!FixedPageQueryCompilation.TryProveSelection(model.Catalog,query,definition,out _))
             {
                 if(table.Source.IsRongyu!=0)return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
                 // 原非冗余 Excel 反查叠加控件条件；弹窗继续使用已有的目标页查询合同。

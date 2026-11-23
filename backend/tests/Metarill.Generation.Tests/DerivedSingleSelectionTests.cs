@@ -528,7 +528,7 @@ public sealed class DerivedSingleSelectionTests
                     () => Sql("Query201", new PageRequest(), actor with { StoreId = null }));
                 Assert.IsType<UnauthorizedAccessException>(error.InnerException);
                 var query = FixedPageQueryCompilation.For(target, targetModel);
-                Assert.Equal(pageProject,FixedPageQueryCompilation.TryProveSelection(query,
+                Assert.Equal(pageProject,FixedPageQueryCompilation.TryProveSelection(model.Catalog,query,
                     new(targetPage.Id, "name", "选择", "yz_project_id=@current_yz_project_id", ""), out _));
 
                 string Sql(string method, params object?[] values)

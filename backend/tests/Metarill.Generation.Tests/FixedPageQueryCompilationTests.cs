@@ -39,7 +39,7 @@ public sealed class FixedPageQueryCompilationTests
         var before = JsonSerializer.Serialize(catalog); var (table, page) = Model(catalog); var plan = FixedPageQueryCompilation.For(table, page);
         Assert.Equal("14", plan.SoftDeleteColumn!.Source.Id);
         Assert.Equal(!global || pageWhere.Contains("@current_yz_project_id", StringComparison.Ordinal), plan.IdentityScopes.Any(scope => scope.Source == "project"));
-        Assert.Equal(expected, FixedPageQueryCompilation.TryProveSelection(plan, new("101", "name", "选择", extraWhere, ""), out var reason));
+        Assert.Equal(expected, FixedPageQueryCompilation.TryProveSelection(catalog, plan, new("101", "name", "选择", extraWhere, ""), out var reason));
         Assert.Equal(expected, reason is null); Assert.Equal(before, JsonSerializer.Serialize(catalog));
     }
 
@@ -57,7 +57,7 @@ public sealed class FixedPageQueryCompilationTests
     {
         var catalog = Catalog(); catalog.ConfigPages[0].OrderBy = pageOrder; var (table, page) = Model(catalog);
         var plan = FixedPageQueryCompilation.For(table, page);
-        Assert.Equal(expected, FixedPageQueryCompilation.TryProveSelection(plan, new("101", "name", "选择", "", extraOrder), out var reason));
+        Assert.Equal(expected, FixedPageQueryCompilation.TryProveSelection(catalog, plan, new("101", "name", "选择", "", extraOrder), out var reason));
         Assert.Equal(expected, reason is null);
     }
 

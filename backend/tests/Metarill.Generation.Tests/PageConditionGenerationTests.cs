@@ -78,7 +78,7 @@ public sealed class PageConditionGenerationTests
     public void Selection_proof_requires_each_actual_target_page_term(string extra,bool expected)
     {
         var catalog=Catalog();catalog.ConfigPages[0].WhereSql="status=1";var model=GenerationModel.Create(catalog,"Example.Proof");var table=Assert.Single(model.Tables);var page=Assert.Single(table.Pages);
-        Assert.Equal(expected,FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(table,page),new("101","name","选择",extra,""),out _));
+        Assert.Equal(expected,FixedPageQueryCompilation.TryProveSelection(model.Catalog,FixedPageQueryCompilation.For(table,page),new("101","name","选择",extra,""),out _));
     }
     /// <summary>非冗余条件依赖不进入公开输出，写后读取另有固定事务入口，记录可离开筛选页。</summary>
     [Fact]

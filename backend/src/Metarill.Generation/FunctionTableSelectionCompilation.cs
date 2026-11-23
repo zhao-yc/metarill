@@ -30,7 +30,7 @@ internal static class FunctionTableSelectionCompilation
         if(name is null||name.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,name)||
             !name.IsId&&name.Type!="string?"&&!DerivedRelationNamesCompilation.IsTypedLabel(name))
             throw new InvalidOperationException("功能表单选名称须为目标页开放的非凭据标量。");
-        if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))
+        if(!FixedPageQueryCompilation.TryProveSelection(model.Catalog,FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))
             throw new InvalidOperationException(reason);
         var parent = PublishedParent(model, target, targetPage);
         return new(target, targetPage, name, definition, parent is null ? null : ResolveParentField(page, source, parent.Parent));

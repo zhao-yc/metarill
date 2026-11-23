@@ -500,7 +500,7 @@ internal static class ReadProjectionCompilation
                 }
                 else
                 {
-                    if (!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target, targetPage), definition, out var reason))
+                    if (!FixedPageQueryCompilation.TryProveSelection(model.Catalog,FixedPageQueryCompilation.For(target, targetPage), definition, out var reason))
                     { Gap(source.Source.Id, reason!); return; }
                     if (purpose == ReadProjectionPurpose.Detail)
                     {
@@ -552,7 +552,7 @@ internal static class ReadProjectionCompilation
                 {
                     try
                     {
-                        if (!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(table, page), definition, out var reason))
+                        if (!FixedPageQueryCompilation.TryProveSelection(model.Catalog,FixedPageQueryCompilation.For(table, page), definition, out var reason))
                         { Gap(source.Source.Id, reason!); continue; }
                     }
                     catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException) { Gap(source.Source.Id, "固定入站选择依赖无法编译：" + error.Message); continue; }

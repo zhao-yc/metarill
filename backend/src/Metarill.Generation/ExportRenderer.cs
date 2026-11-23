@@ -47,7 +47,7 @@ internal static class ExportRenderer
         var columns = Columns(page); var relations = Relations(model, page); var role = HasFixedRole(model,table,page); var admin = FixedAdmin(model,table,page);var multis=MultiNames(model,table,page);var checkboxes=table.Source.IsRongyu==0?DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>IncludesColumn(page,def.Source)).ToArray():[];
         var crossDependencies=CrossTableExcelRenderer.ExportDependencies(model,table,page,columns);
         var physicalGlobalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
-            FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model,table,page)||
+            FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page)||
             GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null;
         var snapshot=physicalGlobalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page)||crossDependencies.Count>0;
         var contexts = relations.ToDictionary(relation => relation.SourceColumn.Source.Id, relation => ControlRenderer.RelationContext(page, relation, false));
@@ -102,7 +102,7 @@ internal static class ExportRenderer
         {
         // 导出是独立业务用途，原单选页也继续从当前项目导出。
         var queryArguments=ExactDataManageCompilation.Argument(page,"\"export\"")+
-            (FixedPageQueryCompilation.UsesStoredGlobalSelectionRows(table,page)?", candidateRows: false":"");
+            (FixedPageQueryCompilation.UsesStoredGlobalSelectionRows(model.Catalog,table,page)?", candidateRows: false":"");
         result.AppendLine($"        var query = Order{page.Source.Id}({CascadeTreeQueryCompilation.Call(page,extra:queryArguments)}, request);")
             .AppendLine($"        var entities = await query.Limit(maxRows + 1).ToListAsync(entity => new {table.EntityType}").AppendLine("        {");
         // 目标父依赖只在已有可读字段中取固定列，不因此增加导出的表头或VO字段。

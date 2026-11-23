@@ -45,12 +45,12 @@ internal static class NonRedundantSelectionCompilation
         if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))throw new InvalidOperationException("非冗余单选目标缺少项目归属。");
         var query=FixedPageQueryCompilation.For(target,targetPage);
         RelationConditionModel? importCondition=null;
-        if(!FixedPageQueryCompilation.TryProveSelection(query,definition,out var reason))
+        if(!FixedPageQueryCompilation.TryProveSelection(model.Catalog,query,definition,out var reason))
         {
             // 上文已证明物理外键和发布范围；附加条件只收紧 Excel 的名称反查。
             if(string.IsNullOrWhiteSpace(definition.WhereSql))
                 throw new InvalidOperationException(reason);
-            if(!FixedPageQueryCompilation.TryProveSelection(query,definition with{WhereSql=""},out var orderReason))
+            if(!FixedPageQueryCompilation.TryProveSelection(model.Catalog,query,definition with{WhereSql=""},out var orderReason))
                 throw new InvalidOperationException(orderReason);
             // 原弹窗直接使用目标页，只有名称导入叠加来源控件的额外筛选。
             importCondition=RelationConditionsCompilation.SelectionImport(model,table,page,query,definition.WhereSql);

@@ -14,8 +14,8 @@ internal static class FixedPageQueryCompilation
     internal static ColumnModel? SoftDeleteColumn(TableModel table) => table.Columns.SingleOrDefault(column => column.Source.ColumnName == "delete_no");
 
     /// <summary>全局冗余单选直接分页、详情及导出同样须校验真实物理父记录。</summary>
-    internal static bool HasStoredGlobalSelectionParent(GenerationModel model,TableModel table,PageModel page)=>
-        table.IsGlobal&&table.Source.IsRongyu==1&&GlobalCrossTableTarget.SingleParent(model.Catalog,table.Source,page.Source) is {Logical:false};
+    internal static bool HasStoredGlobalSelectionParent(MetadataCatalog catalog,TableModel table,PageModel page)=>
+        table.IsGlobal&&table.Source.IsRongyu==1&&GlobalCrossTableTarget.SingleParent(catalog,table.Source,page.Source) is {Logical:false};
 
     /// <summary>有真实项目列的全局 R1 自树来源按项目管理自己的行，目标候选仍使用已发布的全局树。</summary>
     internal static ColumnModel? GlobalSelfTreeProject(TableModel table)=>
@@ -29,12 +29,14 @@ internal static class FixedPageQueryCompilation
             ? table.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id")
             : GlobalSelfTreeProject(table);
 
-    /// <summary>原冗余选择页按实际发布的全局账号范围读取候选，普通业务继续使用行项目。</summary>
-    internal static bool UsesStoredGlobalSelectionRows(TableModel table,PageModel page)=>
+    /// <summary>原冗余选择页按已发布的账号或物理父范围查询候选；详情、写入及导出继续限制行项目。</summary>
+    internal static bool UsesStoredGlobalSelectionRows(MetadataCatalog catalog,TableModel table,PageModel page)=>
         table.IsGlobal&&table.Source.IsRongyu==1&&ManagedGlobalProject(table) is not null&&
         page.Source.Extra.GetValueOrDefault("type").ToString() is "1" or "2"&&
-        page.Scopes.Count==0&&!ExactDataManageCompilation.Declared(page)&&
-        FixedPageConditionCompilation.HasAccountVariables(page)&&!FixedPageConditionCompilation.HasLogicalFields(page);
+        !ExactDataManageCompilation.Declared(page)&&!FixedPageConditionCompilation.HasLogicalFields(page)&&
+        !page.Scopes.Any(scope=>scope.Source=="project")&&
+        (page.Scopes.Count==0&&FixedPageConditionCompilation.HasAccountVariables(page)||
+            HasStoredGlobalSelectionParent(catalog,table,page));
 
     /// <summary>带真实行归属的全局普通业务同样绑定当前项目，候选使用独立计划。</summary>
     internal static FixedPageQueryPlan For(TableModel table, PageModel page)
@@ -57,12 +59,12 @@ internal static class FixedPageQueryCompilation
     }
 
     /// <summary>只证明附加条件已被目标固定查询覆盖、排序与有效默认序列相同；保留原配置，不执行或透传SQL。</summary>
-    internal static bool TryProveSelection(FixedPageQueryPlan target, SelectionControlDefinition definition, out string? reason)
+    internal static bool TryProveSelection(MetadataCatalog catalog, FixedPageQueryPlan target, SelectionControlDefinition definition, out string? reason)
     {
         try
         {
             var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(target.Table,target.Page)||
-                UsesStoredGlobalSelectionRows(target.Table,target.Page);
+                UsesStoredGlobalSelectionRows(catalog,target.Table,target.Page);
             var allowed = target.IdentityScopes.Where(scope=>!globalCandidate||scope.Source!="project")
                 .Select(scope => (scope.Column.Source.Id, scope.Source)).ToHashSet();
             // 附加项必须逐项已被目标页实际执行；不把来源控件的更窄条件偷换成宽目标页。

@@ -1,4 +1,9 @@
+using System.Reflection;
 using System.Text.Json;
+using Metarill.Core.Contracts;
+using Metarill.Core.Persistence;
+using Metarill.Core.Security;
+using Metarill.Data;
 using Metarill.Core.Metadata;
 using Xunit;
 
@@ -7,6 +12,8 @@ namespace Metarill.Generation.Tests;
 /// <summary>正式生成入口的读写分离与手写保护；真实HTTP/SQL另测。</summary>
 public sealed class NonRedundantGeneratedReadTests
 {
+    /// <summary>生成实际 MySQL 查询文本，无需打开数据库连接。</summary>
+    private static string SelectionSql<T>(object query) where T:class=>((FreeSql.ISelect<T>)query).ToSql("1");
     /// <summary>实体忽略派生写列，Service使用固定读计划，原完整表单回显继续可回传。</summary>
     [Fact]
     public async Task Official_generation_builds_nonredundant_crud_and_protects_handwritten_partial()
@@ -426,8 +433,13 @@ public sealed class NonRedundantGeneratedReadTests
     [InlineData(1,true,true,true,true,true)]
     [InlineData(0,false,false,false,false,true,true)]
     [InlineData(1,true,true,true,true,true,true)]
+    [InlineData(0,false,false,false,false,true,false,true)]
+    [InlineData(0,true,false,true,false,true,true,true,true)]
+    [InlineData(1,false,true,false,true,true,true,true,true)]
+    [InlineData(1,true,true,true,true,true,false,true)]
     public async Task Global_single_with_only_physical_parent_keeps_selection_workbook_and_cache(
-        int storage,bool globalParent,bool globalSource,bool idLabel,bool excelOverride=false,bool storedTarget=false,bool textParent=false)
+        int storage,bool globalParent,bool globalSource,bool idLabel,bool excelOverride=false,bool storedTarget=false,bool textParent=false,
+        bool managedTarget=false,bool textProject=false)
     {
         const string ns="Example.GlobalPhysicalParent";
         var catalog=NonRedundantApplicationFixture.Catalog("mt_parent_only");
@@ -437,7 +449,8 @@ public sealed class NonRedundantGeneratedReadTests
         target.IsRongyu=storedTarget?1:0;
         target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         if(globalSource)owner.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
-        var removed=new HashSet<string>(["16","17","22"],StringComparer.Ordinal);
+        var removed=new HashSet<string>(["16","17"],StringComparer.Ordinal);
+        if(!managedTarget)removed.Add("22");
         if(idLabel)removed.Add("111");
         if(globalParent)
         {
@@ -463,6 +476,39 @@ public sealed class NonRedundantGeneratedReadTests
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
         if(storedTarget)targetPage.WhereSql+=" AND amount >= 1";
         targetPage.IsExport=1;
+        if(managedTarget)
+        {
+            // 字典同时保存自己的业务外键，因此业务读取依赖实际行项目。
+            if(textProject)catalog.ConfigColumns.Single(column=>column.Id=="22").LogicalType="string";
+            catalog.ConfigTables.Add(new()
+            {
+                Id="4",TableName="mt_parent_only_category",YzProjectId=catalog.YzProjectId,IsRongyu=1,
+                Extra=new(){{"scopeKind",JsonSerializer.SerializeToElement("global")}}
+            });
+            catalog.ConfigColumns.AddRange([
+                new(){Id="41",ConfigTableId="4",YzProjectId=catalog.YzProjectId,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id="42",ConfigTableId="4",YzProjectId=catalog.YzProjectId,ColumnName="status",LogicalType="int32"},
+                new(){Id="28",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="category_id",LogicalType="int64",
+                    LinkConfigTableId="4",ControlKind="SelectPage",ControlDetail="""{"pageId":"401","nameField":"id"}"""}
+            ]);
+            catalog.ConfigPages.Add(new()
+            {
+                Id="401",ConfigTableId="4",YzAdminTypeId="5",YzProjectId=catalog.YzProjectId,WhereSql="status=1",
+                Extra=new(){{"type",JsonSerializer.SerializeToElement(1)}}
+            });
+            catalog.ConfigPageColumns.Add(new()
+            {
+                Id="40141",ConfigPageId="401",ConfigColumnId="41",YzProjectId=catalog.YzProjectId,IsShow=1
+            });
+            catalog.ConfigPages.Add(new()
+            {
+                Id="202",ConfigTableId="2",YzAdminTypeId="5",YzProjectId=catalog.YzProjectId,IsSave=1,IsExport=1
+            });
+            catalog.ConfigPageColumns.Add(new()
+            {
+                Id="20224",ConfigPageId="202",ConfigColumnId="24",YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1
+            });
+        }
         var independent=catalog.ConfigPages.Single(page=>page.Id=="104");
         independent.IsExport=1;
         independent.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
@@ -481,6 +527,25 @@ public sealed class NonRedundantGeneratedReadTests
             new CSharpGenerator().Generate(catalog,generated,ns);
             var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtParentOnlyOrderService.g.cs"));
             var targetService=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtParentOnlyPartyService.g.cs"));
+            if(managedTarget)
+            {
+                var dictionary=model.Tables.Single(item=>item.Source.Id=="2");
+                Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(dictionary));
+                var candidatePage=dictionary.Pages.Single(item=>item.Source.Id=="201");
+                var plan=FixedPageQueryCompilation.For(dictionary,candidatePage);
+                var definition=new SelectionControlDefinition("201",idLabel?"id":"name","选择","group_id=@parentId AND amount>=1","");
+                Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,definition,out _));
+                Assert.False(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,
+                    definition with{WhereSql="yz_project_id=@current_yz_project_id"},out _));
+                Assert.Contains("Scope201(RuntimeActor actor, string? parentId, bool candidateRows=false)",targetService);
+                Assert.Contains("Query201(PageRequest request, RuntimeActor actor, bool candidateRows=true)",targetService);
+                Assert.Contains("if (!candidateRows) query = query.Where(entity => entity.YzProjectId",targetService);
+                Assert.Contains("Query201(request, actor, candidateRows: false)",targetService);
+                Assert.Contains("Scope201(actor, parentId)",targetService);
+                Assert.Contains("Scope202(RuntimeActor actor, string? parentId)",targetService);
+                Assert.Contains("var query = Scope202(actor, request.ParentId)",targetService);
+                Assert.Contains("Scope202(actor, parentId)",targetService);
+            }
             if(storedTarget)
             {
                 Assert.Contains("ValidateParents201Async(request.ParentId, actor, cancellationToken, locking:false)",targetService);
@@ -506,6 +571,41 @@ public sealed class NonRedundantGeneratedReadTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
             var candidateType=assembly.GetType(ns+".Generated.Services.MtParentOnlyPartyService",true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(candidateType.TypeHandle);
+            if(managedTarget)
+            {
+                // 用已生成的查询表达式生成 MySQL SQL，区分原弹窗、详情及写入、导出和独立业务页。
+                using var session=new DatabaseSession(new()
+                {
+                    Provider="mysql",ExpectedDatabase="offline",
+                    ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
+                });
+                var mapper=Activator.CreateInstance(assembly.GetType(ns+".Generated.Mappers.MtParentOnlyPartyMapper",true)!,session);
+                var constructor=candidateType.GetConstructors().Single();
+                var dictionary=constructor.Invoke(WithDefaults(constructor,
+                    [session,mapper,new SnowflakeIdGenerator(),Array.Empty<IRecordMutationObserver>()]));
+                var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5");
+                var parentId="9007199254740995";
+                var request=new PageRequest{ParentId=parentId};
+                var sql=Sql("Query201",request,actor);
+                Assert.DoesNotContain("yz_project_id",sql);
+                Assert.Contains("group_id",sql);
+                Assert.Contains("amount",sql);
+                Assert.Contains("delete_no",sql);
+                Assert.Contains("yz_project_id",Sql("Scope201",actor,parentId));
+                Assert.Contains("yz_project_id",Sql("Query201",request,actor,false));
+                Assert.Contains("yz_project_id",Sql("Query202",new PageRequest(),actor));
+
+                string Sql(string name,params object?[] values)
+                {
+                    var method=candidateType.GetMethod(name,BindingFlags.Instance|BindingFlags.NonPublic)!;
+                    var query=method.Invoke(dictionary,WithDefaults(method,values));
+                    var toSql=typeof(NonRedundantGeneratedReadTests).GetMethod(nameof(SelectionSql),BindingFlags.Static|BindingFlags.NonPublic)!
+                        .MakeGenericMethod(method.ReturnType.GetGenericArguments()[0]);
+                    return Assert.IsType<string>(toSql.Invoke(null,[query]));
+                }
+                static object?[] WithDefaults(MethodBase method,object?[] values)=>
+                    values.Concat(method.GetParameters().Skip(values.Length).Select(parameter=>parameter.DefaultValue)).ToArray();
+            }
             var serviceType=assembly.GetType(ns+".Generated.Services.MtParentOnlyOrderService",true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(serviceType.TypeHandle);
             const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic;

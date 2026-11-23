@@ -113,7 +113,7 @@ internal static class SelectionNameFilterCompilation
                     if(storage.IsJsonArray||SelectionPageRenderer.Enabled(targetPage)){Gap("单选名称不是标量，或目标页面实际为多选。");continue;}
                     if(scopedCache)
                         _=NonRedundantSelectionCompilation.Resolve(model,table,page,source);
-                    else if(!FixedPageQueryCompilation.TryProveSelection(FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))
+                    else if(!FixedPageQueryCompilation.TryProveSelection(model.Catalog,FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))
                     { Gap(reason!);continue; }
                     kind=SelectionNameFilterKind.ScalarLike;
                 }

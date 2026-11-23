@@ -299,7 +299,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var sharedRedundant=SharedRedundantParentCompilation.Enabled(model,table,page);
         var multiGlobal=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page);
         var buttonParent=page.Scopes.Any(scope=>scope.Source=="parent")&&BusinessRecordButtons(model,page).Count>0;
-        var supportsReadOnlyParent=multiGlobal is not null||FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model,table,page)||
+        var supportsReadOnlyParent=multiGlobal is not null||FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page)||
             GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null||sharedRedundant||
             NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page)||buttonParent;
         var locking=supportsReadOnlyParent?"locking":"true";
@@ -386,7 +386,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="string?")&&
         (Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source)||
             UsesPublishedPhysicalMultiSource(model,table,page)||UsesPublishedPhysicalSingleSource(model,table,page)||
-            UsesPublishedPhysicalCheckboxSource(model,table,page)||FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model,table,page)||
+            UsesPublishedPhysicalCheckboxSource(model,table,page)||FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page)||
             ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null);
 
     private static string Query(GenerationModel model, TableModel table, PageModel page)
@@ -394,10 +394,11 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if(NonRedundantReadCompilation.Requires(model,table))return NonRedundantQuery(model,table,page);
         var suffix = page.Source.Id;
         var fixedQuery = FixedPageQueryCompilation.For(table, page);
-        var selectionRows = FixedPageQueryCompilation.UsesStoredGlobalSelectionRows(table, page);
-        if (selectionRows) GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog, table.Source, page.Source);
+        var selectionRows = FixedPageQueryCompilation.UsesStoredGlobalSelectionRows(model.Catalog, table, page);
+        var storedGlobalParent = FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page);
+        if (selectionRows&&!storedGlobalParent) GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog, table.Source, page.Source);
         var globalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
-            FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model,table,page)||
+            storedGlobalParent||
             GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null;
         var snapshot=globalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
         string ParentCheck(string key)=>SelectionPageRenderer.Enabled(page)
