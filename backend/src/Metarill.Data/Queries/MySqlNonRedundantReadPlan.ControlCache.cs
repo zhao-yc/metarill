@@ -127,7 +127,8 @@ public static partial class MySqlNonRedundantReadCompiler
             foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
             if (parent is not null)
             {
-                var parentSource=parent.SingleSource(catalog,source,relation,sourcePage);
+                var parentSource=parent.SingleSource(catalog,source,relation,sourcePage,
+                    allowLogicalListForm:!GlobalCrossTableTarget.Declared(source)&&!GlobalCrossTableTarget.Declared(target));
                 if (parentSource.Column.Id!=sourceParentId)
                     throw new InvalidOperationException("冗余字典选项与来源记录没有相同的已发布父范围。");
                 var sourceParent=SingleSourceParentValue(source,owner,parentSource);

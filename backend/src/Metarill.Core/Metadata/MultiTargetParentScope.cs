@@ -104,6 +104,12 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         return new(parent,column,logical);
     }
 
+    /// <summary>读回原页面的表格或详情开放设置，显式覆盖优先。</summary>
+    private static bool Published(PageColumnMetadata field,string key,int fallback)=>
+        field.Extra.TryGetValue(key,out var value)
+            ?value.ValueKind==System.Text.Json.JsonValueKind.True||value.ToString()=="1"
+            :fallback==1;
+
     /// <summary>稀疏列前缀可以与真实表不同；共享分支必须一致指向同一个层位目标。</summary>
     private static TableMetadata? CrossParent(MetadataCatalog catalog,IReadOnlyList<ColumnMetadata> columns,ColumnMetadata column)
     {
@@ -152,12 +158,14 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         ResolveSource(catalog,source,relation,single:true,allowLogical:source.IsRongyu==0);
 
     /// <summary>嵌套名称已经固定实际中间页，父键只由该页证明。</summary>
-    public MultiSourceParent SingleSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,PageMetadata sourcePage)=>
-        ResolveSource(catalog,source,relation,single:true,allowLogical:source.IsRongyu==0,sourcePageId:sourcePage.Id);
+    public MultiSourceParent SingleSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,PageMetadata sourcePage,
+        bool allowLogicalListForm=false)=>
+        ResolveSource(catalog,source,relation,single:true,allowLogical:source.IsRongyu==0,sourcePageId:sourcePage.Id,
+            allowLogicalListForm:allowLogicalListForm);
 
     private MultiSourceParent ResolveSource(MetadataCatalog catalog,TableMetadata source,ColumnMetadata relation,
         bool single,bool allowLogical,string? sourcePageId=null,bool checkbox=false,bool allowFormParent=false,
-        bool allowProjectPhysicalCheckbox=false)
+        bool allowProjectPhysicalCheckbox=false,bool allowLogicalListForm=false)
     {
         var columns=catalog.ConfigColumns.Where(item=>item.ConfigTableId==source.Id).ToArray();
         var keys=columns.Where(column=>(PhysicalKey(catalog,source,column)||checkbox&&CheckboxKey(catalog,source,column,target:false))&&References(column,Parent)).ToArray();
@@ -184,6 +192,18 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
                 var formKeys=keys.Where(key=>key.Id!=relation.Id&&displayed.Contains(key.Id)).Take(2).ToArray();
                 if(formKeys.Length!=1)throw Invalid();
                 return (Column:(ColumnMetadata?)formKeys[0],Page:(PageMetadata?)null,AdditionalColumns:Array.Empty<ColumnMetadata>());
+            }
+            // 普通冗余字典可以使用本页实际开放的逻辑祖先作为独立表单父，公开名称和导入读取同一个键。
+            if(allowLogicalListForm&&allowLogical&&scoped.Length==0&&relation.ControlKind=="List"&&!Global)
+            {
+                var displayed=catalog.ConfigPageColumns.Where(setting=>setting.ConfigPageId==page.Id&&
+                    (Published(setting,"isInGrid",setting.IsShow)||Published(setting,"isInEdit",setting.IsEdit)))
+                    .Select(setting=>setting.ConfigColumnId).ToHashSet(StringComparer.Ordinal);
+                var formFields=columns.Where(column=>column.Id!=relation.Id&&column.LinkConfigTableId==Parent.Id&&
+                    displayed.Contains(column.Id)).Take(2).ToArray();
+                if(formFields is [var form]&&form.IsVirtualColumn==0&&form.LogicalType is ("int64" or "string")&&
+                    CrossTableStorageColumns.IsLogicalPathField(source,columns,form.ColumnName)&&CrossParent(catalog,columns,form)?.Id==Parent.Id)
+                    return (Column:(ColumnMetadata?)form,Page:(PageMetadata?)page,AdditionalColumns:Array.Empty<ColumnMetadata>());
             }
             if(scoped.Length==1)
             {

@@ -106,6 +106,12 @@ public sealed class NonRedundantImportMatchTests
             // 存储协议禁止稀疏ID声明DB默认；用手写partial构造默认验证显式null仍覆盖默认。
             await File.WriteAllTextAsync(Path.Combine(directory,"EntityDefaults.cs"),"namespace Example.ImportContext.Generated.Entities; public partial class LogicalOverwriteSource { public LogicalOverwriteSource(){CountryId=\"99\";} }");
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);var type=assembly.GetType(model.Namespace+".Generated.Services.LogicalOverwriteSourceService",true)!;
+            var read=Assert.IsType<NonRedundantReadPlan>(type.GetField("ReadPlan201",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
+            var mysql=typeof(NonRedundantReadPlan).GetProperty("MySql",BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(read)!;
+            var from=Assert.IsType<string>(mysql.GetType().GetProperty("From",BindingFlags.NonPublic|BindingFlags.Instance)!.GetValue(mysql));
+            Assert.Contains("logical_overwrite_picker",from);
+            Assert.Contains("logical_overwrite_country_id",from);
+            Assert.Contains("CASE WHEN",from);
             var contextMethod=type.GetMethod("ImportContext201",BindingFlags.NonPublic|BindingFlags.Static)!;
             var defaultEntity=Activator.CreateInstance(assembly.GetType(model.Namespace+".Generated.Entities.LogicalOverwriteSource",true)!)!;Assert.Equal("99",defaultEntity.GetType().GetProperty("CountryId")!.GetValue(defaultEntity));
             var context=contextMethod.Invoke(null,new object[]{new Dictionary<string,object?>{{"country_id","1"}}})!;Assert.Equal("1",context.GetType().GetProperty("CountryId")!.GetValue(context));Assert.NotEqual(defaultEntity.GetType(),context.GetType());
@@ -113,6 +119,16 @@ public sealed class NonRedundantImportMatchTests
             var constructor=type.GetConstructors().Single();var arguments=new object?[constructor.GetParameters().Length];foreach(var parameter in constructor.GetParameters()){if(parameter.ParameterType==typeof(IEnumerable<IRecordMutationObserver>))arguments[parameter.Position]=Array.Empty<IRecordMutationObserver>();if(parameter.ParameterType==typeof(IEnumerable<IRecordMutationGuard>))arguments[parameter.Position]=Array.Empty<IRecordMutationGuard>();}var service=constructor.Invoke(arguments);var parse=type.GetMethod("ParseImport201Async",BindingFlags.NonPublic|BindingFlags.Instance)!;var actor=new RuntimeActor(1,"上下文离线验证",false,catalog.YzProjectId,"1");
             var values=await Parse("{\"name\":\"只提交名称\"}",context);Assert.Equal(new[]{"name"},values.Keys);
             var error=await Assert.ThrowsAsync<PageImportException>(()=>Parse("{\"候选\":\"某候选\"}",nullContext));Assert.Equal(PageImportError.Relation,error.Code);Assert.Equal("候选",error.ColumnName);
+            var target=catalog.ConfigTables.Single(item=>item.Id=="6");
+            var targetPage=catalog.ConfigPages.Single(item=>item.Id=="601");
+            var parent=MultiTargetParentScope.Compile(catalog,target,FixedConditionPlan.Compile(targetPage.WhereSql,
+                catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).Select(column=>column.ColumnName)))!;
+            var scope=parent.SingleSource(catalog,table.Source,picker,page.Source,allowLogicalListForm:true);
+            Assert.Equal("60",scope.Column.Id);
+            Assert.Equal("201",Assert.Single(scope.LogicalPages).Id);
+            var field=catalog.ConfigPageColumns.Single(setting=>setting.Id=="20160");
+            field.IsShow=field.IsEdit=0;
+            Assert.Throws<InvalidOperationException>(()=>parent.SingleSource(catalog,table.Source,picker,page.Source,allowLogicalListForm:true));
             /// <summary>没有提供session／mapper，正常名称解析与空父拒绝必须在任何数据库操作之前结束。</summary>
             Task<Dictionary<string,JsonElement>> Parse(string json,object existing)=>(Task<Dictionary<string,JsonElement>>)parse.Invoke(service,new object?[]{JsonSerializer.Deserialize<JsonElement>(json),null,actor,existing,false,CancellationToken.None})!;
         }
