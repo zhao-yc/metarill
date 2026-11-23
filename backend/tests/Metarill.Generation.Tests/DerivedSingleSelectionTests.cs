@@ -321,8 +321,12 @@ public sealed class DerivedSingleSelectionTests
     [InlineData(1, false, true, true, true)]
     [InlineData(0, true, true, true, true)]
     [InlineData(1, true, true, true, true)]
+    [InlineData(0, false, true, true, true, true)]
+    [InlineData(1, false, true, true, true, true)]
+    [InlineData(0, true, true, true, true, true)]
+    [InlineData(1, true, true, true, true, true)]
     public async Task Stored_global_selection_uses_published_account_dictionary(int storage, bool globalSource,
-        bool managedDictionary = false, bool multiple = false, bool pageProject = false)
+        bool managedDictionary = false, bool multiple = false, bool pageProject = false, bool repeatedScope = false)
     {
         const string ns = "Example.GlobalAccountSelection";
         var catalog = Catalog("account_selection", false);
@@ -360,6 +364,15 @@ public sealed class DerivedSingleSelectionTests
         var cacheName = display.ColumnName;
         targetPage.WhereSql = "status=1 AND store_id=@current_store_id";
         if(pageProject)targetPage.WhereSql+=" AND yz_project_id=@current_yz_project_id";
+        if(repeatedScope)
+        {
+            // 表级重排同一组条件，另一业务页只重复其中一项。实际范围仍由同一字典页提供。
+            foreign.ControlDetail = """
+                {"tableId":"2","pageId":"201","nameField":"name","whereSql":"yz_project_id=@current_yz_project_id AND (store_id = @current_store_id AND status = 1)"}
+                """;
+            catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="103"&&field.ConfigColumnId==foreign.Id)
+                .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"whereSql":"store_id = @current_store_id"}""");
+        }
         foreach (var page in catalog.ConfigPages.Where(page => page.ConfigTableId == source.Id))
         {
             page.WhereSql += " AND store_id=@current_store_id";
@@ -413,6 +426,14 @@ public sealed class DerivedSingleSelectionTests
             var resolved = MultiSelectCompilation.Resolve(model, owner, businessPage, sourceColumn);
             Assert.NotNull(resolved.Definition);
             Assert.Equal(targetPage.Id, resolved.Definition.TargetPage.Source.Id);
+            if(repeatedScope)
+            {
+                Assert.Null(resolved.Definition.ImportCondition);
+                var otherPage=owner.Pages.Single(page=>page.Source.Id=="103");
+                var other=MultiSelectCompilation.Resolve(model,owner,otherPage,sourceColumn);
+                Assert.NotNull(other.Definition);
+                Assert.Null(other.Definition.ImportCondition);
+            }
         }
         else
         {
@@ -580,6 +601,21 @@ public sealed class DerivedSingleSelectionTests
                 if(pageProject)Assert.Contains(dictionaryProject,label);
                 Assert.Matches(@"BINARY CAST\((?!b\.)\w+\.`store_id` AS CHAR\)=BINARY CAST\(b\.`store_id` AS CHAR\)", label);
 
+
+                if(repeatedScope)
+                {
+                    var original=foreign.ControlDetail;
+                    try
+                    {
+                        foreign.ControlDetail=original.Replace("status = 1","status = 2",StringComparison.Ordinal);
+                        var cacheBinding=new Metarill.Data.Relations.RelationCacheDefinition(source.Id,foreign.Id,
+                            dictionary.Id,binding.Value.Source.Id,binding.Cache.Source.Id,true);
+                        var narrower=Assert.Throws<NotSupportedException>(()=>
+                            Metarill.Data.Relations.DerivedCrossTableCaches.Validate(catalog,[cacheBinding],[]));
+                        Assert.Contains("未被名称回填的固定目标范围覆盖",narrower.Message);
+                    }
+                    finally { foreign.ControlDetail=original; }
+                }
 
                 var sourcePage = catalog.ConfigPages.Single(page => page.Id == "101");
                 sourcePage.WhereSql = sourcePage.WhereSql.Replace(" AND store_id=@current_store_id", "", StringComparison.Ordinal);

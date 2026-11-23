@@ -45,7 +45,8 @@ public sealed class DerivedMultipleCacheTests
     [InlineData("string","int64")]
     [InlineData("int64","string")]
     [InlineData("string","string")]
-    public void Fixed_multihop_labels_freeze_candidate_and_cache_joins(string firstKey,string secondKey)
+    [InlineData("string","string",true)]
+    public void Fixed_multihop_labels_freeze_candidate_and_cache_joins(string firstKey,string secondKey,bool repeatedScope=false)
     {
         var catalog=Catalog("string","int64");
         catalog.ConfigColumns.RemoveAll(column=>column.Id is "foreign" or "cache");
@@ -58,6 +59,9 @@ public sealed class DerivedMultipleCacheTests
         var label=catalog.ConfigColumns.Single(column=>column.Id=="tree_name");
         label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.supervisor.caption");
         var binding=new RelationCacheDefinition("source","choices","tree","tree_name","choice_names",true);
+        var choices=catalog.ConfigColumns.Single(column=>column.Id=="choices");
+        if(repeatedScope)
+            choices.ControlDetail="""{"pageId":"201","nameField":"name","whereSql":"yz_project_id = @current_yz_project_id"}""";
         DerivedCrossTableCaches.Validate(catalog,[binding],[]);
 
         var candidate=MySqlNonRedundantReadCompiler.Compile(catalog,"tree",["name"]);
@@ -75,6 +79,12 @@ public sealed class DerivedMultipleCacheTests
         var names=refresh.MultiProjections["choice_names"];
         Assert.Contains("LEFT JOIN `ds_company` multi_name_0",names.Joins);
         Assert.Contains("LEFT JOIN `ds_company` multi_name_1",names.Joins);
+        if(repeatedScope)
+        {
+            Assert.Contains("multi_value.`yz_project_id`=@project_scope_number",names.TargetScope);
+            choices.ControlDetail="""{"pageId":"201","nameField":"name","whereSql":"company_id=99"}""";
+            Assert.Throws<NotSupportedException>(()=>DerivedCrossTableCaches.Validate(catalog,[binding],[]));
+        }
         Assert.Contains(refresh.Reverse,item=>item.TargetTable=="ds_company"&&item.Outputs["choice_names"].Contains("supervisor_id"));
         Assert.Contains(refresh.Reverse,item=>item.TargetTable=="ds_company"&&item.Outputs["choice_names"].Contains("caption"));
     }

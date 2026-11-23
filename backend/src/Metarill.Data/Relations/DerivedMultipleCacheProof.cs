@@ -45,10 +45,33 @@ internal static class DerivedMultipleCacheProof
         string Text(string key,string fallback="")=>!root.TryGetProperty(key,out var v)||v.ValueKind==JsonValueKind.Null?fallback:v.ValueKind==JsonValueKind.String?string.IsNullOrWhiteSpace(v.GetString())?fallback:v.GetString()!:
             v.ValueKind==JsonValueKind.Number&&key is "pageId" or "tableId"&&v.TryGetInt64(out var id)
                 ?id.ToString(System.Globalization.CultureInfo.InvariantCulture):throw Invalid();
-        var pageId=Text("pageId",foreign.Extra.GetValueOrDefault("linkConfigPageId").ToString());var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==pageId&&p.ConfigTableId==target.Id);if(page is null||page.Extra.GetValueOrDefault("type").ToString()!="2"||Text("nameField","name")!=value.ColumnName||Text("whereSql").Length>0||new[]{"sql","where"}.Any(k=>root.TryGetProperty(k,out _))||Text("tableId") is{Length:>0} tableId&&tableId!=target.Id||Text("table") is{Length:>0} tableName&&tableName!=target.TableName)throw Invalid();
+        var pageId=Text("pageId",foreign.Extra.GetValueOrDefault("linkConfigPageId").ToString());
+        var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==pageId&&p.ConfigTableId==target.Id);
+        if(page is null||page.Extra.GetValueOrDefault("type").ToString()!="2"||Text("nameField","name")!=value.ColumnName||
+            new[]{"sql","where"}.Any(k=>root.TryGetProperty(k,out _))||
+            Text("tableId") is {Length:>0} tableId&&tableId!=target.Id||
+            Text("table") is {Length:>0} tableName&&tableName!=target.TableName)throw Invalid();
         if(!catalog.ConfigPageColumns.Any(f=>f.ConfigPageId==page.Id&&f.ConfigColumnId==value.Id)||page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||foreign.Extra.GetValueOrDefault("linkConfigPageId").ToString() is{Length:>0} link&&link!=page.Id)throw Invalid();
         var stem=foreign.ColumnName[..^4];if(cache.ColumnName!=stem+"_"+(value.ColumnName.EndsWith('s')?value.ColumnName:value.ColumnName+"s"))throw Invalid();
+        RequireCoveredMultiCondition(catalog,foreign,target,page,Text("whereSql"));
         RequireValue(catalog,source,foreign,target,value);
+    }
+
+    /// <summary>控件可以重复已执行的固定条件。普通目标自带项目隔离，其他条件须来自名称重算实际使用的目标页。</summary>
+    private static void RequireCoveredMultiCondition(MetadataCatalog catalog,ColumnMetadata foreign,TableMetadata target,
+        PageMetadata page,string definition)
+    {
+        if(string.IsNullOrWhiteSpace(definition))return;
+        var fields=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id))
+            .Select(column=>column.ColumnName).ToArray();
+        var requested=FixedConditionPlan.Compile(definition,fields);
+        var pageConditions=MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign)?.Id==page.Id
+            ?FixedConditionPlan.Compile(page.WhereSql,fields).Terms.Select(term=>term.ToDefinition()).ToHashSet(StringComparer.Ordinal)
+            :[];
+        var projectScoped=!GlobalCrossTableTarget.Declared(target);
+        if(requested.Terms.Any(term=>!pageConditions.Contains(term.ToDefinition())&&
+            !(projectScoped&&GlobalMultipleRelationTarget.IsProjectScope(term))))
+            throw new NotSupportedException("多选控件附加条件未被名称回填的固定目标范围覆盖。");
     }
     /// <summary>原复选按来源动作授权，目标页只用于关系归属，不借用type=2或目标列表权限。</summary>
     private static void RequireCheckbox(MetadataCatalog catalog,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,ColumnMetadata cache,
