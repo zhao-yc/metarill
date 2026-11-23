@@ -99,7 +99,7 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var projectStoredAccount=MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(catalog,target,page,checkboxAccount:true);
         var parent=projectStoredAccount
             ?MultiTargetParentScope.CompileCheckboxPage(catalog,target,syntax,allowStoredPhysicalParents:true)
-            :MultiTargetParentScope.CompileCheckboxParent(catalog,target,syntax);
+            :MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(catalog,target,page);
         if(parent is null||parent.Global||parent.Logical||syntax.Variables.Any(variable=>
             !MultiTargetParentScope.IsParameter(variable)&&!variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))&&
             !projectStoredAccount)

@@ -87,8 +87,8 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public static MultiTargetParentScope? CompileCheckboxParent(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition)=>
         Compile(catalog,table,condition,checkbox:true);
 
-    /// <summary>普通字典的独立表单父级只使用实际发布页的唯一物理项目父键。</summary>
-    public static MultiTargetParentScope? CompileProjectCheckboxFormPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    /// <summary>普通复选字典的发布物理父字段可以有多个，但必须指向同一真实项目父表。</summary>
+    public static MultiTargetParentScope? CompileProjectCheckboxPhysicalPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
     {
         if (table.IsRongyu is not (0 or 1) || table.IsView!=0 || table.IsFunctionTable!=0 ||
             GlobalCrossTableTarget.Declared(table) || page.ConfigTableId!=table.Id ||
@@ -101,7 +101,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         var fields=RelationStorageColumns.Expand(table,columns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,fields.Select(column=>column.ColumnName));
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
-        if (condition.Terms.Count(ParentTerm)!=1 ||
+        if (!condition.Terms.Any(ParentTerm) ||
             condition.Variables.Any(variable=>!IsParameter(variable) &&
                 !variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase)) ||
             condition.Fields.Any(field=>!storage.PhysicalColumns.Any(column=>column.ColumnName==field &&
@@ -109,7 +109,9 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
                 CrossTableStorageColumns.IsLogicalPathField(table,columns,field)))
             return null;
 
-        return CompileCheckboxParent(catalog,table,condition) is { Global:false, Logical:false } parent ? parent : null;
+        var parent=CompileCheckboxPage(catalog,table,condition,allowStoredPhysicalParents:true);
+        return parent is { Global:false, Logical:false } && parent.AdditionalTargets.All(scope=>!scope.Logical)
+            ? parent : null;
     }
 
     private static MultiTargetParentScope? Compile(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox)

@@ -195,7 +195,7 @@ public static partial class MySqlNonRedundantReadCompiler
             publishedArrayScopeCount++;
             var formPageParent=checkbox&&table.IsRongyu==0&&!GlobalCrossTableTarget.Declared(table)&&
                 sourcePage is not null&&selectedScope is not null
-                ?MultiTargetParentScope.CompileProjectCheckboxFormPage(catalog,target,selectedScope)
+                ?MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(catalog,target,selectedScope)
                 :null;
             var pageParent=fixedParent?.Target??formPageParent??(selectedScope is null?null:MultiParent(catalog,selectedScope,checkbox));
             var controlParents=CheckboxControlParents(target,control);
@@ -205,7 +205,7 @@ public static partial class MySqlNonRedundantReadCompiler
             // 复选的物理表单父键必须经过实际字典页和来源详情的共同证明，名称读取按来源行绑定。
             var projectCheckbox=checkbox&&projectFixedScope;
             var allowFormParent=projectCheckbox||formPageParent is not null&&
-                controlParents.All(range=>range.Target.Id==formPageParent.Target.Id);
+                controlParents.All(range=>formPageParent.HasTarget(range.Target.Id));
             var sourceBinding=fixedParent is {} paired?paired.Source:
                 sharedCheckbox||projectCheckbox&&sourcePage is null?parent?.CheckboxSource(catalog,table,relation,
                     allowProjectPhysicalColumns:projectCheckbox):

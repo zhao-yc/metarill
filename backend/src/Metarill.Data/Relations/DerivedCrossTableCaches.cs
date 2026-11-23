@@ -21,9 +21,11 @@ public static class DerivedCrossTableCaches
                 var checkboxPage=catalog.ConfigPages.SingleOrDefault(page=>page.Id==d.CheckboxTargetPageId&&page.ConfigTableId==target.Id);
                 var storedAccount=checkboxPage is not null&&Metarill.Data.Queries.NonRedundantReads
                     .IsProjectStoredCheckboxAccountPage(catalog,target,checkboxPage);
-                if(MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(targetValue)&&!storedAccount)
+                var relation=catalog.ConfigColumns.Single(column=>column.Id==d.ForeignColumnId&&column.ConfigTableId==source.Id);
+                var scoped=Metarill.Data.Queries.NonRedundantReads.HasScopedMultiPage(catalog,target,relation);
+                if(MetadataStoragePolicy.ForTable(catalog,target).IsPhysical(targetValue)&&!storedAccount&&!scoped)
                 {
-                    // 物理副本沿用原列证明，其父范围由维护投影重新读取。账号范围则在下方与来源行一同验证。
+                    // 普通物理副本沿用原列证明；已带固定范围的副本走下方完整维护计划。
                     _=RelationMutationPlan.Compile(catalog,[d with{CheckboxTargetPageId=null,CheckboxSourceParentId=null}]);
                     var cacheColumn=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id))
                         .Single(column=>column.Id==d.CacheColumnId);

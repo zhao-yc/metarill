@@ -155,6 +155,12 @@ internal static class DatabaseCheckboxCompilation
                     .Select(setting=>baseline.WithPageOverride(setting.Extra.GetValueOrDefault("controlDetail").ToString()).NameField)
                     .ToHashSet(StringComparer.Ordinal):[];
             var sharedNamesPage=pageNames.Any(field=>field!=baseline.NameField);
+            // 仅将普通物理路由或独立表单的同父字典交给物理查询，保留逻辑来源的既有路径。
+            var ordinaryCompoundParent=!functionForm&&!table.IsGlobal&&exactTarget is null&&namePage is {} actualTarget&&
+                actualTarget.Scopes.Count(scope=>scope.Source=="parent")>1&&page.Scopes.Count(scope=>scope.Source=="parent")<=1&&
+                !page.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,table,page,scope.Column))
+                ?MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(model.Catalog,target.Source,actualTarget.Source)
+                :null;
             // 保存按实际身份读取，维护从每条来源记录的持久归属绑定同一账号范围。
             var sharedFixedR0Page=sharedNamesPage&&target.Source.IsRongyu==0&&exactTarget is null&&
                 !FixedPageConditionCompilation.HasLogicalFields(namePage!);
@@ -166,9 +172,9 @@ internal static class DatabaseCheckboxCompilation
             var sharedLiteralScope=sharedScalarPage&&literalConditions;
             // 普通物理目标父沿用原路由及独立表单的持久外键证明。
             var sharedPhysicalParentScope=literalConditions&&!target.IsGlobal&&
-                namePage!.Scopes.Count(scope=>scope.Source=="parent")==1&&namePage.Scopes.Any(scope=>
+                (ordinaryCompoundParent is not null||namePage!.Scopes.Count(scope=>scope.Source=="parent")==1&&namePage.Scopes.Any(scope=>
                     scope.Source=="parent"&&NonRedundantReadCompilation.Physical(model,target,scope.Column)&&
-                    !NonRedundantCrossParentCompilation.Managed(model,target,namePage,scope.Column));
+                    !NonRedundantCrossParentCompilation.Managed(model,target,namePage,scope.Column)));
             if(sharedAccountScope&&!sharedStoredAccountScope&&!projectStoredAccount)
                 _=Metarill.Data.Queries.AccountScopedCrossCache.Compile(model.Catalog,table.Source,target.Source,namePage!.Source);
             // 任一副本来自联接时，各页的写入口都必须使用可以一次投影全部名称的计划。
@@ -198,7 +204,8 @@ internal static class DatabaseCheckboxCompilation
             // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。
             var compoundTargetParents=!functionForm&&target.Source.IsRongyu==0&&
                 namePage?.Scopes.Count(scope=>scope.Source=="parent")>1;
-            var logicalPage=!sharedAccountScope&&!storedAccountPage&&namePage is not null&&(compoundTargetParents||FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage,includeProjectFixedScope:false))&&
+            var logicalPage=ordinaryCompoundParent is null&&!sharedAccountScope&&!storedAccountPage&&namePage is not null&&
+                (compoundTargetParents||FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage,includeProjectFixedScope:false))&&
                 (!functionForm||FixedPageConditionCompilation.HasLogicalFields(namePage)||namePage.Scopes.Any(scope=>scope.Source=="parent"&&
                     (!NonRedundantReadCompilation.Physical(model,target,scope.Column)||
                      CrossTableStorageColumns.IsLogicalPathField(target.Source,model.Catalog.ConfigColumns,scope.Column.Source.ColumnName)||
@@ -241,7 +248,7 @@ internal static class DatabaseCheckboxCompilation
                 (namePage.Condition is {Syntax.Variables.Count:0}||namePage.Condition is null&&namePage.Scopes.Any(scope=>scope.Source=="parent"))&&
                 !FixedPageConditionCompilation.HasLogicalFields(namePage)&&namePage.Scopes.Count(scope=>scope.Source=="parent")<=1;
             // 普通全局派生名称没有行项目列时，固定发布条件由复选查询显式合并。
-            if((realtimeRead||functionForm||globalPage is not null||exactTarget is not null||sharedFixedPage||projectStoredAccount)&&!scopeAlreadyBound&&namePage is not null&&
+            if((realtimeRead||functionForm||globalPage is not null||exactTarget is not null||sharedFixedPage||projectStoredAccount||ordinaryCompoundParent is not null)&&!scopeAlreadyBound&&namePage is not null&&
                 (functionForm||namePage.Condition is not null||namePage.Scopes.Any(scope=>scope.Source=="parent")))
             {
                 physicalPage=namePage;
@@ -309,10 +316,10 @@ internal static class DatabaseCheckboxCompilation
             }
 
             // 无页面父路由时，固定目标页的实际父字段绑定来源详情中唯一的真实表单外键。
-            var ordinaryFormParent=sourceScopeColumns.Length==0&&realtimeRead&&!table.IsGlobal&&
+            var ordinaryFormParent=ordinaryCompoundParent??(sourceScopeColumns.Length==0&&realtimeRead&&!table.IsGlobal&&
                 exactTarget is null&&physicalPage is {} published&&physicalParents.Length==1
-                ?MultiTargetParentScope.CompileProjectCheckboxFormPage(model.Catalog,target.Source,published.Source)
-                :null;
+                ?MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(model.Catalog,target.Source,published.Source)
+                :null);
             if(sourceScopeColumns.Length==0&&(sharedFixedPage&&physicalParents.Length==1||
                 projectStoredAccount&&physicalParents.Length>0||ordinaryFormParent is not null))
             {
@@ -458,7 +465,7 @@ internal static class DatabaseCheckboxCompilation
                     FixedCacheParent(definition) is not null);
     }
 
-    /// <summary>所有名称缓存绑定同一个来源行键。账号字典的多个实际目标父字段必须全部一致。</summary>
+    /// <summary>所有名称缓存绑定同一个来源行键，已发布的全部实际目标父字段必须一致。</summary>
     internal static string? FixedCacheParent(DatabaseCheckboxModel definition)
     {
         if(definition.PhysicalTargetPage is null||definition.LogicalSourceParent||definition.GlobalParent||
@@ -468,8 +475,7 @@ internal static class DatabaseCheckboxCompilation
             return null;
         var target=definition.PhysicalTargetPage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();
         var effective=definition.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();
-        return (target.Length==1||target.Length>1&&definition.HasProjectStoredAccountScope)&&
-            target.ToHashSet(StringComparer.Ordinal).SetEquals(effective)?definition.SourceParent?.Source.Id:null;
+        return target.Length>0&&target.ToHashSet(StringComparer.Ordinal).SetEquals(effective)?definition.SourceParent?.Source.Id:null;
     }
 
     /// <summary>全局固定目录及含物理条件的普通发布页随名称缓存下发。</summary>
