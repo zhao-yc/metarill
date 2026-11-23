@@ -410,8 +410,10 @@ internal static class DatabaseCheckboxCompilation
             return !definition.LogicalSourceParent&&definition.SourceParent is not null&&
                 (definition.SourceScopeColumns.Count==1||definition.FormParentField is not null);
         if(definition.DerivedName&&!definition.SharedDerivedPageScope)return false;
+        // 账号字典的全称和简称可共享控件显式声明的项目等值；各页的完整条件已与表级核对。
         return definition.Target.IsGlobal
-            ? definition.NameTargetPage is {Scopes.Count:0} globalPage&&definition.Scopes.Count==0&&
+            ? definition.NameTargetPage is {Scopes.Count:0} globalPage&&
+                (definition.Scopes.Count==0||definition.HasStoredAccountScope&&definition.Scopes.All(scope=>scope.Source=="project"))&&
                 (globalPage.Condition is null||globalPage.Condition.Syntax.Variables.Count==0||definition.SharedAccountScope)
             : (definition.NameTargetPage?.Condition is null||definition.PhysicalTargetPage?.Condition is {Syntax.Variables.Count:0}||
                 definition.SharedAccountScope)&&

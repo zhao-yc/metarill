@@ -83,7 +83,11 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
     [InlineData(true,false)]
     [InlineData(false,true)]
     [InlineData(true,true)]
-    public void Stored_checkbox_form_terms_reach_the_published_maintenance(bool globalSource,bool alternate)
+    [InlineData(false,false,true)]
+    [InlineData(true,false,true)]
+    [InlineData(false,true,true)]
+    [InlineData(true,true,true)]
+    public void Stored_checkbox_form_terms_reach_the_published_maintenance(bool globalSource,bool alternate,bool projectBound=false)
     {
         var catalog = RedundantMultiNameCacheTests.Published(DatabaseCheckboxGenerationTests.Catalog(false));
         ConfigureStoredCheckbox(catalog, globalSource);
@@ -97,6 +101,8 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
             YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1});
         var relation = catalog.ConfigColumns.Single(column => column.Id == "25");
         relation.ControlDetail = """{"tableId":"3","pageId":"301","nameField":"name","whereSql":"category_id=@formParameters.relationSource.categoryId AND merchant_id=@current_merchant_id AND name<>'停用'"}""";
+        if(projectBound)
+            relation.ControlDetail=relation.ControlDetail.Replace("category_id=@formParameters","yz_project_id=@current_yz_project_id AND category_id=@formParameters",StringComparison.Ordinal);
         if(alternate)
         {
             var second=JsonSerializer.Deserialize<Metarill.Core.Metadata.PageMetadata>(JsonSerializer.Serialize(sourcePage))!;
@@ -110,6 +116,9 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
                 if(copy.ConfigColumnId=="25")
                     copy.Extra["controlDetail"]=JsonSerializer.SerializeToElement(
                         """{"nameField":"short_name","whereSql":"merchant_id=@current_merchant_id AND name <> '停用' AND category_id = @formParameters.relationSource.categoryId"}""");
+                if(copy.ConfigColumnId=="25"&&projectBound)
+                    copy.Extra["controlDetail"]=JsonSerializer.SerializeToElement(copy.Extra["controlDetail"].GetString()!
+                        .Replace("category_id =","yz_project_id = @current_yz_project_id AND category_id =",StringComparison.Ordinal));
                 catalog.ConfigPageColumns.Add(copy);
             }
             catalog.ConfigColumns.Add(new(){Id="75",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
@@ -134,6 +143,11 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
         Assert.Contains("CheckboxCondition201_25.Apply",service);
         Assert.Contains("entity.CategoryId",service);
         Assert.Contains("ImportCheckbox201_25Async",service);
+        if(projectBound)
+        {
+            Assert.Contains("query=query.Where(row=>row.YzProjectId==",service);
+            Assert.Contains("""["current_yz_project_id"] = actor.ProjectId""",service);
+        }
 
         const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
         var maintenance=MixedRelationPropagationCompilation.ForModel(directory);
@@ -149,6 +163,8 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
         Assert.Contains("multi_value."+(char)96+"store_id"+(char)96,expression);
         Assert.Contains("multi_value."+(char)96+"merchant_id"+(char)96,expression);
         Assert.Contains("b."+(char)96+"merchant_id"+(char)96,expression);
+        var projectScope="multi_value."+(char)96+"yz_project_id"+(char)96+"=@project_scope_";
+        Assert.Equal(projectBound,expression.Contains(projectScope,StringComparison.Ordinal));
         var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
             read.GetType().GetProperty("Constants",hidden)!.GetValue(read));
         Assert.Contains("停用",parameters.Values);
@@ -162,6 +178,7 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
         {
             Assert.Contains("category_id",fields);
             Assert.Contains("merchant_id",fields);
+            Assert.Equal(projectBound,fields.Contains("yz_project_id"));
         });
 
         if(alternate)
@@ -170,6 +187,7 @@ public sealed class DatabaseCheckboxListOptionsGenerationTests
             var shortName=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["target_short_names"]));
             Assert.Contains("multi_value."+(char)96+"short_name"+(char)96,shortName);
             Assert.Contains("b."+(char)96+"category_id"+(char)96,shortName);
+            Assert.Equal(projectBound,shortName.Contains(projectScope,StringComparison.Ordinal));
         }
 
         var settings=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25");

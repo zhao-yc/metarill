@@ -136,13 +136,25 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     [InlineData(0, false, true, true)]
     [InlineData(1, false, false, true)]
     [InlineData(1, true, true, true)]
-    public async Task Checkbox_with_stored_global_account_dictionary(int mode,bool explicitPage,bool globalSource=false,bool alternate=false)
+    [InlineData(1, false, false, true, true)]
+    [InlineData(1, true, true, true, true)]
+    public async Task Checkbox_with_stored_global_account_dictionary(int mode,bool explicitPage,bool globalSource=false,bool alternate=false,bool projectBound=false)
     {
         var catalog = PhysicalLabelCatalog(mode,false);
         if(globalSource)
             catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         catalog.ConfigColumns.RemoveAll(column => column.Id is "34" or "35");
         catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId is "34" or "35");
+        if(projectBound)
+        {
+            // 项目过滤样本是物理字典，去掉基类夹具从另一字典派生的下拉缓存。
+            catalog.ConfigColumns.RemoveAll(column=>column.Id is "13" or "14");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "13" or "14");
+            var relation=catalog.ConfigColumns.Single(column=>column.Id=="38");
+            relation.ControlDetail=relation.ControlDetail.Insert(1,"\"whereSql\":\"yz_project_id=@current_yz_project_id\",");
+            catalog.ConfigColumns.Add(new(){Id="19",ConfigTableId="1",YzProjectId="100",ColumnName="yz_project_id",
+                LogicalType=globalSource?"string":"int64"});
+        }
         var dictionary = catalog.ConfigPages.Single(page => page.Id == "10");
         dictionary.Extra.Remove("type");
         dictionary.WhereSql = "status=1 AND store_id=@current_store_id";
@@ -231,6 +243,9 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             Assert.Contains("CheckboxOptions30_38Async",service);
             Assert.Contains("ImportCheckbox30_38Async",service);
             Assert.Contains("Export30Async",service);
+            if(projectBound)
+                Assert.Contains(globalSource?"query=query.Where(row=>row.YzProjectId==actor.ProjectId);":
+                    "query=query.Where(row=>row.YzProjectId==long.Parse(actor.ProjectId,CultureInfo.InvariantCulture));",service);
             Assert.Contains(mode==0?"FixedReadComparison.JsonArrayAnyContains":"ApplyJsonArrayAnyLike",service);
             if(alternate)
             {
@@ -322,8 +337,13 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     if(alternate)
                     {
                         Assert.Contains("selected_global_source_short_captions",generatedMaintenance.MixedSourceColumns["cached_consumer"]);
-                        Assert.Contains("`short_caption`",CheckboxNameExpression(read,"selected_global_source_short_captions"));
-                        Assert.Contains("`caption`",CheckboxNameExpression(read,"selected_global_source_captions"));
+                        var shortName=CheckboxNameExpression(read,"selected_global_source_short_captions");
+                        var fullName=CheckboxNameExpression(read,"selected_global_source_captions");
+                        Assert.Contains("`short_caption`",shortName);
+                        Assert.Contains("`caption`",fullName);
+                        var projectPredicate="multi_value.`yz_project_id`=@project_scope_"+(globalSource?"text":"number");
+                        Assert.Equal(projectBound,shortName.Contains(projectPredicate,StringComparison.Ordinal));
+                        Assert.Equal(projectBound,fullName.Contains(projectPredicate,StringComparison.Ordinal));
                     }
                 }
 
