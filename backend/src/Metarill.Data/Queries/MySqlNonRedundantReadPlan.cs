@@ -531,7 +531,15 @@ public static partial class MySqlNonRedundantReadCompiler
                         ?AccountScopedCrossCache.Compile(catalog,table,target,catalog.ConfigPages.Single(page=>page.Id==accountPage))
                         :null;
                     var id=Resolve(table,alias,foreign.ColumnName);
-                    var projected=Resolve(target,Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||publishedPage is not null,cachePage:publishedPage,account:account),value.ColumnName);
+                    var targetAlias=Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||publishedPage is not null,cachePage:publishedPage,account:account);
+                    CascadeCacheOwner? nameOwner=null;
+                    if(crossGlobal&&target.IsRongyu==0&&storage[target.Id].Kind(value)==MetadataFieldStorage.Join)
+                    {
+                        // 级联层绑定的实际页决定内层名称范围。过滤只影响名称可见性，保留字典变化的物理反查。
+                        singleCachePages[targetAlias]=catalog.ConfigPages.Single(page=>page.Id==refresh.CrossTablePageId&&page.ConfigTableId==target.Id);
+                        nameOwner=new CascadeCacheOwner(table,alias);
+                    }
+                    var projected=Resolve(target,targetAlias,value.ColumnName,nameOwner);
                     // 自树和跨表的受管标量名称共用文本格式，便于候选与回填结果一致。
                     var textLabel=(refresh.CrossTableColumnId is not null||foreign.ControlKind=="CascadeTree")&&MultiValueLabel.IsTyped(projected.Type);
                     return textLabel?(MySqlMultiValueLabel.Text(projected.Sql,projected.Type),"string"):projected;
@@ -766,6 +774,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new InvalidOperationException("项目内固定单值名称必须使用已发布维护绑定。");
             var projectSingle=!global&&ordinaryRelation?ProjectSingleBinding(ownerAlias,relation,target):null;
             PageMetadata? publishedPage=cachePage;
+            PageMetadata? crossNameTargetPage=null;
             var scopedSingle=false;
             var scopedCrossTable=false;
             var scopedAccount=false;
@@ -781,6 +790,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 var proof=owner.IsRongyu==1?GlobalSingleRelationTarget.RequireCached(catalog,owner,relation,target):
                     actualPage is not null?GlobalSingleRelationTarget.Require(catalog,owner,relation,target,actualPage):
                     GlobalSingleRelationTarget.Require(catalog,owner,relation,target);
+                if(CrossNamePage(ownerAlias) is not null)
+                    crossNameTargetPage=proof.Page;
                 scopedSingle=proof.ScopedLogicalPage;
                 scopedCrossTable=proof.ScopedCrossTable;
                 scopedAccount=proof.ScopedAccount;
@@ -819,6 +830,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 parentBinding.LogicalPages.Count>0||parentBinding.AdditionalColumns.Count>0)
                 ?SingleSourceParentValue(ownerTable,ownerAlias,parentBinding):null;
             var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global){globalSingleAliases.Add(alias);if(target.IsRongyu==0)globalDerivedAliases.Add(alias);}var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=publishedPage is null?Scope(target,alias,projectScoped:!global):PublishedScope(target,alias,publishedPage,alias,allowAccount:scopedAccount,projectParent:projectParent,scopedSingle:scopedSingle,scopedCrossTable:scopedCrossTable,accountParent:accountParent,sourceParent:accountParent?.Logical==true?sourceParent:null);
+            if(crossNameTargetPage is not null)
+                crossNameSourcePages[alias]=crossNameTargetPage;
             if(accountParent is {Logical:false})
                 scope+=(scope.Length==0?"":" AND ")+SinglePhysicalParentCondition(ownerTable,ownerAlias,alias,accountParent,parentBinding!.Column,sourceParent:sourceParent);
             if(projectSingle is not null)

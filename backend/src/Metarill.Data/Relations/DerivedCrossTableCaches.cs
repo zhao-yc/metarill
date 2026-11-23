@@ -81,11 +81,11 @@ public static class DerivedCrossTableCaches
         }
         if(all.GroupBy(d=>(d.SourceTableId,d.CacheColumnId)).Any(g=>g.Distinct().Count()!=1))throw new InvalidOperationException("同一缓存存在相互冲突的物理／派生绑定。");
     }
-    /// <summary>按实际维护计划保留固定单值联接涉及的表，包括复选各份名称自身的联接路径。</summary>
+    /// <summary>按实际维护计划保留固定单值、复选及跨表层名称联接涉及的表。</summary>
     public static IReadOnlySet<string> ScopedSingleReferencedTables(MetadataCatalog catalog,IReadOnlyList<RelationCacheDefinition> definitions)
     {
         var referenced=new HashSet<string>(StringComparer.Ordinal);
-        var byTable=definitions.Where(definition=>definition.ScopedSinglePageId is not null||HasJoinedCheckboxName(definition))
+        var byTable=definitions.Where(definition=>definition.ScopedSinglePageId is not null||HasJoinedCheckboxName(definition)||HasJoinedCrossName(definition))
             .GroupBy(definition=>definition.SourceTableId);
         foreach(var group in byTable)
         {
@@ -97,6 +97,15 @@ public static class DerivedCrossTableCaches
             referenced.UnionWith(read.PhysicalReferences.Select(reference=>reference.Table));
         }
         return referenced;
+
+        bool HasJoinedCrossName(RelationCacheDefinition definition)
+        {
+            if(definition.CrossTablePageId is null)return false;
+            var target=catalog.ConfigTables.Single(table=>table.Id==definition.TargetTableId);
+            if(target.IsRongyu!=0||!GlobalCrossTableTarget.Declared(target))return false;
+            var label=catalog.ConfigColumns.SingleOrDefault(column=>column.Id==definition.ValueColumnId);
+            return label is not null&&MetadataStoragePolicy.ForTable(catalog,target).Kind(label)==MetadataFieldStorage.Join;
+        }
 
         bool HasJoinedCheckboxName(RelationCacheDefinition definition)
         {

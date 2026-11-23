@@ -18,6 +18,12 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,MySqlCrossTableProjection> crossProjections=new(StringComparer.Ordinal);
         private readonly Dictionary<string,IReadOnlyDictionary<string,(string Sql,string Type)>> crossValues=new(StringComparer.Ordinal);
         private readonly Dictionary<string,object?> crossConstants=new(StringComparer.Ordinal);
+        private readonly Dictionary<string,PageMetadata> crossNameSourcePages=new(StringComparer.Ordinal);
+        private PageMetadata? CrossNameSourcePage { get; init; }
+
+        /// <summary>层位别名逐段带上已发布页面，重复目标表也各自使用自己的页面。</summary>
+        private PageMetadata? CrossNamePage(string alias)=>
+            alias==rootAlias?CrossNameSourcePage:crossNameSourcePages.GetValueOrDefault(alias);
         private sealed record CrossLevel(TableMetadata Table,ColumnMetadata Name,ColumnMetadata? Parent,NonRedundantCrossTableTargetScope Scope,PageMetadata Page,IReadOnlySet<string> LogicalFields,IReadOnlySet<string>? SelfTreeFields=null);
 
         /// <summary>一个控件只生成一条从末层向根的线性联接链，全部用途复用逻辑字段表达式。</summary>
@@ -58,7 +64,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     }
                     if(target.IsRongyu==0)
                     {
-                        var proof=new Builder(catalog,target.Id,matching:!global,deferCascadeNames:selfTreeFields.Count>0).Compile([display.ColumnName],[]);if(proof.Types[display.ColumnName]!=display.LogicalType||proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
+                        var proof=new Builder(catalog,target.Id,matching:!global,deferCascadeNames:selfTreeFields.Count>0){CrossNameSourcePage=global?page:null}.Compile([display.ColumnName],[]);if(proof.Types[display.ColumnName]!=display.LogicalType||proof.MultiProjections.Count>0||proof.Crosses.Count>0||!proof.Origins.TryGetValue(display.ColumnName,out var terminal)||ExactDataManageValues.IsSensitiveField(terminal.Column))throw new NotSupportedException("跨表派生名称不能借数组、级联或凭据绕过固定终点证明。");
                     }
                     else if(!global&&!CrossPhysical(target,display))throw new NotSupportedException("冗余目标联接名称仍需独立物理缓存证明。");
                     ColumnMetadata? parent=null;
@@ -126,7 +132,11 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(slot.LogicalType=="string")idExpression="CONVERT(("+idExpression+") USING utf8mb4) COLLATE utf8mb4_bin";
                     result.Add(slot.ColumnName,(idExpression,slot.LogicalType));
                     if(trackReverse&&(labelPath||scopeOnly)&&levels[index].Table.IsRongyu==1)Touch(targetAliases[index],levels[index].Name.ColumnName);
-                    var label=levels[index].Table.IsRongyu==0?Resolve(levels[index].Table,targetAliases[index],levels[index].Name.ColumnName).Sql:targetAliases[index]+"."+Q(levels[index].Name.ColumnName);
+                    var labelAlias=targetAliases[index];
+                    // 同一表可以在不同层担任不同角色，各名称联接使用本级发布页。
+                    if(levels[index].Table.IsRongyu==0&&GlobalCrossTableTarget.Declared(levels[index].Table))
+                        crossNameSourcePages[labelAlias]=levels[index].Page;
+                    var label=levels[index].Table.IsRongyu==0?Resolve(levels[index].Table,labelAlias,levels[index].Name.ColumnName).Sql:labelAlias+"."+Q(levels[index].Name.ColumnName);
                     var text=MySqlMultiValueLabel.Text(label,levels[index].Name.LogicalType);
                     result.Add(slot.ColumnName[..^3]+"_name",("CASE WHEN "+string.Join(" OR ",paths.Skip(index))+" THEN "+text+" END","string"));
                 }

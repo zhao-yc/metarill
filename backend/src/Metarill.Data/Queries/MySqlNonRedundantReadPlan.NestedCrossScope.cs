@@ -477,9 +477,23 @@ public static partial class MySqlNonRedundantReadCompiler
             // 只更换显示列时没有新的目标页范围，沿既有项目联接处理。
             if(explicitBinding is {ApplyPageCondition:false,DisplayNameColumnId:not null,NestedTargets.Count:0})
                 return null;
-            if(explicitBinding is not null||cascadeCacheOwner is not null||MultiNameSourcePage(ownerAlias) is not {} sourcePage)
+            var crossPage=CrossNamePage(ownerAlias);
+            if(explicitBinding is not null||cascadeCacheOwner is not null||
+                (MultiNameSourcePage(ownerAlias)??crossPage) is not {} sourcePage)
                 return explicitBinding;
             var owner=tables[relation.ConfigTableId];
+            if(crossPage is not null&&target.IsRongyu==1&&owner.IsRongyu==0&&GlobalCrossTableTarget.Declared(target))
+            {
+                var proof=GlobalSingleRelationTarget.Require(catalog,owner,relation,target,sourcePage);
+                // 冗余字典的附加下拉条件仍按实际层位的来源行求值。
+                if(proof.UsesListPageScope&&proof.CacheControl is {Terms.Count:>0} storedControl)
+                {
+                    var storedParent=proof.Parent??MultiTargetParentScope.Compile(catalog,target,storedControl);
+                    var storedSource=storedParent?.SingleSource(catalog,owner,relation,sourcePage);
+                    return new(relation.Id,proof.Page.Id,storedSource?.Column.Id)
+                        {SourcePageId=sourcePage.Id,ControlSourcePageId=sourcePage.Id};
+                }
+            }
             if(multiLabel&&target.IsRongyu==1&&ProjectScopedSingleRelationTarget.NestedPage(
                 catalog,owner,sourcePage,relation,target,allowStoredTarget:true) is {Scoped:true} stored)
                 return new(relation.Id,stored.Page.Id){SourcePageId=sourcePage.Id};
@@ -519,7 +533,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>全局下拉使用生成计划中的来源页，与多值名称的实际中间页同时存在时必须一致。</summary>
         private PageMetadata? GlobalSingleSourcePage(string alias,TableMetadata source,ColumnMetadata relation)
         {
-            var actual=MultiNameSourcePage(alias)??(alias==rootAlias?candidatePage??SelectedMultiPage:null);
+            var actual=MultiNameSourcePage(alias)??(alias==rootAlias?candidatePage??SelectedMultiPage:null)??CrossNamePage(alias);
             if(relation.ControlKind!="List"||ExplicitSingleBinding(alias,relation) is not {} binding||
                 (binding.SourcePageId??binding.ControlSourcePageId) is not {} pageId)return actual;
             if(actual is not null&&actual.Id!=pageId||binding.ControlSourcePageId is {} controlPage&&controlPage!=pageId)

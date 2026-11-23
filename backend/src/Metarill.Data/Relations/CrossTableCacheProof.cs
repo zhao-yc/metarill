@@ -44,13 +44,24 @@ internal static class CrossTableCacheProof
         foreach(var level in levels.EnumerateArray())
         {
             Object(level);if(Extra(level)||Text(level,"idField","id")!="id")throw new InvalidOperationException("跨表名称缓存不接受额外查询范围或非id主键。");var tableName=Text(level,"table","");var prefix=Text(level,"columnPrefix",tableName);var key=Text(level,"key",tableName);var field=Text(level,"nameField","name");MetadataValidation.RequireIdentifier(tableName);MetadataValidation.RequireIdentifier(prefix);MetadataValidation.RequireIdentifier(field);if(!keys.Add(key)||!prefixes.Add(prefix)||prefix is "yz_project" or "insert_manager" or "update_manager" or "insert_user" or "update_user")throw new InvalidOperationException("跨表名称缓存层标识或前缀重复。");
-            var node=catalog.ConfigTables.SingleOrDefault(x=>x.TableName==tableName&&(x.YzProjectId.Length==0||x.YzProjectId==catalog.YzProjectId))??throw new InvalidOperationException("跨表名称缓存目标不属于发布项目。");var storage=MetadataStoragePolicy.ForTable(catalog,node);var columns=RelationStorageColumns.Expand(node,catalog.ConfigColumns.Where(x=>x.ConfigTableId==node.Id));var name=columns.SingleOrDefault(x=>x.ColumnName==field);var globalName=name is not null&&GlobalCrossTableTarget.Declared(node)&&GlobalPhysicalRelationValue.IsPublishedScalar(catalog,storage,node,name);if(node.IsRongyu is not(0 or 1)||node.IsFunctionTable!=0||node.IsView!=0||name is null||name.ColumnName=="id"||(name.LogicalType!="string"&&!MultiValueLabel.IsTyped(name.LogicalType))||name.IsVirtualColumn!=0||storage.IsPhysical(name)&&Enabled(name)&&!globalName||ExactDataManageValues.IsSensitiveField(name.ColumnName)||name.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList")throw new InvalidOperationException("跨表名称缓存终点必须为已证明的单值标量。");
+            var node=catalog.ConfigTables.SingleOrDefault(x=>x.TableName==tableName&&(x.YzProjectId.Length==0||x.YzProjectId==catalog.YzProjectId))
+                ??throw new InvalidOperationException("跨表名称缓存目标不属于发布项目。");
+            var storage=MetadataStoragePolicy.ForTable(catalog,node);
+            var columns=RelationStorageColumns.Expand(node,catalog.ConfigColumns.Where(x=>x.ConfigTableId==node.Id));
+            var name=columns.SingleOrDefault(x=>x.ColumnName==field);
+            var global=GlobalCrossTableTarget.Declared(node);
+            // 全局名称资格由本层实际发布页证明，避免对同一条联接提前执行无页面的证明。
+            if(node.IsRongyu is not(0 or 1)||node.IsFunctionTable!=0||node.IsView!=0||name is null||name.ColumnName=="id"||
+                (name.LogicalType!="string"&&!MultiValueLabel.IsTyped(name.LogicalType))||name.IsVirtualColumn!=0||
+                storage.IsPhysical(name)&&Enabled(name)&&!global||ExactDataManageValues.IsSensitiveField(name.ColumnName)||
+                name.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList")
+                throw new InvalidOperationException("跨表名称缓存终点必须为已证明的单值标量。");
             if(!storage.IsPhysical(name))
             {
                 if(node.IsRongyu!=0||storage.Kind(name)!=MetadataFieldStorage.Join)throw new InvalidOperationException("跨表派生名称只能来自R0固定单值路径。");
-                if(!GlobalCrossTableTarget.Declared(node)&&Metarill.Data.Queries.NonRedundantReads.CompileMatch(catalog,node.Id,name.ColumnName).OutputTypes[name.ColumnName]!=name.LogicalType)throw new InvalidOperationException("跨表派生名称必须落到同类型的非凭据终点。");
+                if(!global&&Metarill.Data.Queries.NonRedundantReads.CompileMatch(catalog,node.Id,name.ColumnName).OutputTypes[name.ColumnName]!=name.LogicalType)throw new InvalidOperationException("跨表派生名称必须落到同类型的非凭据终点。");
             }
-            if(GlobalCrossTableTarget.Declared(node))
+            if(global)
             {
                 // 每个全局层必须由同一控制列的精确缓存定义绑定唯一页；不能通过另一来源或请求补页。
                 if(source.YzProjectId!=catalog.YzProjectId||GlobalCrossTableTarget.Declared(source))throw new InvalidOperationException("全局跨表缓存来源必须明确发布为普通项目实体。");

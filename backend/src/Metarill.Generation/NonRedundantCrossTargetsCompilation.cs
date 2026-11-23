@@ -35,10 +35,19 @@ internal static class NonRedundantCrossTargetsCompilation
         if (level.DerivedOrder)
             return CascadeTargetOrderCompilation.Require(model, target, level.Page, level.Name, level.Parent,
                 level.DerivedName, level.DerivedOrder, level.Order, fields);
-        var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(level.Order.Select(item=>item.Column.Source.ColumnName)).Append("id").Distinct(StringComparer.OrdinalIgnoreCase).ToArray();var outputs=new[]{"id",level.Name.Source.ColumnName}.Concat(level.Parent is{} p?new[]{p.Source.ColumnName}:[]).ToArray();var read=FixedPageConditionCompilation.HasLogicalFields(level.Page)
-            ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,level.Page.Source.Id,outputs,dependencies)
+        var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(level.Order.Select(item=>item.Column.Source.ColumnName))
+            .Append("id").Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var outputs=new[]{"id",level.Name.Source.ColumnName}.Concat(level.Parent is{} p?new[]{p.Source.ColumnName}:[]).ToArray();
+        // 级联候选及运行时共用实际目标页的名称路径和条件。
+        var targets=target.IsGlobal?NonRedundantReadCompilation.ProjectPathTargets(model,target,level.Page,outputs.Concat(dependencies)):[];
+        var read=FixedPageConditionCompilation.HasLogicalFields(level.Page)
+            ?NonRedundantReads.CompileCrossPageCandidate(model.Catalog,target.Source.Id,level.Page.Source.Id,outputs,dependencies,null,targets)
             :NonRedundantReadCompilation.HasGlobalRowProject(target)
-            ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,level.Page.Source.Id,outputs,dependencies)
-            :NonRedundantReads.Compile(model.Catalog,target.Source.Id,outputs,dependencies);if(read.OutputTypes["id"]!="int64"||read.OutputTypes[level.Name.Source.ColumnName]!=level.Name.Source.LogicalType)throw new InvalidOperationException("跨表名称必须落到同类型的固定单值。");return (dependencies, [], []);
+            ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,level.Page.Source.Id,outputs,dependencies,targets)
+            :targets.Count>0?NonRedundantReads.CompileProjectRelation(model.Catalog,target.Source.Id,outputs,dependencies,targets)
+            :NonRedundantReads.Compile(model.Catalog,target.Source.Id,outputs,dependencies);
+        if(read.OutputTypes["id"]!="int64"||read.OutputTypes[level.Name.Source.ColumnName]!=level.Name.Source.LogicalType)
+            throw new InvalidOperationException("跨表名称必须落到同类型的固定单值。");
+        return (dependencies, [], targets);
     }
 }
