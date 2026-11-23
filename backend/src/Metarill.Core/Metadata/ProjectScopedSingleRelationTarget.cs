@@ -95,11 +95,11 @@ public static class ProjectScopedSingleRelationTarget
         var nameField=NameField(definition);
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
         var names=RelationStorageColumns.Expand(target,columns).Select(column=>column.ColumnName).ToArray();
-        // 生成器的原主键下拉仅绑定整数外键；字符串键保留原有名称一致性检查。
-        var integerListId=foreign.ControlKind=="List"&&foreign.LogicalType=="int64"&&
+        // 主键显示使用整数外键，名称副本继续按表级定义和同一目标范围维护。
+        var integerId=foreign.LogicalType=="int64"&&
             columns.Any(column=>column.ColumnName=="id"&&column.LogicalType=="int64");
         var matches=sourcePages
-            .Select(page=>TargetFor(catalog,page,foreign,definition,selected,nameField,pages,names,integerListId,fixedList)).ToArray();
+            .Select(page=>TargetFor(catalog,page,foreign,definition,selected,nameField,pages,names,integerId,fixedList)).ToArray();
         if(storedSelection&&!matches.Any(match=>match.Page is {} page&&PhysicalSelectionParent(catalog,target,page) is not null))
             return null;
         var hasNameCache=foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
@@ -240,7 +240,7 @@ public static class ProjectScopedSingleRelationTarget
     /// <summary>下拉回退与原页面一致，同后台优先且不选择带父参数的候选页。</summary>
     private static (PageMetadata? Page,string Name) TargetFor(MetadataCatalog catalog,PageMetadata sourcePage,
         ColumnMetadata foreign,JsonElement definition,string selected,string name,PageMetadata[] pages,string[] members,
-        bool integerListId=false,bool fixedList=false)
+        bool integerId=false,bool fixedList=false)
     {
         using var overlay=PageDetail(catalog,sourcePage,foreign);
         if(overlay is not null)
@@ -249,8 +249,10 @@ public static class ProjectScopedSingleRelationTarget
             var label=Value(overlay.RootElement,"nameField");
             if(fixedList) selected=FixedListPageId(foreign,definition,overlay.RootElement);
             else if(pageId.Length>0)selected=pageId;
-            // 下拉的主键显示直接使用外键。写入口仍须复核同一候选范围，并维护表级名称副本。
-            if(label.Length>0 && !(integerListId && label=="id"))name=label;
+            // 只接受下拉或真实 type=1 页的主键显示，切换目标页仍按下方既有一致性规则核验。
+            var displaysId=integerId&&label=="id"&&(foreign.ControlKind=="List"||
+                pages.Any(page=>page.Id==selected&&page.Extra.GetValueOrDefault("type").ToString()=="1"));
+            if(label.Length>0&&!displaysId)name=label;
         }
         if(selected.Length>0||foreign.ControlKind=="SelectPage")return(pages.SingleOrDefault(page=>page.Id==selected),name);
         var unparented=pages.Where(page=>!FixedConditionPlan.Compile(page.WhereSql,members)

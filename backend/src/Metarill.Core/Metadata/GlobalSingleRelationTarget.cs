@@ -225,9 +225,11 @@ public static class GlobalSingleRelationTarget
         var key=targetColumns.SingleOrDefault(column=>column.ColumnName=="id");
         if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))
             throw new InvalidOperationException("全局单值目标必须使用非空int64物理主键。");
-        // 原整数外键可直接展示字典主键。弹窗须绑定已发布的原 type=1 页，名称副本继续使用表级显示列。
-        var allowsIdDisplay=!projectParent&&!GlobalCrossTableTarget.Declared(owner)&&foreign.LogicalType=="int64"&&
-            (foreign.ControlKind=="List"||foreign.ControlKind=="SelectPage"&&page.Extra.GetValueOrDefault("type").ToString()=="1");
+        // 实时全局单选也可显示字典主键。来源和目标仍必须通过本目录发布证明。
+        var selectPage=foreign.ControlKind=="SelectPage"&&page.Extra.GetValueOrDefault("type").ToString()=="1";
+        var allowsIdDisplay=!projectParent&&foreign.LogicalType=="int64"&&
+            (foreign.ControlKind=="List"&&!GlobalCrossTableTarget.Declared(owner)||
+                selectPage&&(!GlobalCrossTableTarget.Declared(owner)||owner.IsRongyu==0));
         // 普通与显式全局来源使用同一终点证明；来源的存储模式和发布身份已由各入口核验。
         var typedName = name is not null && name.ColumnName != "id" && MultiValueLabel.IsTyped(name.LogicalType) &&
             owner.IsRongyu is 0 or 1;

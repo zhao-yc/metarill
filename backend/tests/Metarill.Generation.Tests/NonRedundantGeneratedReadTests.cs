@@ -174,8 +174,13 @@ public sealed class NonRedundantGeneratedReadTests
     [InlineData(1,0,true,true,true)]
     [InlineData(1,1,true)]
     [InlineData(0,0,true,false,true)]
+    [InlineData(0,0,true,true,false,true)]
+    [InlineData(0,1,true,true,false,true,true)]
+    [InlineData(0,0,true,false,false,true,true)]
+    [InlineData(0,1,true,false,false,true)]
     public async Task Single_id_display_preserves_exact_web_filter_and_excel(
-        int storage,int targetStorage,bool global=false,bool fieldId=false,bool accountParent=false)
+        int storage,int targetStorage,bool global=false,bool fieldId=false,bool accountParent=false,
+        bool globalSource=false,bool rowProject=false)
     {
         var catalog=NonRedundantApplicationFixture.Catalog("mt_single_id");
         catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=storage;
@@ -206,6 +211,19 @@ public sealed class NonRedundantGeneratedReadTests
                 foreign.LinkConfigTableId="";
             }
         }
+        if(globalSource)
+        {
+            // 全局来源组合使用独立字典，隔离本次主键显示与既有普通项目父级。
+            catalog.ConfigTables.Single(table=>table.Id=="1").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            var omitted = rowProject ? new[] { "19", "27" } : new[] { "12", "19", "27" };
+            catalog.ConfigColumns.RemoveAll(column => omitted.Contains(column.Id));
+            // 这组只消费字典的 type=1 页，源表未参与 type=2 多选。
+            catalog.ConfigPages.RemoveAll(page => page.Id == "102");
+            catalog.ConfigPageColumns.RemoveAll(field => field.ConfigPageId == "102" || omitted.Contains(field.ConfigColumnId));
+            foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+                sourcePage.WhereSql=rowProject?"yz_project_id=@current_yz_project_id":"";
+        }
+
         // R1 对照保留原名称缓存，本用例只在 ID 页开启筛选。
         if(storage==1)
             foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId=="15"))
@@ -220,11 +238,19 @@ public sealed class NonRedundantGeneratedReadTests
         var model=GenerationModel.Create(catalog,ns);
         var table=model.Tables.Single(table=>table.Source.Id=="1");
         var actual=table.Pages.Single(page=>page.Source.Id=="104");
+        if (globalSource)
+        {
+            Assert.True(table.IsGlobal);
+            Assert.Equal(rowProject, NonRedundantReadCompilation.HasGlobalRowProject(table));
+        }
         var selection=NonRedundantSelectionCompilation.Resolve(model,table,actual,table.Columns.Single(column=>column.Source.Id=="15"));
         Assert.True(selection.Name.IsId);
         Assert.Equal("201",selection.TargetPage.Source.Id);
         Assert.Empty(SelectionNameFilterCompilation.ForPage(model,table,actual).Gaps);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        if (storage == 1 && !global)
+            Assert.Contains("customer_name", MixedRelationPropagationCompilation.ForModel(model)
+                .MixedSourceColumns["mt_single_id_order"]);
         var root=Path.Combine(Path.GetTempPath(),"metarill-single-id",Guid.NewGuid().ToString("N"));
         try
         {
@@ -282,6 +308,11 @@ public sealed class NonRedundantGeneratedReadTests
                 var filter=Assert.Single(filters,item=>item.Field=="customer_id");
                 Assert.Equal(Metarill.Data.Queries.FixedReadComparison.Equal,filter.Comparison);
                 Assert.Equal(9007199254740993L,Assert.IsType<long>(filter.Value));
+                if (rowProject)
+                {
+                    var project = Assert.Single(filters, item => item.Field == "yz_project_id");
+                    Assert.Equal(54L, Assert.IsType<long>(project.Value));
+                }
             }
             var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),
                 ns,NonRedundantApplicationFixture.Root());
