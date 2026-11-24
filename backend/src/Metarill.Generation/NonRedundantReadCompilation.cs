@@ -29,16 +29,17 @@ internal static partial class NonRedundantReadCompilation
             table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName))||
             GlobalPhysicalParentScope(table,page));
 
-    /// <summary>全局多选的物理账号父范围和同父级联范围共用独立分页的固定候选计划。</summary>
+    /// <summary>全局多选的物理父范围和同父级联范围共用独立分页的固定候选计划。</summary>
     internal static bool GlobalAccountMultiPage(TableModel table,PageModel page)=>
         page.Source.Extra.GetValueOrDefault("type").ToString()=="2"&&
         (GlobalAccountParentScope(table,page)||table.IsGlobal&&table.Source.IsRongyu==0&&
             page.Scopes.Count(scope=>scope.Source=="parent")>1&&page.Scopes.Any(scope=>scope.Source=="parent"&&
                 CrossTableStorageColumns.IsLogicalPathField(table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName)));
 
-    /// <summary>账号和真实物理父范围由实际发布页决定，与有没有项目列无关。</summary>
+    /// <summary>物理父范围由实际发布页决定，可以独立使用或叠加账号条件。</summary>
     private static bool GlobalAccountParentScope(TableModel table,PageModel page)=>
-        GlobalPhysicalParentScope(table,page)&&FixedPageConditionCompilation.HasAccountVariables(page)&&
+        GlobalPhysicalParentScope(table,page)&&
+        (FixedPageConditionCompilation.HasAccountVariables(page)||page.Scopes.All(scope=>scope.Source=="parent"))&&
         !FixedPageConditionCompilation.HasLogicalFields(page);
 
     /// <summary>只识别页级实际物理父字段，稀疏逻辑父继续沿原级联证明。</summary>

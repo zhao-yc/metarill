@@ -45,12 +45,22 @@ internal static class MultiGlobalParentCompilation
     /// <summary>项目内目标页与原全局多选页可声明物理全局父，绑定仍由实际页面和外键证明。</summary>
     internal static MultiTargetParentScope? PhysicalPageParent(GenerationModel model,TableModel table,PageModel page)
     {
-        if(table.Source.IsView!=0||table.Source.IsFunctionTable!=0||table.IsGlobal&&!SelectionPageRenderer.Enabled(page))return null;
+        if(table.Source.IsView!=0||table.Source.IsFunctionTable!=0||
+            table.IsGlobal&&!SelectionPageRenderer.Enabled(page)&&
+            !NonRedundantReads.IsScopedMultiTarget(model.Catalog,table.Source,page.Source.Id))return null;
         var parents=page.Scopes.Where(scope=>scope.Source=="parent").ToArray();
         if(parents.Length>1)
         {
             if(table.IsGlobal)
-                return GlobalCrossTableTarget.PhysicalAccountParent(model.Catalog,table.Source,page.Source) is {Global:true} compound?compound:null;
+            {
+                // 复合物理父键可来自实际多值发布，父页绑定仍须唯一。
+                var published=GlobalCrossTableTarget.PhysicalAccountParent(model.Catalog,table.Source,page.Source)??
+                    (NonRedundantReads.IsScopedMultiTarget(model.Catalog,table.Source,page.Source.Id)
+                        ?PublishedMultiParent(model,table,page):null);
+                if(published is not {Global:true,Logical:false,AdditionalTargets.Count:>0})return null;
+                _=NonRedundantReads.MultiGlobalParentPageId(model.Catalog,table.Source.Id,page.Source.Id);
+                return published;
+            }
             if(PublishedMultiParent(model,table,page) is not {Global:true,Logical:false,AdditionalTargets.Count:>0} compoundParent)
                 return null;
             _=NonRedundantReads.MultiGlobalParentPageId(model.Catalog,table.Source.Id,page.Source.Id);

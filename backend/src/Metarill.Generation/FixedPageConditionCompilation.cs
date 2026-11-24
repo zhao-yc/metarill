@@ -138,7 +138,7 @@ internal static class FixedPageConditionCompilation
             page.Scopes.Count(scope=>scope.Source=="parent")>1)||page.Scopes.Any(scope=>
         scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName))||
         table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent"&&
-            model.Tables.Any(parent=>parent.IsGlobal&&parent.Source.Id==scope.Column.Source.LinkConfigTableId))&&
+            (table.IsGlobal||model.Tables.Any(parent=>parent.IsGlobal&&parent.Source.Id==scope.Column.Source.LinkConfigTableId)))&&
         NonRedundantReads.IsScopedMultiTarget(model.Catalog,table.Source,page.Source.Id);
     /// <summary>非冗余SQL按已编译表达式绑定相同条件；写后回执明确不传页面筛选。</summary>
     internal static string ReadArgument(PageModel page,bool named=false)=>page.Condition is null?"":", "+(named?"condition: ":"")+Bound(page,"PageCondition"+page.Source.Id);

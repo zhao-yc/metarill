@@ -130,7 +130,7 @@ internal static class DatabaseCheckboxCompilation
                 scopedGlobalAccountPage=table.IsGlobal&&proof.UsesNonRedundantAccountPage;
                 scopedGlobalParentPage=proof.UsesNonRedundantPhysicalParentPage;
                 storedStaticPage=table.IsGlobal&&proof.UsesStoredStaticPage;
-                if(storedAccountPage||storedProjectPage||storedStaticPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
+                if(storedAccountPage||storedProjectPage||storedStaticPage||scopedGlobalParentPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
                     GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name)||
                     table.Source.IsRongyu==1&&publishedGlobalPage.Condition is not null)
                     globalPage=publishedGlobalPage;

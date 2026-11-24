@@ -99,7 +99,8 @@ public static class GlobalMultipleRelationTarget
         // 同一真实父已由字典声明和来源行共同证明，仍保留实际字典页的账号及固定条件。
         var physicalParentPage=false;
         if(GlobalCrossTableTarget.Declared(owner)&&(checkbox||pageId.Length>0)&&target.IsRongyu==0&&!scoped&&
-            IsPublishedMultiPage(target,page,checkbox)&&condition.Variables.Any(AccountConditionVariables.IsSupported)&&
+            IsPublishedMultiPage(target,page,checkbox)&&
+            (condition.Variables.Any(AccountConditionVariables.IsSupported)||GlobalCrossTableTarget.UsesOnlyParentVariables(condition))&&
             MultiTargetParentScope.CompileGlobalPage(catalog,target,condition,checkbox) is {Logical:false} parent&&
             parent.AdditionalTargets.All(scope=>!scope.Logical))
         {
@@ -125,7 +126,7 @@ public static class GlobalMultipleRelationTarget
             GlobalCrossTableTarget.RequireProjectMultiCandidate(catalog,target,page,checkbox);
         else if(storedAccount)
             GlobalCrossTableTarget.RequireStoredMultiAccountCandidate(catalog,target,page);
-        else if(scoped||target.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported))
+        else if(physicalParentPage||scoped||target.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported))
             GlobalCrossTableTarget.RequireMultiCandidate(catalog,target,page);
         else GlobalCrossTableTarget.RequireMultiple(catalog,target,page);
         if(target.IsRongyu==0&&foreign.ControlKind=="MultiSelectPage"&&page.Extra.GetValueOrDefault("type").ToString()!="2")

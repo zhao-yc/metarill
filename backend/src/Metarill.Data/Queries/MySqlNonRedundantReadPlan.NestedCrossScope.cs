@@ -95,7 +95,9 @@ public static partial class MySqlNonRedundantReadCompiler
             :null);
         if(accountParentPage&&(!global||page.Extra.GetValueOrDefault("type").ToString()!=accountParentPageType||
             parent is null||(accountParentPageType=="2"
-                ?parent.Logical?parent.AdditionalTargets.Count==0:!syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported)
+                ?parent.Logical?parent.AdditionalTargets.Count==0:
+                    !syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported)&&
+                    !GlobalCrossTableTarget.UsesOnlyParentVariables(syntax)
                 :physicalParent is null)))
             throw new NotSupportedException("全局候选必须使用实际发布的条件和物理父键。");
         var additional=parent?.AdditionalTargets.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal);
@@ -434,7 +436,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("多值目标页包含未接通的范围。");
             if(!condition.HasLogical)
             {
-                if(!AllowLiteralMultiScope&&MultiCandidateParent is not {Global:true,Logical:false}&&additional?.Count is not >0&&
+                if(!AllowLiteralMultiScope&&MultiCandidateParent is not {Logical:false}&&additional?.Count is not >0&&
                     condition.Plan is not {Variables.Count:>0})
                     throw new NotSupportedException("多值目标页缺少固定的级联或账号范围。");
                 if(condition.Plan is not {} account)return scope;
@@ -442,7 +444,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(cascadeCacheOwner is {} owner)
                 {
                     var predicate=PhysicalAccountCacheCondition(root,rootAlias,page,owner,MultiCandidateParent?.Target,
-                        allowFixedOnly:AllowLiteralMultiScope,separateExactScope:exact,additionalParents:additional);
+                        allowFixedOnly:AllowLiteralMultiScope||MultiCandidateParent is {Logical:false},separateExactScope:exact,additionalParents:additional);
                     return scope.Length==0?predicate:scope+" AND "+predicate;
                 }
                 // 项目和父参数已由实际范围负责，账号条件只追加已证明的物理字段。

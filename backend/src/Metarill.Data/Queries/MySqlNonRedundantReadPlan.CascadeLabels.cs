@@ -252,6 +252,8 @@ public static partial class MySqlNonRedundantReadCompiler
         return !checkbox&&IsProjectFixedMultiPage(catalog,table,page)||
             GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,checkbox)||
             syntax.Variables.Any(AccountConditionVariables.IsSupported)||
+            table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table)&&
+                (checkbox||page.Extra.GetValueOrDefault("type").ToString()=="2")&&GlobalCrossTableTarget.UsesOnlyParentVariables(syntax)||
             (checkbox||page.Extra.GetValueOrDefault("type").ToString()=="2")&&syntax.Terms.Count(term=>term.Values.Any(value=>
                 value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text)))>1||
             syntax.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,members,field)||

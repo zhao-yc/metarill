@@ -118,11 +118,12 @@ public static class GlobalCrossTableTarget
 
     /// <summary>多值目标和独立页面候选可使用由实际父记录限定的同一范围。</summary>
     public static void RequireMultiCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
-        =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:true);
+        =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:true,allowPhysicalMultiParent:true);
 
     /// <summary>只有会编译完整自树叶名的读取入口可以接受该类全局候选条件。</summary>
     public static void RequireSelfTreeConditionCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowMultiParent=false)
-        =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:allowMultiParent,allowSelfTree:true);
+        =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:allowMultiParent,
+            allowSelfTree:true,allowPhysicalMultiParent:allowMultiParent);
 
     /// <summary>全局非冗余页可按账号和真实物理父键限定单值候选。</summary>
     public static MultiTargetParentScope? PhysicalAccountParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
@@ -164,11 +165,14 @@ public static class GlobalCrossTableTarget
 
     /// <summary>原单选允许物理父参数是唯一变量，其他账号或逻辑范围继续按各自合同证明。</summary>
     private static bool SelectionParentOnly(PageMetadata page,FixedConditionPlan condition)=>
-        page.Extra.GetValueOrDefault("type").ToString()=="1"&&condition.Variables.Count>0&&
-        condition.Variables.All(MultiTargetParentScope.IsParameter);
+        page.Extra.GetValueOrDefault("type").ToString()=="1"&&UsesOnlyParentVariables(condition);
+
+    /// <summary>静态父页的动态条件只能是发布时已证明的父参数。</summary>
+    public static bool UsesOnlyParentVariables(FixedConditionPlan condition)=>
+        condition.Variables.Count>0&&condition.Variables.All(MultiTargetParentScope.IsParameter);
 
     /// <summary>只按明确用途开放R0，逻辑成员须在实际级联计划中进一步证明。</summary>
-    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false,bool allowStoredProject=false,bool allowStoredSingleParent=false)
+    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false,bool allowStoredProject=false,bool allowStoredSingleParent=false,bool allowPhysicalMultiParent=false)
     {
         if(!Declared(table)||(table.IsRongyu!=1&&!(allowR0&&table.IsRongyu==0))||table.IsView!=0||table.IsFunctionTable!=0)throw new NotSupportedException("全局跨表目标要求显式声明的普通R0或R1实体。");
         if(table.IsRongyu==0)GlobalDerivedRelationSource.RequireTable(catalog,table);
@@ -181,7 +185,7 @@ public static class GlobalCrossTableTarget
         // 只有显式通过父范围证明的用途才解析父参数，同时保留原账号和逻辑字段校验。
         var multiParent=allowMultiParent&&((table.IsRongyu==0||allowStoredSingleParent)&&
             (condition.Variables.Any(AccountConditionVariables.IsSupported)||allowExactSingle&&DeclaresExactMulti(table,page)||
-                SelectionParentOnly(page,condition))||
+                SelectionParentOnly(page,condition)||allowPhysicalMultiParent&&UsesOnlyParentVariables(condition))||
             condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)||
                 allowSelfTree&&CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field)))
             ?MultiTargetParentScope.CompileGlobalPage(catalog,table,condition):null;
