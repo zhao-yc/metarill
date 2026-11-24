@@ -97,7 +97,8 @@ public static partial class MySqlNonRedundantReadCompiler
             parent is null||(accountParentPageType=="2"
                 ?parent.Logical?parent.AdditionalTargets.Count==0:
                     !syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported)&&
-                    !GlobalCrossTableTarget.UsesOnlyParentVariables(syntax)
+                    !GlobalCrossTableTarget.UsesOnlyParentVariables(syntax)&&
+                    !GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax)
                 :physicalParent is null)))
             throw new NotSupportedException("全局候选必须使用实际发布的条件和物理父键。");
         var additional=parent?.AdditionalTargets.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal);
@@ -126,6 +127,8 @@ public static partial class MySqlNonRedundantReadCompiler
             ActiveSelfTreeScopes=activeSelfTreeScopes??new(),
             MultiCandidateParent=projectSingle&&parent?.AdditionalTargets.Count is not >0?null:parent,
             MultiCandidatePage=page,
+            MultiCandidateProjectScoped=accountParentPageType=="2"&&parent is {Logical:false}&&
+                GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax),
             GlobalCrossCandidate=global,
             CrossNameSourcePage=page,
             MultiNamePathPage=globalExactSingle?page:null,
@@ -291,6 +294,7 @@ public static partial class MySqlNonRedundantReadCompiler
         internal FixedConditionSqlPlan? CrossCandidateCondition{get;init;}
         internal PageMetadata? SelectedMultiPage{get;init;}
         internal bool AllowLiteralMultiScope{get;init;}
+        internal bool MultiCandidateProjectScoped{get;set;}
         internal MultiTargetParentScope? MultiCandidateParent{get;set;}
         internal PageMetadata? MultiCandidatePage{get;init;}
         private string? selectedMultiParentSql;
@@ -405,6 +409,15 @@ public static partial class MySqlNonRedundantReadCompiler
             (AllowsExactMultiSelection||AllowsStoredExactCheckbox)&&alias==rootAlias&&page.Id==SelectedMultiPage?.Id&&
             page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0;
 
+        /// <summary>仅实际发布的物理多值父页可令全局候选继续使用项目 ID 谓词。</summary>
+        private bool HasScopedMultiParentProject()
+        {
+            if(!GlobalCrossCandidate||SelectedMultiPage is not {} page||MultiCandidateParent is not {Logical:false})
+                return false;
+            var syntax=FixedConditionPlan.Compile(page.WhereSql,columns[root.Id].Keys);
+            return GlobalMultipleRelationTarget.IsProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox);
+        }
+
         /// <summary>目标页的条件与名称共用当前记录和联接，维护用途按来源行归属绑定。</summary>
         private string SelectedMultiScope(string scope)
         {
@@ -444,7 +457,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(cascadeCacheOwner is {} owner)
                 {
                     var predicate=PhysicalAccountCacheCondition(root,rootAlias,page,owner,MultiCandidateParent?.Target,
-                        allowFixedOnly:AllowLiteralMultiScope||MultiCandidateParent is {Logical:false},separateExactScope:exact,additionalParents:additional);
+                        allowFixedOnly:AllowLiteralMultiScope||MultiCandidateParent is {Logical:false},separateExactScope:exact,
+                        additionalParents:additional,globalMultiProject:MultiCandidateProjectScoped);
                     return scope.Length==0?predicate:scope+" AND "+predicate;
                 }
                 // 项目和父参数已由实际范围负责，账号条件只追加已证明的物理字段。
@@ -754,10 +768,10 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>物理账号条件按来源行归属计算，并记录源字段和目标筛选列的反向依赖。</summary>
         private string PhysicalAccountCacheCondition(TableMetadata table,string alias,PageMetadata page,
             CascadeCacheOwner owner,ColumnMetadata? parentField=null,bool allowFixedOnly=false,bool separateExactScope=false,
-            IReadOnlySet<string>? additionalParents=null)
+            IReadOnlySet<string>? additionalParents=null,bool globalMultiProject=false)
         {
             var ownership=AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,
-                parentField,owner.GlobalSingleSource,allowFixedOnly,separateExactScope,additionalParents);
+                parentField,owner.GlobalSingleSource,allowFixedOnly,separateExactScope,additionalParents,globalMultiProject);
             cascadeCacheOwnerFields.UnionWith(ownership.Ownership.Select(binding=>binding.Source.ColumnName));
             // 多份名称可用同一目标别名，常量参数必须沿各自投影前缀隔离。
             var parameterPrefix=multiLabel?"mt_cross_cache_"+aliasPrefix+alias:null;

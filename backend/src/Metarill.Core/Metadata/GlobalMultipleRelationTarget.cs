@@ -46,10 +46,24 @@ public static class GlobalMultipleRelationTarget
     /// <summary>当前项目等值可叠加物理常量，非冗余字典也可叠加已声明账号等值。</summary>
     public static bool IsProjectPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
         table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox)&&condition.Terms.Any(IsProjectScope)&&condition.Terms.All(term=>
-            IsProjectScope(term)||term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)||
-            table.IsRongyu==0&&term.Field!="yz_project_id"&&
-                term is {Comparison:FixedConditionComparison.Equal,Values:[{Kind:FixedConditionValueKind.Variable} value]}&&
-                AccountConditionVariables.IsPageField(value.Text,term.Field));
+            IsFixedOrProject(term)||table.IsRongyu==0&&IsAccountScope(term));
+
+    /// <summary>已发布的非冗余多值页可同时声明真实项目和父键，物理字段和父归属由调用方证明。</summary>
+    public static bool IsProjectParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
+        table.IsRongyu==0&&IsPublishedMultiPage(table,page,checkbox)&&condition.Terms.Any(IsProjectScope)&&
+        condition.Terms.Any(IsParentScope)&&condition.Terms.All(term=>
+            IsFixedOrProject(term)||IsParentScope(term)||IsAccountScope(term));
+
+    private static bool IsFixedOrProject(FixedConditionTerm term)=>
+        IsProjectScope(term)||term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable);
+
+    private static bool IsParentScope(FixedConditionTerm term)=>
+        term is {Comparison:FixedConditionComparison.Equal,Values:[{Kind:FixedConditionValueKind.Variable} value]}&&
+            MultiTargetParentScope.IsParameter(value.Text);
+
+    private static bool IsAccountScope(FixedConditionTerm term)=>
+        term.Field!="yz_project_id"&&term is {Comparison:FixedConditionComparison.Equal,Values:[{Kind:FixedConditionValueKind.Variable} value]}&&
+            AccountConditionVariables.IsPageField(value.Text,term.Field);
 
     /// <summary>全局来源允许绑定仅按物理账号等值及常量限定的非冗余发布页，字典本身不限定项目。</summary>
     public static bool IsNonRedundantAccountPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox)=>
@@ -96,11 +110,13 @@ public static class GlobalMultipleRelationTarget
         var storedStatic=(checkbox||pageId.Length>0)&&(target.IsRongyu==1||!scoped)&&IsStoredStaticPage(target,page,condition,checkbox);
         var projectPage=(checkbox||pageId.Length>0)&&IsProjectPage(target,page,condition,checkbox);
         var nonRedundantAccountPage=(checkbox||pageId.Length>0)&&IsNonRedundantAccountPage(target,page,condition,checkbox);
-        // 同一真实父已由字典声明和来源行共同证明，仍保留实际字典页的账号及固定条件。
+        // 实际来源和字典绑定同一父记录，显式项目条件同时适用于普通项目业务来源。
+        var projectParentPage=IsProjectParentPage(target,page,condition,checkbox);
         var physicalParentPage=false;
-        if(GlobalCrossTableTarget.Declared(owner)&&(checkbox||pageId.Length>0)&&target.IsRongyu==0&&!scoped&&
+        if((GlobalCrossTableTarget.Declared(owner)||projectParentPage)&&(checkbox||pageId.Length>0)&&target.IsRongyu==0&&!scoped&&
             IsPublishedMultiPage(target,page,checkbox)&&
-            (condition.Variables.Any(AccountConditionVariables.IsSupported)||GlobalCrossTableTarget.UsesOnlyParentVariables(condition))&&
+            (projectParentPage||condition.Variables.Any(AccountConditionVariables.IsSupported)||
+                GlobalCrossTableTarget.UsesOnlyParentVariables(condition))&&
             MultiTargetParentScope.CompileGlobalPage(catalog,target,condition,checkbox) is {Logical:false} parent&&
             parent.AdditionalTargets.All(scope=>!scope.Logical))
         {

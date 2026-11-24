@@ -408,7 +408,11 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>主键作为稳定排序依赖；根及每个目标分别保留软删和项目范围。</summary>
         internal MySqlNonRedundantReadPlan Compile(IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies)
         {
-            if(SelectedMultiPage is not null)MultiCandidateParent??=MultiParent(catalog,SelectedMultiPage,AllowsStoredExactCheckbox);
+            if(SelectedMultiPage is not null)
+            {
+                MultiCandidateParent??=MultiParent(catalog,SelectedMultiPage,AllowsStoredExactCheckbox);
+                MultiCandidateProjectScoped=HasScopedMultiParentProject();
+            }
             var globalSource=refreshFields is not null&&GlobalCrossTableTarget.Declared(root);
             var globalDerivedSource = refreshFields is null && root.IsRongyu == 0 && GlobalCrossTableTarget.Declared(root);
             var physicalCandidate = candidatePage is not null && root.IsRongyu == 1;
@@ -516,7 +520,8 @@ public static partial class MySqlNonRedundantReadCompiler
             // 全局树允许跨行项目查节点；来源若保留物理项目列，回填和反查仍限该项目。
             var sharedRefresh=globalSource&&!columns[root.Id].ContainsKey("yz_project_id");
             var scope=candidatePage is null
-                ?Scope(root,rootAlias,projectScoped:!sharedRefresh&&!GlobalCrossCandidate&&(!globalDerivedSource||HasGlobalRowProject(root)))
+                ?Scope(root,rootAlias,projectScoped:MultiCandidateProjectScoped||
+                    !sharedRefresh&&!GlobalCrossCandidate&&(!globalDerivedSource||HasGlobalRowProject(root)))
                 :PublishedScope(root,rootAlias,candidatePage,aliasPrefix+"root",allowAccount:!physicalCandidate||accountPhysicalCandidate,
                     accountParent:physicalCandidate?MultiCandidateParent:null);
             if((globalSource||globalDerivedSource)&&scope.Length==0)scope="1=1";

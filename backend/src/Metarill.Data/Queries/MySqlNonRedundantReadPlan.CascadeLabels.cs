@@ -251,6 +251,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
         return !checkbox&&IsProjectFixedMultiPage(catalog,table,page)||
             GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,checkbox)||
+            GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,checkbox)||
             syntax.Variables.Any(AccountConditionVariables.IsSupported)||
             table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table)&&
                 (checkbox||page.Extra.GetValueOrDefault("type").ToString()=="2")&&GlobalCrossTableTarget.UsesOnlyParentVariables(syntax)||

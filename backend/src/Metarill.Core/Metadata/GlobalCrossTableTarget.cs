@@ -148,6 +148,9 @@ public static class GlobalCrossTableTarget
         if(!condition.Variables.Any(MultiTargetParentScope.IsParameter))return null;
         var cross=condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field));
         var tree=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field));
+        // 多值页的项目与父键组合由多值入口校验，不借用单值候选的账号范围。
+        if(GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,
+            checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2"))return null;
         // 原单选可只由实际物理父范围限定；其余角色保留原账号或逻辑证明。
         var selectionParentOnly=allowSelectionParentOnly&&!cross&&!tree&&SelectionParentOnly(page,condition);
         if(cross||tree)
@@ -183,9 +186,11 @@ public static class GlobalCrossTableTarget
             LogicalConditionField(table,columns,column,allowLogical,allowSelfTree)).Select(column=>column.ColumnName);
         var condition=FixedConditionPlan.Compile(page.WhereSql,allowed);
         // 只有显式通过父范围证明的用途才解析父参数，同时保留原账号和逻辑字段校验。
+        var projectParentScope=allowPhysicalMultiParent&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,
+            checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2");
         var multiParent=allowMultiParent&&((table.IsRongyu==0||allowStoredSingleParent)&&
             (condition.Variables.Any(AccountConditionVariables.IsSupported)||allowExactSingle&&DeclaresExactMulti(table,page)||
-                SelectionParentOnly(page,condition)||allowPhysicalMultiParent&&UsesOnlyParentVariables(condition))||
+                SelectionParentOnly(page,condition)||projectParentScope||allowPhysicalMultiParent&&UsesOnlyParentVariables(condition))||
             condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)||
                 allowSelfTree&&CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field)))
             ?MultiTargetParentScope.CompileGlobalPage(catalog,table,condition):null;
@@ -194,7 +199,8 @@ public static class GlobalCrossTableTarget
             if((multiParent?.Target.ColumnName==term.Field||multiParent?.AdditionalTargets.Any(scope=>scope.Target.ColumnName==term.Field)==true)&&
                 term.Values.Count==1&&
                 MultiTargetParentScope.IsParameter(term.Values[0].Text))continue;
-            if(allowStoredProject&&GlobalMultipleRelationTarget.IsProjectScope(term))
+            if((allowStoredProject||projectParentScope&&multiParent is {Logical:false}&&
+                multiParent.AdditionalTargets.All(parent=>!parent.Logical))&&GlobalMultipleRelationTarget.IsProjectScope(term))
             {
                 var project=columns.Single(item=>item.ColumnName==term.Field);
                 if(project.LogicalType is not ("int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(storage,table,project))

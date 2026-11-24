@@ -39,7 +39,7 @@ internal static partial class NonRedundantReadCompilation
     /// <summary>物理父范围由实际发布页决定，可以独立使用或叠加账号条件。</summary>
     private static bool GlobalAccountParentScope(TableModel table,PageModel page)=>
         GlobalPhysicalParentScope(table,page)&&
-        (FixedPageConditionCompilation.HasAccountVariables(page)||page.Scopes.All(scope=>scope.Source=="parent"))&&
+        (FixedPageConditionCompilation.HasAccountVariables(page)||page.Scopes.All(scope=>scope.Source is "parent" or "project"))&&
         !FixedPageConditionCompilation.HasLogicalFields(page);
 
     /// <summary>只识别页级实际物理父字段，稀疏逻辑父继续沿原级联证明。</summary>

@@ -27,10 +27,10 @@ public sealed class AccountScopedCrossCache
     /// <summary>已证明的独立父键单独校验，账号范围仍从实际来源行绑定。项目内固定单值副本允许纯常量或物理父级。</summary>
     internal static AccountScopedCrossCache Compile(MetadataCatalog catalog,TableMetadata source,TableMetadata target,
         PageMetadata targetPage,bool globalTreeSource,ColumnMetadata? multiParent=null,bool globalSingleSource=false,
-        bool allowFixedOnly=false,bool separateExactScope=false,IReadOnlySet<string>? additionalParents=null)=>
+        bool allowFixedOnly=false,bool separateExactScope=false,IReadOnlySet<string>? additionalParents=null,bool globalMultiProject=false)=>
         Compile(catalog,source,target,targetPage,recursive:false,multiParent:multiParent,globalTreeSource:globalTreeSource,
             globalSingleSource:globalSingleSource,allowFixedOnly:allowFixedOnly,separateExactScope:separateExactScope,
-            additionalParents:additionalParents);
+            additionalParents:additionalParents,globalMulti:globalMultiProject);
 
     /// <summary>全局物理多值字典的显式项目等值由固定查询作用域绑定，账号仍取实际来源行。</summary>
     internal static AccountScopedCrossCache CompileGlobalMulti(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage)=>
