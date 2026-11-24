@@ -748,7 +748,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(cacheOwner is {} row&&logical.Count==0)
             {
                 // 项目范围由已发布目录绑定。账号和父记录仍使用正在回填的来源行。
-                var projectScope=GlobalCrossTableTarget.IsProjectSinglePage(table,page,syntax)||
+                var projectScope=GlobalCrossTableTarget.IsProjectSinglePage(table,page,syntax,allowListPage:true)||
                     parentField is not null&&GlobalCrossTableTarget.Declared(table)&&
                     GlobalCrossTableTarget.IsSingleProjectParentPage(page,syntax);
                 var visible=PhysicalAccountCacheCondition(table,alias,page,row,parentField,

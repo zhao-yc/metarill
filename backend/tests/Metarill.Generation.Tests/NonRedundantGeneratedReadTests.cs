@@ -643,6 +643,130 @@ public sealed class NonRedundantGeneratedReadTests
         finally{if(Directory.Exists(root))Directory.Delete(root,true);}
     }
 
+    /// <summary>原 List 下拉的真实发布页按当前项目及实际账号过滤，继续提供候选和工作簿入口。</summary>
+    [Theory]
+    [InlineData(0,0,"0",false,false)]
+    [InlineData(0,1,"1",true,false)]
+    [InlineData(1,0,"0",false,true)]
+    [InlineData(1,1,"1",true,true)]
+    [InlineData(0,0,"1",true,true)]
+    [InlineData(1,1,"0",false,false)]
+    public async Task Global_list_can_use_published_project_dictionary(int sourceStorage,int targetStorage,
+        string pageType,bool textProject,bool accountScope)
+    {
+        const string ns="Example.GlobalListProjectDictionary";
+        var catalog=NonRedundantApplicationFixture.Catalog("mt_list_project_dictionary");
+        var owner=catalog.ConfigTables.Single(item=>item.Id=="1");
+        owner.IsRongyu=sourceStorage;
+        var target=catalog.ConfigTables.Single(item=>item.Id=="2");
+        target.IsRongyu=targetStorage;
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        var removed=new HashSet<string>(["16","17","27"],StringComparer.Ordinal);
+        catalog.ConfigColumns.RemoveAll(item=>removed.Contains(item.Id));
+        catalog.ConfigPages.RemoveAll(item=>item.Id=="102");
+        catalog.ConfigPageColumns.RemoveAll(item=>item.ConfigPageId=="102"||removed.Contains(item.ConfigColumnId));
+        foreach(var page in catalog.ConfigPages.Where(item=>item.ConfigTableId=="1"))page.OrderBy="id desc";
+        var published=catalog.ConfigPages.Single(item=>item.Id=="201");
+        published.Extra["type"]=JsonSerializer.SerializeToElement(pageType);
+        published.WhereSql="yz_project_id=@current_yz_project_id AND amount>=1";
+        published.IsExport=1;
+        if(textProject)catalog.ConfigColumns.Single(item=>item.Id=="22").LogicalType="string";
+        if(accountScope)
+        {
+            const string store="store_id=@current_store_id";
+            catalog.ConfigColumns.AddRange([
+                new(){Id="112",ConfigTableId="1",YzProjectId=catalog.YzProjectId,ColumnName="store_id",LogicalType="int64"},
+                new(){Id="28",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="store_id",LogicalType="int64"}
+            ]);
+            foreach(var page in catalog.ConfigPages.Where(item=>item.ConfigTableId=="1"))
+                page.WhereSql=(page.WhereSql.Length>0?page.WhereSql+" AND ":"")+store;
+            published.WhereSql+=" AND "+store;
+        }
+        var foreign=catalog.ConfigColumns.Single(item=>item.Id=="15");
+        foreign.ControlKind="List";
+        foreign.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("201");
+        var sourcePage=catalog.ConfigPages.Single(item=>item.Id=="101");
+        var detailPage=catalog.ConfigPages.Single(item=>item.Id=="104");
+        detailPage.IsExport=1;
+        detailPage.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+        var proof=sourceStorage==0?GlobalSingleRelationTarget.Require(catalog,owner,foreign,target,sourcePage):
+            GlobalSingleRelationTarget.RequireCached(catalog,owner,foreign,target);
+        Assert.Equal(published.Id,proof.Page.Id);
+        Assert.True(proof.UsesListPageScope);
+        Assert.True(proof.ProjectSelectionPage);
+        Assert.Equal(accountScope,proof.ScopedAccount);
+        var model=GenerationModel.Create(catalog,ns);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var projectMarker=textProject?"@project_scope_text":"@project_scope_number";
+
+        const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+        const long storeId=9007199254740993L;
+        var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5");
+        var candidate=Metarill.Data.Queries.NonRedundantReads.CompileGlobalCandidate(model.Catalog,"2","201",["id","name"]);
+        Assert.Equal(accountScope,candidate.RequiresAccount);
+        if(accountScope)Assert.Throws<UnauthorizedAccessException>(()=>candidate.BindAccount(actor));
+        var bound=candidate.BindAccount(actor with{StoreId=storeId});
+        var actual=bound.GetType().GetProperty("MySql",hidden)!.GetValue(bound)!;
+        var scope=Assert.IsType<string>(actual.GetType().GetProperty("Scope",hidden)!.GetValue(actual));
+        Assert.Contains("yz_project_id",scope);
+        Assert.Contains(projectMarker,scope);
+        Assert.Contains("amount",scope);
+        Assert.Equal(accountScope,scope.Contains("store_id",StringComparison.Ordinal));
+        if(accountScope)
+        {
+            var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                actual.GetType().GetProperty("Constants",hidden)!.GetValue(actual));
+            Assert.Contains(storeId,parameters.Values);
+        }
+
+        if(sourceStorage==0)
+        {
+            var source=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.Compile(model.Catalog,"1",["customer_name"]);
+            var from=Assert.IsType<string>(source.GetType().GetProperty("From",hidden)!.GetValue(source));
+            Assert.Contains(projectMarker,from);
+            Assert.Contains("amount",from);
+            Assert.Equal(accountScope,from.Contains("store_id",StringComparison.Ordinal));
+        }
+        else
+        {
+            var cache=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("customer_name",cache.MixedSourceColumns[owner.TableName]);
+            Assert.Contains(target.TableName,cache.MixedTargets);
+            var plans=cache.GetType().GetProperty("Plans",hidden)!.GetValue(cache)!;
+            var item=Assert.IsAssignableFrom<System.Collections.IEnumerable>(plans).Cast<object>()
+                .Single(entry=>Equals(entry.GetType().GetProperty("Key")!.GetValue(entry),"1"));
+            var tablePlan=item.GetType().GetProperty("Value")!.GetValue(item)!;
+            var read=tablePlan.GetType().GetProperty("Read")!.GetValue(tablePlan)!;
+            var expressions=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                read.GetType().GetProperty("Expressions",hidden)!.GetValue(read));
+            var name=expressions["customer_name"].Replace("\x60","",StringComparison.Ordinal);
+            Assert.Contains(projectMarker,name);
+            Assert.Contains("amount",name);
+            Assert.Equal(accountScope,name.Contains("b.store_id",StringComparison.Ordinal));
+        }
+
+        var root=Path.Combine(Path.GetTempPath(),"metarill-list-project-dictionary",Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(root,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtListProjectDictionaryOrderService.g.cs"));
+            foreach(var method in new[]{"OptionsPage101_15Async","OptionsSelected101_15Async","ImportRelation103_15Async",
+                         "ImportRelation105_15Async","Export101Async","Export104Async"})
+                Assert.Contains(method,service);
+            var detail=await File.ReadAllTextAsync(Path.Combine(generated,
+                "frontend/pages/yzp/mt_list_project_dictionary_order-detail-104.vue"));
+            Assert.Contains("<zxz-uni-data-select",detail);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            foreach(var name in new[]{"MtListProjectDictionaryOrderService","MtListProjectDictionaryPartyService"})
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
+                    assembly.GetType(ns+".Generated.Services."+name,true)!.TypeHandle);
+            var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+        }
+        finally{if(Directory.Exists(root))Directory.Delete(root,true);}
+    }
+
     /// <summary>普通冗余来源的固定字典同时验证整数和字符串项目列、名称及主键显示。</summary>
     [Theory]
     [InlineData(false,false)]

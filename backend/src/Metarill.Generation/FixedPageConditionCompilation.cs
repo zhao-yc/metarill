@@ -123,11 +123,11 @@ internal static class FixedPageConditionCompilation
         page.Scopes.All(scope=>scope.Source=="project")&&page.Condition is {} condition&&!HasLogicalFields(page)&&
         GlobalMultipleRelationTarget.IsStoredAccountPage(table.Source,page.Source,condition.Syntax);
 
-    /// <summary>原单选只有显式绑定的项目条件才进入字典候选；普通行项目列不能自动授予此范围。</summary>
+    /// <summary>实际单值页须显式绑定项目条件；原下拉绑定的业务页也保留该范围。</summary>
     internal static bool HasGlobalProjectSingleScope(TableModel table,PageModel page)=>
         table.IsGlobal&&page.Scopes.Count>0&&page.Scopes.All(scope=>scope.Source=="project")&&!HasLogicalFields(page)&&
         GlobalCrossTableTarget.IsProjectSinglePage(table.Source,page.Source,
-            FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName)));
+            FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName)),allowListPage:true);
 
     /// <summary>生成模型已校验字段和作用域，再从实际发布页确认当前项目及固定条件。</summary>
     internal static bool HasGlobalProjectMultiScope(TableModel table,PageModel page)=>

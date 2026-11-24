@@ -176,8 +176,9 @@ public static partial class MySqlNonRedundantReadCompiler
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
         if(table.IsRongyu==0&&!exactSingleCandidate&&pageType!="2"&&GlobalCrossTableTarget.SingleParent(catalog,table,page) is not null)
             return CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies??[],accountParentPageType:pageType,singleTargets:singleTargets);
-        // 冗余单选沿已发布 type=1 页绑定账号条件，候选、回显和 Excel 共用同一范围。
-        var storedSingle=table.IsRongyu==1&&pageType=="1"&&!exactSingleCandidate&&!deferCascadeNames;
+        // 冗余单值候选绑定实际发布页的项目和账号条件，回显及 Excel 共用该范围。
+        var storedSingle=table.IsRongyu==1&&!exactSingleCandidate&&!deferCascadeNames&&
+            (pageType=="1"||GlobalCrossTableTarget.IsProjectSinglePage(catalog,table,page,allowListPage:true));
         var builder=new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames,exactSingleCandidate:exactSingleCandidate,
             accountPhysicalCandidate:storedSingle,globalCandidate:table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table))
         {
@@ -385,12 +386,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     explicitProjectCandidate=true;
                 }
                 else if(!multiLabel&&(physicalCandidate&&accountPhysicalCandidate||publishedGlobalCandidate)&&
-                    GlobalCrossTableTarget.Declared(root)&&candidatePage.Extra.GetValueOrDefault("type").ToString()=="1"&&
-                    GlobalCrossTableTarget.IsProjectSinglePage(root,candidatePage,FixedConditionPlan.Compile(candidatePage.WhereSql,
-                        RelationStorageColumns.Expand(root,catalog.ConfigColumns.Where(column=>column.ConfigTableId==root.Id))
-                            .Select(column=>column.ColumnName))))
+                    GlobalCrossTableTarget.IsProjectSinglePage(catalog,root,candidatePage,allowListPage:true))
                 {
-                    GlobalCrossTableTarget.RequireProjectSingleCandidate(catalog,root,candidatePage);
+                    GlobalCrossTableTarget.RequireProjectSingleCandidate(catalog,root,candidatePage,allowListPage:true);
                     explicitProjectCandidate=true;
                 }
                 else if (physicalCandidate&&!accountPhysicalCandidate) GlobalCrossTableTarget.Require(catalog, root, candidatePage);

@@ -139,17 +139,26 @@ public static class GlobalCrossTableTarget
     public static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
         SingleParent(catalog,table,page,allowLogical:true,allowSelectionParentOnly:true);
 
-    /// <summary>原单选可同时声明当前项目和账号等值，物理字段资格由对应证明核对。</summary>
-    public static bool IsProjectSinglePage(TableMetadata table,PageMetadata page,FixedConditionPlan condition)=>
-        Declared(table)&&page.ConfigTableId==table.Id&&page.Extra.GetValueOrDefault("type").ToString()=="1"&&
-        !HasExactMatch(page)&&GlobalMultipleRelationTarget.UsesSingleProjectVariables(condition);
+    /// <summary>原单值候选按实际页面角色识别项目和账号等值；下拉还可绑定已有业务页。</summary>
+    public static bool IsProjectSinglePage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool allowListPage=false)=>
+        CanPublishProjectSinglePage(table,page,allowListPage)&&GlobalMultipleRelationTarget.UsesSingleProjectVariables(condition);
+
+    /// <summary>数据库编译沿已发布单值页识别固定项目范围，解析逻辑字段用于排除不适用的页面。</summary>
+    public static bool IsProjectSinglePage(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowListPage=false)=>
+        CanPublishProjectSinglePage(table,page,allowListPage)&&GlobalMultipleRelationTarget.UsesSingleProjectVariables(
+            FixedConditionPlan.Compile(page.WhereSql,ConditionColumns(catalog,table,allowLogical:true).Select(column=>column.ColumnName)));
+
+    private static bool CanPublishProjectSinglePage(TableMetadata table,PageMetadata page,bool allowListPage)=>
+        Declared(table)&&page.ConfigTableId==table.Id&&!HasExactMatch(page)&&
+        (page.Extra.GetValueOrDefault("type").ToString()=="1"||
+            allowListPage&&page.Extra.GetValueOrDefault("type").ToString() is "" or "0");
 
     /// <summary>验证原单选实际发布页及真实项目 ID，供生成、查询和维护复用。</summary>
-    public static void RequireProjectSingleCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    public static void RequireProjectSingleCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowListPage=false)
     {
         var condition=FixedConditionPlan.Compile(page.WhereSql,ConditionColumns(catalog,table,allowLogical:false)
             .Select(column=>column.ColumnName));
-        if(!IsProjectSinglePage(table,page,condition)||
+        if(!IsProjectSinglePage(table,page,condition,allowListPage)||
             !ReferenceEquals(catalog.ConfigTables.SingleOrDefault(item=>item.Id==table.Id),table)||
             !ReferenceEquals(catalog.ConfigPages.SingleOrDefault(item=>item.Id==page.Id),page)||
             !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
