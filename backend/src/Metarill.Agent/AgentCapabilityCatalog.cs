@@ -69,11 +69,14 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                     if (kind == "body")
                     {
                         requestSchema = schema;
-                        var required = new List<string>();
+                        var required = schema.GetValueOrDefault("required") is IEnumerable<string> dtoRequired
+                            ? dtoRequired.ToList() : new List<string>();
                         if (operation is "update" or "delete") required.Add("id");
-                        if (operation == "create") required.AddRange(page.RequiredCreateFields);
+                        // 页面必填只能补充实际 DTO 接受的属性，系统字段和只读回显不能成为输入。
+                        if (operation == "create" && schema.GetValueOrDefault("properties") is IReadOnlyDictionary<string,object?> properties)
+                            required.AddRange(page.RequiredCreateFields.Where(properties.ContainsKey));
                         if (operation == "import") required.Add("requestJson");
-                        if (required.Count > 0) requestSchema["required"] = required.Distinct().ToArray();
+                        if (required.Count > 0) requestSchema["required"] = required.Distinct(StringComparer.Ordinal).ToArray();
                     }
                     parameters.Add(new(parameter.Name, kind, kind is "path" or "body" || parameter.Name == "parentId" && page.RequiresParent, schema));
                 }

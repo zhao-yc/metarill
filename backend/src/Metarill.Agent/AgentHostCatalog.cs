@@ -67,7 +67,8 @@ public sealed class AgentHostCatalog
                 !ExactDataManageValues.IsSensitiveField(column.ColumnName)).ToArray();
             var required = fields.Where(DeclaresRequiredInput)
                 .Select(field => (Field: field, Column: catalog.ConfigColumns.Single(column => column.Id == field.ConfigColumnId)))
-                .Where(entry => RequiresCreateInput(entry.Field, entry.Column)).Select(entry => JsonName(entry.Column.ColumnName))
+                .Where(entry => RequiresCreateInput(entry.Field, entry.Column))
+                .Select(entry => GeneratedRecordJsonName(entry.Column.ColumnName))
                 .Distinct(StringComparer.Ordinal).ToArray();
             return new AgentPublishedPage(catalog.YzProjectId, page.Id, page.Name, table.TableName,
                 RequiresParent(page.WhereSql,table,catalog), Array.AsReadOnly(required))

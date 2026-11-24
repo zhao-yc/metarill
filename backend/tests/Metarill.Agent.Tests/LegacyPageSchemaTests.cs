@@ -28,12 +28,14 @@ namespace Metarill.Agent.Tests
                 demo.ConfigColumns.Add(new() { Id = "13", ConfigTableId = "1", ColumnName = "flag", LogicalType = "bool", ControlKind = "CheckBox" });
                 demo.ConfigColumns.Add(new() { Id = "14", ConfigTableId = "1", ColumnName = "normal", LogicalType = "bool" });
                 demo.ConfigPages.Add(new() { Id = "101", ConfigTableId = "1", YzProjectId = "77" });
+                demo.ConfigPageColumns.Add(new() { Id = "201", ConfigPageId = "101", ConfigColumnId = "12", IsEdit = 1, IsRequired = 1 });
                 var platform = Path.Combine(directory, "platform.json"); var business = Path.Combine(directory, "demo.json");
                 File.WriteAllText(platform, JsonSerializer.Serialize(new MetadataCatalog { YzProjectId = "76" })); File.WriteAllText(business, JsonSerializer.Serialize(demo));
                 var services = new ServiceCollection(); services.AddLogging(); services.AddControllers().AddApplicationPart(typeof(Generated.Controllers.LegacyFixtureController).Assembly);
                 using var provider = services.BuildServiceProvider();
                 var index = new GeneratedCapabilityIndex(provider.GetRequiredService<IActionDescriptorCollectionProvider>(), new MetadataRegistry(platform, business));
-                var capability = new AgentCapabilityCatalog(index, new Authorization()).Describe("page:101:update");
+                var catalog = new AgentCapabilityCatalog(index, new Authorization());
+                var capability = catalog.Describe("page:101:update");
                 using var json = JsonDocument.Parse(JsonSerializer.Serialize(capability.RequestSchema)); var schema = json.RootElement;
                 Assert.Equal("object", schema.GetProperty("type").GetString()); Assert.False(schema.GetProperty("additionalProperties").GetBoolean());
                 Assert.Equal(new[] { "id", "remark", "flag", "normal" }, schema.GetProperty("properties").EnumerateObject().Select(field => field.Name));
@@ -42,6 +44,10 @@ namespace Metarill.Agent.Tests
                 Assert.Equal(new[] { 0, 1 }, checkbox.Single(value => value.GetProperty("type").GetString() == "integer").GetProperty("enum").EnumerateArray().Select(value => value.GetInt32()));
                 Assert.Equal(new[] { "boolean", "null" }, schema.GetProperty("properties").GetProperty("normal").GetProperty("type").EnumerateArray().Select(value => value.GetString()));
                 Assert.Equal(new[] { "id" }, schema.GetProperty("required").EnumerateArray().Select(value => value.GetString()));
+                // DTO 的 JsonRequired 与已发布页面固定必填字段都应出现在同一实际新增 schema。
+                var create = catalog.Describe("page:101:create");
+                using var createJson = JsonDocument.Parse(JsonSerializer.Serialize(create.RequestSchema));
+                Assert.Equal(new[] { "normal", "remark" }, createJson.RootElement.GetProperty("required").EnumerateArray().Select(value => value.GetString()));
             }
             finally { Directory.Delete(directory, true); }
         }
@@ -61,6 +67,9 @@ namespace Metarill.Agent.Tests.Generated.Controllers
     public sealed class LegacyFixtureController(LegacyFixtureReader reader) : ControllerBase
     {
         /// <summary>测试实际 MVC 对兼容入口的发现，不触发业务写入。</summary>
+        [HttpPost("add"), LegacyPageWriteRequest(typeof(LegacyFixtureCreateRequest))]
+        public R<string> Add([FromBody] JsonElement entity) => R<string>.Success();
+
         [HttpPost("update"), LegacyPageWriteRequest(typeof(LegacyFixtureUpdateRequest))]
         public R<string> Update([FromBody] JsonElement entity) { _=reader;return R<string>.Success(); }
     }
@@ -70,6 +79,13 @@ namespace Metarill.Agent.Tests.Generated.Controllers
         public Task<LegacyFixtureEntity?> ReadAgentRecord101Async(long id,string? parentId,string operation,RuntimeActor actor,IRuntimeAuthorization authorization,CancellationToken token)=>throw new NotSupportedException("schema夹具不执行记录查询。");
     }
     public sealed class LegacyFixtureEntity { [JsonPropertyName("id")]public long Id{get;set;} }
+    [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+    public sealed class LegacyFixtureCreateRequest
+    {
+        public Optional<string?> Remark { get; set; }
+        [JsonRequired] public Optional<bool?> Normal { get; set; }
+    }
+
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
     public sealed class LegacyFixtureUpdateRequest
     {
