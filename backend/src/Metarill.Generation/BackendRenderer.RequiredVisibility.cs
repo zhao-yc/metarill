@@ -32,12 +32,17 @@ internal static partial class BackendRenderer
                 throw new InvalidOperationException("必填显示条件包含无效的字段路径。");
             var root=segments[0];
             var field=OriginalVisibilityCompilation.ResolveField(page,root);
-            if(field is null||field.IsJsonArray||field.IsManagedCascadeName||field.Source.IsVirtualColumn!=0||
+            if(field is null||field.IsManagedCascadeName||field.Source.IsVirtualColumn!=0||
                 !NonRedundantReadCompilation.Physical(model,table,field)||GenerationModel.Enabled(field.Source.Extra,"isJoinColumn")||
                 ManagerCredentialCompilation.IsCredential(table,field)||ExactDataManageValues.IsSensitiveField(field.Source.ColumnName)||
                 NonRedundantCrossParentCompilation.IsSlot(model,table,field))
                 throw new InvalidOperationException("必填显示条件必须引用本页真实可读字段："+root);
-            if(segments.Length>1)
+            if(field.IsJsonArray)
+            {
+                if(segments.Length!=1||!rule.UsesOnlyBlankChecks(path))
+                    throw new InvalidOperationException("必填显示条件的数组字段只允许直接判空或判非空："+root);
+            }
+            else if(segments.Length>1)
             {
                 if(!field.Source.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("必填显示条件嵌套字段需要JSON对象："+root);
                 objectRoots.Add(root);
@@ -54,8 +59,15 @@ internal static partial class BackendRenderer
         foreach(var column in page.Writable)
         {
             if(RequiredVisibility(model,table,page,column) is not {} rule)continue;
-            var values=string.Join(", ",rule.Bindings.Select(pair=>$"[{Literal(pair.Key)}] = "+
-                (rule.ObjectRoots.Contains(pair.Key)?$"RequiredFieldValue.VisibilityObject(entity.{pair.Value.Property})":$"entity.{pair.Value.Property}")));
+            var values=string.Join(", ",rule.Bindings.Select(pair =>
+            {
+                var access = "entity." + pair.Value.Property;
+                // 原附件坏文本沿回显按空处理，其他数组继续使用原必填数组的类型校验。
+                var value = pair.Value.IsLegacyMedia ? $"LegacyMediaValue.Project({access})"
+                    : pair.Value.IsJsonArray ? $"RequiredFieldValue.VisibilityArray({access})"
+                    : rule.ObjectRoots.Contains(pair.Key) ? $"RequiredFieldValue.VisibilityObject({access})" : access;
+                return $"[{Literal(pair.Key)}] = {value}";
+            }));
             result.AppendLine($"    private static readonly global::Metarill.Core.Metadata.ButtonVisibilityRule {rule.Name}Rule=global::Metarill.Core.Metadata.ButtonVisibilityRule.Compile({Literal(rule.Definition)});");
             result.AppendLine($"    private static bool {rule.Name}({table.EntityType} entity)=>{rule.Name}Rule.Matches(new Dictionary<string,object?>{{ {values} }});");
         }

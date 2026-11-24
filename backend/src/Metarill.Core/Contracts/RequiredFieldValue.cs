@@ -17,14 +17,20 @@ public static class RequiredFieldValue
     }
 
     /// <summary>多值必填不接受null、空白或空数组；无效形状是输入错误，不是非空选择。</summary>
-    public static bool IsEmptyArray(string? value)
+    public static bool IsEmptyArray(string? value) =>
+        VisibilityArray(value) is not { } array || array.GetArrayLength() == 0;
+
+    /// <summary>按已声明的数组形状读取持久值，坏数据不能冒充空选项。</summary>
+    public static JsonElement? VisibilityArray(string? value)
     {
-        if(string.IsNullOrWhiteSpace(value))return true;
+        if (string.IsNullOrWhiteSpace(value)) return null;
         try
         {
-            using var document=JsonDocument.Parse(value);if(document.RootElement.ValueKind==JsonValueKind.Null)return true;
-            if(document.RootElement.ValueKind!=JsonValueKind.Array)throw new ArgumentException("必填多值字段必须是数组。");return document.RootElement.GetArrayLength()==0;
+            var array = JsonSerializer.Deserialize<JsonElement>(value);
+            if (array.ValueKind == JsonValueKind.Null) return null;
+            if (array.ValueKind != JsonValueKind.Array) throw new ArgumentException("必填多值字段必须是数组。");
+            return array;
         }
-        catch(JsonException error){throw new ArgumentException("必填多值字段不是有效JSON数组。",error);}
+        catch (JsonException error) { throw new ArgumentException("必填多值字段不是有效JSON数组。", error); }
     }
 }

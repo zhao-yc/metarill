@@ -11,6 +11,9 @@ public sealed partial class ButtonVisibilityRule
     private static readonly JsonSerializerOptions CompactJson=new(){Encoder=System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping};
     private ButtonVisibilityRule(Group root,IEnumerable<string> fields){this.root=root;Fields=Array.AsReadOnly(fields.Distinct(StringComparer.Ordinal).ToArray());}
     public IReadOnlyList<string> Fields {get;}
+
+    /// <summary>确认字段在所有分组都只判断空值，避免把数组强制转成标量比较。</summary>
+    public bool UsesOnlyBlankChecks(string field) => root.UsesOnlyBlankChecks(field);
     /// <summary>空规则及JSON null沿原后端视为真；非法定义不能降级为空规则。</summary>
     public static ButtonVisibilityRule Compile(string? definition)
     {
@@ -73,6 +76,14 @@ public sealed partial class ButtonVisibilityRule
     private sealed record Group(bool Or,Node[] Children):Node
     {
         internal override bool Matches(Func<string,object?> read)=>Children.Length==0||(Or?Children.Any(node=>node.Matches(read)):Children.All(node=>node.Matches(read)));
+
+        /// <summary>未参与该字段判断的条件不限制其数组读取。</summary>
+        internal bool UsesOnlyBlankChecks(string field) => Children.All(node => node switch
+        {
+            Group group => group.UsesOnlyBlankChecks(field),
+            Condition condition => condition.Field != field || condition.Operation is "isBlank" or "isNotBlank",
+            _ => false
+        });
     }
     private sealed record Condition(string Field,string Operation,object? Expected,object?[] Candidates):Node
     {
