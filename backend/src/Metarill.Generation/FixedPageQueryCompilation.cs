@@ -123,7 +123,7 @@ internal static class FixedPageQueryCompilation
             // 全局候选只有在发布页明确执行项目条件时，才能覆盖控件中的同一约束。
             var explicitProject=globalCandidate&&requested.Terms.Any(GlobalMultipleRelationTarget.IsProjectScope)&&
                 (FixedPageConditionCompilation.HasGlobalProjectMultiScope(target.Table,target.Page)||
-                 HasPublishedProjectAndParent(catalog,target.Table,target.Page));
+                 HasPublishedProjectScope(catalog,target.Table,target.Page));
             var allowed = target.IdentityScopes.Where(scope=>!globalCandidate||scope.Source!="project"||explicitProject)
                 .Select(scope => (scope.Column.Source.Id, scope.Source)).ToHashSet();
             // 附加项必须逐项已被目标页实际执行；不把来源控件的更窄条件偷换成宽目标页。
@@ -155,9 +155,14 @@ internal static class FixedPageQueryCompilation
         }
     }
 
-    /// <summary>同时限定项目和物理父级的原单选及多选，按实际发布候选计划核对控件的重复范围。</summary>
-    private static bool HasPublishedProjectAndParent(MetadataCatalog catalog,TableModel table,PageModel page)
+    /// <summary>只有实际字典页执行的项目范围才可覆盖原控件的同一条件。</summary>
+    private static bool HasPublishedProjectScope(MetadataCatalog catalog,TableModel table,PageModel page)
     {
+        if(FixedPageConditionCompilation.HasGlobalProjectSingleScope(table,page))
+        {
+            GlobalCrossTableTarget.RequireProjectSingleCandidate(catalog,table.Source,page.Source);
+            return true;
+        }
         var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
         if(GlobalCrossTableTarget.IsSingleProjectParentPage(page.Source,syntax))
             return GlobalCrossTableTarget.PhysicalSingleParent(catalog,table.Source,page.Source) is not null;

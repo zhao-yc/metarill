@@ -139,6 +139,24 @@ public static class GlobalCrossTableTarget
     public static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
         SingleParent(catalog,table,page,allowLogical:true,allowSelectionParentOnly:true);
 
+    /// <summary>原单选发布页可以仅声明当前项目等值，物理字段资格由对应证明核对。</summary>
+    public static bool IsProjectSinglePage(TableMetadata table,PageMetadata page,FixedConditionPlan condition)=>
+        Declared(table)&&page.ConfigTableId==table.Id&&page.Extra.GetValueOrDefault("type").ToString()=="1"&&
+        !HasExactMatch(page)&&GlobalMultipleRelationTarget.UsesOnlyProjectVariables(condition);
+
+    /// <summary>验证原单选实际发布页及真实项目 ID，供生成、查询和维护复用。</summary>
+    public static void RequireProjectSingleCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
+        var condition=FixedConditionPlan.Compile(page.WhereSql,ConditionColumns(catalog,table,allowLogical:false)
+            .Select(column=>column.ColumnName));
+        if(!IsProjectSinglePage(table,page,condition)||
+            !ReferenceEquals(catalog.ConfigTables.SingleOrDefault(item=>item.Id==table.Id),table)||
+            !ReferenceEquals(catalog.ConfigPages.SingleOrDefault(item=>item.Id==page.Id),page)||
+            !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
+            throw new NotSupportedException("全局单选项目候选必须使用当前目录实际发布的页面和项目条件。");
+        RequireTarget(catalog,table,page,true,allowStoredProject:true);
+    }
+
     /// <summary>原单选的项目与父级等值只在 type=1 发布页识别，字段有效性由单值父级证明核对。</summary>
     public static bool IsSingleProjectParentPage(PageMetadata page,FixedConditionPlan condition)=>
         page.Extra.GetValueOrDefault("type").ToString()=="1"&&!HasExactMatch(page)&&

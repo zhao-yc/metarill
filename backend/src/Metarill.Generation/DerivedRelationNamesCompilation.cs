@@ -118,7 +118,8 @@ internal static class DerivedRelationNamesCompilation
         UsesGlobalPrimaryKeyDisplay(relation) ||
         relation.Target.IsGlobal && (relation.FunctionForm || IsPhysicalTypedName(model, relation.Target, relation.NameColumn)) ||
         NonRedundantReadCompilation.HasGlobalRowProject(relation.Target) || HasGlobalAccountScope(relation.Target, relation.TargetPage) ||
-        NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage);
+        NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage)||
+        FixedPageConditionCompilation.HasGlobalProjectSingleScope(relation.Target,relation.TargetPage);
 
     /// <summary>普通冗余目标的固定候选只能读取物理列及已发布的父范围。</summary>
     internal static bool UsesPhysicalPlan(GenerationModel model, RelationModel relation) =>
@@ -169,7 +170,9 @@ internal static class DerivedRelationNamesCompilation
             fixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true))
             throw new InvalidOperationException("派生单选名称的目标身份与父字段必须为物理标量。");
         // 物理父范围已经由候选证明；名称继续通过下面的固定投影。
+        var globalProject=FixedPageConditionCompilation.HasGlobalProjectSingleScope(target,page);
         if(globalExact)GlobalCrossTableTarget.RequireExactSingleCandidate(model.Catalog,target.Source,page.Source);
+        else if(globalProject)GlobalCrossTableTarget.RequireProjectSingleCandidate(model.Catalog,target.Source,page.Source);
         else if (target.IsGlobal&&fixedParent is null)
         {
             if(FixedPageConditionCompilation.HasSelfTreeFields(page))
@@ -189,7 +192,7 @@ internal static class DerivedRelationNamesCompilation
                 NonRedundantReadCompilation.MergeProjectTargets(targets.Concat(exact.SingleTargets)))
             :EmbedsParentScope(target,fixedParent)||FixedPageConditionCompilation.HasLogicalFields(page)||exact?.SelfTree==true
             ?CompileLogicalPage(model,target,page,outputs,outputs,singleTargets:targets,exact:exact)
-            :HasGlobalAccountScope(target,page)||NonRedundantReadCompilation.GlobalSingleParentPage(target,page)
+            :globalProject||HasGlobalAccountScope(target,page)||NonRedundantReadCompilation.GlobalSingleParentPage(target,page)
                 ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,page.Source.Id,outputs,[],targets)
                 :target.IsGlobal?NonRedundantReads.CompileProjectRelation(model.Catalog,target.Source.Id,outputs,[],targets)
                     :NonRedundantReads.CompilePublishedScalarMatch(model.Catalog,target.Source.Id,page.Source.Id,name.Source.ColumnName);

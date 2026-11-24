@@ -13,6 +13,8 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
     public bool ScopedAccount { get; internal init; }
     /// <summary>全局冗余单选可只使用实际候选页的固定常量范围，缓存不需要来源行账号列。</summary>
     public bool FixedSelectionPage { get; internal init; }
+    /// <summary>单选页已明确要求当前项目，实时名称必须沿实际字典行归属读取。</summary>
+    public bool ProjectSelectionPage { get; internal init; }
     /// <summary>名称读取和维护从来源行取得持久父键，候选才使用实际父参数。</summary>
     public MultiTargetParentScope? Parent { get; internal init; }
     /// <summary>来源父键的存储方式及其实际页面由同一发布计划证明。</summary>
@@ -216,7 +218,10 @@ public static class GlobalSingleRelationTarget
         var sourceParent=sourcePage is not null&&usesListPageScope
             ?fixedParent?.SingleSource(catalog,owner,foreign,sourcePage)
             :fixedParent?.SingleSource(catalog,owner,foreign);
+        var projectSelectionPage=foreign.ControlKind=="SelectPage"&&pageId.Length>0&&
+            GlobalCrossTableTarget.IsProjectSinglePage(target,page,condition);
         if(projectParent)RequireProjectParentPage(catalog,target,page);
+        else if(projectSelectionPage)GlobalCrossTableTarget.RequireProjectSingleCandidate(catalog,target,page);
         else if(!exactSingle&&fixedParent is null)
         {
             if(scopedSelfTree)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page);
@@ -265,7 +270,7 @@ public static class GlobalSingleRelationTarget
             condition.Terms.Count==0&&string.IsNullOrWhiteSpace(Value("whereSql"))&&
             targetColumns.Any(column=>column.ColumnName=="yz_project_id");
         // 物理常量已通过实际发布页和字段证明。普通冗余来源同样使用此范围执行保存和名称维护。
-        var fixedSelectionPage=unfilteredStoredSelection||cacheControl&&owner.IsRongyu==1&&selectPage&&
+        var fixedSelectionPage=projectSelectionPage||unfilteredStoredSelection||cacheControl&&owner.IsRongyu==1&&selectPage&&
             condition.Terms.Count>0&&condition.Variables.Count==0&&
             (globalOwner||!exactSingle&&!scopedCrossTable&&!scopedSelfTree);
         // 实时按实际页证明表和名称。冻结的物理副本仍需跨所有入口使用同一范围。
@@ -289,7 +294,8 @@ public static class GlobalSingleRelationTarget
             }
         }
         var plan=new GlobalSingleRelationPlan(page,name){ScopedSelfTree=scopedSelfTree,ScopedCrossTable=scopedCrossTable,
-            ScopedAccount=scopedAccount,FixedSelectionPage=fixedSelectionPage,Parent=fixedParent,SourceParent=sourceParent,
+            ScopedAccount=scopedAccount,FixedSelectionPage=fixedSelectionPage,ProjectSelectionPage=projectSelectionPage,
+            Parent=fixedParent,SourceParent=sourceParent,
             CacheControl=control,NestedCacheScope=nestedScope,
             AlternateListPage=alternateListPage,PageOnlyList=pageOnlyList,StoredListAccount=storedListAccount};
         if(owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&foreign.ControlKind=="SelectPage"&&

@@ -429,7 +429,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(IsNonRedundantProjectMultiPage(catalog,root,page,AllowsStoredExactCheckbox))
             {
                 GlobalCrossTableTarget.RequireProjectMultiCandidate(catalog,root,page,AllowsStoredExactCheckbox);
-                var projectScope=PublishedScope(root,rootAlias,page,aliasPrefix+"multi_project",allowAccount:true,explicitMultiProject:true);
+                var projectScope=PublishedScope(root,rootAlias,page,aliasPrefix+"multi_project",allowAccount:true,explicitProject:true);
                 return string.Join(" AND ",new[]{scope,projectScope}.Where(part=>part.Length>0));
             }
             var treeNames=PublishedSelfTreeConditionFields(catalog,root,page,columns[root.Id].Values.ToArray());
@@ -748,7 +748,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(cacheOwner is {} row&&logical.Count==0)
             {
                 // 项目范围由已发布目录绑定。账号和父记录仍使用正在回填的来源行。
-                var projectScope=parentField is not null&&GlobalCrossTableTarget.Declared(table)&&
+                var projectScope=GlobalCrossTableTarget.IsProjectSinglePage(table,page,syntax)||
+                    parentField is not null&&GlobalCrossTableTarget.Declared(table)&&
                     GlobalCrossTableTarget.IsSingleProjectParentPage(page,syntax);
                 var visible=PhysicalAccountCacheCondition(table,alias,page,row,parentField,
                     allowFixedOnly:allowFixedOnly||!GlobalCrossTableTarget.Declared(table),separateExactScope:storedExact,

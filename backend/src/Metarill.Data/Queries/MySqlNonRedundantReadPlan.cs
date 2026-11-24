@@ -357,7 +357,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly bool scopedPhysicalCandidate;
         private readonly IReadOnlyList<RedundantSharedParentPlan> candidateParents;
         private readonly bool accountPhysicalCandidate;
-        private readonly bool explicitMultiProjectCandidate;
+        private readonly bool explicitProjectCandidate;
         internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false,string? cascadeLabelField=null,CascadeCacheOwner? cascadeCacheOwner=null,bool scopedPhysicalCandidate=false,IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,bool accountPhysicalCandidate=false,bool exactSingleCandidate=false,bool globalCandidate=false)
         {
             this.scopedPhysicalCandidate = scopedPhysicalCandidate;
@@ -382,7 +382,16 @@ public static partial class MySqlNonRedundantReadCompiler
                 else if(publishedGlobalCandidate&&IsNonRedundantProjectMultiPage(catalog,root,candidatePage,checkbox:multiLabel))
                 {
                     GlobalCrossTableTarget.RequireProjectMultiCandidate(catalog,root,candidatePage,checkbox:multiLabel);
-                    explicitMultiProjectCandidate=true;
+                    explicitProjectCandidate=true;
+                }
+                else if(!multiLabel&&(physicalCandidate&&accountPhysicalCandidate||publishedGlobalCandidate)&&
+                    GlobalCrossTableTarget.Declared(root)&&candidatePage.Extra.GetValueOrDefault("type").ToString()=="1"&&
+                    GlobalCrossTableTarget.IsProjectSinglePage(root,candidatePage,FixedConditionPlan.Compile(candidatePage.WhereSql,
+                        RelationStorageColumns.Expand(root,catalog.ConfigColumns.Where(column=>column.ConfigTableId==root.Id))
+                            .Select(column=>column.ColumnName))))
+                {
+                    GlobalCrossTableTarget.RequireProjectSingleCandidate(catalog,root,candidatePage);
+                    explicitProjectCandidate=true;
                 }
                 else if (physicalCandidate&&!accountPhysicalCandidate) GlobalCrossTableTarget.Require(catalog, root, candidatePage);
                 else if (physicalCandidate&&multiLabel) GlobalCrossTableTarget.RequireStoredMultiAccountCandidate(catalog,root,candidatePage);
@@ -849,6 +858,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var scopedSingle=false;
             var scopedCrossTable=false;
             var scopedAccount=false;
+            var scopedProject=false;
             MultiTargetParentScope? accountParent=null;
             MultiSourceParent? parentBinding=null;
             var projectParent=!global&&refreshFields is not null&&ownerAlias==rootAlias&&
@@ -866,10 +876,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 scopedSingle=proof.ScopedLogicalPage;
                 scopedCrossTable=proof.ScopedCrossTable;
                 scopedAccount=proof.ScopedAccount;
+                scopedProject=proof.ProjectSelectionPage;
                 accountParent=proof.Parent;
                 parentBinding=proof.SourceParent;
-                // 账号条件是已发布目标的实际范围，目标有无项目列都须绑定发布身份。
-                if(scopedAccount)scopedGlobalCrossTarget=true;
+                // 已发布的项目或账号条件跟随该目录，不能切换到其它项目标识。
+                if(scopedAccount||scopedProject)scopedGlobalCrossTarget=true;
                 if(proof.UsesListPageScope||proof.RequiresScopedPage||HasGlobalRowProject(target)||owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&
                     columns[owner.Id].ContainsKey("yz_project_id"))publishedPage=proof.Page;
                 // 冗余字典不走非冗余子计划，物理常量直接留在这段联接的可见性条件中。
@@ -889,8 +900,10 @@ public static partial class MySqlNonRedundantReadCompiler
             if(aliases.TryGetValue(path,out var existing))
             {
                 if(directSave)directSaveAliases.Add(existing);
-                Scope(target,existing,projectScoped:!global);
-                if(publishedPage is not null&&!scopedSingle&&accountParent is null)_=PublishedCondition(target,existing,publishedPage,allowAccount:scopedAccount,projectParent:projectParent);
+                Scope(target,existing,projectScoped:!global||scopedProject);
+                if(publishedPage is not null&&!scopedSingle&&accountParent is null)
+                    _=PublishedCondition(target,existing,publishedPage,allowAccount:scopedAccount,projectParent:projectParent,
+                        storedProject:scopedProject);
                 if(account is not null)_=AccountCacheScope(account,target,existing,ownerAlias,render:false);
                 aggregateFields[existing].Add(output);
                 Touch(existing,"id");return existing;
@@ -902,7 +915,14 @@ public static partial class MySqlNonRedundantReadCompiler
             var sourceParent=parentBinding is not null&&(accountParent?.Logical==true||
                 parentBinding.LogicalPages.Count>0||parentBinding.AdditionalColumns.Count>0)
                 ?SingleSourceParentValue(ownerTable,ownerAlias,parentBinding):null;
-            var alias=aliasPrefix+aliases.Count;aliases.Add(path,alias);if(global){globalSingleAliases.Add(alias);if(target.IsRongyu==0)globalDerivedAliases.Add(alias);}var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);var scope=publishedPage is null?Scope(target,alias,projectScoped:!global):PublishedScope(target,alias,publishedPage,alias,allowAccount:scopedAccount,projectParent:projectParent,scopedSingle:scopedSingle,scopedCrossTable:scopedCrossTable,accountParent:accountParent,sourceParent:accountParent?.Logical==true?sourceParent:null);
+            var alias=aliasPrefix+aliases.Count;
+            aliases.Add(path,alias);
+            if(global){globalSingleAliases.Add(alias);if(target.IsRongyu==0)globalDerivedAliases.Add(alias);}
+            var prefix=" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);
+            var scope=publishedPage is null?Scope(target,alias,projectScoped:!global):
+                PublishedScope(target,alias,publishedPage,alias,allowAccount:scopedAccount,projectParent:projectParent,
+                    scopedSingle:scopedSingle,scopedCrossTable:scopedCrossTable,accountParent:accountParent,
+                    sourceParent:accountParent?.Logical==true?sourceParent:null,explicitProject:scopedProject);
             if(crossNameTargetPage is not null)
                 crossNameSourcePages[alias]=crossNameTargetPage;
             if(accountParent is {Logical:false})
@@ -943,12 +963,12 @@ public static partial class MySqlNonRedundantReadCompiler
         private bool HasGlobalRowProject(TableMetadata table)=>table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table)&&columns[table.Id].ContainsKey("yz_project_id");
 
         /// <summary>全局候选和联接用同一固定页面条件，逻辑删除仍由物理字段约束。</summary>
-        private string PublishedScope(TableMetadata table,string alias,PageMetadata page,string parameterKey,bool allowAccount=false,bool projectParent=false,bool scopedSingle=false,bool scopedCrossTable=false,MultiTargetParentScope? accountParent=null,string? sourceParent=null,bool explicitMultiProject=false)
+        private string PublishedScope(TableMetadata table,string alias,PageMetadata page,string parameterKey,bool allowAccount=false,bool projectParent=false,bool scopedSingle=false,bool scopedCrossTable=false,MultiTargetParentScope? accountParent=null,string? sourceParent=null,bool explicitProject=false)
         {
             var sourceCandidate=table.Id==root.Id&&alias==rootAlias&&page.Id==candidatePage?.Id;
             var singleProject=accountParent is {Logical:false}&&GlobalCrossTableTarget.Declared(table)&&
                 GlobalCrossTableTarget.IsSingleProjectParentPage(page,FixedConditionPlan.Compile(page.WhereSql,columns[table.Id].Keys));
-            var publishedProject=explicitMultiProject||explicitMultiProjectCandidate&&sourceCandidate||singleProject||
+            var publishedProject=explicitProject||explicitProjectCandidate&&sourceCandidate||singleProject||
                 accountPhysicalCandidate&&multiLabel&&table.Id==root.Id&&alias==rootAlias&&
                 table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&
                 FixedConditionPlan.Compile(page.WhereSql,columns[table.Id].Keys).Terms.Any(GlobalMultipleRelationTarget.IsProjectScope);
@@ -962,7 +982,7 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             var condition=PublishedCondition(table,alias,page,allowAccount,projectParent,publishedProject);
             if(condition is null)return scope;
-            if((accountPhysicalCandidate||explicitMultiProject||explicitMultiProjectCandidate&&sourceCandidate)&&
+            if((accountPhysicalCandidate||explicitProject||explicitProjectCandidate&&sourceCandidate)&&
                 table.Id==root.Id&&alias==rootAlias&&cascadeCacheOwner is {} owner&&condition.Variables.Count>0)
             {
                 // 维护只能按每条来源记录的物理归属重算，当前请求的账号仅用于实时读取。

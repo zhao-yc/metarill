@@ -23,6 +23,7 @@ internal static partial class BackendRenderer
         scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages
             .Where(page=>NonRedundantReadCompilation.GlobalAccountMultiPage(table,page)||
                 NonRedundantReadCompilation.GlobalSingleParentPage(table,page)||
+                FixedPageConditionCompilation.HasGlobalProjectSingleScope(table,page)||
                 MultiGlobalParentCompilation.SingleTarget(model,table,page) is not null||
                 MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null).Select(page=>(table,page))));
         var relations=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>RelationCompilation.ForPage(model,page)
@@ -37,6 +38,7 @@ internal static partial class BackendRenderer
                 DerivedRelationNamesCompilation.UsesExactSingle(relation)||
                 DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)||
                 NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage)||
+                FixedPageConditionCompilation.HasGlobalProjectSingleScope(relation.Target,relation.TargetPage)||
                 NonRedundantReadCompilation.UsesPageBoundGlobalList(relation)||
                 DerivedRelationNamesCompilation.UsesGlobalPrimaryKeyDisplay(relation)||
                 NonRedundantReadCompilation.UsesProjectSingleRead(relation)).ToArray();
@@ -214,7 +216,8 @@ internal static partial class BackendRenderer
             helpers+="    /// <summary>原候选页的自树投影由固定图补齐显示路径。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileGlobalPage(string tableId,string pageId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompileGlobalPage(Snapshot,tableId,pageId,outputs,dependencies,singleTargets);\n";
         if (model.Tables.Any(NonRedundantReadCompilation.HasGlobalRowProject) ||
             scopedRelations.Any(relation=>DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)||
-                NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage)) ||
+                NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage)||
+                FixedPageConditionCompilation.HasGlobalProjectSingleScope(relation.Target,relation.TargetPage)) ||
             functionRelations.Any(relation => DerivedRelationNamesCompilation.UsesGlobalPlan(model, relation)) ||
             scopedRelations.Any(DerivedRelationNamesCompilation.UsesGlobalPrimaryKeyDisplay) ||
             model.Tables.SelectMany(table => table.Pages).SelectMany(page => RelationCompilation.ForPage(model, page, true))

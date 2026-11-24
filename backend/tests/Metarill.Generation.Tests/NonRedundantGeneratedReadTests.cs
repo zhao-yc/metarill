@@ -426,6 +426,129 @@ public sealed class NonRedundantGeneratedReadTests
     public Task Stored_global_single_with_constants_keeps_candidate_and_business_scopes(int storage,bool idLabel,bool textProject)=>
         VerifyStoredGlobalSelectionScopes(storage,idLabel,textProject,unfiltered:false);
 
+    /// <summary>原单选实际引用仅按当前项目限定的字典页时，保留原候选、名称和工作簿入口。</summary>
+    [Theory]
+    [InlineData(0,0,false,false)]
+    [InlineData(0,1,true,true)]
+    [InlineData(1,0,false,true)]
+    [InlineData(1,1,true,false)]
+    public async Task Global_single_can_use_actually_published_project_dictionary(
+        int sourceStorage,int targetStorage,bool textProject,bool literal)
+    {
+        const string ns="Example.GlobalSingleProjectDictionary";
+        const string prefix="mt_single_project_dictionary";
+        var catalog=NonRedundantApplicationFixture.Catalog(prefix);
+        var owner=catalog.ConfigTables.Single(item=>item.Id=="1");
+        owner.IsRongyu=sourceStorage;
+        var target=catalog.ConfigTables.Single(item=>item.Id=="2");
+        target.IsRongyu=targetStorage;
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        var excluded=new HashSet<string>(["16","17","27"],StringComparer.Ordinal);
+        catalog.ConfigColumns.RemoveAll(item=>excluded.Contains(item.Id));
+        catalog.ConfigPages.RemoveAll(item=>item.Id=="102");
+        catalog.ConfigPageColumns.RemoveAll(item=>item.ConfigPageId=="102"||excluded.Contains(item.ConfigColumnId));
+        foreach(var page in catalog.ConfigPages.Where(item=>item.ConfigTableId=="1"))page.OrderBy="id desc";
+        var published=catalog.ConfigPages.Single(item=>item.Id=="201");
+        published.WhereSql="yz_project_id=@current_yz_project_id"+(literal?" AND amount>=1":"");
+        published.IsExport=1;
+        var detailPage=catalog.ConfigPages.Single(item=>item.Id=="104");
+        detailPage.IsExport=1;
+        detailPage.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+        if(textProject)catalog.ConfigColumns.Single(item=>item.Id=="22").LogicalType="string";
+        var foreign=catalog.ConfigColumns.Single(item=>item.Id=="15");
+        var idDisplay=sourceStorage==0&&targetStorage==1;
+        if(idDisplay)
+        {
+            catalog.ConfigColumns.RemoveAll(item=>item.Id=="111");
+            catalog.ConfigPageColumns.RemoveAll(item=>item.ConfigColumnId=="111");
+        }
+        foreign.ControlDetail=JsonSerializer.Serialize(new{pageId="201",tableId="2",nameField=idDisplay?"id":"name",whereSql=published.WhereSql});
+        var proof=sourceStorage==0?GlobalSingleRelationTarget.Require(catalog,owner,foreign,target):
+            GlobalSingleRelationTarget.RequireCached(catalog,owner,foreign,target);
+        Assert.Equal(published.Id,proof.Page.Id);
+        Assert.True(proof.ProjectSelectionPage);
+        Assert.Null(proof.Parent);
+        var model=GenerationModel.Create(catalog,ns);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+
+        var selector=new SelectionControlDefinition("201",idDisplay?"id":"name","选择",published.WhereSql,"");
+        var dictionary=model.Tables.Single(item=>item.Source.Id=="2");
+        var selectedPage=dictionary.Pages.Single(item=>item.Source.Id=="201");
+        var query=FixedPageQueryCompilation.For(dictionary,selectedPage);
+        Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,query,selector,out var reason),reason);
+        Assert.False(FixedPageQueryCompilation.TryProveSelection(model.Catalog,query,
+            selector with{WhereSql=selector.WhereSql+" AND amount = 999"},out _));
+
+        var projectMarker=textProject?"@project_scope_text":"@project_scope_number";
+        const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+        var candidate=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileGlobalCandidate(model.Catalog,"2","201",["id","name"]);
+        var sqlScope=Assert.IsType<string>(candidate.GetType().GetProperty("Scope",hidden)!.GetValue(candidate));
+        Assert.Contains("yz_project_id",sqlScope);
+        Assert.Contains(projectMarker,sqlScope);
+        Assert.DoesNotContain("group_id",sqlScope);
+        Assert.Equal(literal,sqlScope.Contains("amount",StringComparison.Ordinal));
+        if(sourceStorage==0&&!idDisplay)
+        {
+            // 业务详情解析名称时也把项目约束放到目标联接中，不能只缩小字典列表。
+            var sourceRead=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.Compile(model.Catalog,"1",["customer_name"]);
+            var sourceSql=Assert.IsType<string>(sourceRead.GetType().GetProperty("From",hidden)!.GetValue(sourceRead));
+            Assert.Contains("yz_project_id",sourceSql);
+            Assert.Contains(projectMarker,sourceSql);
+            Assert.True(Assert.IsType<bool>(sourceRead.GetType()
+                .GetProperty("RequiresPublishedProjectIdentity",hidden)!.GetValue(sourceRead)));
+        }
+
+        if(sourceStorage==1)
+        {
+            // 回填依据真实来源外键，目标项目列和固定条件同样进入副本表达式。
+            var cache=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("customer_name",cache.MixedSourceColumns[owner.TableName]);
+            Assert.Contains(target.TableName,cache.MixedTargets);
+            var plans=cache.GetType().GetProperty("Plans",hidden)!.GetValue(cache)!;
+            var entry=Assert.IsAssignableFrom<System.Collections.IEnumerable>(plans).Cast<object>()
+                .Single(item=>Equals(item.GetType().GetProperty("Key")!.GetValue(item),"1"));
+            var tablePlan=entry.GetType().GetProperty("Value")!.GetValue(entry)!;
+            var read=tablePlan.GetType().GetProperty("Read")!.GetValue(tablePlan)!;
+            var expressions=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                read.GetType().GetProperty("Expressions",hidden)!.GetValue(read));
+            Assert.Contains("yz_project_id",expressions["customer_name"]);
+            Assert.Contains(projectMarker,expressions["customer_name"]);
+            Assert.Equal(literal,expressions["customer_name"].Contains("amount",StringComparison.Ordinal));
+        }
+
+        var root=Path.Combine(Path.GetTempPath(),"metarill-single-project-dictionary",Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(root,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var sourceService=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtSingleProjectDictionaryOrderService.g.cs"));
+            foreach(var method in new[]{"ImportRelation103_15Async","ImportRelation105_15Async","Export101Async","Export104Async"})
+                Assert.Contains(method,sourceService);
+            var detail=await File.ReadAllTextAsync(Path.Combine(generated,"frontend/pages/yzp/mt_single_project_dictionary_order-detail-104.vue"));
+            Assert.Contains(idDisplay?"selected-name-field=\"id\"":"selected-name-field=\"name\"",detail);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            foreach(var serviceName in new[]{"MtSingleProjectDictionaryOrderService","MtSingleProjectDictionaryPartyService"})
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
+                    assembly.GetType(ns+".Generated.Services."+serviceName,true)!.TypeHandle);
+            if(targetStorage==1)
+            {
+                using var session=new DatabaseSession(new()
+                {
+                    Provider="mysql",ExpectedDatabase="offline",
+                    ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
+                });
+                var generatedSql=CreateDictionarySql(assembly,ns,"MtSingleProjectDictionaryParty",session);
+                var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5");
+                var actual=generatedSql("Query201",[new PageRequest(),actor]);
+                Assert.Contains("yz_project_id",actual);
+                if(literal)Assert.Contains("amount",actual);
+            }
+            var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+        }
+        finally{if(Directory.Exists(root))Directory.Delete(root,true);}
+    }
+
     /// <summary>普通冗余来源的固定字典同时验证整数和字符串项目列、名称及主键显示。</summary>
     [Theory]
     [InlineData(false,false)]
