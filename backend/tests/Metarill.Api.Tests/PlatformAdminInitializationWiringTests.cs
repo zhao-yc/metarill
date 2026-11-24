@@ -28,6 +28,9 @@ public sealed class PlatformAdminInitializationWiringTests
             using var scope=factory.Services.CreateScope();var services=scope.ServiceProvider;
             Assert.IsType<PlatformAdminAccountInitializationBusiness>(services.GetRequiredService<IAdminAccountInitializer>());
             Assert.IsType<AgentAdminInitializationPolicy>(services.GetRequiredService<IAdminInitializationAgentPolicy>());
+            Assert.Same(services.GetRequiredService<PlatformBusinessButtonExecutionGuard>(),
+                services.GetRequiredService<Metarill.Core.Persistence.IBusinessButtonExecutionGuard>());
+            Assert.NotNull(services.GetRequiredService<OriginalBusinessButtonExecutor>());
             Assert.NotNull(ActivatorUtilities.CreateInstance<CompatibilityButtonController>(services));
             var registry=services.GetRequiredService<MetadataRegistry>();
             var platformPhysical=services.GetRequiredService<ProjectPhysicalModels>().Compose(registry.Platform);

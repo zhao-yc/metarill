@@ -73,8 +73,13 @@ builder.Services.AddSingleton<GeneratedCapabilityIndex>();
 builder.Services.AddScoped<AgentCapabilityCatalog>();
 builder.Services.AddScoped<OriginalBusinessButtonExecutor>();
 // 发布来源项目决定协调库，不使用客户端工作区或记录ID划分同一个按钮锁。
-builder.Services.AddScoped<Metarill.Core.Persistence.IBusinessButtonExecutionGuard>(provider=>new DatabaseButtonExecutionGuard(
-    project=>provider.GetRequiredService<TargetDatabaseSessions>().Resolve(project),cleanupFailure:()=>provider.GetRequiredService<ILogger<DatabaseButtonExecutionGuard>>().LogWarning("按钮执行租约连接清理状态不确定，请核查协调服务。")));
+builder.Services.AddScoped<PlatformBusinessButtonExecutionGuard>(provider=>new(
+    provider.GetRequiredService<SqlRowStore>(),provider.GetRequiredService<ISecurityResourceRegistry>(),
+    provider.GetRequiredService<ISecurityIdentityAccessor>(),provider.GetRequiredService<SecurityRealmMutationGuard>(),
+    provider.GetRequiredService<TargetDatabaseSessions>().Resolve,
+    ()=>provider.GetRequiredService<ILogger<PlatformBusinessButtonExecutionGuard>>().LogWarning("按钮执行租约连接清理状态不确定，请核查协调服务。"),
+    ()=>provider.GetRequiredService<ILogger<PlatformBusinessButtonExecutionGuard>>().LogWarning("业务按钮已返回，平台授权锁清理异常，请核查连接状态。")));
+builder.Services.AddScoped<IBusinessButtonExecutionGuard>(provider=>provider.GetRequiredService<PlatformBusinessButtonExecutionGuard>());
 builder.Services.AddSingleton(new AgentTaskOptions());
 builder.Services.AddSingleton<AgentTaskStore>();
 builder.Services.AddScoped<CompatibilityButtonBusiness>();

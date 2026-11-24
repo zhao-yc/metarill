@@ -16,16 +16,25 @@ public sealed class HttpRuntimeAuthorization : IRuntimeAuthorization, ISecurityI
     /// <summary>Scoped容器只延迟解析当前读协调器，避免授权器与身份访问器在构造时循环依赖。</summary>
     public HttpRuntimeAuthorization(IHttpContextAccessor accessor,MetadataRegistry registry,IServiceProvider? currentServices)
     {this.accessor=accessor;this.registry=registry;this.currentServices=currentServices;}
-    /// <summary>固定生成入口传入原写事务，不创建另一连接的权限证明。</summary>
-    public Task RequireButtonCurrentAsync(string pageId,string buttonId,RuntimeActor actor,System.Data.Common.DbTransaction transaction,CancellationToken cancellationToken=default)=>
-        (currentServices??throw new NotSupportedException("宿主尚未接入按钮当前权限协调。")).GetRequiredService<SecurityRealmMutationGuard>().RequireBusinessButtonAsync(pageId,buttonId,actor,transaction,cancellationToken);
+    /// <summary>分库请求只在平台授权锁仍有效时接受实际目标事务，其余请求沿用同事务证明。</summary>
+    public Task RequireButtonCurrentAsync(string pageId,string buttonId,RuntimeActor actor,System.Data.Common.DbTransaction transaction,CancellationToken cancellationToken=default)
+    {
+        var services=currentServices??throw new NotSupportedException("宿主尚未接入按钮当前权限协调。");
+        var execution=services.GetService<PlatformBusinessButtonExecutionGuard>();
+        return execution is { HasSplitScope:true }
+            ? execution.RequireCurrentAsync(pageId,buttonId,actor,transaction,cancellationToken)
+            : services.GetRequiredService<SecurityRealmMutationGuard>().RequireBusinessButtonAsync(pageId,buttonId,actor,transaction,cancellationToken);
+    }
 
     /// <summary>回调内使用当前文件来源身份，跨await及异常后恢复；不改变HttpContext或普通页面权限。</summary>
     public async Task WithButtonFileCurrentAsync(string pageId,string buttonId,RuntimeActor actor,System.Data.Common.DbTransaction transaction,Func<Task> action,CancellationToken cancellationToken=default)
     {
         ArgumentNullException.ThrowIfNull(action);
-        var identity=await (currentServices??throw new NotSupportedException("宿主尚未接入按钮文件当前权限协调。")).GetRequiredService<global::Metarill.Runtime.Security.SecurityRealmMutationGuard>()
-            .ReadBusinessButtonFileIdentityAsync(pageId,buttonId,actor,transaction,cancellationToken);
+        var services=currentServices??throw new NotSupportedException("宿主尚未接入按钮文件当前权限协调。");
+        var execution=services.GetService<PlatformBusinessButtonExecutionGuard>();
+        var identity=execution is { HasSplitScope:true }
+            ? await execution.ReadFileIdentityAsync(pageId,buttonId,actor,transaction,cancellationToken)
+            : await services.GetRequiredService<SecurityRealmMutationGuard>().ReadBusinessButtonFileIdentityAsync(pageId,buttonId,actor,transaction,cancellationToken);
         var previous=currentFileIdentity.Value;currentFileIdentity.Value=identity;
         try{await action();}finally{currentFileIdentity.Value=previous;}
     }

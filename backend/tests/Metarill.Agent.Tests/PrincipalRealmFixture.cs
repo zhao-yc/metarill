@@ -66,6 +66,15 @@ internal sealed class RealmMemoryProvider : IDatabaseProvider
     internal PhysicalDatabaseIdentity PhysicalIdentity {get;set;}=new("offline",Guid.NewGuid().ToString("N"),"offline");
     internal Action<string>? BeforeWrite {get;set;}
     internal Action? BeforeCommit {get;set;}
+    internal Action? BeforeRollback {get;set;}
+    internal Func<string,IDatabaseExecutionLease?>? AcquireLease {get;set;}
+    /// <summary>专项替换租约传输，未配置的身份测试仍明确拒绝租约操作。</summary>
+    public Task<IDatabaseExecutionLease?> TryAcquireExecutionLeaseAsync(DatabaseOptions options,string scope,TimeSpan lifetime,TimeProvider clock,CancellationToken cancellationToken=default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (AcquireLease is null) throw new NotSupportedException("离线夹具未配置执行租约。");
+        return Task.FromResult(AcquireLease(scope));
+    }
     /// <summary>仅为跨库专项返回独立内存端点，不模拟真实MySQL身份SQL或网络连接。</summary>
     public Task<PhysicalDatabaseIdentity> ReadPhysicalDatabaseIdentityAsync(DatabaseOptions options,DbTransaction transaction,CancellationToken token=default)
     {token.ThrowIfCancellationRequested();if(transaction.Connection is null)throw new InvalidOperationException("离线身份需要事务。");Commands.Add("IDENTITY");return Task.FromResult(PhysicalIdentity);}
@@ -113,7 +122,7 @@ internal sealed class RealmMemoryProvider : IDatabaseProvider
     private sealed class MemoryTransaction(MemoryConnection connection,RealmMemoryProvider provider):DbTransaction
     {
         private readonly Dictionary<string,List<Dictionary<string,object?>>> before=provider.Rows.ToDictionary(pair=>pair.Key,pair=>pair.Value.Select(row=>new Dictionary<string,object?>(row,StringComparer.Ordinal)).ToList(),StringComparer.Ordinal);
-        public override IsolationLevel IsolationLevel=>IsolationLevel.ReadCommitted;protected override DbConnection DbConnection=>connection;public override void Commit()=>provider.BeforeCommit?.Invoke();public override void Rollback()=>provider.Rows=before;
+        public override IsolationLevel IsolationLevel=>IsolationLevel.ReadCommitted;protected override DbConnection DbConnection=>connection;public override void Commit()=>provider.BeforeCommit?.Invoke();public override void Rollback(){provider.BeforeRollback?.Invoke();provider.Rows=before;}
     }
     private sealed class MemoryCommand(RealmMemoryProvider provider,MemoryConnection connection):DbCommand
     {

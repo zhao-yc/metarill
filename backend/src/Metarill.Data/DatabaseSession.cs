@@ -9,10 +9,11 @@ namespace Metarill.Data;
 /// <summary>一个实例可供多个请求使用；事务仅沿当前异步调用链传播。</summary>
 public sealed class DatabaseSession : IDisposable
 {
-    private sealed class TransactionScope(DbTransaction transaction, bool readSnapshot, bool scalarCacheWrite)
+    private sealed class TransactionScope(DbTransaction transaction, bool readSnapshot, bool scalarCacheWrite, bool authorizationLocks = false)
     {
         public DbTransaction Transaction { get; } = transaction;
         public bool IsReadSnapshot { get; } = readSnapshot;
+        public bool AuthorizationLocks { get; } = authorizationLocks;
         public bool RollbackOnly { get; set; }
         public List<Func<Task>>? RollbackActions { get; set; }
         public bool ScalarCacheWrite { get; } = scalarCacheWrite;
@@ -43,7 +44,7 @@ public sealed class DatabaseSession : IDisposable
     }
     public DbTransaction? CurrentTransaction => _transaction.Value?.Transaction;
     /// <summary>已有的只读快照可以复用，但不能在其上发出业务当前锁读。</summary>
-    public bool HasWriteTransaction => _transaction.Value is { IsReadSnapshot: false };
+    public bool HasWriteTransaction => _transaction.Value is { IsReadSnapshot: false, AuthorizationLocks: false };
     internal bool UsesOwnedOrm => _ownsOrm;
 
     /// <summary>证明连接只读且不借用业务池，避免持有事务的请求等待同池第二条连接。</summary>
@@ -116,11 +117,82 @@ public sealed class DatabaseSession : IDisposable
     /// <summary>创建强类型 Select 指令并加入当前业务事务。</summary>
     public ISelect<T> Select<T>() where T : class => Orm.Select<T>().WithTransaction(CurrentTransaction);
     /// <summary>创建强类型 Insert 指令并加入当前业务事务。</summary>
-    public IInsert<T> Insert<T>() where T : class => Orm.Insert<T>().WithTransaction(CurrentTransaction);
+    public IInsert<T> Insert<T>() where T : class
+    {
+        RequireMutationAllowed();
+        return Orm.Insert<T>().WithTransaction(CurrentTransaction);
+    }
     /// <summary>创建强类型 Update 指令并加入当前业务事务。</summary>
-    public IUpdate<T> Update<T>() where T : class => Orm.Update<T>().WithTransaction(CurrentTransaction);
+    public IUpdate<T> Update<T>() where T : class
+    {
+        RequireMutationAllowed();
+        return Orm.Update<T>().WithTransaction(CurrentTransaction);
+    }
     /// <summary>创建强类型 Delete 指令并加入当前业务事务。</summary>
-    public IDelete<T> Delete<T>() where T : class => Orm.Delete<T>().WithTransaction(CurrentTransaction);
+    public IDelete<T> Delete<T>() where T : class
+    {
+        RequireMutationAllowed();
+        return Orm.Delete<T>().WithTransaction(CurrentTransaction);
+    }
+
+    /// <summary>平台授权连接允许锁读，目标库是整个业务流程唯一允许提交写入的库。</summary>
+    internal void RequireMutationAllowed()
+    {
+        if (_transaction.Value is { AuthorizationLocks: true })
+            throw new InvalidOperationException("平台授权事务只允许锁读，不能写入平台数据。");
+    }
+
+    /// <summary>独立持有当前授权锁，直到目标业务操作结束。平台事务只回滚释放锁，始终不提交。</summary>
+    public async Task<T> InAuthorizationLockScopeAsync<T>(Func<DbTransaction,Task<T>> action, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (CurrentTransaction is not null) throw new InvalidOperationException("平台授权锁必须先于业务事务取得，不能加入已有平台事务。");
+
+        await using var connection = Provider.CreateConnection(Options);
+        await connection.OpenAsync(cancellationToken);
+        var beginObservation = DatabaseCommandObservation.StartTransaction(connection, null, DatabaseTransactionOperation.Begin);
+        DbTransaction transaction;
+        try
+        {
+            transaction = await connection.BeginTransactionAsync(cancellationToken);
+            beginObservation?.Complete(transaction, null);
+        }
+        catch (Exception error)
+        {
+            beginObservation?.Complete(null, error);
+            throw;
+        }
+
+        await using var ownedTransaction = transaction;
+        _transaction.Value = new(transaction, readSnapshot: false, scalarCacheWrite: false, authorizationLocks: true);
+        var actionFailed = false;
+        try
+        {
+            return await action(transaction);
+        }
+        catch
+        {
+            actionFailed = true;
+            throw;
+        }
+        finally
+        {
+            _transaction.Value = null;
+            var rollbackObservation = DatabaseCommandObservation.StartTransaction(connection, transaction, DatabaseTransactionOperation.Rollback);
+            try
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+                rollbackObservation?.Complete(transaction, null);
+            }
+            catch (Exception error)
+            {
+                rollbackObservation?.Complete(transaction, error);
+                if (!actionFailed) throw;
+                System.Diagnostics.Trace.TraceWarning("释放平台按钮授权锁失败。错误类型 {0}。", error.GetType().Name);
+            }
+        }
+    }
 
     /// <summary>完整业务流程开启事务；内层 Service 加入同一事务，任何内层失败均阻止外层提交。</summary>
     public Task<T> InTransactionAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken = default)=>ExecuteTransactionAsync(action,false,cancellationToken);
@@ -129,6 +201,7 @@ public sealed class DatabaseSession : IDisposable
     public void AfterConfirmedRollback(Func<Task> action)
     {
         ArgumentNullException.ThrowIfNull(action);
+        RequireMutationAllowed();
         var scope = _transaction.Value ?? throw new InvalidOperationException("回滚清理必须登记在当前事务内。");
         (scope.RollbackActions ??= []).Add(action);
     }
@@ -147,7 +220,12 @@ public sealed class DatabaseSession : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         if (_transaction.Value is { } parent)
         {
-            try { if(readSnapshot)await Provider.EnsureReadSnapshotAsync(parent.Transaction,cancellationToken);return await action(); }
+            try
+            {
+                if (readSnapshot) await Provider.EnsureReadSnapshotAsync(parent.Transaction, cancellationToken);
+                else RequireMutationAllowed();
+                return await action();
+            }
             catch { parent.RollbackOnly = true; throw; }
         }
         await using var connection = Provider.CreateConnection(Options);

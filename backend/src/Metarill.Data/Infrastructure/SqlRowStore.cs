@@ -165,6 +165,7 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
     }
     public async Task InsertAsync(string table, IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
     {
+        session.RequireMutationAllowed();
         var columns = Columns(table);
         if(table.StartsWith("config_",StringComparison.Ordinal))
         {
@@ -187,6 +188,7 @@ public sealed class SqlRowStore(DatabaseSession session, MetadataCatalog infrast
     /// <summary>只按明确主键更新；字段白名单来自发布元数据，不能执行客户端 SQL。</summary>
     public async Task<int> UpdateAsync(string table, long id, IReadOnlyDictionary<string, object?> values, CancellationToken cancellationToken = default)
     {
+        session.RequireMutationAllowed();
         var columns = Columns(table).Where(c => c.ColumnName != "id" && values.ContainsKey(c.ColumnName)).ToArray();
         if (columns.Length == 0) return 0;
         return await CommandAsync(async command =>

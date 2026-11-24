@@ -288,6 +288,168 @@ public sealed class BusinessButtonCurrentAuthorizationTests
         public void RequireButtonPermission(string pageId,string buttonId)=>ButtonCalls++;
     }
     private sealed class FileScopeFailure:Exception;
+    /// <summary>租约、平台当前读、实际目标事务和文件观察器串联，仅以离线传输替代数据库连接。</summary>
+    [Theory]
+    [InlineData("web")]
+    [InlineData("agent")]
+    [InlineData("revoked")]
+    [InlineData("file-without-proof")]
+    [InlineData("wrong-transaction")]
+    [InlineData("file-revoked")]
+    [InlineData("tail-rollback")]
+    [InlineData("authority-cleanup")]
+    public async Task Published_split_action_holds_platform_locks_through_target_write_and_files(string scenario)
+    {
+        using var f = new Fixture();
+        using var target = new PrincipalRealmFixture();
+        using var foreign = new PrincipalRealmFixture();
+        var model = f.FileModel();
+        f.FileGrant();
+        await f.Authenticate();
+        if (scenario == "agent")
+        {
+            f.Accessor.Identity = f.Accessor.Identity with { GrantId = 99 };
+            f.Memory.WebSession["kind"] = "agent";
+            f.Memory.WebSession["grant_id"] = 99L;
+            f.Policy.Valid = true;
+        }
+        var original = f.Accessor.Identity;
+        var projectId = original.Actor.ProjectId;
+        var http = new DefaultHttpContext();
+        http.Items[typeof(AuthenticatedIdentity)] = original;
+        var lease = new SplitLease();
+        target.Provider.AcquireLease = scope =>
+        {
+            Assert.Equal($"original-button:{projectId}:{Fixture.Button}", scope);
+            return lease;
+        };
+
+        var cleanupFailures = 0;
+        var execution = new PlatformBusinessButtonExecutionGuard(f.Memory.Store, f.Registry, f.Accessor, f.Guard,
+            id => id == projectId ? target.Session : throw new InvalidOperationException("测试项目不匹配。"),
+            authorityCleanupFailure: () => cleanupFailures++);
+        using var services = new ServiceCollection().AddSingleton(f.Guard).AddSingleton(execution).BuildServiceProvider();
+        var auth = new HttpRuntimeAuthorization(new HttpContextAccessor { HttpContext = http }, f.Memory.Registry, services);
+        var catalog = new MetadataCatalog { ConfigTables = [.. f.Memory.Registry.Platform.ConfigTables, model.ConfigTables[0]],
+            ConfigColumns = [.. f.Memory.Registry.Platform.ConfigColumns, .. model.ConfigColumns.Where(c => c.ConfigTableId == "80011")] };
+        var targetStore = new SqlRowStore(target.Session, catalog);
+        var observer = new FileReferenceMutationObserver(targetStore, new([model]), auth, target.Ids);
+        var project = long.Parse(projectId);
+        target.Add("sample_contract", ("id", 77L), ("yz_project_id", project), ("attachments", null));
+        target.Add("yz_file_library", ("id", 500L), ("yz_project_id", project), ("status", "ready"), ("owner_id", 9L),
+            ("access_mode", "PROTECTED"), ("size", 3L), ("name", "sample.txt"));
+        var donorTable = model.ConfigTables.Single(table => table.Id != "80011").TableName;
+        target.Add(donorTable, ("id", 78L), ("yz_project_id", project), ("attachments", "[\"500\"]"), ("real_name", "仅甲"));
+        target.Add("yz_file_ref", ("id", 501L), ("file_id", 500L), ("page_id", long.Parse(f.Donor)),
+            ("record_id", 78L), ("field_name", "attachments"), ("yz_project_id", project));
+        if (scenario == "revoked") f.Grant["delete_no"] = DateTime.UtcNow;
+
+        var trace = new List<string>();
+        f.Memory.Provider.BeforeCommit = () => throw new InvalidOperationException("平台授权事务不能提交。");
+        f.Memory.Provider.BeforeRollback = () =>
+        {
+            trace.Add("platform-release");
+            if (scenario == "authority-cleanup") throw new FileScopeFailure();
+        };
+        target.Provider.BeforeCommit = () =>
+        {
+            Assert.NotNull(f.Memory.Session.CurrentTransaction);
+            Assert.True(lease.Held);
+            trace.Add("target-commit");
+        };
+        target.Provider.BeforeRollback = () =>
+        {
+            Assert.NotNull(f.Memory.Session.CurrentTransaction);
+            Assert.True(lease.Held);
+            trace.Add("target-rollback");
+        };
+
+        var actionReturned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? lateCheck = null;
+        Task<bool> Execute() => execution.ExecuteAsync(projectId, Fixture.Button, () => target.Session.InTransactionAsync(async () =>
+        {
+            var tx = target.Session.CurrentTransaction!;
+            var sourceTx = f.Memory.Session.CurrentTransaction;
+            Assert.NotNull(sourceTx);
+            Assert.NotSame(sourceTx, tx);
+            Assert.False(f.Memory.Session.HasWriteTransaction);
+            Assert.Throws<InvalidOperationException>(() => f.Memory.Session.Update<Metarill.Core.Metadata.PageMetadata>());
+            await Assert.ThrowsAsync<InvalidOperationException>(() => f.Memory.Store.UpdateAsync("yz_manager", 8, new Dictionary<string,object?> { ["real_name"] = "平台不得写入" }));
+            await Assert.ThrowsAsync<InvalidOperationException>(() => f.Memory.Session.InTransactionAsync(() => Task.FromResult(true)));
+            var values = new Dictionary<string,object?> { ["attachments"] = "[\"500\"]" };
+            async Task Observe() => await observer.BeforeCommitAsync(new(Fixture.Page, "sample_contract", 77, projectId, values, false, tx)
+                { BusinessButtonId = Fixture.Button });
+            if (scenario == "file-without-proof")
+            {
+                await auth.WithButtonFileCurrentAsync(Fixture.Page, Fixture.Button, original.Actor, tx,
+                    () => throw new FileScopeFailure());
+                throw new FileScopeFailure();
+            }
+            if (scenario == "wrong-transaction")
+            {
+                await foreign.Session.InTransactionAsync<bool>(async () =>
+                {
+                    await auth.RequireButtonCurrentAsync(Fixture.Page, Fixture.Button, original.Actor, foreign.Session.CurrentTransaction!);
+                    throw new FileScopeFailure();
+                });
+            }
+            await auth.RequireButtonCurrentAsync(Fixture.Page, Fixture.Button, original.Actor, tx);
+            if (scenario == "web")
+                lateCheck = Task.Run(async () =>
+                {
+                    await actionReturned.Task;
+                    await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                        auth.RequireButtonCurrentAsync(Fixture.Page, Fixture.Button, original.Actor, tx));
+                });
+            if (scenario == "file-revoked") f.Memory.Row("yz_role_permission",80)["delete_no"] = DateTime.UtcNow;
+            Assert.Equal(1, await targetStore.UpdateAsync("sample_contract", 77, values));
+            await Observe();
+            if (scenario == "tail-rollback") throw new FileScopeFailure();
+            return true;
+        }));
+
+        var applied = scenario is "web" or "agent" or "authority-cleanup";
+        if (applied) Assert.True(await Execute());
+        else if (scenario == "tail-rollback") await Assert.ThrowsAsync<FileScopeFailure>(Execute);
+        else if (scenario is "file-without-proof" or "wrong-transaction") await Assert.ThrowsAsync<InvalidOperationException>(Execute);
+        else
+        {
+            var denied = await Record.ExceptionAsync(Execute);
+            Assert.True(denied is UnauthorizedAccessException or SecurityException);
+        }
+        Assert.Equal(applied ? new[] { "target-commit", "platform-release" } : scenario == "revoked" ?
+            new[] { "platform-release" } : new[] { "target-rollback", "platform-release" }, trace);
+        Assert.Equal(applied ? 2 : 1, target.Provider.Rows["yz_file_ref"].Count);
+        Assert.Equal(applied ? "[\"500\"]" : null, target.Row("sample_contract",77)["attachments"]);
+        Assert.DoesNotContain(f.Memory.Provider.Commands, sql => sql.StartsWith("UPDATE ", StringComparison.Ordinal) || sql.StartsWith("INSERT ", StringComparison.Ordinal));
+        Assert.Equal(scenario == "authority-cleanup" ? 1 : 0, cleanupFailures);
+        Assert.False(lease.Held);
+        Assert.Null(f.Memory.Session.CurrentTransaction);
+        Assert.Null(target.Session.CurrentTransaction);
+        Assert.Same(original, auth.RequireIdentity());
+        Assert.Equal(scenario == "agent", f.Policy.Calls > 0);
+        actionReturned.SetResult();
+        if (lateCheck is not null) await lateCheck;
+        target.Provider.BeforeRollback = null;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => target.Session.InTransactionAsync(async () =>
+        {
+            await auth.RequireButtonCurrentAsync(Fixture.Page, Fixture.Button, original.Actor, target.Session.CurrentTransaction!);
+            return true;
+        }));
+    }
+
+    private sealed class SplitLease : IDatabaseExecutionLease
+    {
+        internal bool Held { get; private set; } = true;
+        public bool IsExpired => false;
+        public bool CleanupFailed => false;
+        public ValueTask DisposeAsync()
+        {
+            Held = false;
+            return ValueTask.CompletedTask;
+        }
+    }
+
     private sealed class Fixture : IDisposable
     {
         internal const string Page = "80021", Button = "80031";
