@@ -51,7 +51,16 @@ public sealed class SelectionNameFilterCompilationTests
     public Task Stored_project_selection_uses_account_page_without_target_parent(bool unparentedSource) =>
         VerifyStoredProjectCache(unparentedSource,targetHasParent:false,accountScope:true);
 
-    private static async Task VerifyStoredProjectCache(bool independentParent,bool targetHasParent,bool accountScope=false)
+    /// <summary>具备真实物理精确权限的单选仍按来源行归属维护已保存的名称副本。</summary>
+    [Theory]
+    [InlineData(false,false,false)]
+    [InlineData(true,false,true)]
+    [InlineData(false,true,true)]
+    [InlineData(true,true,true)]
+    public Task Stored_project_selection_uses_physical_exact_dictionary_cache(bool independentParent,bool targetHasParent,bool accountScope) =>
+        VerifyStoredProjectCache(independentParent,targetHasParent,accountScope,exactTarget:true);
+
+    private static async Task VerifyStoredProjectCache(bool independentParent,bool targetHasParent,bool accountScope=false,bool exactTarget=false)
     {
         const string ns = "Example.StoredSelectionFilter";
         var catalog = RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
@@ -78,6 +87,11 @@ public sealed class SelectionNameFilterCompilationTests
             new(){Id="27",ConfigTableId="2",ColumnName="target_name",LogicalType="string",YzProjectId=catalog.YzProjectId,
                 Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("target.name")}},
             new(){Id="37",ConfigTableId="3",ColumnName="status",LogicalType="int32",YzProjectId=catalog.YzProjectId}]);
+        if(exactTarget)
+        {
+            catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="grant_code",LogicalType="string",YzProjectId=catalog.YzProjectId});
+            targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("grantCode");
+        }
         if(accountScope)
         {
             catalog.ConfigColumns.AddRange([
@@ -138,6 +152,13 @@ public sealed class SelectionNameFilterCompilationTests
             if(targetHasParent) Assert.Contains("`parent_id`",joins+nameSql);
             else Assert.DoesNotContain("`parent_id`",nameSql);
             Assert.Contains("`status`",joins+nameSql);
+            if(exactTarget)
+            {
+                Assert.DoesNotContain("`grant_code`",joins+nameSql);
+                Assert.Contains("""targetExactAuthorization.ResolveExactDataManage("301", "list", "")""",serviceCode);
+                Assert.Contains("""new("grant_code", FixedReadComparison.In, targetExactScope.ReadLogical("string"))""",serviceCode);
+                Assert.Contains("await DerivedOptionsRows201_25Async(request.ParentId,",serviceCode);
+            }
             var references=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("PhysicalReferences",hidden)!.GetValue(read));
             Assert.Contains(references.Cast<object>(),item =>
             {
@@ -180,9 +201,17 @@ public sealed class SelectionNameFilterCompilationTests
         finally { if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
 
         if(targetHasParent)return;
-        targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");
+        targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("missingGrantField");
         Assert.Null(ProjectScopedSingleRelationTarget.Resolve(catalog,owner,foreign,target));
-        targetPage.Extra.Remove("exactDataManageMatchField");
+        if(exactTarget)
+        {
+            var grant=catalog.ConfigColumns.Single(column=>column.Id=="39");
+            targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("grantCode");
+            grant.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            Assert.Null(ProjectScopedSingleRelationTarget.Resolve(catalog,owner,foreign,target));
+            grant.Extra.Remove("isJoinColumn");
+        }
+        else targetPage.Extra.Remove("exactDataManageMatchField");
 
         var fixedScope=targetPage.WhereSql;
         targetPage.WhereSql="yz_project_id=@current_yz_project_id AND status=@current_store_id";

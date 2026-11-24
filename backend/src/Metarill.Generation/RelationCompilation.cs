@@ -223,8 +223,8 @@ internal static class RelationCompilation
             var scopedStoredSelection=storedSelectionParent is not null||
                 selection is not null&&owner.Source.IsRongyu==0&&!owner.IsGlobal&&!target.IsGlobal&&
                 target.Source.IsRongyu==1&&targetPage.Condition is not null&&
-                (ExactDataManageCompilation.MatchColumn(target,targetPage) is not {} match||
-                    GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,match.Source));
+                (!ExactDataManageCompilation.Declared(targetPage)||
+                    ProjectScopedSingleRelationTarget.HasPhysicalSelectionExact(model.Catalog,target.Source,targetPage.Source));
             var sourceKeys=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
                 .DistinctBy(column=>column.Source.Id).ToArray();
             var projectParentScope=!functionForm&&!binding.Declared&&!owner.IsGlobal&&!target.IsGlobal&&

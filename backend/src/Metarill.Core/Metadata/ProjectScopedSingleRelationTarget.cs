@@ -76,6 +76,23 @@ public static class ProjectScopedSingleRelationTarget
         return scope is {Logical:false,Global:false}?scope:null;
     }
 
+    /// <summary>仅已发布的项目内冗余单选页可用普通物理列声明精确范围。</summary>
+    public static bool HasPhysicalSelectionExact(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
+    {
+        if(target.IsRongyu!=1||target.IsView!=0||target.IsFunctionTable!=0||GlobalCrossTableTarget.Declared(target)||
+            page.Extra.GetValueOrDefault("type").ToString()!="1"||page.ConfigTableId!=target.Id||
+            page.YzProjectId!=catalog.YzProjectId||target.YzProjectId!=catalog.YzProjectId||
+            !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
+            return false;
+        var field=ExactDataManageValues.Field(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
+        if(field.Length==0)return false;
+        var storage=MetadataStoragePolicy.ForTable(catalog,target);
+        var match=storage.PhysicalColumns.SingleOrDefault(column=>column.ColumnName==field);
+        if(match is null||!GlobalPhysicalRelationValue.IsScalar(storage,target,match))return false;
+        _=ExactDataManageValues.Unrestricted.ReadLogical(match.LogicalType);
+        return true;
+    }
+
     /// <summary>路径任一实际目标页有额外范围时，所有写入入口必须共享同一固定名称来源。</summary>
     public static (PageMetadata Page, ColumnMetadata Name)? Resolve(
         MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)
@@ -179,7 +196,8 @@ public static class ProjectScopedSingleRelationTarget
         IReadOnlyList<ColumnMetadata> columns,string[] members)
     {
         if(page.Extra.GetValueOrDefault("type").ToString()!="1"||
-            !string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString()))
+            !string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString())&&
+                !HasPhysicalSelectionExact(catalog,target,page))
             return false;
         var terms=FixedConditionPlan.Compile(page.WhereSql,members).Terms.Where(term=>!ProjectTerm(term)).ToArray();
         var storage=MetadataStoragePolicy.ForTable(catalog,target);

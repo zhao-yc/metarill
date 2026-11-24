@@ -103,17 +103,15 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>核对项目内发布页的精确匹配字段，普通候选和已保存名称共用页面归属证明。</summary>
     private static ColumnMetadata? PublishedSingleExactColumn(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
-        IReadOnlyList<ColumnMetadata> columns,bool allowStored=false)
+        IReadOnlyList<ColumnMetadata> columns)
     {
-        if(table.IsRongyu!=0&&!(allowStored&&table.IsRongyu==1)||GlobalCrossTableTarget.Declared(table)||table.IsView!=0||table.IsFunctionTable!=0||
+        if(table.IsRongyu!=0||GlobalCrossTableTarget.Declared(table)||table.IsView!=0||table.IsFunctionTable!=0||
             page.ConfigTableId!=table.Id||page.YzProjectId!=catalog.YzProjectId||table.YzProjectId!=catalog.YzProjectId||
             !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
             return null;
         var field=ExactDataManageValues.Field(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
         var match=columns.SingleOrDefault(column=>column.ColumnName==field);
-        if(match is null||match.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(field)||
-            table.IsRongyu==1&&!GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,table),table,match))
-            return null;
+        if(match is null||match.IsVirtualColumn!=0||ExactDataManageValues.IsSensitiveField(field))return null;
         _=ExactDataManageValues.Unrestricted.ReadLogical(match.LogicalType);
         return match;
     }
