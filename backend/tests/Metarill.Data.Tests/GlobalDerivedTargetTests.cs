@@ -26,6 +26,9 @@ public sealed class GlobalDerivedTargetTests
         Assert.Contains("b.`yz_project_id`=@project_scope_number",(string)Read(plan,"Scope"));
         if(sourceKey=="string")Assert.Contains("BINARY CAST(r0.`id` AS CHAR)=BINARY b.`global_source_id`",from);
         Assert.Equal("string",NonRedundantReads.Compile(c,"3",["global_source_global_target_name"]).OutputTypes["global_source_global_target_name"]);
+        var joins = Assert.IsType<MySqlMaintenanceReadFrom>(plan.AggregateFrom);
+        Assert.Equal(" FROM `cached_consumer` b", joins.Render(new HashSet<string> { "id" }));
+        Assert.Equal(from, joins.Render(new HashSet<string> { "global_source_global_target_name" }));
         Assert.Equal(before,JsonSerializer.Serialize(c));
     }
 

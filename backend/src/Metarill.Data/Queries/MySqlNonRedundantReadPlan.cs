@@ -542,7 +542,7 @@ public static partial class MySqlNonRedundantReadCompiler
             }).Concat(customReverse).ToArray();
             // 全局是关联目标的读取资格；根自身已有真实项目列时仍保留该来源范围。
             var importLock=" FOR UPDATE OF "+rootAlias+(aliases.Count==0?"":" FOR SHARE OF "+string.Join(",",aliases.Values));
-            // 计数只能省去以整数键查找单列主键的 LEFT JOIN。跨表有效性校验和当前锁读沿用完整联接。
+            // 只裁剪已证明至多匹配一个主键的 LEFT JOIN。跨表有效性校验和当前锁读沿用完整联接。
             var aggregateFrom = aggregateJoinsPreserveCardinality && refreshFields is null &&
                 !matching && crossProjections.Count == 0 && scopedCrossProjections.Count == 0 && aggregateJoins.Count > 0
                 ? new MySqlMaintenanceReadFrom(" FROM " + Q(root.TableName) + " " + rootAlias,
@@ -877,8 +877,10 @@ public static partial class MySqlNonRedundantReadCompiler
                     cascadeLabelPages.Add(proof.Page.Id);
                 }
             }
-            // 混合文本或浮点键可能发生近似比较，同一源值可能匹配多个大整数主键。
-            aggregateJoinsPreserveCardinality &= sourceType is "int64" or "int32";
+            // 全局文本外键用主键的十进制字节串匹配，至多命中一个目标。
+            // 普通混合键仍用原隐式比较，多个相邻高位整数可能被转换成同一个浮点值。
+            var exactTextKey = sourceType == "string" && (refreshFields is not null || global);
+            aggregateJoinsPreserveCardinality &= sourceType is "int64" or "int32" || exactTextKey;
             var path=ownerAlias+":"+relation.Id+(cachePage is null?"":":"+cachePage.Id)+(account is null?"":":account:"+account.PageId)+
                 (scopedCacheLink?":scoped-cache:"+output:"");
             var directSave=refreshFields is not null&&ordinaryRelation&&ownerAlias==rootAlias&&storage[root.Id].IsPhysical(relation)&&source==ownerAlias+"."+Q(relation.ColumnName);
@@ -914,7 +916,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(directSave)directSaveAliases.Add(alias);
             }
             if(refreshFields is not null&&sourceType is not("int64" or "string"))throw new NotSupportedException("维护关系ID必须为int64或规范字符串。");
-            var equality=(refreshFields is not null||global||fixedTextKey)&&sourceType=="string"?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
+            var equality=(exactTextKey||fixedTextKey)?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
             if(refreshFields is not null&&sourceType=="string")
             {
                 // 先以来源的规范整数形式查找目标主键，再用原字节比较排除隐式等值。

@@ -24,7 +24,8 @@ public sealed class NonRedundantReadMySqlTests
         using var pin=JsonDocument.Parse(await File.ReadAllTextAsync(Environment.GetEnvironmentVariable("METARILL_ROLE_READ_INSTANCE_PIN")??throw new InvalidOperationException("缺少实例pin。")));
         await using(var connection=new MySqlConnection(options.ConnectionString))
         {await connection.OpenAsync();await using var command=connection.CreateCommand();command.CommandText="SELECT DATABASE(),@@hostname,@@server_uuid";await using var r=await command.ExecuteReaderAsync();Assert.True(await r.ReadAsync()&&r.GetString(0)==options.ExpectedDatabase&&r.GetString(1)==pin.RootElement.GetProperty("expectedHostname").GetString()&&r.GetString(2)==pin.RootElement.GetProperty("expectedServerUuid").GetString(),"实例身份不匹配，未创建任何样本。");}
-        var nonce=Guid.NewGuid().ToString("N");var catalog=NonRedundantReadTests.Catalog("mt_nrr_root_"+nonce[..12],"mt_nrr_party_"+nonce[..12]);catalog.ConfigColumns.Add(new(){Id="120",ConfigTableId="1",ColumnName="party_ids",LogicalType="string",ColumnLength="max",ControlKind="MultiSelectPage",LinkConfigTableId="2",ControlDetail="{\"tableId\":\"2\",\"nameField\":\"name\"}"});var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();var evidence=Path.Combine(Root(),".local/nonredundant-read/mysql-"+nonce);Directory.CreateDirectory(evidence);
+        var nonce=Guid.NewGuid().ToString("N");var catalog=NonRedundantReadTests.Catalog("mt_nrr_root_"+nonce[..12],"mt_nrr_party_"+nonce[..12]);catalog.ConfigColumns.Add(new(){Id="120",ConfigTableId="1",ColumnName="party_ids",LogicalType="string",ColumnLength="max",ControlKind="MultiSelectPage",LinkConfigTableId="2",ControlDetail="{\"tableId\":\"2\",\"nameField\":\"name\"}"});catalog.ConfigColumns.Add(new(){Id="121",ConfigTableId="1",ColumnName="global_party_id",LogicalType="string",ColumnLength="100"});
+        var names=catalog.ConfigTables.Select(table=>table.TableName).ToArray();var evidence=Path.Combine(Root(),".local/nonredundant-read/mysql-"+nonce);Directory.CreateDirectory(evidence);
         using var session=new DatabaseSession(options);var schema=new SchemaService(session,new FileSchemaChangeJournal(Path.Combine(evidence,"schema-journal")));var store=new SqlRowStore(session,catalog);var reader=new MySqlNonRedundantReader(session);var plan=NonRedundantReadTests.Plan(catalog);
         const long first=9007199254741001,second=9007199254741002;var project=long.Parse(catalog.YzProjectId,CultureInfo.InvariantCulture);var created=false;var verified=false;string? fingerprint=null;string? rowsHash=null;
         try
@@ -57,6 +58,7 @@ public sealed class NonRedundantReadMySqlTests
             Assert.Equal(rowsHash,await RowsHash());Assert.Equal(31m,(await reader.ReadStatisticsAsync(plan,[],["bill_amount"])).Sums["bill_amount"]);Assert.Null((await reader.ReadStatisticsAsync(plan,[new("id",FixedReadComparison.Equal,-1L)],["bill_amount"])).Sums["bill_amount"]);Assert.Equal(1,(await reader.ReadPageAsync(plan,[new("bill_name",FixedReadComparison.Contains,"%_!")],[],1,10)).Total);
             await VerifyAggregateSqlAsync(session, plan, first);
             await VerifyReadJoinSqlAsync(session, catalog, first);
+            await VerifyGlobalTextJoinsAsync(session, store, catalog, project);
             await VerifyMultiReadsAsync(session,store,catalog,first,second);
             await VerifyDerivedLocksAsync(options,catalog,first,second);
             await VerifyFixedConditionsAsync(options,catalog,first,second);
@@ -200,6 +202,73 @@ public sealed class NonRedundantReadMySqlTests
         Assert.DoesNotContain("LEFT JOIN", sql[3]);
         Assert.Contains("bill_id", sql[4]);
         Assert.Contains("ship_id", sql[4]);
+        Assert.EndsWith(" FOR SHARE", sql[4]);
+    }
+
+    /// <summary>真实高位主键验证字节精确联接、固定候选条件和本项目隔离。</summary>
+    private static async Task VerifyGlobalTextJoinsAsync(DatabaseSession session, SqlRowStore store, MetadataCatalog catalog, long project)
+    {
+        var model = JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Serialize(catalog))!;
+        var root = model.ConfigTables.Single(table => table.Id == "1");
+        var target = model.ConfigTables.Single(table => table.Id == "2");
+        root.YzProjectId = target.YzProjectId = model.YzProjectId;
+        target.Extra["scopeKind"] = JsonSerializer.SerializeToElement("global");
+        model.YzAdminTypes.Add(new() { Id = "1", YzProjectId = model.YzProjectId, Name = "验收后台" });
+        model.ConfigPages.Add(new() { Id = "201", ConfigTableId = target.Id, YzProjectId = model.YzProjectId,
+            YzAdminTypeId = "1", WhereSql = "name<>'隐藏全局'" });
+        var foreign = model.ConfigColumns.Single(column => column.Id == "121");
+        foreign.ControlKind = "List";
+        foreign.LinkConfigTableId = target.Id;
+        foreign.ControlDetail = JsonSerializer.Serialize(new { tableId = target.Id, pageId = "201", nameField = "name" });
+
+        var narrow = MySqlNonRedundantReadCompiler.Compile(model, root.Id, ["id", "name"], ["global_party_name"]);
+        var visible = MySqlNonRedundantReadCompiler.Compile(model, root.Id, ["id", "global_party_name"]);
+        var reader = new MySqlNonRedundantReader(session);
+        const long first = 9007199254742000;
+        const long adjacent = 9007199254740993;
+        var canonical = adjacent.ToString(CultureInfo.InvariantCulture);
+        var rowKeys = new object?[] { first, first + 1, first + 2, first + 3, first + 4, first + 5 };
+        var rows = new FixedReadFilter("id", FixedReadComparison.In, rowKeys);
+
+        // 观察器覆盖完整事务，回滚后再核对驱动回执。
+        using var trace = DatabaseCommandObservation.Begin(new byte[32]);
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() => session.InTransactionAsync<int>(async () =>
+        {
+            foreach (var (key, name) in new[] { (adjacent - 1, "相邻主键"), (adjacent, "精确匹配"), (adjacent + 1, "隐藏全局") })
+                await store.InsertAsync(target.TableName, new Dictionary<string, object?>
+                    { ["id"] = key, ["name"] = name, ["yz_project_id"] = project + 1 });
+            var foreignKeys = new[] { canonical, "0" + canonical, canonical + " ",
+                (adjacent + 1).ToString(CultureInfo.InvariantCulture), canonical, "" };
+            for (var index = 0; index < foreignKeys.Length; index++)
+                await store.InsertAsync(root.TableName, new Dictionary<string, object?>
+                {
+                    ["id"] = first + index, ["name"] = "样本" + index, ["global_party_id"] = foreignKeys[index],
+                    ["yz_project_id"] = index == 4 ? project + 1 : project,
+                });
+
+            var page = await reader.ReadPageAsync(narrow, [rows], [new("id")], 1, 20);
+            var filtered = await reader.ReadRowsAsync(narrow,
+                [rows, new("global_party_name", FixedReadComparison.Equal, "精确匹配")], [], 20);
+            var projected = await reader.ReadRowsAsync(visible, [rows], [new("id")], 20);
+            var locked = await reader.ReadKeyRowsAsync(narrow, [], [first], currentRead: true);
+
+            Assert.Equal(5, page.Total);
+            Assert.Equal(new[] { first, first + 1, first + 2, first + 3, first + 5 }, page.Records.Select(row => (long)row["id"]!));
+            Assert.Equal("样本0", Assert.Single(filtered)["name"]);
+            Assert.Equal("样本0", Assert.Single(locked)["name"]);
+            Assert.Equal(new object?[] { "精确匹配", null, null, null, null }, projected.Select(row => row["global_party_name"]));
+            throw new InvalidOperationException("全局文本联接专项故意回滚。");
+        }));
+        Assert.Equal("全局文本联接专项故意回滚。", failure.Message);
+        trace.Dispose();
+        var snapshot = trace.Snapshot();
+        Assert.True(snapshot.InternallyConsistent);
+        Assert.All(snapshot.Commands, command => Assert.True(command.DriverCalled && command.Succeeded));
+        var sql = snapshot.Commands.Select(command => command.Sql).Where(command => command.StartsWith("SELECT ", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(5, sql.Length);
+        Assert.DoesNotContain("LEFT JOIN", sql[0]);
+        Assert.DoesNotContain("LEFT JOIN", sql[1]);
+        Assert.All(sql.Skip(2), command => Assert.Contains("BINARY CAST(r0.`id` AS CHAR)=BINARY b.`global_party_id`", command));
         Assert.EndsWith(" FOR SHARE", sql[4]);
     }
 
