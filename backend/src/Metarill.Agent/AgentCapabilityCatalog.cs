@@ -69,6 +69,9 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                     if (kind == "body")
                     {
                         requestSchema = schema;
+                        if (operation is ("list" or "export") &&
+                            action.ControllerTypeInfo.GetCustomAttribute<GeneratedPageOrderAttribute>() is { } pageOrder)
+                            AgentJsonSchema.DescribePageOrder(schema, pageOrder.Columns);
                         var required = schema.GetValueOrDefault("required") is IEnumerable<string> dtoRequired
                             ? dtoRequired.ToList() : new List<string>();
                         if (operation is "update" or "delete") required.Add("id");

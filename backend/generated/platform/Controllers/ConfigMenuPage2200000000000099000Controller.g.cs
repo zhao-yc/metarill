@@ -8,6 +8,7 @@ using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
+[GeneratedPageOrder()]
 [Route("api/admin/auto/config_menu/2200000000000099000")]
 public sealed partial class ConfigMenuPage2200000000000099000Controller(ConfigMenuService service, IRuntimeAuthorization authorization) : ControllerBase
 {

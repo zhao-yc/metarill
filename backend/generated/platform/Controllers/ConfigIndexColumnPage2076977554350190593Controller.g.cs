@@ -8,6 +8,7 @@ using Metarill.Platform.Generated.VOs;
 using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
+[GeneratedPageOrder("sortNo")]
 [Route("api/admin/auto/config_index_column/2076977554350190593")]
 public sealed partial class ConfigIndexColumnPage2076977554350190593Controller(ConfigIndexColumnService service, IRuntimeAuthorization authorization) : ControllerBase
 {

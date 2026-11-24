@@ -508,7 +508,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine("        if (request.OrderBy is not null && !string.IsNullOrWhiteSpace(request.OrderBy.Order))").AppendLine("        {")
             .AppendLine("            var descending = request.OrderBy.Order switch { \"descending\" => true, \"ascending\" => false, _ => throw new ArgumentException(\"排序方向无效。\") };")
             .AppendLine("            return (request.OrderBy.Column ?? request.OrderBy.Field) switch").AppendLine("            {");
-        foreach (var column in page.Sortable.Where(column=>!ManagerCredentialCompilation.IsCredential(table,column)))
+        foreach (var column in RequestSortColumns(table, page))
             result.AppendLine($"                {Literal(column.JsonName)} => descending ? query.OrderByDescending(entity => {ManagerCredentialCompilation.Order(table,page,column)}).OrderByDescending(entity => entity.Id) : query.OrderBy(entity => {ManagerCredentialCompilation.Order(table,page,column)}).OrderByDescending(entity => entity.Id),");
         result.AppendLine("                _ => throw new ArgumentException(\"页面未开放该排序字段。\")").AppendLine("            };").AppendLine("        }");
         result.AppendLine("        return query" + string.Concat(fixedQuery.DefaultOrder.Select(item => $".{(item.Descending ? "OrderByDescending" : "OrderBy")}(entity => {ManagerCredentialCompilation.Order(table,page,item.Column)})")) + ";")
@@ -887,6 +887,10 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         "int?" => $"int.Parse({value}, CultureInfo.InvariantCulture)",
         _ => throw new InvalidOperationException("查询范围字段必须为整型或字符串。")
     };
+    /// <summary>列表、导出与能力描述沿用同一个显式排序白名单。</summary>
+    private static IEnumerable<ColumnModel> RequestSortColumns(TableModel table, PageModel page) =>
+        page.Sortable.Where(column => !ManagerCredentialCompilation.IsCredential(table, column));
+
     /// <summary>生成兼容原路由的 HTTP 权限边界。</summary>
     private static string Controller(GenerationModel model, TableModel table, PageModel page)
     {
@@ -896,6 +900,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"namespace {model.Namespace}.Generated.Controllers;").AppendLine("[ApiController]")
             .Append(AgentRecordAccessAttribute(model,table,page))
             .Append(BusinessRecordButtons(model,page).Count==0 ? "" : $"[GeneratedPageAccess({Literal(suffix)}, {Literal(table.Source.Id)}, typeof(global::{model.Namespace}.Generated.Entities.{table.Name}), typeof({table.Name}Service), nameof({table.Name}Service.ReadButtonRecord{suffix}Async))]"+Environment.NewLine)
+            .AppendLine($"[GeneratedPageOrder({string.Join(", ", RequestSortColumns(table, page).Select(column => Literal(column.JsonName)))})]")
             .AppendLine($"[Route({Literal("api/admin/auto/" + table.Source.TableName + "/" + suffix)})]")
             .AppendLine($"public sealed partial class {page.Name}Controller({table.Name}Service service, IRuntimeAuthorization authorization{(CascadeTreeQueryCompilation.Snapshot(model,table,page)?", Metarill.Data.DatabaseSession readSession":"")}) : ControllerBase").AppendLine("{")
             .AppendLine("    /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>")

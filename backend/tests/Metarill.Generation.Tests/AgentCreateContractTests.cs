@@ -17,13 +17,18 @@ namespace Metarill.Generation.Tests;
 public sealed class AgentCreateContractTests
 {
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task Published_schema_puts_required_parent_at_the_real_request_boundary(bool hasParent)
+    [InlineData(true, 0)]
+    [InlineData(true, 1)]
+    [InlineData(false, 1)]
+    public async Task Published_schema_describes_actual_parent_and_sorting(bool hasParent, int storage)
     {
         const long owner=9007199254740993L;
         var catalog=GeneratorTests.Catalog();
+        catalog.ConfigTables.Single().IsRongyu=storage;
+        foreach (var column in catalog.ConfigColumns.Where(column=>column.LogicalType=="id"))
+            column.LogicalType="int64";
         var page=catalog.ConfigPages.Single();
+        if (!hasParent) catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="12").Extra.Remove("isSort");
         page.IsNew=page.IsImport=page.IsExport=1;
         page.WhereSql += " AND store_id=@current_store_id";
         if (hasParent) page.WhereSql += " AND parent_id=@parentId";
@@ -36,12 +41,15 @@ public sealed class AgentCreateContractTests
             new(){Id="16",ConfigTableId="1",ColumnName="owner_ID",LogicalType="int64"},
             new(){Id="17",ConfigTableId="1",ColumnName="default_marker",LogicalType="string",DefaultValue="默认值"},
             new(){Id="18",ConfigTableId="1",ColumnName="initial_marker",LogicalType="string"},
-            new(){Id="19",ConfigTableId="1",ColumnName="parent_id",LogicalType="id",LinkConfigTableId="1"},
-            new(){Id="20",ConfigTableId="1",ColumnName="store_id",LogicalType="id"}
+            new(){Id="19",ConfigTableId="1",ColumnName="parent_id",LogicalType="int64",LinkConfigTableId="1"},
+            new(){Id="20",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"}
         ]);
         foreach(var field in new[]{"11","15","16","17","18","19","20"})
             catalog.ConfigPageColumns.Add(new(){Id="21"+field,ConfigPageId=page.Id,ConfigColumnId=field,IsEdit=1,IsShow=1,IsRequired=1});
         catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="18").Extra["initValue"]=JsonSerializer.SerializeToElement("初始值");
+        if (hasParent)
+            catalog.ConfigColumns.Single(column=>column.Id=="16").Extra["isSort"]=JsonSerializer.SerializeToElement(1);
+        catalog.ConfigColumns.Single(column=>column.Id=="14").Extra["isSort"]=JsonSerializer.SerializeToElement(1);
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-agent-create-contract");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -91,10 +99,24 @@ public sealed class AgentCreateContractTests
                 if (hasParent) expected.Add("parentId");
                 if (action=="import") expected.Add("requestJson");
                 Assert.Equal(expected,requiredBody.Order(StringComparer.Ordinal));
+                if (action is "list" or "export")
+                {
+                    var found=body.GetProperty("properties").TryGetProperty("orderBy",out var orderBy);
+                    Assert.Equal(hasParent,found);
+                    if (!found) continue;
+                    var orderByFields=orderBy.GetProperty("properties");
+                    foreach (var key in new[] { "column", "field" })
+                        Assert.Equal(new[] { "name", "ownerID" }, Choices(orderByFields.GetProperty(key)));
+                    Assert.Equal(new[] { "ascending", "descending" }, Choices(orderByFields.GetProperty("order")));
+                }
             }
         }
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+
+    /// <summary>读取实际能力响应公开的排序候选。</summary>
+    private static string?[] Choices(JsonElement property) =>
+        property.GetProperty("enum").EnumerateArray().Select(item=>item.GetString()).ToArray();
 
     private sealed class Resources(MetadataCatalog catalog):IAgentHostResources
     {

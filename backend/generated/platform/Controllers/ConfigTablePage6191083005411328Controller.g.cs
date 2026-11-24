@@ -10,6 +10,7 @@ namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
 [global::Metarill.Core.Contracts.GeneratedAgentWriteAccess("1608097412978577409", "6191083005411328", "6191080026669056", typeof(global::Metarill.Platform.Generated.Entities.ConfigTable), typeof(ConfigTableService), nameof(ConfigTableService.ReadAgentRecord6191083005411328Async))]
 [GeneratedPageAccess("6191083005411328", "6191080026669056", typeof(global::Metarill.Platform.Generated.Entities.ConfigTable), typeof(ConfigTableService), nameof(ConfigTableService.ReadButtonRecord6191083005411328Async))]
+[GeneratedPageOrder()]
 [Route("api/admin/auto/config_table/6191083005411328")]
 public sealed partial class ConfigTablePage6191083005411328Controller(ConfigTableService service, IRuntimeAuthorization authorization) : ControllerBase
 {
