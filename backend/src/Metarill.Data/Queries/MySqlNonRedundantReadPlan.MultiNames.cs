@@ -223,7 +223,8 @@ public static partial class MySqlNonRedundantReadCompiler
             var allowFormParent=projectCheckbox||formPageParent is not null&&
                 controlParents.All(range=>formPageParent.HasTarget(range.Target.Id));
             var sourceBinding=fixedParent is {} paired?paired.Source:
-                sharedCheckbox||projectCheckbox&&sourcePage is null?parent?.CheckboxSource(catalog,table,relation,
+                sharedCheckbox||(checkbox&&storedParent is not null)||(projectCheckbox&&sourcePage is null)
+                ?parent?.CheckboxSource(catalog,table,relation,
                     allowProjectPhysicalColumns:projectCheckbox):
                 sourcePage is null?parent?.Source(catalog,table,relation):
                 allowFormParent||controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage,

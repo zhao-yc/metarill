@@ -186,7 +186,8 @@ internal static class RelationPropagationCompilation
                 if(checkbox is {ProjectFormScope:true,Conditions:{} condition})
                     fields.UnionWith(condition.Forms.Select(binding=>(page.Source.Id,binding.Column.Source.Id)));
                 if(!page.Scopes.Any(scope=>scope.Source=="parent")&&checkbox is {FormParentField:{} formParent}&&
-                    (checkbox.HasProjectStoredAccountScope||shared&&(checkbox.SharedLogicalParentScope||checkbox.ProjectFormScope)))
+                    (checkbox.HasProjectStoredAccountScope||checkbox.HasStoredProjectParentScope||
+                     shared&&(checkbox.SharedLogicalParentScope||checkbox.ProjectFormScope)))
                     fields.Add((page.Source.Id,formParent.Source.Id));
             }
         }

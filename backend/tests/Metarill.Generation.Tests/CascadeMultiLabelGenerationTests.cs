@@ -324,6 +324,19 @@ public sealed class CascadeMultiLabelGenerationTests
             parentAccount:globalParent&&mode==1,globalBusinessSource:true,onlyParent:!globalParent,literalParent:!globalParent,
             projectParentScope:true,storedDictionary:true,compoundTargetParent:compound?"physical":null,alternateCheckboxName:true);
 
+    /// <summary>无父路由时，原控件沿详情中明确选择的实际父记录使用全局字典。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,false,false)]
+    [InlineData("MultiSelectPage",1,true,false)]
+    [InlineData("MultiCheckBoxDatabase",0,true,false)]
+    [InlineData("MultiCheckBoxDatabase",1,false,false)]
+    [InlineData("MultiCheckBoxDatabase",1,true,true)]
+    public Task Global_business_multivalue_uses_stored_dictionary_form_parent(string kind,int mode,bool globalParent,bool compound)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:true,globalRowProject:true,
+            parent:true,globalParent:globalParent,parentWithoutProject:globalParent,parentAccount:globalParent&&mode==1,
+            globalBusinessSource:true,onlyParent:true,literalParent:true,projectParentScope:true,storedDictionary:true,formParent:true,
+            compoundTargetParent:compound?"physical":null,alternateCheckboxName:compound);
+
     /// <summary>普通项目来源与有行项目的全局来源共用显式项目和真实父范围。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false,false,false)]
@@ -758,7 +771,12 @@ public sealed class CascadeMultiLabelGenerationTests
                 })});
                 catalog.ConfigPageColumns.Add(new(){Id="901915",ConfigPageId="901",ConfigColumnId="915",IsEdit=1,IsShow=1});
             }
-            if(formParent)catalog.ConfigPageColumns.Add(new(){Id="901914",ConfigColumnId="914",ConfigPageId="901",IsEdit=1,IsShow=1});
+            if(formParent)
+            {
+                var field=new PageColumnMetadata{Id="901914",ConfigColumnId="914",ConfigPageId="901",IsEdit=1,IsShow=1};
+                if(storedDictionary)field.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+                catalog.ConfigPageColumns.Add(field);
+            }
             else catalog.ConfigPages.Single(page=>page.Id=="901").WhereSql+=" AND source_scope_id=@parentId";
             if(compoundSourceParent is not null)
             {
@@ -957,6 +975,18 @@ public sealed class CascadeMultiLabelGenerationTests
                 _=NonRedundantReadCompilation.ForPage(model,sourceModel,sourcePage);
         }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        if(storedDictionary&&formParent&&kind=="MultiCheckBoxDatabase")
+        {
+            var owner=model.Tables.Single(item=>item.Source.Id=="9");
+            var field=owner.Columns.Single(item=>item.Source.Id=="95");
+            foreach(var page in owner.Pages)
+            {
+                var definition=Assert.IsType<DatabaseCheckboxModel>(DatabaseCheckboxCompilation.Resolve(model,owner,page,field).Definition);
+                Assert.Empty(definition.SourceScopeColumns);
+                Assert.Equal("914",definition.FormParentField?.Source.Id);
+                Assert.Equal(definition.SourceParent,definition.FormParentField);
+            }
+        }
         new FrontendPackager().Validate(catalog);
         if(globalBusinessSource&&compoundTargetParent=="physical")
         {
@@ -1542,11 +1572,16 @@ public sealed class CascadeMultiLabelGenerationTests
                 var metadata=GenerationMetadataPublisher.ForRelations(catalog);
                 var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
                 Assert.Contains("if (existing.Count > 1)",code);
+                if(storedDictionary&&formParent&&kind=="MultiCheckBoxDatabase")
+                {
+                    Assert.Contains("entity.SourceScopeId",code);
+                    if(mode==0)Assert.Contains("relationContext[\"sourceScopeId\"]",code);
+                }
                 if(ordinaryBusinessSource&&!projectParentScope)Assert.Contains("projectId:actor.ProjectId",code);
                 foreach(var id in new[]{"901","902"})
                 {
                     var scope=metadata.ConfigPages.Single(page=>page.Id==id).WhereSql;
-                    Assert.Contains("source_scope_id=@parentId",scope);
+                    Assert.Equal(!formParent,scope.Contains("source_scope_id=@parentId",StringComparison.Ordinal));
                     Assert.Equal(!onlyParent||parentAccount,scope.Contains("store_id=@current_store_id",StringComparison.Ordinal));
                 }
             }
