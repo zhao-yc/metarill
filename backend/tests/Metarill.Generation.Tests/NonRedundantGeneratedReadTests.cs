@@ -779,7 +779,7 @@ public sealed class NonRedundantGeneratedReadTests
 
     /// <summary>校验原下拉、生成的字典读写和名称维护是否共用实际父记录。</summary>
     private static async Task VerifyGlobalListBusinessParent(int sourceStorage,int targetStorage,
-        bool globalParent,bool projectScope,bool textProject,bool literal)
+        bool globalParent,bool projectScope,bool textProject,bool literal,bool accountScope=false)
     {
         const string ns="Example.GlobalListProjectParent";
         var catalog=NonRedundantApplicationFixture.Catalog("mt_list_project_parent");
@@ -808,6 +808,17 @@ public sealed class NonRedundantGeneratedReadTests
         published.Extra["type"]=JsonSerializer.SerializeToElement(0);
         if(projectScope)published.WhereSql+=" AND yz_project_id=@current_yz_project_id";
         if(literal)published.WhereSql+=" AND amount>=1";
+        if(accountScope)
+        {
+            const string store="store_id=@current_store_id";
+            catalog.ConfigColumns.AddRange([
+                new(){Id="112",ConfigTableId="1",YzProjectId=catalog.YzProjectId,ColumnName="store_id",LogicalType="int64"},
+                new(){Id="28",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="store_id",LogicalType="int64"}
+            ]);
+            foreach(var page in catalog.ConfigPages.Where(item=>item.ConfigTableId=="1"))
+                page.WhereSql=(page.WhereSql.Length>0?page.WhereSql+" AND ":"")+store;
+            published.WhereSql+=" AND "+store;
+        }
         published.IsExport=1;
         if(textProject)catalog.ConfigColumns.Single(item=>item.Id=="22").LogicalType="string";
         var foreign=catalog.ConfigColumns.Single(item=>item.Id=="15");
@@ -834,8 +845,21 @@ public sealed class NonRedundantGeneratedReadTests
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var projectMarker=textProject?"@project_scope_text":"@project_scope_number";
         const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
-        var read=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileGlobalCandidate(model.Catalog,"2","201",["id","name"]);
+        var candidate=Metarill.Data.Queries.NonRedundantReads.CompileGlobalCandidate(model.Catalog,"2","201",["id","name"]);
+        Assert.Equal(accountScope,candidate.RequiresAccount);
+        const long storeId=9007199254740993L;
+        var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5");
+        if(accountScope)Assert.Throws<UnauthorizedAccessException>(()=>candidate.BindAccount(actor));
+        var bound=candidate.BindAccount(actor with{StoreId=storeId});
+        var read=bound.GetType().GetProperty("MySql",hidden)!.GetValue(bound)!;
         var scope=Assert.IsType<string>(read.GetType().GetProperty("Scope",hidden)!.GetValue(read));
+        if(accountScope)
+        {
+            Assert.Contains("store_id",scope);
+            var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                read.GetType().GetProperty("Constants",hidden)!.GetValue(read));
+            Assert.Contains(storeId,constants.Values);
+        }
         // 全局字典可以不含项目列，普通父表仍须独立按项目查找其实际父记录。
         Assert.Equal(projectScope,scope.Contains("b.`yz_project_id`",StringComparison.Ordinal));
         if(projectScope)Assert.Contains(projectMarker,scope);
@@ -850,6 +874,7 @@ public sealed class NonRedundantGeneratedReadTests
             if(projectScope)Assert.Contains(projectMarker,from);
             Assert.Contains("group_id",from);
             if(literal)Assert.Contains("amount",from);
+            if(accountScope)Assert.Contains("store_id",from);
         }
         else
         {
@@ -868,6 +893,7 @@ public sealed class NonRedundantGeneratedReadTests
             if(projectScope)Assert.Contains(projectMarker,name);
             Assert.Contains("b.group_id",name);
             if(literal)Assert.Contains("amount",name);
+            if(accountScope)Assert.Contains("b.store_id",name);
         }
 
         var root=Path.Combine(Path.GetTempPath(),"metarill-list-project-parent",Guid.NewGuid().ToString("N"));
@@ -894,7 +920,11 @@ public sealed class NonRedundantGeneratedReadTests
             {
                 // 目标父只绑定一次，控件的附加条件仍限制原名称回显。
                 var type=assembly.GetType(ns+".Generated.Services.MtListProjectParentOrderService",true)!;
-                var plan=type.GetField("ReadPlan101",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!;
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    type.GetField("ReadPlan101",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
+                Assert.Equal(accountScope,plan.RequiresAccount);
+                if(accountScope)Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor));
+                plan=plan.BindAccount(actor with{StoreId=storeId});
                 var mysql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
                 var expressions=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
                     mysql.GetType().GetProperty("Expressions",hidden)!.GetValue(mysql));
@@ -902,6 +932,7 @@ public sealed class NonRedundantGeneratedReadTests
                 var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
                     mysql.GetType().GetProperty("Constants",hidden)!.GetValue(mysql));
                 Assert.Contains(500m,parameters.Values);
+                if(accountScope)Assert.Contains(storeId,parameters.Values);
             }
             var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());
             Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
@@ -918,6 +949,16 @@ public sealed class NonRedundantGeneratedReadTests
     public Task Global_list_can_use_global_business_dictionary_with_fixed_parent(
         int sourceStorage,int targetStorage,bool globalParent,bool literal)=>
         VerifyGlobalListBusinessParent(sourceStorage,targetStorage,globalParent,projectScope:false,textProject:false,literal);
+
+    /// <summary>全局业务字典同时绑定独立物理父级、认证账号和固定字段。</summary>
+    [Theory]
+    [InlineData(0,0,false)]
+    [InlineData(0,1,true)]
+    [InlineData(1,0,true)]
+    [InlineData(1,1,false)]
+    public Task Global_list_business_dictionary_combines_fixed_parent_and_account(
+        int sourceStorage,int targetStorage,bool globalParent)=>
+        VerifyGlobalListBusinessParent(sourceStorage,targetStorage,globalParent,projectScope:false,textProject:false,literal:true,accountScope:true);
 
     /// <summary>普通冗余来源的固定字典同时验证整数和字符串项目列、名称及主键显示。</summary>
     [Theory]

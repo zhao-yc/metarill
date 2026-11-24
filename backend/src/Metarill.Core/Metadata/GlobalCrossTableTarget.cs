@@ -192,7 +192,8 @@ public static class GlobalCrossTableTarget
     public static bool IsListParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,
         IReadOnlyList<ColumnMetadata> columns)=>
         (IsProjectListParentPage(table,page,condition)||
-            CanPublishProjectSinglePage(table,page,allowListPage:true)&&IsBusinessPage(page)&&UsesOnlyParentVariables(condition))&&
+            CanPublishProjectSinglePage(table,page,allowListPage:true)&&IsBusinessPage(page)&&
+                (UsesOnlyParentVariables(condition)||GlobalMultipleRelationTarget.UsesAccountAndParent(condition)))&&
         !condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)||
             CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field))&&
         !HasCheckboxOnlyParentField(condition,columns);

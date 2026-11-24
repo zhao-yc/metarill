@@ -57,6 +57,12 @@ public static class GlobalMultipleRelationTarget
         condition.Terms.Any(IsProjectScope)&&condition.Terms.Any(IsParentScope)&&
         condition.Terms.All(term=>IsFixedOrProject(term)||IsParentScope(term)||IsAccountScope(term));
 
+    /// <summary>不限定字典项目的单值业务页可以组合物理父参数和实际账号等值。</summary>
+    internal static bool UsesAccountAndParent(FixedConditionPlan condition)=>
+        condition.Terms.Any(IsParentScope)&&condition.Terms.Any(IsAccountScope)&&
+        condition.Terms.All(term=>term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)||
+            IsParentScope(term)||IsAccountScope(term));
+
     /// <summary>无父级的原单选可同时声明项目和受支持的账号等值，固定常量继续保留。</summary>
     internal static bool UsesSingleProjectVariables(FixedConditionPlan condition)=>
         condition.Terms.Any(IsProjectScope)&&condition.Terms.All(term=>IsFixedOrProject(term)||IsAccountScope(term));

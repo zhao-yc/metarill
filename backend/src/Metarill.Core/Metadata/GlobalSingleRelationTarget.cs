@@ -11,7 +11,7 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
     public bool ScopedCrossTable { get; internal init; }
     /// <summary>纯物理的账号条件同样必须按已发布页绑定。</summary>
     public bool ScopedAccount { get; internal init; }
-    /// <summary>全局冗余单选可只使用实际候选页的固定常量范围，缓存不需要来源行账号列。</summary>
+    /// <summary>原单值使用实际发布页的固定范围；有账号条件时继续按来源行归属维护。</summary>
     public bool FixedSelectionPage { get; internal init; }
     /// <summary>单选页已明确要求当前项目，实时名称必须沿实际字典行归属读取。</summary>
     public bool ProjectSelectionPage { get; internal init; }
@@ -215,7 +215,7 @@ public static class GlobalSingleRelationTarget
         var storedSelectionAccount=allowsLogical&&target.IsRongyu==1&&foreign.ControlKind=="SelectPage"&&
             pageId.Length>0&&page.Extra.GetValueOrDefault("type").ToString()=="1"&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
-        var scopedAccount=storedListAccount||storedSelectionAccount||projectListPage&&
+        var scopedAccount=storedListAccount||storedSelectionAccount||fixedListPage&&
             condition.Variables.Any(AccountConditionVariables.IsSupported)||allowsLogical&&target.IsRongyu==0&&!scopedSelfTree&&!scopedCrossTable&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
         // 原下拉可以引用业务页；弹窗单选继续要求实际发布的 type=1 页面。
