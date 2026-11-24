@@ -38,9 +38,9 @@ public static class GlobalMultipleRelationTarget
             IsProjectScope(term)||term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable)
                 .All(value=>AccountConditionVariables.IsSupported(value.Text)));
 
-    /// <summary>全局业务数组可使用实际发布的物理字典页，候选范围为固定常量或无条件。</summary>
+    /// <summary>全局业务数组可使用实际发布的冗余或非冗余字典页，候选范围为固定物理常量或无条件。</summary>
     public static bool IsStoredStaticPage(TableMetadata table,PageMetadata page,FixedConditionPlan? condition,bool checkbox=false)=>
-        table.IsRongyu==1&&IsPublishedMultiPage(table,page,checkbox)&&(condition?.Variables.Count??0)==0;
+        table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox)&&(condition?.Variables.Count??0)==0;
 
     /// <summary>当前项目等值可叠加物理常量，非冗余字典也可叠加已声明账号等值。</summary>
     public static bool IsProjectPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
@@ -90,7 +90,9 @@ public static class GlobalMultipleRelationTarget
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
         var checkbox=foreign.ControlKind=="MultiCheckBoxDatabase";
         var storedAccount=(checkbox||pageId.Length>0)&&IsStoredAccountPage(target,page,condition,checkbox);
-        var storedStatic=(checkbox||pageId.Length>0)&&IsStoredStaticPage(target,page,condition,checkbox);
+        var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
+        var scoped=selfTreeScope||target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
+        var storedStatic=(checkbox||pageId.Length>0)&&(target.IsRongyu==1||!scoped)&&IsStoredStaticPage(target,page,condition,checkbox);
         var projectPage=(checkbox||pageId.Length>0)&&IsProjectPage(target,page,condition,checkbox);
         var nonRedundantAccountPage=(checkbox||pageId.Length>0)&&IsNonRedundantAccountPage(target,page,condition,checkbox);
         if(GlobalCrossTableTarget.Declared(owner))
@@ -103,8 +105,6 @@ public static class GlobalMultipleRelationTarget
             !DatabaseCheckboxDefinition.Parse(foreign.ControlDetail)
                 .IsCoveredByStaticPage(condition,expanded.Select(column=>column.ColumnName)))
             throw new NotSupportedException("全局复选的冗余名称要求控件条件由实际发布字典页覆盖。");
-        var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
-        var scoped=selfTreeScope||target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
         if(foreign.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.DeclaresExactMulti(target,page)||
             foreign.ControlKind=="MultiCheckBoxDatabase"&&GlobalCrossTableTarget.DeclaresExactPage(target,page))
             _=GlobalCrossTableTarget.ExactPageParent(catalog,target,page);

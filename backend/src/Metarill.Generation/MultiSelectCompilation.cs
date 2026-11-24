@@ -51,6 +51,7 @@ internal static class MultiSelectCompilation
     /// <summary>固定全局字典不读取动态项目或父参数，实际调用仍经过原目标页发布证明。</summary>
     internal static bool UsesStaticGlobalDictionary(MultiSelectModel definition) =>
         definition.TargetPage.Scopes.Count == 0 &&
+        (definition.Target.Source.IsRongyu == 1 || !FixedPageConditionCompilation.HasLogicalFields(definition.TargetPage)) &&
         GlobalMultipleRelationTarget.IsStoredStaticPage(definition.Target.Source, definition.TargetPage.Source,
             definition.TargetPage.Condition?.Syntax);
 

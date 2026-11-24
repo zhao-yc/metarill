@@ -263,12 +263,12 @@ public static partial class MySqlNonRedundantReadCompiler
     internal static MySqlNonRedundantReadPlan CompileMultiLabelForCache(MetadataCatalog catalog,TableMetadata source,TableMetadata target,
         string field,PageMetadata? selectedPage,ColumnMetadata relation,bool sharedCheckbox)
     {
-        // 仅实际全局字典的账号等值允许按全局来源行重算，来源项目仍由维护根计划隔离。
-        var globalAccountSource=selectedPage is not null&&GlobalCrossTableTarget.Declared(source)&&
-            GlobalCrossTableTarget.Declared(target)&&
-            GlobalMultipleRelationTarget.RequireCached(catalog,source,relation,target) is
-                {UsesNonRedundantAccountPage:true,Page.Id:var publishedId}&&publishedId==selectedPage.Id;
-        return CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner",GlobalSingleSource:globalAccountSource),
+        // 按实际发布页证明可用的字典范围，来源项目仍由维护根计划隔离。
+        var globalDictionarySource=selectedPage is not null&&target.IsRongyu==0&&
+            GlobalCrossTableTarget.Declared(source)&&GlobalCrossTableTarget.Declared(target)&&
+            GlobalMultipleRelationTarget.RequireCached(catalog,source,relation,target) is {Page.Id:var publishedId} proof&&
+            publishedId==selectedPage.Id&&(proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage);
+        return CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner",GlobalSingleSource:globalDictionarySource),
             selectedPage,relation,sharedCheckbox:sharedCheckbox);
     }
 

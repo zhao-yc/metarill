@@ -133,8 +133,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!GlobalCrossTableTarget.Declared(target)&&PhysicalTextMultiLabel(target,original)&&PhysicalTextMultiLabel(target,label))
                 return label.ColumnName;
             var fixedPage=globalPageId??(baseline.PageId.Length>0?baseline.PageId:Text(relation,"linkConfigPageId"));
-            var storedGlobal=storedGlobalStatic||globalPageId is not null&&selected is not null&&
-                StoredIdentityMultiPage(catalog,target,selected,checkbox:true);
+            var storedGlobal=target.IsRongyu==1&&(storedGlobalStatic||globalPageId is not null&&selected is not null&&
+                StoredIdentityMultiPage(catalog,target,selected,checkbox:true));
             bool TextLabel(ColumnMetadata column)=>storedGlobal
                 ?PhysicalTextMultiLabel(target,column)
                 :globalPageId is not null
@@ -170,10 +170,10 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             var storedIdentity=selectedScope is not null&&StoredIdentityMultiPage(catalog,target,selectedScope,checkbox);
-            var globalAccountSource=refreshFields is not null&&selectedScope is not null&&
+            var globalDictionarySource=refreshFields is not null&&selectedScope is not null&&target.IsRongyu==0&&
                 GlobalCrossTableTarget.Declared(table)&&GlobalCrossTableTarget.Declared(target)&&
-                GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target) is
-                    {UsesNonRedundantAccountPage:true,Page.Id:var publishedId}&&publishedId==selectedScope.Id;
+                GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target) is {Page.Id:var publishedId} proof&&
+                publishedId==selectedScope.Id&&(proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage);
             var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,checkboxAccount:checkbox);
             var ordinaryForm=checkbox&&refreshFields is not null&&selectedScope is not null&&(sharedCheckbox||fixedParent is not null)
                 ?DatabaseCheckboxDefinition.Parse(relation.ControlDetail).AdditionalPhysicalFormConditions(catalog,target,selectedScope)
@@ -242,7 +242,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:candidatePage,multiLabel:true,cascadeLabelField:value.ColumnName,
                 cascadeCacheOwner:refreshFields is null||fixedParent is not null&&!projectFixedScope&&storage[target.Id].IsPhysical(value)?null:
-                    new(table,owner,GlobalSingleSource:globalAccountSource||storedIdentity&&GlobalCrossTableTarget.Declared(table)),
+                    new(table,owner,GlobalSingleSource:globalDictionarySource||storedIdentity&&GlobalCrossTableTarget.Declared(table)),
                 globalCandidate:global&&target.IsRongyu==0&&candidatePage is not null,
                 scopedPhysicalCandidate:physicalScope&&!global,accountPhysicalCandidate:storedIdentity,
                 exactSingleCandidate:storedGlobalExact)
