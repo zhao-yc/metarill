@@ -7,14 +7,16 @@ public static partial class MySqlNonRedundantReadCompiler
     public static MySqlNonRedundantReadPlan CompileRuleRecord(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false,IReadOnlyList<string>? logicalOutputs=null) =>
         CompileRuleRecord(catalog,tableId,outputs,storageOutputs,crossTables,dependencies,deferCascadeNames,logicalOutputs,null);
 
-    /// <summary>规则逻辑读复用本页单值目标及父键绑定，实体仍读取真实根存储。</summary>
+    /// <summary>规则逻辑读复用本页单值及多值目标范围，实体仍读取真实根存储。</summary>
     internal static MySqlNonRedundantReadPlan CompileRuleRecord(MetadataCatalog catalog,string tableId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
         IReadOnlyList<string>? dependencies,bool deferCascadeNames,IReadOnlyList<string>? logicalOutputs,
-        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets,
+        IReadOnlyList<NonRedundantMultiTargetScope>? multiTargets=null)
     {
         ArgumentNullException.ThrowIfNull(storageOutputs);
-        var plan=CompileRelationScope(catalog,tableId,outputs,crossTables,dependencies,deferCascadeNames,singleTargets:singleTargets);
+        var plan=CompileRelationScope(catalog,tableId,outputs,crossTables,dependencies,deferCascadeNames,
+            singleTargets:singleTargets,multiTargets:multiTargets);
         // 与普通编译使用同一根别名和字段来源；适配器内生成标识符，不向Service泄漏方言。
         return new Builder(catalog,tableId,deferCascadeNames:deferCascadeNames,crossTables:crossTables).RecordStorage(plan,storageOutputs,logicalOutputs??[]);
     }

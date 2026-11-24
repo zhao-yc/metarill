@@ -46,11 +46,15 @@ internal static partial class BackendRenderer
         var dependencies=fixedQuery.IdentityScopes.Select(scope=>scope.Column.Source.ColumnName).Concat(page.Condition?.Syntax.Fields??[]).Concat(exact is null?[]:new[]{exact.Column.Source.ColumnName}).Distinct(StringComparer.Ordinal).ToArray();
         var singleTargets=NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,
             derived.Select(column=>column.Source.ColumnName).Concat(dependencies));
-        // 真实适配器提前证明全部输出及隐藏范围；不能到运行时才静默回退成宽查询。
-        _=NonRedundantReads.CompileRuleRecord(model.Catalog,table.Source.Id,columns.Select(column=>column.Source.ColumnName).ToArray(),physical.Select(column=>column.Source.ColumnName).ToArray(),NonRedundantCrossTableCompilation.Bindings(model,table,page),dependencies,deferCascadeNames:FixedPageConditionCompilation.HasSelfTreeFields(page)||exact?.SelfTree==true,logicalOutputs:derived.Select(column=>column.Source.ColumnName).ToArray(),singleTargets:singleTargets);
+        // 按钮和只读规则沿用列表、详情的实际目标页，避免读取目标范围外的名称后得出不同规则结论。
+        var multiTargets=NonRedundantReadCompilation.ProjectMultiTargets(model,table,page);
+        var compiled=NonRedundantReads.CompileRuleRecord(model.Catalog,table.Source.Id,columns.Select(column=>column.Source.ColumnName).ToArray(),
+            physical.Select(column=>column.Source.ColumnName).ToArray(),NonRedundantCrossTableCompilation.Bindings(model,table,page),dependencies,
+            deferCascadeNames:FixedPageConditionCompilation.HasSelfTreeFields(page)||exact?.SelfTree==true,
+            logicalOutputs:derived.Select(column=>column.Source.ColumnName).ToArray(),singleTargets:singleTargets,multiTargets:multiTargets);
         var cross=CrossTableWriteCompilation.ForService(model,table,page).Count>0;
         var result=new StringBuilder().AppendLine("    /// <summary>本页规则记录的固定完整物理实体和必要派生投影，不参与HTTP输出。</summary>")
-            .AppendLine($"    private static readonly NonRedundantReadPlan RuleRecordPlan{page.Source.Id}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileRuleRecord({Literal(table.Source.Id)},new string[]{{{string.Join(",",columns.Select(column=>Literal(column.Source.ColumnName)))}}},new string[]{{{string.Join(",",physical.Select(column=>Literal(column.Source.ColumnName)))}}},new string[]{{{string.Join(",",dependencies.Select(Literal))}}},new string[]{{{string.Join(",",derived.Select(column=>Literal(column.Source.ColumnName)))}}}{(cross?NonRedundantCrossTableCompilation.BindingArgument(model,table,page):",Array.Empty<NonRedundantCrossTableScope>()")}{NonRedundantReadCompilation.SingleTargetArgument(singleTargets)});")
+            .AppendLine($"    private static readonly NonRedundantReadPlan RuleRecordPlan{page.Source.Id}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileRuleRecord({Literal(table.Source.Id)},new string[]{{{string.Join(",",columns.Select(column=>Literal(column.Source.ColumnName)))}}},new string[]{{{string.Join(",",physical.Select(column=>Literal(column.Source.ColumnName)))}}},new string[]{{{string.Join(",",dependencies.Select(Literal))}}},new string[]{{{string.Join(",",derived.Select(column=>Literal(column.Source.ColumnName)))}}}{(cross?NonRedundantCrossTableCompilation.BindingArgument(model,table,page):",Array.Empty<NonRedundantCrossTableScope>()")}{NonRedundantReadCompilation.SingleTargetArgument(singleTargets)}{NonRedundantReadCompilation.MultiTargetArgument(multiTargets,"multis")});")
             .AppendLine("    /// <summary>原权限由公开固定入口建立；这里只消费固定动作、范围和值，不接受客户端字段投影。</summary>")
             .AppendLine($"    private Task<{table.EntityType}?> ReadRuleRecord{page.Source.Id}Async(long id,string? parentId,string operation,RuntimeActor actor,bool button,bool locking,CancellationToken cancellationToken)=>locking?ReadRuleRecord{page.Source.Id}CoreAsync(id,parentId,operation,actor,button,true,cancellationToken):{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync(()=>ReadRuleRecord{page.Source.Id}CoreAsync(id,parentId,operation,actor,button,false,cancellationToken),cancellationToken);")
             .AppendLine("    /// <summary>分批多值名称加入同一RR读取快照，当前锁读继续加入外层真实业务事务。</summary>")
@@ -76,7 +80,9 @@ internal static partial class BackendRenderer
             .AppendLine("        if(ruleAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"规则记录身份与当前真实身份不一致。\");")
             .AppendLine($"        var ruleScope=button?ruleAuthorization.ResolveButtonExactDataManage({Literal(page.Source.Id)},operation,{Literal(exact.ManagerField)}):ruleAuthorization.ResolveExactDataManage({Literal(page.Source.Id)},operation,{Literal(exact.ManagerField)});")
             .AppendLine($"        if(ruleScope.IsRequired)filters.Add({ExactDataManageCompilation.Filter(exact,"ruleScope",spaces:false)});");
-        var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"RuleRecordPlan"+page.Source.Id,singleTargets:singleTargets.Count>0);
+        var planName="RuleRecordPlan"+page.Source.Id;
+        var readPlan=compiled.RequiresAccount?planName+".BindAccount(actor)":
+            NonRedundantCrossTableCompilation.BoundPlan(model,table,page,planName,singleTargets:singleTargets.Count>0);
         result.AppendLine("        var reader=new NonRedundantReader(session);")
             .AppendLine($"        var rows=locking?await reader.CurrentRowsAsync({readPlan},filters,Array.Empty<FixedReadOrder>(),1,cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)}):await reader.RowsAsync({readPlan},filters,Array.Empty<FixedReadOrder>(),1,cancellationToken,projectId:actor.ProjectId{FixedPageConditionCompilation.ReadArgument(page,true)});")
             .AppendLine("        if(rows.Count==0)return null;var row=rows.Single();")

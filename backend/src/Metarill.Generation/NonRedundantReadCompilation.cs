@@ -385,9 +385,16 @@ internal static partial class NonRedundantReadCompilation
         if(plan.SingleTargets.Count==0&&plan.MultiTargets.Count==0)
             return (cross.Length==0?"Compile":"CompileCross")+"("+arguments+cross+")";
         var singles=plan.SingleTargets.Count==0?",Array.Empty<NonRedundantSingleTargetScope>()":SingleTargetArgument(plan.SingleTargets);
-        var multis=plan.MultiTargets.Count==0?"":",new NonRedundantMultiTargetScope[]{"+string.Join(",",plan.MultiTargets.Select(scope=>
+        return "CompileProjectPage("+arguments+(cross.Length==0?",Array.Empty<NonRedundantCrossTableScope>()":cross)+
+            singles+MultiTargetArgument(plan.MultiTargets)+")";
+    }
+
+    /// <summary>普通查询和业务规则使用同一已发布多值绑定字面量。</summary>
+    internal static string MultiTargetArgument(IReadOnlyList<NonRedundantMultiTargetScope> scopes,string? parameter=null)
+    {
+        if(scopes.Count==0)return "";
+        return ","+(parameter is null?"":parameter+":")+"new NonRedundantMultiTargetScope[]{"+string.Join(",",scopes.Select(scope=>
             $"new({JsonSerializer.Serialize(scope.ColumnId)},{JsonSerializer.Serialize(scope.SourcePageId)},{JsonSerializer.Serialize(scope.TargetPageId)},{(scope.ApplyPageScope?"true":"false")}{(scope.ApplyControlScope?",true":"")})"))+"}";
-        return "CompileProjectPage("+arguments+(cross.Length==0?",Array.Empty<NonRedundantCrossTableScope>()":cross)+singles+multis+")";
     }
 
     /// <summary>业务页和记录规则的生成代码复用同一目标页与物理父键字面量。</summary>

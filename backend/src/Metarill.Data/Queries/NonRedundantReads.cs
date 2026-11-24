@@ -162,17 +162,24 @@ public static class NonRedundantReads
     public static NonRedundantReadPlan CompileRuleRecord(MetadataCatalog metadata,string tableId,IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,IReadOnlyList<string>? dependencies=null,bool deferCascadeNames=false,IReadOnlyList<string>? logicalOutputs=null) =>
         CompileRuleRecord(metadata,tableId,outputs,storageOutputs,crossTables,dependencies,deferCascadeNames,logicalOutputs,null);
 
-    /// <summary>规则使用业务页固定单值关系，存储输出和逻辑值仍由适配器分别生成。</summary>
+    /// <summary>旧调用继续按其已冻结的单值目标生成规则记录。</summary>
     public static NonRedundantReadPlan CompileRuleRecord(MetadataCatalog metadata,string tableId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
         IReadOnlyList<string>? dependencies,bool deferCascadeNames,IReadOnlyList<string>? logicalOutputs,
-        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
+        CompileRuleRecord(metadata,tableId,outputs,storageOutputs,crossTables,dependencies,deferCascadeNames,logicalOutputs,singleTargets,null);
+
+    /// <summary>规则使用业务页冻结的单值及多值范围，同时保留实体真实根存储。</summary>
+    public static NonRedundantReadPlan CompileRuleRecord(MetadataCatalog metadata,string tableId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> storageOutputs,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
+        IReadOnlyList<string>? dependencies,bool deferCascadeNames,IReadOnlyList<string>? logicalOutputs,
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets,IReadOnlyList<NonRedundantMultiTargetScope>? multiTargets)
     {
         ArgumentNullException.ThrowIfNull(metadata);
         return metadata.DatabaseProvider switch
         {
             "mysql"=>new(MySqlNonRedundantReadCompiler.CompileRuleRecord(metadata,tableId,outputs,storageOutputs,
-                crossTables,dependencies,deferCascadeNames,logicalOutputs,singleTargets)),
+                crossTables,dependencies,deferCascadeNames,logicalOutputs,singleTargets,multiTargets)),
             _=>throw new NotSupportedException("该数据库尚未完成规则记录读取适配。")
         };
     }
