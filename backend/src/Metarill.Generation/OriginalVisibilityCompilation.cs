@@ -5,9 +5,14 @@ namespace Metarill.Generation;
 /// <summary>原字段和按钮的条件只绑定当前页公开的实际字段。</summary>
 internal static class OriginalVisibilityCompilation
 {
-    /// <summary>物理名和 JSON 名都必须唯一落到当前页的同一实际字段。</summary>
+    /// <summary>旧规则和当前生成规则都绑定已发布字段，按精确别名识别大小写。</summary>
+    internal static bool MatchesField(ColumnModel column, string name) =>
+        column.JsonName == name || column.Source.ColumnName == name ||
+        MetadataNames.OriginalRuleFieldName(column.Source.ColumnName) == name;
+
+    /// <summary>物理名、当前 JSON 名和旧名必须唯一落到本页实际可读字段。</summary>
     internal static ColumnModel? ResolveField(PageModel page, string name) =>
-        page.Readable.SingleOrDefault(column => column.JsonName == name || column.Source.ColumnName == name);
+        page.Readable.SingleOrDefault(column => MatchesField(column, name));
 
     /// <summary>只发布规则实际引用的别名、布尔控件和已声明 JSON 对象。</summary>
     internal static Dictionary<string, object> Options(PageModel page, string rule)

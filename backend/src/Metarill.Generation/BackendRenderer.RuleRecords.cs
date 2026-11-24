@@ -20,7 +20,7 @@ internal static partial class BackendRenderer
             {try{Add(ButtonVisibilityRule.Compile(rule.ValueKind==JsonValueKind.Null?null:rule.ToString()).Fields);}catch(ArgumentException){/* 原发布目录会拒绝坏规则，不能因此放开记录写入。 */}}
         }
         if(needsReadonly&&page.Source.Extra.TryGetValue("readOnlyCondition",out var condition))Add(ReadOnlyConditionRule.Compile(condition.ValueKind==JsonValueKind.Null?null:condition.ToString()).Fields);
-        return table.Columns.Where(column=>roots.Contains(column.JsonName)||roots.Contains(column.Source.ColumnName)).Where(column=>!NonRedundantReadCompilation.Physical(model,table,column)||CrossTableWriteCompilation.ForService(model,table,page).Any(plan=>plan.Levels.Any(level=>level.Id.Source.Id==column.Source.Id))).ToArray();
+        return table.Columns.Where(column=>roots.Any(root=>OriginalVisibilityCompilation.MatchesField(column,root))).Where(column=>!NonRedundantReadCompilation.Physical(model,table,column)||CrossTableWriteCompilation.ForService(model,table,page).Any(plan=>plan.Levels.Any(level=>level.Id.Source.Id==column.Source.Id))).ToArray();
     }
     /// <summary>仅将规则实际使用的逻辑叶名加入固定祖先路径读取。</summary>
     private static string[] RuleSelfTreeFields(TableModel table,IReadOnlyList<ColumnModel> derived)

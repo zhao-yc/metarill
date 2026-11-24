@@ -50,13 +50,15 @@ public sealed class OriginalVisibilityGenerationTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public async Task Original_visibility_distinguishes_adjacent_ids_and_exact_numeric_rules(bool jsonMember, bool physicalName)
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    public async Task Original_visibility_distinguishes_adjacent_ids_and_exact_numeric_rules(bool jsonMember, bool physicalName, bool javaName=false)
     {
         const long lower = 9007199254740992;
         const long expected = 9007199254740993;
         var catalog = GeneratorTests.Catalog();
         var page = catalog.ConfigPages.Single();
-        catalog.ConfigColumns.Add(new() { Id = "16", ConfigTableId = "1", ColumnName = "owner_id", LogicalType = "int64", Name = "归属 ID" });
+        catalog.ConfigColumns.Add(new() { Id = "16", ConfigTableId = "1", ColumnName = javaName ? "owner_ID" : "owner_id", LogicalType = "int64", Name = "归属 ID" });
         catalog.ConfigPageColumns.Add(new() { Id = "116", ConfigPageId = page.Id, ConfigColumnId = "16", IsShow = 1, IsEdit = 1 });
         var owner = physicalName ? "owner_id" : "ownerId";
         var payload = physicalName ? "approval_payload" : "approvalPayload";
@@ -66,7 +68,7 @@ public sealed class OriginalVisibilityGenerationTests
         {
             catalog.ConfigColumns.Add(new()
             {
-                Id = "17", ConfigTableId = "1", ColumnName = "approval_payload", LogicalType = "json", Name = "审批参数", ControlKind = "TextArea",
+                Id = "17", ConfigTableId = "1", ColumnName = javaName ? "approval_PAYLOAD" : "approval_payload", LogicalType = "json", Name = "审批参数", ControlKind = "TextArea",
                 ColumnLength = "max"
             });
             catalog.ConfigPageColumns.Add(new() { Id = "117", ConfigPageId = page.Id, ConfigColumnId = "17", IsShow = 0, IsEdit = 1 });
@@ -82,7 +84,7 @@ public sealed class OriginalVisibilityGenerationTests
         catalog.ConfigButtons.Add(JsonSerializer.SerializeToElement(new
         {
             id = "900", name = "审批动作", configPageId = page.Id, place = "EditAndGrid",
-            visibleScheme = "Normal", visibleRuleJson = buttonRule, actionType = 1, saveOption = "NotSave"
+            visibleScheme = javaName ? "AlwaysVisible" : "Normal", visibleRuleJson = buttonRule, actionType = 1, saveOption = "NotSave"
         }));
         foreach (var text in new[] { columnRule, buttonRule })
         {
@@ -90,6 +92,8 @@ public sealed class OriginalVisibilityGenerationTests
             Assert.False(rule.Matches(Record(lower)));
             Assert.True(rule.Matches(Record(expected)));
         }
+        if (javaName)
+            page.Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("ownerId == 9007199254740993");
         var model = GenerationModel.Create(catalog, "Example.RuleFieldNames");
         var table = model.Tables.Single();
         var plan = ReadProjectionCompilation.ForPage(model, table, table.Pages.Single());
@@ -98,10 +102,10 @@ public sealed class OriginalVisibilityGenerationTests
         Assert.Contains(plan.List.Dependencies, dependency => dependency.ColumnId == (jsonMember ? "17" : "16"));
         if (jsonMember)
         {
-            Assert.Contains(plan.List.OutputFields, field => field.JsonName == "approvalPayload");
+            Assert.Contains(plan.List.OutputFields, field => field.JsonName == (javaName ? "approvalPAYLOAD" : "approvalPayload"));
             Assert.Contains(plan.Detail.Dependencies, dependency => dependency.ColumnId == "17");
         }
-        await Probe(catalog, jsonMember ? "json-numeric" : "numeric");
+        await Probe(catalog, (javaName ? "java-" : "") + (jsonMember ? "json-numeric" : "numeric"));
 
         Dictionary<string, object?> Record(long id) => new()
         {

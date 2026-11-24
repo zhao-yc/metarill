@@ -93,38 +93,43 @@ for (const fixture of [detail, list]) {
   fixture.yzp.isButtonVisible = real.isButtonVisible
 }
 const hasRemark = node => node.props.id === 'yzp-detail-field-remark' || node.children.some(hasRemark)
-if (process.argv[3] === 'numeric' || process.argv[3] === 'json-numeric') {
-  const jsonMember = process.argv[3] === 'json-numeric'
+if (['numeric', 'json-numeric', 'java-numeric', 'java-json-numeric'].includes(process.argv[3])) {
+  const jsonMember = process.argv[3].endsWith('json-numeric')
+  const javaName = process.argv[3].startsWith('java-')
+  const ownerField = javaName ? 'ownerID' : 'ownerId'
+  const payloadField = javaName ? 'approvalPAYLOAD' : 'approvalPayload'
   const payload = id => '{"review":{"owner":' + id + '},"text":' + JSON.stringify('含 " 引号和数字 123') + '}'
   try {
     await detail.flush()
     detail.respond(detail.requests.find(item => item.options.url.includes('/detail/7')),
-      { id: '7', name: '记录', remark: '审批后显示', ownerId: '9007199254740992',
-        ...(jsonMember ? { approvalPayload: payload('9007199254740992') } : {}) })
+      { id: '7', name: '记录', remark: '审批后显示', [ownerField]: '9007199254740992',
+        ...(jsonMember ? { [payloadField]: payload('9007199254740992') } : {}) })
     await new Promise(resolve => setTimeout(resolve, 320))
     await detail.flush()
     assert.equal(detail.state.loadEntitySuccess, true)
+    if (javaName) assert.equal(detail.state.readOnlyCondition, false)
     assert.equal(detail.state.customerButtonShow900, false, '相邻雪花 ID 不可匹配目标编号')
     assert.equal(hasRemark(detail.tree), false)
     assert.equal(detail.state.visibleDetailGroups.length, 0)
-    assert.equal(list.state.customerButtonShow900({ id: '7', ownerId: '9007199254740992',
-      ...(jsonMember ? { approvalPayload: payload('9007199254740992') } : {}) }), false)
-    detail.state.entity.ownerId = '9007199254740993'
-    if (jsonMember) detail.state.entity.approvalPayload = payload('9007199254740993')
+    assert.equal(list.state.customerButtonShow900({ id: '7', [ownerField]: '9007199254740992',
+      ...(jsonMember ? { [payloadField]: payload('9007199254740992') } : {}) }), false)
+    detail.state.entity[ownerField] = '9007199254740993'
+    if (jsonMember) detail.state.entity[payloadField] = payload('9007199254740993')
     await detail.flush()
+    if (javaName) assert.equal(detail.state.readOnlyCondition, true)
     assert.equal(detail.state.customerButtonShow900, true)
     assert.equal(hasRemark(detail.tree), true)
     assert.deepEqual(detail.state.visibleDetailGroups.map(group => group.key), ['review'])
-    assert.equal(list.state.customerButtonShow900({ id: '7', ownerId: '9007199254740993',
-      ...(jsonMember ? { approvalPayload: payload('9007199254740993') } : {}) }), true)
-    assert.equal(detail.state.entity.ownerId, '9007199254740993')
+    assert.equal(list.state.customerButtonShow900({ id: '7', [ownerField]: '9007199254740993',
+      ...(jsonMember ? { [payloadField]: payload('9007199254740993') } : {}) }), true)
+    assert.equal(detail.state.entity[ownerField], '9007199254740993')
     if (jsonMember) {
-      assert.equal(detail.state.entity.approvalPayload, payload('9007199254740993'))
-      detail.state.entity.approvalPayload = '{"review":[9007199254740993]}'
+      assert.equal(detail.state.entity[payloadField], payload('9007199254740993'))
+      detail.state.entity[payloadField] = '{"review":[9007199254740993]}'
       await detail.flush()
       assert.equal(hasRemark(detail.tree), false)
       assert.equal(detail.state.customerButtonShow900, false)
-      detail.state.entity.approvalPayload = '{"review":{"owner":9007199254740993}'
+      detail.state.entity[payloadField] = '{"review":{"owner":9007199254740993}'
       await detail.flush()
       assert.equal(hasRemark(detail.tree), false)
       assert.equal(detail.state.customerButtonShow900, false)

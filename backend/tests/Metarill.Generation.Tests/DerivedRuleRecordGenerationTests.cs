@@ -28,12 +28,19 @@ public sealed partial class DerivedRuleRecordGenerationTests
     [Theory][InlineData(false,false,false)][InlineData(true,false,false)][InlineData(false,true,false)]
     [InlineData(false,false,true)][InlineData(false,true,true)]
     [InlineData(true,false,true)][InlineData(true,true,true)]
+
     public async Task Actual_generated_rule_record_loads_derived_values_in_one_snapshot_and_preserves_scope(
-        bool derivedScope,bool webWithoutParent,bool scopeTarget)
+        bool derivedScope,bool webWithoutParent,bool scopeTarget,bool javaName=false)
     {
         var catalog=ExactDataManageGenerationTests.Catalog(true);var page=catalog.ConfigPages.Single(page=>page.Id=="101");
         page.Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement("customerNotes == '禁止'");page.Extra["isUpdate"]=JsonSerializer.SerializeToElement(1);page.IsDelete=1;page.IsCopy=1;
-        if(derivedScope)page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("customer_notes");
+        var ruleColumn=javaName?"customer_NOTES":"customer_notes";
+        if(javaName)
+        {
+            catalog.ConfigColumns.Single(column=>column.ConfigTableId=="1"&&column.ColumnName=="customer_notes").ColumnName=ruleColumn;
+            foreach(var view in catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId=="1"))view.OrderBy="";
+        }
+        if(derivedScope)page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(ruleColumn);
         if(webWithoutParent)
         {
             // 无父页面使用同样无父的候选目录；不能把原同父选择元数据改成未证明的上下文。
@@ -72,8 +79,8 @@ public sealed partial class DerivedRuleRecordGenerationTests
             }
             foreach(var operation in new[]{"update","delete","copy"})
             {
-                var record=Assert.IsAssignableFrom<IGeneratedRuleRecord>(await Read(operation));Assert.True(record.TryGetLoadedRuleValue("customer_notes",out var value));Assert.Equal("禁止",value);entityType.GetProperty("CustomerNotes")!.SetValue(record,"客户端可见属性后改");Assert.True(record.TryGetLoadedRuleValue("customer_notes",out var captured));Assert.Equal("禁止",captured);Assert.False(record.TryGetLoadedRuleValue("not_loaded",out _));Assert.Equal(operation,authorization.LastScope);
-                var command=transport.Commands[^1];Assert.Contains(command.Values,value=>value is long id&&id==Transport.Id);if(webWithoutParent)Assert.DoesNotContain(command.Values,value=>value is long parent&&parent==71);else Assert.Contains(command.Values,value=>value is long parent&&parent==71);Assert.Contains("只允许甲",command.Values);Assert.DoesNotContain(Transport.Id.ToString(),command.Sql);Assert.DoesNotContain("禁止",command.Sql);Assert.Contains("IS NOT NULL",command.Sql,StringComparison.OrdinalIgnoreCase);Assert.Contains("`delete_no`",command.Sql);Assert.Contains(" AS `customer_notes`",command.Sql);Assert.DoesNotContain("COUNT(",command.Sql);Assert.DoesNotContain("FOR SHARE",command.Sql);Assert.DoesNotContain("FOR UPDATE",command.Sql);Assert.Equal(IsolationLevel.RepeatableRead,command.Isolation);
+                var record=Assert.IsAssignableFrom<IGeneratedRuleRecord>(await Read(operation));Assert.True(record.TryGetLoadedRuleValue(ruleColumn,out var value));Assert.Equal("禁止",value);entityType.GetProperty(javaName?"CustomerNOTES":"CustomerNotes")!.SetValue(record,"客户端可见属性后改");Assert.True(record.TryGetLoadedRuleValue(ruleColumn,out var captured));Assert.Equal("禁止",captured);Assert.False(record.TryGetLoadedRuleValue("not_loaded",out _));Assert.Equal(operation,authorization.LastScope);
+                var command=transport.Commands[^1];Assert.Contains(command.Values,value=>value is long id&&id==Transport.Id);if(webWithoutParent)Assert.DoesNotContain(command.Values,value=>value is long parent&&parent==71);else Assert.Contains(command.Values,value=>value is long parent&&parent==71);Assert.Contains("只允许甲",command.Values);Assert.DoesNotContain(Transport.Id.ToString(),command.Sql);Assert.DoesNotContain("禁止",command.Sql);Assert.Contains("IS NOT NULL",command.Sql,StringComparison.OrdinalIgnoreCase);Assert.Contains("`delete_no`",command.Sql);Assert.Contains($" AS `{ruleColumn}`",command.Sql);Assert.DoesNotContain("COUNT(",command.Sql);Assert.DoesNotContain("FOR SHARE",command.Sql);Assert.DoesNotContain("FOR UPDATE",command.Sql);Assert.Equal(IsolationLevel.RepeatableRead,command.Isolation);
             }
             Assert.All(transport.Commands,command=>AssertScopedTarget(command.Sql,command.Values));
 
@@ -95,7 +102,7 @@ public sealed partial class DerivedRuleRecordGenerationTests
             }
             Assert.Equal(3,transport.Commands.Count);Assert.Equal(3,transport.Commits);Assert.Equal(0,transport.Rollbacks);Assert.Null(session.CurrentTransaction);
             var forged=JsonSerializer.Deserialize("{\"id\":\"9007199254740993\",\"customerNotes\":\"允许\",\"generatedRuleValues\":{\"customer_notes\":\"允许\"}}",entityType,JsonDefaults.Options)!;
-            Assert.False(((IGeneratedRuleRecord)forged).TryGetLoadedRuleValue("customer_notes",out _));Assert.DoesNotContain("generatedRuleValues",JsonSerializer.Serialize(forged,entityType,JsonDefaults.Options));
+            Assert.False(((IGeneratedRuleRecord)forged).TryGetLoadedRuleValue(ruleColumn,out _));Assert.DoesNotContain("generatedRuleValues",JsonSerializer.Serialize(forged,entityType,JsonDefaults.Options));
             // 真正能力目录与实际生成Service一同执行；只有ADO响应和当前角色结论为夹具。
             var definitions=new ServiceCollection();definitions.AddLogging();definitions.AddControllers().AddApplicationPart(assembly).AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));definitions.AddSingleton<IAgentHostResources>(new Resources(catalog));definitions.AddSingleton<IRuntimeAuthorization>(authorization);definitions.AddSingleton(serviceType,service);definitions.AddSingleton<GeneratedCapabilityIndex>();definitions.AddSingleton<AgentCapabilityCatalog>();var handler=new RuleHandler();var guard=new RuleExecutionGuard();definitions.AddSingleton<IOriginalBusinessButtonHandler>(handler);definitions.AddSingleton<Metarill.Core.Persistence.IBusinessButtonExecutionGuard>(guard);definitions.AddSingleton<Metarill.Runtime.Security.ISecurityIdentityAccessor>(new RuleIdentity(new(actor,new HashSet<string>(),20,null)));definitions.AddSingleton<OriginalBusinessButtonExecutor>();using var services=definitions.BuildServiceProvider();
             var update=services.GetRequiredService<IActionDescriptorCollectionProvider>().ActionDescriptors.Items.OfType<ControllerActionDescriptor>().Single(action=>action.ControllerTypeInfo.Assembly==assembly&&action.AttributeRouteInfo?.Template?.EndsWith("/101/update",StringComparison.Ordinal)==true);
@@ -130,7 +137,7 @@ public sealed partial class DerivedRuleRecordGenerationTests
             transport.DerivedValue=null;
             if(webWithoutParent) await ValidateAction();
             if(webWithoutParent){var allowed=Assert.IsType<OkObjectResult>(await web.ExecuteAsync(original,context));Assert.Equal(200,Assert.IsType<R<object>>(allowed.Value).Code);Assert.Equal(1,guard.Calls);Assert.Equal(1,handler.Calls);}
-            await capabilities.ValidateRecordWriteInvocationAsync("page:101:update",context,body);var nullable=Assert.IsAssignableFrom<IGeneratedRuleRecord>(await Read("update"));Assert.True(nullable.TryGetLoadedRuleValue("customer_notes",out var nullValue));Assert.Null(nullValue);
+            await capabilities.ValidateRecordWriteInvocationAsync("page:101:update",context,body);var nullable=Assert.IsAssignableFrom<IGeneratedRuleRecord>(await Read("update"));Assert.True(nullable.TryGetLoadedRuleValue(ruleColumn,out var nullValue));Assert.Null(nullValue);
             transport.HasRow=false;Assert.Null(await Read("delete"));authorization.Operation="update";var missing=await Assert.ThrowsAsync<AgentTaskException>(()=>capabilities.ValidateRecordWriteInvocationAsync("page:101:update",context,body));Assert.Equal("not_applied",missing.Outcome);transport.HasRow=true;
             var count=transport.Commands.Count;authorization.Allow=false;await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>Read("copy"));Assert.Equal(count,transport.Commands.Count);authorization.Allow=true;
             // 父查询在实际入口验证，随后实际派生计划仍必须按按钮精确授权装载，而非改用普通页面授权。
@@ -159,13 +166,18 @@ public sealed partial class DerivedRuleRecordGenerationTests
                     Assert.Equal(!webWithoutParent,sql.Contains("BINARY CAST(b.`group_id` AS CHAR)",StringComparison.Ordinal));
                 }
                 var locked=(Task)serviceType.GetMethod("ReadRuleRecord101Async",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(service,[Transport.Id,"71","86000",actor,true,true,CancellationToken.None])!;await locked;
-                var row=Assert.IsAssignableFrom<IGeneratedRuleRecord>(locked.GetType().GetProperty("Result")!.GetValue(locked));Assert.True(row.TryGetLoadedRuleValue("customer_notes",out var current));Assert.Equal("禁止",current);
+                var row=Assert.IsAssignableFrom<IGeneratedRuleRecord>(locked.GetType().GetProperty("Result")!.GetValue(locked));Assert.True(row.TryGetLoadedRuleValue(ruleColumn,out var current));Assert.Equal("禁止",current);
                 Assert.All(transport.Commands,command=>{Assert.Same(session.CurrentTransaction,command.Transaction);Assert.Contains("FOR SHARE",command.Sql,StringComparison.OrdinalIgnoreCase);AssertScopedTarget(command.Sql,command.Values);});return true;
             });
             Assert.Equal(1,authorization.CurrentCalls);
         }
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>原 Java 条件名必须装载真实联接值，并由业务按钮和 Agent 据此判断。</summary>
+    [Fact]
+    public Task Original_java_name_loads_derived_rule_values() =>
+        Actual_generated_rule_record_loads_derived_values_in_one_snapshot_and_preserves_scope(false,true,false,true);
+
     /// <summary>直接消费实际FreeSql查询对象的SQL，不复制ORM或权限算法。</summary>
     private static string QuerySql<T>(object query)where T:class=>((ISelect<T>)query).ToSql();
     /// <summary>手写显式动作只用于离线入口发现，产品仍从真实生成Service读取规则记录。</summary>
@@ -242,7 +254,7 @@ public sealed class RuleProbeController:ControllerBase
                 if (extras.Contains(name)) return TargetIds;
                 return name switch
                 {
-                    "id" => Id, "customer_notes" => DerivedValue ?? (object)DBNull.Value, "target_ids" => TargetIds,
+                    "id" => Id, "customer_notes" or "customer_NOTES" => DerivedValue ?? (object)DBNull.Value, "target_ids" => TargetIds,
                     "name" or "private_payload" => "只允许甲", "yz_project_id" => ProjectId, "customer_id" => "9",
                     "group_id" or "parent_id" => "71", _ => DBNull.Value
                 };

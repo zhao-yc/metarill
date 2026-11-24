@@ -175,7 +175,8 @@ public sealed class AgentHostCatalog
         catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException){return null;}
         // 与生成实体使用同一隐式关系列展开；国家等逻辑祖先不能因未显式配置而从规则目录消失。
         foreach(var column in columns)
-            foreach(var name in new[]{column.ColumnName,JsonName(column.ColumnName),GeneratedRecordJsonName(column.ColumnName)})
+            foreach(var name in new[]{column.ColumnName,JsonName(column.ColumnName),GeneratedRecordJsonName(column.ColumnName),
+                MetadataNames.OriginalRuleFieldName(column.ColumnName)})
             {if(names.TryGetValue(name,out var previous)&&previous!=column.ColumnName)return null;names[name]=column.ColumnName;}
         return names.ToFrozenDictionary(StringComparer.Ordinal);
     }

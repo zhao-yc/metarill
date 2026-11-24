@@ -18,7 +18,7 @@ internal sealed partial record PageReadOnlyCompilation(string JavaScript,IReadOn
         foreach(var field in rule.Fields)
         {
             var root=field.Split('.')[0];if(columns.ContainsKey(root))continue;
-            var matches=page.Readable.Where(column=>column.JsonName==root||column.Source.ColumnName==root).ToArray();
+            var matches=page.Readable.Where(column=>OriginalVisibilityCompilation.MatchesField(column,root)).ToArray();
             if(matches.Length!=1)throw new InvalidOperationException("只读条件必须引用本页唯一真实可读字段："+page.Source.Id);
             columns[root]=matches[0];
         }
