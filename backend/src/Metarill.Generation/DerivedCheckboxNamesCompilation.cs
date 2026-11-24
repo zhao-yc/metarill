@@ -11,7 +11,7 @@ internal static class DerivedCheckboxNamesCompilation
         IReadOnlyList<ColumnModel>? cachedLabels=null)
     {
         if(def.Names is null)throw new InvalidOperationException("按主键显示的复选不需要派生名称计划。");
-        if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0&&!UsesStoredProjectParent(def)||
+        if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0&&!def.HasStoredProjectParentScope||
             def.Target.Source.IsView!=0||def.Target.Source.IsFunctionTable!=0||
             def.Name.Type!="string?"&&!Metarill.Core.Contracts.MultiValueLabel.IsTyped(def.Name.Source.LogicalType)||def.Name.IsJsonArray)
             throw new InvalidOperationException("复选名称要求已证明来源与目标的固定单值名称。");
@@ -36,7 +36,8 @@ internal static class DerivedCheckboxNamesCompilation
             var cache=new Metarill.Data.Relations.RelationCacheDefinition(owner.Source.Id,def.Source.Source.Id,
                 def.Target.Source.Id,def.Name.Source.Id,def.Names.Source.Id,true)
             {
-                CheckboxTargetPageId=def.SharedLogicalParentScope||def.SharedDerivedPageScope||def.ProjectFormScope?ScopedCheckboxPage(def).Source.Id:null,
+                CheckboxTargetPageId=def.SharedLogicalParentScope||def.SharedDerivedPageScope||def.ProjectFormScope||
+                    def.HasStoredProjectParentScope&&def.UsesNameOverride?ScopedCheckboxPage(def).Source.Id:null,
                 CheckboxSourceParentId=def.SharedDerivedPageScope||def.ProjectFormScope?DatabaseCheckboxCompilation.FixedCacheParent(def):null
             };
             // 无父级的固定常量页沿用原物理传播，具有持久父级的副本统一验证实际父范围。
@@ -134,12 +135,9 @@ internal static class DerivedCheckboxNamesCompilation
         def.ExactTarget is not null&&!UsesGlobalExactPage(def)&&def.LogicalTargetPage is {} page&&
         def.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,def.Target,page,scope.Column));
 
-    /// <summary>实际复选页承担多父条件，也承担单物理全局父叠加精确匹配的范围。</summary>
-    private static bool UsesStoredProjectParent(DatabaseCheckboxModel def)=>
-        def.LogicalTargetPage is {} page&&FixedPageConditionCompilation.HasStoredGlobalMultiParentScope(def.Target,page);
 
     internal static bool UsesScopedCheckboxLabel(GenerationModel model,DatabaseCheckboxModel def)=>
-        !UsesGlobalExactPage(def)&&(UsesStoredProjectParent(def)||def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
+        !UsesGlobalExactPage(def)&&(def.HasStoredProjectParentScope||def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
             def.RealtimeLogicalParentScope||def.CompoundTargetParents||
             def.LogicalTargetPage?.Scopes.Any(scope=>scope.Source=="parent"&&
                 Metarill.Core.Metadata.MultiTargetParentScope.IsCheckboxOnlyParentField(scope.Column.Source))==true||

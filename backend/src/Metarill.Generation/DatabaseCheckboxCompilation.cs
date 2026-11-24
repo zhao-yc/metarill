@@ -25,6 +25,9 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool SharedDerivedPageScope { get; init; }
     internal bool SharedLogicalParentScope { get; init; }
     internal bool HasStoredIdentityScope { get; init; }
+    /// <summary>全称和简称使用实际发布的冗余字典项目及物理父范围。</summary>
+    internal bool HasStoredProjectParentScope => LogicalTargetPage is {} page&&
+        FixedPageConditionCompilation.HasStoredGlobalMultiParentScope(Target,page);
     internal bool HasStoredStaticScope { get; init; }
     internal bool HasProjectStoredAccountScope { get; init; }
     internal bool CompoundPhysicalSource { get; init; }
@@ -202,7 +205,8 @@ internal static class DatabaseCheckboxCompilation
             if(usesNameOverride)
             {
                 // 非冗余页仍通过原数组实时投影；冗余名称副本沿发布范围独立证明。
-                var realtimeFixedName=table.Source.IsRongyu==0&&(target.Source.IsRongyu==0||storedIdentityPage||storedStaticPage)&&
+                var realtimeFixedName=table.Source.IsRongyu==0&&
+                    (target.Source.IsRongyu==0||storedIdentityPage||storedStaticPage||scopedGlobalParentPage)&&
                     exactTarget is null&&namePage is not null&&namePage.Source.Id==fixedPage;
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
                 bool TextLabel(ColumnModel label)=>target.IsGlobal&&realtimeFixedName&&target.Source.IsRongyu==0
@@ -498,6 +502,8 @@ internal static class DatabaseCheckboxCompilation
         if(definition.Name.Type!="string?"||definition.ExactTarget is not null||
             definition.Conditions is not null&&!definition.HasStoredIdentityScope&&!definition.HasProjectStoredAccountScope&&!definition.ProjectFormScope)
             return false;
+        if(definition.HasStoredProjectParentScope)
+            return !definition.LogicalSourceParent&&definition.SourceParent is not null&&definition.SourceParents.Count==1;
         if(definition.SharedLogicalParentScope)
             return !definition.LogicalSourceParent&&definition.SourceParent is not null&&
                 (definition.SourceScopeColumns.Count==1||definition.FormParentField is not null);

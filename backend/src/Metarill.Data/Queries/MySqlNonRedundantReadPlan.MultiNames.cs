@@ -134,7 +134,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 return label.ColumnName;
             var fixedPage=globalPageId??(baseline.PageId.Length>0?baseline.PageId:Text(relation,"linkConfigPageId"));
             var storedGlobal=target.IsRongyu==1&&(storedGlobalStatic||globalPageId is not null&&selected is not null&&
-                StoredIdentityMultiPage(catalog,target,selected,checkbox:true));
+                (StoredIdentityMultiPage(catalog,target,selected,checkbox:true)||
+                 GlobalCrossTableTarget.StoredProjectMultiParent(catalog,target,selected,checkbox:true) is not null));
             bool TextLabel(ColumnMetadata column)=>storedGlobal
                 ?PhysicalTextMultiLabel(target,column)
                 :globalPageId is not null
