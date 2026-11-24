@@ -10,6 +10,7 @@ namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
 [global::Metarill.Core.Contracts.GeneratedAgentWriteAccess("1608097412978577409", "6031906822946816", "6031906809708544", typeof(global::Metarill.Platform.Generated.Entities.YzManager), typeof(YzManagerService), nameof(YzManagerService.ReadAgentRecord6031906822946816Async))]
 [GeneratedPageOrder()]
+[GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{\u0022name\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022string\u0022},{\u0022type\u0022:\u0022array\u0022,\u0022items\u0022:{\u0022type\u0022:\u0022string\u0022}},{\u0022type\u0022:\u0022null\u0022}]}},\u0022additionalProperties\u0022:false}")]
 [Route("api/admin/auto/yz_manager/6031906822946816")]
 public sealed partial class YzManagerPage6031906822946816Controller(YzManagerService service, IRuntimeAuthorization authorization) : ControllerBase
 {

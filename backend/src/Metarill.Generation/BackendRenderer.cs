@@ -406,7 +406,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             ?$"await ValidateSelectionParents{suffix}Async({key}, actor, cancellationToken);"
             :globalParent?$"await ValidateParents{suffix}Async({key}, actor, cancellationToken, locking:false);":"";
         var names = SelectionNameFilterCompilation.ForPage(model, table, page);
-        var nameKeys = names.ConsumedKeys.Concat(names.Gaps.Select(gap => gap.FilterKey)).ToHashSet(StringComparer.Ordinal);
+
         var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,table,page);
         var result = new StringBuilder().Append(FixedPageConditionCompilation.Declaration(page,"PageCondition"+suffix))
             .Append(SharedRedundantParentCompilation.AccountDeclaration(model,table,page,"AccountParentScope"+suffix))
@@ -441,7 +441,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine($"                case {Literal(gap.Key)}:")
                 .AppendLine("                    if (filter.Value.ValueKind == JsonValueKind.Null || filter.Value.ValueKind == JsonValueKind.String && string.IsNullOrWhiteSpace(filter.Value.GetString())) break;")
                 .AppendLine($"                    throw new ArgumentException({Literal(string.Join("；", gap.Select(item => item.Reason).Distinct(StringComparer.Ordinal)))});");
-        foreach (var column in page.Searchable.Where(column => !nameKeys.Contains(column.JsonName)))
+        foreach (var column in RequestFilterColumns(page, names))
         {
             var like=TextPatternColumn(model,page,column);
             var blankCheck=like&&!column.IsManagedMultiNames&&!column.IsJsonArray?"Metarill.Data.Queries.StringNameQuery.IsPatternBlank":"string.IsNullOrWhiteSpace";
@@ -901,6 +901,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .Append(AgentRecordAccessAttribute(model,table,page))
             .Append(BusinessRecordButtons(model,page).Count==0 ? "" : $"[GeneratedPageAccess({Literal(suffix)}, {Literal(table.Source.Id)}, typeof(global::{model.Namespace}.Generated.Entities.{table.Name}), typeof({table.Name}Service), nameof({table.Name}Service.ReadButtonRecord{suffix}Async))]"+Environment.NewLine)
             .AppendLine($"[GeneratedPageOrder({string.Join(", ", RequestSortColumns(table, page).Select(column => Literal(column.JsonName)))})]")
+            .AppendLine(PageFiltersAttribute(model, table, page))
             .AppendLine($"[Route({Literal("api/admin/auto/" + table.Source.TableName + "/" + suffix)})]")
             .AppendLine($"public sealed partial class {page.Name}Controller({table.Name}Service service, IRuntimeAuthorization authorization{(CascadeTreeQueryCompilation.Snapshot(model,table,page)?", Metarill.Data.DatabaseSession readSession":"")}) : ControllerBase").AppendLine("{")
             .AppendLine("    /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>")

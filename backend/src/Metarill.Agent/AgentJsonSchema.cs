@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Metarill.Core.Contracts;
 
 namespace Metarill.Runtime.Agent;
@@ -7,6 +8,13 @@ internal static class AgentJsonSchema
 {
     /// <summary>兼容既有递归深度与可选字段描述。</summary>
     public static Dictionary<string, object?> Create(Type type,int depth=0)=>RequestJsonSchema.Create(type,depth);
+
+    /// <summary>仅在生成分页 DTO 具有筛选属性时套用发布描述。</summary>
+    internal static void DescribePageFilters(Dictionary<string, object?> schema, string schemaJson)
+    {
+        if (schema.GetValueOrDefault("properties") is Dictionary<string, object?> properties && properties.ContainsKey("filters"))
+            properties["filters"] = JsonSerializer.Deserialize<JsonElement>(schemaJson);
+    }
 
     /// <summary>公布已编译的显式排序字段，省略排序时由原页面使用默认顺序。</summary>
     internal static void DescribePageOrder(Dictionary<string, object?> schema, IReadOnlyList<string> columns)

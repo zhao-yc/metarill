@@ -9,6 +9,7 @@ using Metarill.Platform.Generated.Services;
 namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
 [GeneratedPageOrder()]
+[GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{},\u0022additionalProperties\u0022:false}")]
 [Route("api/admin/auto/yz_role_permission/2063264600601714690")]
 public sealed partial class YzRolePermissionPage2063264600601714690Controller(YzRolePermissionService service, IRuntimeAuthorization authorization) : ControllerBase
 {

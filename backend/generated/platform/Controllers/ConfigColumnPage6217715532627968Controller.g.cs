@@ -11,6 +11,7 @@ namespace Metarill.Platform.Generated.Controllers;
 [global::Metarill.Core.Contracts.GeneratedAgentWriteAccess("1608097412978577409", "6217715532627968", "6217714881724416", typeof(global::Metarill.Platform.Generated.Entities.ConfigColumn), typeof(ConfigColumnService), nameof(ConfigColumnService.ReadAgentRecord6217715532627968Async))]
 [GeneratedPageAccess("6217715532627968", "6217714881724416", typeof(global::Metarill.Platform.Generated.Entities.ConfigColumn), typeof(ConfigColumnService), nameof(ConfigColumnService.ReadButtonRecord6217715532627968Async))]
 [GeneratedPageOrder()]
+[GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{\u0022name\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022string\u0022},{\u0022type\u0022:\u0022array\u0022,\u0022items\u0022:{\u0022type\u0022:\u0022string\u0022}},{\u0022type\u0022:\u0022null\u0022}]},\u0022columnName\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022string\u0022},{\u0022type\u0022:\u0022array\u0022,\u0022items\u0022:{\u0022type\u0022:\u0022string\u0022}},{\u0022type\u0022:\u0022null\u0022}]}},\u0022additionalProperties\u0022:false}")]
 [Route("api/admin/auto/config_column/6217715532627968")]
 public sealed partial class ConfigColumnPage6217715532627968Controller(ConfigColumnService service, IRuntimeAuthorization authorization) : ControllerBase
 {

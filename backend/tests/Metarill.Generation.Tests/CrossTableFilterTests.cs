@@ -1,4 +1,6 @@
+using System.Reflection;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Cascades;
 using Metarill.Core.Metadata;
 using Xunit;
@@ -43,7 +45,29 @@ public sealed class CrossTableFilterTests
     [InlineData("int64","int64")]
     public async Task Generated_synchronous_cross_queries_compile_for_all_consumers(string sourceType,string parentType)
     {
-        var catalog=Catalog("crossfilter",sourceType,parentType);var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-filter-compile");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.CrossFilter");var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);Assert.NotNull(assembly.GetType("Example.CrossFilter.Generated.Services.CrossfilterSourceService"));var text=File.ReadAllText(Path.Combine(directory,"generated/Services/CrossfilterSourceService.g.cs"));Assert.Contains("private ISelect<global::Example.CrossFilter.Generated.Entities.CrossfilterSource> Query201",text);Assert.DoesNotContain("async Task<ISelect<global::Example.CrossFilter.Generated.Entities.CrossfilterSource>>",text);Assert.Contains("CrossFilter201_25.Parse",text);}finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+        var catalog=Catalog("crossfilter",sourceType,parentType);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-filter-compile");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.CrossFilter");
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            Assert.NotNull(assembly.GetType("Example.CrossFilter.Generated.Services.CrossfilterSourceService"));
+            var text=File.ReadAllText(Path.Combine(directory,"generated/Services/CrossfilterSourceService.g.cs"));
+            Assert.Contains("private ISelect<global::Example.CrossFilter.Generated.Entities.CrossfilterSource> Query201",text);
+            Assert.DoesNotContain("async Task<ISelect<global::Example.CrossFilter.Generated.Entities.CrossfilterSource>>",text);
+            Assert.Contains("CrossFilter201_25.Parse",text);
+
+            var controller=assembly.GetType("Example.CrossFilter.Generated.Controllers.CrossfilterSourcePage201Controller",true)!;
+            using var description=JsonDocument.Parse(controller.GetCustomAttribute<GeneratedPageFiltersAttribute>()!.SchemaJson);
+            var control=Assert.Single(description.RootElement.GetProperty("properties").EnumerateObject());
+            Assert.Equal("placeId",control.Name);
+            var node=control.Value.GetProperty("anyOf").EnumerateArray().Single(choice=>choice.GetProperty("type").GetString()=="object");
+            Assert.False(node.GetProperty("additionalProperties").GetBoolean());
+            Assert.Equal(new[] {"areaId","areaName","countryId","countryName","placeId","placeName"},
+                node.GetProperty("properties").EnumerateObject().Select(key=>key.Name).Order(StringComparer.Ordinal));
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
     /// <summary>普通来源及三个目标由元数据生成；导出明确是标量列表列，跨表路径单元格仍待完成。</summary>
     internal static MetadataCatalog Catalog(string prefix="crossfilter",string sourceType="string",string parentType="int64")

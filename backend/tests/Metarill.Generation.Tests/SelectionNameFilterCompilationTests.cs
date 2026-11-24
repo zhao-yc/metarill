@@ -55,7 +55,10 @@ public sealed class SelectionNameFilterCompilationTests
             var result=new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),"Example.NameCollision");Assert.Contains(result.Warnings,warning=>warning.Contains("冲突",StringComparison.Ordinal));
             var service=File.ReadAllText(Path.Combine(directory,"generated/Services/RelationSourceService.g.cs"));Assert.Single(System.Text.RegularExpressions.Regex.Matches(service,"case \"targetNames\":"));Assert.Contains(JsonSerializer.Serialize(plan.Gaps.Single().Reason),service);
             using var capabilities=JsonDocument.Parse(File.ReadAllText(Path.Combine(directory,"generated/generation-capabilities.json")));Assert.Contains(capabilities.RootElement.GetProperty("unsupportedControls").EnumerateArray(),gap=>gap.GetProperty("usage").GetString()=="filter"&&gap.GetProperty("reason").GetString()!.Contains("冲突",StringComparison.Ordinal));
-            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var controller=assembly.GetType("Example.NameCollision.Generated.Controllers.RelationSourcePage201Controller",true)!;
+            using var description=JsonDocument.Parse(controller.GetCustomAttribute<GeneratedPageFiltersAttribute>()!.SchemaJson);
+            Assert.False(description.RootElement.GetProperty("properties").TryGetProperty("targetNames",out _));
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }

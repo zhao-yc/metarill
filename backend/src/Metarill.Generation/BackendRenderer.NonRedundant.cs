@@ -346,7 +346,7 @@ internal static class GeneratedNonRedundantReadCatalog
         var lockScope=NonRedundantCrossParentCompilation.Enabled(model,table,page)||logicalCondition;
         // 普通写范围默认维持真实事务锁；Agent原记录预检显式选择无锁派生匹配。
         var derivedExact=ExactDataManageCompilation.Resolve(model,table,page) is {Derived:true};
-        var names=SelectionNameFilterCompilation.ForPage(model,table,page);var nameKeys=names.ConsumedKeys.Concat(names.Gaps.Select(gap=>gap.FilterKey)).ToHashSet(StringComparer.Ordinal);
+        var names=SelectionNameFilterCompilation.ForPage(model,table,page);
         var outputs="new string[]{"+string.Join(",",plan.ReadOutputs.Select(Literal))+"}";var dependencies="new string[]{"+string.Join(",",plan.Dependencies.Select(Literal))+"}";
         var result=new StringBuilder().Append(FixedPageConditionCompilation.Declaration(page,"PageCondition"+suffix)).Append(NonRedundantCrossParentCompilation.Service(model,table,page));
         if(ExactDataManageCompilation.Resolve(model,table,page) is {Derived:true} exact)
@@ -417,7 +417,7 @@ internal static class GeneratedNonRedundantReadCatalog
             result.AppendLine($"                case {Literal(group.Key)}:")
                 .AppendLine("                    if(filter.Value.ValueKind==JsonValueKind.Null||filter.Value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(filter.Value.GetString()))break;")
                 .AppendLine($"                    throw new ArgumentException({Literal(string.Join("；",group.Select(gap=>gap.Reason).Distinct(StringComparer.Ordinal)))});");
-        foreach(var column in page.Searchable.Where(column=>!nameKeys.Contains(column.JsonName)))
+        foreach(var column in RequestFilterColumns(page, names))
         {
             var like=TextPatternColumn(model,page,column);
             var blankCheck=like&&!column.IsManagedMultiNames&&!column.IsJsonArray?"Metarill.Data.Queries.StringNameQuery.IsPatternBlank":"string.IsNullOrWhiteSpace";

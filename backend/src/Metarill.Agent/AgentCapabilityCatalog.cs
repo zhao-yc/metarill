@@ -69,6 +69,9 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                     if (kind == "body")
                     {
                         requestSchema = schema;
+                        if (operation is ("list" or "count" or "export") &&
+                            action.ControllerTypeInfo.GetCustomAttribute<GeneratedPageFiltersAttribute>() is { } pageFilters)
+                            AgentJsonSchema.DescribePageFilters(schema, pageFilters.SchemaJson);
                         if (operation is ("list" or "export") &&
                             action.ControllerTypeInfo.GetCustomAttribute<GeneratedPageOrderAttribute>() is { } pageOrder)
                             AgentJsonSchema.DescribePageOrder(schema, pageOrder.Columns);

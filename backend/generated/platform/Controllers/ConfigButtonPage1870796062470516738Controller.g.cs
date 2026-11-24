@@ -10,6 +10,7 @@ namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
 [global::Metarill.Core.Contracts.GeneratedAgentWriteAccess("1608097412978577409", "1870796062470516738", "1675764388766908417", typeof(global::Metarill.Platform.Generated.Entities.ConfigButton), typeof(ConfigButtonService), nameof(ConfigButtonService.ReadAgentRecord1870796062470516738Async))]
 [GeneratedPageOrder()]
+[GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{\u0022configPageName\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022string\u0022},{\u0022type\u0022:\u0022null\u0022}]},\u0022name\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022string\u0022},{\u0022type\u0022:\u0022array\u0022,\u0022items\u0022:{\u0022type\u0022:\u0022string\u0022}},{\u0022type\u0022:\u0022null\u0022}]},\u0022configPageId\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022integer\u0022},{\u0022type\u0022:\u0022string\u0022,\u0022pattern\u0022:\u0022^[\\u002B-]?[0-9]\\u002B$\u0022},{\u0022type\u0022:\u0022array\u0022,\u0022items\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022integer\u0022},{\u0022type\u0022:\u0022string\u0022,\u0022pattern\u0022:\u0022^[\\u002B-]?[0-9]\\u002B$\u0022}]}},{\u0022type\u0022:\u0022null\u0022}]}},\u0022additionalProperties\u0022:false}")]
 [Route("api/admin/auto/config_button/1870796062470516738")]
 public sealed partial class ConfigButtonPage1870796062470516738Controller(ConfigButtonService service, IRuntimeAuthorization authorization) : ControllerBase
 {

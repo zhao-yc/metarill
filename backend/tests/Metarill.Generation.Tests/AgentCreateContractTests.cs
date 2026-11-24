@@ -20,7 +20,7 @@ public sealed class AgentCreateContractTests
     [InlineData(true, 0)]
     [InlineData(true, 1)]
     [InlineData(false, 1)]
-    public async Task Published_schema_describes_actual_parent_and_sorting(bool hasParent, int storage)
+    public async Task Published_schema_describes_actual_parent_sorting_and_filters(bool hasParent, int storage)
     {
         const long owner=9007199254740993L;
         var catalog=GeneratorTests.Catalog();
@@ -42,7 +42,9 @@ public sealed class AgentCreateContractTests
             new(){Id="17",ConfigTableId="1",ColumnName="default_marker",LogicalType="string",DefaultValue="默认值"},
             new(){Id="18",ConfigTableId="1",ColumnName="initial_marker",LogicalType="string"},
             new(){Id="19",ConfigTableId="1",ColumnName="parent_id",LogicalType="int64",LinkConfigTableId="1"},
-            new(){Id="20",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"}
+            new(){Id="20",ConfigTableId="1",ColumnName="store_id",LogicalType="int64"},
+            new(){Id="21",ConfigTableId="1",ColumnName="booked_on",LogicalType="date"},
+            new(){Id="22",ConfigTableId="1",ColumnName="active",LogicalType="bool",ControlKind="CheckBox"}
         ]);
         foreach(var field in new[]{"11","15","16","17","18","19","20"})
             catalog.ConfigPageColumns.Add(new(){Id="21"+field,ConfigPageId=page.Id,ConfigColumnId=field,IsEdit=1,IsShow=1,IsRequired=1});
@@ -50,6 +52,10 @@ public sealed class AgentCreateContractTests
         if (hasParent)
             catalog.ConfigColumns.Single(column=>column.Id=="16").Extra["isSort"]=JsonSerializer.SerializeToElement(1);
         catalog.ConfigColumns.Single(column=>column.Id=="14").Extra["isSort"]=JsonSerializer.SerializeToElement(1);
+        catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="16").Extra["isInFilter"]=JsonSerializer.SerializeToElement(1);
+        foreach (var id in new[] { "21", "22" })
+            catalog.ConfigPageColumns.Add(new() {Id="31"+id,ConfigPageId=page.Id,ConfigColumnId=id,IsShow=1,IsEdit=0,
+                Extra=new() {["isInFilter"]=JsonSerializer.SerializeToElement(1)}});
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-agent-create-contract");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -99,6 +105,25 @@ public sealed class AgentCreateContractTests
                 if (hasParent) expected.Add("parentId");
                 if (action=="import") expected.Add("requestJson");
                 Assert.Equal(expected,requiredBody.Order(StringComparer.Ordinal));
+                if (action is "list" or "count" or "export")
+                {
+                    var filterSchema=body.GetProperty("properties").GetProperty("filters");
+                    Assert.False(filterSchema.GetProperty("additionalProperties").GetBoolean());
+                    var filterFields=filterSchema.GetProperty("properties");
+                    Assert.Equal(new[] { "active", "bookedOn", "name", "ownerID" },
+                        filterFields.EnumerateObject().Select(field=>field.Name).Order(StringComparer.Ordinal));
+                    var ownerFilter=filterFields.GetProperty("ownerID").GetProperty("anyOf").EnumerateArray().ToArray();
+                    Assert.Contains(ownerFilter,choice=>choice.GetProperty("type").GetString()=="integer");
+                    Assert.Contains(ownerFilter,choice=>choice.GetProperty("type").GetString()=="string");
+                    Assert.Contains(ownerFilter,choice=>choice.GetProperty("type").GetString()=="array");
+                    var dateRange=filterFields.GetProperty("bookedOn").GetProperty("anyOf").EnumerateArray()
+                        .Single(choice=>choice.GetProperty("type").GetString()=="array");
+                    Assert.Equal(2,dateRange.GetProperty("minItems").GetInt32());
+                    Assert.Equal(2,dateRange.GetProperty("maxItems").GetInt32());
+                    var booleanChoices=filterFields.GetProperty("active").GetProperty("anyOf").EnumerateArray().ToArray();
+                    Assert.Contains(booleanChoices,choice=>choice.GetProperty("type").GetString()=="boolean");
+                    Assert.Contains(booleanChoices,choice=>choice.TryGetProperty("enum",out var allowed)&&allowed[0].GetInt32()==0);
+                }
                 if (action is "list" or "export")
                 {
                     var found=body.GetProperty("properties").TryGetProperty("orderBy",out var orderBy);

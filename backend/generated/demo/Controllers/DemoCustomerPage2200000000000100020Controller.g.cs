@@ -10,6 +10,7 @@ namespace Metarill.Demo.Generated.Controllers;
 [ApiController]
 [global::Metarill.Core.Contracts.GeneratedAgentWriteAccess("2200000000000100000", "2200000000000100020", "2200000000000100010", typeof(global::Metarill.Demo.Generated.Entities.DemoCustomer), typeof(DemoCustomerService), nameof(DemoCustomerService.ReadAgentRecord2200000000000100020Async))]
 [GeneratedPageOrder("name", "amount")]
+[GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{\u0022name\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022string\u0022},{\u0022type\u0022:\u0022array\u0022,\u0022items\u0022:{\u0022type\u0022:\u0022string\u0022}},{\u0022type\u0022:\u0022null\u0022}]}},\u0022additionalProperties\u0022:false}")]
 [Route("api/admin/auto/demo_customer/2200000000000100020")]
 public sealed partial class DemoCustomerPage2200000000000100020Controller(DemoCustomerService service, IRuntimeAuthorization authorization) : ControllerBase
 {

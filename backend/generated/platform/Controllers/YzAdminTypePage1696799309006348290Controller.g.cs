@@ -11,6 +11,7 @@ namespace Metarill.Platform.Generated.Controllers;
 [global::Metarill.Core.Contracts.GeneratedAgentWriteAccess("1608097412978577409", "1696799309006348290", "1696799308939239425", typeof(global::Metarill.Platform.Generated.Entities.YzAdminType), typeof(YzAdminTypeService), nameof(YzAdminTypeService.ReadAgentRecord1696799309006348290Async))]
 [GeneratedPageAccess("1696799309006348290", "1696799308939239425", typeof(global::Metarill.Platform.Generated.Entities.YzAdminType), typeof(YzAdminTypeService), nameof(YzAdminTypeService.ReadButtonRecord1696799309006348290Async))]
 [GeneratedPageOrder()]
+[GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{},\u0022additionalProperties\u0022:false}")]
 [Route("api/admin/auto/yz_admin_type/1696799309006348290")]
 public sealed partial class YzAdminTypePage1696799309006348290Controller(YzAdminTypeService service, IRuntimeAuthorization authorization) : ControllerBase
 {
