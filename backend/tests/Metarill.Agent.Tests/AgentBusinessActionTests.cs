@@ -330,6 +330,36 @@ namespace Metarill.Agent.Tests
             Assert.Contains("只读",denied.Message);
         }
 
+        /// <summary>原 Web 和 Agent 可写按钮都按持久数组的实际长度检查只读，忽略客户端提交的数组。</summary>
+        [Theory]
+        [InlineData("galleryImages")]
+        [InlineData("selected_ids")]
+        public async Task Writable_button_checks_length_of_published_array(string field)
+        {
+            using var fixture = new Fixture(variant:"writable",readOnly:field+".length > 0");
+            fixture.Authorization.AllowPage = true;
+            var context = fixture.Context("Preview");
+            var handler = new WebHandler();
+            var executor = new OriginalBusinessButtonExecutor(fixture.Resources,fixture.Authorization,fixture.Services,
+                fixture.Services.GetRequiredService<IActionDescriptorCollectionProvider>(),[handler],fixture.Guard);
+            var request = new OriginalBusinessButtonRequest("31","7",
+                JsonSerializer.SerializeToElement(new{id="7",galleryImages=Array.Empty<object>(),selectedIds=Array.Empty<string>()}),
+                "AlwaysVisible","{}");
+
+            fixture.Reader.Row.GalleryImages = "[ ]";
+            fixture.Reader.Row.SelectedIds = "[ ]";
+            await CheckAgent();
+            await executor.ExecuteAsync(request,context);
+            fixture.Reader.Row.GalleryImages = """[{"name":"原附件"}]""";
+            fixture.Reader.Row.SelectedIds = """["9007199254740993"]""";
+            Assert.Contains("只读",(await Assert.ThrowsAsync<BusinessRuleException>(CheckAgent)).Message);
+            Assert.Contains("只读",(await Assert.ThrowsAsync<BusinessRuleException>(()=>executor.ExecuteAsync(request,context))).Message);
+            Assert.Equal(1,handler.Calls);
+
+            Task CheckAgent()=>fixture.Catalog.ValidateActionInvocationAsync(
+                "action:fixture.preview",context,Encoding.UTF8.GetBytes("{\"recordKey\":7}"));
+        }
+
         [Fact]
         public async Task Unloaded_derived_field_cannot_masquerade_as_an_actual_null_value()
         {

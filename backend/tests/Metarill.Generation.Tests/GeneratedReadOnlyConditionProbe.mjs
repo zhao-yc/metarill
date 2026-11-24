@@ -26,6 +26,30 @@ if (process.argv[3] === 'boolean-choice') {
  } finally {fixture.app.unmount()}
  process.exit(0)
 }
+if (process.argv[3] === 'array-length') {
+ const fixture = mountGenerated(source, {}, {id:'7'})
+ try {
+  await fixture.flush()
+  fixture.respond(fixture.requests.find(request => request.options.url.includes('/detail/7')),
+    {id:'7',name:'附件记录',galleryImages:[],limitCount:'0',locked:false})
+  await fixture.flush()
+  assert.equal(fixture.state.readOnlyCondition,false)
+  for (const [value, limitCount, readOnly] of [
+   [[{name:'附件'}], '0',true], ['[{"name":"附件"}]', '1',false],
+   [[{name:'附件'}], '9007199254740993',false], ['[]','0',false],
+   [{length:0},'0',true], ['坏数组','0',true], [null,'0',true], [undefined,'0',true]
+  ]) {
+   fixture.state.entity.galleryImages = value
+   fixture.state.entity.limitCount = limitCount
+   await fixture.flush()
+   assert.equal(fixture.state.readOnlyCondition,readOnly)
+  }
+  fixture.state.saveEntity()
+  await fixture.flush()
+  assert.equal(fixture.writes().length,0)
+ } finally { fixture.app.unmount() }
+ process.exit(0)
+}
 if (process.argv[3] === 'int64') {
  const fixture=mountGenerated(source,{}, {id:'7'})
  try {

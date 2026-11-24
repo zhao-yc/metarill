@@ -103,6 +103,23 @@ namespace Metarill.Agent.Tests
             Assert.Equal(status == 200 ? 1 : 0, TaskCount(memory));
         }
 
+        /// <summary>已保存的复选数组控制普通写入。缺失或无效长度在任务入账前拒绝。</summary>
+        [Theory]
+        [InlineData("[]",200)]
+        [InlineData("""["9007199254740993"]""",403)]
+        [InlineData("""{"length":0}""",403)]
+        [InlineData(null,403)]
+        public async Task Array_length_is_checked_before_agent_write_task(string? selected, int status)
+        {
+            using var memory = new PrincipalRealmFixture();
+            using var fixture = new Fixture(memory, condition:"selectedIds.length > 0");
+            fixture.Reader.SelectedIds = selected;
+            var context = fixture.Context("Update","update","""{"id":"7","selectedIds":[]}""");
+            await new AgentTaskMiddleware(current => current.Response.WriteAsJsonAsync(R<object>.Success(new{id="7"}),JsonDefaults.Options)).InvokeAsync(context);
+            Assert.Equal(status,context.Response.StatusCode);
+            Assert.Equal(status==200?1:0,TaskCount(memory));
+        }
+
         /// <summary>TIME 等值锁定依据实际原记录，与已显示值一致，仍早于 Agent 任务入账。</summary>
         [Theory]
         [InlineData("-30:01:02.123456", 403)]
@@ -132,6 +149,7 @@ namespace Metarill.Agent.Tests
                 {source.ConfigColumns.Add(new(){Id=prefix+"01",ConfigTableId=table,ColumnName="id",LogicalType="int64"});source.ConfigColumns.Add(new(){Id=prefix+"02",ConfigTableId=table,ColumnName="name",LogicalType="string"});source.ConfigColumns.Add(new(){Id=prefix+"03",ConfigTableId=table,ColumnName="is_locked",LogicalType="bool"});}
                 source.ConfigColumns.Add(new(){Id="4204",ConfigTableId="41000",ColumnName="rule_payload",LogicalType="json"});
                 source.ConfigColumns.Add(new(){Id="4205",ConfigTableId="41000",ColumnName="opens_at",LogicalType="time"});
+                source.ConfigColumns.Add(new(){Id="4206",ConfigTableId="41000",ColumnName="selected_ids",LogicalType="text",ControlKind="MultiCheckBoxDatabase"});
                 var services=new ServiceCollection();services.AddLogging();services.AddControllers().AddApplicationPart(typeof(Generated.Controllers.RecordWriteFixtureController).Assembly).AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));
                 services.AddSingleton<IAgentHostResources>(new Resources(source));services.AddSingleton<IRuntimeAuthorization>(Authorization);services.AddSingleton(Reader);services.AddSingleton<GeneratedCapabilityIndex>();services.AddSingleton<AgentCapabilityCatalog>();services.AddSingleton(new AgentTaskOptions());services.AddSingleton(new AgentTaskStore(memory.Store,memory.Ids,new()));
                 Services=services.BuildServiceProvider();Catalog=Services.GetRequiredService<AgentCapabilityCatalog>();actions=Services.GetRequiredService<IActionDescriptorCollectionProvider>();
@@ -155,11 +173,11 @@ namespace Metarill.Agent.Tests
     }
     public sealed class RecordWriteReader
     {
-        internal bool Locked,Visible=true,RequireParent;internal long VisibleId=7,Id;internal string? Parent,Operation,RulePayload;internal int Calls;
+        internal bool Locked,Visible=true,RequireParent;internal long VisibleId=7,Id;internal string? Parent,Operation,RulePayload,SelectedIds;internal int Calls;
         internal TimeSpan? OpensAt;
         /// <summary>仅用返回行替身证明绑定/时序，真实范围SQL由生成包验证。</summary>
         public Task<RecordWriteEntity?> ReadAgentRecord41001Async(long id,string? parent,string operation,RuntimeActor actor,IRuntimeAuthorization authorization,CancellationToken token)
-        {Calls++;Id=id;Parent=parent;Operation=operation;Assert.Equal(authorization.RequireActor(),actor);authorization.RequirePagePermission("41001",operation);return Task.FromResult(Visible&&id==VisibleId&&(!RequireParent||parent=="9")?new RecordWriteEntity{Id=id,IsLocked=Locked,RulePayload=RulePayload,OpensAt=OpensAt}:null);}
+        {Calls++;Id=id;Parent=parent;Operation=operation;Assert.Equal(authorization.RequireActor(),actor);authorization.RequirePagePermission("41001",operation);return Task.FromResult(Visible&&id==VisibleId&&(!RequireParent||parent=="9")?new RecordWriteEntity{Id=id,IsLocked=Locked,RulePayload=RulePayload,OpensAt=OpensAt,SelectedIds=SelectedIds}:null);}
     }
     public sealed class RecordWriteEntity
     {
@@ -167,6 +185,7 @@ namespace Metarill.Agent.Tests
         [JsonPropertyName("isLocked")][FreeSql.DataAnnotations.Column(Name="is_locked")]public bool IsLocked{get;set;}
         [JsonPropertyName("rulePayload")][FreeSql.DataAnnotations.Column(Name="rule_payload")]public string? RulePayload{get;set;}
         [JsonPropertyName("opensAt")][FreeSql.DataAnnotations.Column(Name="opens_at")]public TimeSpan? OpensAt{get;set;}
+        [JsonPropertyName("selectedIds")][FreeSql.DataAnnotations.Column(Name="selected_ids")]public string? SelectedIds{get;set;}
         public string Unpublished=>throw new InvalidOperationException("不得读取未发布属性。");
     }
 }

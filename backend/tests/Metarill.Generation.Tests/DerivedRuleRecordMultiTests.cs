@@ -21,7 +21,7 @@ public sealed partial class DerivedRuleRecordGenerationTests
     {
         var catalog=NonRedundantMultiSelectionTests.Catalog();
         var page=catalog.ConfigPages.Single(page=>page.Id=="201");
-        page.Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement("targetNames");
+        page.Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement("targetNames.length > 0");
         page.Extra["isUpdate"]=JsonSerializer.SerializeToElement(1);
         const long storeId=9007199254741993;
         if(scenario!="plain")
@@ -89,6 +89,8 @@ public sealed partial class DerivedRuleRecordGenerationTests
                 return Assert.IsAssignableFrom<IGeneratedRuleRecord>(task.GetType().GetProperty("Result")!.GetValue(task));
             }
             var record=await Read();Assert.True(record.TryGetLoadedRuleValue("target_names",out var value));var names=Assert.IsType<JsonElement>(value);Assert.Equal(new[]{"快照甲","快照乙"},names.EnumerateArray().Select(item=>item.GetString()));
+            var rule=Metarill.Core.Metadata.ReadOnlyConditionRule.Compile(page.Extra["readOnlyCondition"].GetString());
+            Assert.True(rule.IsReadOnly(new Dictionary<string,object?>{{"targetNames",value}}));
             Assert.Equal(2,transport.Commands.Count);Assert.Same(transport.Commands[0].Transaction,transport.Commands[1].Transaction);Assert.All(transport.Commands,command=>{Assert.Equal(System.Data.IsolationLevel.RepeatableRead,command.Isolation);Assert.DoesNotContain("COUNT(",command.Sql);Assert.DoesNotContain("FOR SHARE",command.Sql);});
             Assert.Contains("metarill_multi_input_",transport.Commands[0].Sql);Assert.StartsWith("SELECT multi_value.",transport.Commands[1].Sql);Assert.Equal(1,transport.Commits);Assert.Null(session.CurrentTransaction);
             var labels=transport.Commands[1];
@@ -104,6 +106,7 @@ public sealed partial class DerivedRuleRecordGenerationTests
                 Assert.DoesNotContain(storeId.ToString(),labels.Sql);
             }
             transport.TargetIds="[]";transport.Commands.Clear();var empty=await Read();Assert.True(empty.TryGetLoadedRuleValue("target_names",out var emptyValue));Assert.Equal(0,Assert.IsType<JsonElement>(emptyValue).GetArrayLength());Assert.Single(transport.Commands);
+            Assert.False(rule.IsReadOnly(new Dictionary<string,object?>{{"targetNames",emptyValue}}));
             Assert.True(Metarill.Core.Metadata.ReadOnlyConditionRule.Compile("targetNames").IsReadOnly(new Dictionary<string,object?>{{"targetNames",emptyValue}}));
         }
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}

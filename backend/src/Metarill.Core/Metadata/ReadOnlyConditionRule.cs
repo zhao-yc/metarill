@@ -62,12 +62,15 @@ public sealed partial class ReadOnlyConditionRule
         internal override object? Evaluate(IReadOnlyDictionary<string,object?> row)
         {
             object? value=row;
-            foreach(var part in Name.Split('.'))
+            var path = Name.Split('.');
+            foreach(var part in path)
             {
                 value=Unwrap(value);
                 if(value is IReadOnlyDictionary<string,object?> fields){if(!fields.TryGetValue(part,out value))throw Invalid();}
                 else if(value is IDictionary dictionary){if(!dictionary.Contains(part))throw Invalid();value=dictionary[part];}
                 else if(value is JsonElement json&&json.ValueKind==JsonValueKind.Object){if(!json.TryGetProperty(part,out var child))throw Invalid();value=child;}
+                // 只取已装载根数组的长度，不读取元素、字符串属性或任意对象成员。
+                else if(path.Length==2&&part=="length"&&value is JsonElement {ValueKind:JsonValueKind.Array} array)value=array.GetArrayLength();
                 else throw Invalid();
             }
             return Unwrap(value);

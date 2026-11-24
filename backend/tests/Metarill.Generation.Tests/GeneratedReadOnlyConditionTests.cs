@@ -27,13 +27,36 @@ public sealed class GeneratedReadOnlyConditionTests
         finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
     /// <summary>坏表达式或未知字段仍在生成阶段拒绝，不能把脚本直接插入computed。</summary>
-    [Theory][InlineData("locked || sideEffect()")][InlineData("locked = true")][InlineData("missing")][InlineData("this.entity.constructor")][InlineData("name.value")][InlineData("locked; globalThis.injected=true")]
+    [Theory][InlineData("locked || sideEffect()")][InlineData("locked = true")][InlineData("missing")][InlineData("this.entity.constructor")][InlineData("name.value")][InlineData("name.length")][InlineData("locked; globalThis.injected=true")]
     public void Unsafe_or_unbound_expression_remains_a_generation_error(string condition)
     {
         var catalog=Catalog();catalog.ConfigPages[0].Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement(condition);
         var model=GenerationModel.Create(catalog,"Example.Readonly");Assert.Throws<InvalidOperationException>(()=>PageReadOnlyCompilation.Compile(model.Tables.Single().Pages.Single()));
         Assert.False(ReadProjectionCompilation.ForPage(model,model.Tables.Single(),model.Tables.Single().Pages.Single()).Detail.CanCompile);
     }
+    /// <summary>附件数组长度在原详情中参加只读筛选，同页大整数阈值沿既有精确比较。</summary>
+    [Fact]
+    public async Task Attachment_array_length_controls_generated_detail_readonly()
+    {
+        var catalog = Catalog();
+        catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",ColumnName="gallery_images",LogicalType="text",ControlKind="MultiImage"});
+        catalog.ConfigColumns.Add(new(){Id="19",ConfigTableId="1",ColumnName="limit_count",LogicalType="int64"});
+        foreach (var id in new[]{"18","19"})
+            catalog.ConfigPageColumns.Add(new(){Id="1"+id,ConfigPageId="101",ConfigColumnId=id,IsEdit=1});
+        catalog.ConfigPages.Single().Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("gallery_images.length > limitCount || locked");
+        var boundary = Path.Combine(Path.GetTempPath(),"metarill-array-length-readonly");
+        var output = Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,output,"Example.ArrayLengthReadonly");
+            await Probe(output,"array-length");
+        }
+        finally
+        {
+            if (Directory.Exists(output)) await TestDirectoryCleanup.DeleteAsync(output,boundary);
+        }
+    }
+
     /// <summary>已有单字段生成文本保持不变，空条件不额外插入表达式；JSON路径只投影其根列。</summary>
     [Fact]
     public void Simple_field_and_declared_json_path_have_fixed_narrow_bindings()

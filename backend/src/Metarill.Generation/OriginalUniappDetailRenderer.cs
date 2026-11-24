@@ -23,6 +23,16 @@ internal static class OriginalUniappDetailRenderer
       return value;
     },
 """;
+    private const string ReadOnlyArrayLength="""
+    // 数组控件可能回显旧 JSON 文本。实际对象、坏数据及缺失值不能伪装成空数组。
+    originalReadOnlyArrayLength(field) {
+      let value = this.entity[field];
+      if (typeof value === 'string') {
+        try { value = JSON.parse(value); } catch { return undefined; }
+      }
+      return Array.isArray(value) ? value.length : undefined;
+    },
+""";
     private const string ReadOnlyIntegerComparison="""
     // int64 响应使用字符串，避免 JS Number 舍入相邻ID。正负号、小数边界及 null 按服务端规则处理。
     originalReadOnlyCompare(operation, left, right) {
@@ -118,6 +128,7 @@ internal static class OriginalUniappDetailRenderer
         var custom=OriginalUniappDetailButtons.Render(c);var position=Integer(page.Source.Extra,"detailPageButtonsPosition",0);if(position is not(0 or 1))throw new InvalidOperationException("原详情按钮位置仅支持0（固定底部）或1（子表前）。");
         var readOnly=PageReadOnlyCompilation.Compile(page);
         if(readOnly?.UsesObjectPaths==true)c.Methods.AppendLine(ReadOnlyObjectPath);
+        if(readOnly?.UsesArrayLengths==true)c.Methods.AppendLine(ReadOnlyArrayLength);
         if(readOnly?.UsesIntegerComparisons==true)c.Methods.AppendLine(ReadOnlyIntegerComparison);
         if (readOnly?.UsesBooleanOptions == true) c.Methods.AppendLine(ReadOnlyBooleanOption);
         if (readOnly is { UsesIntegerComparisons: true } or { UsesBooleanOptions: true })
