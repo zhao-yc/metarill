@@ -24,7 +24,7 @@ internal static class DerivedRelationNamesRenderer
             relation.Target.IsGlobal&&(logical||globalAccount||relation.FunctionForm||
                 NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage)||
                 FixedPageConditionCompilation.HasGlobalProjectSingleScope(relation.Target,relation.TargetPage)||
-                FixedPageConditionCompilation.HasGlobalListProjectParentScope(relation.Target,relation.TargetPage));
+                FixedPageConditionCompilation.HasGlobalListParentScope(relation.Target,relation.TargetPage));
         var parentPlan = globalExact?"":exact is not null && embeddedParent
             ? NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans ?? [])
             : accountParent ? ",OptionsAccountParentScope"+suffix : "";

@@ -25,7 +25,7 @@ internal static partial class NonRedundantReadCompilation
     /// <summary>非冗余单值字典的分页和详情执行同一发布条件及已证明的真实父键。</summary>
     internal static bool GlobalSingleParentPage(TableModel table,PageModel page)=>
         table.IsGlobal&&table.Source.IsRongyu==0&&
-        (FixedPageConditionCompilation.HasGlobalListProjectParentScope(table,page)||
+        (FixedPageConditionCompilation.HasGlobalListParentScope(table,page)||
             page.Source.Extra.GetValueOrDefault("type").ToString()=="1"&&
             (page.Scopes.Any(scope=>scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(
                 table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName))||

@@ -179,7 +179,7 @@ public static partial class MySqlNonRedundantReadCompiler
         // 冗余单值候选绑定实际发布页的项目和账号条件，回显及 Excel 共用该范围。
         var storedSingle=table.IsRongyu==1&&!exactSingleCandidate&&!deferCascadeNames&&
             (pageType=="1"||GlobalCrossTableTarget.IsProjectSinglePage(catalog,table,page,allowListPage:true)||
-                GlobalCrossTableTarget.IsProjectListParentPage(catalog,table,page));
+                GlobalCrossTableTarget.IsListParentPage(catalog,table,page));
         var builder=new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames,exactSingleCandidate:exactSingleCandidate,
             accountPhysicalCandidate:storedSingle,globalCandidate:table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table))
         {

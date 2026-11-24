@@ -605,7 +605,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var storedControl=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,storedSource);
                 // 已发布的全局业务父范围在联接中已执行；这里只补控件条件，避免再编译同一个父页。
                 return ProjectStoredListCondition(owner,ownerAlias,relation,target,alias,storedSource,stored,binding.SourceParentId,storedControl,
-                    pageScopeApplied:storedProof is {ProjectSelectionPage:true,PhysicalParent:not null});
+                    pageScopeApplied:storedProof is {FixedSelectionPage:true,PhysicalParent:not null});
             }
             // 全局多值候选的编译入口也会传入名称路径。按来源页重新证明内层字典的物理条件。
             if(global&&target.IsRongyu==1&&binding is

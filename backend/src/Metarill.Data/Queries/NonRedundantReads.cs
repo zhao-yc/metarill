@@ -280,10 +280,10 @@ public static class NonRedundantReads
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings,
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)
     {
-        // 业务字典页保留原角色；只有明确配置项目及父级时才能进入单值父候选。
+        // 业务字典页保留原角色；实际发布的父条件决定候选范围，项目条件独立处理。
         var table=metadata.ConfigTables.Single(item=>item.Id==tableId);
         var page=metadata.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
-        var role=GlobalCrossTableTarget.IsProjectListParentPage(metadata,table,page)
+        var role=GlobalCrossTableTarget.IsListParentPage(metadata,table,page)
             ?page.Extra.GetValueOrDefault("type").ToString():"1";
         return new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
             bindings,accountParentPageType:role,singleTargets:singleTargets));

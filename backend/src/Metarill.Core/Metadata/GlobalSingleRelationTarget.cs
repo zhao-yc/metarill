@@ -42,10 +42,10 @@ public sealed record GlobalSingleRelationPlan(PageMetadata Page,ColumnMetadata N
 
     internal bool PageOnlyList { get; init; }
     internal bool StoredListAccount { get; init; }
-    internal bool ProjectListPage { get; init; }
+    internal bool FixedListPage { get; init; }
 
     /// <summary>固定下拉按实际页面解析目标实体或选择替代页时，该页条件贯穿候选、名称读取和维护。</summary>
-    public bool UsesListPageScope => AlternateListPage || PageOnlyList || StoredListAccount || ProjectListPage;
+    public bool UsesListPageScope => AlternateListPage || PageOnlyList || StoredListAccount || FixedListPage;
 }
 
 /// <summary>普通单值全局关系的静态证明，目标和页面必须来自同一明确发布目录。</summary>
@@ -204,11 +204,13 @@ public static class GlobalSingleRelationTarget
             cacheControl&&pageId.Length>0;
         var storedListAccount=allowsLogical&&target.IsRongyu==1&&fixedList&&boundStoredList&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
-        var listProjectParent=foreign.ControlKind=="List"&&pageId.Length>0&&
-            GlobalCrossTableTarget.IsProjectListParentPage(target,page,condition);
+        var listParent=foreign.ControlKind=="List"&&pageId.Length>0&&
+            GlobalCrossTableTarget.IsListParentPage(target,page,condition,expanded);
+        var listProjectParent=listParent&&GlobalCrossTableTarget.IsProjectListParentPage(target,page,condition);
         var projectListPage=foreign.ControlKind=="List"&&pageId.Length>0&&
             (GlobalCrossTableTarget.IsProjectSinglePage(target,page,condition,allowListPage:true)||listProjectParent);
-        var usesListPageScope=alternateListPage||pageOnlyList||storedListAccount||projectListPage;
+        var fixedListPage=projectListPage||listParent;
+        var usesListPageScope=alternateListPage||pageOnlyList||storedListAccount||fixedListPage;
         // 原弹窗直达显式发布的 type=1 单选页，账号条件与真实单值关系和名称副本共用。
         var storedSelectionAccount=allowsLogical&&target.IsRongyu==1&&foreign.ControlKind=="SelectPage"&&
             pageId.Length>0&&page.Extra.GetValueOrDefault("type").ToString()=="1"&&
@@ -227,10 +229,10 @@ public static class GlobalSingleRelationTarget
         var projectSelectionPage=projectListPage||foreign.ControlKind=="SelectPage"&&pageId.Length>0&&
             GlobalCrossTableTarget.IsProjectSinglePage(target,page,condition);
         if(projectParent)RequireProjectParentPage(catalog,target,page);
-        else if(projectSelectionPage&&!listProjectParent)
+        else if(projectSelectionPage&&!listParent)
             GlobalCrossTableTarget.RequireProjectSingleCandidate(catalog,target,page,allowListPage:projectListPage);
-        else if(listProjectParent&&fixedParent is not {Logical:false})
-            throw new NotSupportedException("原下拉字典的项目条件必须绑定实际物理父记录。");
+        else if(listParent&&fixedParent is not {Logical:false})
+            throw new NotSupportedException("原下拉字典的父范围必须绑定实际物理父记录。");
         else if(!exactSingle&&fixedParent is null)
         {
             if(scopedSelfTree)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page);
@@ -279,7 +281,7 @@ public static class GlobalSingleRelationTarget
             condition.Terms.Count==0&&string.IsNullOrWhiteSpace(Value("whereSql"))&&
             targetColumns.Any(column=>column.ColumnName=="yz_project_id");
         // 物理常量已通过实际发布页和字段证明。普通冗余来源同样使用此范围执行保存和名称维护。
-        var fixedSelectionPage=projectSelectionPage||unfilteredStoredSelection||cacheControl&&owner.IsRongyu==1&&selectPage&&
+        var fixedSelectionPage=projectSelectionPage||listParent||unfilteredStoredSelection||cacheControl&&owner.IsRongyu==1&&selectPage&&
             condition.Terms.Count>0&&condition.Variables.Count==0&&
             (globalOwner||!exactSingle&&!scopedCrossTable&&!scopedSelfTree);
         // 实时按实际页证明表和名称。冻结的物理副本仍需跨所有入口使用同一范围。
@@ -306,7 +308,7 @@ public static class GlobalSingleRelationTarget
             ScopedAccount=scopedAccount,FixedSelectionPage=fixedSelectionPage,ProjectSelectionPage=projectSelectionPage,
             Parent=fixedParent,SourceParent=sourceParent,
             CacheControl=control,NestedCacheScope=nestedScope,
-            AlternateListPage=alternateListPage,PageOnlyList=pageOnlyList,StoredListAccount=storedListAccount,ProjectListPage=projectListPage};
+            AlternateListPage=alternateListPage,PageOnlyList=pageOnlyList,StoredListAccount=storedListAccount,FixedListPage=fixedListPage};
         if(owner.IsRongyu==1&&GlobalCrossTableTarget.Declared(owner)&&foreign.ControlKind=="SelectPage"&&
             (!plan.RequiresScopedCache||page.Extra.GetValueOrDefault("type").ToString()!="1"))
             throw new NotSupportedException("全局冗余单选要求有固定数据范围的已发布type=1目标页。");
