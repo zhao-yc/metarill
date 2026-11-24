@@ -219,6 +219,10 @@ internal static class RelationCompilation
             var selectionParent=selection is null?null:
                 ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,target.Source,targetPage.Source);
             var storedSelectionParent=target.Source.IsRongyu==1?selectionParent:null;
+            // 无父冗余字典仍按实际单选页过滤；精确权限继续使用各自的候选和写入计划。
+            var scopedStoredSelection=storedSelectionParent is not null||
+                selection is not null&&owner.Source.IsRongyu==0&&!owner.IsGlobal&&!target.IsGlobal&&
+                target.Source.IsRongyu==1&&targetPage.Condition is not null&&!ExactDataManageCompilation.Declared(targetPage);
             var sourceKeys=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
                 .DistinctBy(column=>column.Source.Id).ToArray();
             var projectParentScope=!functionForm&&!binding.Declared&&!owner.IsGlobal&&!target.IsGlobal&&
@@ -263,7 +267,7 @@ internal static class RelationCompilation
                 fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0)
             {
                 ListPageOverride = listPageOverride,
-                ScopedStoredSingle = scopedStoredList||storedSelectionParent is not null,
+                ScopedStoredSingle = scopedStoredList||scopedStoredSelection,
                 FixedGlobalSelection = globalFixedSelection,
                 CompoundProjectSource = compoundProjectSource is not null,
                 CompoundProjectTarget = compoundTarget&&publishedParent is {Logical:false,Global:false,AdditionalTargets.Count:>0},

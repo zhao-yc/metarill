@@ -201,6 +201,88 @@ public sealed class SelectionNameFilterCompilationTests
         Assert.Null(ProjectScopedSingleRelationTarget.Resolve(catalog,owner,foreign,target));
     }
 
+    /// <summary>非冗余来源的名称投影必须继承冗余单选字典的固定条件和当前账号。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,true)]
+    public async Task Live_project_selection_keeps_unparented_dictionary_scope(bool accountScope,bool sourceHasParent)
+    {
+        const string ns="Example.LiveStoredSelection";
+        var catalog=RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
+        catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=1;
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        foreign.ControlKind="SelectPage";
+        foreign.ControlDetail="""{"pageId":"301","tableId":"3","nameField":"name"}""";
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        sourcePage.IsImport=sourcePage.IsExport=1;
+        sourcePage.Extra["importMethod"]=JsonSerializer.SerializeToElement(sourceHasParent?"OverWriteByFirstColumn":"OnlyNew");
+        sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(sourceHasParent?"edit":"list");
+        if(!sourceHasParent)sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+        targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        targetPage.WhereSql="yz_project_id=@current_yz_project_id AND status=1";
+        catalog.ConfigColumns.Add(new(){Id="37",ConfigTableId="3",ColumnName="status",LogicalType="int32",YzProjectId=catalog.YzProjectId});
+        if(accountScope)
+        {
+            catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId});
+            targetPage.WhereSql+=" AND store_id=@current_store_id";
+        }
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25")
+            .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var published=Assert.Single(NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,["target_name"]));
+        Assert.Equal("301",published.PageId);
+        Assert.Equal("201",published.SourcePageId);
+        Assert.Equal("201",published.ControlSourcePageId);
+        Assert.True(published.ApplyPageCondition);
+        var filter=SelectionNameFilterCompilation.ForPage(model,table,page);
+        Assert.Empty(filter.Gaps);
+        Assert.Equal("targetName",Assert.Single(filter.Bindings).FilterKey);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-live-stored-selection-scope");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.RelationSourceService",true)!;
+            var actor=new RuntimeActor(8,"离线单选范围",false,catalog.YzProjectId,"5"){StoreId=9007199254742011L};
+            const BindingFlags hidden=BindingFlags.Instance|BindingFlags.NonPublic;
+            foreach(var member in new[]{"ReadPlan201","ExportReadPlan201"})
+            {
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    service.GetField(member,BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                Assert.Equal(accountScope,plan.RequiresAccount);
+                if(accountScope)
+                    Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+                var read=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan.BindAccount(actor))!;
+                var name=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["target_name"]));
+                var from=Assert.IsType<string>(read.GetType().GetProperty("From",hidden)!.GetValue(read));
+                Assert.Contains("`relation_target`",from);
+                Assert.Contains("`status`",from+name);
+                Assert.DoesNotContain("`parent_id`",from+name);
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    read.GetType().GetProperty("Constants",hidden)!.GetValue(read));
+                Assert.Contains(1,constants.Values);
+                if(accountScope)
+                {
+                    Assert.Contains("`store_id`",from+name);
+                    Assert.Contains(actor.StoreId,constants.Values);
+                }
+            }
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+            var app=Path.Combine(directory,"app");
+            Assert.True(new ApplicationPackager().Create(catalog,app,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(app,operation);
+        }
+        finally { if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>只渲染生成查询，不执行命令。</summary>
     private static string FilterSql<T>(object query) where T:class => ((FreeSql.ISelect<T>)query).ToSql("1");
 
