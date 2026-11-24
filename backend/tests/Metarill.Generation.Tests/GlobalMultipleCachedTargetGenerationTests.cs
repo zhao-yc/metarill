@@ -193,6 +193,15 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     public Task Global_business_multiselect_uses_project_and_account_dictionary(int mode,string projectType,bool constants,string accountField)=>
         VerifyPublishedGlobalMultiselect(mode,0,false,projectType,unfiltered:!constants,globalSource:true,projectScoped:true,accountField:accountField);
 
+    /// <summary>验证冗余全局多选字典同时执行当前项目、认证归属和固定条件。</summary>
+    [Theory]
+    [InlineData(0,"int64",false,"store_id")]
+    [InlineData(0,"string",true,"merchant_id")]
+    [InlineData(1,"int64",true,"merchant_id")]
+    [InlineData(1,"string",false,"store_id")]
+    public Task Global_business_multiselect_uses_stored_project_and_account_dictionary(int mode,string projectType,bool constants,string accountField)=>
+        VerifyPublishedGlobalMultiselect(mode,1,false,projectType,unfiltered:!constants,globalSource:true,projectScoped:true,accountField:accountField);
+
     /// <summary>全局业务记录仍按项目隔离，账号限定的全局字典不需要项目相同。</summary>
     [Theory]
     [InlineData(0,"int64",false,"store_id")]
@@ -788,6 +797,15 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     [InlineData(1,"string",true,"merchant_id")]
     public Task Global_business_checkbox_uses_project_and_account_dictionary(int mode,string projectType,bool constants,string accountField)=>
         VerifyGlobalBusinessCheckboxDictionary(mode,projectType,!constants,projectScoped:true,targetStorage:0,accountField:accountField);
+
+    /// <summary>验证冗余全局复选字典的全称和简称使用同一项目及账号条件。</summary>
+    [Theory]
+    [InlineData(0,"int64",true,"merchant_id")]
+    [InlineData(0,"string",false,"store_id")]
+    [InlineData(1,"int64",false,"store_id")]
+    [InlineData(1,"string",true,"merchant_id")]
+    public Task Global_business_checkbox_uses_stored_project_and_account_dictionary(int mode,string projectType,bool constants,string accountField)=>
+        VerifyGlobalBusinessCheckboxDictionary(mode,projectType,!constants,projectScoped:true,targetStorage:1,accountField:accountField);
 
     /// <summary>复选从账号限定的全局字典读取全称和简称，不附加字典项目范围。</summary>
     [Theory]

@@ -99,9 +99,21 @@ public sealed class GlobalMultipleRelationReadTests
     public void Unproven_global_array_rejects_before_connection(string kind)
     {
         var c=Catalog("MultiSelectPage",false);var source=c.ConfigColumns.Single(x=>x.Id=="15");var target=c.ConfigTables.Single(x=>x.Id=="2");var page=c.ConfigPages.Single(x=>x.Id=="21");var name=c.ConfigColumns.Single(x=>x.Id=="22");
-        if(kind=="ownerGlobal")c.ConfigTables[0].Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");if(kind=="ownerUnpublished")c.ConfigTables[0].YzProjectId="";if(kind=="noSourceProject")c.ConfigColumns.RemoveAll(x=>x.Id=="12");if(kind=="targetR0")target.IsRongyu=0;if(kind=="targetUnpublished")target.YzProjectId="";if(kind=="pageUnpublished")page.YzProjectId="";if(kind=="pageVariable")page.WhereSql="yz_project_id=@current_yz_project_id";if(kind=="conflictTable")source.LinkConfigTableId="3";if(kind=="conflictPage")source.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("31");if(kind=="duplicate")source.ControlDetail="{\"tableId\":\"2\",\"tableId\":\"3\"}";if(kind=="ambiguous"){source.ControlDetail="{\"tableId\":\"2\"}";c.ConfigPages.Add(new(){Id="22",YzProjectId=c.YzProjectId,ConfigTableId="2"});}if(kind=="cachedName")name.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);if(kind=="credentialName"){name.ColumnName="password";source.ControlDetail=source.ControlDetail.Replace("\"nameField\":\"name\"","\"nameField\":\"password\"",StringComparison.Ordinal);}if(kind=="arrayName")name.ControlKind="FileLibrary";if(kind=="viewTarget")target.IsView=1;
+        if(kind=="ownerGlobal")c.ConfigTables[0].Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");if(kind=="ownerUnpublished")c.ConfigTables[0].YzProjectId="";if(kind=="noSourceProject")c.ConfigColumns.RemoveAll(x=>x.Id=="12");if(kind=="targetR0")target.IsRongyu=0;if(kind=="targetUnpublished")target.YzProjectId="";if(kind=="pageUnpublished")page.YzProjectId="";if(kind=="pageVariable")page.WhereSql="yz_project_id=@unknown_project";if(kind=="conflictTable")source.LinkConfigTableId="3";if(kind=="conflictPage")source.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("31");if(kind=="duplicate")source.ControlDetail="{\"tableId\":\"2\",\"tableId\":\"3\"}";if(kind=="ambiguous"){source.ControlDetail="{\"tableId\":\"2\"}";c.ConfigPages.Add(new(){Id="22",YzProjectId=c.YzProjectId,ConfigTableId="2"});}if(kind=="cachedName")name.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);if(kind=="credentialName"){name.ColumnName="password";source.ControlDetail=source.ControlDetail.Replace("\"nameField\":\"name\"","\"nameField\":\"password\"",StringComparison.Ordinal);}if(kind=="arrayName")name.ControlKind="FileLibrary";if(kind=="viewTarget")target.IsView=1;
         Assert.ThrowsAny<Exception>(()=>MySqlNonRedundantReadCompiler.Compile(c,"1",["shared_names"]));
     }
+    /// <summary>实际字典页声明当前项目时，读取不会退回默认的无项目范围。</summary>
+    [Fact]
+    public void Published_global_array_restricts_dictionary_to_current_project()
+    {
+        var catalog=Catalog("MultiSelectPage",false);
+        catalog.ConfigPages.Single(page=>page.Id=="21").WhereSql="yz_project_id=@current_yz_project_id AND status=1";
+        var plan=MySqlNonRedundantReadCompiler.Compile(catalog,"1",["shared_names"]);
+        var name=Property<IReadOnlyDictionary<string,string>>(plan,"Expressions")["shared_names"];
+        Assert.Contains("multi_value.`yz_project_id`=@project_scope_number",name);
+        Assert.Contains("multi_value.`status`",name);
+    }
+
     /// <summary>合成目录不写平台配置，普通目标刻意保留项目谓词。</summary>
     private static MetadataCatalog Catalog(string kind,bool noProject)
     {

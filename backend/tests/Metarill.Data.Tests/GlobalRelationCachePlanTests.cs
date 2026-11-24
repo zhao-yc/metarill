@@ -13,7 +13,53 @@ public sealed class GlobalRelationCachePlanTests
     [Theory][InlineData("List",false)][InlineData("List",true)][InlineData("SelectPage",false)][InlineData("SelectPage",true)][InlineData("MultiSelectPage",false)][InlineData("MultiSelectPage",true)][InlineData("MultiCheckBoxDatabase",false)][InlineData("MultiCheckBoxDatabase",true)]
     public void Global_target_cache_and_maintenance_keep_source_scope(string kind,bool noProject)
     {
-        var c=Catalog(kind,noProject);var before=JsonSerializer.Serialize(c);var definition=Definition(kind);var plan=RelationMutationPlan.Compile(c,[definition]);var binding=((IEnumerable)Field(plan,"Bindings")).Cast<object>().Single();Assert.Equal("int64",Field(Field(binding,"Source"),"ProjectType"));Assert.Equal("",Field(Field(binding,"Target"),"ProjectType"));var maintenance=RelationMaintenanceCatalog.Compile(c,[definition]);var source=Plan(maintenance,"1");Assert.Null(NullableField(source,"Error"));var read=Field(source,"Read");Assert.Contains("b.`yz_project_id`=@project_scope_number",(string)Field(read,"Scope"));if(kind is "List" or "SelectPage")Assert.DoesNotContain("r0.`yz_project_id`",(string)Field(read,"From"));else{var expressions=(IReadOnlyDictionary<string,string>)Field(read,"Expressions");Assert.DoesNotContain("multi_value.`yz_project_id`",expressions["shared_names"]);Assert.Contains("multi_value.`delete_no` IS NULL",expressions["shared_names"]);}Assert.Equal(before,JsonSerializer.Serialize(c));
+        var catalog=Catalog(kind,noProject);
+        var before=JsonSerializer.Serialize(catalog);
+        var definition=Definition(kind);
+        RelationMaintenanceCatalog maintenance;
+        if(kind=="SelectPage")
+        {
+            // 发布页常量不能通过直接回填写入。真实传播与维护共用实际目标页范围。
+            var rejected=Assert.Throws<InvalidOperationException>(()=>RelationMutationPlan.Compile(catalog,[definition]));
+            Assert.Contains("统一名称维护计划",rejected.Message);
+            maintenance=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],
+                [definition with {ScopedSinglePageId="21"}]);
+            Assert.Contains("shared_name",maintenance.MixedSourceColumns["global_cache_source"]);
+            Assert.Contains("global_cache_shared",maintenance.MixedTargets);
+            Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,[],
+                [definition with {ScopedSinglePageId="unknown"}]));
+        }
+        else
+        {
+            var plan=RelationMutationPlan.Compile(catalog,[definition]);
+            var binding=((IEnumerable)Field(plan,"Bindings")).Cast<object>().Single();
+            Assert.Equal("int64",Field(Field(binding,"Source"),"ProjectType"));
+            Assert.Equal("",Field(Field(binding,"Target"),"ProjectType"));
+            maintenance=RelationMaintenanceCatalog.Compile(catalog,[definition]);
+        }
+        var source=Plan(maintenance,"1");
+        Assert.Null(NullableField(source,"Error"));
+        var read=Field(source,"Read");
+        Assert.Contains("b.`yz_project_id`=@project_scope_number",(string)Field(read,"Scope"));
+        if(kind is "List" or "SelectPage")
+        {
+            var joins=(string)Field(read,"From");
+            Assert.DoesNotContain("r0.`yz_project_id`",joins);
+            if(kind=="SelectPage")
+            {
+                var names=(IReadOnlyDictionary<string,string>)Field(read,"Expressions");
+                Assert.Contains("CASE WHEN",names["shared_name"]);
+                Assert.Contains("r0.`status`",names["shared_name"]);
+                Assert.DoesNotContain("r0.`yz_project_id`",names["shared_name"]);
+            }
+        }
+        else
+        {
+            var expressions=(IReadOnlyDictionary<string,string>)Field(read,"Expressions");
+            Assert.DoesNotContain("multi_value.`yz_project_id`",expressions["shared_names"]);
+            Assert.Contains("multi_value.`delete_no` IS NULL",expressions["shared_names"]);
+        }
+        Assert.Equal(before,JsonSerializer.Serialize(catalog));
     }
     /// <summary>R0中间节点继续项目隔离，其派生字符串可作为R1物理缓存的全局终点路径。</summary>
     [Fact]public void Local_nonredundant_intermediate_keeps_global_terminal_and_reverse_paths()
