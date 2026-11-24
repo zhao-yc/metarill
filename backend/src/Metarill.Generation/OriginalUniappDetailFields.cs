@@ -152,10 +152,16 @@ internal static class OriginalUniappDetailFields
                 return Hidden(f) + $"<view class='rtf-buttons'><button size='mini' @click=\"{name}RtfDo('review')\">预览</button><button size='mini' v-if='!{ro}' @click=\"{name}RtfDo('edit')\">编辑</button></view><yzp-rtf-preview :html='entity.{name}' />";
             // 原V8样板用Text表达默认文本框，保持与原空类型相同的HTML和数值输入行为。
             case "": case "Text":
-                return $"<uni-easyinput primaryColor=\"{primary}\" v-if='!{ro}' v-model='entity.{name}' {(column.Type == "string?" ? $"maxlength='{(InputLength(c,f) == "max" ? "-1" : Html(InputLength(c,f)))}'" : "")} {(column.Type is "int?" or "decimal?" or "double?" ? "type='number'" : "")} {(Enabled(c.Page.Source.Extra, "isListEdit") ? "@blur='saveEntity()'" : "")} /><text v-if='{ro}'>{{{{entity.{name}}}}}</text>";
+                var blur = EditorBlur(c);
+                return $"<uni-easyinput primaryColor=\"{primary}\" v-if='!{ro}' v-model='entity.{name}' {(column.Type == "string?" ? $"maxlength='{(InputLength(c,f) == "max" ? "-1" : Html(InputLength(c,f)))}'" : "")} {(column.Type is "int?" or "decimal?" or "double?" ? "type='number'" : "")} {blur} /><text v-if='{ro}'>{{{{entity.{name}}}}}</text>";
             default: throw new InvalidOperationException("原详情尚无该控件的完整移植分支：" + kind);
         }
     }
+    /// <summary>业务列表行内保留原失焦事件。功能表继续使用仅校验的原入口。</summary>
+    private static string EditorBlur(OriginalDetailContext context) =>
+        !Enabled(context.Page.Source.Extra,"isListEdit") ? "" :
+        context.Table.Source.IsFunctionTable == 1 ? "@blur='saveEntity()'" : "@blur='saveOriginalListEdit()'";
+
     /// <summary>下拉仍调用原findNameId与formParameters协议；只为迟到响应增加组件范围核验。</summary>
     private static void InitList(OriginalDetailContext c, OriginalDetailField f, string list, bool checkbox)
     {

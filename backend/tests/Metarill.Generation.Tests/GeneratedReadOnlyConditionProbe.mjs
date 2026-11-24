@@ -197,6 +197,83 @@ if (process.argv[3] === 'pending-autosave') {
  } finally { fixture.app.unmount() }
  process.exit(0)
 }
+if (process.argv[3] === 'inline-blur') {
+ const fixture = mountGenerated(source, {is_props:true,props_id:'7'})
+ const form = fixture.state
+ const writes = fixture.writes
+ const walk = node => [node,...node.children.flatMap(walk)]
+ const blurText = async () => {
+  const inputs = walk(fixture.tree).filter(node => node.props?.modelValue === form.entity.name && typeof node.props?.onBlur === 'function')
+  assert.equal(inputs.length,1)
+  inputs[0].props.onBlur()
+  await fixture.flush()
+ }
+ try {
+  await fixture.flush()
+  fixture.respond(fixture.requests.find(request => request.options.url.includes('/detail/7')),
+    {id:'7',name:'原记录',approvalState:'草稿',locked:false})
+  await fixture.flush()
+  form.entity.name = '第一次失焦'
+  await fixture.flush()
+  await blurText()
+  form.entity.name = '第二次失焦'
+  await fixture.flush()
+  await blurText()
+  assert.equal(writes().length,1)
+  fixture.respond(writes()[0],{id:'7',name:'旧回显',approvalState:'草稿',locked:false})
+  await fixture.flush()
+  await fixture.flush()
+  assert.equal(form.entity.name,'第二次失焦','第一笔回显之后必须保留第二次失焦编辑')
+  assert.equal(writes().length,2)
+  assert.equal(writes()[0].options.data.name,'第一次失焦')
+  assert.equal(writes()[1].options.data.name,'第二次失焦')
+  assert.equal(fixture.events.filter(event=>event[0]==='onPopClose').length,0)
+
+  form.entity.name = '仍在输入'
+  await fixture.flush()
+  fixture.respond(writes()[1],{id:'7',name:'第二笔回显',approvalState:'草稿',locked:false})
+  await fixture.flush()
+  assert.equal(form.entity.name,'仍在输入')
+  assert.equal(writes().length,2,'没有新的失焦时只保留草稿')
+  assert.equal(fixture.events.filter(event=>event[0]==='onPopClose').length,0)
+  await blurText()
+  assert.equal(writes().length,3)
+  assert.equal(writes()[2].options.data.name,'仍在输入')
+  fixture.respond(writes()[2],{id:'7',name:'最终回显',approvalState:'草稿',locked:false})
+  await fixture.flush()
+  assert.equal(form.entity.name,'最终回显')
+  assert.equal(fixture.events.filter(event=>event[0]==='onPopClose').length,1)
+
+  form.entity.name = '先保存'
+  await fixture.flush()
+  await blurText()
+  form.entity.name = '将被撤权'
+  await fixture.flush()
+  await blurText()
+  fixture.setProps({parentReadOnlyCondition:true})
+  await fixture.flush()
+  fixture.respond(writes()[3],{id:'7',name:'第一笔已完成',approvalState:'草稿',locked:false})
+  await fixture.flush()
+  assert.equal(writes().length,4,'父页设为只读后不得接续保存')
+  fixture.setProps({parentReadOnlyCondition:false})
+  await fixture.flush()
+  form.entity.name = '通过表单的版本'
+  await fixture.flush()
+  await blurText()
+  form.entity.name = '下一笔校验不通过'
+  await fixture.flush()
+  await blurText()
+  const validated = fixture.validations()
+  fixture.setValid(false)
+  fixture.respond(writes()[4],{id:'7',name:'已保存的版本',approvalState:'草稿',locked:false})
+  await fixture.flush()
+  await fixture.flush()
+  assert.equal(fixture.validations(),validated+1)
+  assert.equal(writes().length,5,'续发也必须通过原表单校验')
+  assert.equal(form.entity.name,'下一笔校验不通过')
+ } finally { fixture.app.unmount() }
+ process.exit(0)
+}
 const fixture=mountGenerated(source,{is_props:true,props_id:'7'})
 try {
  await fixture.flush()

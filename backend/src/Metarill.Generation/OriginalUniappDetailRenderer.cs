@@ -160,15 +160,17 @@ readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Bo
             ["//##original_methods##"]=Runtime(c),["##table_name##"]=table.Source.TableName,["##table_camel_name##"]=GenerationModel.Camel(table.Source.TableName),["##page_sn##"]=page.Source.Id,
             ["##$uni-primary##"]=c.PrimaryColor,["##is_auto_back_on_mobile_save##"]=Enabled(page.Source.Extra,"isAutoBackOnMobileSave").ToString().ToLowerInvariant()
         };
-        AddAutoSaveRecovery(c,values);
+        AddInFlightSaveRecovery(c,values);
         var result=Template("original-detail.vue.tpl");foreach(var (marker,value)in values)result=result.Replace(marker,value,StringComparison.Ordinal);
         if(Regex.IsMatch(result,"##[A-Za-z_$][A-Za-z0-9_$]*##"))throw new InvalidOperationException("原详情模板仍有未填充占位符。");return result;
     }
-    /// <summary>只为已配置自动保存的业务详情保留在途编辑，仍由原保存入口校验和串行提交。</summary>
-    private static void AddAutoSaveRecovery(OriginalDetailContext context, Dictionary<string,string> replacements)
+    /// <summary>原字段自动保存及列表行内失焦保存共用在途草稿，仍由原保存入口校验和串行提交。</summary>
+    private static void AddInFlightSaveRecovery(OriginalDetailContext context, Dictionary<string,string> replacements)
     {
         var writable = context.Page.Writable.Select(column => column.JsonName).ToArray();
-        var autoSave = context.Table.Source.IsFunctionTable == 1 ? [] :
+        var business = context.Table.Source.IsFunctionTable != 1;
+        var listEdit = business && Enabled(context.Page.Source.Extra,"isListEdit");
+        var autoSave = !business ? [] :
             context.FieldsMetadata.Where(field => !field.ReadOnly && !field.Derived && Enabled(field.Settings.Extra,"isAutoSaveAfterChange"))
                 .Select(field => field.Column.JsonName).Intersect(writable,StringComparer.Ordinal).ToArray();
         replacements["##save_capture##"] = "";
@@ -176,13 +178,33 @@ readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Bo
         replacements["##save_complete##"] = "";
         replacements["##save_pending##"] = "";
         replacements["##save_restore##"] = "";
-        if (autoSave.Length == 0) return;
+        if (!listEdit && autoSave.Length == 0) return;
 
-        replacements["##save_capture##"] = "const submitted = JSON.parse(JSON.stringify(that.entity));\n        let resumeSave;\n        ";
+        var registerBlur = "";
+        var completeBlur = "";
+        var resumeBlur = "";
+        if (listEdit)
+        {
+            context.Methods.AppendLine("""
+    // 正在保存时只登记同一记录的实际失焦，普通输入本身不会触发下一笔。
+    saveOriginalListEdit() {
+      if (!this.saving) { this.saveEntity(); return; }
+      this.permissionVersion++;
+      const active = this._originalListEditSave;
+      if (active?.current() && !this.readOnlyCondition) active.pending = true;
+    },
+""");
+            registerBlur = "const listEditSave = { current: that.originalContext(), pending: false };\n        that._originalListEditSave = listEditSave;\n        ";
+            completeBlur = "if (that._originalListEditSave === listEditSave) that._originalListEditSave = null;\n            ";
+            resumeBlur = "listEditSave.pending || ";
+            replacements["//##customer_button_handlers##"] = context.Methods.ToString();
+        }
+        var resume = resumeBlur + (autoSave.Length == 0 ? "" : Js(autoSave) + ".some(field => Object.prototype.hasOwnProperty.call(pending, field)) || ");
+        replacements["##save_capture##"] = "const submitted = JSON.parse(JSON.stringify(that.entity));\n        let resumeSave;\n        " + registerBlur;
         replacements["##save_data##"] = "submitted";
-        replacements["##save_complete##"] = """
+        replacements["##save_complete##"] = $$"""
           complete() {
-            if (resumeSave) that.$nextTick(() => { if (resumeSave()) that.saveEntity(successFunction, close); });
+            {{completeBlur}}if (resumeSave) that.$nextTick(() => { if (resumeSave()) that.saveEntity(successFunction, close); });
           },
 
 """;
@@ -197,7 +219,7 @@ readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Bo
 if (!that.readOnlyCondition && Object.keys(pending).length > 0) {
                 // 保留服务器回显和新输入。返还操作结果，但在新输入保存前保持详情打开。
                 that.entity = {...that.entity, ...pending};
-                if (successFunction || close || {{Js(autoSave)}}.some(field => Object.prototype.hasOwnProperty.call(pending, field)))
+                if ({{resume}}successFunction || close)
                   resumeSave = that.originalContext();
                 that.emitDetailChange('save', res.data, method);
                 return;

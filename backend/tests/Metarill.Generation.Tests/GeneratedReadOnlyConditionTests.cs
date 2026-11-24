@@ -106,6 +106,25 @@ public sealed class GeneratedReadOnlyConditionTests
         }
     }
 
+    /// <summary>实际列表行内失焦保存支持连续编辑，未再次失焦时只保留表单草稿。</summary>
+    [Fact]
+    public async Task Inline_blur_preserves_pending_edits_and_saves_only_after_another_blur()
+    {
+        var catalog = Catalog();
+        catalog.ConfigPages.Single().Extra["isListEdit"] = JsonSerializer.SerializeToElement(1);
+        var boundary = Path.Combine(Path.GetTempPath(),"metarill-detail-inline-blur");
+        var output = Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,output,"Example.DetailInlineBlur");
+            await Probe(output,"inline-blur");
+        }
+        finally
+        {
+            if (Directory.Exists(output)) await TestDirectoryCleanup.DeleteAsync(output,boundary);
+        }
+    }
+
     /// <summary>浏览器需区别相邻的雪花ID，并让整数比较与同一 AST 的服务端结果一致。</summary>
     [Fact]
     public async Task Integer_readonly_conditions_preserve_adjacent_ids_and_decimal_thresholds()

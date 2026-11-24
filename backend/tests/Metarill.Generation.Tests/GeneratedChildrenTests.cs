@@ -36,7 +36,7 @@ public sealed class GeneratedChildrenTests
                 Assert.Contains("<template v-for=\"item in list\" :key=\"item.id\">", list);
                 Assert.Contains(":props_id='item.id' :props_parent_id='parent_id' :props_parent_page_sn='parent_page_sn'", list);
                 Assert.Contains(":parentReadOnlyCondition='readOnlyCondition'", list);
-                Assert.Contains("@blur='saveEntity()'", detail);
+                Assert.Contains("@blur='saveOriginalListEdit()'", detail);
             }
             await RunProbe(output);
         }
