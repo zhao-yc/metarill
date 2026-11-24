@@ -115,6 +115,7 @@ internal static class DatabaseCheckboxCompilation
             var storedProjectPage=false;
             var storedStaticPage=false;
             var scopedGlobalAccountPage=false;
+            var scopedGlobalParentPage=false;
             if(target.IsGlobal&&!functionForm)
             {
                 var proof=table.Source.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);
@@ -127,6 +128,7 @@ internal static class DatabaseCheckboxCompilation
                     GlobalMultipleRelationTarget.IsStoredAccountPage(target.Source,publishedGlobalPage.Source,publishedCondition.Syntax,checkbox:true);
                 storedProjectPage=proof.UsesProjectPage;
                 scopedGlobalAccountPage=table.IsGlobal&&proof.UsesNonRedundantAccountPage;
+                scopedGlobalParentPage=proof.UsesNonRedundantPhysicalParentPage;
                 storedStaticPage=table.IsGlobal&&proof.UsesStoredStaticPage;
                 if(storedAccountPage||storedProjectPage||storedStaticPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
                     GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name)||
@@ -134,7 +136,7 @@ internal static class DatabaseCheckboxCompilation
                     globalPage=publishedGlobalPage;
             }
             var storedIdentityPage=storedAccountPage||storedProjectPage||scopedGlobalAccountPage;
-            if(table.IsGlobal&&!storedIdentityPage&&!storedStaticPage)
+            if(table.IsGlobal&&!storedIdentityPage&&!storedStaticPage&&!scopedGlobalParentPage)
                 return Gap("全局业务来源必须绑定受支持的已发布字典页。");
             if(storedAccountPage&&table.Source.IsRongyu==1&&!functionForm&&
                 !baseline.HasSameCondition(definition,target.Columns.Select(column=>column.Source.ColumnName)))

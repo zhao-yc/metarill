@@ -82,7 +82,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         throw new InvalidOperationException("全局复选名称与已发布目标页不一致。");
                     pageId=globalPageId=published.Page.Id;
                     storedGlobalStatic=GlobalCrossTableTarget.Declared(table)&&published.UsesStoredStaticPage;
-                    globalAccountPage=published.UsesNonRedundantAccountPage;
+                    globalAccountPage=published.UsesNonRedundantAccountPage||published.UsesNonRedundantPhysicalParentPage;
                 }
                 name=CheckboxPageNameOverride(table,relation,target,selected,baseline,definition,globalPageId,storedGlobalStatic);
             }
@@ -173,7 +173,8 @@ public static partial class MySqlNonRedundantReadCompiler
             var globalDictionarySource=refreshFields is not null&&selectedScope is not null&&target.IsRongyu==0&&
                 GlobalCrossTableTarget.Declared(table)&&GlobalCrossTableTarget.Declared(target)&&
                 GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target) is {Page.Id:var publishedId} proof&&
-                publishedId==selectedScope.Id&&(proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage);
+                publishedId==selectedScope.Id&&
+                (proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage||proof.UsesNonRedundantPhysicalParentPage);
             var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,checkboxAccount:checkbox);
             var ordinaryForm=checkbox&&refreshFields is not null&&selectedScope is not null&&(sharedCheckbox||fixedParent is not null)
                 ?DatabaseCheckboxDefinition.Parse(relation.ControlDetail).AdditionalPhysicalFormConditions(catalog,target,selectedScope)

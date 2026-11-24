@@ -267,7 +267,8 @@ public static partial class MySqlNonRedundantReadCompiler
         var globalDictionarySource=selectedPage is not null&&target.IsRongyu==0&&
             GlobalCrossTableTarget.Declared(source)&&GlobalCrossTableTarget.Declared(target)&&
             GlobalMultipleRelationTarget.RequireCached(catalog,source,relation,target) is {Page.Id:var publishedId} proof&&
-            publishedId==selectedPage.Id&&(proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage);
+            publishedId==selectedPage.Id&&
+            (proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage||proof.UsesNonRedundantPhysicalParentPage);
         return CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner",GlobalSingleSource:globalDictionarySource),
             selectedPage,relation,sharedCheckbox:sharedCheckbox);
     }

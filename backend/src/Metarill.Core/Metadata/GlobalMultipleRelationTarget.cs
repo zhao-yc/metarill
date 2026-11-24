@@ -7,6 +7,7 @@ public sealed record GlobalMultipleRelationPlan(PageMetadata Page,ColumnMetadata
     public bool UsesStoredStaticPage { get; init; }
     public bool UsesProjectPage { get; init; }
     public bool UsesNonRedundantAccountPage { get; init; }
+    public bool UsesNonRedundantPhysicalParentPage { get; init; }
 }
 
 /// <summary>全局多值关系分别证明普通R0实时读取与普通R1缓存消费者，目标名称必须为明确发布的物理值、R1缓存或已证明的R0单值名称。</summary>
@@ -95,10 +96,19 @@ public static class GlobalMultipleRelationTarget
         var storedStatic=(checkbox||pageId.Length>0)&&(target.IsRongyu==1||!scoped)&&IsStoredStaticPage(target,page,condition,checkbox);
         var projectPage=(checkbox||pageId.Length>0)&&IsProjectPage(target,page,condition,checkbox);
         var nonRedundantAccountPage=(checkbox||pageId.Length>0)&&IsNonRedundantAccountPage(target,page,condition,checkbox);
+        // 同一真实父已由字典声明和来源行共同证明，仍保留实际字典页的账号及固定条件。
+        var physicalParentPage=false;
+        if(GlobalCrossTableTarget.Declared(owner)&&(checkbox||pageId.Length>0)&&target.IsRongyu==0&&!scoped&&
+            IsPublishedMultiPage(target,page,checkbox)&&condition.Variables.Any(AccountConditionVariables.IsSupported)&&
+            MultiTargetParentScope.CompileGlobalPage(catalog,target,condition,checkbox) is {Logical:false,AdditionalTargets.Count:0} parent)
+        {
+            var sourceParent=checkbox?parent.CheckboxSource(catalog,owner,foreign):parent.Source(catalog,owner,foreign);
+            physicalParentPage=sourceParent.LogicalPages.Count==0&&sourceParent.AdditionalColumns.Count==0;
+        }
         if(GlobalCrossTableTarget.Declared(owner))
         {
             // 业务来源仍按行项目隔离。物理副本只能使用维护时也能重现的固定字典范围。
-            if(!storedAccount&&!storedStatic&&!projectPage&&!nonRedundantAccountPage)throw new NotSupportedException("全局多值来源必须绑定受支持的已发布字典页。");
+            if(!storedAccount&&!storedStatic&&!projectPage&&!nonRedundantAccountPage&&!physicalParentPage)throw new NotSupportedException("全局多值来源必须绑定受支持的已发布字典页。");
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
         }
         if(cached&&checkbox&&(projectPage||GlobalCrossTableTarget.Declared(owner)&&(storedStatic||nonRedundantAccountPage))&&
@@ -137,6 +147,6 @@ public static class GlobalMultipleRelationTarget
         var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");
         if(!scoped&&condition.Fields.Any(field=>!Scalar(columns.Single(column=>column.ColumnName==field))))
             throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");
-        return new(page,name){UsesStoredStaticPage=storedStatic,UsesProjectPage=projectPage,UsesNonRedundantAccountPage=nonRedundantAccountPage};
+        return new(page,name){UsesStoredStaticPage=storedStatic,UsesProjectPage=projectPage,UsesNonRedundantAccountPage=nonRedundantAccountPage,UsesNonRedundantPhysicalParentPage=physicalParentPage};
     }
 }

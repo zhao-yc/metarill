@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Metarill.Core.Metadata;
+using Metarill.Core.Security;
 using Metarill.Data.Queries;
 using Xunit;
 
@@ -204,6 +205,19 @@ public sealed class CascadeMultiLabelGenerationTests
     public Task Selected_page_parent_conditions_compile_in_original_endpoints(string kind,int mode,bool physical,bool? rowProject,bool formParent)=>
         CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:physical,globalRowProject:rowProject,
             parent:true,formParent:formParent);
+
+    /// <summary>带项目归属的全局业务表使用同一发布的物理父级及账号范围。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,true)]
+    [InlineData("MultiSelectPage",1,false)]
+    [InlineData("MultiCheckBoxDatabase",0,false)]
+    [InlineData("MultiCheckBoxDatabase",1,true)]
+    [InlineData("MultiSelectPage",0,false,true)]
+    [InlineData("MultiCheckBoxDatabase",1,true,true)]
+    public Task Global_business_multivalue_uses_published_physical_parent(string kind,int mode,bool rowProject,bool globalParent=false)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:true,globalRowProject:rowProject,
+            parent:true,globalParent:globalParent,parentWithoutProject:globalParent,parentAccount:globalParent&&mode==1,
+            globalBusinessSource:true);
 
     /// <summary>已选、当前写及 Excel 通过实际级联还原目标父记录，物理祖先列为空也能匹配。</summary>
     [Theory]
@@ -409,7 +423,7 @@ public sealed class CascadeMultiLabelGenerationTests
     private static async Task CompileCascadeLabel(string kind,int mode,bool selfTree,bool indirect,bool account=false,
         bool recursive=false,bool selectedPage=false,bool physical=false,bool? globalRowProject=null,bool parent=false,bool formParent=false,bool logicalParent=false,bool onlyParent=false,bool sourceLogicalParent=false,
         bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false,string? compoundSourceParent=null,string? compoundTargetParent=null,
-        bool globalCompoundSource=false,bool projectTargetGlobalParent=false)
+        bool globalCompoundSource=false,bool projectTargetGlobalParent=false,bool globalBusinessSource=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -446,7 +460,9 @@ public sealed class CascadeMultiLabelGenerationTests
             catalog.ConfigPageColumns.Add(new(){Id="80184",ConfigPageId=targetPage,ConfigColumnId="84",IsEdit=0});
             display="name";
         }
-        catalog.ConfigTables.Add(new(){Id="9",TableName="label_consumer",IsRongyu=mode});
+        var consumerTable=new TableMetadata{Id="9",TableName="label_consumer",IsRongyu=mode};
+        if(globalBusinessSource)consumerTable.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigTables.Add(consumerTable);
         catalog.ConfigPages.Add(new(){Id="901",ConfigTableId="9",IsImport=1,IsExport=1,WhereSql="yz_project_id=@current_yz_project_id"});
         catalog.ConfigColumns.AddRange([
             new(){Id="91",ConfigTableId="9",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
@@ -456,6 +472,13 @@ public sealed class CascadeMultiLabelGenerationTests
             new(){Id="95",ConfigTableId="9",ColumnName="selected_ids",Name="关联",LogicalType="string",ControlKind=kind,
                 LinkConfigTableId=targetTable,ControlDetail=JsonSerializer.Serialize(new{tableId=targetTable,pageId=physical?(object)201L:targetPage,nameField=display})}
         ]);
+        if(globalBusinessSource&&mode==1)
+        {
+            catalog.ConfigColumns.Add(new(){Id="96",ConfigTableId="9",ColumnName="selected_names",LogicalType="string",
+                ColumnLength="max",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=JsonSerializer.SerializeToElement("selected.name")}});
+            catalog.ConfigPageColumns.Add(new(){Id="90196",ConfigPageId="901",ConfigColumnId="96",IsShow=1});
+        }
         catalog.ConfigPageColumns.Add(new(){Id="90192",ConfigPageId="901",ConfigColumnId="92"});
         catalog.ConfigPageColumns.Add(new(){Id="90195",ConfigPageId="901",ConfigColumnId="95",Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
         if(account)
@@ -474,7 +497,7 @@ public sealed class CascadeMultiLabelGenerationTests
             var scopePage=catalog.ConfigPages.Single(page=>page.Id=="201");
             if(!onlyParent)
             {
-                var scopeName=compoundTargetParent=="physical"&&(globalRowProject is not null||projectTargetGlobalParent)?"name":
+                var scopeName=globalBusinessSource||compoundTargetParent=="physical"&&(globalRowProject is not null||projectTargetGlobalParent)?"name":
                     selfTree?"tree_name":"country_name";
                 scopePage.WhereSql+=$" AND {scopeName} <> '排除目标页名称' AND store_id=@current_store_id";
             }
@@ -553,6 +576,10 @@ public sealed class CascadeMultiLabelGenerationTests
                     var foreign=catalog.ConfigColumns.Single(column=>column.Id=="914");
                     foreign.ControlKind="List";
                     foreign.ControlDetail=JsonSerializer.Serialize(new{tableId=parentTable,pageId=globalPage.Id,nameField="name"});
+                    if(globalBusinessSource&&mode==1)
+                        catalog.ConfigColumns.Add(new(){Id="917",ConfigTableId="9",ColumnName="source_scope_name",LogicalType="string",
+                            ColumnLength="100",Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                                ["columnFullName"]=JsonSerializer.SerializeToElement("source_scope.name")}});
                 }
             }
             if(sourceLogicalParent)
@@ -599,6 +626,24 @@ public sealed class CascadeMultiLabelGenerationTests
                 pageField.Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql}));
             else
                 control.ControlDetail=JsonSerializer.Serialize(new{pageId=targetPage,nameField=display,whereSql});
+        }
+        if(globalBusinessSource)
+        {
+            var origin=catalog.ConfigPages.Single(page=>page.Id=="901");
+            var overwrite=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(origin))!;
+            overwrite.Id="902";
+            overwrite.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+            overwrite.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+            catalog.ConfigPages.Add(overwrite);
+            catalog.ConfigColumns.Single(column=>column.Id=="92").SortNo=-10;
+            catalog.ConfigPageColumns.Single(field=>field.Id=="90192").SortNo=-10;
+            foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="901").ToArray())
+            {
+                var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+                copy.Id="902"+field.ConfigColumnId;
+                copy.ConfigPageId="902";
+                catalog.ConfigPageColumns.Add(copy);
+            }
         }
         RedundantMultiNameCacheTests.Published(catalog);
         if(exact)
@@ -1070,10 +1115,29 @@ public sealed class CascadeMultiLabelGenerationTests
             if(indirect)RuntimeHelpers.RunClassConstructor(assembly.GetType(ns+".Generated.Services.LabelJoinService",true)!.TypeHandle);
             Assert.NotNull(consumer.GetMethod("Import901Async"));
             Assert.NotNull(consumer.GetMethod("Export901Async"));
+            if(globalBusinessSource)
+            {
+                Assert.NotNull(consumer.GetMethod("Import902Async"));
+                Assert.NotNull(consumer.GetMethod("Export902Async"));
+                const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic;
+                var validate=consumer.GetMethod("ValidateActor",flags)!;
+                var error=Assert.Throws<System.Reflection.TargetInvocationException>(()=>
+                    validate.Invoke(null,[new RuntimeActor(7,"合成账号",false,"999","9")]));
+                Assert.IsType<UnauthorizedAccessException>(error.InnerException);
+                var metadata=GenerationMetadataPublisher.ForRelations(catalog);
+                var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
+                Assert.Contains("if (existing.Count > 1)",code);
+                foreach(var id in new[]{"901","902"})
+                {
+                    var scope=metadata.ConfigPages.Single(page=>page.Id==id).WhereSql;
+                    Assert.Contains("source_scope_id=@parentId",scope);
+                    Assert.Contains("store_id=@current_store_id",scope);
+                }
+            }
             if(mode==1)
             {
                 var targets=MixedRelationPropagationCompilation.ForModel(model).MixedTargets;
-                var physicalGlobal=compoundTargetParent=="physical"&&globalRowProject is not null;
+                var physicalGlobal=globalBusinessSource||compoundTargetParent=="physical"&&globalRowProject is not null;
                 Assert.Contains(physicalGlobal?"label_cross_source":selfTree?"label_cross_tree":"label_cross_country",targets);
                 if(indirect)Assert.Contains("label_cross_source",targets);
                 if(parent)Assert.Contains(logicalParent||globalParent?"label_cross_country":"label_scope_parent",targets);
@@ -1091,7 +1155,13 @@ public sealed class CascadeMultiLabelGenerationTests
                         var plan=plans["9"]!;
                         var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
                         var sql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["selected_names"]));
-                        Assert.Contains("`other_country_id`",sql);
+                        if(compoundTargetParent=="physical")Assert.Contains("`other_country_id`",sql);
+                        if(globalBusinessSource)
+                        {
+                            Assert.Contains("`source_scope_id`",sql);
+                            var scope=Assert.IsType<string>(read.GetType().GetProperty("Scope",hidden)!.GetValue(read));
+                            Assert.Contains("`yz_project_id`",scope);
+                        }
                         Assert.Contains("`target_scope_id`",sql);
                         Assert.Contains("`store_id`",sql);
                     }

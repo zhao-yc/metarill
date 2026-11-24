@@ -17,7 +17,7 @@ internal static class DerivedMultipleCacheProof
             return false;
         var page=MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign);
         var published=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);
-        if(target.IsRongyu!=1&&!published.UsesProjectPage&&!published.UsesNonRedundantAccountPage&&!published.UsesStoredStaticPage||
+        if(target.IsRongyu!=1&&!published.UsesProjectPage&&!published.UsesNonRedundantAccountPage&&!published.UsesStoredStaticPage&&!published.UsesNonRedundantPhysicalParentPage||
             page is null&&!published.UsesStoredStaticPage)return false;
         page??=published.Page;
         if(published.Name.Id==binding.ValueColumnId)return true;
