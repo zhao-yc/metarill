@@ -209,7 +209,8 @@ public static partial class MySqlNonRedundantReadCompiler
             // 全局单值路径已证明字符串键的二进制读取；这里不是仅允许int64键的精确管理匹配用途。
             var prefixForNames=publishedPage is null&&publishedArrayScopeCount==0?"multi_name_":aliasPrefix+"array"+publishedArrayScopeCount+"_";
             publishedArrayScopeCount++;
-            var formPageParent=checkbox&&table.IsRongyu==0&&!GlobalCrossTableTarget.Declared(table)&&
+            // 冗余固定字典走下面的发布父页证明，普通表单分支仅接受项目内父。
+            var formPageParent=checkbox&&!projectFixedScope&&table.IsRongyu==0&&!GlobalCrossTableTarget.Declared(table)&&
                 sourcePage is not null&&selectedScope is not null
                 ?MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(catalog,target,selectedScope)
                 :null;

@@ -606,6 +606,21 @@ public sealed class CascadeMultiLabelGenerationTests
             projectTargetGlobalParent:true,storedDictionary:true,globalBusinessSource:true,ordinaryBusinessSource:true,
             alternateCheckboxName:true);
 
+    /// <summary>项目内冗余字典中，账号范围可由实际全局父页独立限定。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,false)]
+    [InlineData("MultiSelectPage",1,true)]
+    [InlineData("MultiCheckBoxDatabase",0,true)]
+    [InlineData("MultiCheckBoxDatabase",1,false)]
+    [InlineData("MultiSelectPage",0,true)]
+    [InlineData("MultiSelectPage",1,false)]
+    [InlineData("MultiCheckBoxDatabase",0,false)]
+    [InlineData("MultiCheckBoxDatabase",1,true)]
+    public Task Project_stored_multivalue_dictionary_uses_parent_only_account_scope(string kind,int mode,bool compound)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:true,parent:true,onlyParent:true,
+            globalParent:true,parentWithoutProject:true,parentAccount:true,compoundTargetParent:compound?"physical":null,
+            projectTargetGlobalParent:true,storedDictionary:true);
+
     /// <summary>项目内多值页通过单个物理外键绑定实际全局父页，账号条件可只在父页。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false)]
@@ -1073,8 +1088,8 @@ public sealed class CascadeMultiLabelGenerationTests
                 Assert.Contains("记录不属于当前账号的数据范围",code);
             }
             var projectStoredGlobalParent=storedDictionary&&projectTargetGlobalParent;
-            var physicalProjectCheckbox=kind=="MultiCheckBoxDatabase"&&compoundTargetParent=="physical"&&!exact&&globalRowProject is null&&
-                (projectStoredGlobalParent||mode==0&&!projectTargetGlobalParent);
+            var physicalProjectCheckbox=kind=="MultiCheckBoxDatabase"&&!exact&&globalRowProject is null&&
+                (projectStoredGlobalParent||compoundTargetParent=="physical"&&mode==0&&!projectTargetGlobalParent);
             if(selectedPage)
             {
                 var code=File.ReadAllText(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
@@ -1083,14 +1098,18 @@ public sealed class CascadeMultiLabelGenerationTests
                     // 纯物理复选走实际候选查询，在同一当前读计划中同时验证两个父键。
                     Assert.Contains("CheckboxScope901_95Async(request.ParentId,actor,form,false,cancellationToken)",code);
                     Assert.Contains("ApplyTextParent(query,session,\"target_scope_id\",parentId!)",code);
-                    Assert.Contains("query=query.Where(row=>row.OtherCountryId==",code);
+                    if(compoundTargetParent is not null)Assert.Contains("query=query.Where(row=>row.OtherCountryId==",code);
                     Assert.Contains("return locking?query.ForUpdate():query;",code);
                     if(projectStoredGlobalParent)
                     {
                         Assert.Contains("CompileMultiGlobalParent(\"2\",\"201\")",code);
-                        Assert.Contains(".BindAccount(actor)",code);
-                        Assert.Contains("CheckboxTargetCondition901_95.BindAccount(actor).ApplyConstants",code);
-                        Assert.Contains("store_id=@current_store_id",code);
+                        Assert.Contains("CheckboxGlobalParent901_95.BindAccount(actor)",code);
+                        if(onlyParent)Assert.DoesNotContain("CheckboxTargetCondition901_95",code);
+                        else
+                        {
+                            Assert.Contains("CheckboxTargetCondition901_95.BindAccount(actor).ApplyConstants",code);
+                            Assert.Contains("store_id=@current_store_id",code);
+                        }
                     }
                 }
                 else if(compoundSourceParent is not null&&onlyParent)
@@ -1157,7 +1176,7 @@ public sealed class CascadeMultiLabelGenerationTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var consumer=assembly.GetType(ns+".Generated.Services.LabelConsumerService",true)!;
             RuntimeHelpers.RunClassConstructor(consumer.TypeHandle);
-            if(projectTargetGlobalParent&&compoundTargetParent is null)
+            if(projectTargetGlobalParent&&compoundTargetParent is null&&!physicalProjectCheckbox)
             {
                 var checkbox=kind=="MultiCheckBoxDatabase";
                 const System.Reflection.BindingFlags staticPrivate=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
@@ -1193,6 +1212,51 @@ public sealed class CascadeMultiLabelGenerationTests
                 Assert.Contains("全局物理父键必须绑定唯一发布页",error.Message);
                 parentKey.Extra.Remove("linkConfigPageId");
             }
+            if(projectStoredGlobalParent&&physicalProjectCheckbox)
+            {
+                // 候选用实际实体字段，列表名称和回填用已编译的同父 SQL 表达式。
+                const System.Reflection.BindingFlags staticPrivate=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                var owner=model.Tables.Single(item=>item.Source.Id=="9");
+                var sourcePage=owner.Pages.Single(item=>item.Source.Id=="901");
+                var definition=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,owner,sourcePage));
+                Assert.True(definition.GlobalParent);
+                Assert.Equal(compoundTargetParent is null?1:2,definition.Scopes.Count(scope=>scope.Source=="parent"));
+                object read;
+                if(mode==0)
+                {
+                    var plan=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("ReadPlan901",staticPrivate)!.GetValue(null));
+                    read=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+                }
+                else
+                {
+                    var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                        assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+                    var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                        maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+                    var registered=plans["9"]!;
+                    read=registered.GetType().GetProperty("Read")!.GetValue(registered)!;
+                }
+                var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!
+                    .Invoke(read,[definition.Names!.Source.ColumnName]));
+                Assert.Contains("multi_value.`yz_project_id`",expression);
+                Assert.Contains("multi_value.`target_scope_id`",expression);
+                if(compoundTargetParent is not null)Assert.Contains("multi_value.`other_country_id`",expression);
+                Assert.Contains("`store_id`",expression);
+                if(onlyParent)Assert.DoesNotContain("multi_value.`store_id`",expression);
+                if(alternateCheckboxName&&mode==0)
+                {
+                    var alternate=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("ReadPlan902",staticPrivate)!.GetValue(null));
+                    var alternateRead=alternate.GetType().GetProperty("MySql",hidden)!.GetValue(alternate)!;
+                    var alternateName=Assert.IsType<string>(alternateRead.GetType().GetMethod("Expression",hidden)!
+                        .Invoke(alternateRead,[definition.Names.Source.ColumnName]));
+                    Assert.Contains("multi_value.`short_name`",alternateName);
+                    Assert.Contains("multi_value.`target_scope_id`",alternateName);
+                    if(compoundTargetParent is not null)Assert.Contains("multi_value.`other_country_id`",alternateName);
+                    Assert.Contains("multi_value.`yz_project_id`",alternateName);
+                }
+            }
+
             if(compoundTargetParent is not null)
             {
                 var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
@@ -1232,50 +1296,6 @@ public sealed class CascadeMultiLabelGenerationTests
                             Assert.Contains("`other_country_id`",expression);
                             Assert.Contains("`store_id`",expression);
                         }
-                    }
-                }
-
-                if(projectStoredGlobalParent&&physicalProjectCheckbox)
-                {
-                    // 候选用实际实体字段，列表名称和回填用已编译的同父 SQL 表达式。
-                    const System.Reflection.BindingFlags staticPrivate=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
-                    const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
-                    var owner=model.Tables.Single(item=>item.Source.Id=="9");
-                    var sourcePage=owner.Pages.Single(item=>item.Source.Id=="901");
-                    var definition=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,owner,sourcePage));
-                    Assert.True(definition.GlobalParent);
-                    Assert.Equal(2,definition.Scopes.Count(scope=>scope.Source=="parent"));
-                    object read;
-                    if(mode==0)
-                    {
-                        var plan=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("ReadPlan901",staticPrivate)!.GetValue(null));
-                        read=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
-                    }
-                    else
-                    {
-                        var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
-                            assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
-                        var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
-                            maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
-                        var registered=plans["9"]!;
-                        read=registered.GetType().GetProperty("Read")!.GetValue(registered)!;
-                    }
-                    var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!
-                        .Invoke(read,[definition.Names!.Source.ColumnName]));
-                    Assert.Contains("multi_value.`yz_project_id`",expression);
-                    Assert.Contains("multi_value.`target_scope_id`",expression);
-                    Assert.Contains("multi_value.`other_country_id`",expression);
-                    Assert.Contains("`store_id`",expression);
-                    if(alternateCheckboxName&&mode==0)
-                    {
-                        var alternate=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("ReadPlan902",staticPrivate)!.GetValue(null));
-                        var alternateRead=alternate.GetType().GetProperty("MySql",hidden)!.GetValue(alternate)!;
-                        var alternateName=Assert.IsType<string>(alternateRead.GetType().GetMethod("Expression",hidden)!
-                            .Invoke(alternateRead,[definition.Names.Source.ColumnName]));
-                        Assert.Contains("multi_value.`short_name`",alternateName);
-                        Assert.Contains("multi_value.`target_scope_id`",alternateName);
-                        Assert.Contains("multi_value.`other_country_id`",alternateName);
-                        Assert.Contains("multi_value.`yz_project_id`",alternateName);
                     }
                 }
 

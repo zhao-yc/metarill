@@ -224,19 +224,21 @@ public static partial class MySqlNonRedundantReadCompiler
                 .Select(column=>column.ColumnName));
         var parents=syntax.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
             MultiTargetParentScope.IsParameter(value.Text))).ToArray();
-        if(checkboxAccount&&!syntax.Terms.Any(IsStoredAccount)||
-            !syntax.Terms.Any(term=>!GlobalMultipleRelationTarget.IsProjectScope(term))||
+        if(!syntax.Terms.Any(term=>!GlobalMultipleRelationTarget.IsProjectScope(term))||
             syntax.Terms.Any(term=>!GlobalMultipleRelationTarget.IsProjectScope(term)&&!parents.Contains(term)&&
                 term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)&&!IsStoredAccount(term))||
             syntax.Fields.Any(field=>!storage.PhysicalColumns.Any(column=>column.ColumnName==field&&
                 GlobalPhysicalRelationValue.IsScalar(storage,table,column))||
                 CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field)))
             return false;
-        return parents.Length==0||(checkboxAccount
+        var usesDictionaryAccount=syntax.Terms.Any(IsStoredAccount);
+        if(parents.Length==0)return !checkboxAccount||usesDictionaryAccount;
+        var binding=checkboxAccount
             ?MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)
-            :MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,
-                allowStoredPhysicalParents:true)) is {Logical:false} parent&&
-            (!parent.Global||table.IsRongyu==1&&parent.AdditionalTargets.Count>0);
+            :MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true);
+        // 冗余字典可由全局父页限定账号，实际父页在候选、读取和维护编译时重新验证。
+        return binding is {Logical:false} parent&&
+            (parent.Global?table.IsRongyu==1:!checkboxAccount||usesDictionaryAccount);
 
         // 请求通过认证快照绑定，冗余名称回填则由现有归属计划逐页证明来源物理字段。
         bool IsStoredAccount(FixedConditionTerm term)=>table.IsRongyu==1&&term.Field!="yz_project_id"&&

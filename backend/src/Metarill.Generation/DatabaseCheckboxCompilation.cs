@@ -163,7 +163,7 @@ internal static class DatabaseCheckboxCompilation
                 Metarill.Data.Queries.NonRedundantReads.IsProjectStoredCheckboxAccountPage(model.Catalog,target.Source,candidate.Source);
             var projectStoredAccount=namePage is not null&&UsesProjectStoredAccount(namePage);
             // 普通项目字典的全局父仍按实际发布页核对，目标行继续按当前项目和账号限定。
-            var projectStoredGlobalParent=projectStoredAccount&&namePage!.Scopes.Count(scope=>scope.Source=="parent")>1&&
+            var projectStoredGlobalParent=projectStoredAccount&&namePage!.Scopes.Any(scope=>scope.Source=="parent")&&
                 MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,
                     FixedConditionPlan.Compile(namePage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName)),
                     allowGlobalParent:true,allowStoredPhysicalParents:true) is {Global:true} storedGlobalBinding

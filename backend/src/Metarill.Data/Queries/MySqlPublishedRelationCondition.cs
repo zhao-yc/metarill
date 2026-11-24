@@ -106,7 +106,7 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var parent=projectStoredAccount
             ?MultiTargetParentScope.CompileCheckboxPage(catalog,target,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)
             :MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(catalog,target,page);
-        var projectGlobalParent=projectStoredAccount&&parent is {Global:true,Logical:false,AdditionalTargets.Count:>0};
+        var projectGlobalParent=projectStoredAccount&&parent is {Global:true,Logical:false};
         if(parent is null||parent.Global&&!projectGlobalParent||parent.Logical||syntax.Variables.Any(variable=>
             !MultiTargetParentScope.IsParameter(variable)&&!variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))&&
             !projectStoredAccount)
