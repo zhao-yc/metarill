@@ -22,6 +22,14 @@ internal static partial class BackendRenderer
         if(needsReadonly&&page.Source.Extra.TryGetValue("readOnlyCondition",out var condition))Add(ReadOnlyConditionRule.Compile(condition.ValueKind==JsonValueKind.Null?null:condition.ToString()).Fields);
         return table.Columns.Where(column=>roots.Contains(column.JsonName)||roots.Contains(column.Source.ColumnName)).Where(column=>!NonRedundantReadCompilation.Physical(model,table,column)||CrossTableWriteCompilation.ForService(model,table,page).Any(plan=>plan.Levels.Any(level=>level.Id.Source.Id==column.Source.Id))).ToArray();
     }
+    /// <summary>仅将规则实际使用的逻辑叶名加入固定祖先路径读取。</summary>
+    private static string[] RuleSelfTreeFields(TableModel table,IReadOnlyList<ColumnModel> derived)
+    {
+        var columns=table.Columns.Select(column=>column.Source).ToArray();
+        return derived.Select(column=>column.Source.ColumnName)
+            .Where(field=>CascadeTreeStorageColumns.IsLogicalNameField(table.Source,columns,field)).ToArray();
+    }
+
     /// <summary>实体只在需要时增加内部装载状态；显式接口没有可反序列化属性或HTTP字段。</summary>
     private static bool RuleRecordEntity(GenerationModel model,TableModel table)=>table.Pages.Any(page=>RuleRecordFields(model,table,page).Count>0);
     /// <summary>装载快照只初始化一次并复制字典/JSON值；未装载实例继续明确拒绝派生判定。</summary>
@@ -43,14 +51,17 @@ internal static partial class BackendRenderer
         var derived=RuleRecordFields(model,table,page);if(derived.Count==0)return "";
         var physical=table.Columns.Where(column=>NonRedundantReadCompilation.Physical(model,table,column)).ToArray();var columns=physical.Concat(derived).DistinctBy(column=>column.Source.Id).ToArray();
         var fixedQuery=FixedPageQueryCompilation.For(table,page);var exact=ExactDataManageCompilation.Resolve(model,table,page);
-        var dependencies=fixedQuery.IdentityScopes.Select(scope=>scope.Column.Source.ColumnName).Concat(page.Condition?.Syntax.Fields??[]).Concat(exact is null?[]:new[]{exact.Column.Source.ColumnName}).Distinct(StringComparer.Ordinal).ToArray();
+        var treeFields=RuleSelfTreeFields(table,derived);
+        var dependencies=fixedQuery.IdentityScopes.Select(scope=>scope.Column.Source.ColumnName)
+            .Concat(page.Condition?.Syntax.Fields??[]).Concat(exact is null?[]:new[]{exact.Column.Source.ColumnName})
+            .Concat(treeFields).Distinct(StringComparer.Ordinal).ToArray();
         var singleTargets=NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,
             derived.Select(column=>column.Source.ColumnName).Concat(dependencies));
         // 按钮和只读规则沿用列表、详情的实际目标页，避免读取目标范围外的名称后得出不同规则结论。
         var multiTargets=NonRedundantReadCompilation.ProjectMultiTargets(model,table,page);
         var compiled=NonRedundantReads.CompileRuleRecord(model.Catalog,table.Source.Id,columns.Select(column=>column.Source.ColumnName).ToArray(),
             physical.Select(column=>column.Source.ColumnName).ToArray(),NonRedundantCrossTableCompilation.Bindings(model,table,page),dependencies,
-            deferCascadeNames:FixedPageConditionCompilation.HasSelfTreeFields(page)||exact?.SelfTree==true,
+            deferCascadeNames:treeFields.Length>0||FixedPageConditionCompilation.HasSelfTreeFields(page)||exact?.SelfTree==true,
             logicalOutputs:derived.Select(column=>column.Source.ColumnName).ToArray(),singleTargets:singleTargets,multiTargets:multiTargets);
         var cross=CrossTableWriteCompilation.ForService(model,table,page).Count>0;
         var result=new StringBuilder().AppendLine("    /// <summary>本页规则记录的固定完整物理实体和必要派生投影，不参与HTTP输出。</summary>")

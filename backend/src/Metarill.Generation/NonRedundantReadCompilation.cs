@@ -103,7 +103,8 @@ internal static partial class NonRedundantReadCompilation
     }
 
     /// <summary>固定叶名与目标页一起发布；仅显示、顺序等范围不变的页面覆盖可以继续使用表级读取定义。</summary>
-    internal static IReadOnlyList<CascadeTreeReadModel> SelfTreeNameQueries(GenerationModel model, TableModel table, PageModel page)
+    internal static IReadOnlyList<CascadeTreeReadModel> SelfTreeNameQueries(GenerationModel model, TableModel table, PageModel page,
+        IReadOnlyList<string>? ruleFields=null)
     {
         if (table.Source.IsRongyu != 0) return [];
         var fields = page.Searchable.Concat(page.Sortable)
@@ -111,6 +112,7 @@ internal static partial class NonRedundantReadCompilation
             .Select(column => column.Source.ColumnName).Concat(page.Condition is { } condition ? condition.SelfTreeFields : Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal);
         var exactName=SelfTreeExactColumn(table,page)?.Source.ColumnName;
         if(exactName is not null)fields.Add(exactName);
+        fields.UnionWith(ruleFields??[]);
         var result = new List<CascadeTreeReadModel>();
         foreach (var tree in CascadeTreeReadCompilation.ForService(model, table, page))
         {
