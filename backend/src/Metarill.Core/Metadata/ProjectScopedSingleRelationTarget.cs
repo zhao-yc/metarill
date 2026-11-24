@@ -100,11 +100,17 @@ public static class ProjectScopedSingleRelationTarget
             columns.Any(column=>column.ColumnName=="id"&&column.LogicalType=="int64");
         var matches=sourcePages
             .Select(page=>TargetFor(catalog,page,foreign,definition,selected,nameField,pages,names,integerId,fixedList)).ToArray();
-        if(storedSelection&&!matches.Any(match=>match.Page is {} page&&PhysicalSelectionParent(catalog,target,page) is not null))
+        var nameCache=foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)
+            ? catalog.ConfigColumns.FirstOrDefault(column=>column.ConfigTableId==owner.Id&&column.ColumnName==foreign.ColumnName[..^3]+"_"+nameField)
+            : null;
+        // 无父字典的固定条件只约束生成器管理的物理副本，普通同名字段仍由业务维护。
+        var managedCache=nameCache is {IsVirtualColumn:0}&&nameCache.Extra.TryGetValue("isJoinColumn",out var joined)&&
+            (joined.ValueKind==JsonValueKind.True||joined.ToString()=="1");
+        if(storedSelection&&!matches.Any(match=>match.Page is {} page&&
+            (PhysicalSelectionParent(catalog,target,page) is not null||
+                managedCache&&HasFixedUnparentedSelection(catalog,target,page,columns,names))))
             return null;
-        var hasNameCache=foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
-            catalog.ConfigColumns.Any(column=>column.ConfigTableId==owner.Id&&column.ColumnName==foreign.ColumnName[..^3]+"_"+nameField);
-        var controlScope=hasNameCache?ControlScope(catalog,owner,foreign,target):null;
+        var controlScope=nameCache is not null?ControlScope(catalog,owner,foreign,target):null;
         if(controlScope?.Terms.Count is not >0&&!matches.Any(match=>match.Page is not null&&(HasPageScope(match.Page,names)||
             NamePathHasScope(catalog,target,match.Page,[match.Name],new()))))return null;
         if(matches.Any(match=>match.Page is null||match.Name!=nameField)||
@@ -166,6 +172,20 @@ public static class ProjectScopedSingleRelationTarget
         string Normalize(string text)=>string.Join(" AND ",FixedConditionPlan.Compile(text,members).Terms
             .Where(term=>GlobalCrossTableTarget.Declared(target)||!ProjectTerm(term))
             .Select(term=>term.ToDefinition()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>无父冗余字典只按发布物理常量建立名称副本；实际项目范围仍由既有目录绑定。</summary>
+    private static bool HasFixedUnparentedSelection(MetadataCatalog catalog,TableMetadata target,PageMetadata page,
+        IReadOnlyList<ColumnMetadata> columns,string[] members)
+    {
+        if(page.Extra.GetValueOrDefault("type").ToString()!="1"||
+            !string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString()))
+            return false;
+        var terms=FixedConditionPlan.Compile(page.WhereSql,members).Terms.Where(term=>!ProjectTerm(term)).ToArray();
+        var storage=MetadataStoragePolicy.ForTable(catalog,target);
+        return terms.Length>0 && terms.All(term=>
+            term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)&&
+            columns.Any(column=>column.ColumnName==term.Field&&GlobalPhysicalRelationValue.IsScalar(storage,target,column)));
     }
 
     /// <summary>顺着已声明的单值路径找到需要持久化的范围，循环留给与读取相同的拒绝门禁。</summary>

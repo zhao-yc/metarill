@@ -34,7 +34,17 @@ public sealed class SelectionNameFilterCompilationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Stored_project_selection_searches_the_same_published_name_cache(bool independentParent)
+    public Task Stored_project_selection_searches_the_same_published_name_cache(bool independentParent) =>
+        VerifyStoredProjectCache(independentParent,targetHasParent:true);
+
+    /// <summary>无父字典的固定状态也参与物理名称副本筛选、保存和维护。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task Stored_project_selection_uses_fixed_page_without_target_parent(bool unparentedSource) =>
+        VerifyStoredProjectCache(unparentedSource,targetHasParent:false);
+
+    private static async Task VerifyStoredProjectCache(bool independentParent,bool targetHasParent)
     {
         const string ns = "Example.StoredSelectionFilter";
         var catalog = RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
@@ -55,6 +65,7 @@ public sealed class SelectionNameFilterCompilationTests
         }
         var targetPage = catalog.ConfigPages.Single(page=>page.Id=="301");
         targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        if(!targetHasParent) targetPage.WhereSql="yz_project_id=@current_yz_project_id";
         targetPage.WhereSql+=" AND status=1";
         catalog.ConfigColumns.AddRange([
             new(){Id="27",ConfigTableId="2",ColumnName="target_name",LogicalType="string",YzProjectId=catalog.YzProjectId,
@@ -109,8 +120,17 @@ public sealed class SelectionNameFilterCompilationTests
             var nameSql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["target_name"]));
             var joins=Assert.IsType<string>(read.GetType().GetProperty("From",hidden)!.GetValue(read));
             Assert.Contains("`relation_target`",joins);
-            Assert.Contains("`parent_id`",joins+nameSql);
+            if(targetHasParent) Assert.Contains("`parent_id`",joins+nameSql);
+            else Assert.DoesNotContain("`parent_id`",nameSql);
             Assert.Contains("`status`",joins+nameSql);
+            var references=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("PhysicalReferences",hidden)!.GetValue(read));
+            Assert.Contains(references.Cast<object>(),item =>
+            {
+                var type=item.GetType();
+                var column=type.GetProperty("Column")!.GetValue(item)!;
+                return Equals("relation_target",type.GetProperty("Table")!.GetValue(item)) &&
+                    Equals("status",column.GetType().GetProperty("Name")!.GetValue(column));
+            });
             var sql=(string)typeof(SelectionNameFilterCompilationTests).GetMethod(nameof(FilterSql),BindingFlags.Static|BindingFlags.NonPublic)!
                 .MakeGenericMethod(entityType).Invoke(null,[query])!;
             Assert.Contains("`target_name`",sql);
@@ -126,6 +146,19 @@ public sealed class SelectionNameFilterCompilationTests
             await RunProbe(output,independentParent?"stored-independent":"stored-same");
         }
         finally { if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+
+        if(targetHasParent)return;
+        targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");
+        Assert.Null(ProjectScopedSingleRelationTarget.Resolve(catalog,owner,foreign,target));
+        targetPage.Extra.Remove("exactDataManageMatchField");
+
+        var fixedScope=targetPage.WhereSql;
+        targetPage.WhereSql="yz_project_id=@current_yz_project_id AND status=@current_store_id";
+        Assert.Null(ProjectScopedSingleRelationTarget.Resolve(catalog,owner,foreign,target));
+        targetPage.WhereSql=fixedScope;
+
+        catalog.ConfigColumns.Single(column=>column.Id=="27").Extra.Remove("isJoinColumn");
+        Assert.Null(ProjectScopedSingleRelationTarget.Resolve(catalog,owner,foreign,target));
     }
 
     /// <summary>只渲染生成查询，不执行命令。</summary>
