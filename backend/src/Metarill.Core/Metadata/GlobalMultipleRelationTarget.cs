@@ -41,10 +41,13 @@ public static class GlobalMultipleRelationTarget
     public static bool IsStoredStaticPage(TableMetadata table,PageMetadata page,FixedConditionPlan? condition,bool checkbox=false)=>
         table.IsRongyu==1&&IsPublishedMultiPage(table,page,checkbox)&&(condition?.Variables.Count??0)==0;
 
-    /// <summary>当前项目等值可以单独发布，也可以与物理常量一起声明。</summary>
+    /// <summary>当前项目等值可叠加物理常量，非冗余字典也可叠加已声明账号等值。</summary>
     public static bool IsProjectPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
         table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox)&&condition.Terms.Any(IsProjectScope)&&condition.Terms.All(term=>
-            IsProjectScope(term)||term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable));
+            IsProjectScope(term)||term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)||
+            table.IsRongyu==0&&term.Field!="yz_project_id"&&
+                term is {Comparison:FixedConditionComparison.Equal,Values:[{Kind:FixedConditionValueKind.Variable} value]}&&
+                AccountConditionVariables.IsPageField(value.Text,term.Field));
 
     /// <summary>两类多值用途共用冗余字典的页面资格，精确数据管理由独立合同验证。</summary>
     private static bool IsPublishedMultiPage(TableMetadata table,PageMetadata page,bool checkbox)=>

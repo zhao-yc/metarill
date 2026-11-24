@@ -33,8 +33,8 @@ public sealed class AccountScopedCrossCache
             additionalParents:additionalParents);
 
     /// <summary>全局物理多值字典的显式项目等值由固定查询作用域绑定，账号仍取实际来源行。</summary>
-    internal static AccountScopedCrossCache CompileStoredMulti(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage)=>
-        Compile(catalog,source,target,targetPage,recursive:false,globalSingleSource:GlobalCrossTableTarget.Declared(source),storedMulti:true);
+    internal static AccountScopedCrossCache CompileGlobalMulti(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage)=>
+        Compile(catalog,source,target,targetPage,recursive:false,globalSingleSource:GlobalCrossTableTarget.Declared(source),globalMulti:true);
 
     /// <summary>递归候选允许逻辑字段的常量条件，账号等值仍须对应来源行真实物理归属。</summary>
     internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,
@@ -47,7 +47,7 @@ public sealed class AccountScopedCrossCache
     private static AccountScopedCrossCache Compile(MetadataCatalog catalog, TableMetadata source, TableMetadata target,
         PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,
         IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false,bool allowFixedOnly=false,bool separateExactScope=false,
-        IReadOnlySet<string>? additionalParents=null,bool storedMulti=false)
+        IReadOnlySet<string>? additionalParents=null,bool globalMulti=false)
     {
         if(globalTreeSource)GlobalCachedRelationSource.RequireSelfTree(catalog,source);
         // 仅经发布证明的全局单值或物理账号多选缓存可绑定来源行；根查询另行约束行项目。
@@ -72,7 +72,7 @@ public sealed class AccountScopedCrossCache
         var syntax = FixedConditionPlan.Compile(targetPage.WhereSql, types.Keys);
         var constants = new List<FixedConditionTerm>();
         var account = new List<(ColumnMetadata Target, string Variable)>();
-        var hasStoredProject=false;
+        var hasGlobalProject=false;
         foreach (var term in syntax.Terms)
         {
             if (term.Values.All(value => value.Kind != FixedConditionValueKind.Variable))
@@ -83,11 +83,11 @@ public sealed class AccountScopedCrossCache
             var variable = Variable(term);
             if((multiParent?.ColumnName==term.Field||additionalParents?.Contains(term.Field)==true)&&MultiTargetParentScope.IsParameter(variable))continue;
             if(GlobalMultipleRelationTarget.IsProjectScope(term)&&
-                (!GlobalCrossTableTarget.Declared(target)||storedMulti&&target.IsRongyu==1&&
+                (!GlobalCrossTableTarget.Declared(target)||globalMulti&&target.IsRongyu is 0 or 1&&
                     targets.TryGetValue(term.Field,out var project)&&project.LogicalType is "int64" or "string"))
             {
                 // 项目由候选与回填的固定作用域绑定，无须从来源页再推断门店或商户。
-                hasStoredProject=storedMulti;
+                hasGlobalProject=globalMulti;
                 continue;
             }
             if (term.Field == "yz_project_id" || !AccountConditionVariables.IsPageField(variable, term.Field) ||
@@ -96,7 +96,7 @@ public sealed class AccountScopedCrossCache
         }
 
         var pages = catalog.ConfigPages.Where(page => page.ConfigTableId == source.Id).ToArray();
-        if (account.Count==0 ? !recursive&&!allowFixedOnly&&!hasStoredProject : pages.Length==0) throw Invalid();
+        if (account.Count==0 ? !recursive&&!allowFixedOnly&&!hasGlobalProject : pages.Length==0) throw Invalid();
         var ownership = new List<(ColumnMetadata, ColumnMetadata)>();
         var sourceFields = MetadataStoragePolicy.ForTable(catalog,source).PhysicalColumns.Select(column=>column.ColumnName).ToArray();
         var sourceTerms = account.Count==0?[]:pages.Select(page => FixedConditionPlan.Compile(page.WhereSql, sourceFields).Terms).ToArray();

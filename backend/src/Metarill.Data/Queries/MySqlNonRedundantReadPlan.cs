@@ -942,9 +942,11 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             var condition=PublishedCondition(table,alias,page,allowAccount,projectParent,publishedProject);
             if(condition is null)return scope;
-            if(accountPhysicalCandidate&&table.Id==root.Id&&alias==rootAlias&&cascadeCacheOwner is {} owner&&condition.Variables.Count>0)
+            if((accountPhysicalCandidate||explicitMultiProject||explicitMultiProjectCandidate&&sourceCandidate)&&
+                table.Id==root.Id&&alias==rootAlias&&cascadeCacheOwner is {} owner&&condition.Variables.Count>0)
             {
-                var proof=publishedProject?AccountScopedCrossCache.CompileStoredMulti(catalog,owner.Table,table,page):
+                // 维护只能按每条来源记录的物理归属重算，当前请求的账号仅用于实时读取。
+                var proof=publishedProject?AccountScopedCrossCache.CompileGlobalMulti(catalog,owner.Table,table,page):
                     AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,globalSingleSource:owner.GlobalSingleSource);
                 cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                 var owned=AccountCacheScope(proof,table,alias,owner.Alias,render:true,owner.Table,"mt_global_scope_"+parameterKey);

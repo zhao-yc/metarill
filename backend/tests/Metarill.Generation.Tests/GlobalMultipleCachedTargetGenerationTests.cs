@@ -184,9 +184,18 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     public Task Global_business_multiselect_uses_nonredundant_project_dictionary(int mode,string projectType,bool constants)=>
         VerifyPublishedGlobalMultiselect(mode,0,false,projectType,unfiltered:!constants,globalSource:true,projectScoped:true);
 
+    /// <summary>非冗余全局多选字典在同一页限定项目及账号归属。</summary>
+    [Theory]
+    [InlineData(0,"int64",false,"store_id")]
+    [InlineData(0,"string",true,"merchant_id")]
+    [InlineData(1,"int64",true,"merchant_id")]
+    [InlineData(1,"string",false,"store_id")]
+    public Task Global_business_multiselect_uses_project_and_account_dictionary(int mode,string projectType,bool constants,string accountField)=>
+        VerifyPublishedGlobalMultiselect(mode,0,false,projectType,unfiltered:!constants,globalSource:true,projectScoped:true,accountField:accountField);
+
     /// <summary>从实际生成程序集核对名称、关联选档、项目隔离和数据维护计划。</summary>
     private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType,
-        bool unfiltered=false,bool globalSource=false,bool projectScoped=false)
+        bool unfiltered=false,bool globalSource=false,bool projectScoped=false,string? accountField=null)
     {
         const string application="Example.GlobalTextDictionary";
         var names=derivedName?"global_source_global_target_names":"global_source_captions";
@@ -207,6 +216,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             // 页面未配置项目条件时，行项目隔离仍须从业务表归属和有效多选关系自动生成。
             foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="3"))
                 page.WhereSql="";
+            if(accountField is not null)ConfigureDictionaryAccountScope(catalog,accountField);
             Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,application)));
         }
         if(derivedName)
@@ -257,7 +267,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
                 });
                 var sql=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,application,"GlobalSource",session);
-                var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"9");
+                var actor=DictionaryActor(catalog,accountField);
                 if(globalSource&&mode==1)
                 {
                     var business=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,application,"CachedConsumer",session);
@@ -270,13 +280,14 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     var targetService=assembly.GetType(application+".Generated.Services.GlobalSourceService",true)!;
                     var candidate=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(targetService.GetField(
                         "CandidateReadPlan10",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
-                    Assert.False(candidate.RequiresAccount);
+                    candidate=BindDictionaryAccount(candidate,catalog,accountField);
                     var query=candidate.GetType().GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(candidate)!;
                     AssertOwnedScope(query);
                     var scope=Assert.IsType<string>(query.GetType().GetProperty("Scope",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(query));
                     Assert.Contains("`yz_project_id`=@project_scope_"+(projectType=="string"?"text":"number"),scope);
                     Assert.Equal(!unfiltered,scope.Contains("`status`",StringComparison.Ordinal));
-                    Assert.Contains("CandidateReadPlan10",targetCode);
+                    if(accountField is not null)Assert.Contains("`"+accountField+"`",scope);
+                    Assert.Contains(accountField is null?"CandidateReadPlan10":"CandidateReadPlan10.BindAccount(actor)",targetCode);
                 }
                 else
                 {
@@ -313,6 +324,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var service=assembly.GetType(application+".Generated.Services.CachedConsumerService",true)!;
                 var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("ReadPlan30",
                     BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                plan=BindDictionaryAccount(plan,catalog,accountField);
                 read=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
                 var filters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
                     read.GetType().GetProperty("ArrayNamePredicates",hidden)!.GetValue(read));
@@ -371,11 +383,14 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var service=assembly.GetType(application+".Generated.Services.CachedConsumerService",true)!;
                 var lookup=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("MultiDerivedPlan30_34",
                     BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
-                Assert.False(lookup.RequiresAccount);
+                lookup=BindDictionaryAccount(lookup,catalog,accountField);
                 var compiled=lookup.GetType().GetProperty("MySql",hidden)!.GetValue(lookup)!;
                 AssertOwnedScope(compiled);
             }
-            Assert.Equal(!unfiltered,CheckboxNameExpression(read,names).Contains("multi_value.`status`",StringComparison.Ordinal));
+            var expression=CheckboxNameExpression(read,names);
+            Assert.Equal(!unfiltered,expression.Contains("multi_value.`status`",StringComparison.Ordinal));
+            AssertDictionaryNameAccountScope(expression,mode,accountField);
+            if(mode==1&&accountField is not null)AssertDictionaryCacheWithoutOwnershipIsRejected(catalog,application,"34");
             var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
                 read.GetType().GetProperty("Constants",hidden)!.GetValue(read));
             Assert.Equal(!unfiltered,constants.Values.Contains(17));
@@ -740,9 +755,18 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     public Task Global_business_checkbox_uses_nonredundant_project_dictionary(int mode,string projectType,bool constants)=>
         VerifyGlobalBusinessCheckboxDictionary(mode,projectType,!constants,projectScoped:true,targetStorage:0);
 
+    /// <summary>原数据库复选的项目和账号条件用于候选、实时名称及两份持久名称副本。</summary>
+    [Theory]
+    [InlineData(0,"int64",true,"merchant_id")]
+    [InlineData(0,"string",false,"store_id")]
+    [InlineData(1,"int64",false,"store_id")]
+    [InlineData(1,"string",true,"merchant_id")]
+    public Task Global_business_checkbox_uses_project_and_account_dictionary(int mode,string projectType,bool constants,string accountField)=>
+        VerifyGlobalBusinessCheckboxDictionary(mode,projectType,!constants,projectScoped:true,targetStorage:0,accountField:accountField);
+
     /// <summary>从同一实际生成代码验证字典候选、原筛选及非冗余和冗余名称。</summary>
     private static async Task VerifyGlobalBusinessCheckboxDictionary(int mode,string projectType,bool unfiltered,
-        bool projectScoped=false,int targetStorage=1)
+        bool projectScoped=false,int targetStorage=1,string? accountField=null)
     {
         const string app="Example.StaticGlobalCheckbox";
         var catalog=PhysicalLabelCatalog(mode,false);
@@ -799,6 +823,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             catalog.ConfigPageColumns.Add(new(){Id="3141",ConfigPageId="31",ConfigColumnId="41",YzProjectId="100",IsShow=1});
         }
 
+        if(accountField is not null)ConfigureDictionaryAccountScope(catalog,accountField);
         var model=GenerationModel.Create(catalog,app);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
@@ -827,21 +852,21 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.Contains($"ImportCheckbox{id}_38Async",code);
                 Assert.Contains($"Export{id}Async",code);
             }
-            Assert.DoesNotContain("CheckboxGlobalCondition30_38.BindAccount(actor)",code);
+            Assert.Equal(accountField is not null,code.Contains("CheckboxGlobalCondition30_38.BindAccount(actor)",StringComparison.Ordinal));
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service=assembly.GetType(app+".Generated.Services.CachedConsumerService",true)!;
             const BindingFlags hidden=BindingFlags.NonPublic;
             object MySql(string field)
             {
                 var read=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField(field,BindingFlags.Static|hidden)!.GetValue(null));
-                Assert.False(read.RequiresAccount);
+                read=BindDictionaryAccount(read,catalog,accountField);
                 return read.GetType().GetProperty("MySql",BindingFlags.Instance|hidden)!.GetValue(read)!;
             }
             var wrong=new RuntimeActor(7,"合成账号",false,"999","9");
             var validate=service.GetMethod("ValidateActor",BindingFlags.Static|hidden)!;
             Assert.IsType<UnauthorizedAccessException>(Assert.Throws<TargetInvocationException>(()=>validate.Invoke(null,[wrong])).InnerException);
             // 直接执行已生成的候选查询构造；离线测试只生成 SQL，禁止数据库连接。
-            var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"9");
+            var actor=DictionaryActor(catalog,accountField);
             using var orm=new FreeSql.FreeSqlBuilder().UseConnectionFactory(FreeSql.DataType.MySql,
                 ()=>throw new InvalidOperationException("离线验收不连接数据库。")).UseAutoSyncStructure(false).Build();
             using var session=new DatabaseSession(new()
@@ -861,6 +886,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             Assert.Contains("`delete_no`",sql);
             Assert.Equal(!unfiltered,sql.Contains("`status`",StringComparison.Ordinal));
             Assert.Equal(projectScoped,sql.Contains("`yz_project_id`",StringComparison.Ordinal));
+            if(accountField is not null)Assert.Contains("`"+accountField+"`",sql);
             const string fullNames="selected_global_source_captions";
             const string shortNames="selected_global_source_short_captions";
             void CheckName(object read,string outputName,string field)
@@ -871,6 +897,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.Equal(!unfiltered,expression.Contains("multi_value.`status`",StringComparison.Ordinal));
                 var projectPredicate="multi_value.`yz_project_id`=@project_scope_"+(projectType=="string"?"text":"number");
                 Assert.Equal(projectScoped,expression.Contains(projectPredicate,StringComparison.Ordinal));
+                AssertDictionaryNameAccountScope(expression,mode,accountField);
             }
             if(mode==0)
             {
@@ -903,9 +930,71 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var read=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
                 CheckName(read,fullNames,"caption");
                 CheckName(read,shortNames,"short_caption");
+                if(accountField is not null)AssertDictionaryCacheWithoutOwnershipIsRejected(catalog,app,"38");
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>可重算的来源页一致绑定物理归属。候选目标另行保留真实项目条件。</summary>
+    private static void ConfigureDictionaryAccountScope(MetadataCatalog catalog,string field)
+    {
+        var condition=field+"=@current_"+field;
+        catalog.ConfigColumns.Add(new(){Id="19",ConfigTableId="1",YzProjectId=catalog.YzProjectId,ColumnName=field,LogicalType="int64"});
+        catalog.ConfigColumns.Add(new(){Id="42",ConfigTableId="3",YzProjectId=catalog.YzProjectId,ColumnName=field,LogicalType="int64"});
+        catalog.ConfigPages.Single(page=>page.Id=="10").WhereSql+=" AND "+condition;
+        foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="3"))
+            page.WhereSql=condition;
+    }
+
+    /// <summary>使用高位账号归属 ID 同时证明绑定和精度。</summary>
+    private static RuntimeActor DictionaryActor(MetadataCatalog catalog,string? accountField)=>
+        new(7,"合成账号",false,catalog.YzProjectId,"9")
+        {
+            StoreId=accountField=="store_id"?9007199254740993L:null,
+            MerchantId=accountField=="merchant_id"?9007199254740995L:null
+        };
+
+    /// <summary>读取时要求身份提供实际归属，缺少该归属的账号必须被拒绝。</summary>
+    private static Metarill.Data.Queries.NonRedundantReadPlan BindDictionaryAccount(
+        Metarill.Data.Queries.NonRedundantReadPlan read,MetadataCatalog catalog,string? accountField)
+    {
+        Assert.Equal(accountField is not null,read.RequiresAccount);
+        if(accountField is null)return read;
+        Assert.Throws<UnauthorizedAccessException>(()=>read.BindAccount(DictionaryActor(catalog,null)));
+        var bound=read.BindAccount(DictionaryActor(catalog,accountField));
+        const BindingFlags hidden=BindingFlags.Instance|BindingFlags.NonPublic;
+        var mysql=bound.GetType().GetProperty("MySql",hidden)!.GetValue(bound)!;
+        var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+            mysql.GetType().GetProperty("Constants",hidden)!.GetValue(mysql));
+        Assert.Contains(accountField=="store_id"?9007199254740993L:9007199254740995L,constants.Values);
+        return bound;
+    }
+
+    /// <summary>任一实际来源页缺少同一物理归属时，缓存发布必须失败。</summary>
+    private static void AssertDictionaryCacheWithoutOwnershipIsRejected(MetadataCatalog catalog,string app,string relation)
+    {
+        var bindings=RelationPropagationCompilation.DerivedBindings(GenerationModel.Create(catalog,app))
+            .Where(binding=>binding.Foreign.Source.Id==relation).ToArray();
+        Assert.NotEmpty(bindings);
+        var definitions=RelationPropagationCompilation.Definitions(bindings);
+        var page=catalog.ConfigPages.Single(item=>item.Id=="31");
+        var published=page.WhereSql;
+        try
+        {
+            page.WhereSql="";
+            var error=Assert.Throws<InvalidOperationException>(()=>Metarill.Data.Relations.DerivedCrossTableCaches.Validate(catalog,definitions,[]));
+            Assert.Contains("所有来源页一致的物理账号归属",error.Message);
+        }
+        finally { page.WhereSql=published; }
+    }
+
+    /// <summary>实时名称绑定认证参数，持久名称从实际来源记录重算。</summary>
+    private static void AssertDictionaryNameAccountScope(string expression,int mode,string? field)
+    {
+        if(field is null)return;
+        Assert.Contains("multi_value.`"+field+"`",expression);
+        if(mode==1)Assert.Contains("CAST(b.`"+field+"` AS CHAR)",expression);
     }
 
     /// <summary>保留物理字典字段，移除基类样本与本次范围无关的冗余名称副本。</summary>

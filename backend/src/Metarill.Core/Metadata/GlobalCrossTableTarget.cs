@@ -85,14 +85,14 @@ public static class GlobalCrossTableTarget
 
     /// <summary>多值仅复用目标实体资格，源数组、名称和原页面规则仍由多值专用证明核对。</summary>
     public static void RequireMultiple(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>RequireTarget(catalog,table,page,true);
-    /// <summary>实际全局多值字典可以只声明当前项目，并叠加非凭据物理常量。</summary>
+    /// <summary>验证全局多值字典实际发布的项目、常量及非冗余账号条件。</summary>
     public static void RequireProjectMultiCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)
     {
         var condition=FixedConditionPlan.Compile(page.WhereSql,ConditionColumns(catalog,table,allowLogical:false)
             .Select(column=>column.ColumnName));
         if(!GlobalMultipleRelationTarget.IsProjectPage(table,page,condition,checkbox))
             throw new NotSupportedException("全局多值项目候选必须来自实际发布页的物理项目条件。");
-        RequireTarget(catalog,table,page,true,allowStoredProject:true);
+        RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0,allowStoredProject:true);
     }
 
     /// <summary>跨表与全局候选可绑定受限账号等值；既有其它全局关系仍要求常量。</summary>

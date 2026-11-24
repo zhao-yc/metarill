@@ -133,6 +133,12 @@ internal static class RelationPropagationCompilation
                 pages.Add(proof.Page.Id);
                 if(proof.UsesProjectPage||GlobalCrossTableTarget.Declared(source)&&proof.UsesStoredStaticPage)
                     staticPages.Add(proof.Page.Id);
+                if(proof.UsesProjectPage&&target.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(
+                    model.Tables.Single(table=>table.Source.Id==target.Id).Pages.Single(page=>page.Source.Id==proof.Page.Id)))
+                {
+                    // 精简维护目录须保留每个来源页的物理归属证明，宿主重启后也按实际来源行重算。
+                    pages.UnionWith(model.Catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id).Select(page=>page.Id));
+                }
             }
             if(definition.SelfTreePageId is{} treePage)
             {
