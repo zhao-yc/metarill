@@ -109,7 +109,12 @@ internal static class MultiGlobalParentCompilation
     {
         var checkbox=!SelectionPageRenderer.Enabled(page);
         if(table.Source.IsRongyu!=0)
-            return table.IsGlobal?GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,table.Source,page.Source,checkbox):null;
+        {
+            // 同一个 type=2 页实际发布给复选时，须按复选合同识别显式自定义物理父字段。
+            if(!table.IsGlobal)return null;
+            return CheckboxPageParent(model,table,page)??
+                GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,table.Source,page.Source,checkbox);
+        }
         if(checkbox&&(page.Source.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1")||
             !NonRedundantReads.IsScopedMultiTarget(model.Catalog,table.Source,page.Source.Id)))return null;
         var condition=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));

@@ -381,6 +381,19 @@ public sealed class CascadeMultiLabelGenerationTests
             ordinaryBusinessSource:!global,textDictionaryProject:projectScope&&typeTwo,customCheckboxParentType:type,
             customCheckboxTypeTwo:typeTwo);
 
+    /// <summary>已发布的 type=2 字典作为原复选目标时，同父复合条件保留自定义物理键。</summary>
+    [Theory]
+    [InlineData(0,false,"int32")]
+    [InlineData(1,false,"int64")]
+    [InlineData(0,true,"int32")]
+    [InlineData(1,true,"string")]
+    public Task Stored_checkbox_type_two_uses_custom_compound_parent(int mode,bool globalParent,string parentType)=>
+        CompileCascadeLabel("MultiCheckBoxDatabase",mode,selfTree:false,indirect:false,selectedPage:true,physical:true,
+            globalRowProject:true,parent:true,globalParent:globalParent,parentWithoutProject:globalParent,
+            parentAccount:globalParent&&mode==1,globalBusinessSource:true,onlyParent:!globalParent,literalParent:!globalParent,
+            projectParentScope:true,storedDictionary:true,compoundTargetParent:"physical",customCheckboxParentType:parentType,
+            customCheckboxTypeTwo:true,alternateCheckboxName:mode==1);
+
     /// <summary>已选、当前写及 Excel 通过实际级联还原目标父记录，物理祖先列为空也能匹配。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false,null,false,false)]
@@ -736,7 +749,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 }
                 else catalog.ConfigColumns.Add(new(){Id="217",ConfigTableId="2",ColumnName="other_country_id",LogicalType="int64",LinkConfigTableId=parentTable});
                 page.WhereSql+=" AND other_country_id=@parentId";
-                if(kind=="MultiCheckBoxDatabase")page.Extra["type"]=JsonSerializer.SerializeToElement(0);
+                if(kind=="MultiCheckBoxDatabase"&&!customCheckboxTypeTwo)page.Extra["type"]=JsonSerializer.SerializeToElement(0);
             }
             if(globalParent)
             {
