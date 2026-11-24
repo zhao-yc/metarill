@@ -78,7 +78,12 @@ public static class GenerationMetadataPublisher
                 Extra=KeepsVisibility(f)?f.Extra.Where(pair=>pair.Key is "isInGrid" or "isInEdit"||
                     (pair.Key is "controlDetail" or "controlKind")&&(nestedPages.Contains(f.ConfigPageId)||labelPages.Contains(f.ConfigPageId)||KeepsCheckboxProof(f))).ToDictionary():new()
             }).OrderBy(f=>f.Id,StringComparer.Ordinal).ToList();
-        published.ConfigChildren=[];published.ConfigIndexes=[];published.ConfigIndexColumns=[];
+        var treeIndexes=CascadeTreeStorageColumns.RequiredNodeIndexes(published);
+        published.ConfigChildren=[];
+        published.ConfigIndexes=treeIndexes.Count==0?[]:published.ConfigIndexes.Where(
+            row=>row.TryGetProperty("id",out var id)&&treeIndexes.Contains(id.ToString())).ToList();
+        published.ConfigIndexColumns=treeIndexes.Count==0?[]:published.ConfigIndexColumns.Where(
+            row=>row.TryGetProperty("configIndexId",out var id)&&treeIndexes.Contains(id.ToString())).ToList();
         // 全局R0页面类型参与多值关系证明，即使名称为物理缓存且来源为R0也不能按界面配置裁掉。
         var globalR0Pages=published.ConfigPages.Where(page=>published.ConfigTables.Any(table=>table.Id==page.ConfigTableId&&table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table))).Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
         // 只有实际参与传播或维护的级联目标页才下发其常量条件。

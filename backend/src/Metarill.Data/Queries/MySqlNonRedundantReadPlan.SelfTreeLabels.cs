@@ -9,7 +9,7 @@ namespace Metarill.Data.Queries;
 
 public static partial class MySqlNonRedundantReadCompiler
 {
-    private sealed record SelfTreeLabelProof(TableMetadata Target,ColumnMetadata Name,ColumnMetadata Parent,
+    private sealed record SelfTreeLabelProof(TableMetadata Target,ColumnMetadata Key,ColumnMetadata Name,ColumnMetadata Parent,
         PageMetadata Page,FixedConditionSqlPlan? Condition,bool Scoped,bool SelfTreeScoped);
 
     /// <summary>只将原控件的叶子名称标为逻辑来源，完整路径显示文本仍由原前端合同输出。</summary>
@@ -26,7 +26,7 @@ public static partial class MySqlNonRedundantReadCompiler
         if(tree.ValueKind!=System.Text.Json.JsonValueKind.Object||
             tree.EnumerateObject().Select(pair=>pair.Name).Distinct(StringComparer.Ordinal).Count()!=tree.EnumerateObject().Count()||
             new[]{"whereSql","where","sql","pageId"}.Any(key=>definition.TryGetProperty(key,out _)||tree.TryGetProperty(key,out _))||
-            Value(tree,"idField") is not("" or "id")||Value(tree,"rootMode") is not("" or "blank")||
+            Value(tree,"rootMode") is not("" or "blank")||
             Value(tree,"filterMatchMode") is not("" or "exact" or "selfAndDescendants"))
             throw new NotSupportedException("多值名称的自树定义不属于原固定根、主键和范围。");
         var target=catalog.ConfigTables.Single(table=>table.TableName==Value(tree,"table"));
@@ -35,6 +35,9 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new NotSupportedException("多值名称的自树目标不属于当前已发布实体。");
         var members=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
+        var keyName=Value(tree,"idField") is {Length:>0} declaredKey?declaredKey:"id";
+        var key=keyName=="id"?members.Single(column=>column.ColumnName=="id"):
+            CascadeTreeStorageColumns.ResolveNodeKey(catalog,target,keyName).Key;
         var parent=members.Single(column=>column.ColumnName==Value(tree,"parentField"));
         var name=members.Single(column=>column.ColumnName==(Value(tree,"nameField") is {Length:>0} field?field:"name"));
         if(parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id" or "insert_user_id" or "update_user_id"||
@@ -57,7 +60,14 @@ public static partial class MySqlNonRedundantReadCompiler
         }
         else if(!members.Any(column=>column.ColumnName=="yz_project_id"&&storage.IsPhysical(column)))
             throw new NotSupportedException("自树节点缺少真实项目范围。");
-        return new(target,name,parent,page,condition,scoped,selfTreeScoped);
+        if(keyName!="id")
+        {
+            var source=catalog.ConfigTables.Single(table=>table.Id==control.ConfigTableId);
+            if(source.IsRongyu!=0||source.Id==target.Id||GlobalCrossTableTarget.Declared(source)||
+                GlobalCrossTableTarget.Declared(target)||key.Id==parent.Id||key.Id==name.Id||scoped||!storage.IsPhysical(name))
+                throw new NotSupportedException("业务节点键要求独立项目树、普通物理叶名和已证明的来源范围。");
+        }
+        return new(target,key,name,parent,page,condition,scoped,selfTreeScoped);
     }
 
     /// <summary>同表父字段也可以承载原树控件，只有真实物理自关联键允许同时作为拓扑列。</summary>
@@ -120,6 +130,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!storage[table.Id].IsPhysical(control)||control.LogicalType is not("int64" or "string"))
                 throw new NotSupportedException("自树多值名称要求物理选择位。");
             var proof=SelfTreeLabel(catalog,control);
+            if(trackReverse&&proof.Key.ColumnName!="id")
+                throw new NotSupportedException("业务节点键的下游名称传播需要独立反查证明。");
             if(publishedPageId is not null&&(publishedPageId!=proof.Page.Id||!SelfTreeCache.UsesWholePath(catalog,table,publishedPageId)))
                 throw new InvalidOperationException("自树缓存与实际固定目标页不一致。");
             ValidateTarget(proof.Target);
@@ -133,6 +145,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var ancestor=prefix+"ancestor";
             var walk=prefix+"walk";
             var targetTable=Q(proof.Target.TableName);
+            var nodeKey=Q(proof.Key.ColumnName);
             var source=owner+"."+Q(control.ColumnName);
             var leafKey=PositiveText("CAST("+source+" AS CHAR)");
             var max=SelfTreeReader.MaximumDepth.ToString(CultureInfo.InvariantCulture);
@@ -248,17 +261,17 @@ public static partial class MySqlNonRedundantReadCompiler
             var label=MySqlMultiValueLabel.Text(nodeName,proof.Name.LogicalType);
             var empty=publishedPageId is not null&&control.LogicalType=="string"?" WHEN BINARY "+source+"=BINARY '' THEN ''":"";
             return "CASE"+empty+" WHEN "+reachesRoot+" THEN (SELECT "+label+nodeFrom+
-                " WHERE BINARY CAST("+display+".`id` AS CHAR)=BINARY "+leafKey+" LIMIT 1"+NestedReadLockMarker+") END";
+                " WHERE BINARY CAST("+display+"."+nodeKey+" AS CHAR)=BINARY "+leafKey+" LIMIT 1"+NestedReadLockMarker+") END";
 
             // 同一拓扑用于实际可见读取和失效后的反向定位。
             string WalkCte(string seedScope,string ancestorScope)=>
-                "WITH RECURSIVE "+walk+"(node_id,parent_key,depth,seen) AS ((SELECT "+seed+".`id`,"+
-                seed+"."+Q(proof.Parent.ColumnName)+",1,JSON_ARRAY(CAST("+seed+".`id` AS CHAR)) FROM "+targetTable+" "+seed+
-                " WHERE BINARY CAST("+seed+".`id` AS CHAR)=BINARY "+leafKey+WithScope(seedScope)+NestedReadLockMarker+
-                ") UNION ALL (SELECT "+ancestor+".`id`,"+ancestor+"."+Q(proof.Parent.ColumnName)+","+walk+".depth+1,"+
-                "JSON_ARRAY_APPEND("+walk+".seen,'$',CAST("+ancestor+".`id` AS CHAR)) FROM "+walk+" JOIN "+targetTable+" "+ancestor+
-                " ON BINARY CAST("+ancestor+".`id` AS CHAR)=BINARY "+PositiveText("CAST("+walk+".parent_key AS CHAR)")+
-                " WHERE "+walk+".depth<"+max+" AND NOT JSON_CONTAINS("+walk+".seen,JSON_QUOTE(CAST("+ancestor+".`id` AS CHAR)))"+
+                "WITH RECURSIVE "+walk+"(node_id,parent_key,depth,seen) AS ((SELECT "+seed+"."+nodeKey+","+
+                seed+"."+Q(proof.Parent.ColumnName)+",1,JSON_ARRAY(CAST("+seed+"."+nodeKey+" AS CHAR)) FROM "+targetTable+" "+seed+
+                " WHERE BINARY CAST("+seed+"."+nodeKey+" AS CHAR)=BINARY "+leafKey+WithScope(seedScope)+NestedReadLockMarker+
+                ") UNION ALL (SELECT "+ancestor+"."+nodeKey+","+ancestor+"."+Q(proof.Parent.ColumnName)+","+walk+".depth+1,"+
+                "JSON_ARRAY_APPEND("+walk+".seen,'$',CAST("+ancestor+"."+nodeKey+" AS CHAR)) FROM "+walk+" JOIN "+targetTable+" "+ancestor+
+                " ON BINARY CAST("+ancestor+"."+nodeKey+" AS CHAR)=BINARY "+PositiveText("CAST("+walk+".parent_key AS CHAR)")+
+                " WHERE "+walk+".depth<"+max+" AND NOT JSON_CONTAINS("+walk+".seen,JSON_QUOTE(CAST("+ancestor+"."+nodeKey+" AS CHAR)))"+
                 WithScope(ancestorScope)+NestedReadLockMarker+")) ";
 
             string NodeScope(string alias)

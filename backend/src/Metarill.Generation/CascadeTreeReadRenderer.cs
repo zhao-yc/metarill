@@ -33,7 +33,9 @@ internal static class CascadeTreeReadRenderer
             var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var target=plan.Target;var parent=plan.Parent;var name=plan.Name;var sameRow=target.Source.Id==table.Source.Id;
             string ParentValue(string expression)=>parent.Type=="string?"?expression+"?.ToString(CultureInfo.InvariantCulture)":expression;
             string NodeParent(string expression)=>parent.Type=="string?"?expression:expression+"?.ToString(CultureInfo.InvariantCulture)";
-            var projection=$"row => new {target.EntityType} {{ Id=row.Id,{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property} }}";
+            var key=plan.Key.Property;
+            var nodeId=plan.Key.IsId?"row.Id":$"row.{key}!.Value";
+            var projection=$"row => new {target.EntityType} {{ {key}=row.{key},{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property} }}";
             var label=MultiSelectExcelRenderer.LabelText(name,"row."+name.Property);
             var ordering=string.Join("",plan.Order.Select(item=>$".{(item.Descending?"OrderByDescending":"OrderBy")}(row=>row.{item.Column.Property})"));
             if(!plan.ScopedCondition)result.Append(FixedPageConditionCompilation.Declaration(plan.TargetPage,"CascadeCondition"+suffix));
@@ -56,8 +58,8 @@ internal static class CascadeTreeReadRenderer
             else
             result.AppendLine("    /// <summary>只投影树结构必需三列，候选有界且不加载整表。</summary>")
                 .AppendLine($"    private Metarill.Core.Cascades.SelfTreeReader CascadeReader{suffix}(RuntimeActor actor,bool locking=false,bool requireSourceList=true,bool requireTargetList=true) => new(")
-                .AppendLine($"        async (id,ct)=>{{var query=CascadeScope{suffix}(actor,requireSourceList,requireTargetList).Where(row=>row.Id==id);if(locking)query=query.ForUpdate();var row=await query.FirstAsync({projection},ct);return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode(row.Id,{label},{NodeParent("row."+parent.Property)});}},")
-                .AppendLine($"        async (parentId,_,ct)=>{{var query=CascadeScope{suffix}(actor);var parentKey={ParentValue("parentId")};query=parentId is null?query.Where(row=>row.{parent.Property}==null{(parent.Type=="string?"?$"||row.{parent.Property}==\"\"":"")}):query.Where(row=>row.{parent.Property}==parentKey);var rows=await query{ordering}.ToListAsync({projection},ct);return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,{label},{NodeParent("row."+parent.Property)})).ToArray();}},")
+                .AppendLine($"        async (id,ct)=>{{var query=CascadeScope{suffix}(actor,requireSourceList,requireTargetList).Where(row=>row.{key}==id);if(locking)query=query.ForUpdate();var row=await query.FirstAsync({projection},ct);return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode({nodeId},{label},{NodeParent("row."+parent.Property)});}},")
+                .AppendLine($"        async (parentId,_,ct)=>{{var query=CascadeScope{suffix}(actor);var parentKey={ParentValue("parentId")};query=parentId is null?query.Where(row=>row.{parent.Property}==null{(parent.Type=="string?"?$"||row.{parent.Property}==\"\"":"")}):query.Where(row=>row.{parent.Property}==parentKey);var rows=await query{ordering}.ToListAsync({projection},ct);return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode({nodeId},{label},{NodeParent("row."+parent.Property)})).ToArray();}},")
                 .AppendLine(parent.Type=="string?"
                     ? $"        async (ids,ct)=>{{var keys=ids.Select(id=>id.ToString(CultureInfo.InvariantCulture)).ToArray();var rows=await CascadeScope{suffix}(actor).Where(row=>keys.Contains(row.{parent.Property}!)).Distinct().ToListAsync(row=>row.{parent.Property},ct);return rows.Select(text=>long.Parse(text!,CultureInfo.InvariantCulture)).ToHashSet();}},"
                     : $"        async (ids,ct)=>{{var keys=ids.ToArray();var rows=await CascadeScope{suffix}(actor).Where(row=>row.{parent.Property}!=null&&keys.Contains(row.{parent.Property}.Value)).Distinct().ToListAsync(row=>row.{parent.Property},ct);return rows.Select(value=>value!.Value).ToHashSet();}},")

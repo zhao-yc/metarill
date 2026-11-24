@@ -1,9 +1,10 @@
 using System.Text.Json;
 using Metarill.Core.Contracts;
+using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
 
-internal sealed record CascadeTreeReadModel(ColumnModel Source,TableModel Target,PageModel TargetPage,ColumnModel Name,ColumnModel Parent,string Joiner,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool Exact,bool DerivedName=false,bool DerivedOrder=false)
+internal sealed record CascadeTreeReadModel(ColumnModel Source,TableModel Target,PageModel TargetPage,ColumnModel Key,ColumnModel Name,ColumnModel Parent,string Joiner,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool Exact,bool DerivedName=false,bool DerivedOrder=false)
 {
     internal bool ScopedCondition=>FixedPageConditionCompilation.HasLogicalFields(TargetPage);
     internal bool UsesFixedRead=>DerivedName||ScopedCondition||DerivedOrder;
@@ -36,7 +37,23 @@ internal static class CascadeTreeReadCompilation
             if(table.Source.IsRongyu is not(0 or 1))return Gap("来源存储模式未知。");
             var target=model.Tables.SingleOrDefault(candidate=>candidate.Source.TableName==Text(tree,"table"));
             if(target is null || target.Source.IsFunctionTable==1 || target.Source.IsRongyu is not(0 or 1) || ManagerCredentialCompilation.IsTable(target) || TrustedSecurityServiceCompilation.Applies(model,target))return Gap("目标必须是已声明的普通实体表。");
-            if(Text(tree,"idField","id")!="id" || Text(tree,"rootMode","blank")!="blank")return Gap("只支持主键id与blank根模式。");
+            if(Text(tree,"rootMode","blank")!="blank")return Gap("只支持blank根模式。");
+            var keyName=Text(tree,"idField","id");
+            var key=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==keyName);
+            if(key is null)return Gap("节点键未在目标表声明。");
+            if(key.IsId&&!string.IsNullOrWhiteSpace(overlay)&&CascadeTreeStorageColumns.DeclaresAlternateNodeKey(source.Source))
+                return Gap("页级配置不能替换表级业务节点键。");
+            if(!key.IsId)
+            {
+                if(table.Source.IsRongyu!=0||table.Source.Id==target.Source.Id||table.IsGlobal||target.IsGlobal||
+                    table.Source.IsFunctionTable!=0)
+                    return Gap("业务节点键要求项目内独立树和非冗余业务来源。");
+                using var baseline=JsonDocument.Parse(source.Source.ControlDetail);
+                if(!baseline.RootElement.TryGetProperty("selfTree",out var savedTree)||Text(savedTree,"idField","id")!=keyName||
+                    Text(savedTree,"table")!=target.Source.TableName)
+                    return Gap("页级业务键及目标须与表级声明一致。");
+                _=CascadeTreeStorageColumns.ResolveNodeKey(model.Catalog,target.Source,keyName);
+            }
             if(Text(tree,"filterMatchMode","selfAndDescendants") is not("exact" or "selfAndDescendants"))return Gap("未知筛选模式。");
             if(table.Source.IsFunctionTable==1&&(source.Type is not("string?" or "long?") ||
                 !source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal) || source.IsSystem ||
@@ -89,7 +106,9 @@ internal static class CascadeTreeReadCompilation
                 return Gap("排序字段须为物理标量或目标页已开放的固定单值联接。");
             if(!ordering.Any(item=>item.Column.IsId))ordering.Add((target.Columns.Single(column=>column.IsId),false));
             var joiner=Text(root,"displayJoiner","/");if(joiner.Length>32)return Gap("路径分隔符过长。");
-            var plan=new CascadeTreeReadModel(source,target,candidates[0],name,parent,joiner,ordering,Text(tree,"filterMatchMode","selfAndDescendants")=="exact",derived,joinedOrder.Length>0);if(plan.UsesFixedRead)DerivedCascadeNamesCompilation.Require(model,table,plan);return new(plan,null);
+            var plan=new CascadeTreeReadModel(source,target,candidates[0],key,name,parent,joiner,ordering,Text(tree,"filterMatchMode","selfAndDescendants")=="exact",derived,joinedOrder.Length>0);
+            if(!key.IsId&&(key==name||key==parent||plan.UsesFixedRead))return Gap("业务节点键当前要求独立物理名称、父键及普通目标范围。");
+            if(plan.UsesFixedRead)DerivedCascadeNamesCompilation.Require(model,table,plan);return new(plan,null);
         }
         catch(Exception error)when(error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException){return Gap("定义无法安全编译："+error.Message);}
     }

@@ -120,8 +120,9 @@ internal static partial class NonRedundantReadCompilation
                 continue;
             var baseline = CascadeTreeReadCompilation.Resolve(model, table, page, tree.Source, usePageDetail: false).Definition;
             if (baseline is null || baseline.TargetPage.Source.Id != tree.TargetPage.Source.Id ||
+                baseline.Key.Source.Id != tree.Key.Source.Id ||
                 baseline.Parent.Source.Id != tree.Parent.Source.Id || baseline.Name.Source.Id != tree.Name.Source.Id)
-                throw new InvalidOperationException("自树名称查询必须与页面实际目标页、父字段及名称字段一致。");
+                throw new InvalidOperationException("自树名称查询必须与页面实际目标页、节点键、父字段及名称字段一致。");
             if(name.Source.ColumnName==exactName||page.Condition?.SelfTreeFields.Contains(name.Source.ColumnName)==true)
             {
                 var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==tree.Source.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();

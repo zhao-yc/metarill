@@ -36,6 +36,74 @@ public sealed class CascadeTreeExcelTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>原自树允许使用已声明的唯一业务键，业务行、候选和 XLSX 全部保留该键。</summary>
+    [Theory]
+    [InlineData(0,"int64")]
+    [InlineData(1,"string")]
+    public async Task Ordinary_self_tree_uses_its_unique_business_node_key(int targetMode,string sourceType)
+    {
+        const string ns="Example.TreeBusinessKey";
+        var catalog=RedundantMultiNameCacheTests.Published(Catalog("businesskey",sourceType,"int64"));
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
+        catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=targetMode;
+        foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="2"))page.Extra.Remove("type");
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId=="26"))
+            field.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        var selection=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        selection.ControlDetail=selection.ControlDetail.Replace("\"idField\":\"id\"","\"idField\":\"node_key\"",StringComparison.Ordinal);
+        catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
+            ColumnName="node_key",LogicalType="int64",IsDbNotNull=1});
+        catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="71",configTableId="3",indexName="uq_tree_node_key",
+            isUnique=1,isEnabled=1,yzProjectId=catalog.YzProjectId}));
+        if(targetMode==0)catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="711",configIndexId="71",
+            configColumnId="33",sortNo=10,yzProjectId=catalog.YzProjectId}));
+        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="712",configIndexId="71",configColumnId="38",
+            sortNo=20,yzProjectId=catalog.YzProjectId}));
+
+        var model=GenerationModel.Create(catalog,ns);
+        var owner=model.Tables.Single(table=>table.Source.Id=="2");
+        var pageModel=owner.Pages.Single(page=>page.Source.Id=="201");
+        var read=CascadeTreeReadCompilation.Resolve(model,owner,pageModel,owner.Columns.Single(column=>column.Source.Id=="25"));
+        Assert.True(read.Definition is not null,read.Reason);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-self-tree-business-key");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/BusinesskeySourceService.g.cs"));
+            Assert.Contains("Where(row=>row.NodeKey==id)",service);
+            Assert.Contains("row.NodeKey>after",service);
+            Assert.Contains("keys.Contains(row.NodeKey!.Value)",service);
+            Assert.Contains("await CascadeReader201_25(actor,true,false,requireTargetList).PathAsync",service);
+            Assert.Contains("ImportCascade201_25Async",service);
+            Assert.Contains("ImportCascade202_25Async",service);
+            Assert.Contains("ExcelCascadeTreeId(entity)",service);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+            var serviceType=assembly.GetType(ns+".Generated.Services.BusinesskeySourceService",true)!;
+            foreach(var member in new[]{"ReadPlan201","ExportReadPlan201"})
+            {
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    serviceType.GetField(member,System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!.GetValue(null));
+                var mysql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+                var leaf=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",hidden)!.Invoke(mysql,["tree_name"]));
+                Assert.Contains("`node_key`",leaf);
+            }
+            var app=Path.Combine(directory,"app");
+            Assert.True(new ApplicationPackager().Create(catalog,app,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(app,operation);
+        }
+        finally { if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+
+        catalog.ConfigIndexes.Clear();
+        var missing=GenerationModel.Create(catalog,ns);
+        var table=missing.Tables.Single(item=>item.Source.Id=="2");
+        var unproven=CascadeTreeReadCompilation.Resolve(missing,table,table.Pages.Single(item=>item.Source.Id=="201"),
+            table.Columns.Single(item=>item.Source.Id=="25"));
+        Assert.Null(unproven.Definition);
+    }
+
     /// <summary>导入页无普通新增/编辑入口；覆盖按明确第一物理业务字段，不改变原页面协议。</summary>
     internal static Metarill.Core.Metadata.MetadataCatalog Catalog(string prefix="excel",string sourceType="string",string parentType="int64")
     {

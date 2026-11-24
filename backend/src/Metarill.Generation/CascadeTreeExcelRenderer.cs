@@ -15,7 +15,9 @@ internal static class CascadeTreeExcelRenderer
         if(plan is null)return $"    private Task<JsonElement> ImportCascade{page.Source.Id}_{source.Source.Id}Async(JsonElement cell,RuntimeActor actor,CancellationToken cancellationToken)=>throw new NotSupportedException(\"级联导入范围尚未证明。\");\n";
         if(plan.Read.UsesFixedRead)return DerivedCascadeNamesRenderer.Import(page,source,plan.Read);
         var read=plan.Read;var suffix=page.Source.Id+"_"+source.Source.Id;var target=read.Target;var parent=read.Parent;var name=read.Name;
-        var projection=$"row=>new {target.EntityType}{{Id=row.Id,{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property}}}";
+        var key=read.Key.Property;
+        var nodeId=read.Key.IsId?"row.Id":$"row.{key}!.Value";
+        var projection=$"row=>new {target.EntityType}{{{key}=row.{key},{name.Property}=row.{name.Property},{parent.Property}=row.{parent.Property}}}";
         var parentOutput=parent.Type=="string?"?"row."+parent.Property:"row."+parent.Property+"?.ToString(CultureInfo.InvariantCulture)";
         var label=MultiSelectExcelRenderer.LabelText(name,"row."+name.Property);
         var lookup=name.Type=="string?"?"text":"key";
@@ -33,8 +35,8 @@ internal static class CascadeTreeExcelRenderer
             var query=CascadeScope{{suffix}}(actor,false,false).Where(row=>row.{{name.Property}}=={{lookup}});
             var parentKey={{(parent.Type=="string?"?"parentId?.ToString(CultureInfo.InvariantCulture)":"parentId")}};
             query=parentId is null?query.Where(row=>row.{{parent.Property}}==null{{(parent.Type=="string?"?$"||row.{parent.Property}==\"\"":"")}}):query.Where(row=>row.{{parent.Property}}==parentKey);
-            var rows=await query.OrderBy(row=>row.Id).ForUpdate().Limit(2).ToListAsync({{projection}},ct);
-            return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,{{label}},{{parentOutput}})).ToArray();
+            var rows=await query.OrderBy(row=>row.{{key}}).ForUpdate().Limit(2).ToListAsync({{projection}},ct);
+            return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode({{nodeId}},{{label}},{{parentOutput}})).ToArray();
         },cancellationToken);
         return JsonSerializer.SerializeToElement({{(source.Type=="string?"?"id.ToString(CultureInfo.InvariantCulture)":"(long?)id")}},JsonOptions);
     }
