@@ -62,16 +62,38 @@ public sealed class ExactDataManageGenerationTests
     [Theory]
     [InlineData(false,"string")]
     [InlineData(true,"int64")]
-    public async Task Redundant_independent_self_tree_keeps_physical_exact_scope_in_full_packages(bool parented,string type)
+    public Task Redundant_independent_self_tree_keeps_physical_exact_scope_in_full_packages(bool parented,string type) =>
+        RunPhysicalSelfTreeScope(parented,type,nonRedundant:false);
+
+    /// <summary>普通非冗余页的隐含物理精确字段参与 SQL，仍由原自树按真实祖先链回显。</summary>
+    [Theory]
+    [InlineData(false,"string")]
+    [InlineData(true,"int64")]
+    public Task Nonredundant_independent_self_tree_keeps_physical_exact_scope_in_full_packages(bool parented,string type) =>
+        RunPhysicalSelfTreeScope(parented,type,nonRedundant:true);
+
+    /// <summary>两个存储模式共用目录和原 Excel 入口，分别核对物理锁定与非冗余读取。</summary>
+    private static async Task RunPhysicalSelfTreeScope(bool parented,string type,bool nonRedundant)
     {
-        const string prefix = "r1_exact_tree";
+        var prefix = nonRedundant ? "r0_exact_tree" : "r1_exact_tree";
         var catalog = RedundantMultiNameCacheTests.Published(parented
             ? CascadeTreeSourceParentTests.Catalog(prefix,type)
             : CascadeTreeExcelTests.Catalog(prefix,type,type));
+        var match = nonRedundant ? "scope_code" : "name";
+        if (nonRedundant)
+        {
+            catalog.ConfigTables.Single(candidate=>candidate.Id=="2").IsRongyu=0;
+            catalog.ConfigColumns.Add(new ColumnMetadata
+            {
+                Id="29",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
+                ColumnName=match,LogicalType="string",DefaultValue="只允许甲"
+            });
+        }
         var sourcePages = catalog.ConfigPages.Where(page=>page.ConfigTableId=="2").OrderBy(page=>page.Id).ToArray();
         foreach (var metadata in sourcePages)
         {
-            metadata.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");
+            if(nonRedundant) metadata.Extra["type"]=JsonSerializer.SerializeToElement(0);
+            metadata.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(match);
             metadata.Extra["exportMethod"]=JsonSerializer.SerializeToElement(metadata.Id=="201"?"list":"edit");
             metadata.IsCopy=metadata.IsDelete=metadata.IsNew=metadata.IsSave=metadata.IsExport=1;
         }
@@ -116,10 +138,21 @@ public sealed class ExactDataManageGenerationTests
             {
                 var sql=Sql(operation);
                 Assert.Equal(operation,authorization.LastOperation);
-                Assert.Contains("`name` IN",sql,StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("`"+match+"` IN",sql,StringComparison.OrdinalIgnoreCase);
                 Assert.DoesNotContain("只允许甲",sql);
                 Assert.Contains("`yz_project_id`",sql);
                 if(parented) Assert.Contains("`"+prefix+"_owner_id`",sql);
+            }
+            if(nonRedundant)
+            {
+                var read=serviceType.GetMethod("ReadFilters201",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                var filters=(List<FixedReadFilter>)read.Invoke(service,[new PageRequest{ParentId=parented?"71":null},actor,"export"])!;
+                Assert.Equal("export",authorization.LastOperation);
+                var range=Assert.Single(filters,item=>item.Field==match);
+                Assert.Equal(FixedReadComparison.In,range.Comparison);
+                Assert.Equal(new object?[]{"只允许甲","只允许乙"},Assert.IsAssignableFrom<IReadOnlyList<object?>>(range.Value));
+                var vo=assembly.GetType(model.Namespace+".Generated.VOs."+table.Pages.Single(page=>page.Source.Id=="201").Name+"Vo",true)!;
+                Assert.Null(vo.GetProperty("ScopeCode"));
             }
             authorization.Value="[]";
             var empty=System.Text.RegularExpressions.Regex.Replace(Sql("update"),@"\s+","");

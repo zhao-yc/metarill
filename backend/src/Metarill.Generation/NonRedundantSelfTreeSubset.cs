@@ -21,10 +21,16 @@ internal static class NonRedundantSelfTreeSubset
             {
                 if(NonRedundantCrossTableSubset.Reason(model,table,page) is not null)return false;
             }
-            else if(ExactDataManageCompilation.Resolve(model,table,page) is {SelfTree:false} exact&&
-                (!SelectionPageRenderer.Enabled(page)||table.IsGlobal||exact.Derived||
-                    !Metarill.Data.Queries.NonRedundantReads.IsScopedMultiSelectTarget(model.Catalog,table.Source,page.Source.Id)))return false;
-            // 自树叶名由 实际页证明。物理匹配仍只开放已有固定范围的独立多选页。
+            else if(ExactDataManageCompilation.Resolve(model,table,page) is {SelfTree:false} exact)
+            {
+                // 原普通业务页的来源物理列可进入固定筛选和写前锁定；候选页仍须各自通过已有发布证明。
+                var ordinary=page.Source.Extra.GetValueOrDefault("type").ToString() is "" or "0";
+                if(table.IsGlobal || !ExactDataManageCompilation.IsDirectPhysicalSource(exact) ||
+                    !ordinary && (!SelectionPageRenderer.Enabled(page) ||
+                        !Metarill.Data.Queries.NonRedundantReads.IsScopedMultiSelectTarget(model.Catalog,table.Source,page.Source.Id)))
+                    return false;
+            }
+            // 实际页面继续证明自树叶名、父范围和固定读取，不以精确范围代替关系验证。
             _=NonRedundantReadCompilation.ForPage(model,table,page);return true;
         }
         catch(Exception error)when(error is InvalidOperationException or NotSupportedException or JsonException or ArgumentException){return false;}

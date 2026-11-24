@@ -63,6 +63,11 @@ internal static class ExactDataManageCompilation
         _=ExactDataManageValues.Unrestricted.ReadLogical(column.Source.LogicalType);
         return new(column,manager,derived,singleTargets,paths,shared is not null,selfTree);
     }
+    /// <summary>直接读取来源物理字段；树名称缓存和联接副本不能作为本组合的授权依据。</summary>
+    internal static bool IsDirectPhysicalSource(ExactDataManageModel scope) =>
+        !scope.Derived && !scope.Column.IsManagedCascadeName &&
+        !GenerationModel.Enabled(scope.Column.Source.Extra,"isJoinColumn");
+
     /// <summary>当前锁定只包含匹配字段的联接，保留共享、独立级联和原表级匹配路径。</summary>
     internal static string MatchPlanCall(TableModel table,PageModel page,ExactDataManageModel exact)
     {

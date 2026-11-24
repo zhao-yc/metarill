@@ -31,8 +31,8 @@ internal static class RedundantSelfTreeSubset
             {
                 // 来源页的物理范围由原 Scope 绑定。目标候选继续使用独立发布页，不能以树名称缓存代替授权字段。
                 if (ExactDataManageCompilation.Declared(page) &&
-                    (table.IsGlobal || ExactDataManageCompilation.Resolve(model,table,page) is not { Derived:false } exact ||
-                        exact.Column.IsManagedCascadeName || GenerationModel.Enabled(exact.Column.Source.Extra,"isJoinColumn")))
+                    (table.IsGlobal || ExactDataManageCompilation.Resolve(model,table,page) is not {} exact ||
+                        !ExactDataManageCompilation.IsDirectPhysicalSource(exact)))
                     return "独立自树的精确管理需要普通来源页的真实物理标量字段。";
                 Parents(model,table,page);
             }
