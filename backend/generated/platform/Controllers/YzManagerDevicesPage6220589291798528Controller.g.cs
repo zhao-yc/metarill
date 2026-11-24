@@ -12,6 +12,7 @@ namespace Metarill.Platform.Generated.Controllers;
 [GeneratedPageAccess("6220589291798528", "6220588773015552", typeof(global::Metarill.Platform.Generated.Entities.YzManagerDevices), typeof(YzManagerDevicesService), nameof(YzManagerDevicesService.ReadButtonRecord6220589291798528Async))]
 [GeneratedPageOrder()]
 [GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{},\u0022additionalProperties\u0022:false}")]
+[GeneratedPagePagination(false, false)]
 [Route("api/admin/auto/yz_manager_devices/6220589291798528")]
 public sealed partial class YzManagerDevicesPage6220589291798528Controller(YzManagerDevicesService service, IRuntimeAuthorization authorization) : ControllerBase
 {

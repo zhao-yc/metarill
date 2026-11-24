@@ -10,6 +10,7 @@ namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
 [GeneratedPageOrder("sortNo")]
 [GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{},\u0022additionalProperties\u0022:false}")]
+[GeneratedPagePagination(false, false)]
 [Route("api/admin/auto/config_index_column/2076977554350190593")]
 public sealed partial class ConfigIndexColumnPage2076977554350190593Controller(ConfigIndexColumnService service, IRuntimeAuthorization authorization) : ControllerBase
 {

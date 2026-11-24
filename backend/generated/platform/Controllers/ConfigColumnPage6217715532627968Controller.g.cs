@@ -12,6 +12,7 @@ namespace Metarill.Platform.Generated.Controllers;
 [GeneratedPageAccess("6217715532627968", "6217714881724416", typeof(global::Metarill.Platform.Generated.Entities.ConfigColumn), typeof(ConfigColumnService), nameof(ConfigColumnService.ReadButtonRecord6217715532627968Async))]
 [GeneratedPageOrder()]
 [GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{\u0022name\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022string\u0022},{\u0022type\u0022:\u0022array\u0022,\u0022items\u0022:{\u0022type\u0022:\u0022string\u0022}},{\u0022type\u0022:\u0022null\u0022}]},\u0022columnName\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022string\u0022},{\u0022type\u0022:\u0022array\u0022,\u0022items\u0022:{\u0022type\u0022:\u0022string\u0022}},{\u0022type\u0022:\u0022null\u0022}]}},\u0022additionalProperties\u0022:false}")]
+[GeneratedPagePagination(false, false)]
 [Route("api/admin/auto/config_column/6217715532627968")]
 public sealed partial class ConfigColumnPage6217715532627968Controller(ConfigColumnService service, IRuntimeAuthorization authorization) : ControllerBase
 {

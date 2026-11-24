@@ -52,6 +52,13 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                 if (methods.Length != 1) continue;
                 var method = methods[0].ToUpperInvariant(); var tail = match.Groups[3].Value;
                 var operation = Operation(method, tail); if (operation is null) continue;
+                var pagination = action.ControllerTypeInfo.GetCustomAttribute<GeneratedPagePaginationAttribute>();
+                // 仅编目已生成多选页上实际绑定原回读 DTO 的入口。
+                var readSelected = tail == "selection/selected";
+                if (readSelected && (pagination?.SelectionPage != true ||
+                    !action.Parameters.OfType<ControllerParameterDescriptor>().Any(parameter =>
+                        parameter.ParameterType == typeof(SelectionRowsRequest) && parameter.BindingInfo?.BindingSource == BindingSource.Body)))
+                    continue;
                 var recordWrite=operation is "update" or "delete" or "copy"?AgentRecordWriteBinding.Compile(action,page,operation,registered):null;
                 if(operation is "update" or "delete" or "copy"&&recordWrite is null)continue;
                 var path = "/" + route.TrimStart('/')[4..];
@@ -69,6 +76,10 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                     if (kind == "body")
                     {
                         requestSchema = schema;
+                        if (pagination is not null && parameter.ParameterType == typeof(PageRequest) && operation is ("list" or "count" or "export"))
+                            AgentJsonSchema.DescribePagePagination(schema, pagination, operation == "list");
+                        if (readSelected && parameter.ParameterType == typeof(SelectionRowsRequest))
+                            AgentJsonSchema.DescribeSelectedRows(schema);
                         if (operation is ("list" or "count" or "export") &&
                             action.ControllerTypeInfo.GetCustomAttribute<GeneratedPageFiltersAttribute>() is { } pageFilters)
                             AgentJsonSchema.DescribePageFilters(schema, pageFilters.SchemaJson);
@@ -84,7 +95,7 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                                 requestContract?.ServerSuppliedFields.Contains(field, StringComparer.Ordinal) != true));
                         if (operation == "import") required.Add("requestJson");
                         // 列表、计数和原 Excel 从请求体读取父级；记录详情和新增仍从各自查询参数读取。
-                        if (page.RequiresParent && operation is ("list" or "count" or "export" or "import") &&
+                        if (page.RequiresParent && (readSelected || operation is ("list" or "count" or "export" or "import")) &&
                             schema.GetValueOrDefault("properties") is IReadOnlyDictionary<string,object?> bodyProperties &&
                             bodyProperties.ContainsKey("parentId"))
                             required.Add("parentId");
@@ -93,7 +104,7 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                     parameters.Add(new(parameter.Name, kind, kind is "path" or "body" || parameter.Name == "parentId" && page.RequiresParent, schema));
                 }
                 var read = operation is "list" or "detail" or "count" or "options";
-                var descriptor = new AgentCapability(id, page.Name + "：" + operation, "复用当前生成接口与服务端页面数据范围。", operation, path, method, page.Id, null, !read,
+                var descriptor = new AgentCapability(id, page.Name + "：" + (readSelected ? "已选记录回读" : operation), "复用当前生成接口与服务端页面数据范围。", operation, path, method, page.Id, null, !read,
                     read ? "" : "此操作会写入数据或创建导出文件，请核对请求后明确确认。", parameters, requestSchema, AgentJsonSchema.Create(ReturnType(action.MethodInfo.ReturnType)));
                 result.Add(new(descriptor, action, page.ProjectId, operation == "options" ? "list" : operation){RecordWrite=recordWrite});
             }
@@ -105,6 +116,7 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
     {
         ("GET", "detail/{id}") => "detail", ("POST", "page") => "list", ("POST", "count") => "count", ("POST", "add") => "create", ("POST", "update") => "update",
         ("DELETE", "") => "delete", ("POST", "copy/{id}") => "copy", ("POST", "initExport") => "export",
+        ("POST", "selection/selected") => "options",
         ("POST", var value) when value.StartsWith("importDatas", StringComparison.Ordinal) => "import",
         ("POST", var value) when value.StartsWith("findNameId", StringComparison.Ordinal) => "options", _ => null
     };

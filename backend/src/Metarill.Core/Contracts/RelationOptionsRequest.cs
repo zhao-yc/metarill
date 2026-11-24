@@ -68,6 +68,7 @@ public sealed class RelationOptionsPageRequest
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class RelationOptionsSelectedRequest
 {
+    public const int MaximumItems = 200;
     public List<string> SelectedIds { get; set; } = [];
     public string? ParentId { get; set; }
     public string? TargetParentId { get; set; }
@@ -78,7 +79,8 @@ public sealed class RelationOptionsSelectedRequest
     /// <summary>先限制原始数量再去重，不允许表达式、负数或超出整型范围的 ID。</summary>
     public long[] ParseIds()
     {
-        if (SelectedIds is null || SelectedIds.Count > 200) throw new ArgumentException("关联已选项最多 200 个，不能为 null。");
+        if (SelectedIds is null || SelectedIds.Count > MaximumItems)
+            throw new ArgumentException($"关联已选项最多 {MaximumItems} 个，不能为 null。");
         return SelectedIds.Select(id => long.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value > 0
             ? value : throw new ArgumentException("关联已选项 ID 必须为正整数文本。")).Distinct().ToArray();
     }

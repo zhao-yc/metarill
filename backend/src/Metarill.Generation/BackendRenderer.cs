@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
@@ -500,7 +501,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("                    break;").AppendLine("                }");
         }        result.AppendLine("                default: throw new ArgumentException(\"页面未开放该筛选字段：\" + filter.Key);").AppendLine("            }").AppendLine("        }")
             .AppendLine("        if (request.SelectedIds is null) throw new ArgumentException(\"selectedIds 不能为空。\");")
-            .AppendLine(SelectionPageRenderer.Enabled(page) ? "        if (request.SelectedIds.Count > 200 || request.PageNo > 1000000) throw new ArgumentException(\"多选页最多200个已选项，页码最多1000000。\");" : "")
+            .AppendLine(SelectionPageRenderer.Enabled(page) ? $"        if (request.SelectedIds.Count > {RelationOptionsSelectedRequest.MaximumItems} || request.PageNo > {PageRequest.SelectionMaximumPageNo}) throw new ArgumentException(\"多选页最多{RelationOptionsSelectedRequest.MaximumItems}个已选项，页码最多{PageRequest.SelectionMaximumPageNo}。\");" : "")
             .AppendLine("        if (request.SelectedIds.Count > 0)").AppendLine("        {").AppendLine("            var selected = request.SelectedIds.Select(id => long.Parse(id, CultureInfo.InvariantCulture)).ToArray();")
             .AppendLine("            query = query.Where(entity => selected.Contains(entity.Id));").AppendLine("        }").AppendLine("        return query;").AppendLine("    }")
             .AppendLine("    /// <summary>排序只能引用已生成的开放列，方向不能成为 SQL 片段。</summary>")
@@ -514,7 +515,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         result.AppendLine("        return query" + string.Concat(fixedQuery.DefaultOrder.Select(item => $".{(item.Descending ? "OrderByDescending" : "OrderBy")}(entity => {ManagerCredentialCompilation.Order(table,page,item.Column)})")) + ";")
             .AppendLine("    }").AppendLine("    /// <summary>分页与统计使用同一条已受限查询。</summary>")
             .AppendLine($"    public {(snapshot?"Task":"async Task")}<PageResult<{page.Name}Vo>> Page{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken){(snapshot?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<PageResult<{page.Name}Vo>>(async () =>":"")}").AppendLine("    {")
-            .AppendLine("        if (request.PageNo < 1 || request.PageSize < 0 || request.PageSize > 1000) throw new ArgumentException(\"分页参数无效，每页最多 1000 条。\");")
+            .AppendLine($"        if (request.PageNo < {PageRequest.MinimumPageNo} || request.PageSize < 0 || request.PageSize > {PageRequest.MaximumPageSize}) throw new ArgumentException(\"分页参数无效，每页最多 {PageRequest.MaximumPageSize} 条。\");")
             .AppendLine($"        var unpaged = request.PageSize == 0 && {(page.Source.PageSize == 0).ToString().ToLowerInvariant()};")
             .AppendLine("        if (request.PageSize == 0 && (!unpaged || request.PageNo != 1)) throw new ArgumentException(\"仅已配置不分页的页面允许 pageSize=0，且页码必须为1。\");")
             .AppendLine(("        "+ParentCheck("request.ParentId")).TrimEnd())
@@ -902,6 +903,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .Append(BusinessRecordButtons(model,page).Count==0 ? "" : $"[GeneratedPageAccess({Literal(suffix)}, {Literal(table.Source.Id)}, typeof(global::{model.Namespace}.Generated.Entities.{table.Name}), typeof({table.Name}Service), nameof({table.Name}Service.ReadButtonRecord{suffix}Async))]"+Environment.NewLine)
             .AppendLine($"[GeneratedPageOrder({string.Join(", ", RequestSortColumns(table, page).Select(column => Literal(column.JsonName)))})]")
             .AppendLine(PageFiltersAttribute(model, table, page))
+            .AppendLine($"[GeneratedPagePagination({(page.Source.PageSize == 0).ToString().ToLowerInvariant()}, {SelectionPageRenderer.Enabled(page).ToString().ToLowerInvariant()})]")
             .AppendLine($"[Route({Literal("api/admin/auto/" + table.Source.TableName + "/" + suffix)})]")
             .AppendLine($"public sealed partial class {page.Name}Controller({table.Name}Service service, IRuntimeAuthorization authorization{(CascadeTreeQueryCompilation.Snapshot(model,table,page)?", Metarill.Data.DatabaseSession readSession":"")}) : ControllerBase").AppendLine("{")
             .AppendLine("    /// <summary>HTTP 边界先检查页面操作权限，再传递真实身份。</summary>")

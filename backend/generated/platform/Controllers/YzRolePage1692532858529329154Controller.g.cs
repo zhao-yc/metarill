@@ -11,6 +11,7 @@ namespace Metarill.Platform.Generated.Controllers;
 [global::Metarill.Core.Contracts.GeneratedAgentWriteAccess("1608097412978577409", "1692532858529329154", "1692532858499969026", typeof(global::Metarill.Platform.Generated.Entities.YzRole), typeof(YzRoleService), nameof(YzRoleService.ReadAgentRecord1692532858529329154Async))]
 [GeneratedPageOrder()]
 [GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{\u0022name\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022string\u0022},{\u0022type\u0022:\u0022array\u0022,\u0022items\u0022:{\u0022type\u0022:\u0022string\u0022}},{\u0022type\u0022:\u0022null\u0022}]}},\u0022additionalProperties\u0022:false}")]
+[GeneratedPagePagination(false, false)]
 [Route("api/admin/auto/yz_role/1692532858529329154")]
 public sealed partial class YzRolePage1692532858529329154Controller(YzRoleService service, IRuntimeAuthorization authorization) : ControllerBase
 {

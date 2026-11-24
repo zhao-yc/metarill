@@ -13,6 +13,9 @@ public sealed record R<T>(int Code, string? Msg, T? Data, Dictionary<string, obj
 
 public sealed class PageRequest
 {
+    public const int MinimumPageNo = 1;
+    public const int MaximumPageSize = 1000;
+    public const int SelectionMaximumPageNo = 1000000;
     /// <summary>保留旧候选的表单槽；普通列表不会将其解释成查询或身份。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public System.Text.Json.JsonElement? FormParameters { get; set; }

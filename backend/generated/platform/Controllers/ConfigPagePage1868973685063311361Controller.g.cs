@@ -12,6 +12,7 @@ namespace Metarill.Platform.Generated.Controllers;
 [GeneratedPageAccess("1868973685063311361", "6191173858623488", typeof(global::Metarill.Platform.Generated.Entities.ConfigPage), typeof(ConfigPageService), nameof(ConfigPageService.ReadButtonRecord1868973685063311361Async))]
 [GeneratedPageOrder()]
 [GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{\u0022name\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022string\u0022},{\u0022type\u0022:\u0022array\u0022,\u0022items\u0022:{\u0022type\u0022:\u0022string\u0022}},{\u0022type\u0022:\u0022null\u0022}]}},\u0022additionalProperties\u0022:false}")]
+[GeneratedPagePagination(false, false)]
 [Route("api/admin/auto/config_page/1868973685063311361")]
 public sealed partial class ConfigPagePage1868973685063311361Controller(ConfigPageService service, IRuntimeAuthorization authorization) : ControllerBase
 {

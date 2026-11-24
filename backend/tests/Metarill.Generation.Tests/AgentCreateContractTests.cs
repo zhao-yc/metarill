@@ -28,6 +28,9 @@ public sealed class AgentCreateContractTests
         foreach (var column in catalog.ConfigColumns.Where(column=>column.LogicalType=="id"))
             column.LogicalType="int64";
         var page=catalog.ConfigPages.Single();
+        page.PageSize=hasParent?20:0;
+        var selection=hasParent&&storage==0;
+        if (selection) page.Extra["type"]=JsonSerializer.SerializeToElement(2);
         if (!hasParent) catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="12").Extra.Remove("isSort");
         page.IsNew=page.IsImport=page.IsExport=1;
         page.WhereSql += " AND store_id=@current_store_id";
@@ -105,6 +108,30 @@ public sealed class AgentCreateContractTests
                 if (hasParent) expected.Add("parentId");
                 if (action=="import") expected.Add("requestJson");
                 Assert.Equal(expected,requiredBody.Order(StringComparer.Ordinal));
+                if (action=="list")
+                {
+                    var pageFields=body.GetProperty("properties");
+                    var size=pageFields.GetProperty("pageSize");
+                    Assert.Equal(hasParent?1:0,size.GetProperty("minimum").GetInt32());
+                    Assert.Equal(1000,size.GetProperty("maximum").GetInt32());
+                    var number=pageFields.GetProperty("pageNo");
+                    Assert.Equal(1,number.GetProperty("minimum").GetInt32());
+                    Assert.Equal(selection,number.TryGetProperty("maximum",out var maxPage));
+                    if (selection) Assert.Equal(1000000,maxPage.GetInt32());
+                    Assert.Equal(!hasParent,body.TryGetProperty("allOf",out var rules));
+                    if (!hasParent)
+                    {
+                        var rule=Assert.Single(rules.EnumerateArray());
+                        Assert.Equal(0,rule.GetProperty("if").GetProperty("properties").GetProperty("pageSize").GetProperty("const").GetInt32());
+                        Assert.Equal(1,rule.GetProperty("then").GetProperty("properties").GetProperty("pageNo").GetProperty("const").GetInt32());
+                    }
+                }
+                if (action is "list" or "count" or "export")
+                {
+                    var ids=body.GetProperty("properties").GetProperty("selectedIds");
+                    Assert.Equal(selection,ids.TryGetProperty("maxItems",out var maxItems));
+                    if (selection) Assert.Equal(200,maxItems.GetInt32());
+                }
                 if (action is "list" or "count" or "export")
                 {
                     var filterSchema=body.GetProperty("properties").GetProperty("filters");
@@ -135,6 +162,24 @@ public sealed class AgentCreateContractTests
                     Assert.Equal(new[] { "ascending", "descending" }, Choices(orderByFields.GetProperty("order")));
                 }
             }
+
+            const string readSelected="page:101:options:selection/selected";
+            if (selection)
+            {
+                var published=directoryCatalog.Describe(readSelected);
+                Assert.Equal("/admin/auto/customer/101/selection/selected",published.Path);
+                Assert.False(published.ConfirmationRequired);
+                using var selectedSchema=JsonDocument.Parse(JsonSerializer.Serialize(published.RequestSchema));
+                var selectedBody=selectedSchema.RootElement;
+                Assert.False(selectedBody.GetProperty("additionalProperties").GetBoolean());
+                Assert.Equal("parentId",Assert.Single(selectedBody.GetProperty("required").EnumerateArray()).GetString());
+                var ids=selectedBody.GetProperty("properties").GetProperty("selectedIds");
+                Assert.Equal(200,ids.GetProperty("maxItems").GetInt32());
+                Assert.Equal("string",ids.GetProperty("items").GetProperty("type").GetString());
+                Assert.Throws<UnauthorizedAccessException>(()=>new AgentCapabilityCatalog(index,new Authorization(false)).Describe(readSelected));
+            }
+            else
+                Assert.Throws<UnauthorizedAccessException>(()=>directoryCatalog.Describe(readSelected));
         }
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
@@ -150,7 +195,7 @@ public sealed class AgentCreateContractTests
         public bool IsPlatformRealm(string project,string admin)=>false;
     }
 
-    private sealed class Authorization:IRuntimeAuthorization
+    private sealed class Authorization(bool allowList=true):IRuntimeAuthorization
     {
         /// <summary>仅提供能力目录所需的固定测试身份。</summary>
         public RuntimeActor RequireActor()=>new(1,"新增字段合同",true,"100","1");
@@ -158,6 +203,7 @@ public sealed class AgentCreateContractTests
         {
             Assert.Equal("101",pageId);
             Assert.Contains(operation,new[]{"create","list","count","export","import"});
+            if (operation=="list"&&!allowList) throw new UnauthorizedAccessException("测试缺少列表权限。");
         }
     }
 }

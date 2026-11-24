@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 
 namespace Metarill.Generation;
@@ -454,7 +455,7 @@ internal static class GeneratedNonRedundantReadCatalog
             result.AppendLine("                }");
         }
         result.AppendLine("                default:throw new ArgumentException(\"页面未开放该筛选字段：\"+filter.Key);").AppendLine("            }").AppendLine("        }").AppendLine("        if(request.SelectedIds is null)throw new ArgumentException(\"selectedIds不能为空。\");")
-            .AppendLine(SelectionPageRenderer.Enabled(page)?"        if(request.SelectedIds.Count>200||request.PageNo>1000000)throw new ArgumentException(\"多选页最多200个已选项，页码最多1000000。\");":"")
+            .AppendLine(SelectionPageRenderer.Enabled(page)?$"        if(request.SelectedIds.Count>{RelationOptionsSelectedRequest.MaximumItems}||request.PageNo>{PageRequest.SelectionMaximumPageNo})throw new ArgumentException(\"多选页最多{RelationOptionsSelectedRequest.MaximumItems}个已选项，页码最多{PageRequest.SelectionMaximumPageNo}。\");":"")
             .AppendLine("        if(request.SelectedIds.Count>0)result.Add(new(\"id\",FixedReadComparison.In,request.SelectedIds.Select(value=>(object?)long.Parse(value,CultureInfo.InvariantCulture)).ToArray()));")
             .AppendLine("        return result;").AppendLine("    }").AppendLine("    /// <summary>请求排序键仍由原页面开放列控制，默认排序保持元数据序列。</summary>").AppendLine($"    private static IReadOnlyList<FixedReadOrder> ReadOrder{suffix}(PageRequest request)").AppendLine("    {")
             .AppendLine("        if(request.OrderBy is not null&&!string.IsNullOrWhiteSpace(request.OrderBy.Order))").AppendLine("        {").AppendLine("            var descending=request.OrderBy.Order switch{\"descending\"=>true,\"ascending\"=>false,_=>throw new ArgumentException(\"排序方向无效。\")};")
@@ -463,7 +464,7 @@ internal static class GeneratedNonRedundantReadCatalog
         result.AppendLine("                _=>throw new ArgumentException(\"页面未开放该排序字段。\")").AppendLine("            };").AppendLine("        }")
             .AppendLine("        return new FixedReadOrder[]{"+string.Join(",",fixedQuery.DefaultOrder.Select(order=>$"new({Literal(order.Column.Source.ColumnName)},{order.Descending.ToString().ToLowerInvariant()})"))+"};").AppendLine("    }")
             .AppendLine("    /// <summary>固定SQL完成范围/筛选/排序/count/分页，再投影原VO。</summary>").AppendLine($"    public {(snapshot?"":"async ")}Task<PageResult<{page.Name}Vo>> Page{suffix}Async(PageRequest request,RuntimeActor actor,CancellationToken cancellationToken){(snapshot?$"=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<PageResult<{page.Name}Vo>>(async()=>":"")}").AppendLine("    {")
-            .AppendLine("        if(request.PageNo<1||request.PageSize<0||request.PageSize>1000)throw new ArgumentException(\"分页参数无效，每页最多1000条。\");")
+            .AppendLine($"        if(request.PageNo<{PageRequest.MinimumPageNo}||request.PageSize<0||request.PageSize>{PageRequest.MaximumPageSize})throw new ArgumentException(\"分页参数无效，每页最多{PageRequest.MaximumPageSize}条。\");")
             .AppendLine($"        var unpaged=request.PageSize==0&&{(page.Source.PageSize==0).ToString().ToLowerInvariant()};")
             .AppendLine("        if(request.PageSize==0&&(!unpaged||request.PageNo!=1))throw new ArgumentException(\"仅已配置不分页的页面允许pageSize=0，且页码必须为1。\");")
             .AppendLine("        "+ParentCheck("request.ParentId"))

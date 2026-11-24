@@ -10,6 +10,7 @@ namespace Metarill.Platform.Generated.Controllers;
 [ApiController]
 [GeneratedPageOrder()]
 [GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{},\u0022additionalProperties\u0022:false}")]
+[GeneratedPagePagination(false, false)]
 [Route("api/admin/auto/config_menu/2200000000000099000")]
 public sealed partial class ConfigMenuPage2200000000000099000Controller(ConfigMenuService service, IRuntimeAuthorization authorization) : ControllerBase
 {

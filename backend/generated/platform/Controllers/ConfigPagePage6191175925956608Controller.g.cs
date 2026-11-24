@@ -12,6 +12,7 @@ namespace Metarill.Platform.Generated.Controllers;
 [GeneratedPageAccess("6191175925956608", "6191173858623488", typeof(global::Metarill.Platform.Generated.Entities.ConfigPage), typeof(ConfigPageService), nameof(ConfigPageService.ReadButtonRecord6191175925956608Async))]
 [GeneratedPageOrder()]
 [GeneratedPageFilters("{\u0022type\u0022:\u0022object\u0022,\u0022properties\u0022:{\u0022yzAdminTypeId\u0022:{\u0022anyOf\u0022:[{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022integer\u0022},{\u0022type\u0022:\u0022string\u0022,\u0022pattern\u0022:\u0022^[\\u002B-]?[0-9]\\u002B$\u0022}]},{\u0022type\u0022:\u0022null\u0022}]},\u0022name\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022string\u0022},{\u0022type\u0022:\u0022array\u0022,\u0022items\u0022:{\u0022type\u0022:\u0022string\u0022}},{\u0022type\u0022:\u0022null\u0022}]},\u0022configTableTableName\u0022:{\u0022anyOf\u0022:[{\u0022type\u0022:\u0022string\u0022},{\u0022type\u0022:\u0022array\u0022,\u0022items\u0022:{\u0022type\u0022:\u0022string\u0022}},{\u0022type\u0022:\u0022null\u0022}]}},\u0022additionalProperties\u0022:false}")]
+[GeneratedPagePagination(false, false)]
 [Route("api/admin/auto/config_page/6191175925956608")]
 public sealed partial class ConfigPagePage6191175925956608Controller(ConfigPageService service, IRuntimeAuthorization authorization) : ControllerBase
 {
