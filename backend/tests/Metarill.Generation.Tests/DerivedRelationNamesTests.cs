@@ -1097,8 +1097,22 @@ public sealed class DerivedRelationNamesTests
     [InlineData(1, "account")]
     [InlineData(1, "account", true)]
     [InlineData(1, "account", true, true)]
-    public async Task List_uses_the_selected_page_of_a_stored_dictionary(int sourceStorage, string scope,
-        bool globalTarget=false, bool globalSource=false)
+    public Task List_uses_the_selected_page_of_a_stored_dictionary(int sourceStorage, string scope,
+        bool globalTarget=false, bool globalSource=false) =>
+        VerifyStoredListPage(sourceStorage,scope,globalTarget,globalSource,exactTarget:false);
+
+    /// <summary>选中的冗余字典同时使用精确权限与实际页面、父记录和账号范围。</summary>
+    [Theory]
+    [InlineData(0,"constant")]
+    [InlineData(0,"parent")]
+    [InlineData(0,"account")]
+    [InlineData(1,"constant")]
+    [InlineData(1,"parent")]
+    [InlineData(1,"control-account")]
+    public Task List_uses_the_physical_exact_page_of_a_stored_dictionary(int sourceStorage,string scope) =>
+        VerifyStoredListPage(sourceStorage,scope,globalTarget:false,globalSource:false,exactTarget:true);
+
+    private static async Task VerifyStoredListPage(int sourceStorage,string scope,bool globalTarget,bool globalSource,bool exactTarget)
     {
         const string ns = "Example.StoredListPage";
         var catalog = Catalog("dr_names", scope == "parent");
@@ -1122,7 +1136,15 @@ public sealed class DerivedRelationNamesTests
         alternate.WhereSql = "yz_project_id=@current_yz_project_id AND status=87" +
             (scope == "parent" ? " AND group_id=@parent_id" : "");
         alternate.OrderBy = "id desc";
-        if (scope == "account")
+        if(exactTarget)
+        {
+            // 通用生成夹具重复登记了后台，精确权限使用唯一已发布记录。
+            catalog.YzAdminTypes=[catalog.YzAdminTypes.First(admin=>admin.Id==alternate.YzAdminTypeId)];
+            catalog.ConfigColumns.Add(new(){Id="21202",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
+                ColumnName="grant_code",LogicalType="string"});
+            alternate.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("grantCode");
+        }
+        if (scope is "account" or "control-account")
         {
             catalog.ConfigColumns.Add(new() { Id = "11201", ConfigTableId = "1", YzProjectId = catalog.YzProjectId,
                 ColumnName = "store_id", LogicalType = "int64" });
@@ -1130,7 +1152,9 @@ public sealed class DerivedRelationNamesTests
                 ColumnName = "store_id", LogicalType = "int64" });
             foreach (var page in catalog.ConfigPages.Where(page => page.ConfigTableId == "1"))
                 page.WhereSql += " AND store_id=@current_store_id";
-            alternate.WhereSql += " AND store_id=@current_store_id";
+            if(scope=="control-account")
+                foreign.ControlDetail="""{"tableId":"2","nameField":"name","pageId":"202","whereSql":"store_id=@current_store_id"}""";
+            else alternate.WhereSql += " AND store_id=@current_store_id";
         }
         if(globalTarget)
         {
@@ -1180,11 +1204,21 @@ public sealed class DerivedRelationNamesTests
             Assert.Contains("status=87", code.Replace(" ", "", StringComparison.Ordinal));
             Assert.Contains("ImportRelation101_15Async", code);
             Assert.Contains("OptionsScope101_15Async", code);
-            Assert.Contains(".ForUpdate().ToListAsync(row => new { row.Id }", code);
+            if(!exactTarget)Assert.Contains(".ForUpdate().ToListAsync(row => new { row.Id }", code);
             if (scope == "parent") Assert.Contains("if (locking) { if ((await", code);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service = assembly.GetType(ns + ".Generated.Services.DrNamesOrderService", true)!;
             RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            if(exactTarget)
+            {
+                Assert.Contains("""targetExactAuthorization.ResolveExactDataManage("202", "list", "")""",code);
+                Assert.Contains("""new("grant_code", FixedReadComparison.In, targetExactScope.ReadLogical("string"))""",code);
+                Assert.Contains("await DerivedOptionsRows101_15Async(request.ParentId,",code);
+                Assert.Contains("cancellationToken,locking:true",code);
+                var app=Path.Combine(directory,"app");
+                Assert.True(new ApplicationPackager().Create(catalog,app,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+                foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(app,operation);
+            }
 
             if (sourceStorage == 1)
             {
@@ -1195,7 +1229,7 @@ public sealed class DerivedRelationNamesTests
                     assembly.GetType(ns + ".Generated.GeneratedRelationMaintenance", true)!.GetProperty("Catalog")!.GetValue(null));
                 Assert.Contains("customer_name", maintenance.MixedSourceColumns["dr_names_order"]);
                 Assert.Contains("dr_names_party", maintenance.MixedTargets);
-                if(globalTarget)
+                if(globalTarget||exactTarget)
                 {
                     const BindingFlags hidden=BindingFlags.Instance|BindingFlags.NonPublic;
                     var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
@@ -1205,8 +1239,14 @@ public sealed class DerivedRelationNamesTests
                     var read=published.GetType().GetProperty("Read")!.GetValue(published)!;
                     var label=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!
                         .Invoke(read,["customer_name"]));
-                    // 同时核对字典与来源行的门店，两侧必须按原整数 ID 精确比较。
-                    Assert.Matches(@"BINARY CAST\((?!b\.)\w+\.`store_id` AS CHAR\)=BINARY CAST\(b\.`store_id` AS CHAR\)", label);
+                    // 比较使用实际来源行的门店，角色匹配留在候选、写入及 Excel。
+                    if(scope is "account" or "control-account")
+                        Assert.Matches(@"BINARY CAST\((?!b\.)\w+\.`store_id` AS CHAR\)=BINARY CAST\(b\.`store_id` AS CHAR\)", label);
+                    if(exactTarget)
+                    {
+                        Assert.Contains("`status`",label);
+                        Assert.DoesNotContain("`grant_code`",label);
+                    }
                     if (globalSource)
                     {
                         Assert.Contains("OptionsPageCondition101_15.BindAccount(actor)", code);
@@ -1219,12 +1259,15 @@ public sealed class DerivedRelationNamesTests
                         Assert.Contains("PageCondition101.BindAccount(actor)", businessScope);
                         Assert.Contains("Export101Async", code);
                     }
-                    var missingScope=JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Serialize(catalog))!;
-                    var businessPage=missingScope.ConfigPages.Single(page=>page.Id=="101");
-                    businessPage.WhereSql=businessPage.WhereSql.Replace(" AND store_id=@current_store_id","",StringComparison.Ordinal);
-                    var missingScopeModel=GenerationModel.Create(missingScope,ns);
-                    var error=Assert.Throws<InvalidOperationException>(()=>RelationPropagationCompilation.DerivedBindings(missingScopeModel));
-                    Assert.Contains("物理账号归属",error.Message);
+                    if(scope is "account" or "control-account")
+                    {
+                        var missingScope=JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Serialize(catalog))!;
+                        var businessPage=missingScope.ConfigPages.Single(page=>page.Id=="101");
+                        businessPage.WhereSql=businessPage.WhereSql.Replace(" AND store_id=@current_store_id","",StringComparison.Ordinal);
+                        var missingScopeModel=GenerationModel.Create(missingScope,ns);
+                        var error=Assert.Throws<InvalidOperationException>(()=>RelationPropagationCompilation.DerivedBindings(missingScopeModel));
+                        Assert.Contains("物理账号归属",error.Message);
+                    }
                 }
                 if (scope == "parent") Assert.Contains("dr_names_group", maintenance.MixedTargets);
             }

@@ -604,12 +604,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 cascadeLabelPages.Add(storedSource.Id);
                 cascadeLabelPages.Add(stored.Id);
                 var storedControl=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,storedSource);
-                // 已保存的名称按来源行授权；只有实际发布的项目内物理单选可以分开校验目标精确权限。
-                var storedSelectionExact=relation.ControlKind=="SelectPage"&&
-                    ProjectScopedSingleRelationTarget.HasPhysicalSelectionExact(catalog,target,stored);
                 // 已发布的全局业务父范围在联接中已执行；这里只补控件条件，避免再编译同一个父页。
                 return ProjectStoredListCondition(owner,ownerAlias,relation,target,alias,storedSource,stored,binding.SourceParentId,storedControl,
-                    pageScopeApplied:storedProof is {FixedSelectionPage:true,PhysicalParent:not null},storedSelectionExact:storedSelectionExact);
+                    pageScopeApplied:storedProof is {FixedSelectionPage:true,PhysicalParent:not null});
             }
             // 全局多值候选的编译入口也会传入名称路径。按来源页重新证明内层字典的物理条件。
             if(global&&target.IsRongyu==1&&binding is
@@ -735,7 +732,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>单值副本按来源行归属重算，逻辑条件沿目标页的实际级联路径读取。</summary>
         private string PublishedSingleCondition(TableMetadata table,string alias,PageMetadata page,CascadeCacheOwner? cacheOwner=null,
             ColumnMetadata? parentField=null,string? sourceParent=null,bool allowFixedOnly=false,
-            IReadOnlyList<MultiTargetParentScope>? additionalScopes=null,bool storedSelection=false)
+            IReadOnlyList<MultiTargetParentScope>? additionalScopes=null,bool storedPhysicalExact=false)
         {
             var members=columns[table.Id].Values.ToArray();
             var fields=PublishedSelfTreeConditionFields(catalog,table,page,members);
@@ -752,7 +749,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var globalExact=GlobalCrossTableTarget.DeclaresExactSingle(table,page);
             if(globalExact)GlobalCrossTableTarget.RequireExactSingleCandidate(catalog,table,page);
             var storedExact=cacheOwner is not null&&(globalExact||PublishedSingleExactColumn(catalog,table,page,members) is not null||
-                storedSelection&&ProjectScopedSingleRelationTarget.HasPhysicalSelectionExact(catalog,table,page));
+                storedPhysicalExact);
             if(cacheOwner is {} row&&logical.Count==0)
             {
                 // 项目范围由已发布目录绑定。账号和父记录仍使用正在回填的来源行。
@@ -1004,8 +1001,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var sourceFrom=owner==rootAlias&&sourceParent is null?null:" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins);
             var alias=Join(owner,foreign,target,source.Sql,source.Type,validatedCrossGlobal:true,scopedCacheLink:true);
             singleCachePages[alias]=page;
+            var physicalExact=ProjectScopedSingleRelationTarget.HasPhysicalSingleExact(catalog,target,page,foreign.ControlKind);
             var visible=PublishedSingleCondition(target,alias,page,cacheOwner,parent?.Target,parent?.Logical==true?sourceParent:null,
-                allowFixedOnly:true,additionalScopes:parent?.AdditionalTargets,storedSelection:foreign.ControlKind=="SelectPage");
+                allowFixedOnly:true,additionalScopes:parent?.AdditionalTargets,storedPhysicalExact:physicalExact);
             if(parent is {Logical:false})
                 visible+=(visible.Length==0?"":" AND ")+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,
                     cacheOwner,sourceParent,sourceFrom);
@@ -1013,7 +1011,7 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 // 控件谓词留在可见性中以保留失效反查，直接目标路径不能简化该计划。
                 scalarCacheTarget=null;
-                var extra=SingleControlCacheCondition(table,owner,target,alias,page,control,cacheOwner);
+                var extra=SingleControlCacheCondition(table,owner,target,alias,page,control,cacheOwner,physicalExact);
                 if(extra.Length>0)visible+=(visible.Length==0?"":" AND ")+extra;
             }
             return (alias,alias+".`id` IS NOT NULL"+(visible.Length==0?"":" AND ("+visible+")"));

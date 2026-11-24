@@ -76,11 +76,18 @@ public static class ProjectScopedSingleRelationTarget
         return scope is {Logical:false,Global:false}?scope:null;
     }
 
-    /// <summary>仅已发布的项目内冗余单选页可用普通物理列声明精确范围。</summary>
-    public static bool HasPhysicalSelectionExact(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
+    /// <summary>只有项目内冗余字典的已发布单值目标页可用普通物理列声明精确范围。</summary>
+    public static bool HasPhysicalSingleExact(MetadataCatalog catalog,TableMetadata target,PageMetadata page,string controlKind)
     {
-        if(target.IsRongyu!=1||target.IsView!=0||target.IsFunctionTable!=0||GlobalCrossTableTarget.Declared(target)||
-            page.Extra.GetValueOrDefault("type").ToString()!="1"||page.ConfigTableId!=target.Id||
+        var pageType=page.Extra.GetValueOrDefault("type").ToString();
+        var validPage=controlKind switch
+        {
+            "List"=>pageType is "" or "0" or "1",
+            "SelectPage"=>pageType=="1",
+            _=>false
+        };
+        if(!validPage||target.IsRongyu!=1||target.IsView!=0||target.IsFunctionTable!=0||GlobalCrossTableTarget.Declared(target)||
+            page.ConfigTableId!=target.Id||
             page.YzProjectId!=catalog.YzProjectId||target.YzProjectId!=catalog.YzProjectId||
             !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
             return false;
@@ -197,7 +204,7 @@ public static class ProjectScopedSingleRelationTarget
     {
         if(page.Extra.GetValueOrDefault("type").ToString()!="1"||
             !string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString())&&
-                !HasPhysicalSelectionExact(catalog,target,page))
+                !HasPhysicalSingleExact(catalog,target,page,"SelectPage"))
             return false;
         var terms=FixedConditionPlan.Compile(page.WhereSql,members).Terms.Where(term=>!ProjectTerm(term)).ToArray();
         var storage=MetadataStoragePolicy.ForTable(catalog,target);

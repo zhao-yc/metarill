@@ -50,7 +50,7 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>控件条件附加到物理联接后的可见性，记录变为不可见时仍可反查并清空副本。</summary>
         private string SingleControlCacheCondition(TableMetadata table,string owner,TableMetadata target,string alias,
-            PageMetadata page,FixedConditionPlan condition,CascadeCacheOwner cacheOwner)
+            PageMetadata page,FixedConditionPlan condition,CascadeCacheOwner cacheOwner,bool storedPhysicalExact)
         {
             var members=columns[target.Id];
             var tree=SelfTreeConditionFields(catalog,target,page,members.Values.ToArray(),condition.Fields);
@@ -79,7 +79,8 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 var definition=new PageMetadata{Id=page.Id,ConfigTableId=target.Id,Extra=page.Extra,
                     WhereSql=string.Join(" AND ",account.Select(term=>term.ToDefinition()))};
-                predicates.Add(PhysicalAccountCacheCondition(target,alias,definition,cacheOwner,allowFixedOnly:true));
+                predicates.Add(PhysicalAccountCacheCondition(target,alias,definition,cacheOwner,allowFixedOnly:true,
+                    separateExactScope:storedPhysicalExact));
             }
             var terms=condition.Terms.Except(account).Except(project).Where(term=>!term.Values.Any(value=>
                 value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text)));
@@ -110,7 +111,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>冗余字典按实际页面验证物理条件，实时读取绑定请求账号，维护绑定来源行账号与表单值。</summary>
         private string ProjectStoredListCondition(TableMetadata source,string owner,ColumnMetadata relation,TableMetadata target,
             string targetAlias,PageMetadata sourcePage,PageMetadata page,string? sourceParentId,FixedConditionPlan control,
-            CascadeCacheOwner? cacheOwner=null,bool pageScopeApplied=false,bool storedSelectionExact=false)
+            CascadeCacheOwner? cacheOwner=null,bool pageScopeApplied=false)
         {
             var members=columns[target.Id];
             var pageCondition=FixedConditionPlan.Compile(page.WhereSql,members.Keys);
@@ -131,8 +132,10 @@ public static partial class MySqlNonRedundantReadCompiler
                     ?ProjectScopedSingleRelationTarget.PhysicalSelectionParent(catalog,target,page)
                     :MultiTargetParentScope.CompileListPage(catalog,target,terms);
             }
+            // 已保存的名称按来源行授权，候选和写入的精确匹配仍通过实际目标页处理。
+            var physicalExact=ProjectScopedSingleRelationTarget.HasPhysicalSingleExact(catalog,target,page,relation.ControlKind);
             if (parent is {Logical:true} || (parent is null)!=(sourceParentId is null) ||
-                !storedSelectionExact&&page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
+                !physicalExact&&page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
                 throw new InvalidOperationException("原下拉的冗余字典需要已证明的物理范围和同一实际父键。");
 
             if (terms.Any(term=>!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,term.Field))))
@@ -155,7 +158,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     var accountPage=new PageMetadata{Id=page.Id,ConfigTableId=page.ConfigTableId,Extra=page.Extra,
                         WhereSql=string.Join(" AND ",account.Select(term=>term.ToDefinition()))};
-                    validity.Add(PhysicalAccountCacheCondition(target,targetAlias,accountPage,row,allowFixedOnly:true));
+                    validity.Add(PhysicalAccountCacheCondition(target,targetAlias,accountPage,row,allowFixedOnly:true,
+                        separateExactScope:physicalExact));
                     scoped=scoped.Except(account);
                 }
             }

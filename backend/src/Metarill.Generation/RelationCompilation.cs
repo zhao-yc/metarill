@@ -224,7 +224,7 @@ internal static class RelationCompilation
                 selection is not null&&owner.Source.IsRongyu==0&&!owner.IsGlobal&&!target.IsGlobal&&
                 target.Source.IsRongyu==1&&targetPage.Condition is not null&&
                 (!ExactDataManageCompilation.Declared(targetPage)||
-                    ProjectScopedSingleRelationTarget.HasPhysicalSelectionExact(model.Catalog,target.Source,targetPage.Source));
+                    ProjectScopedSingleRelationTarget.HasPhysicalSingleExact(model.Catalog,target.Source,targetPage.Source,"SelectPage"));
             var sourceKeys=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
                 .DistinctBy(column=>column.Source.Id).ToArray();
             var projectParentScope=!functionForm&&!binding.Declared&&!owner.IsGlobal&&!target.IsGlobal&&
