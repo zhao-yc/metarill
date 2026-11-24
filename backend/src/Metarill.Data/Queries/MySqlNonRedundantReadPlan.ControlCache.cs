@@ -110,7 +110,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>冗余字典按实际页面验证物理条件，实时读取绑定请求账号，维护绑定来源行账号与表单值。</summary>
         private string ProjectStoredListCondition(TableMetadata source,string owner,ColumnMetadata relation,TableMetadata target,
             string targetAlias,PageMetadata sourcePage,PageMetadata page,string? sourceParentId,FixedConditionPlan control,
-            CascadeCacheOwner? cacheOwner=null,bool pageScopeApplied=false)
+            CascadeCacheOwner? cacheOwner=null,bool pageScopeApplied=false,bool storedSelectionExact=false)
         {
             var members=columns[target.Id];
             var pageCondition=FixedConditionPlan.Compile(page.WhereSql,members.Keys);
@@ -132,7 +132,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     :MultiTargetParentScope.CompileListPage(catalog,target,terms);
             }
             if (parent is {Logical:true} || (parent is null)!=(sourceParentId is null) ||
-                page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
+                !storedSelectionExact&&page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
                 throw new InvalidOperationException("原下拉的冗余字典需要已证明的物理范围和同一实际父键。");
 
             if (terms.Any(term=>!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,term.Field))))

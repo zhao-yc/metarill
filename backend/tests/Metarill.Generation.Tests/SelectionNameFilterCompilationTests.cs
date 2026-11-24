@@ -205,7 +205,17 @@ public sealed class SelectionNameFilterCompilationTests
     [Theory]
     [InlineData(false,false)]
     [InlineData(true,true)]
-    public async Task Live_project_selection_keeps_unparented_dictionary_scope(bool accountScope,bool sourceHasParent)
+    public Task Live_project_selection_keeps_unparented_dictionary_scope(bool accountScope,bool sourceHasParent) =>
+        VerifyLiveProjectSelectionScope(accountScope,sourceHasParent,exactTarget:false);
+
+    /// <summary>精确权限约束字典访问；已经保存的名称仍遵循来源和字典固定范围。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,true)]
+    public Task Live_project_selection_keeps_physical_exact_dictionary_scope(bool accountScope,bool sourceHasParent) =>
+        VerifyLiveProjectSelectionScope(accountScope,sourceHasParent,exactTarget:true);
+
+    private static async Task VerifyLiveProjectSelectionScope(bool accountScope,bool sourceHasParent,bool exactTarget)
     {
         const string ns="Example.LiveStoredSelection";
         var catalog=RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
@@ -223,6 +233,11 @@ public sealed class SelectionNameFilterCompilationTests
         targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
         targetPage.WhereSql="yz_project_id=@current_yz_project_id AND status=1";
         catalog.ConfigColumns.Add(new(){Id="37",ConfigTableId="3",ColumnName="status",LogicalType="int32",YzProjectId=catalog.YzProjectId});
+        if(exactTarget)
+        {
+            catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="grant_code",LogicalType="string",YzProjectId=catalog.YzProjectId});
+            targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("grantCode");
+        }
         if(accountScope)
         {
             catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId});
@@ -276,6 +291,14 @@ public sealed class SelectionNameFilterCompilationTests
             }
             Assert.NotNull(service.GetMethod("Import201Async"));
             Assert.NotNull(service.GetMethod("Export201Async"));
+            if(exactTarget)
+            {
+                var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/RelationSourceService.g.cs"));
+                Assert.Contains("""targetExactAuthorization.ResolveExactDataManage("301", "list", "")""",code);
+                Assert.Contains("""new("grant_code", FixedReadComparison.In, targetExactScope.ReadLogical("string"))""",code);
+                Assert.Matches(@"await DerivedOptionsScope201_25Async\(parentId,\s*null,\s*actor,cancellationToken,locking:true\)",code);
+                Assert.Contains("await DerivedOptionsRows201_25Async(request.ParentId,",code);
+            }
             var app=Path.Combine(directory,"app");
             Assert.True(new ApplicationPackager().Create(catalog,app,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(app,operation);
