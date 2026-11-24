@@ -178,7 +178,8 @@ public static partial class MySqlNonRedundantReadCompiler
             return CompileCrossPageCandidate(catalog,tableId,pageId,outputs,dependencies??[],accountParentPageType:pageType,singleTargets:singleTargets);
         // 冗余单值候选绑定实际发布页的项目和账号条件，回显及 Excel 共用该范围。
         var storedSingle=table.IsRongyu==1&&!exactSingleCandidate&&!deferCascadeNames&&
-            (pageType=="1"||GlobalCrossTableTarget.IsProjectSinglePage(catalog,table,page,allowListPage:true));
+            (pageType=="1"||GlobalCrossTableTarget.IsProjectSinglePage(catalog,table,page,allowListPage:true)||
+                GlobalCrossTableTarget.IsProjectListParentPage(catalog,table,page));
         var builder=new Builder(catalog,tableId,candidatePage:page,deferCascadeNames:deferCascadeNames,exactSingleCandidate:exactSingleCandidate,
             accountPhysicalCandidate:storedSingle,globalCandidate:table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table))
         {
@@ -965,7 +966,8 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             var sourceCandidate=table.Id==root.Id&&alias==rootAlias&&page.Id==candidatePage?.Id;
             var singleProject=accountParent is {Logical:false}&&GlobalCrossTableTarget.Declared(table)&&
-                GlobalCrossTableTarget.IsSingleProjectParentPage(page,FixedConditionPlan.Compile(page.WhereSql,columns[table.Id].Keys));
+                (GlobalCrossTableTarget.IsSingleProjectParentPage(page,FixedConditionPlan.Compile(page.WhereSql,columns[table.Id].Keys))||
+                    GlobalCrossTableTarget.IsProjectListParentPage(catalog,table,page));
             var publishedProject=explicitProject||explicitProjectCandidate&&sourceCandidate||singleProject||
                 accountPhysicalCandidate&&multiLabel&&table.Id==root.Id&&alias==rootAlias&&
                 table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&

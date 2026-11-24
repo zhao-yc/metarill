@@ -110,7 +110,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>冗余字典按实际页面验证物理条件，实时读取绑定请求账号，维护绑定来源行账号与表单值。</summary>
         private string ProjectStoredListCondition(TableMetadata source,string owner,ColumnMetadata relation,TableMetadata target,
             string targetAlias,PageMetadata sourcePage,PageMetadata page,string? sourceParentId,FixedConditionPlan control,
-            CascadeCacheOwner? cacheOwner=null)
+            CascadeCacheOwner? cacheOwner=null,bool pageScopeApplied=false)
         {
             var members=columns[target.Id];
             var pageCondition=FixedConditionPlan.Compile(page.WhereSql,members.Keys);
@@ -141,10 +141,11 @@ public static partial class MySqlNonRedundantReadCompiler
             static bool Project(FixedConditionTerm term)=>term.Field=="yz_project_id"&&term.Comparison==FixedConditionComparison.Equal&&
                 term.Values is [{Kind:FixedConditionValueKind.Variable,Text:var variable}]&&
                 variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase);
-            var scoped=terms.Where(term=>!term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
+            var scopeTerms=pageScopeApplied?control.Terms:terms;
+            var scoped=scopeTerms.Where(term=>!term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
                 MultiTargetParentScope.IsParameter(value.Text))&&!Project(term));
             var validity=new HashSet<string>(StringComparer.Ordinal);
-            if(global&&terms.Any(Project))
+            if(!pageScopeApplied&&global&&terms.Any(Project))
                 validity.Add(Scope(target,targetAlias,includeDeleted:true));
             if(cacheOwner is {} row)
             {
@@ -170,13 +171,16 @@ public static partial class MySqlNonRedundantReadCompiler
                     allowLogicalListForm:!GlobalCrossTableTarget.Declared(source)&&!global);
                 if (parentSource.Column.Id!=sourceParentId)
                     throw new InvalidOperationException("冗余字典选项与来源记录没有相同的已发布父范围。");
-                var sourceParent=SingleSourceParentValue(source,owner,parentSource);
-                validity.Add(SinglePhysicalParentCondition(source,owner,targetAlias,parent,parentSource.Column,sourceParent:sourceParent));
-                foreach(var additional in parent.AdditionalTargets)
+                if(!pageScopeApplied)
                 {
-                    Use(target,additional.Target);
-                    Touch(targetAlias,additional.Target.ColumnName);
-                    validity.Add(SameSingleParent(targetAlias+"."+Q(additional.Target.ColumnName),sourceParent));
+                    var sourceParent=SingleSourceParentValue(source,owner,parentSource);
+                    validity.Add(SinglePhysicalParentCondition(source,owner,targetAlias,parent,parentSource.Column,sourceParent:sourceParent));
+                    foreach(var additional in parent.AdditionalTargets)
+                    {
+                        Use(target,additional.Target);
+                        Touch(targetAlias,additional.Target.ColumnName);
+                        validity.Add(SameSingleParent(targetAlias+"."+Q(additional.Target.ColumnName),sourceParent));
+                    }
                 }
             }
             return string.Join(" AND ",new[]{clause.Sql}.Concat(validity).Where(part=>part.Length>0));

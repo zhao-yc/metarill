@@ -119,7 +119,8 @@ internal static class DerivedRelationNamesCompilation
         relation.Target.IsGlobal && (relation.FunctionForm || IsPhysicalTypedName(model, relation.Target, relation.NameColumn)) ||
         NonRedundantReadCompilation.HasGlobalRowProject(relation.Target) || HasGlobalAccountScope(relation.Target, relation.TargetPage) ||
         NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage)||
-        FixedPageConditionCompilation.HasGlobalProjectSingleScope(relation.Target,relation.TargetPage);
+        FixedPageConditionCompilation.HasGlobalProjectSingleScope(relation.Target,relation.TargetPage)||
+        FixedPageConditionCompilation.HasGlobalListProjectParentScope(relation.Target,relation.TargetPage);
 
     /// <summary>普通冗余目标的固定候选只能读取物理列及已发布的父范围。</summary>
     internal static bool UsesPhysicalPlan(GenerationModel model, RelationModel relation) =>

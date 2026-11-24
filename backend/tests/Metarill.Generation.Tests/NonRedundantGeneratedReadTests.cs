@@ -767,6 +767,138 @@ public sealed class NonRedundantGeneratedReadTests
         finally{if(Directory.Exists(root))Directory.Delete(root,true);}
     }
 
+    /// <summary>原 List 绑定业务字典页时，项目限制可与实际物理父级共同使用。</summary>
+    [Theory]
+    [InlineData(0,0,false,false)]
+    [InlineData(0,1,true,false)]
+    [InlineData(1,0,false,true)]
+    [InlineData(1,1,true,true)]
+    public async Task Global_list_can_use_business_dictionary_with_project_and_parent(
+        int sourceStorage,int targetStorage,bool globalParent,bool textProject)
+    {
+        const string ns="Example.GlobalListProjectParent";
+        var catalog=NonRedundantApplicationFixture.Catalog("mt_list_project_parent");
+        var extraControl=sourceStorage==0&&targetStorage==1&&globalParent;
+        var owner=catalog.ConfigTables.Single(item=>item.Id=="1");
+        owner.IsRongyu=sourceStorage;
+        var target=catalog.ConfigTables.Single(item=>item.Id=="2");
+        target.IsRongyu=targetStorage;
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        var removed=new HashSet<string>(["16","17"],StringComparer.Ordinal);
+        if(globalParent)
+        {
+            catalog.ConfigTables.Single(item=>item.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            removed.Add("32");
+            catalog.ConfigPages.Single(item=>item.Id=="301").WhereSql="name <> '停用父记录'";
+            var parentKey=catalog.ConfigColumns.Single(item=>item.Id=="19");
+            parentKey.ControlKind="";
+            parentKey.ControlDetail="";
+        }
+        catalog.ConfigColumns.RemoveAll(item=>removed.Contains(item.Id));
+        catalog.ConfigPages.RemoveAll(item=>item.Id=="102");
+        catalog.ConfigPageColumns.RemoveAll(item=>item.ConfigPageId=="102"||removed.Contains(item.ConfigColumnId));
+        foreach(var page in catalog.ConfigPages.Where(item=>item.ConfigTableId=="1"))page.OrderBy="id desc";
+        var published=catalog.ConfigPages.Single(item=>item.Id=="201");
+        published.Extra["type"]=JsonSerializer.SerializeToElement(0);
+        published.WhereSql+=" AND yz_project_id=@current_yz_project_id AND amount>=1";
+        published.IsExport=1;
+        if(textProject)catalog.ConfigColumns.Single(item=>item.Id=="22").LogicalType="string";
+        var foreign=catalog.ConfigColumns.Single(item=>item.Id=="15");
+        foreign.ControlKind="List";
+        if(extraControl)
+            foreign.ControlDetail="""{"pageId":"201","tableId":"2","nameField":"name","whereSql":"amount<=500"}""";
+        foreign.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("201");
+        var sourcePage=catalog.ConfigPages.Single(item=>item.Id=="101");
+        var proof=sourceStorage==0?GlobalSingleRelationTarget.Require(catalog,owner,foreign,target,sourcePage):
+            GlobalSingleRelationTarget.RequireCached(catalog,owner,foreign,target);
+        Assert.Equal(published.Id,proof.Page.Id);
+        Assert.Equal("group_id",proof.PhysicalParent?.Target.ColumnName);
+        Assert.Equal("19",proof.SourceParent?.Column.Id);
+        // 独立表单的目标父来自本行字段。列表没有该上下文，筛选使用真实同父列表。
+        foreach(var field in catalog.ConfigPageColumns.Where(item=>item.ConfigPageId is "104" or "105"&&item.ConfigColumnId==foreign.Id))
+            field.Extra.Remove("isSearch");
+        var detailPage=catalog.ConfigPages.Single(item=>item.Id=="104");
+        detailPage.IsExport=1;
+        detailPage.Extra["exportMethod"]=JsonSerializer.SerializeToElement("edit");
+
+        Assert.True(proof.UsesListPageScope);
+        Assert.True(proof.ProjectSelectionPage);
+        var model=GenerationModel.Create(catalog,ns);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var projectMarker=textProject?"@project_scope_text":"@project_scope_number";
+        const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+        var read=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileGlobalCandidate(model.Catalog,"2","201",["id","name"]);
+        var scope=Assert.IsType<string>(read.GetType().GetProperty("Scope",hidden)!.GetValue(read));
+        Assert.Contains(projectMarker,scope);
+        Assert.Contains("group_id",scope);
+        Assert.Contains("amount",scope);
+        Assert.Equal("group_id",read.GetType().GetProperty("RequiredMultiParent",hidden)!.GetValue(read));
+        if(sourceStorage==0)
+        {
+            var source=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.Compile(model.Catalog,"1",["customer_name"]);
+            var from=Assert.IsType<string>(source.GetType().GetProperty("From",hidden)!.GetValue(source));
+            Assert.Contains(projectMarker,from);
+            Assert.Contains("group_id",from);
+            Assert.Contains("amount",from);
+        }
+        else
+        {
+            var cache=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("customer_name",cache.MixedSourceColumns[owner.TableName]);
+            Assert.Contains(target.TableName,cache.MixedTargets);
+            Assert.Contains("mt_list_project_parent_group",cache.MixedTargets);
+            var plans=cache.GetType().GetProperty("Plans",hidden)!.GetValue(cache)!;
+            var item=Assert.IsAssignableFrom<System.Collections.IEnumerable>(plans).Cast<object>()
+                .Single(entry=>Equals(entry.GetType().GetProperty("Key")!.GetValue(entry),"1"));
+            var tablePlan=item.GetType().GetProperty("Value")!.GetValue(item)!;
+            var cacheRead=tablePlan.GetType().GetProperty("Read")!.GetValue(tablePlan)!;
+            var expressions=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                cacheRead.GetType().GetProperty("Expressions",hidden)!.GetValue(cacheRead));
+            var name=expressions["customer_name"].Replace("\x60","",StringComparison.Ordinal);
+            Assert.Contains(projectMarker,name);
+            Assert.Contains("b.group_id",name);
+            Assert.Contains("amount",name);
+        }
+
+        var root=Path.Combine(Path.GetTempPath(),"metarill-list-project-parent",Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(root,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtListProjectParentOrderService.g.cs"));
+            foreach(var method in new[]{"OptionsPage101_15Async","OptionsSelected101_15Async",
+                "ImportRelation103_15Async","ImportRelation105_15Async","Export101Async","Export104Async"})
+                Assert.Contains(method,service);
+            if(globalParent)Assert.Contains("OptionsGlobalParent104_15.BindAccount(actor)",service);
+            var dictionary=await File.ReadAllTextAsync(Path.Combine(generated,"Services/MtListProjectParentPartyService.g.cs"));
+            if(targetStorage==0)Assert.Contains("CompileGlobalSingleParentPage",dictionary);
+            if(globalParent)Assert.Contains("ValidateParents201Async",dictionary);
+            var detail=await File.ReadAllTextAsync(Path.Combine(generated,
+                "frontend/pages/yzp/mt_list_project_parent_order-detail-104.vue"));
+            Assert.Contains("<zxz-uni-data-select",detail);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+            foreach(var name in new[]{"MtListProjectParentOrderService","MtListProjectParentPartyService"})
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(
+                    assembly.GetType(ns+".Generated.Services."+name,true)!.TypeHandle);
+            if(extraControl)
+            {
+                // 目标父只绑定一次，控件的附加条件仍限制原名称回显。
+                var type=assembly.GetType(ns+".Generated.Services.MtListProjectParentOrderService",true)!;
+                var plan=type.GetField("ReadPlan101",BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null)!;
+                var mysql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+                var expressions=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                    mysql.GetType().GetProperty("Expressions",hidden)!.GetValue(mysql));
+                Assert.Contains("amount",expressions["customer_name"]);
+                var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    mysql.GetType().GetProperty("Constants",hidden)!.GetValue(mysql));
+                Assert.Contains(500m,parameters.Values);
+            }
+            var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());
+            Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
+        }
+        finally{if(Directory.Exists(root))Directory.Delete(root,true);}
+    }
+
     /// <summary>普通冗余来源的固定字典同时验证整数和字符串项目列、名称及主键显示。</summary>
     [Theory]
     [InlineData(false,false)]

@@ -158,12 +158,19 @@ public static class GlobalCrossTableTarget
     {
         var condition=FixedConditionPlan.Compile(page.WhereSql,ConditionColumns(catalog,table,allowLogical:false)
             .Select(column=>column.ColumnName));
-        if(!IsProjectSinglePage(table,page,condition,allowListPage)||
-            !ReferenceEquals(catalog.ConfigTables.SingleOrDefault(item=>item.Id==table.Id),table)||
+        if(!IsProjectSinglePage(table,page,condition,allowListPage))
+            throw new NotSupportedException("全局单值候选必须使用实际发布的项目条件。");
+        RequirePublishedSinglePage(catalog,table,page);
+        RequireTarget(catalog,table,page,true,allowAccount:true,allowStoredProject:true);
+    }
+
+    /// <summary>项目范围必须来自本目录的实际表、页面和发布后台。</summary>
+    private static void RequirePublishedSinglePage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
+        if(!ReferenceEquals(catalog.ConfigTables.SingleOrDefault(item=>item.Id==table.Id),table)||
             !ReferenceEquals(catalog.ConfigPages.SingleOrDefault(item=>item.Id==page.Id),page)||
             !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
-            throw new NotSupportedException("全局单选项目候选必须使用当前目录实际发布的页面和项目条件。");
-        RequireTarget(catalog,table,page,true,allowAccount:true,allowStoredProject:true);
+            throw new NotSupportedException("全局单值候选必须使用当前目录实际发布的页面和后台。");
     }
 
     /// <summary>原单选的项目与父级等值只在 type=1 发布页识别，字段有效性由单值父级证明核对。</summary>
@@ -171,14 +178,30 @@ public static class GlobalCrossTableTarget
         page.Extra.GetValueOrDefault("type").ToString()=="1"&&!HasExactMatch(page)&&
         GlobalMultipleRelationTarget.UsesProjectAndParent(condition);
 
+    /// <summary>原下拉业务页显式限定当前项目和物理父级时，复用单值候选的范围证明。</summary>
+    public static bool IsProjectListParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition)=>
+        CanPublishProjectSinglePage(table,page,allowListPage:true)&&IsBusinessPage(page)&&
+        GlobalMultipleRelationTarget.UsesProjectAndParent(condition);
+
+    /// <summary>仅对业务字典页解析项目和父级组合，既有单选和精确页保持原分派。</summary>
+    public static bool IsProjectListParentPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
+        Declared(table)&&IsBusinessPage(page)&&IsProjectListParentPage(table,page,
+            FixedConditionPlan.Compile(page.WhereSql,ConditionColumns(catalog,table,allowLogical:true).Select(column=>column.ColumnName)));
+
+    private static bool IsBusinessPage(PageMetadata page)=>page.Extra.GetValueOrDefault("type").ToString() is "" or "0";
+
     private static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
         bool allowLogical,bool allowExactSingle=false,bool allowSelectionParentOnly=false)
     {
-        // 冗余目标只开放原 type=1 页的物理父范围；逻辑父仍由 R0 计划还原。
-        var storedSelection=table.IsRongyu==1&&allowSelectionParentOnly&&page.Extra.GetValueOrDefault("type").ToString()=="1";
-        if(!Declared(table)||table.IsRongyu!=0&&!storedSelection)return null;
+        // 冗余目标只接受原单选或明确配置项目及父键的业务字典页。
+        var selectionPage=allowSelectionParentOnly&&page.Extra.GetValueOrDefault("type").ToString()=="1";
+        if(!Declared(table)||table.IsRongyu!=0&&!(table.IsRongyu==1&&allowSelectionParentOnly&&
+            (selectionPage||IsBusinessPage(page))))return null;
         var columns=ConditionColumns(catalog,table,allowLogical:true);
         var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+        var listProjectParent=allowSelectionParentOnly&&IsProjectListParentPage(table,page,condition);
+        var storedSelection=table.IsRongyu==1&&(selectionPage||listProjectParent);
+        if(table.IsRongyu!=0&&!storedSelection)return null;
         if(!condition.Variables.Any(MultiTargetParentScope.IsParameter))return null;
         // 单值用途不接受原复选专用物理字段，交给各自的候选入口验证。
         if(condition.Terms.Any(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
@@ -188,7 +211,7 @@ public static class GlobalCrossTableTarget
         var cross=condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field));
         var tree=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field));
         // 原单选使用自己的发布证明。普通多值页仍由多值入口限定项目和物理父键。
-        var projectParent=allowSelectionParentOnly&&!cross&&!tree&&IsSingleProjectParentPage(page,condition);
+        var projectParent=allowSelectionParentOnly&&!cross&&!tree&&(IsSingleProjectParentPage(page,condition)||listProjectParent);
         if(!projectParent&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,
             checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2"))return null;
         // 原单选可只由实际物理父范围限定；其余角色保留原账号或逻辑证明。
@@ -201,6 +224,7 @@ public static class GlobalCrossTableTarget
             !condition.Variables.Any(AccountConditionVariables.IsSupported))return null;
         var parent=MultiTargetParentScope.CompileGlobalPage(catalog,table,condition);
         if(parent is null||parent.Logical&&(!allowLogical||page.Extra.GetValueOrDefault("type").ToString()=="2"&&!allowExactSingle))return null;
+        if(listProjectParent)RequirePublishedSinglePage(catalog,table,page);
         RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:cross||tree,allowMultiParent:true,
             allowSelfTree:tree,allowExactSingle:allowExactSingle,allowStoredSingleParent:storedSelection,
             allowPhysicalMultiParent:projectParent);
@@ -229,7 +253,8 @@ public static class GlobalCrossTableTarget
         // 只有显式通过父范围证明的用途才解析父参数，同时保留原账号和逻辑字段校验。
         var projectParentScope=allowPhysicalMultiParent&&(GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,
             checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2")||
-            (!checkboxParent||allowStoredSingleParent)&&IsSingleProjectParentPage(page,condition));
+            (!checkboxParent||allowStoredSingleParent)&&(IsSingleProjectParentPage(page,condition)||
+                IsProjectListParentPage(table,page,condition)));
         var multiParent=allowMultiParent&&((table.IsRongyu==0||allowStoredSingleParent)&&
             (condition.Variables.Any(AccountConditionVariables.IsSupported)||allowExactSingle&&DeclaresExactMulti(table,page)||
                 SelectionParentOnly(page,condition)||projectParentScope||allowPhysicalMultiParent&&UsesOnlyParentVariables(condition))||

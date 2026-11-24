@@ -130,7 +130,8 @@ public static partial class MySqlNonRedundantReadCompiler
             MultiCandidatePage=page,
             MultiCandidateProjectScoped=parent is {Logical:false}&&
                 (accountParentPageType=="2"&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax)||
-                 physicalParent is not null&&GlobalCrossTableTarget.IsSingleProjectParentPage(page,syntax)),
+                 physicalParent is not null&&(GlobalCrossTableTarget.IsSingleProjectParentPage(page,syntax)||
+                    GlobalCrossTableTarget.IsProjectListParentPage(table,page,syntax))),
             GlobalCrossCandidate=global,
             CrossNameSourcePage=page,
             MultiNamePathPage=globalExactSingle?page:null,
@@ -592,17 +593,19 @@ public static partial class MySqlNonRedundantReadCompiler
                 (!global||binding.ControlSourcePageId==storedSourceId||!binding.ApplyPageCondition))
             {
                 var storedSource=catalog.ConfigPages.Single(page=>page.Id==storedSourceId&&page.ConfigTableId==owner.Id);
+                var storedProof=global?GlobalSingleRelationTarget.Require(catalog,owner,relation,target,storedSource):null;
                 var stored=global
-                    ? GlobalSingleRelationTarget.Require(catalog,owner,relation,target,storedSource) is {UsesListPageScope:true} storedProof
-                        ?storedProof.Page:null
-                    : ProjectScopedSingleRelationTarget.NestedPage(catalog,owner,storedSource,relation,target,allowStoredTarget:true)?.Page;
+                    ?storedProof is {UsesListPageScope:true}?storedProof.Page:null
+                    :ProjectScopedSingleRelationTarget.NestedPage(catalog,owner,storedSource,relation,target,allowStoredTarget:true)?.Page;
                 if(stored is null||stored.Id!=binding.PageId)
                     throw new InvalidOperationException("名称联接必须使用冗余字典的实际目标页。");
                 if(!binding.ApplyPageCondition)return "";
                 cascadeLabelPages.Add(storedSource.Id);
                 cascadeLabelPages.Add(stored.Id);
                 var storedControl=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,storedSource);
-                return ProjectStoredListCondition(owner,ownerAlias,relation,target,alias,storedSource,stored,binding.SourceParentId,storedControl);
+                // 已发布的全局业务父范围在联接中已执行；这里只补控件条件，避免再编译同一个父页。
+                return ProjectStoredListCondition(owner,ownerAlias,relation,target,alias,storedSource,stored,binding.SourceParentId,storedControl,
+                    pageScopeApplied:storedProof is {ProjectSelectionPage:true,PhysicalParent:not null});
             }
             // 全局多值候选的编译入口也会传入名称路径。按来源页重新证明内层字典的物理条件。
             if(global&&target.IsRongyu==1&&binding is
@@ -750,7 +753,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 // 项目范围由已发布目录绑定。账号和父记录仍使用正在回填的来源行。
                 var projectScope=GlobalCrossTableTarget.IsProjectSinglePage(table,page,syntax,allowListPage:true)||
                     parentField is not null&&GlobalCrossTableTarget.Declared(table)&&
-                    GlobalCrossTableTarget.IsSingleProjectParentPage(page,syntax);
+                    (GlobalCrossTableTarget.IsSingleProjectParentPage(page,syntax)||
+                        GlobalCrossTableTarget.IsProjectListParentPage(table,page,syntax));
                 var visible=PhysicalAccountCacheCondition(table,alias,page,row,parentField,
                     allowFixedOnly:allowFixedOnly||!GlobalCrossTableTarget.Declared(table),separateExactScope:storedExact,
                     additionalParents:additional,globalMultiProject:projectScope);

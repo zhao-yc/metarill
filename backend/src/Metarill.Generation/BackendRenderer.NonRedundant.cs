@@ -24,6 +24,7 @@ internal static partial class BackendRenderer
             .Where(page=>NonRedundantReadCompilation.GlobalAccountMultiPage(table,page)||
                 NonRedundantReadCompilation.GlobalSingleParentPage(table,page)||
                 FixedPageConditionCompilation.HasGlobalProjectSingleScope(table,page)||
+                FixedPageConditionCompilation.HasGlobalListProjectParentScope(table,page)||
                 MultiGlobalParentCompilation.SingleTarget(model,table,page) is not null||
                 MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null).Select(page=>(table,page))));
         var relations=model.Tables.SelectMany(table=>table.Pages.SelectMany(page=>RelationCompilation.ForPage(model,page)
@@ -217,7 +218,8 @@ internal static partial class BackendRenderer
         if (model.Tables.Any(NonRedundantReadCompilation.HasGlobalRowProject) ||
             scopedRelations.Any(relation=>DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)||
                 NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage)||
-                FixedPageConditionCompilation.HasGlobalProjectSingleScope(relation.Target,relation.TargetPage)) ||
+                FixedPageConditionCompilation.HasGlobalProjectSingleScope(relation.Target,relation.TargetPage)||
+                FixedPageConditionCompilation.HasGlobalListProjectParentScope(relation.Target,relation.TargetPage)) ||
             functionRelations.Any(relation => DerivedRelationNamesCompilation.UsesGlobalPlan(model, relation)) ||
             scopedRelations.Any(DerivedRelationNamesCompilation.UsesGlobalPrimaryKeyDisplay) ||
             model.Tables.SelectMany(table => table.Pages).SelectMany(page => RelationCompilation.ForPage(model, page, true))

@@ -129,6 +129,13 @@ internal static class FixedPageConditionCompilation
         GlobalCrossTableTarget.IsProjectSinglePage(table.Source,page.Source,
             FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName)),allowListPage:true);
 
+    /// <summary>原下拉业务页须明确配置项目及物理父字段，不能根据字段名称自动推断。</summary>
+    internal static bool HasGlobalListProjectParentScope(TableModel table,PageModel page)=>
+        table.IsGlobal&&page.Source.Extra.GetValueOrDefault("type").ToString() is "" or "0"&&
+        page.Scopes.Any(scope=>scope.Source=="project")&&page.Scopes.Any(scope=>scope.Source=="parent")&&
+        !HasLogicalFields(page)&&GlobalCrossTableTarget.IsProjectListParentPage(table.Source,page.Source,
+            FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName)));
+
     /// <summary>生成模型已校验字段和作用域，再从实际发布页确认当前项目及固定条件。</summary>
     internal static bool HasGlobalProjectMultiScope(TableModel table,PageModel page)=>
         table.IsGlobal&&page.Scopes.Count>0&&page.Scopes.All(scope=>scope.Source=="project")&&!HasLogicalFields(page)&&

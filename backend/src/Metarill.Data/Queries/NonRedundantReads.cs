@@ -278,9 +278,16 @@ public static class NonRedundantReads
     /// <summary>独立单选的详情及导出也采用同一派生名称范围。</summary>
     public static NonRedundantReadPlan CompileGlobalSingleParentPage(MetadataCatalog metadata,string tableId,string pageId,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> bindings,
-        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)=>
-        new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
-            bindings,accountParentPageType:"1",singleTargets:singleTargets));
+        IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets)
+    {
+        // 业务字典页保留原角色；只有明确配置项目及父级时才能进入单值父候选。
+        var table=metadata.ConfigTables.Single(item=>item.Id==tableId);
+        var page=metadata.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
+        var role=GlobalCrossTableTarget.IsProjectListParentPage(metadata,table,page)
+            ?page.Extra.GetValueOrDefault("type").ToString():"1";
+        return new(MySqlNonRedundantReadCompiler.CompileCrossPageCandidate(metadata,tableId,pageId,outputs,dependencies,
+            bindings,accountParentPageType:role,singleTargets:singleTargets));
+    }
 
     /// <summary>全局下拉仅登记附加条件依赖，发布页范围和全局资格仍从原元数据读取。</summary>
     public static NonRedundantReadPlan CompileGlobalListCandidate(MetadataCatalog metadata,string tableId,string pageId,

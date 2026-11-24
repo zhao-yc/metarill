@@ -204,8 +204,10 @@ public static class GlobalSingleRelationTarget
             cacheControl&&pageId.Length>0;
         var storedListAccount=allowsLogical&&target.IsRongyu==1&&fixedList&&boundStoredList&&
             condition.Variables.Any(AccountConditionVariables.IsSupported);
+        var listProjectParent=foreign.ControlKind=="List"&&pageId.Length>0&&
+            GlobalCrossTableTarget.IsProjectListParentPage(target,page,condition);
         var projectListPage=foreign.ControlKind=="List"&&pageId.Length>0&&
-            GlobalCrossTableTarget.IsProjectSinglePage(target,page,condition,allowListPage:true);
+            (GlobalCrossTableTarget.IsProjectSinglePage(target,page,condition,allowListPage:true)||listProjectParent);
         var usesListPageScope=alternateListPage||pageOnlyList||storedListAccount||projectListPage;
         // 原弹窗直达显式发布的 type=1 单选页，账号条件与真实单值关系和名称副本共用。
         var storedSelectionAccount=allowsLogical&&target.IsRongyu==1&&foreign.ControlKind=="SelectPage"&&
@@ -225,7 +227,10 @@ public static class GlobalSingleRelationTarget
         var projectSelectionPage=projectListPage||foreign.ControlKind=="SelectPage"&&pageId.Length>0&&
             GlobalCrossTableTarget.IsProjectSinglePage(target,page,condition);
         if(projectParent)RequireProjectParentPage(catalog,target,page);
-        else if(projectSelectionPage)GlobalCrossTableTarget.RequireProjectSingleCandidate(catalog,target,page,allowListPage:projectListPage);
+        else if(projectSelectionPage&&!listProjectParent)
+            GlobalCrossTableTarget.RequireProjectSingleCandidate(catalog,target,page,allowListPage:projectListPage);
+        else if(listProjectParent&&fixedParent is not {Logical:false})
+            throw new NotSupportedException("原下拉字典的项目条件必须绑定实际物理父记录。");
         else if(!exactSingle&&fixedParent is null)
         {
             if(scopedSelfTree)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page);
