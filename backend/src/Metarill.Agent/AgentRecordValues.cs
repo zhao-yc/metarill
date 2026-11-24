@@ -10,7 +10,8 @@ internal static class AgentRecordValues
 {
     private static readonly ConcurrentDictionary<Type,IReadOnlyDictionary<string,PropertyInfo>> Properties=new();
     /// <summary>别名来自冻结目录，属性必须来自已验证的实际生成实体。</summary>
-    internal static IReadOnlyDictionary<string,object?> Read(object record,Type entityType,IReadOnlyDictionary<string,string> names,IEnumerable<string> fields)
+    internal static IReadOnlyDictionary<string,object?> Read(object record,Type entityType,IReadOnlyDictionary<string,string> names,
+        IEnumerable<string> fields,IReadOnlyDictionary<string,bool> arrayColumns)
     {
         var needed=fields.Select(field=>field.Split('.')[0]).Distinct(StringComparer.Ordinal).ToArray();var values=new Dictionary<string,object?>(StringComparer.Ordinal);
         if(!needed.Any(names.ContainsKey))return values;
@@ -36,7 +37,11 @@ internal static class AgentRecordValues
                     if(loaded.RequiresLoadedRuleValue(physical))throw new NotSupportedException("规则引用尚未装载的派生字段，未执行写入。");
                 }
                 if(property.GetCustomAttribute<FreeSql.DataAnnotations.ColumnAttribute>()?.IsIgnore==true)throw new NotSupportedException("规则引用尚未装载的派生字段，未执行写入。");
-                values[name]=property.GetValue(record);
+                var stored = property.GetValue(record);
+                // 物理数组取和原页面相同的类型；已装载的派生规则值由生成读取计划提供。
+                values[name] = stored is string text && arrayColumns.TryGetValue(physical, out var legacyMedia)
+                    ? legacyMedia ? LegacyMediaValue.Project(text) : RequiredFieldValue.VisibilityArray(text)
+                    : stored;
             }
         return values;
     }

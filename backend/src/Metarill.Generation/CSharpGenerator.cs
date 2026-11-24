@@ -168,9 +168,9 @@ internal sealed record ColumnModel(ColumnMetadata Source, string Property, strin
     internal bool IsLayoutOnly { get; init; }
     public bool IsId => Source.ColumnName == "id";
     /// <summary>原上传字段在数据库保存数组文本，HTTP 边界实际收发数组。</summary>
-    internal bool IsLegacyMedia => Source.ControlKind is "Image" or "MultiImage" or "Upload" or "Video";
-    public bool IsJsonArray => Type == "string?" && (IsLegacyMedia || IsManagedMultiNames ||
-        Source.ControlKind is "FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage");
+    internal bool IsLegacyMedia => ArrayFieldControl.IsLegacyMedia(Source.ControlKind);
+    public bool IsJsonArray => Type == "string?" && (IsManagedMultiNames ||
+        ArrayFieldControl.UsesJsonArray(Source.LogicalType, Source.ControlKind));
     /// <summary>物理布尔常量沿原选择控件使用数字 0／1 传输。</summary>
     internal bool IsBooleanConstant => Type == "bool?" && Source.ControlKind is "ConstList" or "ConstDownList";
     public string BoundaryType => IsJsonArray ? "JsonElement?" : Type;

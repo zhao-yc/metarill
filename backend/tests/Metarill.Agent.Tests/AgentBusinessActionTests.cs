@@ -280,6 +280,56 @@ namespace Metarill.Agent.Tests
             await executor.ExecuteAsync(request with{Entity=JsonSerializer.SerializeToElement(new{id="7",realName="拒绝"}),VisibleRuleJson="{\"conditions\":[{\"value\":\"拒绝\"}]}"},context);
             Assert.Equal(1,handler.Calls);Assert.Equal(1,fixture.Guard.Calls);Assert.Equal(1,fixture.Guard.Released);
         }
+        /// <summary>原附件和复选按真实数组判空，普通文本中的方括号保持文字。</summary>
+        [Theory]
+        [InlineData("galleryImages")]
+        [InlineData("selected_ids")]
+        public async Task Original_button_rules_use_persisted_array_values(string field)
+        {
+            var rule=JsonSerializer.Serialize(new {conditions=new[]{new{field,@operator="isBlank"}}});
+            using var fixture=new Fixture(rule:rule);
+            var context=fixture.Context("Preview");
+            var handler=new WebHandler();
+            var executor=new OriginalBusinessButtonExecutor(fixture.Resources,fixture.Authorization,fixture.Services,
+                fixture.Services.GetRequiredService<IActionDescriptorCollectionProvider>(),[handler],fixture.Guard);
+            var request=new OriginalBusinessButtonRequest("31","7",
+                JsonSerializer.SerializeToElement(new{id="7",galleryImages=new[]{"伪造"},selectedIds=new[]{"99"}}),"AlwaysVisible","{}");
+            var body=Encoding.UTF8.GetBytes("{\"recordKey\":7}");
+            Task CheckAgent()=>fixture.Catalog.ValidateActionInvocationAsync("action:fixture.preview",context,body);
+            Task CheckWeb()=>executor.ExecuteAsync(request,context);
+
+            fixture.Reader.Row.GalleryImages="[]";
+            fixture.Reader.Row.SelectedIds=" [] ";
+            await CheckAgent();
+            await CheckWeb();
+            Assert.Equal(1,handler.Calls);
+
+            fixture.Reader.Row.GalleryImages="""[{"name":"原附件"}]""";
+            fixture.Reader.Row.SelectedIds="""["9007199254740993"]""";
+            await Assert.ThrowsAsync<BusinessRuleException>(CheckAgent);
+            await Assert.ThrowsAsync<BusinessRuleException>(CheckWeb);
+            Assert.Equal(1,handler.Calls);
+            Assert.Equal(1,fixture.Guard.Calls);
+
+            using var plain=new Fixture(rule:"""{"conditions":[{"field":"realName","operator":"isBlank"}]}""");
+            plain.Reader.Row.RealName="[]";
+            await Assert.ThrowsAsync<BusinessRuleException>(()=>plain.Catalog.ValidateActionInvocationAsync(
+                "action:fixture.preview",plain.Context("Preview"),body));
+        }
+
+        /// <summary>服务端按原回显识别 null 附件，已经只读的记录不能调用可写按钮。</summary>
+        [Fact]
+        public async Task Writable_button_checks_array_null_using_the_projected_value()
+        {
+            using var fixture=new Fixture(variant:"writable",readOnly:"galleryImages === null");
+            fixture.Authorization.AllowPage=true;
+            fixture.Reader.Row.GalleryImages="null";
+            var body=Encoding.UTF8.GetBytes("{\"recordKey\":7}");
+            var denied=await Assert.ThrowsAsync<BusinessRuleException>(()=>fixture.Catalog.ValidateActionInvocationAsync(
+                "action:fixture.preview",fixture.Context("Preview"),body));
+            Assert.Contains("只读",denied.Message);
+        }
+
         [Fact]
         public async Task Unloaded_derived_field_cannot_masquerade_as_an_actual_null_value()
         {
@@ -320,6 +370,10 @@ namespace Metarill.Agent.Tests
                 Metadata.ConfigColumns.Add(new(){Id="14",ConfigTableId="11",ColumnName="computed_name",Name="派生名称",YzProjectId="100"});
                 Metadata.ConfigColumns.Add(new(){Id="13",ConfigTableId="11",ColumnName="amount",Name="金额",LogicalType="decimal",YzProjectId="100"});
                 Metadata.ConfigColumns.Add(new(){Id="16",ConfigTableId="11",ColumnName="rule_payload",LogicalType="json",YzProjectId="100"});
+                Metadata.ConfigColumns.Add(new(){Id="40",ConfigTableId="11",ColumnName="gallery_images",LogicalType="string",ControlKind="MultiImage",YzProjectId="100"});
+                Metadata.ConfigColumns.Add(new(){Id="41",ConfigTableId="11",ColumnName="selected_ids",LogicalType="string",ControlKind="MultiCheckBoxDatabase",YzProjectId="100"});
+                Metadata.ConfigPageColumns.Add(new(){Id="2140",ConfigPageId="21",ConfigColumnId="40",IsShow=1,YzProjectId="100"});
+                Metadata.ConfigPageColumns.Add(new(){Id="2141",ConfigPageId="21",ConfigColumnId="41",IsShow=1,YzProjectId="100"});
                 if (variant != "hidden-json")
                     Metadata.ConfigPageColumns.Add(new(){Id="17",ConfigPageId="21",ConfigColumnId="16",IsEdit=1,YzProjectId="100"});
                 if (variant == "unsupported-readonly-expression") Metadata.ConfigPages[0].Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("amount.toFixed(2)");
@@ -376,6 +430,8 @@ namespace Metarill.Agent.Tests
         [JsonPropertyName("realName")][FreeSql.DataAnnotations.Column(Name="real_name")]public string? RealName{get;set;}="允许";
         [JsonPropertyName("amount")]public decimal Amount{get;set;}=10m;
         [JsonPropertyName("rulePayload")][FreeSql.DataAnnotations.Column(Name="rule_payload")]public string? RulePayload{get;set;}
+        [JsonPropertyName("galleryImages")][FreeSql.DataAnnotations.Column(Name="gallery_images")]public string? GalleryImages{get;set;}
+        [JsonPropertyName("selectedIds")][FreeSql.DataAnnotations.Column(Name="selected_ids")]public string? SelectedIds{get;set;}
         [JsonPropertyName("computedName")][FreeSql.DataAnnotations.Column(Name="computed_name",IsIgnore=true)]public string? ComputedName{get;set;}
         [JsonPropertyName("hTTPStatus")][FreeSql.DataAnnotations.Column(Name="HTTP_status")]public string? HTTPStatus{get=>RealName;set=>RealName=value;}
         public string Unpublished=>throw new InvalidOperationException("规则不得读取未发布属性。");

@@ -25,6 +25,7 @@ public sealed record AgentPublishedPage(string ProjectId, string Id, string Name
     public bool HasOwnedActionSource { get; init; }
     internal IReadOnlyDictionary<string,string>? RecordNames {get;init;}
     internal IReadOnlySet<string> RecordJsonColumns { get; init; } = FrozenSet<string>.Empty;
+    internal IReadOnlyDictionary<string, bool> RecordArrayColumns { get; init; } = FrozenDictionary<string, bool>.Empty;
     internal IReadOnlySet<string> ButtonJsonColumns { get; init; } = FrozenSet<string>.Empty;
 }
 
@@ -61,10 +62,14 @@ public sealed class AgentHostCatalog
             var table = catalog.ConfigTables.Single(table => table.Id == page.ConfigTableId);
             var fields = catalog.ConfigPageColumns.Where(field => field.ConfigPageId == page.Id).ToArray();
             var visibleFieldIds = fields.Where(IsVisibleRecordField).Select(field => field.ConfigColumnId).ToHashSet(StringComparer.Ordinal);
-            var jsonColumns = catalog.ConfigColumns.Where(column => column.ConfigTableId == table.Id &&
-                column.LogicalType.Equals("json", StringComparison.OrdinalIgnoreCase) &&
-                column.ControlKind is not ("FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage") &&
+            var tableColumns = catalog.ConfigColumns.Where(column => column.ConfigTableId == table.Id &&
                 !ExactDataManageValues.IsSensitiveField(column.ColumnName)).ToArray();
+            var arrayColumns = tableColumns.Where(column => column.IsVirtualColumn == 0 &&
+                ArrayFieldControl.UsesJsonArray(column.LogicalType, column.ControlKind))
+                .ToFrozenDictionary(column => column.ColumnName, column => ArrayFieldControl.IsLegacyMedia(column.ControlKind), StringComparer.Ordinal);
+            var jsonColumns = tableColumns.Where(column =>
+                column.LogicalType.Equals("json", StringComparison.OrdinalIgnoreCase) &&
+                column.ControlKind is not ("FileLibrary" or "MultiCheckBoxDatabase" or "MultiSelectPage")).ToArray();
             var required = fields.Where(DeclaresRequiredInput)
                 .Select(field => (Field: field, Column: catalog.ConfigColumns.Single(column => column.Id == field.ConfigColumnId)))
                 .Where(entry => RequiresCreateInput(entry.Field, entry.Column))
@@ -75,6 +80,7 @@ public sealed class AgentHostCatalog
             {
                 TableId = table.Id, IsFunctionTable = table.IsFunctionTable == 1, RecordNames=CompileRecordNames(catalog,table.Id),
                 RecordJsonColumns = jsonColumns.Select(column => column.ColumnName).ToFrozenSet(StringComparer.Ordinal),
+                RecordArrayColumns = arrayColumns,
                 ButtonJsonColumns = jsonColumns.Where(column => visibleFieldIds.Contains(column.Id) && column.IsVirtualColumn == 0 &&
                         column.ControlKind is not ("Image" or "MultiImage" or "Upload" or "Video"))
                     .Select(column => column.ColumnName).ToFrozenSet(StringComparer.Ordinal),
