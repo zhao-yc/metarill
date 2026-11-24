@@ -132,11 +132,11 @@ public static class GlobalCrossTableTarget
         var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         if(!GlobalMultipleRelationTarget.IsStoredProjectParentPage(table,page,condition,checkbox))return null;
         RequirePublishedSinglePage(catalog,table,page);
-        var parent=MultiTargetParentScope.CompileGlobalPage(catalog,table,condition,checkbox);
+        var parent=MultiTargetParentScope.CompileStoredGlobalPage(catalog,table,condition,checkbox);
         if(parent is not {Logical:false}||parent.AdditionalTargets.Any(item=>item.Logical))
             throw new NotSupportedException("冗余全局多值候选必须绑定实际物理父记录。");
         RequireTarget(catalog,table,page,false,allowAccount:true,allowMultiParent:true,
-            allowStoredSingleParent:true,allowPhysicalMultiParent:true,checkboxParent:checkbox);
+            allowStoredSingleParent:true,allowPhysicalMultiParent:true,checkboxParent:checkbox,publishedPhysicalParent:parent);
         return parent;
     }
 
@@ -243,7 +243,9 @@ public static class GlobalCrossTableTarget
             (selectionPage||IsBusinessPage(page))))return null;
         var columns=ConditionColumns(catalog,table,allowLogical:true);
         var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
-        var listParent=allowSelectionParentOnly&&IsListParentPage(table,page,condition,columns);
+        // 普通业务页可以发布为复选字典，只有实际 List 引用才开启冗余单值父范围。
+        var listParent=allowSelectionParentOnly&&IsListParentPage(table,page,condition,columns)&&
+            (table.IsRongyu==0||GlobalSingleRelationTarget.HasExplicitListReference(catalog,table,page));
         var storedSelection=table.IsRongyu==1&&(selectionPage||listParent);
         if(table.IsRongyu!=0&&!storedSelection)return null;
         if(!condition.Variables.Any(MultiTargetParentScope.IsParameter))return null;
@@ -282,7 +284,7 @@ public static class GlobalCrossTableTarget
         condition.Variables.Count>0&&condition.Variables.All(MultiTargetParentScope.IsParameter);
 
     /// <summary>只按明确用途开放R0，逻辑成员须在实际级联计划中进一步证明。</summary>
-    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false,bool allowStoredProject=false,bool allowStoredSingleParent=false,bool allowPhysicalMultiParent=false,bool checkboxParent=false)
+    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false,bool allowStoredProject=false,bool allowStoredSingleParent=false,bool allowPhysicalMultiParent=false,bool checkboxParent=false,MultiTargetParentScope? publishedPhysicalParent=null)
     {
         if(!Declared(table)||(table.IsRongyu!=1&&!(allowR0&&table.IsRongyu==0))||table.IsView!=0||table.IsFunctionTable!=0)throw new NotSupportedException("全局跨表目标要求显式声明的普通R0或R1实体。");
         if(table.IsRongyu==0)GlobalDerivedRelationSource.RequireTable(catalog,table);
@@ -298,12 +300,12 @@ public static class GlobalCrossTableTarget
             (!checkboxParent||allowStoredSingleParent)&&(IsSingleProjectParentPage(page,condition)||
                 IsProjectListParentPage(table,page,condition))||
             allowStoredSingleParent&&GlobalMultipleRelationTarget.IsStoredProjectParentPage(table,page,condition,checkboxParent));
-        var multiParent=allowMultiParent&&((table.IsRongyu==0||allowStoredSingleParent)&&
+        var multiParent=publishedPhysicalParent??(allowMultiParent&&((table.IsRongyu==0||allowStoredSingleParent)&&
             (condition.Variables.Any(AccountConditionVariables.IsSupported)||allowExactSingle&&DeclaresExactMulti(table,page)||
                 SelectionParentOnly(page,condition)||projectParentScope||allowPhysicalMultiParent&&UsesOnlyParentVariables(condition))||
             condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)||
                 allowSelfTree&&CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field)))
-            ?MultiTargetParentScope.CompileGlobalPage(catalog,table,condition,checkbox:checkboxParent):null;
+            ?MultiTargetParentScope.CompileGlobalPage(catalog,table,condition,checkbox:checkboxParent):null);
         foreach(var term in condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
         {
             if((multiParent?.Target.ColumnName==term.Field||multiParent?.AdditionalTargets.Any(scope=>scope.Target.ColumnName==term.Field)==true)&&

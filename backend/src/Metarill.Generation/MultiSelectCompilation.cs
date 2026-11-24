@@ -151,7 +151,8 @@ internal static class MultiSelectCompilation
             if((scoped||compoundLogical)&&targetPage.Scopes.Any(scope=>scope.Source=="parent"))
             {
                 var syntax=FixedConditionPlan.Compile(targetPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
-                scopedParent=target.IsGlobal?MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax):
+                scopedParent=target.IsGlobal?GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,target.Source,targetPage.Source)??
+                    MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax):
                     MultiTargetParentScope.CompileSelectionPage(model.Catalog,target.Source,syntax,allowGlobalParent:true,
                         allowStoredPhysicalParents:target.Source.IsRongyu==1&&
                             Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,target.Source,targetPage.Source));

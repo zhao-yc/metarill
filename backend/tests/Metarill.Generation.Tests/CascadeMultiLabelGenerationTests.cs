@@ -300,6 +300,18 @@ public sealed class CascadeMultiLabelGenerationTests
             globalBusinessSource:true,onlyParent:!targetAccount,literalParent:!targetAccount,projectParentScope:true,
             storedDictionary:true);
 
+    /// <summary>冗余多值字典配置多个物理父键时，所有键须匹配同一个实际父记录。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,false,false)]
+    [InlineData("MultiSelectPage",1,true,true)]
+    [InlineData("MultiCheckBoxDatabase",0,true,true)]
+    [InlineData("MultiCheckBoxDatabase",1,false,false)]
+    public Task Global_business_multivalue_uses_stored_dictionary_compound_parent(string kind,int mode,bool globalParent,bool targetAccount)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:true,globalRowProject:true,
+            parent:true,globalParent:globalParent,parentWithoutProject:globalParent,parentAccount:globalParent&&mode==1,
+            globalBusinessSource:true,onlyParent:!targetAccount,literalParent:!targetAccount,projectParentScope:true,
+            storedDictionary:true,compoundTargetParent:"physical");
+
     /// <summary>普通项目来源与有行项目的全局来源共用显式项目和真实父范围。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false,false,false)]
@@ -1406,8 +1418,9 @@ public sealed class CascadeMultiLabelGenerationTests
                         var scope=query("Query201",[request,actor]);
                         Assert.Contains("yz_project_id",scope);
                         Assert.Contains(parentField,scope);
-                        // 文本父键使用与名称计划相同的规范 ID 和二进制比较。
+                        // 文本父键沿规范 ID 比较，多字段字典的列表和回读须保留全部父条件。
                         Assert.Contains("BINARY",scope,StringComparison.OrdinalIgnoreCase);
+                        if(compoundTargetParent=="physical")Assert.Contains("other_country_id",scope);
                         if(!onlyParent)Assert.Contains("store_id",scope);
                     }
                 }

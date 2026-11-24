@@ -39,6 +39,11 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     public static MultiTargetParentScope? CompileGlobalPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,bool checkbox=false)=>
         CompilePublishedPage(catalog,table,condition,checkbox,globalTarget:true,allowGlobalParent:true);
 
+    /// <summary>经发布证明的冗余全局多值字典也可用多个物理字段限定同一实际父记录。</summary>
+    internal static MultiTargetParentScope? CompileStoredGlobalPage(MetadataCatalog catalog,TableMetadata table,
+        FixedConditionPlan condition,bool checkbox)=>
+        CompilePublishedPage(catalog,table,condition,checkbox,globalTarget:true,allowGlobalParent:true,allowStoredPhysicalParents:true);
+
     /// <summary>下拉字典把实际页面和控件的父参数合成同一组发布范围。</summary>
     public static MultiTargetParentScope? CompileListPage(MetadataCatalog catalog,TableMetadata table,
         IEnumerable<FixedConditionTerm> terms)
@@ -58,16 +63,16 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     {
         var terms=condition.Terms.Where(ParentTerm).ToArray();
         if(terms.Length<=1)return Compile(catalog,table,condition,checkbox);
-        // 冗余字典新增的多个父键必须是同一个项目内业务父表的真实物理列。
-        var storedProject=allowStoredPhysicalParents&&table.IsRongyu==1&&!globalTarget;
-        if(table.IsRongyu!=0&&!storedProject||GlobalCrossTableTarget.Declared(table)!=globalTarget)throw Invalid();
+        // 冗余字典的多个父键须来自目标表的实际物理列，普通字典仍要求项目内父记录。
+        var storedPhysical=allowStoredPhysicalParents&&table.IsRongyu==1;
+        if(table.IsRongyu!=0&&!storedPhysical||GlobalCrossTableTarget.Declared(table)!=globalTarget)throw Invalid();
         var fields=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
             .Select(column=>column.ColumnName).ToArray();
         var scopes=terms.Select(term=>Compile(catalog,table,FixedConditionPlan.Compile(term.ToDefinition(),fields),checkbox)!)
             .DistinctBy(scope=>scope.Target.Id).OrderByDescending(scope=>scope.Logical)
             .ThenBy(scope=>scope.Target.Id,StringComparer.Ordinal).ToArray();
         var parent=scopes[0];
-        if(parent.Global&&(!allowGlobalParent||storedProject)||storedProject&&scopes.Any(scope=>scope.Logical)||
+        if(parent.Global&&(!allowGlobalParent||storedPhysical&&!globalTarget)||storedPhysical&&scopes.Any(scope=>scope.Logical)||
             scopes.Any(scope=>scope.Parent.Id!=parent.Parent.Id))throw Invalid();
         return parent with{AdditionalTargets=scopes[1..]};
     }

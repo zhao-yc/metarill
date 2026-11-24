@@ -379,7 +379,9 @@ public static partial class MySqlNonRedundantReadCompiler
         var table=catalog.ConfigTables.Single(item=>item.Id==page.ConfigTableId);
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
-        if(GlobalCrossTableTarget.Declared(table))return MultiTargetParentScope.CompileGlobalPage(catalog,table,syntax,checkbox);
+        if(GlobalCrossTableTarget.Declared(table))
+            return GlobalCrossTableTarget.StoredProjectMultiParent(catalog,table,page,checkbox)??
+                MultiTargetParentScope.CompileGlobalPage(catalog,table,syntax,checkbox);
         if(checkbox)return MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(catalog,table,page)??
             MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true,
                 allowStoredPhysicalParents:IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true));
