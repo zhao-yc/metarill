@@ -176,9 +176,13 @@ public sealed partial class {{page.Name}}ImportRequest
         if (contextual)
         {
             result.AppendLine("        var relationContext = new Dictionary<string, JsonElement>(StringComparer.Ordinal);");
+            // 追加及覆盖的新记录按新增顺序取初始值、认证归属和列默认值；已匹配记录仍使用锁定行。
+            var accountDefaults = BackendRenderer.CreateAccountScopeFields(table, page)
+                .ToLookup(scope => scope.Column.Source.Id, scope => scope.Value, StringComparer.Ordinal);
             foreach(var parent in dependency.ContextValues)
             {
                 var fallback = BackendRenderer.PageInitialValue(model, table, page, parent)
+                    ?? accountDefaults[parent.Source.Id].LastOrDefault()
                     ?? (BackendRenderer.HasColumnDefault(parent) ? BackendRenderer.DefaultExpression(parent) : $"default({parent.Type})");
                 var value="existing is null ? "+fallback+" : existing."+parent.Property;
                 if(parent.Source.ColumnName=="yz_project_id")value=ScopeValue(parent,"actor.ProjectId");

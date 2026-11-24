@@ -30,7 +30,7 @@ internal static partial class BackendRenderer
     }
 
     /// <summary>主键由发号器产生，不使用账号归属覆盖。</summary>
-    private static IEnumerable<(ColumnModel Column, string Value)> CreateAccountScopeFields(TableModel table, PageModel page) =>
+    internal static IEnumerable<(ColumnModel Column, string Value)> CreateAccountScopeFields(TableModel table, PageModel page) =>
         AccountScopeFields(table, page).Where(scope => !scope.Column.IsId);
 
     /// <summary>页面条件在生成时已经验证物理列和变量；这里沿用字符串或整数的固定转换。</summary>

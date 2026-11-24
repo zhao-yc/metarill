@@ -100,6 +100,77 @@ public sealed class ImportDependencyTests
         }
     }
 
+    /// <summary>原追加与首列覆盖使用新增门店归属作为名称匹配上下文，且不把它写入 DTO。</summary>
+    [Fact]
+    public async Task Account_scope_defaults_feed_excel_candidate_resolution()
+    {
+        var catalog = Fixture();
+        catalog.ConfigColumns.AddRange([
+            new() { Id = "130", ConfigTableId = "1", ColumnName = "store_id", LogicalType = "int64", DefaultValue = "72" },
+            new() { Id = "230", ConfigTableId = "2", ColumnName = "store_id", LogicalType = "int64" }
+        ]);
+        var relation = catalog.ConfigColumns.Single(column => column.Id == "15");
+        relation.ControlKind = "List";
+        relation.Extra["linkConfigPageId"] = JsonSerializer.SerializeToElement("201");
+        relation.ControlDetail = """{"tableId":"2","nameField":"name","whereSql":"store_id=@formParameters.storeId"}""";
+        foreach (var page in catalog.ConfigPages.Where(page => page.ConfigTableId == "1"))
+        {
+            page.WhereSql = string.IsNullOrWhiteSpace(page.WhereSql)
+                ? "store_id=@current_store_id" : page.WhereSql + " AND store_id=@current_store_id";
+            catalog.ConfigPageColumns.Add(new()
+            {
+                Id = page.Id + "130", ConfigPageId = page.Id, ConfigColumnId = "130", IsShow = 1
+            });
+        }
+        catalog.ConfigPageColumns.Add(new() { Id = "201230", ConfigPageId = "201", ConfigColumnId = "230", IsShow = 1 });
+
+        const string ns = "Example.ImportDependency";
+        var boundary = Path.Combine(Path.GetTempPath(), "metarill-import-actor-default");
+        var directory = Path.Combine(boundary, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output = Path.Combine(directory, "generated");
+            new CSharpGenerator().Generate(catalog, output, ns);
+            var code = await File.ReadAllTextAsync(Path.Combine(output, "Services/MtImportDepOrderService.g.cs"));
+            var scopedValue = "long.Parse(global::Metarill.Core.Security.AccountConditionVariables.Require(actor, \"current_store_id\"), CultureInfo.InvariantCulture)";
+            var expected = "relationContext[\"storeId\"] = JsonSerializer.SerializeToElement(existing is null ? " + scopedValue + " : existing.StoreId, JsonOptions);";
+            foreach (var id in new[] { "104", "105" })
+            {
+                var start = code.IndexOf(">> ParseImport" + id + "Async", StringComparison.Ordinal);
+                Assert.True(start >= 0);
+                var end = code.IndexOf("\n    }", start, StringComparison.Ordinal);
+                Assert.Contains(expected, code[start..end]);
+            }
+            Assert.Contains("if (!submitted.Contains(\"store_id\")) entity.StoreId = " + scopedValue, code);
+
+            var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var type = assembly.GetType(ns + ".Generated.Services.MtImportDepOrderService", true)!;
+            var constructor = type.GetConstructors().Single();
+            var arguments = new object?[constructor.GetParameters().Length];
+            foreach (var parameter in constructor.GetParameters())
+            {
+                if (parameter.ParameterType == typeof(IEnumerable<IRecordMutationObserver>)) arguments[parameter.Position] = Array.Empty<IRecordMutationObserver>();
+                if (parameter.ParameterType == typeof(IEnumerable<IRecordMutationGuard>)) arguments[parameter.Position] = Array.Empty<IRecordMutationGuard>();
+            }
+            var service = constructor.Invoke(arguments);
+            var authorized = new RuntimeActor(1, "门店导入", false, "54", "5") { StoreId = 9007199254740993L };
+            var noStore = new RuntimeActor(2, "无门店", false, "54", "5");
+            var existing = Activator.CreateInstance(assembly.GetType(ns + ".Generated.Entities.MtImportDepOrder", true)!)!;
+            existing.GetType().GetProperty("StoreId")!.SetValue(existing, 9007199254740993L);
+            foreach (var id in new[] { "104", "105" })
+            {
+                var parse = type.GetMethod("ParseImport" + id + "Async", BindingFlags.NonPublic | BindingFlags.Instance)!;
+                var row = JsonSerializer.SerializeToElement(new Dictionary<string, string> { ["记录名"] = "原行" });
+                Task<Dictionary<string, JsonElement>> Parse(RuntimeActor actor, object? stored, bool keyOnly = false) =>
+                    (Task<Dictionary<string, JsonElement>>)parse.Invoke(service, [row, null, actor, stored, keyOnly, CancellationToken.None])!;
+                Assert.Equal(new[] { "name" }, (await Parse(authorized, null)).Keys);
+                Assert.Equal(new[] { "name" }, (await Parse(authorized, existing)).Keys);
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(() => Parse(noStore, null, keyOnly: id == "105"));
+            }
+        }
+        finally { if (Directory.Exists(directory)) await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
+    }
+
     /// <summary>固定夹具与实际MySQL专项相同，不手写业务CRUD。</summary>
     private static Metarill.Core.Metadata.MetadataCatalog Fixture()
     {var catalog=NonRedundantGeneratedFixture.Catalog("mt_import_dep");NonRedundantGeneratedFixture.EnableSingleSelection(catalog,true);NonRedundantGeneratedFixture.EnableImports(catalog);NonRedundantGeneratedFixture.AddMappedSinglePage(catalog);NonRedundantGeneratedFixture.EnableMappedImports(catalog);return catalog;}
