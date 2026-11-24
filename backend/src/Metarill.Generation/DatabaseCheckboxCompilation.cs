@@ -344,12 +344,17 @@ internal static class DatabaseCheckboxCompilation
             var compoundGlobalSource=false;
             if(functionForm&&physicalParents.Length>0)
             {
-                if(physicalParents.Length!=1)return Gap("功能表复选必须绑定唯一目标父字段。");
                 var targetParent=physicalParents[0].Column;
-                var publishedParent=namePage?.Scopes.SingleOrDefault(scope=>scope.Source=="parent").Column;
-                var targetBinding=publishedParent?.Source.Id==targetParent.Source.Id&&namePage is not null
-                    ?MultiTargetParentScope.Compile(model.Catalog,target.Source,
-                    FixedConditionPlan.Compile(namePage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName))):null;
+                // 功能表只有一个实际父值。冗余全局字典的多个条件须全部属于同一已发布的父记录。
+                var targetBinding=namePage is {} parentPage&&physicalParents.All(scope=>parentPage.Scopes.Any(published=>
+                    published.Source=="parent"&&published.Column.Source.Id==scope.Column.Source.Id))
+                    ?GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,target.Source,parentPage.Source,checkbox:true)??
+                        (physicalParents.Length==1?MultiTargetParentScope.Compile(model.Catalog,target.Source,
+                            FixedConditionPlan.Compile(parentPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName))):null)
+                    :null;
+                if(physicalParents.Length>1&&(targetBinding is not {Logical:false}||
+                    physicalParents.Any(scope=>!targetBinding.HasTarget(scope.Column.Source.Id))))
+                    return Gap("功能表复选的多个目标父字段须绑定同一实际发布父页。");
                 var parent=targetBinding is null?Parent(targetParent):model.Tables.Single(item=>item.Source.Id==targetBinding.Parent.Id);
                 if(parent.Source.IsFunctionTable!=0||parent.Source.IsView!=0||Protected(parent))
                     return Gap("复选目标父必须是真实业务实体。");

@@ -211,6 +211,8 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("globalRowProject")]
     [InlineData("project")]
     [InlineData("redundant")]
+    [InlineData("globalStored")]
+    [InlineData("globalStoredCompound")]
     public async Task Function_multiselect_uses_the_published_global_parent(string scenario)
     {
         var catalog=WithGlobalParent(Catalog(),scenario);
@@ -228,7 +230,16 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.True(start>=0);
         var selected=code[start..];
         Assert.Contains("InReadSnapshotAsync",selected[..selected.IndexOf("ArgumentNullException",StringComparison.Ordinal)]);
-        if(scenario.StartsWith("global",StringComparison.Ordinal))
+        if(scenario.StartsWith("globalStored",StringComparison.Ordinal))
+        {
+            // 冗余实体的分页、数量和已选使用同一普通实体查询，显式项目及固定账号条件始终生效。
+            Assert.Contains("query = query.Where(entity => entity.YzProjectId == long.Parse(actor.ProjectId",code);
+            Assert.DoesNotContain("if (!candidateRows) query = query.Where(entity => entity.YzProjectId",code);
+            Assert.Contains("PageCondition103.BindAccount(actor).ApplyConstants",code);
+            Assert.Contains("var query = Query103(new PageRequest { ParentId = request.ParentId",selected);
+            if(scenario=="globalStoredCompound")Assert.Contains("query = query.Where(entity => entity.OtherScopeId",code);
+        }
+        else if(scenario.StartsWith("global",StringComparison.Ordinal))
         {
             Assert.Contains("PageAsync(CandidateReadPlan103.BindAccount(actor)",code);
             Assert.Contains("KeyRowsAsync(CandidateReadPlan103.BindAccount(actor)",selected);
@@ -261,6 +272,8 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("project")]
     [InlineData("redundant")]
     [InlineData("ordinary")]
+    [InlineData("globalStored")]
+    [InlineData("globalStoredCompound")]
     public async Task Function_checkbox_uses_the_published_global_parent(string scenario)
     {
         var catalog=WithGlobalParent(Catalog(),scenario=="ordinary"?"redundant":scenario);
@@ -269,6 +282,20 @@ public sealed class FunctionTableGenerationTests : IDisposable
         var field=catalog.ConfigColumns.Single(column=>column.Id=="39");
         field.ControlKind="MultiCheckBoxDatabase";
         Assert.Equal("802",Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
+        if(scenario=="globalStoredCompound")
+        {
+            // 同一父表的另一发布页不代表相同账号范围。
+            var other=catalog.ConfigColumns.Single(column=>column.Id=="708");
+            var original=other.Extra["linkConfigPageId"];
+            try
+            {
+                other.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("801");
+                var error=Assert.Throws<InvalidOperationException>(()=>
+                    Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
+                Assert.Contains("同一个实际发布父页",error.Message);
+            }
+            finally{other.Extra["linkConfigPageId"]=original;}
+        }
         new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot());
 
         var generated=Path.Combine(output,"backend/generated");
@@ -278,6 +305,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
         Assert.Contains("CheckboxGlobalParent102_39=global::Example.FunctionForm.Generated.GeneratedNonRedundantReadCatalog.CompileMultiGlobalParent(\"7\",\"103\")",code);
         Assert.Contains("CheckboxGlobalParent102_39.BindAccount(actor)",code);
         Assert.Contains("row.ScopeId==long.Parse(parentId!",code);
+        if(scenario=="globalStoredCompound")Assert.Contains("row.OtherScopeId==long.Parse(parentId!",code);
         var global=scenario.StartsWith("global",StringComparison.Ordinal);
         if(global)
         {
@@ -326,7 +354,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
         var parent=new TableMetadata {Id="8",TableName="function_scope",Name="全局范围",YzProjectId="100",IsRongyu=1,
             Extra=new(){["scopeKind"]=JsonSerializer.SerializeToElement("global")}};
         var target=new TableMetadata {Id="7",TableName="function_option",Name="范围候选",YzProjectId="100",
-            IsRongyu=scenario=="redundant"?1:0};
+            IsRongyu=scenario=="redundant"||scenario.StartsWith("globalStored",StringComparison.Ordinal)?1:0};
         if(global)target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         catalog.ConfigTables.AddRange([parent,target]);
         foreach(var table in new[]{parent,target})
@@ -340,8 +368,14 @@ public sealed class FunctionTableGenerationTests : IDisposable
         if(scenario!="global")
             catalog.ConfigColumns.Add(new(){Id="706",ConfigTableId="7",ColumnName="yz_project_id",LogicalType="int64"});
         var published=new PageMetadata {Id="103",ConfigTableId="7",YzProjectId="100",YzAdminTypeId="70",Name="范围候选",
-            WhereSql=(global?"":"yz_project_id=@current_yz_project_id AND ")+"scope_id=@parent_id AND status=1 AND store_id=@current_store_id",
+            WhereSql=(global&&target.IsRongyu==0?"":"yz_project_id=@current_yz_project_id AND ")+"scope_id=@parent_id AND status=1 AND store_id=@current_store_id",
             Extra=new(){["type"]=JsonSerializer.SerializeToElement(2)}};
+        if(scenario=="globalStoredCompound")
+        {
+            catalog.ConfigColumns.Add(new(){Id="708",ConfigTableId="7",ColumnName="other_scope_id",LogicalType="int64",
+                LinkConfigTableId="8",Extra=new(){["linkConfigPageId"]=JsonSerializer.SerializeToElement("802")}});
+            published.WhereSql+=" AND other_scope_id=@parentId";
+        }
         if(!global)
         {
             published.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");
