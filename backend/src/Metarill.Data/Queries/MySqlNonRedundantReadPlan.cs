@@ -472,8 +472,10 @@ public static partial class MySqlNonRedundantReadCompiler
                         // 页面投影由生成服务另外附加自己的父筛选；任意单值读取仍须用无父参数的候选。
                         var multiPage=page.Extra.GetValueOrDefault("type").ToString()=="2"||IsScopedMultiTarget(catalog,root,page.Id)||
                             GlobalCrossTableTarget.SingleParent(catalog,root,page) is not null;
-                        if(deferCascadeNames)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,allowMultiParent:crossTables.Count>0||multiPage);
-                        else if(crossTables.Count>0||multiPage)GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
+                        var checkbox=multiPage&&IsPublishedCheckboxTarget(catalog,root,page.Id);
+                        if(deferCascadeNames)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,
+                            allowMultiParent:crossTables.Count>0||multiPage,checkbox:checkbox);
+                        else if(crossTables.Count>0||multiPage)GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page,checkbox);
                         else GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,root,page);
                     }
                 var controls=columns[root.Id].Values.Where(column=>crossTables.ContainsKey(column.Id)).ToArray();

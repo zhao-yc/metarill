@@ -143,6 +143,11 @@ public static partial class MySqlNonRedundantReadCompiler
             (!selectOnly||item.Relation.ControlKind=="MultiSelectPage")&&
             ScopedMultiTargetPage(catalog,target,item.NamePage,item.Relation.ControlKind=="MultiCheckBoxDatabase") is not null);
 
+    /// <summary>复选专用父字段只在实际发布的原复选关系绑定该页时开放。</summary>
+    internal static bool IsPublishedCheckboxTarget(MetadataCatalog catalog,TableMetadata table,string pageId)=>
+        DeclaredMultiNameTargets(catalog).Any(item=>item.Relation.ControlKind=="MultiCheckBoxDatabase"&&
+            item.Table.Id==table.Id&&item.NamePage?.Id==pageId);
+
     /// <summary>由实际多值控件绑定找到名称所处的页面，纯物理根条件也保留中间页上下文。</summary>
     private static PageMetadata? MultiTargetNamePage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
     {
@@ -252,6 +257,10 @@ public static partial class MySqlNonRedundantReadCompiler
         return !checkbox&&IsProjectFixedMultiPage(catalog,table,page)||
             GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,checkbox)||
             GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,checkbox)||
+            checkbox&&table.IsRongyu==0&&syntax.Terms.Any(term=>term.Values.Any(value=>
+                value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text))&&
+                members.SingleOrDefault(column=>column.ColumnName==term.Field) is {} key&&
+                MultiTargetParentScope.IsCheckboxOnlyParentField(key))||
             syntax.Variables.Any(AccountConditionVariables.IsSupported)||
             table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table)&&
                 (checkbox||page.Extra.GetValueOrDefault("type").ToString()=="2")&&GlobalCrossTableTarget.UsesOnlyParentVariables(syntax)||

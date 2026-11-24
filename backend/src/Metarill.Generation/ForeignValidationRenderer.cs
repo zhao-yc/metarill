@@ -68,8 +68,13 @@ internal static class ForeignValidationRenderer
                 RelationCompilation.HasFixedListIdParent(relation)||
                 DerivedRelationNamesCompilation.UsesSelfTreeExact(relation)||DerivedRelationNamesCompilation.UsesExactSingle(relation))
             .ToDictionary(relation=>relation.SourceColumn.Source.Id);
+        var shortCheckboxParent=page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="int?")
+            ?MultiGlobalParentCompilation.CheckboxPageParent(model,table,page):null;
+        bool ShortCheckboxParent(ColumnModel column)=>column.Type=="int?"&&
+            shortCheckboxParent is {Logical:false}&&shortCheckboxParent.HasTarget(column.Source.Id);
         var number = 0;
-        foreach (var column in table.Columns.Where(column => FixedOptionCatalogCompilation.Resolve(model, page, column).Declared || !column.IsSystem && (column.Source.ControlKind=="CascadeTree" || column.Type is "long?" or "string?")))
+        foreach (var column in table.Columns.Where(column => FixedOptionCatalogCompilation.Resolve(model, page, column).Declared ||
+            !column.IsSystem && (column.Source.ControlKind=="CascadeTree" || column.Type is "long?" or "string?" || ShortCheckboxParent(column))))
         {
             var fixedCatalog = FixedOptionCatalogCompilation.Resolve(model, page, column);
             if (fixedCatalog.Declared)
@@ -83,7 +88,7 @@ internal static class ForeignValidationRenderer
             if(column.Source.ControlKind=="CascadeTree"){result.Append(CascadeTreeWriteRenderer.Validation(model,table,page,column));continue;}
             if(crossFields.Contains(column.Source.Id))continue;
             if(page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id)&&
-                MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null)
+                (ShortCheckboxParent(column)||MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null))
             {
                 // 按写入前的真实物理键复核，手写规则修改实体也不能绕过父页条件。
                 var key=column.Type=="string?"?$"entity.{column.Property}":$"entity.{column.Property}?.ToString(CultureInfo.InvariantCulture)";

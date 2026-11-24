@@ -42,7 +42,11 @@ internal static class NonRedundantSelfTreeSubset
         foreach(var scope in page.Scopes.Where(scope=>scope.Source=="parent"))
         {
             var column=scope.Column;
-            if(column.IsId||column.Type is not("string?" or "long?")||!NonRedundantReadCompilation.Physical(model,table,column)||GenerationModel.Enabled(column.Source.Extra,"isJoinColumn"))throw new InvalidOperationException("非冗余自树父范围必须是真实单值外键。");
+            var checkboxKey=column.Type=="int?"&&MultiGlobalParentCompilation.CheckboxPageParent(model,table,page) is {Logical:false} checkbox&&
+                checkbox.HasTarget(column.Source.Id);
+            if(column.IsId||column.Type is not("string?" or "long?")&&!checkboxKey||
+                !NonRedundantReadCompilation.Physical(model,table,column)||GenerationModel.Enabled(column.Source.Extra,"isJoinColumn"))
+                throw new InvalidOperationException("非冗余自树父范围必须是真实单值外键。");
             var cross=resolveCross is null?NonRedundantCrossParentCompilation.Find(model,table,page,column):resolveCross(column);
             var parent=cross is{} path?path.Read.Levels[path.Index].Target:model.Tables.SingleOrDefault(candidate=>column.Source.LinkConfigTableId.Length>0?candidate.Source.Id==column.Source.LinkConfigTableId:candidate.Source.TableName+"_id"==column.Source.ColumnName);
             // 仅已解析的跨表层位允许以来源表为候选。普通外键不能借自身表绕过父证明。

@@ -137,13 +137,13 @@ public static class GlobalMultipleRelationTarget
         if(foreign.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.DeclaresExactMulti(target,page)||
             foreign.ControlKind=="MultiCheckBoxDatabase"&&GlobalCrossTableTarget.DeclaresExactPage(target,page))
             _=GlobalCrossTableTarget.ExactPageParent(catalog,target,page);
-        else if(selfTreeScope)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page,allowMultiParent:true);
+        else if(selfTreeScope)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page,allowMultiParent:true,checkbox:checkbox);
         else if(projectPage)
             GlobalCrossTableTarget.RequireProjectMultiCandidate(catalog,target,page,checkbox);
         else if(storedAccount)
             GlobalCrossTableTarget.RequireStoredMultiAccountCandidate(catalog,target,page);
         else if(physicalParentPage||scoped||target.IsRongyu==0&&condition.Variables.Any(AccountConditionVariables.IsSupported))
-            GlobalCrossTableTarget.RequireMultiCandidate(catalog,target,page);
+            GlobalCrossTableTarget.RequireMultiCandidate(catalog,target,page,checkbox);
         else GlobalCrossTableTarget.RequireMultiple(catalog,target,page);
         if(target.IsRongyu==0&&foreign.ControlKind=="MultiSelectPage"&&page.Extra.GetValueOrDefault("type").ToString()!="2")
             throw new NotSupportedException("全局R0多选要求原type=2页面；复选继续使用独立候选入口。");

@@ -76,7 +76,18 @@ internal static class MultiGlobalParentCompilation
             return null;
 
         var condition=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
-        return MultiTargetParentScope.Compile(model.Catalog,table.Source,condition) is {Global:true,Logical:false} parent?parent:null;
+        return (CheckboxPageParent(model,table,page)??MultiTargetParentScope.Compile(model.Catalog,table.Source,condition))
+            is {Global:true,Logical:false} parent?parent:null;
+    }
+
+    /// <summary>只按已经发布的复选目标识别非约定名或 int32 物理父字段。</summary>
+    internal static MultiTargetParentScope? CheckboxPageParent(GenerationModel model,TableModel table,PageModel page)
+    {
+        if(!page.Scopes.Any(scope=>scope.Source=="parent")||
+            !NonRedundantReads.IsPublishedCheckboxTarget(model.Catalog,table.Source,page.Source.Id))return null;
+        var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
+        return table.IsGlobal?MultiTargetParentScope.CompileGlobalPage(model.Catalog,table.Source,syntax,checkbox:true):
+            MultiTargetParentScope.CompileCheckboxPage(model.Catalog,table.Source,syntax,allowGlobalParent:true);
     }
 
     /// <summary>多个父字段含逻辑级联时，逐个证明同一实际全局父页，再开放该页的父范围。</summary>

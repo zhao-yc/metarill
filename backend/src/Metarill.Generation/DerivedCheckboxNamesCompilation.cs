@@ -135,6 +135,8 @@ internal static class DerivedCheckboxNamesCompilation
     internal static bool UsesScopedCheckboxLabel(GenerationModel model,DatabaseCheckboxModel def)=>
         !UsesGlobalExactPage(def)&&(def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
             def.RealtimeLogicalParentScope||def.CompoundTargetParents||
+            def.LogicalTargetPage?.Scopes.Any(scope=>scope.Source=="parent"&&
+                Metarill.Core.Metadata.MultiTargetParentScope.IsCheckboxOnlyParentField(scope.Column.Source))==true||
             def.GlobalParent&&def.LogicalTargetPage is not null&&def.ExactTarget is not null&&!HasExactLogicalParent(model,def));
 
     /// <summary>全局常量字典与逻辑范围共用实际发布页，始终从复选定义取页。</summary>

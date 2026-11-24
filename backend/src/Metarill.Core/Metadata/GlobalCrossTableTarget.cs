@@ -117,13 +117,15 @@ public static class GlobalCrossTableTarget
     }
 
     /// <summary>多值目标和独立页面候选可使用由实际父记录限定的同一范围。</summary>
-    public static void RequireMultiCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
-        =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:true,allowPhysicalMultiParent:true);
+    public static void RequireMultiCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)
+        =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:true,
+            allowPhysicalMultiParent:true,checkboxParent:checkbox);
 
     /// <summary>只有会编译完整自树叶名的读取入口可以接受该类全局候选条件。</summary>
-    public static void RequireSelfTreeConditionCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowMultiParent=false)
+    public static void RequireSelfTreeConditionCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        bool allowMultiParent=false,bool checkbox=false)
         =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:allowMultiParent,
-            allowSelfTree:true,allowPhysicalMultiParent:allowMultiParent);
+            allowSelfTree:true,allowPhysicalMultiParent:allowMultiParent,checkboxParent:checkbox);
 
     /// <summary>全局非冗余页可按账号和真实物理父键限定单值候选。</summary>
     public static MultiTargetParentScope? PhysicalAccountParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
@@ -146,6 +148,11 @@ public static class GlobalCrossTableTarget
         var columns=ConditionColumns(catalog,table,allowLogical:true);
         var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         if(!condition.Variables.Any(MultiTargetParentScope.IsParameter))return null;
+        // 单值用途不接受原复选专用物理字段，交给各自的候选入口验证。
+        if(condition.Terms.Any(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
+            MultiTargetParentScope.IsParameter(value.Text))&&
+            MultiTargetParentScope.IsCheckboxOnlyParentField(columns.Single(column=>column.ColumnName==term.Field))))
+            return null;
         var cross=condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field));
         var tree=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field));
         // 多值页的项目与父键组合由多值入口校验，不借用单值候选的账号范围。
@@ -175,7 +182,7 @@ public static class GlobalCrossTableTarget
         condition.Variables.Count>0&&condition.Variables.All(MultiTargetParentScope.IsParameter);
 
     /// <summary>只按明确用途开放R0，逻辑成员须在实际级联计划中进一步证明。</summary>
-    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false,bool allowStoredProject=false,bool allowStoredSingleParent=false,bool allowPhysicalMultiParent=false)
+    private static void RequireTarget(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool allowR0,bool allowAccount=false,bool allowLogical=false,bool allowMultiParent=false,bool allowSelfTree=false,bool allowExactSingle=false,bool allowStoredProject=false,bool allowStoredSingleParent=false,bool allowPhysicalMultiParent=false,bool checkboxParent=false)
     {
         if(!Declared(table)||(table.IsRongyu!=1&&!(allowR0&&table.IsRongyu==0))||table.IsView!=0||table.IsFunctionTable!=0)throw new NotSupportedException("全局跨表目标要求显式声明的普通R0或R1实体。");
         if(table.IsRongyu==0)GlobalDerivedRelationSource.RequireTable(catalog,table);
@@ -193,7 +200,7 @@ public static class GlobalCrossTableTarget
                 SelectionParentOnly(page,condition)||projectParentScope||allowPhysicalMultiParent&&UsesOnlyParentVariables(condition))||
             condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field)||
                 allowSelfTree&&CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field)))
-            ?MultiTargetParentScope.CompileGlobalPage(catalog,table,condition):null;
+            ?MultiTargetParentScope.CompileGlobalPage(catalog,table,condition,checkbox:checkboxParent):null;
         foreach(var term in condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
         {
             if((multiParent?.Target.ColumnName==term.Field||multiParent?.AdditionalTargets.Any(scope=>scope.Target.ColumnName==term.Field)==true)&&

@@ -78,20 +78,21 @@ public static partial class MySqlNonRedundantReadCompiler
         var physicalParent=globalExactSingle?globalExactParent:
             global&&page.Extra.GetValueOrDefault("type").ToString()!="2"?GlobalCrossTableTarget.SingleParent(catalog,table,page):null;
         var accountParentPage=accountParentPageType is not null;
+        var checkbox=accountParentPageType=="2"&&IsPublishedCheckboxTarget(catalog,table,pageId);
         var hasParentScope=physicalParent is not null||accountParentPage||displayBindings is not null||
             listFields is null&&treeNames.Count>0&&IsScopedMultiTarget(catalog,table,pageId);
         if(global&&!globalExactSingle)
         {
-            if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,table,page,allowMultiParent:hasParentScope);
+            if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,table,page,allowMultiParent:hasParentScope,checkbox:checkbox);
             else if(displayBindings is null&&!accountParentPage&&physicalParent is null)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
-            else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page);
+            else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page,checkbox);
         }
         if(!globalExactSingle&&!projectSingle&&!accountParentPage&&physicalParent is null&&
             projectParent is not ({Global:true} or {AdditionalTargets.Count:>0})&&logical.Count==0&&
             treeNames.Count==0&&listFields is null&&(!global||displayBindings is not{Count:>0}))
             throw new InvalidOperationException("候选页未声明逻辑级联条件或已证明的全局跨表投影。");
         var parent=physicalParent??projectParent??(hasParentScope||projectSingle
-            ?global?MultiTargetParentScope.CompileGlobalPage(catalog,table,syntax):MultiTargetParentScope.Compile(catalog,table,syntax)
+            ?global?MultiTargetParentScope.CompileGlobalPage(catalog,table,syntax,checkbox):MultiTargetParentScope.Compile(catalog,table,syntax)
             :null);
         if(accountParentPage&&(!global||page.Extra.GetValueOrDefault("type").ToString()!=accountParentPageType||
             parent is null||(accountParentPageType=="2"
@@ -204,8 +205,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
         if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId)throw new UnauthorizedAccessException("多值目标页不属于已发布项目。");
-        var checkbox=!GlobalCrossTableTarget.Declared(table)&&page.Extra.GetValueOrDefault("type").ToString()!="2"&&
-            IsScopedMultiTarget(catalog,table,page.Id);
+        var checkbox=IsPublishedCheckboxTarget(catalog,table,page.Id);
         var parent=checkbox?MultiParent(catalog,page,checkbox:true):
             ProjectScopedSingleRelationTarget.PageParent(catalog,table,page)??MultiParent(catalog,page);
         if(parent is not{Global:true})throw new NotSupportedException("多值全局父须显式声明全局表关系。");
@@ -437,8 +437,9 @@ public static partial class MySqlNonRedundantReadCompiler
             if(exact)_=RequireExactMultiSelection(catalog,root,page,storedCheckbox:AllowsStoredExactCheckbox);
             else if(global)
             {
-                if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,allowMultiParent:MultiCandidateParent is not null);
-                else GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page);
+                if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,root,page,
+                    allowMultiParent:MultiCandidateParent is not null,checkbox:AllowsStoredExactCheckbox);
+                else GlobalCrossTableTarget.RequireMultiCandidate(catalog,root,page,checkbox:AllowsStoredExactCheckbox);
             }
             var additional=MultiCandidateParent is {AdditionalTargets.Count:>0} compound
                 ?compound.AdditionalTargets.Select(parent=>parent.Target.ColumnName).ToHashSet(StringComparer.Ordinal):null;

@@ -139,14 +139,17 @@ internal static partial class NonRedundantReadCompilation
         else if(table.IsGlobal&&GlobalCrossTableTarget.SingleParent(model.Catalog,table.Source,page.Source) is null)
         {
             if(GlobalAccountParentScope(table,page))
-                GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source);
+                GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source,
+                    NonRedundantReads.IsPublishedCheckboxTarget(model.Catalog,table.Source,page.Source.Id));
             else if(FixedPageConditionCompilation.HasSelfTreeFields(page))
                 GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(model.Catalog,table.Source,page.Source,
-                    allowMultiParent:FixedPageConditionCompilation.HasMultiTargetScope(model,table,page));
+                    allowMultiParent:FixedPageConditionCompilation.HasMultiTargetScope(model,table,page),
+                    checkbox:NonRedundantReads.IsPublishedCheckboxTarget(model.Catalog,table.Source,page.Source.Id));
             else if(table.Columns.Any(NonRedundantCrossTableSubset.Declared))
             {
                 if(FixedPageConditionCompilation.HasMultiTargetScope(model,table,page)&&page.Scopes.Any(scope=>scope.Source=="parent"))
-                    GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source);
+                    GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source,
+                        NonRedundantReads.IsPublishedCheckboxTarget(model.Catalog,table.Source,page.Source.Id));
                 else GlobalCrossTableTarget.RequireCrossTableCandidate(model.Catalog,table.Source,page.Source);
             }
             else GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog,table.Source,page.Source);

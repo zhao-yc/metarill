@@ -325,6 +325,10 @@ public static class NonRedundantReads
             new(MySqlNonRedundantReadCompiler.CompileMultiLabel(metadata,tableId,field,outputs,dependencies,singleTargets));
 
     /// <summary>生成和传播按表级多值定义识别固定逻辑目标页。</summary>
+    /// <summary>确认页面由已发布的原数据库复选引用。</summary>
+    public static bool IsPublishedCheckboxTarget(MetadataCatalog metadata,TableMetadata target,string pageId)=>
+        MySqlNonRedundantReadCompiler.IsPublishedCheckboxTarget(metadata,target,pageId);
+
     /// <summary>确认该固定页面确实被多选或复选字段引用。</summary>
     public static bool IsScopedMultiTarget(MetadataCatalog metadata,TableMetadata target,string pageId)=>
         MySqlNonRedundantReadCompiler.IsScopedMultiTarget(metadata,target,pageId);

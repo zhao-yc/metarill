@@ -134,6 +134,9 @@ internal static class FixedPageConditionCompilation
         HasStoredGlobalMultiScope(table,page)||
         table.Source.IsRongyu==0&&HasGlobalProjectMultiScope(table,page)||
         includeProjectFixedScope&&NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source)||
+        table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent"&&
+            MultiTargetParentScope.IsCheckboxOnlyParentField(scope.Column.Source))&&
+        NonRedundantReads.IsPublishedCheckboxTarget(model.Catalog,table.Source,page.Source.Id)||
         table.Source.IsRongyu==0&&(HasAccountVariables(page)||SelectionPageRenderer.Enabled(page)&&
             page.Scopes.Count(scope=>scope.Source=="parent")>1)||page.Scopes.Any(scope=>
         scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName))||

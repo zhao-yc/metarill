@@ -57,7 +57,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         bool checkbox,bool globalTarget=false,bool allowGlobalParent=false,bool allowStoredPhysicalParents=false)
     {
         var terms=condition.Terms.Where(ParentTerm).ToArray();
-        if(terms.Length<=1)return Compile(catalog,table,condition);
+        if(terms.Length<=1)return Compile(catalog,table,condition,checkbox);
         // 冗余字典新增的多个父键必须是同一个项目内业务父表的真实物理列。
         var storedProject=allowStoredPhysicalParents&&table.IsRongyu==1&&!globalTarget;
         if(table.IsRongyu!=0&&!storedProject||GlobalCrossTableTarget.Declared(table)!=globalTarget)throw Invalid();
@@ -130,7 +130,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         var columns=catalog.ConfigColumns.Where(item=>item.ConfigTableId==table.Id).ToArray();
         var column=RelationStorageColumns.Expand(table,columns).SingleOrDefault(item=>item.ColumnName==terms[0].Field);
         if(column is null||column.IsVirtualColumn!=0)throw Invalid();
-        var originalKey=column.LogicalType is "int64" or "string"&&column.ColumnName.EndsWith("_id",StringComparison.Ordinal);
+        var originalKey=!IsCheckboxOnlyParentField(column);
         var checkboxKey=checkbox&&CheckboxKey(catalog,table,column,target:true);
         if(!originalKey&&!checkboxKey)throw Invalid();
         var logical=CrossTableStorageColumns.IsLogicalPathField(table,columns,column.ColumnName);
@@ -318,6 +318,10 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         column.LogicalType is "int64" or "string"&&column.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
         column.ColumnName!="yz_project_id"&&GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,table),table,column)&&
         !CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,column.ColumnName);
+
+    /// <summary>非常规父字段的资格只由实际发布的复选入口进一步证明。</summary>
+    public static bool IsCheckboxOnlyParentField(ColumnMetadata column)=>
+        column.LogicalType is not ("int64" or "string")||!column.ColumnName.EndsWith("_id",StringComparison.Ordinal);
 
     /// <summary>约定名仍可推导父表，自定义字段必须显式引用同一实体。</summary>
     private static bool CheckboxKey(MetadataCatalog catalog,TableMetadata table,ColumnMetadata column,bool target)=>
