@@ -77,6 +77,11 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                             required.AddRange(page.RequiredCreateFields.Where(field => properties.ContainsKey(field) &&
                                 requestContract?.ServerSuppliedFields.Contains(field, StringComparer.Ordinal) != true));
                         if (operation == "import") required.Add("requestJson");
+                        // 列表、计数和原 Excel 从请求体读取父级；记录详情和新增仍从各自查询参数读取。
+                        if (page.RequiresParent && operation is ("list" or "count" or "export" or "import") &&
+                            schema.GetValueOrDefault("properties") is IReadOnlyDictionary<string,object?> bodyProperties &&
+                            bodyProperties.ContainsKey("parentId"))
+                            required.Add("parentId");
                         if (required.Count > 0) requestSchema["required"] = required.Distinct(StringComparer.Ordinal).ToArray();
                     }
                     parameters.Add(new(parameter.Name, kind, kind is "path" or "body" || parameter.Name == "parentId" && page.RequiresParent, schema));

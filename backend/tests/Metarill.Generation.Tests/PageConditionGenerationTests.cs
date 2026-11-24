@@ -109,8 +109,23 @@ public sealed class PageConditionGenerationTests
         {
             if(!expected){Assert.Throws<InvalidOperationException>(()=>new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace));Assert.False(Directory.Exists(directory));return;}
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);
-            var service=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/RelationSourceService.g.cs"));Assert.Contains("MultiPageCondition201_25",service);Assert.Contains("query=query.ForUpdate();",service);
-            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/RelationSourceService.g.cs"));
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var type=assembly.GetType(model.Namespace+".Generated.Services.RelationSourceService",true)!;
+
+            // 核对保存实际调用的当前读及其冻结 SQL 参数，允许计划随数据访问实现演进。
+            var currentRead=System.Text.RegularExpressions.Regex.Match(service,
+                @"CurrentRowsAsync\((\w+)\.BindAccount\(actor\)");
+            Assert.True(currentRead.Success, "多选保存缺少固定目标页的当前读。");
+            var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                type.GetField(currentRead.Groups[1].Value,BindingFlags.NonPublic|BindingFlags.Static)!.GetValue(null));
+            const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+            var mysql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+            var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",hidden)!.GetValue(mysql));
+            var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(mysql.GetType().GetProperty("Constants",hidden)!.GetValue(mysql));
+            var pattern=Assert.Single(constants,entry=>Equals(entry.Value,"可用%"));
+            Assert.Contains("LIKE @"+pattern.Key.TrimStart('@'),scope,StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("可用%",scope);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }

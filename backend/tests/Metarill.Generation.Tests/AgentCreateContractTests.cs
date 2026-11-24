@@ -16,14 +16,18 @@ namespace Metarill.Generation.Tests;
 /// <summary>从实际生成并编译的新增入口发现 DTO 与 Agent 描述，验证字段名、默认值及服务端归属的边界。</summary>
 public sealed class AgentCreateContractTests
 {
-    [Fact]
-    public async Task Published_create_schema_requires_only_real_generated_input_names()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Published_schema_puts_required_parent_at_the_real_request_boundary(bool hasParent)
     {
         const long owner=9007199254740993L;
         var catalog=GeneratorTests.Catalog();
         var page=catalog.ConfigPages.Single();
-        page.IsNew=1;
-        page.WhereSql += " AND parent_id=@parentId AND store_id=@current_store_id";
+        page.IsNew=page.IsImport=page.IsExport=1;
+        page.WhereSql += " AND store_id=@current_store_id";
+        if (hasParent) page.WhereSql += " AND parent_id=@parentId";
+        else page.WhereSql += " AND name <> '@parentId'";
         catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="12").IsRequired=1;
         catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="13").IsRequired=1;
         catalog.ConfigColumns.Single(column=>column.Id=="13").Extra["visibleCondition"]=
@@ -61,17 +65,33 @@ public sealed class AgentCreateContractTests
             Assert.False(Assert.IsType<Optional<long?>>(request.GetProperty("StoreId")!.GetValue(dto)).IsSpecified);
             Assert.Throws<JsonException>(()=>JsonSerializer.Deserialize("""{"owner_ID":"9007199254740993"}""",request,JsonDefaults.Options));
             var index=new GeneratedCapabilityIndex(actions,new Resources(catalog));
-            var capability=new AgentCapabilityCatalog(index,new Authorization()).Describe("page:101:create");
+            var directoryCatalog=new AgentCapabilityCatalog(index,new Authorization());
+            var capability=directoryCatalog.Describe("page:101:create");
             Assert.Equal("/admin/auto/customer/101/add",capability.Path);
-            Assert.True(Assert.Single(capability.Parameters,parameter=>parameter is { Name:"parentId", Binding:"query" }).Required);
+            Assert.Equal(hasParent,Assert.Single(capability.Parameters,parameter=>parameter is { Name:"parentId", Binding:"query" }).Required);
             using var document=JsonDocument.Parse(JsonSerializer.Serialize(capability.RequestSchema));
             var schema=document.RootElement;
             Assert.False(schema.GetProperty("additionalProperties").GetBoolean());
             var properties=schema.GetProperty("properties").EnumerateObject().Select(property=>property.Name).ToHashSet(StringComparer.Ordinal);
             Assert.True(properties.SetEquals(["name","remark","ownerID","defaultMarker","initialMarker","parentId","storeId"]));
             var required=schema.GetProperty("required").EnumerateArray().Select(value=>value.GetString()).ToArray();
-            Assert.Equal(new[]{"name","ownerID"},required.Order(StringComparer.Ordinal));
+            Assert.Equal(hasParent?new[]{"name","ownerID"}:new[]{"name","ownerID","parentId"},required.Order(StringComparer.Ordinal));
             Assert.All(required,name=>Assert.Contains(name!,properties));
+
+            foreach (var action in new[] { "list", "count", "export", "import" })
+            {
+                var published=directoryCatalog.Describe("page:101:"+action);
+                Assert.DoesNotContain(published.Parameters,parameter=>parameter.Binding=="query"&&parameter.Name=="parentId");
+                using var actionSchema=JsonDocument.Parse(JsonSerializer.Serialize(published.RequestSchema));
+                var body=actionSchema.RootElement;
+                Assert.True(body.GetProperty("properties").TryGetProperty("parentId",out _));
+                var requiredBody=body.TryGetProperty("required",out var requiredFields)
+                    ? requiredFields.EnumerateArray().Select(field=>field.GetString()).ToArray() : [];
+                var expected=new List<string>();
+                if (hasParent) expected.Add("parentId");
+                if (action=="import") expected.Add("requestJson");
+                Assert.Equal(expected,requiredBody.Order(StringComparer.Ordinal));
+            }
         }
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
@@ -90,7 +110,7 @@ public sealed class AgentCreateContractTests
         public void RequirePagePermission(string pageId,string operation)
         {
             Assert.Equal("101",pageId);
-            Assert.Equal("create",operation);
+            Assert.Contains(operation,new[]{"create","list","count","export","import"});
         }
     }
 }
