@@ -30,6 +30,107 @@ public sealed class SelectionNameFilterCompilationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>原单选按实际物理父字典筛选已维护的名称副本，弹窗和 Excel 保留同一发布范围。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Stored_project_selection_searches_the_same_published_name_cache(bool independentParent)
+    {
+        const string ns = "Example.StoredSelectionFilter";
+        var catalog = RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
+        var owner = catalog.ConfigTables.Single(table=>table.Id=="2");
+        var target = catalog.ConfigTables.Single(table=>table.Id=="3");
+        owner.IsRongyu=target.IsRongyu=1;
+        var foreign = catalog.ConfigColumns.Single(column=>column.Id=="25");
+        foreign.ControlKind="SelectPage";
+        foreign.ControlDetail="""{"pageId":"301","tableId":"3","nameField":"name"}""";
+        var sourcePage = catalog.ConfigPages.Single(page=>page.Id=="201");
+        sourcePage.IsImport=sourcePage.IsExport=1;
+        sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(independentParent?"edit":"list");
+        sourcePage.Extra["importMethod"]=JsonSerializer.SerializeToElement(independentParent?"OverWriteByFirstColumn":"OnlyNew");
+        if(independentParent)
+        {
+            sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
+            catalog.ConfigPageColumns.Add(new(){Id="20126",YzProjectId=catalog.YzProjectId,ConfigPageId="201",ConfigColumnId="26",IsShow=1,IsEdit=1});
+        }
+        var targetPage = catalog.ConfigPages.Single(page=>page.Id=="301");
+        targetPage.Extra["type"]=JsonSerializer.SerializeToElement(1);
+        targetPage.WhereSql+=" AND status=1";
+        catalog.ConfigColumns.AddRange([
+            new(){Id="27",ConfigTableId="2",ColumnName="target_name",LogicalType="string",YzProjectId=catalog.YzProjectId,
+                Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("target.name")}},
+            new(){Id="37",ConfigTableId="3",ColumnName="status",LogicalType="int32",YzProjectId=catalog.YzProjectId}]);
+        catalog.ConfigPageColumns.Add(new(){Id="20127",ConfigPageId="201",ConfigColumnId="27",YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=0});
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25")
+            .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+
+        var published=ProjectScopedSingleRelationTarget.Resolve(catalog,owner,foreign,target);
+        Assert.NotNull(published);
+        Assert.Equal("301",published.Value.Page.Id);
+        Assert.Equal("32",published.Value.Name.Id);
+        var model=GenerationModel.Create(catalog,ns);
+        var source=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=source.Pages.Single();
+        var filter=SelectionNameFilterCompilation.ForPage(model,source,page);
+        Assert.Empty(filter.Gaps);
+        var binding=Assert.Single(filter.Bindings);
+        Assert.Equal("targetName",binding.FilterKey);
+        Assert.Equal("27",binding.StorageColumn.Source.Id);
+        Assert.Equal(SelectionNameFilterKind.ScalarLike,binding.Kind);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-stored-selection-filter");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,output,ns);
+            var serviceCode=await File.ReadAllTextAsync(Path.Combine(output,"Services/RelationSourceService.g.cs"));
+            Assert.Contains("""StringNameQuery.ApplyLike(session, query, entity => entity.TargetName, value)""",serviceCode);
+            Assert.Contains("ImportRelation201_25Async",serviceCode);
+            Assert.Contains("Export201Async",serviceCode);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            using var orm=new FreeSql.FreeSqlBuilder().UseConnectionFactory(FreeSql.DataType.MySql,
+                ()=>throw new InvalidOperationException("离线原单选筛选不连接数据库。")).UseAutoSyncStructure(false).Build();
+            using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Database=offline;User ID=unused;"},orm);
+            var mapper=Activator.CreateInstance(assembly.GetType(ns+".Generated.Mappers.RelationSourceMapper",true)!,session)!;
+            var serviceType=assembly.GetType(ns+".Generated.Services.RelationSourceService",true)!;
+            var arguments=new object?[serviceType.GetConstructors().Single().GetParameters().Length];
+            arguments[0]=session;arguments[1]=mapper;arguments[2]=new SnowflakeIdGenerator(845);arguments[3]=Array.Empty<IRecordMutationObserver>();
+            var service=Activator.CreateInstance(serviceType,arguments)!;
+            var actor=new RuntimeActor(8,"离线名称筛选",false,catalog.YzProjectId,"5");
+            var request=new PageRequest{ParentId=independentParent?null:"71",Filters=new(){["targetName"]=JsonSerializer.SerializeToElement("引号_'%")}};
+            var query=serviceType.GetMethod("Query201",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(service,[request,actor])!;
+            var entityType=assembly.GetType(ns+".Generated.Entities.RelationSource",true)!;
+            const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
+            var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+            var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+            var stored=plans["2"]!;
+            var read=stored.GetType().GetProperty("Read")!.GetValue(stored)!;
+            var nameSql=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["target_name"]));
+            var joins=Assert.IsType<string>(read.GetType().GetProperty("From",hidden)!.GetValue(read));
+            Assert.Contains("`relation_target`",joins);
+            Assert.Contains("`parent_id`",joins+nameSql);
+            Assert.Contains("`status`",joins+nameSql);
+            var sql=(string)typeof(SelectionNameFilterCompilationTests).GetMethod(nameof(FilterSql),BindingFlags.Static|BindingFlags.NonPublic)!
+                .MakeGenericMethod(entityType).Invoke(null,[query])!;
+            Assert.Contains("`target_name`",sql);
+            Assert.Contains("LIKE",sql,StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("引号_",sql);
+            if(!independentParent) Assert.Contains("`parent_id`",sql);
+
+            var front=Path.Combine(directory,"app");
+            Assert.True(new ApplicationPackager().Create(catalog,front,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(front,operation);
+            var list=await File.ReadAllTextAsync(Path.Combine(front,"frontend/pages/yzp/relation_source-list-201.vue"));
+            Assert.Contains("v-model='filters.targetName'",list);
+            await RunProbe(output,independentParent?"stored-independent":"stored-same");
+        }
+        finally { if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>只渲染生成查询，不执行命令。</summary>
+    private static string FilterSql<T>(object query) where T:class => ((FreeSql.ISelect<T>)query).ToSql("1");
+
     /// <summary>多选按已证明Names列给出JSON数组绑定，没有方言不得退成序列化文本LIKE。</summary>
     [Fact]
     public async Task Redundant_multi_names_use_shared_original_key_and_require_real_json_dialect()

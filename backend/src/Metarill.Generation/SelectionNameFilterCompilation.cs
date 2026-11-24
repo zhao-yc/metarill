@@ -68,8 +68,8 @@ internal static class SelectionNameFilterCompilation
                     implicitNames&&page.Readable.Any(column=>column.Source.Id==source.Source.Id);
                 var joinedCache=table.Source.IsRongyu==1&&GenerationModel.Enabled(storage.Source.Extra,"isJoinColumn")&&
                     !storage.IsManagedMultiNames&&!typedStorage;
+                // 本地冗余字典同样可用。名称副本须与写入及维护共用真实目标页的证明。
                 var scopedCache=joinedCache&&source.Source.ControlKind=="SelectPage"&&
-                    (target.Source.IsRongyu==0||target.IsGlobal)&&
                     NonRedundantSelectionCompilation.IsDisplay(source,storage,name)&&
                     NonRedundantReadCompilation.Physical(model,table,storage)&&
                     HasPublishedCacheTarget(model,table,source,target,targetPage,name);
