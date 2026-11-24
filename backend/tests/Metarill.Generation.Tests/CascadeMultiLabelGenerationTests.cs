@@ -219,6 +219,28 @@ public sealed class CascadeMultiLabelGenerationTests
             parent:true,globalParent:globalParent,parentWithoutProject:globalParent,parentAccount:globalParent&&mode==1,
             globalBusinessSource:true);
 
+    /// <summary>全局业务多值字典必须匹配指向同一父表的全部物理父字段。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,true,false)]
+    [InlineData("MultiSelectPage",1,false,false)]
+    [InlineData("MultiCheckBoxDatabase",0,false,false)]
+    [InlineData("MultiCheckBoxDatabase",1,true,false)]
+    [InlineData("MultiSelectPage",0,false,true)]
+    [InlineData("MultiCheckBoxDatabase",1,true,true)]
+    public Task Global_business_multivalue_uses_compound_physical_parents(string kind,int mode,bool rowProject,bool globalParent)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:true,globalRowProject:rowProject,
+            parent:true,globalParent:globalParent,parentWithoutProject:globalParent,parentAccount:globalParent&&mode==1,
+            compoundTargetParent:"physical",globalBusinessSource:true);
+
+    /// <summary>全局业务表与字典各有两个物理父字段，均匹配同一实际发布父页。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,false)]
+    [InlineData("MultiCheckBoxDatabase",1,true)]
+    public Task Global_business_multivalue_uses_compound_physical_source_and_target(string kind,int mode,bool rowProject)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:true,globalRowProject:rowProject,
+            parent:true,globalParent:true,parentWithoutProject:true,parentAccount:true,
+            compoundSourceParent:"physicalOnly",compoundTargetParent:"physical",globalCompoundSource:true,globalBusinessSource:true);
+
     /// <summary>已选、当前写及 Excel 通过实际级联还原目标父记录，物理祖先列为空也能匹配。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false,null,false,false)]
@@ -730,6 +752,24 @@ public sealed class CascadeMultiLabelGenerationTests
         }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
+        if(globalBusinessSource&&compoundTargetParent=="physical")
+        {
+            // 同一请求的第二个父字段不能改指另一张表，也不能靠首个字段继续发布。
+            var other=catalog.ConfigColumns.Single(column=>column.Id=="217");
+            var validParent=other.LinkConfigTableId;
+            other.LinkConfigTableId=globalParent?"4":"3";
+            try
+            {
+                var source=catalog.ConfigTables.Single(table=>table.Id=="9");
+                var target=catalog.ConfigTables.Single(table=>table.Id=="2");
+                var field=catalog.ConfigColumns.Single(column=>column.Id=="95");
+                var error=Assert.Throws<InvalidOperationException>(()=>mode==1
+                    ?GlobalMultipleRelationTarget.RequireCached(catalog,source,field,target)
+                    :GlobalMultipleRelationTarget.Require(catalog,source,field,target));
+                Assert.Contains("父",error.Message);
+            }
+            finally{other.LinkConfigTableId=validParent;}
+        }
         if(recursive)
         {
             var metadata=GenerationMetadataPublisher.ForRelations(catalog);
@@ -994,6 +1034,7 @@ public sealed class CascadeMultiLabelGenerationTests
                     Assert.Contains("BINARY CAST(",expression);
                     Assert.Contains("`"+dependency+"`",expression);
                     if(compoundSourceParent=="independent")Assert.Contains("`source_area_id`",expression);
+                    if(globalBusinessSource)AssertBothPhysicalSourceFields(expression);
                 }
                 else
                 {
@@ -1009,15 +1050,17 @@ public sealed class CascadeMultiLabelGenerationTests
                     var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,[cache.Source.ColumnName]));
                     Assert.Contains("BINARY CAST(",expression);
                     Assert.Contains("`"+dependency+"`",expression);
+                    if(globalBusinessSource)AssertBothPhysicalSourceFields(expression);
                 }
-                if(compoundSourceParent=="physical"&&compoundTargetParent=="physical")
+                if((compoundSourceParent=="physical"||globalBusinessSource&&compoundSourceParent=="physicalOnly")&&compoundTargetParent=="physical")
                 {
                     // 来源物理父与其他范围引用同一表，但切到另一发布页时必须拒绝。
                     var parentPage=catalog.ConfigPages.Single(item=>item.Id=="301");
                     var different=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(parentPage))!;
                     different.Id="319";
                     different.WhereSql+=" AND name <> '另一来源父页'";
-                    var fixedKeys=catalog.ConfigColumns.Where(column=>column.Id is "214" or "217").ToArray();
+                    var fixedKeys=catalog.ConfigColumns.Where(column=>column.Id is "214" or "217"||
+                        globalBusinessSource&&column.Id=="914").ToArray();
                     var sourceKey=catalog.ConfigColumns.Single(column=>column.Id=="916");
                     foreach(var key in fixedKeys)key.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement(parentPage.Id);
                     sourceKey.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement(different.Id);
@@ -1025,6 +1068,20 @@ public sealed class CascadeMultiLabelGenerationTests
                     try
                     {
                         var invalid=Assert.ThrowsAny<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+                        if(globalBusinessSource)
+                        {
+                            // 全局业务页的能力审计可以先汇总包装错误，同时核对数据层拒绝的准确原因。
+                            var dictionary=catalog.ConfigTables.Single(table=>table.Id=="2");
+                            var fields=catalog.ConfigColumns.Where(column=>column.ConfigTableId=="2");
+                            var definition=FixedConditionPlan.Compile(catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql,
+                                fields.Select(column=>column.ColumnName));
+                            var targetParent=MultiTargetParentScope.CompileGlobalPage(catalog,dictionary,definition,kind=="MultiCheckBoxDatabase")!;
+                            var source=catalog.ConfigTables.Single(table=>table.Id=="9");
+                            var relation=catalog.ConfigColumns.Single(column=>column.Id=="95");
+                            var binding=targetParent.Source(catalog,source,relation);
+                            invalid=Assert.Throws<InvalidOperationException>(()=>
+                                NonRedundantReads.RequireCompoundGlobalSourceParent(catalog,"2","201",binding));
+                        }
                         Assert.Contains("来源字段与目标字段必须绑定同一个实际发布父页",invalid.Message);
                     }
                     finally
@@ -1169,6 +1226,15 @@ public sealed class CascadeMultiLabelGenerationTests
             }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    /// <summary>两个来源父键相等后，实际目标的两个字段仍各自参与绑定。</summary>
+    private static void AssertBothPhysicalSourceFields(string expression)
+    {
+        Assert.Contains("BINARY CAST(b.`source_scope_id`",expression);
+        Assert.Contains("BINARY CAST(b.`other_country_id`",expression);
+        Assert.Contains("multi_value.`target_scope_id`",expression);
+        Assert.Contains("multi_value.`other_country_id`",expression);
     }
 
     /// <summary>外层国家的候选条件取自内层区域名称，内层仍按当前项目及原固定名称筛选。</summary>

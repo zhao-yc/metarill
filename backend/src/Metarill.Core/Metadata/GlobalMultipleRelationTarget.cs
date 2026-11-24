@@ -100,10 +100,12 @@ public static class GlobalMultipleRelationTarget
         var physicalParentPage=false;
         if(GlobalCrossTableTarget.Declared(owner)&&(checkbox||pageId.Length>0)&&target.IsRongyu==0&&!scoped&&
             IsPublishedMultiPage(target,page,checkbox)&&condition.Variables.Any(AccountConditionVariables.IsSupported)&&
-            MultiTargetParentScope.CompileGlobalPage(catalog,target,condition,checkbox) is {Logical:false,AdditionalTargets.Count:0} parent)
+            MultiTargetParentScope.CompileGlobalPage(catalog,target,condition,checkbox) is {Logical:false} parent&&
+            parent.AdditionalTargets.All(scope=>!scope.Logical))
         {
             var sourceParent=checkbox?parent.CheckboxSource(catalog,owner,foreign):parent.Source(catalog,owner,foreign);
-            physicalParentPage=sourceParent.LogicalPages.Count==0&&sourceParent.AdditionalColumns.Count==0;
+            // 多个来源物理键须经同一发布父页校验，原单父字段继续沿用已证明的持久键。
+            physicalParentPage=sourceParent.LogicalPages.Count==0&&(sourceParent.AdditionalColumns.Count==0||parent.Global);
         }
         if(GlobalCrossTableTarget.Declared(owner))
         {

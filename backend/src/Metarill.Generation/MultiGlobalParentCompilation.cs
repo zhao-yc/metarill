@@ -152,11 +152,12 @@ internal static class MultiGlobalParentCompilation
     private static IEnumerable<PageModel> CompoundMultiSourceTargets(GenerationModel model,TableModel table,PageModel page,
         IReadOnlyList<ColumnModel> physical)
     {
-        if(table.IsGlobal||table.Source.IsFunctionTable!=0||table.Source.IsView!=0)return [];
+        if(table.Source.IsFunctionTable!=0||table.Source.IsView!=0)return [];
         var targets=new List<PageModel>();
         foreach(var column in table.Columns.Where(column=>column.Source.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"))
         {
             if(ForeignValidationRenderer.Target(model,column) is not {Source.IsRongyu:0} target||
+                table.IsGlobal&&!target.IsGlobal||
                 !target.Pages.Any(candidate=>candidate.Scopes.Any(scope=>scope.Source=="parent")))continue;
             var targetPage=MultiRelationTargetPage(model,table,page,column,target);
             if(targetPage is null||PublishedMultiParent(model,target,targetPage) is not {Global:true} parent||
