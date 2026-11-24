@@ -300,6 +300,22 @@ public sealed class CascadeMultiLabelGenerationTests
             compoundTargetParent:compound?"physical":null,globalBusinessSource:true,onlyParent:!targetAccount,literalParent:!targetAccount,
             projectParentScope:true,ordinaryBusinessSource:true,textDictionaryProject:compound);
 
+    /// <summary>控件保留与实际字典页一致的项目和父条件，不应因此拒绝发布。</summary>
+    [Theory]
+    [InlineData(1,false,false,false,false)]
+    [InlineData(1,false,true,true,false)]
+    [InlineData(1,true,false,true,false)]
+    [InlineData(1,true,true,false,false)]
+    [InlineData(1,false,true,false,true)]
+    [InlineData(1,true,false,true,true)]
+    [InlineData(0,false,false,true,true)]
+    [InlineData(0,true,true,false,false)]
+    public Task Multi_control_repeats_actual_project_and_parent_conditions(int mode,bool globalParent,bool compound,bool pageOverride,bool ordinary)=>
+        CompileCascadeLabel("MultiSelectPage",mode,selfTree:false,indirect:false,selectedPage:true,physical:true,globalRowProject:true,
+            parent:true,globalParent:globalParent,parentWithoutProject:globalParent,parentAccount:globalParent&&mode==1,
+            compoundTargetParent:compound?"physical":null,globalBusinessSource:true,onlyParent:true,literalParent:true,
+            projectParentScope:true,ordinaryBusinessSource:ordinary,repeatDictionaryWhere:pageOverride?"page":"column");
+
     /// <summary>原复选的单父与复合父采用同样的物理外键规则。</summary>
     [Theory]
     [InlineData(0,false,false,false,"int32",false)]
@@ -522,7 +538,7 @@ public sealed class CascadeMultiLabelGenerationTests
         bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false,string? compoundSourceParent=null,string? compoundTargetParent=null,
         bool globalCompoundSource=false,bool projectTargetGlobalParent=false,bool globalBusinessSource=false,bool literalParent=false,
         bool projectParentScope=false,bool ordinaryBusinessSource=false,bool textDictionaryProject=false,
-        string? customCheckboxParentType=null,bool customCheckboxTypeTwo=false)
+        string? customCheckboxParentType=null,bool customCheckboxTypeTwo=false,string? repeatDictionaryWhere=null)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -735,6 +751,16 @@ public sealed class CascadeMultiLabelGenerationTests
             else
                 control.ControlDetail=JsonSerializer.Serialize(new{pageId=targetPage,nameField=display,whereSql});
         }
+        if(repeatDictionaryWhere is not null)
+        {
+            var whereSql=catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql;
+            var field=catalog.ConfigColumns.Single(column=>column.Id=="95");
+            if(repeatDictionaryWhere=="page")
+                catalog.ConfigPageColumns.Single(column=>column.Id=="90195").Extra["controlDetail"]=
+                    JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new{whereSql}));
+            else
+                field.ControlDetail=JsonSerializer.Serialize(new{tableId=targetTable,pageId=targetPage,nameField=display,whereSql});
+        }
         if(globalBusinessSource)
         {
             var origin=catalog.ConfigPages.Single(page=>page.Id=="901");
@@ -763,6 +789,25 @@ public sealed class CascadeMultiLabelGenerationTests
         }
 
         var model=GenerationModel.Create(catalog,ns);
+        if(repeatDictionaryWhere is not null)
+        {
+            var dictionary=model.Tables.Single(table=>table.Source.Id=="2");
+            var published=dictionary.Pages.Single(page=>page.Source.Id=="201");
+            var selector=new SelectionControlDefinition("201",display,"",published.Source.WhereSql,"");
+            var query=FixedPageQueryCompilation.For(dictionary,published);
+            Assert.True(FixedPageQueryCompilation.TryProveSelection(catalog,query,selector,out var reason),reason);
+            Assert.False(FixedPageQueryCompilation.TryProveSelection(catalog,query,
+                selector with{WhereSql=selector.WhereSql+" AND name = '更窄的控件条件'"},out _));
+
+            // 字典仍有项目列，但移除发布页的项目条件后，控件不能借用业务记录的默认项目范围。
+            var sharedMetadata=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(published.Source))!;
+            sharedMetadata.WhereSql=sharedMetadata.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
+            Assert.NotEqual(published.Source.WhereSql,sharedMetadata.WhereSql);
+            var sharedPage=published with{Source=sharedMetadata,Scopes=published.Scopes.Where(scope=>scope.Source!="project").ToArray()};
+            var sharedDictionary=dictionary with{Pages=[sharedPage]};
+            Assert.False(FixedPageQueryCompilation.TryProveSelection(catalog,
+                FixedPageQueryCompilation.For(sharedDictionary,sharedPage),selector,out _));
+        }
         if(compoundTargetParent is not null)
         {
             var owner=model.Tables.Single(item=>item.Source.Id=="9");
