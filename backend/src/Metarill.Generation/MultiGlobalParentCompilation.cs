@@ -192,13 +192,17 @@ internal static class MultiGlobalParentCompilation
         var targets=new List<PageModel>();
         foreach(var column in table.Columns.Where(column=>column.Source.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"))
         {
-            if(ForeignValidationRenderer.Target(model,column) is not {Source.IsRongyu:0} target||
+            if(ForeignValidationRenderer.Target(model,column) is not {} target||
+                target.Source.IsRongyu is not(0 or 1)||
                 table.IsGlobal&&!target.IsGlobal||
                 !target.Pages.Any(candidate=>candidate.Scopes.Any(scope=>scope.Source=="parent")))continue;
             var targetPage=MultiRelationTargetPage(model,table,page,column,target);
             if(targetPage is null||PublishedMultiParent(model,target,targetPage) is not {Global:true} parent||
                 physical.Any(field=>ForeignValidationRenderer.Target(model,field)?.Source.Id!=parent.Parent.Id))continue;
-            var owner=parent.Source(model.Catalog,table.Source,column.Source,page.Source);
+            // 冗余字典按已发布的实际复选外键证明来源范围，原逻辑路径继续走多选证明。
+            var owner=target.Source.IsRongyu==1&&column.Source.ControlKind=="MultiCheckBoxDatabase"
+                ?parent.CheckboxSource(model.Catalog,table.Source,column.Source,page.Source,allowProjectPhysicalColumns:true)
+                :parent.Source(model.Catalog,table.Source,column.Source,page.Source);
             if(owner.AdditionalColumns.Count==0)continue;
             NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,targetPage.Source.Id,owner);
             targets.Add(targetPage);
