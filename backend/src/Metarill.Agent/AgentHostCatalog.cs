@@ -25,6 +25,7 @@ public sealed record AgentPublishedPage(string ProjectId, string Id, string Name
     public bool HasOwnedActionSource { get; init; }
     internal IReadOnlyDictionary<string,string>? RecordNames {get;init;}
     internal IReadOnlySet<string> RecordJsonColumns { get; init; } = FrozenSet<string>.Empty;
+    internal IReadOnlySet<string> RecordMonthColumns { get; init; } = FrozenSet<string>.Empty;
     internal IReadOnlyDictionary<string, bool> RecordArrayColumns { get; init; } = FrozenDictionary<string, bool>.Empty;
     internal IReadOnlySet<string> ButtonJsonColumns { get; init; } = FrozenSet<string>.Empty;
 }
@@ -80,6 +81,8 @@ public sealed class AgentHostCatalog
             {
                 TableId = table.Id, IsFunctionTable = table.IsFunctionTable == 1, RecordNames=CompileRecordNames(catalog,table.Id),
                 RecordJsonColumns = jsonColumns.Select(column => column.ColumnName).ToFrozenSet(StringComparer.Ordinal),
+                RecordMonthColumns = tableColumns.Where(column => column.ControlKind is "month" or "Month")
+                    .Select(column => column.ColumnName).ToFrozenSet(StringComparer.Ordinal),
                 RecordArrayColumns = arrayColumns,
                 ButtonJsonColumns = jsonColumns.Where(column => visibleFieldIds.Contains(column.Id) && column.IsVirtualColumn == 0 &&
                         column.ControlKind is not ("Image" or "MultiImage" or "Upload" or "Video"))

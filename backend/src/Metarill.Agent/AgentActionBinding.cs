@@ -124,7 +124,8 @@ internal sealed record AgentActionBinding(AgentPublishedButton Button, Type Body
         catch (SecurityException) { throw new UnauthorizedAccessException("业务记录未授权。"); }
         var record=task.GetType().GetProperty("Result")?.GetValue(task);
         if (record is null) throw new UnauthorizedAccessException("业务记录不存在或无权访问。");
-        AgentButtonVisibility.Require(button,record,access.EntityType);
+        var options=context.RequestServices.GetRequiredService<IOptions<JsonOptions>>().Value.JsonSerializerOptions;
+        AgentButtonVisibility.Require(button,record,access.EntityType,options);
     }
     /// <summary>拒绝多值/冲突来源，DTO使用实际JSON绑定名，不能校验一条记录后执行另一条。</summary>
     private static string? ReadValue(HttpContext context, object body, PropertyInfo? property, string? binding, string name, JsonSerializerOptions options)

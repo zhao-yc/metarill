@@ -360,6 +360,32 @@ namespace Metarill.Agent.Tests
                 "action:fixture.preview",context,Encoding.UTF8.GetBytes("{\"recordKey\":7}"));
         }
 
+        /// <summary>Web 和 Agent 的可写按钮都按真实记录的月份回显执行只读条件。</summary>
+        [Fact]
+        public async Task Writable_button_checks_the_saved_calendar_month()
+        {
+            using var fixture = new Fixture(variant:"writable",readOnly:"billingMonth === '2027-02-01'");
+            fixture.Authorization.AllowPage = true;
+            var context = fixture.Context("Preview");
+            var handler = new WebHandler();
+            var executor = new OriginalBusinessButtonExecutor(fixture.Resources,fixture.Authorization,fixture.Services,
+                fixture.Services.GetRequiredService<IActionDescriptorCollectionProvider>(),[handler],fixture.Guard);
+            var request = new OriginalBusinessButtonRequest("31","7",
+                JsonSerializer.SerializeToElement(new{id="7",billingMonth="2027-03-01"}),"AlwaysVisible","{}");
+
+            fixture.Reader.Row.BillingMonth = new DateTime(2027,2,1);
+            Assert.Contains("只读",(await Assert.ThrowsAsync<BusinessRuleException>(CheckAgent)).Message);
+            Assert.Contains("只读",(await Assert.ThrowsAsync<BusinessRuleException>(()=>executor.ExecuteAsync(request,context))).Message);
+            Assert.Equal(0,handler.Calls);
+            fixture.Reader.Row.BillingMonth = new DateTime(2027,3,1);
+            await CheckAgent();
+            await executor.ExecuteAsync(request,context);
+            Assert.Equal(1,handler.Calls);
+
+            Task CheckAgent()=>fixture.Catalog.ValidateActionInvocationAsync(
+                "action:fixture.preview",context,Encoding.UTF8.GetBytes("{\"recordKey\":7}"));
+        }
+
         [Fact]
         public async Task Unloaded_derived_field_cannot_masquerade_as_an_actual_null_value()
         {
@@ -402,6 +428,8 @@ namespace Metarill.Agent.Tests
                 Metadata.ConfigColumns.Add(new(){Id="16",ConfigTableId="11",ColumnName="rule_payload",LogicalType="json",YzProjectId="100"});
                 Metadata.ConfigColumns.Add(new(){Id="40",ConfigTableId="11",ColumnName="gallery_images",LogicalType="string",ControlKind="MultiImage",YzProjectId="100"});
                 Metadata.ConfigColumns.Add(new(){Id="41",ConfigTableId="11",ColumnName="selected_ids",LogicalType="string",ControlKind="MultiCheckBoxDatabase",YzProjectId="100"});
+                Metadata.ConfigColumns.Add(new(){Id="42",ConfigTableId="11",ColumnName="billing_month",LogicalType="date",ControlKind="month",YzProjectId="100"});
+                Metadata.ConfigPageColumns.Add(new(){Id="2142",ConfigPageId="21",ConfigColumnId="42",IsShow=1,YzProjectId="100"});
                 Metadata.ConfigPageColumns.Add(new(){Id="2140",ConfigPageId="21",ConfigColumnId="40",IsShow=1,YzProjectId="100"});
                 Metadata.ConfigPageColumns.Add(new(){Id="2141",ConfigPageId="21",ConfigColumnId="41",IsShow=1,YzProjectId="100"});
                 if (variant != "hidden-json")
@@ -464,6 +492,7 @@ namespace Metarill.Agent.Tests
         [JsonPropertyName("selectedIds")][FreeSql.DataAnnotations.Column(Name="selected_ids")]public string? SelectedIds{get;set;}
         [JsonPropertyName("computedName")][FreeSql.DataAnnotations.Column(Name="computed_name",IsIgnore=true)]public string? ComputedName{get;set;}
         [JsonPropertyName("hTTPStatus")][FreeSql.DataAnnotations.Column(Name="HTTP_status")]public string? HTTPStatus{get=>RealName;set=>RealName=value;}
+        [JsonPropertyName("billingMonth")][FreeSql.DataAnnotations.Column(Name="billing_month")]public DateTime? BillingMonth{get;set;}
         public string Unpublished=>throw new InvalidOperationException("规则不得读取未发布属性。");
     }
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

@@ -46,18 +46,34 @@ internal static class AgentRecordValues
         return values;
     }
 
-    /// <summary>只读条件的点路径只解码已发布 JSON 列，普通按钮显示仍使用直接装载的值。</summary>
+    /// <summary>只读按详情回显解释日期；点路径只解码已发布 JSON 列。普通按钮显示仍使用直接装载的值。</summary>
     internal static IReadOnlyDictionary<string,object?> ForReadOnly(IReadOnlyDictionary<string,object?> values,
-        IReadOnlyDictionary<string,string> names, IEnumerable<string> fields, IReadOnlySet<string> jsonColumns)
+        IReadOnlyDictionary<string,string> names, IEnumerable<string> fields, AgentPublishedPage page, JsonSerializerOptions options)
     {
         Dictionary<string,object?>? result = null;
-        foreach (var root in fields.Where(field => field.Contains('.')).Select(field => field.Split('.')[0]).Distinct(StringComparer.Ordinal))
+        foreach (var group in fields.GroupBy(field => field.Split('.')[0],StringComparer.Ordinal))
         {
-            if (!names.TryGetValue(root, out var physical) || !jsonColumns.Contains(physical) || !values.TryGetValue(root, out var value)) continue;
-            var text = value switch { string scalar => scalar, JsonElement { ValueKind: JsonValueKind.String } json => json.GetString(), _ => null };
-            if (text is null) continue;
-            result ??= new(values, StringComparer.Ordinal);
-            result[root] = RequiredFieldValue.VisibilityObject(text);
+            var root = group.Key;
+            if (!names.TryGetValue(root,out var physical) || !values.TryGetValue(root,out var value)) continue;
+
+            object? projected;
+            if (value is DateTime calendar)
+            {
+                // 月份在 VO 上有专用转换器，其他日历值使用当前宿主的实际 MVC 响应合同。
+                projected = page.RecordMonthColumns.Contains(physical)
+                    ? CalendarColumnDefault.Format(calendar,dateOnly:true)
+                    : JsonSerializer.SerializeToElement(calendar,options).GetString();
+            }
+            else if (page.RecordJsonColumns.Contains(physical) && group.Any(field => field.Contains('.')))
+            {
+                var text = value switch { string scalar => scalar, JsonElement { ValueKind: JsonValueKind.String } json => json.GetString(), _ => null };
+                if (text is null) continue;
+                projected = RequiredFieldValue.VisibilityObject(text);
+            }
+            else continue;
+
+            result ??= new(values,StringComparer.Ordinal);
+            result[root] = projected;
         }
         return result ?? values;
     }

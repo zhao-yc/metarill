@@ -103,6 +103,10 @@ public sealed class OriginalMonthGenerationTests
             Assert.Equal("2024-02-01", response.RootElement.GetProperty("billingMonth").GetString());
             Assert.Equal("2024-02", response.RootElement.GetProperty("periodCode").GetString());
             Assert.Equal("2024-02-03T04:05:06", response.RootElement.GetProperty("eventTime").GetString());
+            // 同一生成详情在平台和独立宿主仍按各自的日期文本合同输出。
+            var platformResponse = JsonSerializer.SerializeToElement(record,voType,JsonDefaults.Create());
+            Assert.Equal("2024-02-01",platformResponse.GetProperty("billingMonth").GetString());
+            Assert.Equal("2024-02-03 04:05:06",platformResponse.GetProperty("eventTime").GetString());
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }

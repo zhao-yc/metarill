@@ -81,7 +81,7 @@ internal sealed record AgentRecordWriteBinding(AgentPublishedPage Page,string Op
         {
             var names=Page.RecordNames!;
             var values=AgentRecordValues.Read(record,Access.EntityType,names,Condition.Fields,Page.RecordArrayColumns);
-            if(Condition.IsReadOnly(AgentRecordValues.ForReadOnly(values,names,Condition.Fields,Page.RecordJsonColumns)))throw new AgentTaskException("YZP_CAPABILITY_DENIED","当前记录为只读，不能修改、删除或复制。",403,"not_applied","fix_request");
+            if(Condition.IsReadOnly(AgentRecordValues.ForReadOnly(values,names,Condition.Fields,Page,options)))throw new AgentTaskException("YZP_CAPABILITY_DENIED","当前记录为只读，不能修改、删除或复制。",403,"not_applied","fix_request");
         }
         catch(Exception error)when(error is ArgumentException or NotSupportedException or InvalidOperationException)
         {throw new AgentTaskException("YZP_CAPABILITY_DENIED","原记录只读条件无法可靠判定，未执行写入。",403,"not_applied","fix_request");}

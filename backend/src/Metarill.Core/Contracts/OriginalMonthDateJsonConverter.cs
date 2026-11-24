@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -11,5 +10,5 @@ public sealed class OriginalMonthDateJsonConverter : JsonConverter<DateTime?>
         reader.TokenType == JsonTokenType.Null ? null : JsonSerializer.Deserialize<DateTime>(ref reader, options);
 
     public override void Write(Utf8JsonWriter writer, DateTime? value, JsonSerializerOptions options) =>
-        writer.WriteStringValue(value?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        writer.WriteStringValue(value is DateTime date ? CalendarColumnDefault.Format(date,dateOnly:true) : null);
 }

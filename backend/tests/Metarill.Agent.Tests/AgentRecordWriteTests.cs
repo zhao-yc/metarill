@@ -136,11 +136,32 @@ namespace Metarill.Agent.Tests
             Assert.Equal(status == 200 ? 1 : 0, TaskCount(memory));
         }
 
+        /// <summary>平台和独立包的日期文本各自参加只读判断，月份字段按原日期回显。</summary>
+        [Theory]
+        [InlineData(false,"expiresAt === '2027-02-03 04:05:06'",403)]
+        [InlineData(true,"expiresAt === '2027-02-03T04:05:06.123456'",403)]
+        [InlineData(false,"expiresAt >= '2027-02-03 00:00:00'",403)]
+        [InlineData(true,"expiresAt >= '2027-02-04T00:00:00'",200)]
+        [InlineData(false,"billingMonth === '2027-02-01'",403)]
+        [InlineData(true,"billingMonth === '2027-02-01'",403)]
+        [InlineData(true,"billingMonth === '2027-03-01'",200)]
+        public async Task Calendar_rules_match_the_host_detail_values_before_agent_write(bool standalone,string condition,int status)
+        {
+            using var memory = new PrincipalRealmFixture();
+            using var fixture = new Fixture(memory,condition:condition,standaloneCalendar:standalone);
+            fixture.Reader.ExpiresAt = new DateTime(2027,2,3,4,5,6).AddTicks(1234560);
+            fixture.Reader.BillingMonth = new DateTime(2027,2,1);
+            var context = fixture.Context("Update","update","""{"id":"7","expiresAt":null,"billingMonth":null}""");
+            await new AgentTaskMiddleware(current => current.Response.WriteAsJsonAsync(R<object>.Success(new{id="7"}),JsonDefaults.Options)).InvokeAsync(context);
+            Assert.Equal(status,context.Response.StatusCode);
+            Assert.Equal(status==200?1:0,TaskCount(memory));
+        }
+
         private static int TaskCount(PrincipalRealmFixture memory)=>memory.Provider.Rows.TryGetValue("sys_agent_task",out var rows)?rows.Count:0;
         private sealed class Fixture:IDisposable
         {
             internal readonly RecordWriteReader Reader=new();internal readonly RecordWriteAuthorization Authorization=new();internal readonly ServiceProvider Services;internal readonly AgentCapabilityCatalog Catalog;private readonly IActionDescriptorCollectionProvider actions;
-            internal Fixture(PrincipalRealmFixture memory,bool parentRequired=false,string condition="isLocked")
+            internal Fixture(PrincipalRealmFixture memory,bool parentRequired=false,string condition="isLocked",bool standaloneCalendar=false)
             {
                 Reader.RequireParent=parentRequired;var source=new MetadataCatalog{YzProjectId="100"};
                 source.ConfigTables.Add(new(){Id="41000",TableName="record_write_fixture",YzProjectId="100"});source.ConfigTables.Add(new(){Id="41100",TableName="old_record_fixture",YzProjectId="100"});
@@ -150,7 +171,13 @@ namespace Metarill.Agent.Tests
                 source.ConfigColumns.Add(new(){Id="4204",ConfigTableId="41000",ColumnName="rule_payload",LogicalType="json"});
                 source.ConfigColumns.Add(new(){Id="4205",ConfigTableId="41000",ColumnName="opens_at",LogicalType="time"});
                 source.ConfigColumns.Add(new(){Id="4206",ConfigTableId="41000",ColumnName="selected_ids",LogicalType="text",ControlKind="MultiCheckBoxDatabase"});
-                var services=new ServiceCollection();services.AddLogging();services.AddControllers().AddApplicationPart(typeof(Generated.Controllers.RecordWriteFixtureController).Assembly).AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));
+                source.ConfigColumns.Add(new(){Id="4207",ConfigTableId="41000",ColumnName="expires_at",LogicalType="datetime",ControlKind="date_time"});
+                source.ConfigColumns.Add(new(){Id="4208",ConfigTableId="41000",ColumnName="billing_month",LogicalType="date",ControlKind="Month"});
+                var services=new ServiceCollection();services.AddLogging();services.AddControllers().AddApplicationPart(typeof(Generated.Controllers.RecordWriteFixtureController).Assembly).AddJsonOptions(options=>
+                {
+                    if (standaloneCalendar) JsonDefaults.ConfigureOriginalCalendarInput(options.JsonSerializerOptions);
+                    else JsonDefaults.CopyTo(options.JsonSerializerOptions);
+                });
                 services.AddSingleton<IAgentHostResources>(new Resources(source));services.AddSingleton<IRuntimeAuthorization>(Authorization);services.AddSingleton(Reader);services.AddSingleton<GeneratedCapabilityIndex>();services.AddSingleton<AgentCapabilityCatalog>();services.AddSingleton(new AgentTaskOptions());services.AddSingleton(new AgentTaskStore(memory.Store,memory.Ids,new()));
                 Services=services.BuildServiceProvider();Catalog=Services.GetRequiredService<AgentCapabilityCatalog>();actions=Services.GetRequiredService<IActionDescriptorCollectionProvider>();
             }
@@ -175,9 +202,10 @@ namespace Metarill.Agent.Tests
     {
         internal bool Locked,Visible=true,RequireParent;internal long VisibleId=7,Id;internal string? Parent,Operation,RulePayload,SelectedIds;internal int Calls;
         internal TimeSpan? OpensAt;
+        internal DateTime? ExpiresAt,BillingMonth;
         /// <summary>仅用返回行替身证明绑定/时序，真实范围SQL由生成包验证。</summary>
         public Task<RecordWriteEntity?> ReadAgentRecord41001Async(long id,string? parent,string operation,RuntimeActor actor,IRuntimeAuthorization authorization,CancellationToken token)
-        {Calls++;Id=id;Parent=parent;Operation=operation;Assert.Equal(authorization.RequireActor(),actor);authorization.RequirePagePermission("41001",operation);return Task.FromResult(Visible&&id==VisibleId&&(!RequireParent||parent=="9")?new RecordWriteEntity{Id=id,IsLocked=Locked,RulePayload=RulePayload,OpensAt=OpensAt,SelectedIds=SelectedIds}:null);}
+        {Calls++;Id=id;Parent=parent;Operation=operation;Assert.Equal(authorization.RequireActor(),actor);authorization.RequirePagePermission("41001",operation);return Task.FromResult(Visible&&id==VisibleId&&(!RequireParent||parent=="9")?new RecordWriteEntity{Id=id,IsLocked=Locked,RulePayload=RulePayload,OpensAt=OpensAt,SelectedIds=SelectedIds,ExpiresAt=ExpiresAt,BillingMonth=BillingMonth}:null);}
     }
     public sealed class RecordWriteEntity
     {
@@ -186,6 +214,8 @@ namespace Metarill.Agent.Tests
         [JsonPropertyName("rulePayload")][FreeSql.DataAnnotations.Column(Name="rule_payload")]public string? RulePayload{get;set;}
         [JsonPropertyName("opensAt")][FreeSql.DataAnnotations.Column(Name="opens_at")]public TimeSpan? OpensAt{get;set;}
         [JsonPropertyName("selectedIds")][FreeSql.DataAnnotations.Column(Name="selected_ids")]public string? SelectedIds{get;set;}
+        [JsonPropertyName("expiresAt")][FreeSql.DataAnnotations.Column(Name="expires_at")]public DateTime? ExpiresAt{get;set;}
+        [JsonPropertyName("billingMonth")][FreeSql.DataAnnotations.Column(Name="billing_month")]public DateTime? BillingMonth{get;set;}
         public string Unpublished=>throw new InvalidOperationException("不得读取未发布属性。");
     }
 }
