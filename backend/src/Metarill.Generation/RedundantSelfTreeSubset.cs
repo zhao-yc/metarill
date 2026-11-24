@@ -15,7 +15,7 @@ internal static class RedundantSelfTreeSubset
         var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;if(plan is null||plan.Read.Target.Source.IsView!=0||plan.Read.Target.Source.IsFunctionTable!=0)return false;
         Realm(model,plan.Read.Target,plan.Read.TargetPage);return SelfTreePropagationCompilation.ForTable(model,table).Any(binding=>binding.Foreign.Source.Id==source.Source.Id&&binding.Target.Source.Id==plan.Read.Target.Source.Id&&binding.Value.Source.Id==plan.Read.Name.Source.Id&&binding.Cache.Source.Id==plan.Name.Source.Id&&binding.SelfTreePageId==SelfTreePropagationCompilation.PageId(table,plan.Read));
     }
-    /// <summary>完整包逐个证明自树、物理父及跨表同伴；未覆盖的精确、全局及自树父参数保持拒绝。</summary>
+    /// <summary>完整包逐个证明自树、物理父、来源行精确范围及跨表同伴。</summary>
     internal static string? Reason(GenerationModel model,TableModel table,PageModel page)
     {
         try
@@ -29,7 +29,11 @@ internal static class RedundantSelfTreeSubset
             var cross=table.Columns.Any(NonRedundantCrossTableSubset.Declared);if(cross&&RedundantCrossTableSubset.Reason(model,table,page) is{} gap)return gap;
             if(!cross)
             {
-                if(ExactDataManageCompilation.Declared(page))return "独立自树精确数据管理尚需范围证明。";
+                // 来源页的物理范围由原 Scope 绑定。目标候选继续使用独立发布页，不能以树名称缓存代替授权字段。
+                if (ExactDataManageCompilation.Declared(page) &&
+                    (table.IsGlobal || ExactDataManageCompilation.Resolve(model,table,page) is not { Derived:false } exact ||
+                        exact.Column.IsManagedCascadeName || GenerationModel.Enabled(exact.Column.Source.Extra,"isJoinColumn")))
+                    return "独立自树的精确管理需要普通来源页的真实物理标量字段。";
                 Parents(model,table,page);
             }
             return null;

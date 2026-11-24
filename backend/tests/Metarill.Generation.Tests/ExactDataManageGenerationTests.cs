@@ -58,6 +58,95 @@ public sealed class ExactDataManageGenerationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>冗余业务页的精确范围和原独立自树共用已发布后端，Excel 走原追加、覆盖与两种导出。</summary>
+    [Theory]
+    [InlineData(false,"string")]
+    [InlineData(true,"int64")]
+    public async Task Redundant_independent_self_tree_keeps_physical_exact_scope_in_full_packages(bool parented,string type)
+    {
+        const string prefix = "r1_exact_tree";
+        var catalog = RedundantMultiNameCacheTests.Published(parented
+            ? CascadeTreeSourceParentTests.Catalog(prefix,type)
+            : CascadeTreeExcelTests.Catalog(prefix,type,type));
+        var sourcePages = catalog.ConfigPages.Where(page=>page.ConfigTableId=="2").OrderBy(page=>page.Id).ToArray();
+        foreach (var metadata in sourcePages)
+        {
+            metadata.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("name");
+            metadata.Extra["exportMethod"]=JsonSerializer.SerializeToElement(metadata.Id=="201"?"list":"edit");
+            metadata.IsCopy=metadata.IsDelete=metadata.IsNew=metadata.IsSave=metadata.IsExport=1;
+        }
+        catalog.YzAdminTypes.Single().Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
+        var model = GenerationModel.Create(catalog,"Example.RedundantExactTree");
+        var table = model.Tables.Single(candidate=>candidate.Source.Id=="2");
+        var boundary = Path.Combine(Path.GetTempPath(),"metarill-r1-self-exact");
+        var directory = Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            Assert.Empty(GenerationCapabilityAudit.Collect(model));
+            var app = Path.Combine(directory,"app");
+            Assert.True(new ApplicationPackager().Create(catalog,app,model.Namespace,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+            foreach (var operation in new[]{"restore","build"})
+                await NonRedundantApplicationFixture.BuildAsync(app,operation);
+            var generated=Path.Combine(app,"backend/generated");
+            var code=await File.ReadAllTextAsync(Path.Combine(generated,"Services",table.Name+"Service.g.cs"));
+            Assert.Contains("Scope202(actor, request.ParentId, \"import\")",code);
+            Assert.Contains("ImportCascade201_25Async",code);
+            Assert.Contains("ImportCascade202_25Async",code);
+            Assert.Contains("ExcelCascadeTreeId(entity)",code);
+            Assert.Contains("relationAuthorization.RequirePagePermission(\"301\",\"list\")",code);
+            Assert.Contains("yzp-cascade-tree",await File.ReadAllTextAsync(Path.Combine(app,"frontend","pages","yzp",prefix+"_source-detail-201.vue")));
+
+            // 用真实 ORM 翻译生成范围。误开数据库连接必须立刻失败。
+            var offline=Path.Combine(directory,"offline");
+            new CSharpGenerator().Generate(catalog,Path.Combine(offline,"generated"),model.Namespace);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(offline);
+            using var orm=new FreeSqlBuilder().UseConnectionFactory(DataType.MySql,
+                ()=>throw new InvalidOperationException("离线精确自树回归禁止连接数据库。")).UseAutoSyncStructure(false).Build();
+            using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Database=offline;User ID=unused;"},orm);
+            var actor=new RuntimeActor(1,"固定自树范围",false,catalog.YzProjectId,"5");
+            var authorization=new Authorization(actor,"201");
+            var serviceType=assembly.GetType(model.Namespace+".Generated.Services."+table.Name+"Service",true)!;
+            var entity=assembly.GetType(model.Namespace+".Generated.Entities."+table.Name,true)!;
+            var mapper=Activator.CreateInstance(assembly.GetType(model.Namespace+".Generated.Mappers."+table.Name+"Mapper",true)!,session)!;
+            var service=Activator.CreateInstance(serviceType,[session,mapper,new SnowflakeIdGenerator(842),Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),authorization])!;
+            var scope=serviceType.GetMethod("Scope201",BindingFlags.Instance|BindingFlags.NonPublic)!;
+            var render=typeof(ExactDataManageGenerationTests).GetMethod(nameof(TypedSql),BindingFlags.NonPublic|BindingFlags.Static)!.MakeGenericMethod(entity);
+            string Sql(string operation)=>(string)render.Invoke(null,[scope.Invoke(service,[actor,parented?"71":null,operation])!])!;
+            foreach (var operation in new[]{"list","detail","export","update","delete","copy","import"})
+            {
+                var sql=Sql(operation);
+                Assert.Equal(operation,authorization.LastOperation);
+                Assert.Contains("`name` IN",sql,StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("只允许甲",sql);
+                Assert.Contains("`yz_project_id`",sql);
+                if(parented) Assert.Contains("`"+prefix+"_owner_id`",sql);
+            }
+            authorization.Value="[]";
+            var empty=System.Text.RegularExpressions.Regex.Replace(Sql("update"),@"\s+","");
+            Assert.True(empty.Contains("1=2")||empty.Contains("1=0")||empty.Contains("0=1"));
+        }
+        finally
+        {
+            if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);
+        }
+    }
+
+    /// <summary>树名称缓存、未声明字段及精确目标页不能借来源页物理范围证明发布。</summary>
+    [Theory]
+    [InlineData("tree_name")]
+    [InlineData("missing_column")]
+    [InlineData("exact_target_page")]
+    public void Redundant_self_tree_does_not_publish_unproven_exact_scope(string field)
+    {
+        var catalog=RedundantPhysicalSelfTreeTests.Catalog("r1_exact_guard","string","int64","single");
+        var page=catalog.ConfigPages.Single(candidate=>candidate.Id==(field=="exact_target_page"?"301":"201"));
+        page.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(field=="exact_target_page"?"name":field);
+        catalog.YzAdminTypes.Single().Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
+        var output=Path.Combine(Path.GetTempPath(),"metarill-r1-exact-guard",Guid.NewGuid().ToString("N"));
+        Assert.ThrowsAny<Exception>(()=>new ApplicationPackager().Create(catalog,output,"Example.GuardExactTree",NonRedundantApplicationFixture.Root()));
+        Assert.False(Directory.Exists(output));
+    }
+
     /// <summary>隐藏派生匹配参与实际生成程序集的读取过滤及私有锁计划，不进入本页VO。</summary>
     [Theory]
     [InlineData(false,true)][InlineData(true,true)][InlineData(true,false)]
