@@ -86,6 +86,26 @@ public sealed class GeneratedReadOnlyConditionTests
         finally{if(Directory.Exists(output))await TestDirectoryCleanup.DeleteAsync(output,boundary);}
     }
 
+    /// <summary>真实生成详情在原自动保存的两笔请求之间保留本地编辑，回显与撤权仍走原规则。</summary>
+    [Fact]
+    public async Task Autosave_keeps_edits_made_while_the_previous_save_is_in_flight()
+    {
+        var catalog = Catalog();
+        catalog.ConfigPages.Single().Extra["readOnlyCondition"] = JsonSerializer.SerializeToElement("locked");
+        catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="12").Extra["isAutoSaveAfterChange"] = JsonSerializer.SerializeToElement(1);
+        var boundary = Path.Combine(Path.GetTempPath(),"metarill-detail-autosave");
+        var output = Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,output,"Example.DetailAutosave");
+            await Probe(output,"pending-autosave");
+        }
+        finally
+        {
+            if (Directory.Exists(output)) await TestDirectoryCleanup.DeleteAsync(output,boundary);
+        }
+    }
+
     /// <summary>浏览器需区别相邻的雪花ID，并让整数比较与同一 AST 的服务端结果一致。</summary>
     [Fact]
     public async Task Integer_readonly_conditions_preserve_adjacent_ids_and_decimal_thresholds()

@@ -160,8 +160,49 @@ readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Bo
             ["//##original_methods##"]=Runtime(c),["##table_name##"]=table.Source.TableName,["##table_camel_name##"]=GenerationModel.Camel(table.Source.TableName),["##page_sn##"]=page.Source.Id,
             ["##$uni-primary##"]=c.PrimaryColor,["##is_auto_back_on_mobile_save##"]=Enabled(page.Source.Extra,"isAutoBackOnMobileSave").ToString().ToLowerInvariant()
         };
+        AddAutoSaveRecovery(c,values);
         var result=Template("original-detail.vue.tpl");foreach(var (marker,value)in values)result=result.Replace(marker,value,StringComparison.Ordinal);
         if(Regex.IsMatch(result,"##[A-Za-z_$][A-Za-z0-9_$]*##"))throw new InvalidOperationException("原详情模板仍有未填充占位符。");return result;
+    }
+    /// <summary>只为已配置自动保存的业务详情保留在途编辑，仍由原保存入口校验和串行提交。</summary>
+    private static void AddAutoSaveRecovery(OriginalDetailContext context, Dictionary<string,string> replacements)
+    {
+        var writable = context.Page.Writable.Select(column => column.JsonName).ToArray();
+        var autoSave = context.Table.Source.IsFunctionTable == 1 ? [] :
+            context.FieldsMetadata.Where(field => !field.ReadOnly && !field.Derived && Enabled(field.Settings.Extra,"isAutoSaveAfterChange"))
+                .Select(field => field.Column.JsonName).Intersect(writable,StringComparer.Ordinal).ToArray();
+        replacements["##save_capture##"] = "";
+        replacements["##save_data##"] = "that.entity";
+        replacements["##save_complete##"] = "";
+        replacements["##save_pending##"] = "";
+        replacements["##save_restore##"] = "";
+        if (autoSave.Length == 0) return;
+
+        replacements["##save_capture##"] = "const submitted = JSON.parse(JSON.stringify(that.entity));\n        let resumeSave;\n        ";
+        replacements["##save_data##"] = "submitted";
+        replacements["##save_complete##"] = """
+          complete() {
+            if (resumeSave) that.$nextTick(() => { if (resumeSave()) that.saveEntity(successFunction, close); });
+          },
+
+""";
+        replacements["##save_pending##"] = $$"""
+// 只比较实际请求发出以后的可写字段。回执已经包含同一编辑时直接接受回显。
+              const pending = Object.fromEntries({{Js(writable)}}.filter(field => {
+                const actual = JSON.stringify(that.entity[field]);
+                return actual !== JSON.stringify(submitted[field]) && actual !== JSON.stringify(res.data[field]);
+              }).map(field => [field, that.entity[field]]));
+""" + "\n              ";
+        replacements["##save_restore##"] = $$"""
+if (!that.readOnlyCondition && Object.keys(pending).length > 0) {
+                // 保留服务器回显和新输入。返还操作结果，但在新输入保存前保持详情打开。
+                that.entity = {...that.entity, ...pending};
+                if (successFunction || close || {{Js(autoSave)}}.some(field => Object.prototype.hasOwnProperty.call(pending, field)))
+                  resumeSave = that.originalContext();
+                that.emitDetailChange('save', res.data, method);
+                return;
+              }
+""" + "\n              ";
     }
     /// <summary>读取原布局JSON且保留原模板文本，结构和引用统一交给共享规则验证。</summary>
     private static JsonElement Layout(PageModel page)

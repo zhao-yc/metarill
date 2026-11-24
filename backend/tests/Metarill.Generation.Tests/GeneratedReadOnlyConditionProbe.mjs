@@ -114,6 +114,89 @@ if (process.argv[3] === 'json-form') {
  } finally {fixture.app.unmount()}
  process.exit(0)
 }
+if (process.argv[3] === 'pending-autosave') {
+ const fixture = mountGenerated(source, {}, {id:'7'})
+ const form = fixture.state
+ const writes = fixture.writes
+ try {
+  await fixture.flush()
+  fixture.respond(fixture.requests.find(request => request.options.url.includes('/detail/7')),
+    {id:'7',name:'原记录',approvalState:'草稿',locked:false})
+  await fixture.flush()
+  form.loadEntitySuccess = true
+  form.entity.name = '第一次编辑'
+  await fixture.flush()
+  assert.equal(writes().length,1)
+  form.entity.name = '第二次编辑'
+  form.entity.approvalState = '还未提交的备注'
+  await fixture.flush()
+  assert.equal(writes().length,1)
+  fixture.respond(writes()[0],{id:'7',name:'第一次回显',approvalState:'草稿',locked:false,serverOnly:'服务器最新值'})
+  await fixture.flush()
+  await fixture.flush()
+  assert.equal(form.entity.name,'第二次编辑','旧保存回显必须保留下次编辑')
+  assert.equal(form.entity.approvalState,'还未提交的备注')
+  assert.equal(form.entity.serverOnly,'服务器最新值')
+  assert.equal(writes().length,2)
+  assert.equal(writes()[0].options.data.name,'第一次编辑')
+  assert.equal(writes()[1].options.data.name,'第二次编辑')
+  assert.equal(writes()[1].options.data.approvalState,'还未提交的备注')
+  fixture.respond(writes()[1],{id:'7',name:'第二次规范回显',approvalState:'还未提交的备注',locked:false})
+  await fixture.flush()
+  assert.equal(form.entity.name,'第二次规范回显')
+  assert.equal(writes().length,2,'规范回显不能触发第三次保存')
+
+  form.entity.name = '正在保存'
+  await fixture.flush()
+  form.entity.name = '迟到编辑'
+  await fixture.flush()
+  fixture.respond(writes()[2],{id:'7',name:'服务端已锁定',approvalState:'还未提交的备注',locked:true})
+  await fixture.flush()
+  assert.equal(form.entity.name,'服务端已锁定')
+  assert.equal(form.readOnlyCondition,true)
+  assert.equal(writes().length,3,'服务端已锁定时不再续发在途编辑')
+  form.getEntity()
+  fixture.respond(fixture.requests.filter(request => request.options.url.includes('/detail/7')).at(-1),
+    {id:'7',name:'重新开放',approvalState:'服务器值',locked:false})
+  await fixture.flush()
+  form.loadEntitySuccess = true
+  form.entity.name = '被拒绝的版本'
+  await fixture.flush()
+  form.entity.name = '保留的草稿'
+  await fixture.flush()
+  writes()[3].options.success({code:500,msg:'未保存'})
+  writes()[3].options.complete()
+  await fixture.flush()
+  assert.equal(form.entity.name,'保留的草稿')
+  assert.equal(writes().length,4,'失败后保留草稿与原错误提示，等待用户再次保存')
+  assert.equal(fixture.dialogs.at(-1).content,'未保存')
+
+  let buttonResult
+  form.saveEntity(response => { buttonResult = response.data.name })
+  await fixture.flush()
+  form.entity.name = '按钮执行前的最后更改'
+  await fixture.flush()
+  fixture.respond(writes()[4],{id:'7',name:'较早回执',approvalState:'服务器值',locked:false})
+  await fixture.flush()
+  await fixture.flush()
+  assert.equal(buttonResult,undefined)
+  assert.equal(writes().length,6)
+  fixture.respond(writes()[5],{id:'7',name:'按钮前最新回执',approvalState:'服务器值',locked:false})
+  await fixture.flush()
+  assert.equal(buttonResult,'按钮前最新回执')
+
+  form.entity.name = '旧身份首次编辑'
+  await fixture.flush()
+  form.entity.name = '旧身份后续编辑'
+  await fixture.flush()
+  writes()[6].options.success({code:200,data:{id:'7',name:'旧身份回执',approvalState:'服务器值',locked:false}})
+  fixture.storage.loginStateId = '切换后的身份'
+  writes()[6].options.complete()
+  await fixture.flush()
+  assert.equal(writes().length,7,'身份切换后不得向当前记录续发原身份编辑')
+ } finally { fixture.app.unmount() }
+ process.exit(0)
+}
 const fixture=mountGenerated(source,{is_props:true,props_id:'7'})
 try {
  await fixture.flush()

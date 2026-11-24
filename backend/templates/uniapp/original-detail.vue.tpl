@@ -283,12 +283,12 @@ export default {
           method = 'update';
         }
         //##insert_parent_id_value##
-        that.originalRequest({
+        ##save_capture##that.originalRequest({
           url: '/admin/auto/##table_name##/##page_sn##/' + method + that.buildParentIdQuery(),
-          data: that.entity,
+          data: ##save_data##,
           sendSessionId: true,
           method: 'POST',
-          success: function (res) {
+##save_complete##          success: function (res) {
             if (res.code == 200) {
               if (!res.data || !originalRecordId(res.data.id) || method === 'update' && originalRecordId(res.data.id) !== that.id) {
                 that.recordReady = false;
@@ -297,9 +297,9 @@ export default {
               }
               that.notifyMenuMutation();
               that.id = originalRecordId(res.data.id);
-              that.applyOriginalServerForm(res.data);
+              ##save_pending##that.applyOriginalServerForm(res.data);
               that.markOriginalRecordReady();
-              // 新建后先确认真实记录ID，再继续原“先保存再执行”按钮动作。
+              ##save_restore##// 新建后先确认真实记录ID，再继续原“先保存再执行”按钮动作。
               if (successFunction) {
                 successFunction(res);
               }
