@@ -125,6 +125,23 @@ namespace Metarill.Agent.Tests
             await Assert.ThrowsAsync<AgentTaskException>(() => fixture.Catalog.ValidateActionInvocationAsync("action:fixture.preview", fixture.Context("Preview"), Encoding.UTF8.GetBytes("{\"recordKey\":7}")));
             Assert.Equal(0, fixture.Reader.Calls);
         }
+        /// <summary>发布条件按词法区分文本与参数，无法编译的旧定义保留已有父范围门禁。</summary>
+        [Theory]
+        [InlineData("real_name = '@parentId'", false)]
+        [InlineData("real_name IN ('提示''@PARENT_ID', '@parentId')", false)]
+        [InlineData("(parent_id=@PARENT_ID AND real_name <> '@parentId')", true)]
+        [InlineData("parent_id=@parentId", true)]
+        [InlineData("real_name = COALESCE(@parentId, '旧配置')", true)]
+        public void Published_page_parent_flags_follow_condition_variables(string condition,bool requiresParent)
+        {
+            using var fixture=new Fixture();
+            fixture.Metadata.ConfigPages.Single().WhereSql=condition;
+            fixture.Metadata.ConfigColumns.Add(new(){Id="19",ConfigTableId="11",ColumnName="parent_id",LogicalType="int64",YzProjectId="100"});
+            var catalog=AgentHostCatalog.ForApplication(fixture.Metadata);
+            Assert.Equal(requiresParent,catalog.FindPage("21")!.RequiresParent);
+            Assert.Equal(requiresParent,catalog.FindButton("31")!.Page.RequiresParent);
+        }
+
         [Theory]
         [InlineData(false)]
         [InlineData(true)]

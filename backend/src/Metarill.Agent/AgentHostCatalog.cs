@@ -70,7 +70,7 @@ public sealed class AgentHostCatalog
                 .Where(entry => RequiresCreateInput(entry.Field, entry.Column)).Select(entry => JsonName(entry.Column.ColumnName))
                 .Distinct(StringComparer.Ordinal).ToArray();
             return new AgentPublishedPage(catalog.YzProjectId, page.Id, page.Name, table.TableName,
-                page.WhereSql.Contains("@parent", StringComparison.OrdinalIgnoreCase), Array.AsReadOnly(required))
+                RequiresParent(page.WhereSql,table,catalog), Array.AsReadOnly(required))
             {
                 TableId = table.Id, IsFunctionTable = table.IsFunctionTable == 1, RecordNames=CompileRecordNames(catalog,table.Id),
                 RecordJsonColumns = jsonColumns.Select(column => column.ColumnName).ToFrozenSet(StringComparer.Ordinal),
@@ -137,6 +137,23 @@ public sealed class AgentHostCatalog
             JsonRuleFields=jsonFields.ToFrozenSet(StringComparer.Ordinal)
         };
     }
+    /// <summary>使用发布条件的变量节点识别父范围，文字和 LIKE 模式中的拼写保持字面值。</summary>
+    private static bool RequiresParent(string whereSql,TableMetadata table,MetadataCatalog catalog)
+    {
+        if(!whereSql.Contains("@parent",StringComparison.OrdinalIgnoreCase))return false;
+        try
+        {
+            var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
+            var condition=FixedConditionPlan.Compile(whereSql,columns.Select(column=>column.ColumnName));
+            return condition.Variables.Any(variable=>variable.StartsWith("parent",StringComparison.OrdinalIgnoreCase));
+        }
+        catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException)
+        {
+            // 旧定义无法证明时保留既有父门禁，不凭解析失败取消范围。
+            return true;
+        }
+    }
+
     /// <summary>沿用生成表单的原编辑开关优先级，只读字段不能成为创建参数。</summary>
     private static bool DeclaresRequiredInput(PageColumnMetadata field)
     {

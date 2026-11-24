@@ -30,7 +30,7 @@ public sealed partial class DerivedRuleRecordGenerationTests
     [InlineData(true,false,true)][InlineData(true,true,true)]
 
     public async Task Actual_generated_rule_record_loads_derived_values_in_one_snapshot_and_preserves_scope(
-        bool derivedScope,bool webWithoutParent,bool scopeTarget,bool javaName=false)
+        bool derivedScope,bool webWithoutParent,bool scopeTarget,bool javaName=false,bool parentInLiteral=false)
     {
         var catalog=ExactDataManageGenerationTests.Catalog(true);var page=catalog.ConfigPages.Single(page=>page.Id=="101");
         page.Extra["readOnlyCondition"]=JsonSerializer.SerializeToElement("customerNotes == '禁止'");page.Extra["isUpdate"]=JsonSerializer.SerializeToElement(1);page.IsDelete=1;page.IsCopy=1;
@@ -58,6 +58,8 @@ public sealed partial class DerivedRuleRecordGenerationTests
             ]);
         }
         page.WhereSql+=(string.IsNullOrWhiteSpace(page.WhereSql)?"":" AND ")+"private_payload IS NOT NULL";
+        if(parentInLiteral)
+            page.WhereSql+=" AND name <> '提醒''@parentId'";
         catalog.ConfigButtons.Add(JsonSerializer.SerializeToElement(new{id="86000",configPageId=page.Id,yzProjectId=catalog.YzProjectId,actionType=1,name="规则记录",sql="/admin/custom/derived-rule/probe",visibleScheme="VisibleWhenWritable"}));
         var model=GenerationModel.Create(catalog,"Example.DerivedRule");var table=model.Tables.Single(table=>table.Source.Id=="1");
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-rule");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -83,6 +85,12 @@ public sealed partial class DerivedRuleRecordGenerationTests
                 var command=transport.Commands[^1];Assert.Contains(command.Values,value=>value is long id&&id==Transport.Id);if(webWithoutParent)Assert.DoesNotContain(command.Values,value=>value is long parent&&parent==71);else Assert.Contains(command.Values,value=>value is long parent&&parent==71);Assert.Contains("只允许甲",command.Values);Assert.DoesNotContain(Transport.Id.ToString(),command.Sql);Assert.DoesNotContain("禁止",command.Sql);Assert.Contains("IS NOT NULL",command.Sql,StringComparison.OrdinalIgnoreCase);Assert.Contains("`delete_no`",command.Sql);Assert.Contains($" AS `{ruleColumn}`",command.Sql);Assert.DoesNotContain("COUNT(",command.Sql);Assert.DoesNotContain("FOR SHARE",command.Sql);Assert.DoesNotContain("FOR UPDATE",command.Sql);Assert.Equal(IsolationLevel.RepeatableRead,command.Isolation);
             }
             Assert.All(transport.Commands,command=>AssertScopedTarget(command.Sql,command.Values));
+            if(parentInLiteral)
+                Assert.All(transport.Commands,command=>
+                {
+                    Assert.Contains("提醒'@parentId",command.Values);
+                    Assert.DoesNotContain("@parentId",command.Sql);
+                });
 
             // 规则命令必须绑定目标页账号、常量和实际父键，同时输出根物理外键。
             void AssertScopedTarget(string sql,object?[] values)
@@ -106,11 +114,11 @@ public sealed partial class DerivedRuleRecordGenerationTests
             // 真正能力目录与实际生成Service一同执行；只有ADO响应和当前角色结论为夹具。
             var definitions=new ServiceCollection();definitions.AddLogging();definitions.AddControllers().AddApplicationPart(assembly).AddJsonOptions(options=>JsonDefaults.CopyTo(options.JsonSerializerOptions));definitions.AddSingleton<IAgentHostResources>(new Resources(catalog));definitions.AddSingleton<IRuntimeAuthorization>(authorization);definitions.AddSingleton(serviceType,service);definitions.AddSingleton<GeneratedCapabilityIndex>();definitions.AddSingleton<AgentCapabilityCatalog>();var handler=new RuleHandler();var guard=new RuleExecutionGuard();definitions.AddSingleton<IOriginalBusinessButtonHandler>(handler);definitions.AddSingleton<Metarill.Core.Persistence.IBusinessButtonExecutionGuard>(guard);definitions.AddSingleton<Metarill.Runtime.Security.ISecurityIdentityAccessor>(new RuleIdentity(new(actor,new HashSet<string>(),20,null)));definitions.AddSingleton<OriginalBusinessButtonExecutor>();using var services=definitions.BuildServiceProvider();
             var update=services.GetRequiredService<IActionDescriptorCollectionProvider>().ActionDescriptors.Items.OfType<ControllerActionDescriptor>().Single(action=>action.ControllerTypeInfo.Assembly==assembly&&action.AttributeRouteInfo?.Template?.EndsWith("/101/update",StringComparison.Ordinal)==true);
-            var context=new DefaultHttpContext{RequestServices=services};context.Request.Method="POST";context.Request.ContentType="application/json";context.Request.Path="/"+update.AttributeRouteInfo!.Template;context.Request.QueryString=new("?parentId=71");context.SetEndpoint(new Endpoint(_=>Task.CompletedTask,new EndpointMetadataCollection(update),"实际生成更新"));
+            var context=new DefaultHttpContext{RequestServices=services};context.Request.Method="POST";context.Request.ContentType="application/json";context.Request.Path="/"+update.AttributeRouteInfo!.Template;if(!parentInLiteral)context.Request.QueryString=new("?parentId=71");context.SetEndpoint(new Endpoint(_=>Task.CompletedTask,new EndpointMetadataCollection(update),"实际生成更新"));
             authorization.Operation="update";var capabilities=services.GetRequiredService<AgentCapabilityCatalog>();var body=Encoding.UTF8.GetBytes("{\"id\":\"9007199254740993\",\"customerNotes\":\"允许\"}");
             var denied=await Assert.ThrowsAsync<AgentTaskException>(()=>capabilities.ValidateRecordWriteInvocationAsync("page:101:update",context,body));Assert.Equal("YZP_CAPABILITY_DENIED",denied.Code);Assert.Equal("not_applied",denied.Outcome);
             var action=services.GetRequiredService<IActionDescriptorCollectionProvider>().ActionDescriptors.Items.OfType<ControllerActionDescriptor>().Single(action=>action.MethodInfo.GetCustomAttribute<AgentActionAttribute>()?.Id=="derived-rule-probe");
-            var actionContext=new DefaultHttpContext{RequestServices=services};actionContext.Request.Method="POST";actionContext.Request.Path="/"+action.AttributeRouteInfo!.Template;actionContext.Request.ContentType="application/json";actionContext.Request.QueryString=new("?parentId=71");actionContext.SetEndpoint(new Endpoint(_=>Task.CompletedTask,new EndpointMetadataCollection(action),"真实显式动作"));
+            var actionContext=new DefaultHttpContext{RequestServices=services};actionContext.Request.Method="POST";actionContext.Request.Path="/"+action.AttributeRouteInfo!.Template;actionContext.Request.ContentType="application/json";if(!parentInLiteral)actionContext.Request.QueryString=new("?parentId=71");actionContext.SetEndpoint(new Endpoint(_=>Task.CompletedTask,new EndpointMetadataCollection(action),"真实显式动作"));
             var actionBody = Encoding.UTF8.GetBytes("""{"id":"9007199254740993"}""");
             Task ValidateAction() => capabilities.ValidateActionInvocationAsync("action:derived-rule-probe", actionContext, actionBody);
             if (webWithoutParent)
@@ -177,6 +185,11 @@ public sealed partial class DerivedRuleRecordGenerationTests
     [Fact]
     public Task Original_java_name_loads_derived_rule_values() =>
         Actual_generated_rule_record_loads_derived_values_in_one_snapshot_and_preserves_scope(false,true,false,true);
+
+    /// <summary>没有父变量的固定条件保留文字参数，原 Web 按钮及 Agent 写入无需提供父级。</summary>
+    [Fact]
+    public Task Published_parent_text_does_not_block_buttons_or_agent_writes() =>
+        Actual_generated_rule_record_loads_derived_values_in_one_snapshot_and_preserves_scope(false,true,true,parentInLiteral:true);
 
     /// <summary>直接消费实际FreeSql查询对象的SQL，不复制ORM或权限算法。</summary>
     private static string QuerySql<T>(object query)where T:class=>((ISelect<T>)query).ToSql();
