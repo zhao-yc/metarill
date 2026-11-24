@@ -128,7 +128,7 @@ internal static class DatabaseCheckboxCompilation
                     GlobalMultipleRelationTarget.IsStoredAccountPage(target.Source,publishedGlobalPage.Source,publishedCondition.Syntax,checkbox:true);
                 storedProjectPage=proof.UsesProjectPage;
                 scopedGlobalAccountPage=table.IsGlobal&&proof.UsesNonRedundantAccountPage;
-                scopedGlobalParentPage=proof.UsesNonRedundantPhysicalParentPage;
+                scopedGlobalParentPage=proof.UsesPhysicalParentPage;
                 storedStaticPage=table.IsGlobal&&proof.UsesStoredStaticPage;
                 if(storedAccountPage||storedProjectPage||storedStaticPage||scopedGlobalParentPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
                     GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name)||
@@ -230,7 +230,7 @@ internal static class DatabaseCheckboxCompilation
             if(explicitPage!=fixedPage&&!pageRead&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate,includeProjectFixedScope:false))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
             var whereSql=definition.WhereSql;
-            if((storedProjectPage||storedStaticPage||scopedGlobalAccountPage)&&table.Source.IsRongyu==1)
+            if((storedProjectPage||storedStaticPage||scopedGlobalAccountPage||scopedGlobalParentPage&&target.Source.IsRongyu==1)&&table.Source.IsRongyu==1)
             {
                 var fields=target.Columns.Select(column=>column.Source.ColumnName).ToArray();
                 var publishedCondition=FixedConditionPlan.Compile(publishedGlobalPage!.Source.WhereSql,fields);

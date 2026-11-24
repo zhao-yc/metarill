@@ -288,6 +288,18 @@ public sealed class CascadeMultiLabelGenerationTests
             compoundTargetParent:compound?"physical":null,globalBusinessSource:true,onlyParent:!targetAccount,literalParent:literal,
             projectParentScope:true);
 
+    /// <summary>原多选和数据库复选使用带实际父键的冗余全局字典。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,false,false)]
+    [InlineData("MultiSelectPage",1,true,true)]
+    [InlineData("MultiCheckBoxDatabase",0,true,true)]
+    [InlineData("MultiCheckBoxDatabase",1,false,false)]
+    public Task Global_business_multivalue_uses_stored_dictionary_physical_parent(string kind,int mode,bool globalParent,bool targetAccount)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:true,globalRowProject:true,
+            parent:true,globalParent:globalParent,parentWithoutProject:globalParent,parentAccount:globalParent&&mode==1,
+            globalBusinessSource:true,onlyParent:!targetAccount,literalParent:!targetAccount,projectParentScope:true,
+            storedDictionary:true);
+
     /// <summary>普通项目来源与有行项目的全局来源共用显式项目和真实父范围。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false,false,false)]
@@ -538,7 +550,7 @@ public sealed class CascadeMultiLabelGenerationTests
         bool globalParent=false,bool parentWithoutProject=false,bool parentAccount=false,bool importLogical=false,bool exact=false,bool exactLeaf=false,string? compoundSourceParent=null,string? compoundTargetParent=null,
         bool globalCompoundSource=false,bool projectTargetGlobalParent=false,bool globalBusinessSource=false,bool literalParent=false,
         bool projectParentScope=false,bool ordinaryBusinessSource=false,bool textDictionaryProject=false,
-        string? customCheckboxParentType=null,bool customCheckboxTypeTwo=false,string? repeatDictionaryWhere=null)
+        string? customCheckboxParentType=null,bool customCheckboxTypeTwo=false,string? repeatDictionaryWhere=null,bool storedDictionary=false)
     {
         const string ns="Example.CascadeLabels";
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
@@ -555,6 +567,13 @@ public sealed class CascadeMultiLabelGenerationTests
             catalog.ConfigPageColumns.Add(new(){Id="20129",ConfigPageId="201",ConfigColumnId="29",IsEdit=0});
         }
         if(physical)display="name";
+        if(storedDictionary)
+        {
+            // 冗余字典只测试实际物理父键，移除夹具中与本用例无关的稀疏级联。
+            catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
+            catalog.ConfigColumns.RemoveAll(column=>column.Id is "25" or "29");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "25" or "29");
+        }
         var targetTable="2";
         var targetPage="201";
         if(indirect)
@@ -694,7 +713,7 @@ public sealed class CascadeMultiLabelGenerationTests
                     catalog.ConfigColumns.Add(new(){Id="3099",ConfigTableId=parentTable,ColumnName="store_id",LogicalType="int64"});
                     globalPage.WhereSql+=" AND store_id=@current_store_id";
                 }
-                if(!sourceLogicalParent&&!(parentAccount&&(projectTargetGlobalParent||
+                if(!sourceLogicalParent&&!(parentAccount&&(storedDictionary||projectTargetGlobalParent||
                     compoundTargetParent is not null&&globalRowProject is not null)))
                 {
                     var foreign=catalog.ConfigColumns.Single(column=>column.Id=="914");
@@ -890,7 +909,13 @@ public sealed class CascadeMultiLabelGenerationTests
                 var resolved=CrossTableWriteCompilation.Resolve(model,target,targetPageModel,tree);
                 Assert.True(resolved.Definition is not null,resolved.Reason);
             }
-            _=NonRedundantReadCompilation.ForPage(model,target,targetPageModel);
+            if(!storedDictionary)_=NonRedundantReadCompilation.ForPage(model,target,targetPageModel);
+        }
+        if(storedDictionary&&mode==0)
+        {
+            var sourceModel=model.Tables.Single(table=>table.Source.Id=="9");
+            foreach(var sourcePage in sourceModel.Pages)
+                _=NonRedundantReadCompilation.ForPage(model,sourceModel,sourcePage);
         }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
@@ -972,7 +997,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 {
                     // 非冗余复选的逻辑目标父级由复选计划承接，校验真实目标页和显示列。
                     var compiler=exact?"CompileExactMultiLabel":
-                        kind=="MultiCheckBoxDatabase"&&(mode==0&&logicalParent||customCheckboxParentType is not null)
+                        kind=="MultiCheckBoxDatabase"&&(storedDictionary||mode==0&&logicalParent||customCheckboxParentType is not null)
                             ?"CompileScopedCheckboxLabel":"CompileScopedMultiLabel";
                     Assert.Contains(compiler+"(\"2\",\"201\",\""+display+"\"",code);
                     if(exact)
@@ -1364,7 +1389,28 @@ public sealed class CascadeMultiLabelGenerationTests
                         Assert.DoesNotContain("b.`yz_project_id`=",scope);
                 }
                 RequireDictionaryScope(consumer,kind=="MultiCheckBoxDatabase"?"DerivedCheckboxPlan901_95":"MultiDerivedPlan901_95");
-                if(kind=="MultiSelectPage")RequireDictionaryScope(targetService,"CandidateReadPlan201");
+                if(kind=="MultiSelectPage"&&!storedDictionary)RequireDictionaryScope(targetService,"CandidateReadPlan201");
+                if(kind=="MultiSelectPage"&&storedDictionary)
+                {
+                    // 冗余物理字典继续由原实体查询生成 SQL，读回使用相同父行及项目。
+                    using var session=new Metarill.Data.DatabaseSession(new()
+                    {
+                        Provider="mysql",ExpectedDatabase="offline",
+                        ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
+                    });
+                    var query=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,ns,"LabelCrossSource",session);
+                    var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5"){StoreId=9007199254740993};
+                    foreach(var request in new[]{new Metarill.Core.Contracts.PageRequest{ParentId="9007199254741197"},
+                        new Metarill.Core.Contracts.PageRequest{ParentId="9007199254741197",SelectedIds=["9007199254740993"]}})
+                    {
+                        var scope=query("Query201",[request,actor]);
+                        Assert.Contains("yz_project_id",scope);
+                        Assert.Contains(parentField,scope);
+                        // 文本父键使用与名称计划相同的规范 ID 和二进制比较。
+                        Assert.Contains("BINARY",scope,StringComparison.OrdinalIgnoreCase);
+                        if(!onlyParent)Assert.Contains("store_id",scope);
+                    }
+                }
                 if(ordinaryStaticDictionary&&mode==0)
                     Assert.Contains("b.`yz_project_id`=@project_scope_number",PlanScope(consumer,"ReadPlan901",null));
             }

@@ -82,7 +82,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         throw new InvalidOperationException("全局复选名称与已发布目标页不一致。");
                     pageId=globalPageId=published.Page.Id;
                     storedGlobalStatic=GlobalCrossTableTarget.Declared(table)&&published.UsesStoredStaticPage;
-                    globalAccountPage=published.UsesNonRedundantAccountPage||published.UsesNonRedundantPhysicalParentPage;
+                    globalAccountPage=published.UsesNonRedundantAccountPage||published.UsesPhysicalParentPage;
                 }
                 name=CheckboxPageNameOverride(table,relation,target,selected,baseline,definition,globalPageId,storedGlobalStatic);
             }
@@ -176,6 +176,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 publishedId==selectedScope.Id&&
                 (proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage||proof.UsesNonRedundantPhysicalParentPage);
             var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,checkboxAccount:checkbox);
+            var storedParent=selectedScope is null?null:GlobalCrossTableTarget.StoredProjectMultiParent(catalog,target,selectedScope,checkbox);
             var ordinaryForm=checkbox&&refreshFields is not null&&selectedScope is not null&&(sharedCheckbox||fixedParent is not null)
                 ?DatabaseCheckboxDefinition.Parse(relation.ControlDetail).AdditionalPhysicalFormConditions(catalog,target,selectedScope)
                 :null;
@@ -190,14 +191,14 @@ public static partial class MySqlNonRedundantReadCompiler
                 var syntax=FixedConditionPlan.Compile(where,fields);
                 if(syntax.Terms.Count>0)control=syntax;
             }
-            var physicalScope=storedIdentity||target.IsRongyu==1&&projectFixedScope||
+            var physicalScope=storedIdentity||storedParent is not null||target.IsRongyu==1&&projectFixedScope||
                 checkbox&&target.IsRongyu==1&&(fixedParent is not null||ordinaryForm is not null||
                 table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
                 throw new NotSupportedException("多值名称要求已证明的目标及原多选或数据库复选。");
             var global=GlobalCrossTableTarget.Declared(target);
             // 全局 R1 使用原物理候选证明，R0 继续用目标页的逻辑名称与条件计划。
-            var physicalGlobalPage=global&&physicalScope?selectedScope:null;
+            var physicalGlobalPage=global&&physicalScope&&storedParent is null?selectedScope:null;
             var selectedPage=physicalGlobalPage is null?selectedScope:null;
             var scalarLabel=storage[target.Id].IsPhysical(value)
                 ?MultiNameStorageColumns.IsPhysicalScalarLabel(table,relation,target,value,storage[target.Id])||
@@ -243,9 +244,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:candidatePage,multiLabel:true,cascadeLabelField:value.ColumnName,
                 cascadeCacheOwner:refreshFields is null||fixedParent is not null&&!projectFixedScope&&storage[target.Id].IsPhysical(value)?null:
-                    new(table,owner,GlobalSingleSource:globalDictionarySource||storedIdentity&&GlobalCrossTableTarget.Declared(table)),
+                    new(table,owner,GlobalSingleSource:globalDictionarySource||(storedIdentity||storedParent is not null)&&GlobalCrossTableTarget.Declared(table)),
                 globalCandidate:global&&target.IsRongyu==0&&candidatePage is not null,
-                scopedPhysicalCandidate:physicalScope&&!global,accountPhysicalCandidate:storedIdentity,
+                scopedPhysicalCandidate:physicalScope&&!global,accountPhysicalCandidate:storedIdentity,storedMultiParent:storedParent,
                 exactSingleCandidate:storedGlobalExact)
             {
                 SelectedMultiPage=selectedPage,

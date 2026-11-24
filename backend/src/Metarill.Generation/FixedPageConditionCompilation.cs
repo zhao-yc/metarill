@@ -119,9 +119,17 @@ internal static class FixedPageConditionCompilation
     internal static bool HasLogicalFields(PageModel page)=>HasCrossFields(page)||HasSelfTreeFields(page);
     /// <summary>原多选引用物理全局字典，独立项目条件与账号条件均沿实际发布页绑定。</summary>
     internal static bool HasStoredGlobalMultiScope(TableModel table,PageModel page)=>
-        (table.Source.IsRongyu==1&&HasGlobalProjectMultiScope(table,page))||
+        (table.Source.IsRongyu==1&&(HasGlobalProjectMultiScope(table,page)||HasStoredGlobalMultiParentScope(table,page)))||
         page.Scopes.All(scope=>scope.Source=="project")&&page.Condition is {} condition&&!HasLogicalFields(page)&&
         GlobalMultipleRelationTarget.IsStoredAccountPage(table.Source,page.Source,condition.Syntax);
+
+    /// <summary>只识别已声明项目与实际父键的全局冗余字典，物理发布资格由数据计划复核。</summary>
+    internal static bool HasStoredGlobalMultiParentScope(TableModel table,PageModel page)=>
+        table.IsGlobal&&table.Source.IsRongyu==1&&!HasLogicalFields(page)&&
+        page.Scopes.Any(scope=>scope.Source=="parent")&&
+        GlobalMultipleRelationTarget.IsStoredProjectParentPage(table.Source,page.Source,
+            FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName)),
+            checkbox:page.Source.Extra.GetValueOrDefault("type").ToString()!="2");
 
     /// <summary>实际单值页须显式绑定项目条件；原下拉绑定的业务页也保留该范围。</summary>
     internal static bool HasGlobalProjectSingleScope(TableModel table,PageModel page)=>

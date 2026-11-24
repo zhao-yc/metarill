@@ -385,6 +385,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
     private static bool UsesFixedTextParent(GenerationModel model,TableModel table,PageModel page)=>
         page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Type=="string?")&&
         (Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,table.Source,page.Source)||
+            FixedPageConditionCompilation.HasStoredGlobalMultiParentScope(table,page)||
             UsesPublishedPhysicalMultiSource(model,table,page)||UsesPublishedPhysicalSingleSource(model,table,page)||
             UsesPublishedPhysicalCheckboxSource(model,table,page)||FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page)||
             ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null);
@@ -1245,6 +1246,8 @@ public partial class {{table.Name}}Service
                 MultiGlobalParentCompilation.PhysicalPageParent(model,table,page) is not null||
                 MultiSelectCompilation.ForService(model,table,page).Any(multi=>DerivedMultiNamesCompilation.UsesFixedRead(model,multi))||
                 table.Source.IsFunctionTable==1&&DatabaseCheckboxCompilation.ForPage(model,table,page).Any(checkbox=>checkbox.GlobalParent)||
+                DatabaseCheckboxCompilation.ForService(model,table,page).Any(checkbox=>checkbox.DerivedName&&
+                    DerivedCheckboxNamesCompilation.UsesScopedCheckboxLabel(model,checkbox))||
                 RelationCompilation.ForPage(model, page, true,forExcel:true).Any(relation => DerivedRelationNamesCompilation.UsesFixedRead(model, relation))))
             ? NonRedundantCatalog(model) : "").Append(RelationPropagationRenderer.Catalog(model)).Append(RelationMaintenanceRenderer.Catalog(model)).ToString();
     }

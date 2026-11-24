@@ -162,7 +162,8 @@ public static partial class MySqlNonRedundantReadCompiler
         if(candidates.Length!=1)return null;
         var page=candidates[0];
         return table.IsRongyu==0||
-            stored&&(checkbox||pageId.Length>0)&&StoredIdentityMultiPage(catalog,table,page,checkbox)||
+            stored&&(checkbox||pageId.Length>0)&&(StoredIdentityMultiPage(catalog,table,page,checkbox)||
+                GlobalCrossTableTarget.StoredProjectMultiParent(catalog,table,page,checkbox) is not null)||
             checkbox&&IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true)||
             relation.ControlKind=="MultiSelectPage"&&IsProjectFixedMultiPage(catalog,table,page)?page:null;
     }
@@ -257,6 +258,7 @@ public static partial class MySqlNonRedundantReadCompiler
         return !checkbox&&IsProjectFixedMultiPage(catalog,table,page)||
             GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,checkbox)||
             GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,checkbox)||
+            GlobalMultipleRelationTarget.IsStoredProjectParentPage(table,page,syntax,checkbox)||
             checkbox&&table.IsRongyu==0&&syntax.Terms.Any(term=>term.Values.Any(value=>
                 value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text))&&
                 members.SingleOrDefault(column=>column.ColumnName==term.Field) is {} key&&
@@ -326,8 +328,9 @@ public static partial class MySqlNonRedundantReadCompiler
             if(crossFields.Count>0)crossBindings=CrossMembershipBindings(catalog,table,page,crossFields);
         }
         var projectFixedScope=IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:storedExactCheckbox);
+        var storedParent=GlobalCrossTableTarget.StoredProjectMultiParent(catalog,table,page,storedExactCheckbox);
         var plan=new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field,crossTables:crossBindings,
-            scopedPhysicalCandidate:projectFixedScope&&table.IsRongyu==1)
+            scopedPhysicalCandidate:table.IsRongyu==1&&projectFixedScope,storedMultiParent:storedParent)
         {
             SelectedMultiPage=page,
             MultiCandidateParent=parent,
@@ -335,7 +338,7 @@ public static partial class MySqlNonRedundantReadCompiler
             AllowsStoredExactCheckbox=storedExactCheckbox,
             MultiNamePathPage=page,
             // 保存及导入的当前读同时锁定候选名称和物理父记录。
-            LockPublishedJoinScopes=storedExactCheckbox||projectFixedScope&&parent is not null,
+            LockPublishedJoinScopes=storedExactCheckbox||storedParent is not null||projectFixedScope&&parent is not null,
             AllowLiteralMultiScope=extraFields.Count>0||allowLiteralMultiScope||projectFixedScope,
             MultiImportFields=extraFields,
             MultiImportCrossFields=crossFields,

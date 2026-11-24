@@ -417,7 +417,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!GlobalCrossCandidate||SelectedMultiPage is not {} page||MultiCandidateParent is not {Logical:false})
                 return false;
             var syntax=FixedConditionPlan.Compile(page.WhereSql,columns[root.Id].Keys);
-            return GlobalMultipleRelationTarget.IsProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox);
+            return GlobalMultipleRelationTarget.IsProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox)||
+                GlobalMultipleRelationTarget.IsStoredProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox);
         }
 
         /// <summary>目标页的条件与名称共用当前记录和联接，维护用途按来源行归属绑定。</summary>

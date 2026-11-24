@@ -135,6 +135,40 @@ public static class GlobalSingleRelationTarget
         static NotSupportedException Invalid()=>new("全局单值关系须指定当前目录的有效目标表或页面。");
     }
 
+    /// <summary>独立字典页必须真的被原 List 指定；普通业务子页的物理父参数不产生候选入口。</summary>
+    public static bool HasExplicitListReference(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
+        foreach(var foreign in catalog.ConfigColumns.Where(column=>column.ControlKind=="List"&&column.IsVirtualColumn==0&&
+            column.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
+            (column.LinkConfigTableId.Length==0||column.LinkConfigTableId==table.Id)))
+        {
+            try
+            {
+                if(ResolveTarget(catalog,foreign).Id!=table.Id)continue;
+                if(ProjectScopedSingleRelationTarget.UsesFixedListCandidates(catalog))
+                {
+                    var pages=catalog.ConfigPages.Where(source=>source.ConfigTableId==foreign.ConfigTableId).ToArray();
+                    if(pages.Length>0)
+                    {
+                        if(pages.Any(source=>ProjectScopedSingleRelationTarget.ListPageId(catalog,source,foreign)==page.Id))
+                            return true;
+                        continue;
+                    }
+                }
+                using var definition=ParseDefinition(catalog,foreign);
+                var selected=definition.RootElement.TryGetProperty("pageId",out var id)&&
+                    id.ValueKind is JsonValueKind.String or JsonValueKind.Number?id.ToString():"";
+                if(selected.Length==0)selected=foreign.Extra.GetValueOrDefault("linkConfigPageId").ToString();
+                if(selected==page.Id)return true;
+            }
+            catch(Exception error)when(error is JsonException or InvalidOperationException or NotSupportedException)
+            {
+                // 无效绑定由来源页的正式生成诊断处理，不能据此开放字典读入口。
+            }
+        }
+        return false;
+    }
+
     /// <summary>旧固定下拉可只在关系字段保存关联页，空明细采用原默认名称。</summary>
     private static JsonDocument ParseDefinition(MetadataCatalog catalog,ColumnMetadata foreign)
     {

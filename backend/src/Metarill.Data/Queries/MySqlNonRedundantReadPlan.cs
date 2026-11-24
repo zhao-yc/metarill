@@ -266,11 +266,11 @@ public static partial class MySqlNonRedundantReadCompiler
         string field,PageMetadata? selectedPage,ColumnMetadata relation,bool sharedCheckbox)
     {
         // 按实际发布页证明可用的字典范围，来源项目仍由维护根计划隔离。
-        var globalDictionarySource=selectedPage is not null&&target.IsRongyu==0&&
+        var globalDictionarySource=selectedPage is not null&&
             GlobalCrossTableTarget.Declared(source)&&GlobalCrossTableTarget.Declared(target)&&
             GlobalMultipleRelationTarget.RequireCached(catalog,source,relation,target) is {Page.Id:var publishedId} proof&&
             publishedId==selectedPage.Id&&
-            (proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage||proof.UsesNonRedundantPhysicalParentPage);
+            (proof.UsesNonRedundantAccountPage||target.IsRongyu==0&&proof.UsesStoredStaticPage||proof.UsesPhysicalParentPage);
         return CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner",GlobalSingleSource:globalDictionarySource),
             selectedPage,relation,sharedCheckbox:sharedCheckbox);
     }
@@ -287,6 +287,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var checkbox=relation?.ControlKind=="MultiCheckBoxDatabase";
         var projectFixedScope=selectedPage is not null&&relation is {ControlKind:"MultiSelectPage" or "MultiCheckBoxDatabase"}&&
             IsProjectFixedMultiPage(catalog,target,selectedPage,checkboxAccount:checkbox);
+        var storedParent=selectedPage is null?null:GlobalCrossTableTarget.StoredProjectMultiParent(catalog,target,selectedPage,checkbox);
         var parent=cacheOwner is null||selectedPage is null?null:MultiParent(catalog,selectedPage,checkbox);
         MultiSourceParent? source=null;
         if(parent is not null)
@@ -303,7 +304,7 @@ public static partial class MySqlNonRedundantReadCompiler
         if(parent is {Global:true}&&source is {AdditionalColumns.Count:>0})
             RequireCompoundGlobalSourceParent(catalog,tableId,selectedPage!.Id,source);
         return new Builder(catalog,tableId,true,multiLabel:true,cascadeLabelField:field,cascadeCacheOwner:cacheOwner,
-            scopedPhysicalCandidate:projectFixedScope&&target.IsRongyu==1)
+            scopedPhysicalCandidate:target.IsRongyu==1&&projectFixedScope,storedMultiParent:storedParent)
         {
             SelectedMultiPage=selectedPage,
             AllowsExactMultiSelection=relation?.ControlKind=="MultiSelectPage",
@@ -359,11 +360,13 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly bool scopedPhysicalCandidate;
         private readonly IReadOnlyList<RedundantSharedParentPlan> candidateParents;
         private readonly bool accountPhysicalCandidate;
+        private readonly bool storedMultiParentCandidate;
         private readonly bool explicitProjectCandidate;
-        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false,string? cascadeLabelField=null,CascadeCacheOwner? cascadeCacheOwner=null,bool scopedPhysicalCandidate=false,IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,bool accountPhysicalCandidate=false,bool exactSingleCandidate=false,bool globalCandidate=false)
+        internal Builder(MetadataCatalog catalog,string tableId,bool matching=false,bool deferCascadeNames=false,IReadOnlySet<string>? refreshFields=null,IReadOnlyList<RelationCacheDefinition>? refreshMultiples=null,IReadOnlyDictionary<string,string>? refreshPaths=null,IReadOnlyList<NonRedundantCrossTableScope>? crossTables=null,string rootAlias="b",string aliasPrefix="r",bool trackReverse=false,PageMetadata? candidatePage=null,bool multiLabel=false,string? cascadeLabelField=null,CascadeCacheOwner? cascadeCacheOwner=null,bool scopedPhysicalCandidate=false,IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,bool accountPhysicalCandidate=false,bool exactSingleCandidate=false,bool globalCandidate=false,MultiTargetParentScope? storedMultiParent=null)
         {
             this.scopedPhysicalCandidate = scopedPhysicalCandidate;
             this.accountPhysicalCandidate=accountPhysicalCandidate;
+            storedMultiParentCandidate=storedMultiParent is {Logical:false};
             this.candidateParents=System.Array.AsReadOnly(candidateParents?.ToArray()??[]);
             this.rootAlias=rootAlias;this.aliasPrefix=aliasPrefix;this.candidatePage=candidatePage;this.multiLabel=multiLabel;this.cascadeLabelField=cascadeLabelField;this.cascadeCacheOwner=cascadeCacheOwner;
             this.crossTables=(crossTables??[]).ToDictionary(scope=>scope.SourceColumnId,StringComparer.Ordinal);
@@ -375,7 +378,7 @@ public static partial class MySqlNonRedundantReadCompiler
             // 普通业务页仍保留项目行归属，未传入该精确标志的 R0 候选继续拒绝。
             var publishedGlobalCandidate = globalCandidate && candidatePage is not null && refreshFields is null &&
                 root.IsRongyu == 0 && GlobalCrossTableTarget.Declared(root);
-            if ((!physicalCandidate && !publishedGlobalCandidate && !scopedPhysicalCandidate && (refreshFields is null ? root.IsRongyu != 0 : root.IsRongyu != 1)) ||
+            if ((!physicalCandidate && !publishedGlobalCandidate && !scopedPhysicalCandidate && !storedMultiParentCandidate && (refreshFields is null ? root.IsRongyu != 0 : root.IsRongyu != 1)) ||
                 root.IsFunctionTable != 0 || root.IsView != 0)
                 throw new InvalidOperationException("固定读取要求非冗余实体表或明确发布的物理候选。");
             if (candidatePage is not null)
@@ -407,10 +410,13 @@ public static partial class MySqlNonRedundantReadCompiler
             if(catalog.ConfigColumns.Any(column=>tables.ContainsKey(column.ConfigTableId)&&column.YzProjectId.Length>0&&column.YzProjectId!=catalog.YzProjectId))throw new InvalidOperationException("字段归属与发布项目不一致。");
             columns=tables.Values.ToDictionary(table=>table.Id,table=>RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id)).ToDictionary(column=>column.ColumnName,StringComparer.OrdinalIgnoreCase),StringComparer.Ordinal);
             storage=tables.Values.ToDictionary(table=>table.Id,table=>MetadataStoragePolicy.ForTable(catalog,table),StringComparer.Ordinal);
-            if (scopedPhysicalCandidate && (root.IsRongyu != 1 || GlobalCrossTableTarget.Declared(root) ||
+            // 全局 R1 路径只接受当前根页编译出的物理父证明，不能借用项目内候选开关。
+            if ((scopedPhysicalCandidate||storedMultiParentCandidate) &&
+                (root.IsRongyu != 1 || GlobalCrossTableTarget.Declared(root)!=storedMultiParentCandidate ||
+                 storedMultiParentCandidate&&storedMultiParent!.Target.ConfigTableId!=root.Id ||
                 !columns[root.Id].TryGetValue("yz_project_id", out var project) ||
                 project.LogicalType is not ("int64" or "string") || !GlobalPhysicalRelationValue.IsScalar(storage[root.Id], root, project)))
-                throw new InvalidOperationException("项目内物理候选要求普通 R1 实体及其真实项目列。");
+                throw new InvalidOperationException("物理候选要求已证明的普通 R1 实体和真实项目列。");
             foreach(var binding in this.crossTables.Values)if(!columns[root.Id].Values.Any(column=>column.Id==binding.SourceColumnId&&column.ControlKind=="CascadeTree"))throw new InvalidOperationException("跨表读取绑定不属于当前来源表。");
         }
         /// <summary>主键作为稳定排序依赖；根及每个目标分别保留软删和项目范围。</summary>
@@ -502,7 +508,7 @@ public static partial class MySqlNonRedundantReadCompiler
                          IsSelectedLogicalParent(field))&&
                          CrossTableStorageColumns.IsLogicalPathField(root,columns[root.Id].Values.ToArray(),field));
                     if(!logical&&!PublishedGlobalSelfTreeField(column)&&!PublishedGlobalValue(column))
-                        throw new NotSupportedException("全局R0读取只接受已证明的标量、单值名称与固定级联字段。");
+                        throw new NotSupportedException($"全局R0读取字段 {field} 缺少已发布的物理、关联或级联证明。");
                 }
             }
             queryDependencies=new HashSet<string>(dependencies,StringComparer.OrdinalIgnoreCase);
@@ -559,7 +565,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     aggregateJoins.Select(join => (join.Sql, (IEnumerable<string>)aggregateFields[join.Alias])))
                 : null;
             return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idSources.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idSources[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reversePlans),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants),System.Array.AsReadOnly(sourceDependencies.Order(StringComparer.Ordinal).ToArray()),refreshFields is null?null:new MySqlMaintenanceReadFrom(" FROM "+Q(root.TableName)+" "+rootAlias,maintenanceJoins.Select(join=>(join.Sql,(IEnumerable<string>)aliasFields[join.Alias].Keys)))){HasPublishedCandidateCondition=CrossCandidateCondition is not null||
-                MultiCandidateParent is {Logical:true}&&ScopedRootControls.Count>0,RequiredMultiParent=MultiParentOwner is null?MultiCandidateParent?.Target.ColumnName:null,CandidateParents=candidateParents,AggregateFrom=aggregateFrom,CascadeLabelOutputs=cascadeLabelOutputs.ToFrozenSet(StringComparer.OrdinalIgnoreCase),CascadeLabelPages=cascadeLabelPages.ToFrozenSet(StringComparer.Ordinal),CascadeCacheOwnerFields=cascadeCacheOwnerFields.ToFrozenSet(StringComparer.Ordinal),ImportMatchLock=importLock,ScalarCacheTarget=maintenanceJoins.Count==1?scalarCacheTarget:null,RequiresPublishedProjectIdentity=globalSource||globalDerivedSource||physicalCandidate||trackReverse&&globalDerivedAliases.Count>0||publishedArrayIdentity||scopedGlobalCrossTarget};
+                MultiCandidateParent is {Logical:true}&&ScopedRootControls.Count>0,RequiredMultiParent=MultiParentOwner is null?MultiCandidateParent?.Target.ColumnName:null,CandidateParents=candidateParents,AggregateFrom=aggregateFrom,CascadeLabelOutputs=cascadeLabelOutputs.ToFrozenSet(StringComparer.OrdinalIgnoreCase),CascadeLabelPages=cascadeLabelPages.ToFrozenSet(StringComparer.Ordinal),CascadeCacheOwnerFields=cascadeCacheOwnerFields.ToFrozenSet(StringComparer.Ordinal),ImportMatchLock=importLock,ScalarCacheTarget=maintenanceJoins.Count==1?scalarCacheTarget:null,RequiresPublishedProjectIdentity=globalSource||globalDerivedSource||physicalCandidate||storedMultiParentCandidate||trackReverse&&globalDerivedAliases.Count>0||publishedArrayIdentity||scopedGlobalCrossTarget};
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
         private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name,CascadeCacheOwner? singleCacheOwner=null)

@@ -80,7 +80,8 @@ internal static partial class BackendRenderer
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page))).ToArray();
         var scopedCheckboxes=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))
-            .Where(checkbox=>checkbox.ExactTarget is not null||checkbox.SharedLogicalParentScope||checkbox.SharedDerivedPageScope).ToArray();
+            .Where(checkbox=>checkbox.ExactTarget is not null||checkbox.SharedLogicalParentScope||checkbox.SharedDerivedPageScope||
+                checkbox.DerivedName&&DerivedCheckboxNamesCompilation.UsesScopedCheckboxLabel(model,checkbox)).ToArray();
         var realtimeCheckboxes=model.Tables.Where(table=>table.Source.IsRongyu==0&&table.Source.IsFunctionTable==0)
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))
             .Where(checkbox=>checkbox.DerivedName&&checkbox.NameTargetPage is not null).ToArray();

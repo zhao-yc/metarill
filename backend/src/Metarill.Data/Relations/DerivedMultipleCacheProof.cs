@@ -115,7 +115,9 @@ internal static class DerivedMultipleCacheProof
         if(value.LogicalType!="string"&&!typed)throw Invalid();
         // 验证也读取与实际名称副本相同的固定页及联接条件。
         var checkbox=foreign.ControlKind=="MultiCheckBoxDatabase";
+        // 父级字典由整条回填计划验证，不能把父参数当作账号变量。
         if(target.IsRongyu==1&&scoped is not null&&GlobalCrossTableTarget.Declared(target)&&
+            GlobalCrossTableTarget.StoredProjectMultiParent(catalog,target,scoped,checkbox) is null&&
             (sharedPage is null||MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign)?.Id==scoped.Id))
         {
             _=AccountScopedCrossCache.CompileGlobalMulti(catalog,source,target,scoped);

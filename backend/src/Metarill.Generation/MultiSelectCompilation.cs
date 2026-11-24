@@ -42,9 +42,9 @@ internal static class MultiSelectCompilation
                     definition.TargetPage.Condition is {} account&&GlobalMultipleRelationTarget.IsNonRedundantAccountPage(
                         definition.Target.Source,definition.TargetPage.Source,account.Syntax,checkbox:false)||
                     UsesStaticGlobalDictionary(definition)||
-                    definition.Target.IsGlobal&&definition.Target.Source.IsRongyu==0&&
+                    definition.Target.IsGlobal&&
                     GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,definition.Source.Source,definition.Target.Source)
-                        .UsesNonRedundantPhysicalParentPage);
+                        .UsesPhysicalParentPage);
             ColumnModel Fix(ColumnModel column) => names.Contains(column.Source.Id) ? column with { IsManagedMultiNames = true } : column;
             IReadOnlyList<ColumnModel> FixAll(IReadOnlyList<ColumnModel> columns) => columns.Select(Fix).ToArray();
             return table with { HasScopedGlobalCache = scopedGlobal, Columns = FixAll(table.Columns), Pages = table.Pages.Select(page => page with { Readable = FixAll(page.Readable), Writable = FixAll(page.Writable.Where(column => !names.Contains(column.Source.Id)).ToArray()), Searchable = FixAll(page.Searchable), Sortable = FixAll(page.Sortable), ListColumns = FixAll(page.ListColumns), DetailColumns = FixAll(page.DetailColumns) }).ToArray() };

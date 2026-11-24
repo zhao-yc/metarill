@@ -118,8 +118,27 @@ public static class GlobalCrossTableTarget
 
     /// <summary>多值目标和独立页面候选可使用由实际父记录限定的同一范围。</summary>
     public static void RequireMultiCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)
-        =>RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:true,
+    {
+        if(StoredProjectMultiParent(catalog,table,page,checkbox)is not null)return;
+        RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:true,allowMultiParent:true,
             allowPhysicalMultiParent:true,checkboxParent:checkbox);
+    }
+
+    /// <summary>冗余全局多值候选必须证明发布后台、物理父键及当前项目，账号条件仍走统一字段校验。</summary>
+    public static MultiTargetParentScope? StoredProjectMultiParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)
+    {
+        if(!Declared(table)||table.IsRongyu!=1||page.ConfigTableId!=table.Id)return null;
+        var columns=ConditionColumns(catalog,table,allowLogical:false);
+        var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+        if(!GlobalMultipleRelationTarget.IsStoredProjectParentPage(table,page,condition,checkbox))return null;
+        RequirePublishedSinglePage(catalog,table,page);
+        var parent=MultiTargetParentScope.CompileGlobalPage(catalog,table,condition,checkbox);
+        if(parent is not {Logical:false}||parent.AdditionalTargets.Any(item=>item.Logical))
+            throw new NotSupportedException("冗余全局多值候选必须绑定实际物理父记录。");
+        RequireTarget(catalog,table,page,false,allowAccount:true,allowMultiParent:true,
+            allowStoredSingleParent:true,allowPhysicalMultiParent:true,checkboxParent:checkbox);
+        return parent;
+    }
 
     /// <summary>只有会编译完整自树叶名的读取入口可以接受该类全局候选条件。</summary>
     public static void RequireSelfTreeConditionCandidate(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
@@ -277,7 +296,8 @@ public static class GlobalCrossTableTarget
         var projectParentScope=allowPhysicalMultiParent&&(GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,
             checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2")||
             (!checkboxParent||allowStoredSingleParent)&&(IsSingleProjectParentPage(page,condition)||
-                IsProjectListParentPage(table,page,condition)));
+                IsProjectListParentPage(table,page,condition))||
+            allowStoredSingleParent&&GlobalMultipleRelationTarget.IsStoredProjectParentPage(table,page,condition,checkboxParent));
         var multiParent=allowMultiParent&&((table.IsRongyu==0||allowStoredSingleParent)&&
             (condition.Variables.Any(AccountConditionVariables.IsSupported)||allowExactSingle&&DeclaresExactMulti(table,page)||
                 SelectionParentOnly(page,condition)||projectParentScope||allowPhysicalMultiParent&&UsesOnlyParentVariables(condition))||

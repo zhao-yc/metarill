@@ -185,6 +185,8 @@ internal sealed record PageModel(PageMetadata Source, string Name, IReadOnlyList
     internal FixedPageCondition? Condition {get;init;}
     /// <summary>无固定条件的原单选和多选有真实发布引用时，候选使用全局范围。</summary>
     internal bool PublishedUnfilteredSelectionCandidate {get;init;}
+    /// <summary>普通业务页与显式绑定为下拉字典的业务页使用各自的读取入口。</summary>
+    internal bool PublishedListDictionary {get;init;}
 }
 internal sealed record TableModel(TableMetadata Source, string Name, IReadOnlyList<ColumnModel> Columns, IReadOnlyList<PageModel> Pages)
 {
@@ -254,6 +256,10 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
                 }
                 ValidateOrderBy(page.OrderBy, columns);
                 var compiledPage = new PageModel(page, Pascal(table.TableName) + "Page" + page.Id, readable, writable, search, sortable, scopes, pageColumns.Where(c => Has(c, InGrid)).ToArray(), pageColumns.Where(c => Has(c, InEdit)).ToArray()){Condition=condition};
+                if(table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table)&&scopes.Any(scope=>scope.Source=="parent")&&
+                    GlobalCrossTableTarget.IsListParentPage(catalog,table,page)&&
+                    GlobalSingleRelationTarget.HasExplicitListReference(catalog,table,page))
+                    compiledPage=compiledPage with{PublishedListDictionary=true};
                 // 视图的原只读页面可生成。显式写入配置须保留并告知配置者，不能悄悄裁掉已开的操作。
                 if (table.IsView == 1 && (page.IsNew != 0 || PageUpdatePolicy.CanUpdate(page) ||
                     page.IsDelete != 0 || page.IsCopy != 0 || ImportRenderer.Enabled(compiledPage)))

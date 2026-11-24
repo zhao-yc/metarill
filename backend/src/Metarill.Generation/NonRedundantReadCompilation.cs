@@ -25,7 +25,7 @@ internal static partial class NonRedundantReadCompilation
     /// <summary>非冗余单值字典的分页和详情执行同一发布条件及已证明的真实父键。</summary>
     internal static bool GlobalSingleParentPage(TableModel table,PageModel page)=>
         table.IsGlobal&&table.Source.IsRongyu==0&&
-        (FixedPageConditionCompilation.HasGlobalListParentScope(table,page)||
+        (page.PublishedListDictionary||
             page.Source.Extra.GetValueOrDefault("type").ToString()=="1"&&
             (page.Scopes.Any(scope=>scope.Source=="parent"&&CrossTableStorageColumns.IsLogicalPathField(
                 table.Source,table.Columns.Select(column=>column.Source),scope.Column.Source.ColumnName))||
@@ -138,7 +138,9 @@ internal static partial class NonRedundantReadCompilation
         if(GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source))
             _=GlobalCrossTableTarget.ExactPageParent(model.Catalog,table.Source,page.Source);
         else if(HasGlobalRowProject(table))GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
-        else if(table.IsGlobal&&GlobalCrossTableTarget.SingleParent(model.Catalog,table.Source,page.Source) is null)
+        else if(table.IsGlobal&&GlobalCrossTableTarget.SingleParent(model.Catalog,table.Source,page.Source) is null&&
+            GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,table.Source,page.Source,
+                NonRedundantReads.IsPublishedCheckboxTarget(model.Catalog,table.Source,page.Source.Id)) is null)
         {
             if(GlobalAccountParentScope(table,page))
                 GlobalCrossTableTarget.RequireMultiCandidate(model.Catalog,table.Source,page.Source,

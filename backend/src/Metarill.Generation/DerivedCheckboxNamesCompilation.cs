@@ -11,7 +11,10 @@ internal static class DerivedCheckboxNamesCompilation
         IReadOnlyList<ColumnModel>? cachedLabels=null)
     {
         if(def.Names is null)throw new InvalidOperationException("按主键显示的复选不需要派生名称计划。");
-        if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0||def.Target.Source.IsView!=0||def.Target.Source.IsFunctionTable!=0||def.Name.Type!="string?"&&!Metarill.Core.Contracts.MultiValueLabel.IsTyped(def.Name.Source.LogicalType)||def.Name.IsJsonArray)throw new InvalidOperationException("派生复选名称要求已证明来源与普通R0目标的固定单值名称。");
+        if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0&&!UsesStoredProjectParent(def)||
+            def.Target.Source.IsView!=0||def.Target.Source.IsFunctionTable!=0||
+            def.Name.Type!="string?"&&!Metarill.Core.Contracts.MultiValueLabel.IsTyped(def.Name.Source.LogicalType)||def.Name.IsJsonArray)
+            throw new InvalidOperationException("复选名称要求已证明来源与目标的固定单值名称。");
         var fields=def.Scopes.Select(scope=>scope.Column).Concat(def.Conditions?.Syntax.Fields.Select(field=>def.Target.Columns.Single(column=>column.Source.ColumnName==field))??[]).DistinctBy(column=>column.Source.Id).ToArray();
         if(fields.Any(column=>column.IsJsonArray||!NonRedundantReadCompilation.Physical(model,def.Target,column)&&
             (!def.SharedLogicalParentScope&&!def.RealtimeLogicalParentScope&&!def.CompoundTargetParents&&def.FunctionParentField is null||def.LogicalTargetPage is null||
@@ -132,8 +135,11 @@ internal static class DerivedCheckboxNamesCompilation
         def.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,def.Target,page,scope.Column));
 
     /// <summary>实际复选页承担多父条件，也承担单物理全局父叠加精确匹配的范围。</summary>
+    private static bool UsesStoredProjectParent(DatabaseCheckboxModel def)=>
+        def.LogicalTargetPage is {} page&&FixedPageConditionCompilation.HasStoredGlobalMultiParentScope(def.Target,page);
+
     internal static bool UsesScopedCheckboxLabel(GenerationModel model,DatabaseCheckboxModel def)=>
-        !UsesGlobalExactPage(def)&&(def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
+        !UsesGlobalExactPage(def)&&(UsesStoredProjectParent(def)||def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
             def.RealtimeLogicalParentScope||def.CompoundTargetParents||
             def.LogicalTargetPage?.Scopes.Any(scope=>scope.Source=="parent"&&
                 Metarill.Core.Metadata.MultiTargetParentScope.IsCheckboxOnlyParentField(scope.Column.Source))==true||
