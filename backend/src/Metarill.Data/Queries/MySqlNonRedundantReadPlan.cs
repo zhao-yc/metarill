@@ -946,7 +946,9 @@ public static partial class MySqlNonRedundantReadCompiler
         private string PublishedScope(TableMetadata table,string alias,PageMetadata page,string parameterKey,bool allowAccount=false,bool projectParent=false,bool scopedSingle=false,bool scopedCrossTable=false,MultiTargetParentScope? accountParent=null,string? sourceParent=null,bool explicitMultiProject=false)
         {
             var sourceCandidate=table.Id==root.Id&&alias==rootAlias&&page.Id==candidatePage?.Id;
-            var publishedProject=explicitMultiProject||explicitMultiProjectCandidate&&sourceCandidate||
+            var singleProject=accountParent is {Logical:false}&&GlobalCrossTableTarget.Declared(table)&&
+                GlobalCrossTableTarget.IsSingleProjectParentPage(page,FixedConditionPlan.Compile(page.WhereSql,columns[table.Id].Keys));
+            var publishedProject=explicitMultiProject||explicitMultiProjectCandidate&&sourceCandidate||singleProject||
                 accountPhysicalCandidate&&multiLabel&&table.Id==root.Id&&alias==rootAlias&&
                 table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&
                 FixedConditionPlan.Compile(page.WhereSql,columns[table.Id].Keys).Terms.Any(GlobalMultipleRelationTarget.IsProjectScope);

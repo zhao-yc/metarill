@@ -50,9 +50,12 @@ public static class GlobalMultipleRelationTarget
 
     /// <summary>已发布的非冗余多值页可同时声明真实项目和父键，物理字段和父归属由调用方证明。</summary>
     public static bool IsProjectParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false)=>
-        table.IsRongyu==0&&IsPublishedMultiPage(table,page,checkbox)&&condition.Terms.Any(IsProjectScope)&&
-        condition.Terms.Any(IsParentScope)&&condition.Terms.All(term=>
-            IsFixedOrProject(term)||IsParentScope(term)||IsAccountScope(term));
+        table.IsRongyu==0&&IsPublishedMultiPage(table,page,checkbox)&&UsesProjectAndParent(condition);
+
+    /// <summary>项目、父级和可选账号等值共用同一条件语法，各用途再验证实际页面角色。</summary>
+    internal static bool UsesProjectAndParent(FixedConditionPlan condition)=>
+        condition.Terms.Any(IsProjectScope)&&condition.Terms.Any(IsParentScope)&&
+        condition.Terms.All(term=>IsFixedOrProject(term)||IsParentScope(term)||IsAccountScope(term));
 
     private static bool IsFixedOrProject(FixedConditionTerm term)=>
         IsProjectScope(term)||term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable);

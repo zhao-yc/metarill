@@ -669,9 +669,27 @@ public sealed class NonRedundantGeneratedReadTests
     [InlineData(0,true,false,true,false,true,true,true,true)]
     [InlineData(1,false,true,false,true,true,true,true,true)]
     [InlineData(1,true,true,true,true,true,false,true)]
-    public async Task Global_single_with_only_physical_parent_keeps_selection_workbook_and_cache(
+    public Task Global_single_with_only_physical_parent_keeps_selection_workbook_and_cache(
         int storage,bool globalParent,bool globalSource,bool idLabel,bool excelOverride=false,bool storedTarget=false,bool textParent=false,
-        bool managedTarget=false,bool textProject=false)
+        bool managedTarget=false,bool textProject=false)=>
+        CheckGlobalSingleWithPhysicalParent(storage,globalParent,globalSource,idLabel,excelOverride,storedTarget,textParent,managedTarget,textProject);
+
+    /// <summary>已发布的原单选同时绑定当前项目和真实物理父键。</summary>
+    [Theory]
+    [InlineData(0,false,false,false,false,false)]
+    [InlineData(0,true,true,true,false,true)]
+    [InlineData(1,false,true,false,false,true)]
+    [InlineData(1,true,false,false,false,false)]
+    [InlineData(0,false,true,true,true,true)]
+    [InlineData(1,true,true,false,true,true)]
+    public Task Global_single_with_project_and_physical_parent_keeps_selection_workbook_and_cache(
+        int storage,bool globalParent,bool globalSource,bool idLabel,bool storedTarget,bool textProject)=>
+        CheckGlobalSingleWithPhysicalParent(storage,globalParent,globalSource,idLabel,excelOverride:false,storedTarget,
+            textParent:textProject,managedTarget:false,textProject,projectScope:true);
+
+    private static async Task CheckGlobalSingleWithPhysicalParent(
+        int storage,bool globalParent,bool globalSource,bool idLabel,bool excelOverride,bool storedTarget,bool textParent,
+        bool managedTarget,bool textProject,bool projectScope=false)
     {
         const string ns="Example.GlobalPhysicalParent";
         var catalog=NonRedundantApplicationFixture.Catalog("mt_parent_only");
@@ -682,7 +700,7 @@ public sealed class NonRedundantGeneratedReadTests
         target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         if(globalSource)owner.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         var removed=new HashSet<string>(["16","17"],StringComparer.Ordinal);
-        if(!managedTarget)removed.Add("22");
+        if(!managedTarget&&!projectScope)removed.Add("22");
         if(idLabel)removed.Add("111");
         if(globalParent)
         {
@@ -690,7 +708,10 @@ public sealed class NonRedundantGeneratedReadTests
             parent.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             removed.Add("32");
             catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="name <> '停用父记录'";
-            // 独立表单从原物理字段取父 ID；本用例不增加另一组名称下拉关系。
+        }
+        if(globalParent||projectScope&&globalSource)
+        {
+            // 源父字段只提供真实物理 ID，避免在单选用例里再引入另一个名称下拉。
             var sourceKey=catalog.ConfigColumns.Single(column=>column.Id=="19");
             sourceKey.ControlKind="";
             sourceKey.ControlDetail="";
@@ -706,7 +727,15 @@ public sealed class NonRedundantGeneratedReadTests
                 field.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"whereSql":"amount >= 12.34"}""");
         if(textParent)catalog.ConfigColumns.Single(column=>column.Id=="27").LogicalType="string";
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
-        if(storedTarget)targetPage.WhereSql+=" AND amount >= 1";
+        if(storedTarget||projectScope)targetPage.WhereSql+=" AND amount >= 1";
+        if(projectScope)
+        {
+            targetPage.WhereSql+=" AND yz_project_id = @current_yz_project_id";
+            if(textProject)catalog.ConfigColumns.Single(column=>column.Id=="22").LogicalType="string";
+            var foreign=catalog.ConfigColumns.Single(column=>column.Id=="15");
+            var label=idLabel?"id":"name";
+            foreign.ControlDetail=JsonSerializer.Serialize(new{pageId="201",tableId="2",nameField=label,whereSql=targetPage.WhereSql});
+        }
         targetPage.IsExport=1;
         if(managedTarget)AddManagedPartyDictionary(catalog,"mt_parent_only",textProject);
         var independent=catalog.ConfigPages.Single(page=>page.Id=="104");
@@ -802,6 +831,41 @@ public sealed class NonRedundantGeneratedReadTests
             Assert.False(candidate.RequiresAccount);
             var mysql=candidate.GetType().GetProperty("MySql",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(candidate)!;
             Assert.Equal("group_id",mysql.GetType().GetProperty("RequiredMultiParent",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(mysql));
+            if(projectScope)
+            {
+                var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(mysql));
+                Assert.Contains("yz_project_id",scope);
+                Assert.Contains(textProject?"@project_scope_text":"@project_scope_number",scope);
+                Assert.Contains("group_id",scope);
+                Assert.Contains("amount",scope);
+                var dictionary=model.Tables.Single(item=>item.Source.Id=="2");
+                var published=dictionary.Pages.Single(item=>item.Source.Id=="201");
+                var query=FixedPageQueryCompilation.For(dictionary,published);
+                var selector=new SelectionControlDefinition("201",idLabel?"id":"name","选择",targetPage.WhereSql,"");
+                Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,query,selector,out var reason),reason);
+                Assert.False(FixedPageQueryCompilation.TryProveSelection(model.Catalog,query,
+                    selector with{WhereSql=selector.WhereSql+" AND amount > 9"},out _));
+                var withoutProject=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(published.Source))!;
+                withoutProject.WhereSql=withoutProject.WhereSql.Replace(" AND yz_project_id = @current_yz_project_id","",StringComparison.Ordinal);
+                var otherPage=published with{Source=withoutProject,Scopes=published.Scopes.Where(item=>item.Source!="project").ToArray()};
+                var otherDictionary=dictionary with{Pages=[otherPage]};
+                Assert.False(FixedPageQueryCompilation.TryProveSelection(model.Catalog,
+                    FixedPageQueryCompilation.For(otherDictionary,otherPage),selector,out _));
+                if(storedTarget)
+                {
+                    using var session=new DatabaseSession(new()
+                    {
+                        Provider="mysql",ExpectedDatabase="offline",
+                        ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
+                    });
+                    var sql=CreateDictionarySql(assembly,ns,"MtParentOnlyParty",session);
+                    var actor=new RuntimeActor(7,"合成账号",false,catalog.YzProjectId,"5");
+                    var candidateSql=sql("Query201",[new PageRequest{ParentId="9007199254740995"},actor]);
+                    Assert.Contains("yz_project_id",candidateSql);
+                    Assert.Contains("group_id",candidateSql);
+                    Assert.Contains("amount",candidateSql);
+                }
+            }
             if(excelOverride&&storedTarget)
             {
                 foreach(var pageId in new[]{"104","105"})
@@ -847,6 +911,21 @@ public sealed class NonRedundantGeneratedReadTests
                 var cache=MixedRelationPropagationCompilation.ForModel(model);
                 Assert.Contains("customer_name",cache.MixedSourceColumns[table.Source.TableName]);
                 Assert.Contains("mt_parent_only_group",cache.MixedTargets);
+                if(projectScope)
+                {
+                    const System.Reflection.BindingFlags members=hidden|System.Reflection.BindingFlags.Instance;
+                    var plans=cache.GetType().GetProperty("Plans",members)!.GetValue(cache)!;
+                    var entries=Assert.IsAssignableFrom<System.Collections.IEnumerable>(plans).Cast<object>();
+                    var sourcePlan=entries.Single(item=>Equals(item.GetType().GetProperty("Key")!.GetValue(item),"1"));
+                    var tablePlan=sourcePlan.GetType().GetProperty("Value")!.GetValue(sourcePlan)!;
+                    var read=tablePlan.GetType().GetProperty("Read")!.GetValue(tablePlan)!;
+                    var expressions=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                        read.GetType().GetProperty("Expressions",members)!.GetValue(read));
+                    Assert.Contains("yz_project_id",expressions["customer_name"]);
+                    Assert.Contains(textProject?"@project_scope_text":"@project_scope_number",expressions["customer_name"]);
+                    Assert.Contains("group_id",expressions["customer_name"]);
+                    Assert.Contains("amount",expressions["customer_name"]);
+                }
             }
             var package=new ApplicationPackager().Create(catalog,Path.Combine(root,"application"),ns,NonRedundantApplicationFixture.Root());
             Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);

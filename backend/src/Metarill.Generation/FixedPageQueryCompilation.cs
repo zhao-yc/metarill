@@ -155,12 +155,14 @@ internal static class FixedPageQueryCompilation
         }
     }
 
-    /// <summary>同时限定项目和物理父级的原多选，按实际发布候选计划核对控件的重复范围。</summary>
+    /// <summary>同时限定项目和物理父级的原单选及多选，按实际发布候选计划核对控件的重复范围。</summary>
     private static bool HasPublishedProjectAndParent(MetadataCatalog catalog,TableModel table,PageModel page)
     {
-        if(!NonRedundantReadCompilation.GlobalAccountMultiPage(table,page))return false;
         var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
-        if(!GlobalMultipleRelationTarget.IsProjectParentPage(table.Source,page.Source,syntax))return false;
+        if(GlobalCrossTableTarget.IsSingleProjectParentPage(page.Source,syntax))
+            return GlobalCrossTableTarget.PhysicalSingleParent(catalog,table.Source,page.Source) is not null;
+        if(!NonRedundantReadCompilation.GlobalAccountMultiPage(table,page)||
+            !GlobalMultipleRelationTarget.IsProjectParentPage(table.Source,page.Source,syntax))return false;
         // 同一发布证明会核对真实项目列及全部物理父字段。
         GlobalCrossTableTarget.RequireMultiCandidate(catalog,table.Source,page.Source);
         return true;

@@ -128,8 +128,9 @@ public static partial class MySqlNonRedundantReadCompiler
             ActiveSelfTreeScopes=activeSelfTreeScopes??new(),
             MultiCandidateParent=projectSingle&&parent?.AdditionalTargets.Count is not >0?null:parent,
             MultiCandidatePage=page,
-            MultiCandidateProjectScoped=accountParentPageType=="2"&&parent is {Logical:false}&&
-                GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax),
+            MultiCandidateProjectScoped=parent is {Logical:false}&&
+                (accountParentPageType=="2"&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax)||
+                 physicalParent is not null&&GlobalCrossTableTarget.IsSingleProjectParentPage(page,syntax)),
             GlobalCrossCandidate=global,
             CrossNameSourcePage=page,
             MultiNamePathPage=globalExactSingle?page:null,
@@ -746,9 +747,14 @@ public static partial class MySqlNonRedundantReadCompiler
             var storedExact=cacheOwner is not null&&(globalExact||PublishedSingleExactColumn(catalog,table,page,members) is not null);
             if(cacheOwner is {} row&&logical.Count==0)
             {
+                // 项目范围由已发布目录绑定。账号和父记录仍使用正在回填的来源行。
+                var projectScope=parentField is not null&&GlobalCrossTableTarget.Declared(table)&&
+                    GlobalCrossTableTarget.IsSingleProjectParentPage(page,syntax);
                 var visible=PhysicalAccountCacheCondition(table,alias,page,row,parentField,
                     allowFixedOnly:allowFixedOnly||!GlobalCrossTableTarget.Declared(table),separateExactScope:storedExact,
-                    additionalParents:additional);
+                    additionalParents:additional,globalMultiProject:projectScope);
+                if(projectScope)
+                    visible=string.Join(" AND ",new[]{Scope(table,alias),visible}.Where(part=>part.Length>0));
                 if(additional is null)return visible;
                 var canonical=alias+"."+Q(parentField!.ColumnName);
                 foreach(var scope in additionalScopes!)

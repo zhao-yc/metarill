@@ -139,6 +139,11 @@ public static class GlobalCrossTableTarget
     public static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
         SingleParent(catalog,table,page,allowLogical:true,allowSelectionParentOnly:true);
 
+    /// <summary>原单选的项目与父级等值只在 type=1 发布页识别，字段有效性由单值父级证明核对。</summary>
+    public static bool IsSingleProjectParentPage(PageMetadata page,FixedConditionPlan condition)=>
+        page.Extra.GetValueOrDefault("type").ToString()=="1"&&!HasExactMatch(page)&&
+        GlobalMultipleRelationTarget.UsesProjectAndParent(condition);
+
     private static MultiTargetParentScope? SingleParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
         bool allowLogical,bool allowExactSingle=false,bool allowSelectionParentOnly=false)
     {
@@ -155,11 +160,12 @@ public static class GlobalCrossTableTarget
             return null;
         var cross=condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field));
         var tree=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field));
-        // 多值页的项目与父键组合由多值入口校验，不借用单值候选的账号范围。
-        if(GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,
+        // 原单选使用自己的发布证明。普通多值页仍由多值入口限定项目和物理父键。
+        var projectParent=allowSelectionParentOnly&&!cross&&!tree&&IsSingleProjectParentPage(page,condition);
+        if(!projectParent&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,
             checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2"))return null;
         // 原单选可只由实际物理父范围限定；其余角色保留原账号或逻辑证明。
-        var selectionParentOnly=allowSelectionParentOnly&&!cross&&!tree&&SelectionParentOnly(page,condition);
+        var selectionParentOnly=allowSelectionParentOnly&&!cross&&!tree&&(SelectionParentOnly(page,condition)||projectParent);
         if(cross||tree)
         {
             if(!allowLogical||storedSelection)return null;
@@ -169,7 +175,8 @@ public static class GlobalCrossTableTarget
         var parent=MultiTargetParentScope.CompileGlobalPage(catalog,table,condition);
         if(parent is null||parent.Logical&&(!allowLogical||page.Extra.GetValueOrDefault("type").ToString()=="2"&&!allowExactSingle))return null;
         RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:cross||tree,allowMultiParent:true,
-            allowSelfTree:tree,allowExactSingle:allowExactSingle,allowStoredSingleParent:storedSelection);
+            allowSelfTree:tree,allowExactSingle:allowExactSingle,allowStoredSingleParent:storedSelection,
+            allowPhysicalMultiParent:projectParent);
         return parent;
     }
 
@@ -193,8 +200,9 @@ public static class GlobalCrossTableTarget
             LogicalConditionField(table,columns,column,allowLogical,allowSelfTree)).Select(column=>column.ColumnName);
         var condition=FixedConditionPlan.Compile(page.WhereSql,allowed);
         // 只有显式通过父范围证明的用途才解析父参数，同时保留原账号和逻辑字段校验。
-        var projectParentScope=allowPhysicalMultiParent&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,
-            checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2");
+        var projectParentScope=allowPhysicalMultiParent&&(GlobalMultipleRelationTarget.IsProjectParentPage(table,page,condition,
+            checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2")||
+            (!checkboxParent||allowStoredSingleParent)&&IsSingleProjectParentPage(page,condition));
         var multiParent=allowMultiParent&&((table.IsRongyu==0||allowStoredSingleParent)&&
             (condition.Variables.Any(AccountConditionVariables.IsSupported)||allowExactSingle&&DeclaresExactMulti(table,page)||
                 SelectionParentOnly(page,condition)||projectParentScope||allowPhysicalMultiParent&&UsesOnlyParentVariables(condition))||
@@ -211,7 +219,7 @@ public static class GlobalCrossTableTarget
             {
                 var project=columns.Single(item=>item.ColumnName==term.Field);
                 if(project.LogicalType is not ("int64" or "string")||!GlobalPhysicalRelationValue.IsScalar(storage,table,project))
-                    throw new NotSupportedException("全局多值项目条件必须使用真实物理项目ID。");
+                    throw new NotSupportedException("全局字典的项目条件必须使用真实物理项目ID。");
                 continue;
             }
             if(!allowAccount||term.Field=="yz_project_id"||term.Comparison!=FixedConditionComparison.Equal||term.Values.Count!=1||
