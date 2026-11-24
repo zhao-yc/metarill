@@ -911,7 +911,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             .AppendLine($"    public async Task<R<long>> Count([FromBody] PageRequest request, CancellationToken cancellationToken) => R<long>.Success(await service.Count{suffix}Async(request, Actor(\"count\"), cancellationToken));");
         if (page.Source.IsNew == 1)
             result.AppendLine("    /// <summary>新增仅接受本页生成 DTO。</summary>").AppendLine("    [HttpPost(\"add\")]")
-                .Append(LegacyPageRequestRenderer.Mutation(page, "Add"));
+                .Append(LegacyPageRequestRenderer.Mutation(page, "Add", CreateScopeJsonNames(table, page)));
         if (Metarill.Core.Metadata.PageUpdatePolicy.CanUpdate(page.Source))
             result.AppendLine("    /// <summary>更新保留省略字段与显式 null 的区别。</summary>").AppendLine("    [HttpPost(\"update\")]")
                 .Append(LegacyPageRequestRenderer.Mutation(page, "Update"));

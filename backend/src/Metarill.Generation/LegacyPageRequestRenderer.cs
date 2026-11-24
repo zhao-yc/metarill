@@ -32,7 +32,7 @@ internal static class LegacyPageRequestRenderer
     }
 
     /// <summary>旧路由和响应不变，只在 HTTP 边界转成既有严格请求类型。</summary>
-    internal static string Mutation(PageModel page, string method)
+    internal static string Mutation(PageModel page, string method, IEnumerable<string>? serverSuppliedFields = null)
     {
         var create = method == "Add";
         var delete = method == "Delete";
@@ -43,8 +43,11 @@ internal static class LegacyPageRequestRenderer
         var call = delete
             ? $"return await service.Delete{page.Source.Id}Async(request.Id, parentId, actor, cancellationToken) ? R<string>.Success(\"删除成功\") : R<string>.Error(\"删除失败\");"
             : $"return R<{result}>.Success(await service.{(create ? "Create" : "Update")}{page.Source.Id}Async(request, parentId, actor, cancellationToken));";
+        var supplied = string.Join(", ", (serverSuppliedFields ?? []).Distinct(StringComparer.Ordinal)
+            .Select(field => JsonSerializer.Serialize(field)));
+        var scope = supplied.Length == 0 ? "" : ", ServerSuppliedFields = new string[] { " + supplied + " }";
         return $$"""
-    [LegacyPageWriteRequest(typeof({{request}}))]
+    [LegacyPageWriteRequest(typeof({{request}}){{scope}})]
     public async Task<R<{{result}}>> {{method}}([FromBody] System.Text.Json.JsonElement entity, [FromQuery] string? parentId, CancellationToken cancellationToken)
     {
         var actor = Actor("{{permission}}");

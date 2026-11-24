@@ -23,6 +23,7 @@ public sealed class AgentCreateContractTests
         var catalog=GeneratorTests.Catalog();
         var page=catalog.ConfigPages.Single();
         page.IsNew=1;
+        page.WhereSql += " AND parent_id=@parentId AND store_id=@current_store_id";
         catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="12").IsRequired=1;
         catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="13").IsRequired=1;
         catalog.ConfigColumns.Single(column=>column.Id=="13").Extra["visibleCondition"]=
@@ -30,9 +31,11 @@ public sealed class AgentCreateContractTests
         catalog.ConfigColumns.AddRange([
             new(){Id="16",ConfigTableId="1",ColumnName="owner_ID",LogicalType="int64"},
             new(){Id="17",ConfigTableId="1",ColumnName="default_marker",LogicalType="string",DefaultValue="默认值"},
-            new(){Id="18",ConfigTableId="1",ColumnName="initial_marker",LogicalType="string"}
+            new(){Id="18",ConfigTableId="1",ColumnName="initial_marker",LogicalType="string"},
+            new(){Id="19",ConfigTableId="1",ColumnName="parent_id",LogicalType="id",LinkConfigTableId="1"},
+            new(){Id="20",ConfigTableId="1",ColumnName="store_id",LogicalType="id"}
         ]);
-        foreach(var field in new[]{"11","15","16","17","18"})
+        foreach(var field in new[]{"11","15","16","17","18","19","20"})
             catalog.ConfigPageColumns.Add(new(){Id="21"+field,ConfigPageId=page.Id,ConfigColumnId=field,IsEdit=1,IsShow=1,IsRequired=1});
         catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="18").Extra["initValue"]=JsonSerializer.SerializeToElement("初始值");
 
@@ -54,15 +57,18 @@ public sealed class AgentCreateContractTests
             var request=add.MethodInfo.GetCustomAttribute<LegacyPageWriteRequestAttribute>()!.RequestType;
             var dto=JsonSerializer.Deserialize("""{"name":"客户","ownerID":"9007199254740993"}""",request,JsonDefaults.Options);
             Assert.Equal(owner,Assert.IsType<Optional<long?>>(request.GetProperty("OwnerID")!.GetValue(dto)).Value);
+            Assert.False(Assert.IsType<Optional<long?>>(request.GetProperty("ParentId")!.GetValue(dto)).IsSpecified);
+            Assert.False(Assert.IsType<Optional<long?>>(request.GetProperty("StoreId")!.GetValue(dto)).IsSpecified);
             Assert.Throws<JsonException>(()=>JsonSerializer.Deserialize("""{"owner_ID":"9007199254740993"}""",request,JsonDefaults.Options));
             var index=new GeneratedCapabilityIndex(actions,new Resources(catalog));
             var capability=new AgentCapabilityCatalog(index,new Authorization()).Describe("page:101:create");
             Assert.Equal("/admin/auto/customer/101/add",capability.Path);
+            Assert.True(Assert.Single(capability.Parameters,parameter=>parameter is { Name:"parentId", Binding:"query" }).Required);
             using var document=JsonDocument.Parse(JsonSerializer.Serialize(capability.RequestSchema));
             var schema=document.RootElement;
             Assert.False(schema.GetProperty("additionalProperties").GetBoolean());
             var properties=schema.GetProperty("properties").EnumerateObject().Select(property=>property.Name).ToHashSet(StringComparer.Ordinal);
-            Assert.True(properties.SetEquals(["name","remark","ownerID","defaultMarker","initialMarker"]));
+            Assert.True(properties.SetEquals(["name","remark","ownerID","defaultMarker","initialMarker","parentId","storeId"]));
             var required=schema.GetProperty("required").EnumerateArray().Select(value=>value.GetString()).ToArray();
             Assert.Equal(new[]{"name","ownerID"},required.Order(StringComparer.Ordinal));
             Assert.All(required,name=>Assert.Contains(name!,properties));

@@ -64,17 +64,18 @@ public sealed partial class GeneratedCapabilityIndex(IActionDescriptorCollection
                     var kind = binding == BindingSource.Body ? "body" : binding == BindingSource.Query ? "query" : route.Contains("{" + parameter.Name + "}", StringComparison.Ordinal) ? "path" : null;
                     if (kind is null) continue;
                     // 原页面 HTTP 回传适配不扩大 Agent 输入，schema 仍来自生成器固定标注的严格 DTO。
-                    var requestType = kind == "body" ? action.MethodInfo.GetCustomAttribute<LegacyPageWriteRequestAttribute>()?.RequestType : null;
-                    var schema = AgentJsonSchema.Create(requestType ?? parameter.ParameterType);
+                    var requestContract = kind == "body" ? action.MethodInfo.GetCustomAttribute<LegacyPageWriteRequestAttribute>() : null;
+                    var schema = AgentJsonSchema.Create(requestContract?.RequestType ?? parameter.ParameterType);
                     if (kind == "body")
                     {
                         requestSchema = schema;
                         var required = schema.GetValueOrDefault("required") is IEnumerable<string> dtoRequired
                             ? dtoRequired.ToList() : new List<string>();
                         if (operation is "update" or "delete") required.Add("id");
-                        // 页面必填只能补充实际 DTO 接受的属性，系统字段和只读回显不能成为输入。
+                        // 仅补客户端需提供的页面字段，独立保留 DTO 自身的反序列化必填。
                         if (operation == "create" && schema.GetValueOrDefault("properties") is IReadOnlyDictionary<string,object?> properties)
-                            required.AddRange(page.RequiredCreateFields.Where(properties.ContainsKey));
+                            required.AddRange(page.RequiredCreateFields.Where(field => properties.ContainsKey(field) &&
+                                requestContract?.ServerSuppliedFields.Contains(field, StringComparer.Ordinal) != true));
                         if (operation == "import") required.Add("requestJson");
                         if (required.Count > 0) requestSchema["required"] = required.Distinct(StringComparer.Ordinal).ToArray();
                     }

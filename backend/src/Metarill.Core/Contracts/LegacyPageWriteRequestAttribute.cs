@@ -5,4 +5,7 @@ namespace Metarill.Core.Contracts;
 public sealed class LegacyPageWriteRequestAttribute(Type requestType) : Attribute
 {
     public Type RequestType { get; } = requestType;
+
+    /// <summary>新增时由已认证账号或必填查询范围提供的 DTO 字段。</summary>
+    public string[] ServerSuppliedFields { get; set; } = [];
 }

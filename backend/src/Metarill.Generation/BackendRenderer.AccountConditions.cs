@@ -5,11 +5,17 @@ namespace Metarill.Generation;
 
 internal static partial class BackendRenderer
 {
+    /// <summary>对外描述沿用新增服务实际写入的物理父级和账号归属字段。</summary>
+    private static IEnumerable<string> CreateScopeJsonNames(TableModel table, PageModel page) =>
+        page.Scopes.Where(scope => scope.Source == "parent").Select(scope => scope.Column.JsonName)
+            .Concat(CreateAccountScopeFields(table, page).Select(scope => scope.Column.JsonName))
+            .Intersect(ManagerCredentialCompilation.Writable(table, page).Select(column => column.JsonName), StringComparer.Ordinal);
+
     /// <summary>新增时补齐省略的所属字段，显式输入和手写钩子仍须通过同一个账号范围。</summary>
     private static string AccountScopeDefaults(TableModel table,PageModel page)
     {
         var result=new StringBuilder();
-        foreach(var (column,value) in AccountScopeFields(table,page).Where(scope=>!scope.Column.IsId))
+        foreach(var (column,value) in CreateAccountScopeFields(table,page))
             result.AppendLine($"        if (!submitted.Contains({Literal(column.Source.ColumnName)})) entity.{column.Property} = {value};");
         return result.ToString();
     }
@@ -22,6 +28,10 @@ internal static partial class BackendRenderer
             result.AppendLine($"        if (entity.{column.Property} != {value}) throw new UnauthorizedAccessException(\"记录不属于当前账号的数据范围。\");");
         return result.ToString();
     }
+
+    /// <summary>主键由发号器产生，不使用账号归属覆盖。</summary>
+    private static IEnumerable<(ColumnModel Column, string Value)> CreateAccountScopeFields(TableModel table, PageModel page) =>
+        AccountScopeFields(table, page).Where(scope => !scope.Column.IsId);
 
     /// <summary>页面条件在生成时已经验证物理列和变量；这里沿用字符串或整数的固定转换。</summary>
     private static IEnumerable<(ColumnModel Column,string Value)> AccountScopeFields(TableModel table,PageModel page)
