@@ -111,9 +111,17 @@ internal static class MultiGlobalParentCompilation
         if(table.Source.IsRongyu!=0)
         {
             // 同一个 type=2 页实际发布给复选时，须按复选合同识别显式自定义物理父字段。
-            if(!table.IsGlobal)return null;
-            return CheckboxPageParent(model,table,page)??
+            if(table.IsGlobal)return CheckboxPageParent(model,table,page)??
                 GlobalCrossTableTarget.StoredProjectMultiParent(model.Catalog,table.Source,page.Source,checkbox);
+            var catalog=model.Catalog;
+            var publishedCheckbox=NonRedundantReads.IsPublishedCheckboxTarget(catalog,table.Source,page.Source.Id)&&
+                NonRedundantReads.IsProjectStoredCheckboxAccountPage(catalog,table.Source,page.Source);
+            if(!publishedCheckbox&&(!NonRedundantReads.IsScopedMultiSelectTarget(catalog,table.Source,page.Source.Id)||
+                !NonRedundantReads.IsProjectFixedMultiSelectTarget(catalog,table.Source,page.Source)))return null;
+            var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
+            return publishedCheckbox
+                ?MultiTargetParentScope.CompileCheckboxPage(catalog,table.Source,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)
+                :MultiTargetParentScope.CompileSelectionPage(catalog,table.Source,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true);
         }
         if(checkbox&&(page.Source.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1")||
             !NonRedundantReads.IsScopedMultiTarget(model.Catalog,table.Source,page.Source.Id)))return null;

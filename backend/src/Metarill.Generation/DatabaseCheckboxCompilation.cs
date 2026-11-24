@@ -162,6 +162,12 @@ internal static class DatabaseCheckboxCompilation
             bool UsesProjectStoredAccount(PageModel candidate)=>!functionForm&&
                 Metarill.Data.Queries.NonRedundantReads.IsProjectStoredCheckboxAccountPage(model.Catalog,target.Source,candidate.Source);
             var projectStoredAccount=namePage is not null&&UsesProjectStoredAccount(namePage);
+            // 普通项目字典的全局父仍按实际发布页核对，目标行继续按当前项目和账号限定。
+            var projectStoredGlobalParent=projectStoredAccount&&namePage!.Scopes.Count(scope=>scope.Source=="parent")>1&&
+                MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,
+                    FixedConditionPlan.Compile(namePage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName)),
+                    allowGlobalParent:true,allowStoredPhysicalParents:true) is {Global:true} storedGlobalBinding
+                ?storedGlobalBinding:null;
             if(table.Source.IsRongyu==1&&explicitPage!=fixedPage&&(projectStoredAccount||
                 target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&UsesProjectStoredAccount(candidate))))
                 return Gap("复选物理名称副本必须沿用表级账号候选范围。");
@@ -176,7 +182,7 @@ internal static class DatabaseCheckboxCompilation
             var ordinaryCompoundParent=!functionForm&&!table.IsGlobal&&exactTarget is null&&namePage is {} actualTarget&&
                 (sourceScopeColumns.Length>1||actualTarget.Scopes.Count(scope=>scope.Source=="parent")>1)&&
                 !sourceScopeColumns.Any(column=>NonRedundantCrossParentCompilation.Managed(model,table,page,column))
-                ?MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(model.Catalog,target.Source,actualTarget.Source)
+                ?projectStoredGlobalParent??MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(model.Catalog,target.Source,actualTarget.Source)
                 :null;
             // 保存按实际身份读取，维护从每条来源记录的持久归属绑定同一账号范围。
             var sharedFixedR0Page=sharedNamesPage&&target.Source.IsRongyu==0&&exactTarget is null&&
@@ -322,12 +328,19 @@ internal static class DatabaseCheckboxCompilation
                     !owner.AdditionalColumns.Select(column=>column.Id).Append(owner.Column.Id).ToHashSet(StringComparer.Ordinal)
                         .SetEquals(sourceScopeColumns.Select(column=>column.Source.Id)))
                     return Gap("复选来源页必须证明完整的同父物理字段。");
+                if(binding.Global)
+                    Metarill.Data.Queries.NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,namePage!.Source.Id,owner);
                 sourceParent=sourceScopeColumns.Single(column=>column.Source.Id==owner.Column.Id);
             }
             var pageHasParent=logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true;
             if(logicalSource&&physicalParents.Length==0&&!pageHasParent)
                 return Gap("来源逻辑父键须对应明确的控件或目标页父范围。");
             PageModel? globalParentPage=null;
+            if(projectStoredGlobalParent is not null)
+            {
+                _=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,namePage!.Source.Id);
+                globalParentPage=namePage;
+            }
             var compoundGlobalSource=false;
             if(functionForm&&physicalParents.Length>0)
             {
@@ -377,10 +390,10 @@ internal static class DatabaseCheckboxCompilation
                 {
                     var syntax=FixedConditionPlan.Compile(namePage!.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
                     binding=projectStoredAccount
-                        ?MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax,allowStoredPhysicalParents:true)
+                        ?MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)
                         :MultiTargetParentScope.CompileCheckboxParent(model.Catalog,target.Source,syntax);
                 }
-                if(binding is null||binding.Global||binding.Logical||physicalParents.Any(scope=>!binding.HasTarget(scope.Column.Source.Id))||
+                if(binding is null||binding.Global&&projectStoredGlobalParent is null||binding.Logical||physicalParents.Any(scope=>!binding.HasTarget(scope.Column.Source.Id))||
                     Protected(model.Tables.Single(candidate=>candidate.Source.Id==binding.Parent.Id)))
                     return Gap("表单父范围须绑定实际普通目标父键。");
                 BindFormParent(binding,binding.CheckboxSource(model.Catalog,table.Source,source.Source,page.Source,allowFormParent:true));

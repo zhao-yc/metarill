@@ -55,7 +55,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         var fields=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
             .Select(column=>column.ColumnName);
         var condition=FixedConditionPlan.Compile(string.Join(" AND ",declarations),fields);
-        return CompileSelectionPage(catalog,table,condition,allowGlobalParent:true,allowStoredPhysicalParents:true);
+        return CompileSelectionPage(catalog,table,condition,allowGlobalParent:table.IsRongyu==0,allowStoredPhysicalParents:true);
     }
 
     private static MultiTargetParentScope? CompilePublishedPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,
@@ -63,7 +63,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
     {
         var terms=condition.Terms.Where(ParentTerm).ToArray();
         if(terms.Length<=1)return Compile(catalog,table,condition,checkbox);
-        // 冗余字典的多个父键须来自目标表的实际物理列，普通字典仍要求项目内父记录。
+        // 冗余字典仅接受实际物理父列，全局父由明确开放该用途的发布入口校验。
         var storedPhysical=allowStoredPhysicalParents&&table.IsRongyu==1;
         if(table.IsRongyu!=0&&!storedPhysical||GlobalCrossTableTarget.Declared(table)!=globalTarget)throw Invalid();
         var fields=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
@@ -72,7 +72,7 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
             .DistinctBy(scope=>scope.Target.Id).OrderByDescending(scope=>scope.Logical)
             .ThenBy(scope=>scope.Target.Id,StringComparer.Ordinal).ToArray();
         var parent=scopes[0];
-        if(parent.Global&&(!allowGlobalParent||storedPhysical&&!globalTarget)||storedPhysical&&scopes.Any(scope=>scope.Logical)||
+        if(parent.Global&&!allowGlobalParent||storedPhysical&&scopes.Any(scope=>scope.Logical)||
             scopes.Any(scope=>scope.Parent.Id!=parent.Parent.Id))throw Invalid();
         return parent with{AdditionalTargets=scopes[1..]};
     }

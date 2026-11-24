@@ -233,9 +233,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field)))
             return false;
         return parents.Length==0||(checkboxAccount
-            ?MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowStoredPhysicalParents:true)
+            ?MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)
             :MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,
-                allowStoredPhysicalParents:true)) is {Global:false,Logical:false};
+                allowStoredPhysicalParents:true)) is {Logical:false} parent&&
+            (!parent.Global||table.IsRongyu==1&&parent.AdditionalTargets.Count>0);
 
         // 请求通过认证快照绑定，冗余名称回填则由现有归属计划逐页证明来源物理字段。
         bool IsStoredAccount(FixedConditionTerm term)=>table.IsRongyu==1&&term.Field!="yz_project_id"&&
@@ -382,9 +383,10 @@ public static partial class MySqlNonRedundantReadCompiler
         if(GlobalCrossTableTarget.Declared(table))
             return GlobalCrossTableTarget.StoredProjectMultiParent(catalog,table,page,checkbox)??
                 MultiTargetParentScope.CompileGlobalPage(catalog,table,syntax,checkbox);
-        if(checkbox)return MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(catalog,table,page)??
-            MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true,
-                allowStoredPhysicalParents:IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true));
+        if(checkbox)return IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true)
+            ?MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)
+            :MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(catalog,table,page)??
+                MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true);
         return page.Extra.GetValueOrDefault("type").ToString()=="2"
             ?MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,
                 allowStoredPhysicalParents:table.IsRongyu==1&&IsProjectFixedMultiPage(catalog,table,page))
