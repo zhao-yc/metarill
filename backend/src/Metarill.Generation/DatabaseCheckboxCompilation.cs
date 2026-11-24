@@ -114,6 +114,7 @@ internal static class DatabaseCheckboxCompilation
             var storedAccountPage=false;
             var storedProjectPage=false;
             var storedStaticPage=false;
+            var scopedGlobalAccountPage=false;
             if(target.IsGlobal&&!functionForm)
             {
                 var proof=table.Source.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);
@@ -125,15 +126,16 @@ internal static class DatabaseCheckboxCompilation
                     publishedGlobalPage.Scopes.All(scope=>scope.Source=="project")&&
                     GlobalMultipleRelationTarget.IsStoredAccountPage(target.Source,publishedGlobalPage.Source,publishedCondition.Syntax,checkbox:true);
                 storedProjectPage=proof.UsesProjectPage;
+                scopedGlobalAccountPage=table.IsGlobal&&proof.UsesNonRedundantAccountPage;
                 storedStaticPage=table.IsGlobal&&proof.UsesStoredStaticPage;
                 if(storedAccountPage||storedProjectPage||storedStaticPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
                     GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name)||
                     table.Source.IsRongyu==1&&publishedGlobalPage.Condition is not null)
                     globalPage=publishedGlobalPage;
             }
-            var storedIdentityPage=storedAccountPage||storedProjectPage;
+            var storedIdentityPage=storedAccountPage||storedProjectPage||scopedGlobalAccountPage;
             if(table.IsGlobal&&!storedIdentityPage&&!storedStaticPage)
-                return Gap("全局业务来源必须绑定受支持的已发布冗余字典页。");
+                return Gap("全局业务来源必须绑定受支持的已发布字典页。");
             if(storedAccountPage&&table.Source.IsRongyu==1&&!functionForm&&
                 !baseline.HasSameCondition(definition,target.Columns.Select(column=>column.Source.ColumnName)))
                 return Gap("同一名称副本的页面必须沿用表级复选候选条件。");
@@ -226,7 +228,7 @@ internal static class DatabaseCheckboxCompilation
             if(explicitPage!=fixedPage&&!pageRead&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate,includeProjectFixedScope:false))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
             var whereSql=definition.WhereSql;
-            if((storedProjectPage||storedStaticPage)&&table.Source.IsRongyu==1)
+            if((storedProjectPage||storedStaticPage||scopedGlobalAccountPage)&&table.Source.IsRongyu==1)
             {
                 var fields=target.Columns.Select(column=>column.Source.ColumnName).ToArray();
                 var publishedCondition=FixedConditionPlan.Compile(publishedGlobalPage!.Source.WhereSql,fields);

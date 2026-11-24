@@ -60,6 +60,7 @@ public static partial class MySqlNonRedundantReadCompiler
             string pageId;
             string? name=null;
             var storedGlobalStatic=false;
+            var globalAccountPage=false;
             if(relation.ControlKind=="MultiCheckBoxDatabase")
             {
                 var baseline=DatabaseCheckboxDefinition.Parse(relation.ControlDetail);
@@ -81,6 +82,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         throw new InvalidOperationException("全局复选名称与已发布目标页不一致。");
                     pageId=globalPageId=published.Page.Id;
                     storedGlobalStatic=GlobalCrossTableTarget.Declared(table)&&published.UsesStoredStaticPage;
+                    globalAccountPage=published.UsesNonRedundantAccountPage;
                 }
                 name=CheckboxPageNameOverride(table,relation,target,selected,baseline,definition,globalPageId,storedGlobalStatic);
             }
@@ -107,7 +109,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     IsProjectOnlyStoredMultiSelectPage(catalog,target,selected));
             var physicalNameOverride=name is not null&&target.IsRongyu==1&&!binding.ApplyPageScope;
             var globalOwnedCheckbox=checkbox&&binding.ApplyPageScope&&selected is not null&&
-                (storedGlobalStatic||StoredIdentityMultiPage(catalog,target,selected,checkbox:true)||
+                (storedGlobalStatic||globalAccountPage||StoredIdentityMultiPage(catalog,target,selected,checkbox:true)||
                     IsNonRedundantProjectMultiPage(catalog,target,selected,checkbox:true));
             if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!storedMultiSelect&&!physicalNameOverride||
                 GlobalCrossTableTarget.Declared(table)&&!globalOwnedCheckbox||
@@ -168,6 +170,10 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             var storedIdentity=selectedScope is not null&&StoredIdentityMultiPage(catalog,target,selectedScope,checkbox);
+            var globalAccountSource=refreshFields is not null&&selectedScope is not null&&
+                GlobalCrossTableTarget.Declared(table)&&GlobalCrossTableTarget.Declared(target)&&
+                GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target) is
+                    {UsesNonRedundantAccountPage:true,Page.Id:var publishedId}&&publishedId==selectedScope.Id;
             var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,checkboxAccount:checkbox);
             var ordinaryForm=checkbox&&refreshFields is not null&&selectedScope is not null&&(sharedCheckbox||fixedParent is not null)
                 ?DatabaseCheckboxDefinition.Parse(relation.ControlDetail).AdditionalPhysicalFormConditions(catalog,target,selectedScope)
@@ -236,7 +242,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var targetBuilder=new Builder(catalog,target.Id,matching:!global,rootAlias:"multi_value",aliasPrefix:prefixForNames,
                 trackReverse:refreshFields is not null,candidatePage:candidatePage,multiLabel:true,cascadeLabelField:value.ColumnName,
                 cascadeCacheOwner:refreshFields is null||fixedParent is not null&&!projectFixedScope&&storage[target.Id].IsPhysical(value)?null:
-                    new(table,owner,GlobalSingleSource:storedIdentity&&GlobalCrossTableTarget.Declared(table)),
+                    new(table,owner,GlobalSingleSource:globalAccountSource||storedIdentity&&GlobalCrossTableTarget.Declared(table)),
                 globalCandidate:global&&target.IsRongyu==0&&candidatePage is not null,
                 scopedPhysicalCandidate:physicalScope&&!global,accountPhysicalCandidate:storedIdentity,
                 exactSingleCandidate:storedGlobalExact)

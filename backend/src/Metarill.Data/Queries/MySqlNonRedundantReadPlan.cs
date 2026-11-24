@@ -262,7 +262,15 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>发布时验证名称缓存能以来源表真实行归属独立重算。</summary>
     internal static MySqlNonRedundantReadPlan CompileMultiLabelForCache(MetadataCatalog catalog,TableMetadata source,TableMetadata target,
         string field,PageMetadata? selectedPage,ColumnMetadata relation,bool sharedCheckbox)
-        =>CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner"),selectedPage,relation,sharedCheckbox:sharedCheckbox);
+    {
+        // 仅实际全局字典的账号等值允许按全局来源行重算，来源项目仍由维护根计划隔离。
+        var globalAccountSource=selectedPage is not null&&GlobalCrossTableTarget.Declared(source)&&
+            GlobalCrossTableTarget.Declared(target)&&
+            GlobalMultipleRelationTarget.RequireCached(catalog,source,relation,target) is
+                {UsesNonRedundantAccountPage:true,Page.Id:var publishedId}&&publishedId==selectedPage.Id;
+        return CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner",GlobalSingleSource:globalAccountSource),
+            selectedPage,relation,sharedCheckbox:sharedCheckbox);
+    }
 
     private static MySqlNonRedundantReadPlan CompileMultiLabel(MetadataCatalog catalog,string tableId,string field,IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,CascadeCacheOwner? cacheOwner,PageMetadata? selectedPage=null,ColumnMetadata? relation=null,
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,bool sharedCheckbox=false)

@@ -39,6 +39,8 @@ internal static class MultiSelectCompilation
             var scopedGlobal = table.HasScopedGlobalCache || table.IsGlobal && table.Source.IsRongyu == 1 &&
                 actual.Any(definition => FixedPageConditionCompilation.HasStoredGlobalMultiScope(definition.Target, definition.TargetPage) ||
                     FixedPageConditionCompilation.HasGlobalProjectMultiScope(definition.Target, definition.TargetPage) ||
+                    definition.TargetPage.Condition is {} account&&GlobalMultipleRelationTarget.IsNonRedundantAccountPage(
+                        definition.Target.Source,definition.TargetPage.Source,account.Syntax,checkbox:false)||
                     UsesStaticGlobalDictionary(definition));
             ColumnModel Fix(ColumnModel column) => names.Contains(column.Source.Id) ? column with { IsManagedMultiNames = true } : column;
             IReadOnlyList<ColumnModel> FixAll(IReadOnlyList<ColumnModel> columns) => columns.Select(Fix).ToArray();

@@ -42,7 +42,7 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var storedAccount=global is not null&&sourceParentId is null&&target.IsRongyu==1&&
             GlobalMultipleRelationTarget.IsStoredAccountPage(target,page,FixedConditionPlan.Compile(page.WhereSql,fields),checkbox:true);
         var storedStatic=global?.UsesProjectPage==true||
-            global?.UsesStoredStaticPage==true&&GlobalCrossTableTarget.Declared(source);
+            GlobalCrossTableTarget.Declared(source)&&global is {UsesStoredStaticPage:true} or {UsesNonRedundantAccountPage:true};
         var staticCondition=storedStatic?FixedConditionPlan.Compile(page.WhereSql,fields):null;
         var projectAccount=global is null&&MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(catalog,target,page,checkboxAccount:true);
         var baselineExtra=projectAccount?baseline.AdditionalProjectConditions(page.WhereSql,fields):"";
