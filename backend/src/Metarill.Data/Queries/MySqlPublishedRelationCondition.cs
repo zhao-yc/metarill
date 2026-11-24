@@ -104,9 +104,10 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var syntax=FixedConditionPlan.Compile(page.WhereSql,fields.Select(column=>column.ColumnName));
         var projectStoredAccount=MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(catalog,target,page,checkboxAccount:true);
         var parent=projectStoredAccount
-            ?MultiTargetParentScope.CompileCheckboxPage(catalog,target,syntax,allowStoredPhysicalParents:true)
+            ?MultiTargetParentScope.CompileCheckboxPage(catalog,target,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)
             :MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(catalog,target,page);
-        if(parent is null||parent.Global||parent.Logical||syntax.Variables.Any(variable=>
+        var projectGlobalParent=projectStoredAccount&&parent is {Global:true,Logical:false,AdditionalTargets.Count:>0};
+        if(parent is null||parent.Global&&!projectGlobalParent||parent.Logical||syntax.Variables.Any(variable=>
             !MultiTargetParentScope.IsParameter(variable)&&!variable.Equals("current_yz_project_id",StringComparison.OrdinalIgnoreCase))&&
             !projectStoredAccount)
             throw new InvalidOperationException("复选多名称要求实际普通物理目标父键。");
@@ -114,6 +115,12 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         var sourceKey=parent.CheckboxSource(catalog,source,relation,allowProjectPhysicalColumns:true);
         if(sourceKey.Column.Id!=sourceParentId||sourceKey.LogicalPages.Count>0)
             throw new InvalidOperationException("复选多名称要求所有来源页使用同一物理父键。");
+        if(projectGlobalParent)
+        {
+            // 运行维护宿主重证目标与所有参与的来源范围仍指向同一个实际父页。
+            _=MySqlNonRedundantReadCompiler.PublishedMultiGlobalParent(catalog,target.Id,page.Id);
+            MySqlNonRedundantReadCompiler.RequireCompoundGlobalSourceParent(catalog,target.Id,page.Id,sourceKey);
+        }
         return (page,parent,sourceKey);
     }
 

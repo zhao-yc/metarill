@@ -596,6 +596,16 @@ public sealed class CascadeMultiLabelGenerationTests
             globalParent:true,parentWithoutProject:true,parentAccount:true,compoundTargetParent:"physical",
             projectTargetGlobalParent:true,storedDictionary:true);
 
+    /// <summary>项目内冗余字典的复选全称和简称沿同一已发布全局父页。</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public Task Project_stored_checkbox_uses_alternate_name_with_compound_global_parent(int mode)=>
+        CompileCascadeLabel("MultiCheckBoxDatabase",mode,selfTree:false,indirect:false,selectedPage:true,physical:true,parent:true,
+            globalParent:true,parentWithoutProject:true,parentAccount:true,compoundTargetParent:"physical",
+            projectTargetGlobalParent:true,storedDictionary:true,globalBusinessSource:true,ordinaryBusinessSource:true,
+            alternateCheckboxName:true);
+
     /// <summary>项目内多值页通过单个物理外键绑定实际全局父页，账号条件可只在父页。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false)]
@@ -1012,7 +1022,7 @@ public sealed class CascadeMultiLabelGenerationTests
             }
         }
         new FrontendPackager().Validate(catalog);
-        if(globalBusinessSource&&compoundTargetParent=="physical")
+        if(globalBusinessSource&&globalRowProject is not null&&compoundTargetParent=="physical")
         {
             // 同一请求的第二个父字段不能改指另一张表，也不能靠首个字段继续发布。
             var other=catalog.ConfigColumns.Single(column=>column.Id=="217");
@@ -1256,6 +1266,17 @@ public sealed class CascadeMultiLabelGenerationTests
                     Assert.Contains("multi_value.`target_scope_id`",expression);
                     Assert.Contains("multi_value.`other_country_id`",expression);
                     Assert.Contains("`store_id`",expression);
+                    if(alternateCheckboxName&&mode==0)
+                    {
+                        var alternate=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("ReadPlan902",staticPrivate)!.GetValue(null));
+                        var alternateRead=alternate.GetType().GetProperty("MySql",hidden)!.GetValue(alternate)!;
+                        var alternateName=Assert.IsType<string>(alternateRead.GetType().GetMethod("Expression",hidden)!
+                            .Invoke(alternateRead,[definition.Names.Source.ColumnName]));
+                        Assert.Contains("multi_value.`short_name`",alternateName);
+                        Assert.Contains("multi_value.`target_scope_id`",alternateName);
+                        Assert.Contains("multi_value.`other_country_id`",alternateName);
+                        Assert.Contains("multi_value.`yz_project_id`",alternateName);
+                    }
                 }
 
                 if(projectStoredGlobalParent)
@@ -1592,7 +1613,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 Assert.Contains("LIMIT 1 FOR SHARE) END",current);
             }
             if(indirect)RuntimeHelpers.RunClassConstructor(assembly.GetType(ns+".Generated.Services.LabelJoinService",true)!.TypeHandle);
-            if(alternateCheckboxName)
+            if(alternateCheckboxName&&!projectStoredGlobalParent)
             {
                 const System.Reflection.BindingFlags staticPlan=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
                 var primary=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("DerivedCheckboxPlan901_95",staticPlan)!.GetValue(null));
@@ -1667,7 +1688,9 @@ public sealed class CascadeMultiLabelGenerationTests
                     Assert.Contains("entity.SourceScopeId",code);
                     if(mode==0)Assert.Contains("relationContext[\"sourceScopeId\"]",code);
                 }
-                if(ordinaryBusinessSource&&!projectParentScope)Assert.Contains("projectId:actor.ProjectId",code);
+                if(projectStoredGlobalParent&&physicalProjectCheckbox)
+                    Assert.Contains($"query=session.Select<global::{ns}.Generated.Entities.LabelCrossSource>().Where(row=>row.YzProjectId==long.Parse(actor.ProjectId",code);
+                else if(ordinaryBusinessSource&&!projectParentScope)Assert.Contains("projectId:actor.ProjectId",code);
                 foreach(var id in new[]{"901","902"})
                 {
                     var scope=metadata.ConfigPages.Single(page=>page.Id==id).WhereSql;

@@ -538,10 +538,12 @@ internal static class DatabaseCheckboxCompilation
     /// <summary>所有名称缓存绑定同一个来源行键，已发布的全部实际目标父字段必须一致。</summary>
     internal static string? FixedCacheParent(DatabaseCheckboxModel definition)
     {
-        if(definition.PhysicalTargetPage is null||definition.LogicalSourceParent||definition.GlobalParent||
+        // 项目内冗余字典的全局父已经沿各字段的实际发布页核验，副本仍须保存同一个来源物理父键。
+        var projectGlobalParent=definition.HasProjectStoredAccountScope&&definition.GlobalParent&&!definition.Target.IsGlobal;
+        if(definition.PhysicalTargetPage is null||definition.LogicalSourceParent||definition.GlobalParent&&!projectGlobalParent||
             definition.SourceScopeColumns.Count==0&&definition.FormParentField is null||
             definition.SourceScopeColumns.Count>1&&!definition.CompoundPhysicalSource||
-            definition.SourceParents.Count!=1||definition.SourceParents[0].IsGlobal)
+            definition.SourceParents.Count!=1||definition.SourceParents[0].IsGlobal&&!projectGlobalParent)
             return null;
         var target=definition.PhysicalTargetPage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();
         var effective=definition.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.Id).ToArray();
