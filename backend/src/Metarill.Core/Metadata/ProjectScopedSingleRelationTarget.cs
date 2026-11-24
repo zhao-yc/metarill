@@ -108,7 +108,7 @@ public static class ProjectScopedSingleRelationTarget
             (joined.ValueKind==JsonValueKind.True||joined.ToString()=="1");
         if(storedSelection&&!matches.Any(match=>match.Page is {} page&&
             (PhysicalSelectionParent(catalog,target,page) is not null||
-                managedCache&&HasFixedUnparentedSelection(catalog,target,page,columns,names))))
+                managedCache&&HasScopedUnparentedSelection(catalog,target,page,columns,names))))
             return null;
         var controlScope=nameCache is not null?ControlScope(catalog,owner,foreign,target):null;
         if(controlScope?.Terms.Count is not >0&&!matches.Any(match=>match.Page is not null&&(HasPageScope(match.Page,names)||
@@ -174,8 +174,8 @@ public static class ProjectScopedSingleRelationTarget
             .Select(term=>term.ToDefinition()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
     }
 
-    /// <summary>无父冗余字典只按发布物理常量建立名称副本；实际项目范围仍由既有目录绑定。</summary>
-    private static bool HasFixedUnparentedSelection(MetadataCatalog catalog,TableMetadata target,PageMetadata page,
+    /// <summary>无父字典认领物理常量和原账号等值；维护编译再证明所有来源页使用同一持久归属列。</summary>
+    private static bool HasScopedUnparentedSelection(MetadataCatalog catalog,TableMetadata target,PageMetadata page,
         IReadOnlyList<ColumnMetadata> columns,string[] members)
     {
         if(page.Extra.GetValueOrDefault("type").ToString()!="1"||
@@ -183,9 +183,12 @@ public static class ProjectScopedSingleRelationTarget
             return false;
         var terms=FixedConditionPlan.Compile(page.WhereSql,members).Terms.Where(term=>!ProjectTerm(term)).ToArray();
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
-        return terms.Length>0 && terms.All(term=>
-            term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)&&
-            columns.Any(column=>column.ColumnName==term.Field&&GlobalPhysicalRelationValue.IsScalar(storage,target,column)));
+        return terms.Length>0 && terms.All(term=>columns.Any(column=>
+            column.ColumnName==term.Field&&GlobalPhysicalRelationValue.IsScalar(storage,target,column)&&
+            (term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)||
+                term.Field!="yz_project_id"&&column.LogicalType is "int32" or "int64" or "string"&&
+                term is {Comparison:FixedConditionComparison.Equal,Values:[{Kind:FixedConditionValueKind.Variable} account]}&&
+                AccountConditionVariables.IsPageField(account.Text,term.Field))));
     }
 
     /// <summary>顺着已声明的单值路径找到需要持久化的范围，循环留给与读取相同的拒绝门禁。</summary>

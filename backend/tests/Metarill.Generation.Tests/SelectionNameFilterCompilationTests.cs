@@ -44,7 +44,14 @@ public sealed class SelectionNameFilterCompilationTests
     public Task Stored_project_selection_uses_fixed_page_without_target_parent(bool unparentedSource) =>
         VerifyStoredProjectCache(unparentedSource,targetHasParent:false);
 
-    private static async Task VerifyStoredProjectCache(bool independentParent,bool targetHasParent)
+    /// <summary>无父字典实时按登录门店过滤，物理副本按来源行保存的门店重算。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public Task Stored_project_selection_uses_account_page_without_target_parent(bool unparentedSource) =>
+        VerifyStoredProjectCache(unparentedSource,targetHasParent:false,accountScope:true);
+
+    private static async Task VerifyStoredProjectCache(bool independentParent,bool targetHasParent,bool accountScope=false)
     {
         const string ns = "Example.StoredSelectionFilter";
         var catalog = RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
@@ -71,6 +78,14 @@ public sealed class SelectionNameFilterCompilationTests
             new(){Id="27",ConfigTableId="2",ColumnName="target_name",LogicalType="string",YzProjectId=catalog.YzProjectId,
                 Extra=new(){["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("target.name")}},
             new(){Id="37",ConfigTableId="3",ColumnName="status",LogicalType="int32",YzProjectId=catalog.YzProjectId}]);
+        if(accountScope)
+        {
+            catalog.ConfigColumns.AddRange([
+                new(){Id="28",ConfigTableId="2",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId},
+                new(){Id="38",ConfigTableId="3",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId}]);
+            sourcePage.WhereSql+=" AND store_id=@current_store_id";
+            targetPage.WhereSql+=" AND store_id=@current_store_id";
+        }
         catalog.ConfigPageColumns.Add(new(){Id="20127",ConfigPageId="201",ConfigColumnId="27",YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=0});
         catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="25")
             .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
@@ -107,7 +122,7 @@ public sealed class SelectionNameFilterCompilationTests
             var arguments=new object?[serviceType.GetConstructors().Single().GetParameters().Length];
             arguments[0]=session;arguments[1]=mapper;arguments[2]=new SnowflakeIdGenerator(845);arguments[3]=Array.Empty<IRecordMutationObserver>();
             var service=Activator.CreateInstance(serviceType,arguments)!;
-            var actor=new RuntimeActor(8,"离线名称筛选",false,catalog.YzProjectId,"5");
+            var actor=new RuntimeActor(8,"离线名称筛选",false,catalog.YzProjectId,"5"){StoreId=9007199254742011L};
             var request=new PageRequest{ParentId=independentParent?null:"71",Filters=new(){["targetName"]=JsonSerializer.SerializeToElement("引号_'%")}};
             var query=serviceType.GetMethod("Query201",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(service,[request,actor])!;
             var entityType=assembly.GetType(ns+".Generated.Entities.RelationSource",true)!;
@@ -137,6 +152,23 @@ public sealed class SelectionNameFilterCompilationTests
             Assert.Contains("LIKE",sql,StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("引号_",sql);
             if(!independentParent) Assert.Contains("`parent_id`",sql);
+            if(accountScope)
+            {
+                Assert.Contains("`store_id`",sql);
+                Assert.Matches(@"BINARY CAST\((?!b\.)\w+\.\x60store_id\x60 AS CHAR\)=BINARY CAST\(b\.\x60store_id\x60 AS CHAR\)",nameSql);
+                Assert.Contains("""OptionsPageCondition201_25.BindAccount(actor).ApplyConstants(query,session,"options_page_201_25")""",serviceCode);
+                var importStart=serviceCode.IndexOf("private async Task<JsonElement> ImportRelation201_25Async",StringComparison.Ordinal);
+                Assert.True(importStart>=0);
+                Assert.Matches(@"await (?:Derived)?OptionsScope201_25Async\(parentId,\s*(?:null|targetParentId|targetParent\.ToString\(\)|parentId),\s*actor\b",
+                    serviceCode[importStart..]);
+                Assert.Contains(references.Cast<object>(),item =>
+                {
+                    var type=item.GetType();
+                    var column=type.GetProperty("Column")!.GetValue(item)!;
+                    return Equals("relation_target",type.GetProperty("Table")!.GetValue(item)) &&
+                        Equals("store_id",column.GetType().GetProperty("Name")!.GetValue(column));
+                });
+            }
 
             var front=Path.Combine(directory,"app");
             Assert.True(new ApplicationPackager().Create(catalog,front,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
@@ -156,6 +188,14 @@ public sealed class SelectionNameFilterCompilationTests
         targetPage.WhereSql="yz_project_id=@current_yz_project_id AND status=@current_store_id";
         Assert.Null(ProjectScopedSingleRelationTarget.Resolve(catalog,owner,foreign,target));
         targetPage.WhereSql=fixedScope;
+
+        if(accountScope)
+        {
+            sourcePage.WhereSql=sourcePage.WhereSql.Replace(" AND store_id=@current_store_id","",StringComparison.Ordinal);
+            var error=Assert.Throws<InvalidOperationException>(()=>
+                RelationPropagationCompilation.DerivedBindings(GenerationModel.Create(catalog,ns)));
+            Assert.Contains("物理账号归属",error.Message);
+        }
 
         catalog.ConfigColumns.Single(column=>column.Id=="27").Extra.Remove("isJoinColumn");
         Assert.Null(ProjectScopedSingleRelationTarget.Resolve(catalog,owner,foreign,target));
