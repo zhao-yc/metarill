@@ -110,13 +110,13 @@ public static class GlobalMultipleRelationTarget
         var storedStatic=(checkbox||pageId.Length>0)&&(target.IsRongyu==1||!scoped)&&IsStoredStaticPage(target,page,condition,checkbox);
         var projectPage=(checkbox||pageId.Length>0)&&IsProjectPage(target,page,condition,checkbox);
         var nonRedundantAccountPage=(checkbox||pageId.Length>0)&&IsNonRedundantAccountPage(target,page,condition,checkbox);
-        // 实际来源和字典绑定同一父记录，显式项目条件同时适用于普通项目业务来源。
+        // 普通与全局业务来源共用真实同父证明；固定字典可以只声明父范围和字面条件。
         var projectParentPage=IsProjectParentPage(target,page,condition,checkbox);
+        var staticParentPage=GlobalCrossTableTarget.UsesOnlyParentVariables(condition);
         var physicalParentPage=false;
-        if((GlobalCrossTableTarget.Declared(owner)||projectParentPage)&&(checkbox||pageId.Length>0)&&target.IsRongyu==0&&!scoped&&
-            IsPublishedMultiPage(target,page,checkbox)&&
-            (projectParentPage||condition.Variables.Any(AccountConditionVariables.IsSupported)||
-                GlobalCrossTableTarget.UsesOnlyParentVariables(condition))&&
+        if((GlobalCrossTableTarget.Declared(owner)||projectParentPage||staticParentPage)&&
+            (checkbox||pageId.Length>0)&&target.IsRongyu==0&&!scoped&&IsPublishedMultiPage(target,page,checkbox)&&
+            (projectParentPage||staticParentPage||condition.Variables.Any(AccountConditionVariables.IsSupported))&&
             MultiTargetParentScope.CompileGlobalPage(catalog,target,condition,checkbox) is {Logical:false} parent&&
             parent.AdditionalTargets.All(scope=>!scope.Logical))
         {

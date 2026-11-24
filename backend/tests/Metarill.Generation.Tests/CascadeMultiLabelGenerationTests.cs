@@ -256,6 +256,22 @@ public sealed class CascadeMultiLabelGenerationTests
             parent:true,globalParent:globalParent,parentWithoutProject:globalParent,parentAccount:globalParent&&mode==1,
             compoundTargetParent:compound?"physical":null,globalBusinessSource:true,onlyParent:true,literalParent:literal);
 
+    /// <summary>普通项目引用全局字典时，也可只按实际发布的父字段和固定条件筛选。</summary>
+    [Theory]
+    [InlineData("MultiSelectPage",0,true,false,false,false)]
+    [InlineData("MultiSelectPage",1,false,true,true,false)]
+    [InlineData("MultiSelectPage",0,false,true,false,true)]
+    [InlineData("MultiSelectPage",1,true,false,true,true)]
+    [InlineData("MultiCheckBoxDatabase",0,true,false,true,false)]
+    [InlineData("MultiCheckBoxDatabase",1,false,true,false,false)]
+    [InlineData("MultiCheckBoxDatabase",0,true,true,false,true)]
+    [InlineData("MultiCheckBoxDatabase",1,false,false,true,true)]
+    public Task Project_business_multivalue_uses_static_global_parent(string kind,int mode,bool rowProject,bool compound,bool literal,bool globalParent)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:true,globalRowProject:rowProject,
+            parent:true,globalParent:globalParent,parentWithoutProject:globalParent,parentAccount:globalParent&&mode==1,
+            compoundTargetParent:compound?"physical":null,globalBusinessSource:true,onlyParent:true,literalParent:literal,
+            ordinaryBusinessSource:true);
+
     /// <summary>全局字典同时按当前项目和实际父范围隔离，可叠加固定条件或账号等值。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false,false,false,false)]
@@ -1280,20 +1296,32 @@ public sealed class CascadeMultiLabelGenerationTests
                 }
                 finally{key.LinkConfigTableId=previousLink;}
             }
-            if(projectParentScope)
+            var ordinaryStaticDictionary=ordinaryBusinessSource&&globalRowProject is not null&&onlyParent&&!projectParentScope;
+            if(projectParentScope||ordinaryStaticDictionary)
             {
                 const System.Reflection.BindingFlags planFlags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
                 const System.Reflection.BindingFlags instanceFlags=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
-                void RequireProjectAndParent(Type service,string field)
+                string PlanScope(Type service,string field,string? requiredParent)
                 {
                     var plan=Assert.IsType<NonRedundantReadPlan>(service.GetField(field,planFlags)!.GetValue(null));
                     var sql=plan.GetType().GetProperty("MySql",instanceFlags)!.GetValue(plan)!;
-                    var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",instanceFlags)!.GetValue(sql));
-                    Assert.Contains("b.`yz_project_id`="+(textDictionaryProject?"@project_scope_text":"@project_scope_number"),scope);
-                    Assert.Equal(parentField,sql.GetType().GetProperty("RequiredMultiParent",instanceFlags)!.GetValue(sql));
+                    if(requiredParent is not null)
+                        Assert.Equal(requiredParent,sql.GetType().GetProperty("RequiredMultiParent",instanceFlags)!.GetValue(sql));
+                    return Assert.IsType<string>(sql.GetType().GetProperty("Scope",instanceFlags)!.GetValue(sql));
                 }
-                RequireProjectAndParent(consumer,kind=="MultiCheckBoxDatabase"?"DerivedCheckboxPlan901_95":"MultiDerivedPlan901_95");
-                if(kind=="MultiSelectPage")RequireProjectAndParent(targetService,"CandidateReadPlan201");
+                void RequireDictionaryScope(Type service,string field)
+                {
+                    var scope=PlanScope(service,field,parentField);
+                    Assert.Contains("b.`"+parentField+"`",scope);
+                    if(projectParentScope)
+                        Assert.Contains("b.`yz_project_id`="+(textDictionaryProject?"@project_scope_text":"@project_scope_number"),scope);
+                    else
+                        Assert.DoesNotContain("b.`yz_project_id`=",scope);
+                }
+                RequireDictionaryScope(consumer,kind=="MultiCheckBoxDatabase"?"DerivedCheckboxPlan901_95":"MultiDerivedPlan901_95");
+                if(kind=="MultiSelectPage")RequireDictionaryScope(targetService,"CandidateReadPlan201");
+                if(ordinaryStaticDictionary&&mode==0)
+                    Assert.Contains("b.`yz_project_id`=@project_scope_number",PlanScope(consumer,"ReadPlan901",null));
             }
             if(exactLeaf)
             {
@@ -1321,7 +1349,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 Assert.NotNull(consumer.GetMethod("Export902Async"));
                 const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic;
                 var validate=consumer.GetMethod("ValidateActor",flags)!;
-                if(!ordinaryBusinessSource||customCheckboxParentType is null)
+                if(!ordinaryBusinessSource||projectParentScope)
                 {
                     var error=Assert.Throws<System.Reflection.TargetInvocationException>(()=>
                         validate.Invoke(null,[new RuntimeActor(7,"合成账号",false,"999","9")]));
@@ -1330,7 +1358,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 var metadata=GenerationMetadataPublisher.ForRelations(catalog);
                 var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LabelConsumerService.g.cs"));
                 Assert.Contains("if (existing.Count > 1)",code);
-                if(ordinaryBusinessSource&&customCheckboxParentType is not null)Assert.Contains("projectId:actor.ProjectId",code);
+                if(ordinaryBusinessSource&&!projectParentScope)Assert.Contains("projectId:actor.ProjectId",code);
                 foreach(var id in new[]{"901","902"})
                 {
                     var scope=metadata.ConfigPages.Single(page=>page.Id==id).WhereSql;
