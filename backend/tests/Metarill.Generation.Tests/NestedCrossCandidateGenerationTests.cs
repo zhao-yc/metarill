@@ -21,10 +21,18 @@ public sealed class NestedCrossCandidateGenerationTests
     [InlineData(true,"without-project",true)]
     [InlineData(false,"cached-ordinary",true)]
     [InlineData(true,"cached-global",true)]
-    public async Task Logical_target_page_keeps_nested_scope_after_metadata_publication(bool shared,string mode,bool selfTreeScope=false)
+    [InlineData(false,"ordinary",false,true)]
+    [InlineData(false,"row-project",false,true)]
+    [InlineData(true,"without-project",true,true)]
+    [InlineData(false,"cached-ordinary",true,true)]
+    [InlineData(true,"cached-global",false,true)]
+    [InlineData(true,"cached-global",true,true)]
+    public async Task Logical_target_page_keeps_nested_scope_after_metadata_publication(
+        bool shared,string mode,bool selfTreeScope=false,bool textKey=false)
     {
         const string ns="Example.NestedCrossScope";
         var catalog=Catalog(shared,mode,selfTreeScope);
+        if(textKey)PublishOuterTextRoot(catalog,mode,selfTreeScope);
         var before=JsonSerializer.Serialize(catalog);
         var model=GenerationModel.Create(catalog,ns);
         var table=model.Tables.Single(item=>item.Source.Id=="90");
@@ -36,6 +44,7 @@ public sealed class NestedCrossCandidateGenerationTests
         var plan=Assert.Single(plans,item=>item.Read.Source.Source.Id=="9004");
         if(mode=="cached-global"||shared&&selfTreeScope)Assert.Single(SharedCrossTableCompilation.ForPage(model,table,page).Groups);
         else Assert.Single(plans);
+        Assert.Equal(textKey,plan.Read.Levels[0].TextKey);
         Assert.True(selfTreeScope?FixedPageConditionCompilation.HasSelfTreeFields(plan.Read.Levels[0].Page):
             FixedPageConditionCompilation.HasCrossFields(plan.Read.Levels[0].Page));
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
@@ -84,7 +93,15 @@ public sealed class NestedCrossCandidateGenerationTests
                     catalog,inner.Source,catalog.ConfigPages.Single(item=>item.Id=="202")));
             }
             var targetPlan=(NonRedundantReadPlan)type.GetField("CrossTargetPlan900_9004_0",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null)!;
-            Assert.Equal(new[]{"id","name"},targetPlan.OutputTypes.Keys);
+            Assert.Equal(textKey?new[]{"id","name","business_key"}:new[]{"id","name"},targetPlan.OutputTypes.Keys);
+            if(textKey)
+            {
+                Assert.Contains("FixedReadFilter.ForTextTree(\"business_key\",",service);
+                Assert.Contains("PathByKeyAsync",service);
+                var actor=new Metarill.Core.Security.RuntimeActor(1,"账号范围",false,catalog.YzProjectId,"5");
+                Assert.Throws<UnauthorizedAccessException>(()=>targetPlan.BindAccount(actor));
+                targetPlan.BindAccount(actor with {StoreId=9007199254740993L,MerchantId=33});
+            }
             if(selfTreeScope&&!cached)
             {
                 var read=Assert.IsType<NonRedundantReadPlan>(type.GetField("ReadPlan900",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
@@ -114,6 +131,7 @@ public sealed class NestedCrossCandidateGenerationTests
                 var maintenance=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
                 var published=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(maintenance.GetProperty("Catalog")!.GetValue(null));
                 Assert.Contains("outer_root_name",published.MixedSourceColumns[table.Source.TableName]);
+                if(textKey)Assert.Contains("business_key",published.MixedTargetKeys(plan.Read.Levels[0].Target.Source.TableName));
                 Assert.Contains(published.MixedTargets,target=>target.Contains(selfTreeScope?"visibility":"country",StringComparison.Ordinal));
                 var entity=assembly.GetType(ns+".Generated.Entities.ScopedCandidateOuter",true)!;
                 using var database=new Metarill.Data.DatabaseSession(new(){ExpectedDatabase="offline",
@@ -126,13 +144,15 @@ public sealed class NestedCrossCandidateGenerationTests
                 var instance=Activator.CreateInstance(type,arguments)!;
                 var scope=type.GetMethod("Scope900",BindingFlags.Instance|BindingFlags.NonPublic)!;
                 var account=new Metarill.Core.Security.RuntimeActor(1,"父范围测试",false,catalog.YzProjectId,"5"){StoreId=9007199254740993L,MerchantId=33};
-                var query=scope.Invoke(instance,[account,"9007199254742000",false])!;
+                var parent=textKey&&mode=="cached-global"?"root-001":"9007199254742000";
+                var query=scope.Invoke(instance,[account,parent,false])!;
                 var sql=(string)GetType().GetMethod(nameof(Sql),BindingFlags.Static|BindingFlags.NonPublic)!.MakeGenericMethod(entity).Invoke(null,[query])!;
                 Assert.Contains("r1_page_0_0_recursive_mt_candidate_",sql);
                 Assert.Contains("rp0",sql);
+                if(textKey)Assert.Contains("BINARY rp0.`business_key`",sql);
                 Assert.DoesNotContain("不可选路径",sql);
                 Assert.IsType<UnauthorizedAccessException>(Assert.Throws<TargetInvocationException>(()=>
-                    scope.Invoke(instance,[account with{StoreId=null},"9007199254742000",false])).InnerException);
+                    scope.Invoke(instance,[account with{StoreId=null},parent,false])).InnerException);
                 var registry=new Metarill.Runtime.Files.FileMetadataContext([catalog]);
                 var frozen=registry.Catalogs.Single();
                 Assert.NotNull(registry.GetType().GetMethod("PageScope",BindingFlags.Instance|BindingFlags.NonPublic)!
@@ -159,6 +179,11 @@ public sealed class NestedCrossCandidateGenerationTests
                 var update=updater.Preview(installed,candidate,["sync-runtime","generate-all-page"]);
                 Assert.True(update.CanApply);
                 Assert.Equal("unchanged",updater.Apply(update,update.PlanSha256).Status);
+                if(textKey&&mode=="cached-global"&&!selfTreeScope)
+                {
+                    foreach(var operation in new[]{"restore","build"})
+                        await NonRedundantApplicationFixture.BuildAsync(candidate,operation);
+                }
             }
             Assert.Equal(before,JsonSerializer.Serialize(catalog));
         }
@@ -174,6 +199,40 @@ public sealed class NestedCrossCandidateGenerationTests
     }
 
     private static string Sql<T>(FreeSql.ISelect<T> query) where T:class=>query.ToSql();
+
+    /// <summary>共享根的文本键只替换节点身份，内层逻辑字段和账号范围保持原发布配置。</summary>
+    private static void PublishOuterTextRoot(MetadataCatalog catalog,string mode,bool selfTreeScope)
+    {
+        var target=catalog.ConfigTables.Single(table=>table.Id=="2");
+        const string keyId="nested_business_key";
+        const string indexId="nested_business_index";
+        catalog.ConfigColumns.Add(new(){Id=keyId,ConfigTableId=target.Id,ColumnName="business_key",
+            LogicalType="string",ColumnLength="50",IsDbNotNull=1,YzProjectId=catalog.YzProjectId});
+        catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id=indexId,configTableId=target.Id,isUnique=1}));
+        var global=GlobalCrossTableTarget.Declared(target);
+        if(!global)
+        {
+            var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="yz_project_id");
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id=indexId+"_project",configIndexId=indexId,configColumnId=project.Id,sortNo=1}));
+        }
+        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id=indexId+"_key",configIndexId=indexId,configColumnId=keyId,sortNo=global?1:2}));
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.ConfigTableId=="90"&&column.ControlKind=="CascadeTree"))
+        {
+            var definition=System.Text.Json.Nodes.JsonNode.Parse(column.ControlDetail)!;
+            definition["levels"]![0]!["idField"]="business_key";
+            column.ControlDetail=definition.ToJsonString();
+        }
+        catalog.ConfigColumns.Add(new(){Id="9008",ConfigTableId="90",ColumnName="outer_root_id",
+            LogicalType="string",ColumnLength="50",YzProjectId=catalog.YzProjectId});
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "9104" or "9204"))
+        {
+            column.LogicalType="string";
+            column.ColumnLength="50";
+            if(global)column.LinkConfigTableId="";
+        }
+        if(!mode.StartsWith("cached-",StringComparison.Ordinal)&&!selfTreeScope)
+            catalog.ConfigPages.Single(page=>page.Id=="900").WhereSql+=" AND outer_root_id=@parent_id";
+    }
 
     private static MetadataCatalog Catalog(bool shared,string mode,bool selfTreeScope)
     {

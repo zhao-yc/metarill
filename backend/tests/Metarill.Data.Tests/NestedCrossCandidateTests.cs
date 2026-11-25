@@ -102,9 +102,26 @@ public sealed class NestedCrossCandidateTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void Outer_path_uses_a_nested_fixed_page_without_exposing_inner_slots(bool shared)
+    [InlineData(false,true)]
+    [InlineData(true,true)]
+    [InlineData(false,true,true)]
+    [InlineData(true,true,true)]
+    public void Outer_path_uses_a_nested_fixed_page_without_exposing_inner_slots(
+        bool shared,bool textKey=false,bool innerTextKey=false)
     {
         var catalog=Catalog(shared);
+        if(textKey)PublishOuterTextKey(catalog,global:false);
+        if(innerTextKey)
+        {
+            PublishRecursiveTextNode(catalog,"2","inner_business",false);
+            foreach(var control in catalog.ConfigColumns.Where(column=>column.ConfigTableId=="1"&&column.ControlKind=="CascadeTree"))
+            {
+                var definition=System.Text.Json.Nodes.JsonNode.Parse(control.ControlDetail)!;
+                definition["levels"]![0]!["idField"]="business_key";
+                control.ControlDetail=definition.ToJsonString();
+            }
+            catalog.ConfigColumns.Single(column=>column.ConfigTableId=="3"&&column.ColumnName=="country_id").LogicalType="string";
+        }
         var before=JsonSerializer.Serialize(catalog);
         var condition=FixedConditionSqlPlan.Compile(
             FixedConditionPlan.Compile("country_name <> '限制文字' AND store_id=@current_store_id",["country_name","store_id"]),
@@ -115,8 +132,15 @@ public sealed class NestedCrossCandidateTests
         Assert.Single(mysql.Crosses);
         Assert.Contains("mt_nested_",mysql.Expression("outer_root_id"));
         Assert.Contains("mt_nested_",mysql.Expression("outer_leaf_name"));
+        if(textKey)
+        {
+            Assert.Equal("string",plan.OutputTypes["outer_root_id"]);
+            Assert.Contains("ON BINARY cross1.`business_key`=BINARY",mysql.From);
+            Assert.Contains("cross0.`root_id` REGEXP '[^[:space:]]'",mysql.From);
+        }
         Assert.Contains("nested_country",mysql.From);
         Assert.Contains("nested_place",mysql.From);
+        if(innerTextKey)Assert.Matches(@"ON BINARY cross\d+\.\x60business_key\x60=BINARY COALESCE",mysql.From);
         Assert.Equal(shared,mysql.From.Contains("nested_warehouse",StringComparison.Ordinal));
         Assert.Equal(shared?8:5,mysql.From.Split(" LEFT JOIN ").Length-1);
         Assert.Contains("FOR SHARE OF cross0,cross1",mysql.ImportMatchLock);
@@ -944,7 +968,10 @@ public sealed class NestedCrossCandidateTests
     [InlineData(true,true,true)]
     [InlineData(false,false,true,true)]
     [InlineData(true,true,true,true)]
-    public void Recursive_cache_tracks_nested_dependencies_and_binds_row_ownership(bool shared,bool global,bool account,bool selfTreeCondition=false)
+    [InlineData(false,false,true,false,true)]
+    [InlineData(true,true,true,true,true)]
+    public void Recursive_cache_tracks_nested_dependencies_and_binds_row_ownership(
+        bool shared,bool global,bool account,bool selfTreeCondition=false,bool textKey=false)
     {
         var catalog=Catalog(shared);
         var source=catalog.ConfigTables.Single(table=>table.Id=="90");
@@ -963,6 +990,7 @@ public sealed class NestedCrossCandidateTests
             WhereSql=account?"store_id=@current_store_id":""});
         catalog.ConfigColumns.Add(new(){Id="9010",ConfigTableId=source.Id,ColumnName="store_id",LogicalType="int64"});
         if(selfTreeCondition)AddVisibilityLeafScope(catalog,source,target,targetPage,global);
+        if(textKey)PublishOuterTextKey(catalog,global);
         var columns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id));
         ColumnMetadata Field(string name)=>columns.Single(column=>column.ColumnName==name);
         var definition=new RelationCacheDefinition(source.Id,Field("outer_root_id").Id,target.Id,
@@ -983,6 +1011,16 @@ public sealed class NestedCrossCandidateTests
         Assert.Equal(shared,plan.MixedTargets.Contains("nested_warehouse"));
         Assert.Contains("CASE WHEN",read.Expression("outer_root_name"));
         Assert.Contains("限制文字",read.Constants.Values);
+        if(textKey)
+        {
+            Assert.Contains("BINARY r0.`business_key`=BINARY b.`outer_root_id`",read.From);
+            Assert.Contains("business_key",plan.MixedTargetKeys(target.TableName));
+            var byKey=Assert.Single(mixed.Reverse,entry=>entry.TargetTable==target.TableName&&entry.NodeKey is not null);
+            Assert.Contains("BINARY b.`outer_root_id`=BINARY @target_node_current",byKey.TargetPredicate);
+            Assert.Contains("BINARY b.`outer_root_id`=BINARY @target_node_previous",byKey.TargetPredicate);
+            Assert.Contains("business_key",byKey.Outputs["outer_root_name"]);
+            Assert.False(mixed.RequiresAccount);
+        }
         Assert.Equal(account,read.Expression("outer_root_name").Contains("b.`store_id`",StringComparison.Ordinal));
         Assert.Matches(@"cross\d+\.`yz_project_id`=@project_scope_number",read.From);
         Assert.Equal(!global,read.From.Contains("r0.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
@@ -1451,6 +1489,36 @@ public sealed class NestedCrossCandidateTests
         var failure=Assert.Throws<InvalidOperationException>(()=>
             NonRedundantReads.CompileCrossPageCandidate(catalog,"1","11",["id","name"],[]));
         Assert.Contains("循环依赖",failure.Message);
+    }
+
+    /// <summary>外层按有唯一约束的文本键读取父节点，其递归条件仍绑定到实际实体。</summary>
+    private static void PublishOuterTextKey(MetadataCatalog catalog,bool global)
+    {
+        PublishRecursiveTextNode(catalog,"1","outer_business",global);
+        var control=catalog.ConfigColumns.Single(column=>column.Id=="9004");
+        var parsed=System.Text.Json.Nodes.JsonNode.Parse(control.ControlDetail)!;
+        parsed["levels"]![0]!["idField"]="business_key";
+        control.ControlDetail=parsed.ToJsonString();
+        catalog.ConfigColumns.Add(new(){Id="9008",ConfigTableId="90",ColumnName="outer_root_id",LogicalType="string",ColumnLength="50"});
+        var parent=catalog.ConfigColumns.Single(column=>column.Id=="9104");
+        parent.LogicalType="string";
+        parent.ColumnLength="50";
+    }
+
+    /// <summary>测试节点沿发布唯一索引证明键类型和项目归属。</summary>
+    private static void PublishRecursiveTextNode(MetadataCatalog catalog,string tableId,string idPrefix,bool global)
+    {
+        var keyId=idPrefix+"_key";
+        var indexId=idPrefix+"_index";
+        catalog.ConfigColumns.Add(new(){Id=keyId,ConfigTableId=tableId,ColumnName="business_key",
+            LogicalType="string",ColumnLength="50",IsDbNotNull=1});
+        catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id=indexId,configTableId=tableId,isUnique=1}));
+        if(!global)
+        {
+            var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId==tableId&&column.ColumnName=="yz_project_id");
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id=indexId+"_project",configIndexId=indexId,configColumnId=project.Id,sortNo=1}));
+        }
+        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id=indexId+"_key",configIndexId=indexId,configColumnId=keyId,sortNo=global?1:2}));
     }
 
     /// <summary>外层叶子的父级引用带固定条件的 R0 页面，内层复用独立或共享稀疏目录。</summary>
