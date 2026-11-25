@@ -136,9 +136,11 @@ internal static class DerivedCheckboxNamesCompilation
         def.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,def.Target,page,scope.Column));
 
 
+    /// <summary>文本父键与精确权限共用目标候选计划，由同一查询核对父键与当前角色匹配值。</summary>
     internal static bool UsesScopedCheckboxLabel(GenerationModel model,DatabaseCheckboxModel def)=>
         !UsesGlobalExactPage(def)&&(def.HasStoredProjectParentScope||def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
             def.RealtimeLogicalParentScope||def.CompoundTargetParents||
+            def is {SharedTextParent:not null,LogicalTargetPage:not null,ExactTarget:not null}||
             def.LogicalTargetPage?.Scopes.Any(scope=>scope.Source=="parent"&&
                 Metarill.Core.Metadata.MultiTargetParentScope.IsCheckboxOnlyParentField(scope.Column.Source))==true||
             def.GlobalParent&&def.LogicalTargetPage is not null&&def.ExactTarget is not null&&!HasExactLogicalParent(model,def));

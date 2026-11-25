@@ -1141,6 +1141,56 @@ public sealed class TextCascadeParentRelationTests
         }
     }
 
+    /// <summary>原多值候选及写入同时绑定文本父键和已发布字典的精确角色范围。</summary>
+    [Theory]
+    [InlineData(0,"OnlyNew","list")]
+    [InlineData(0,"OverWriteByFirstColumn","edit")]
+    [InlineData(1,"OnlyNew","list")]
+    [InlineData(1,"OverWriteByFirstColumn","edit")]
+    public async Task Multi_text_parent_keeps_exact_dictionary_permission(int sourceStorage,string import,string export)
+    {
+        var catalog=Catalog(sourceStorage,import,export);
+        foreach(var id in new[]{"83","84"})
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=0;
+            catalog.ConfigColumns.Add(new(){Id=id+"09",ConfigTableId=id,YzProjectId=catalog.YzProjectId,
+                ColumnName="scope_code",LogicalType="string"});
+            var target=catalog.ConfigPages.Single(page=>page.ConfigTableId==id);
+            target.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
+            target.WhereSql+=" AND area_name <> '排除地区'";
+        }
+        foreach(var admin in catalog.YzAdminTypes)
+            admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        var model=GenerationModel.Create(catalog,"Example.TextParentExactScope");
+        var owner=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=Assert.Single(owner.Pages);
+        var multi=MultiSelectCompilation.Resolve(model,owner,page,owner.Columns.Single(column=>column.Source.Id=="704"));
+        var checkbox=DatabaseCheckboxCompilation.Resolve(model,owner,page,owner.Columns.Single(column=>column.Source.Id=="706"));
+        Assert.True(multi.Definition is {SharedTextParent:not null,ExactTarget:not null},multi.Reason);
+        Assert.True(checkbox.Definition is {SharedTextParent:not null,ExactTarget:not null},checkbox.Reason);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-text-parent-exact-scope");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            Assert.Contains("ResolveExactDataManage(\"830\", \"list\", \"real_name\")",service);
+            Assert.Contains("ResolveExactDataManage(\"840\", \"list\", \"real_name\")",service);
+            Assert.Contains("\"scope_code\", FixedReadComparison.In",service);
+            Assert.Contains("ImportMulti201_704Async",service);
+            Assert.Contains("ImportCheckbox201_706Async",service);
+            Assert.Contains("Export201Async",service);
+            var published=await PublishedReadCatalog(directory);
+            AssertTextParentSql(Metarill.Data.Queries.NonRedundantReads.CompileExactMultiLabel(published,"83","830","name",["id","name"],[]));
+            AssertTextParentSql(Metarill.Data.Queries.NonRedundantReads.CompileScopedCheckboxLabel(published,"84","840","name",["id","name"],[],true));
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>页面覆盖只能读取字典页已公开的物理简称。</summary>
     [Theory]
     [InlineData(0)]

@@ -117,8 +117,8 @@ internal static class MultiSelectCompilation
             // 功能表确认直接使用目标页的查询范围；业务表的写入和导入也需要同一精确范围。
             var exactTarget=functionForm?null:ExactDataManageCompilation.Resolve(model,target,targetPage);
             // 文本父身份独立于名称联接，非冗余目标的名称终点由固定读取计划复核。
-            if(sharedTextParent is not null&&(name.Type!="string?"&&!scalarLabel||exactTarget is not null||
-                target.Source.IsRongyu!=0&&(derived||FixedPageConditionCompilation.HasLogicalFields(targetPage))))
+            if(sharedTextParent is not null&&(name.Type!="string?"&&!scalarLabel||
+                target.Source.IsRongyu!=0&&(exactTarget is not null||derived||FixedPageConditionCompilation.HasLogicalFields(targetPage))))
                 return Gap("共用文本父键的多选需要已证明的标量名称和发布页面条件。");
 
             if(!functionForm&&(scoped||derived))DerivedMultiNamesCompilation.Require(model,table,target,targetPage,name,exactTarget);
