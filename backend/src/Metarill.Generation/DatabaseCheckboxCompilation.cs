@@ -184,7 +184,10 @@ internal static class DatabaseCheckboxCompilation
             var sourceScopeColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var sharedTextParent=namePage is null?null:SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,namePage,allowSparseTarget:true)??
                 NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,namePage,allowStoredTarget:true);
-            if(sharedTextParent is not null&&(derived||name.Type!="string?"||exactTarget is not null||usesNameOverride||sharedNamesPage||
+            // 两端冗余时，同一发布字典可按页面选择物理简称。写入与维护仍分别证明同一父键。
+            var storedTextNames=table.Source.IsRongyu==1&&target.Source.IsRongyu==1;
+            if(sharedTextParent is not null&&(derived||name.Type!="string?"||exactTarget is not null||
+                (usesNameOverride||sharedNamesPage)&&!storedTextNames||
                 explicitPage!=fixedPage||FixedPageConditionCompilation.HasLogicalFields(namePage!)))
                 return Gap("共用文本父键的复选需要表级发布的物理文本名称和物理页面条件。");
             var ordinaryCompoundParent=!functionForm&&!table.IsGlobal&&exactTarget is null&&namePage is {} actualTarget&&

@@ -762,6 +762,64 @@ public sealed class TextCascadeParentRelationTests
         Assert.Contains("相同发布文本父路径",error.Message);
     }
 
+    /// <summary>原复选的页面简称使用同一已发布文本父级，全称和简称都登记可回填副本。</summary>
+    [Theory]
+    [InlineData("OnlyNew","list")]
+    [InlineData("OverWriteByFirstColumn","edit")]
+    public async Task Stored_checkbox_text_parent_keeps_both_published_names(string import,string export)
+    {
+        var catalog=Catalog(1,import,export);
+        ScopeTarget(catalog,"84");
+        catalog.ConfigColumns.AddRange([
+            new(){Id="8407",ConfigTableId="84",YzProjectId=catalog.YzProjectId,ColumnName="short_name",LogicalType="string"},
+            new(){Id="708",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="checkitem_short_names",
+                LogicalType="string",ColumnLength="max",Extra=new(){
+                    ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=JsonSerializer.SerializeToElement("checkitem.short_name")}}
+        ]);
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="f8407",ConfigPageId="840",ConfigColumnId="8407",YzProjectId=catalog.YzProjectId,IsShow=1},
+            new(){Id="f708",ConfigPageId="201",ConfigColumnId="708",YzProjectId=catalog.YzProjectId,IsShow=1}
+        ]);
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="706").Extra["controlDetail"]=
+            JsonSerializer.SerializeToElement("""{"nameField":"short_name"}""");
+        var model=GenerationModel.Create(catalog,"Example.StoredCheckboxTextParentLabels");
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var resolved=DatabaseCheckboxCompilation.Resolve(model,table,page,table.Columns.Single(field=>field.Source.Id=="706"));
+        Assert.True(resolved.Definition is {SharedTextParent:not null,UsesNameOverride:true},resolved.Reason);
+        Assert.Equal("checkitem_short_names",resolved.Definition!.Names!.Source.ColumnName);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var definitions=RelationPropagationCompilation.DerivedBindings(model)
+            .Where(binding=>binding.Foreign.Source.Id=="706").ToArray();
+        Assert.Equal(new[]{"name","short_name"},definitions.Select(binding=>binding.Value.Source.ColumnName).Order(StringComparer.Ordinal));
+        Assert.All(definitions,binding=>
+        {
+            Assert.Equal("840",binding.CheckboxTargetPageId);
+            Assert.Equal("282",binding.CheckboxSourceParentId);
+        });
+        var maintained=MixedRelationPropagationCompilation.ForModel(model);
+        Assert.Contains("textrel_checkitem",maintained.MixedTargets);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-text-parent-labels");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            Assert.Contains("CheckboxScope201_706Async",service);
+            Assert.Contains("\"country_id\",parentId!,businessKey:true)",service);
+            Assert.Contains("Name=row.ShortName",service);
+            Assert.Contains("new {row.Id,row.Name,row.ShortName}",service);
+            Assert.Contains("ImportCheckbox201_706Async",service);
+            Assert.Contains("Export201Async",service);
+            Assert.Contains("entity.CheckitemNames",service);
+            Assert.Contains("entity.CheckitemShortNames",service);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>使用生成应用实际装载的精简目录重放查询，包含页级范围与原控件绑定。</summary>
     private static async Task<MetadataCatalog> PublishedReadCatalog(string directory)
     {
