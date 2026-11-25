@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace Metarill.Generation;
 
-internal sealed record ChildModel(string Id, PageModel Parent, TableModel Table, PageModel Page, int SortNo, int OpenType)
+internal sealed record ChildModel(string Id, PageModel Parent, TableModel Table, PageModel Page, int SortNo, int OpenType, ColumnModel? ParentBusinessKey)
 {
     public string Component => "ChildList" + Id;
 }
@@ -31,7 +31,8 @@ internal static class ChildrenCompilation
             if (Integer(child.Page.Source.Extra, "type", 0) != 0 || listEdit is not (0 or 1)) throw new InvalidOperationException("子页面列表类型尚未接入主子编辑：" + id);
             var scopes = child.Page.Scopes.Where(scope => scope.Source == "parent").ToArray();
             if (scopes.Length == 0) throw new InvalidOperationException("子页面必须具有 parentId 范围：" + id);
-            // 原子页只传一个父 ID。每个约束都必须指向同一父表，才能保留原范围的交集。
+            // 原子页只传一个父键。所有约束必须指向同一张父表及同一个实际键。
+            var parentKeys = new List<ColumnModel?>();
             foreach (var scope in scopes)
             {
                 var column = scope.Column;
@@ -40,17 +41,26 @@ internal static class ChildrenCompilation
                 var matchesParent = hasLink
                     ? linkedTableId == parent.Table.Source.Id
                     : parent.Table.Source.TableName + "_id" == column.Source.ColumnName;
-                if (NonRedundantCrossParentCompilation.Find(model, child.Table, child.Page, column) is { } path)
-                    matchesParent = path.Read.Levels[path.Index].Target == parent.Table && (!hasLink || matchesParent);
+                var level = CrossParentLevel(model, child.Table, child.Page, column);
+                if (level is not null)
+                    matchesParent = level.Target == parent.Table && (!hasLink || matchesParent);
+                parentKeys.Add(level?.AlternateKey);
                 // 保留原字符串外键的物理归属检查及整数范围合同。
                 var supported = column.Type is "long" or "long?"
                     || column.Type == "string?" && NonRedundantReadCompilation.Physical(model, child.Table, column)
                         && !GenerationModel.Enabled(column.Source.Extra, "isJoinColumn");
                 if (!matchesParent || !supported) throw new InvalidOperationException("子页面父范围与父表不匹配：" + id);
             }
+            if (parentKeys.Select(key => key?.Source.Id).Distinct(StringComparer.Ordinal).Count() != 1)
+                throw new InvalidOperationException("子页面父范围不能混用主键和不同业务键：" + id);
+            var parentKey = parentKeys[0];
+            // 复用已发布的父页响应。子页引用不能顺带开放父页未授权读取的字段。
+            if (parentKey is not null && (!OriginalDetailContext.EmitsPage(parent.Page.Source) ||
+                !parent.Page.Readable.Any(column => column.Source.Id == parentKey.Source.Id)))
+                throw new InvalidOperationException("子页面业务父键必须由父详情页明确开放读取：" + id);
             var openType = Integer(source, "childPageOpenType", 1);
             if (openType is not (1 or 2)) throw new InvalidOperationException("子页面打开方式仅支持 1（新页面）和 2（PC 弹出层）：" + id);
-            children.Add(new(id, parent.Page, child.Table, child.Page, Integer(source, "sortNo", 0), openType));
+            children.Add(new(id, parent.Page, child.Table, child.Page, Integer(source, "sortNo", 0), openType, parentKey));
         }
         if (children.Select(child => child.Id).Distinct(StringComparer.Ordinal).Count() != children.Count || children.GroupBy(child => (child.Parent.Source.Id, child.Page.Source.Id)).Any(group => group.Count() > 1)) throw new InvalidOperationException("子页面定义重复。");
         var active = new HashSet<string>(StringComparer.Ordinal); var visited = new HashSet<string>(StringComparer.Ordinal);
@@ -62,6 +72,14 @@ internal static class ChildrenCompilation
         }
         foreach (var parent in children.Select(child => child.Parent.Source.Id).Distinct(StringComparer.Ordinal)) Visit(parent);
         return children.OrderBy(child => child.SortNo).ThenBy(child => child.Id, StringComparer.Ordinal).ToArray();
+    }
+
+    /// <summary>只从实际范围编译器取得父键，不从页面字段名或目标名称猜测 ID。</summary>
+    private static CrossTableLevelModel? CrossParentLevel(GenerationModel model, TableModel table, PageModel page, ColumnModel column)
+    {
+        if (NonRedundantCrossParentCompilation.Find(model, table, page, column) is { } logical)
+            return logical.Read.Levels[logical.Index];
+        return SharedRedundantParentCompilation.ForColumn(model, table, page, column).SingleOrDefault()?.Level;
     }
 
     /// <summary>旧 v8 仅将 Tab 渲染为页签；其他已声明位置保持顺排，未知值不静默降级。</summary>

@@ -1,6 +1,6 @@
 /** 页面/弹层进入使用同一实例边界，旧回调不能写到下一条记录。 */
 beginOriginalDetail(options) {
- this.disposeOriginalDetail();this._alive=true;this._detailTasks=[];this._detailRead=0;this.entity={##defaults##};this.changes={};this.loadEntitySuccess=false;this.recordReady=false;this.permissionsReady=false;this.saving=false;this._applyingServerForm=false;this.routeReadOnly=options.parentReadOnly==='1';this.initializeMultiSelections?.();
+ this.disposeOriginalDetail();this._alive=true;this._detailTasks=[];this._detailRead=0;this.entity={##defaults##};this.changes={};this.loadEntitySuccess=false;this.recordReady=false;##reset_child_parent_keys##this.permissionsReady=false;this.saving=false;this._applyingServerForm=false;this.routeReadOnly=options.parentReadOnly==='1';this.initializeMultiSelections?.();
 },
 /** 卸载只取消本详情的任务与订阅，不触发保存或父表刷新。 */
 disposeOriginalDetail() {this._alive=false;this._detailEpoch=(this._detailEpoch||0)+1;(this._detailTasks||[]).forEach(task=>task?.abort?.());this._detailTasks=[];this.disposeMultiSelections?.();},
@@ -26,7 +26,7 @@ applyOriginalServerForm(entity) {
  this.$nextTick(()=>{if(this._applyingServerForm===token)this._applyingServerForm=false;});
 },
 /** 保留原300ms候选/控件准备时序，只有实际VO标识一致才开放子表。 */
-markOriginalRecordReady() {this.recordReady=Boolean(this.id&&originalRecordId(this.entity.id)===this.id);const current=this.originalContext();setTimeout(()=>{if(current())this.loadEntitySuccess=true;},300);},
+markOriginalRecordReady() {this.recordReady=Boolean(this.id&&originalRecordId(this.entity.id)===this.id);##read_child_parent_keys##const current=this.originalContext();setTimeout(()=>{if(current())this.loadEntitySuccess=true;},300);},
 /** 已验证多选桥接使用原实体；changes仅用于内部选择状态，不替换整entity请求。 */
 change(field,value) {if(this.readOnlyCondition||!##writable##.includes(field))return;this.entity[field]=value;this.changes[field]=value;},
 /** 原权限刷新始终完成回调；子页复用快照仍由readOnlyCondition核对自身操作。 */

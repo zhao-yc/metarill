@@ -154,7 +154,7 @@ readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Bo
             ["//##watch_columns##"]=c.Watches.ToString(),["//##original_option_watchers##"]=c.OptionWatchers.ToString(),["//##computed_columns##"]=c.Computed.ToString(),["//##computed_buttons##"]="",
             ["//##customer_button_handlers##"]=c.Methods.ToString(),["//##rtf_edit_function##"]="",["//##img_component_events##"]="",["//##lists_select_change##"]="",
             ["//##init_lists##"]=c.Init.ToString(),["//##init_dynamic_lists##"]=c.DynamicInit.ToString(),["//##get_entity_img_to_ary##"]="",
-            ["//##refresh_child_tables##"]=string.Join("\n",children.Select(child=>$"this.$refs.ChildList{child.Id}?.refreshData();")),
+            ["//##refresh_child_tables##"]=RefreshChildren(children),
             ["//##insert_parent_id_value##"]=string.Join("\n",page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>$"that.entity.{scope.Column.JsonName}=that.parent_id;")),
             ["//##detail_layout_validation_error##"]=tabs?"this.revealDetailValidationError(err);":"",
             ["//##original_methods##"]=Runtime(c),["##table_name##"]=table.Source.TableName,["##table_camel_name##"]=GenerationModel.Camel(table.Source.TableName),["##page_sn##"]=page.Source.Id,
@@ -248,13 +248,59 @@ if (!that.readOnlyCondition && Object.keys(pending).length > 0) {
     {
         if(c.Children.Count==0)return "";var tabs=ChildrenCompilation.Tabs(c.Page);var output=new StringBuilder("<view v-if=\"originalChildrenReady\">");
         if(tabs){c.Data.Append("sonItems:").Append(Js(c.Children.Select(child=>child.Page.Source.Name))).Append(",currentSonItem:0,");c.Methods.AppendLine("onClickSonItem(e) { if(this.currentSonItem!==e.currentIndex)this.currentSonItem=e.currentIndex; },");output.Append("<view class=\"yzp-child-tabs\"><scroll-view class=\"yzp-child-tabs__scroll\" scroll-x><view class=\"yzp-child-tabs__inner\"><view v-for=\"(item,index) in sonItems\" :key=\"index\" class=\"yzp-child-tabs__item\" :class=\"{'is-active':currentSonItem===index}\" @click=\"onClickSonItem({currentIndex:index})\"><text class=\"yzp-child-tabs__text\">{{item}}</text></view></view></scroll-view></view><view class=\"yzp-child-content\">");}
-        for(var index=0;index<c.Children.Count;index++){var child=c.Children[index];c.Import(child.Component,$"@/pages/yzp/{child.Table.Source.TableName}-list-{child.Page.Source.Id}.vue");output.Append(tabs?$"<view v-show=\"currentSonItem === {index}\">":"").Append($"<{child.Component} :key=\"id + ':{child.Id}'\" :parent_id='id' :parentReadOnlyCondition='readOnlyCondition' :parent_page_sn='page_sn' :is_son_page='true' :child_page_open_type='{child.OpenType}' ref='{child.Component}' />").Append(tabs?"</view>":"");}
+        if (c.Children.Any(child => child.ParentBusinessKey is not null))
+            c.Data.Append("originalChildParentKeys:{},");
+        for (var index=0;index<c.Children.Count;index++)
+        {
+            var child=c.Children[index];
+            c.Import(child.Component,$"@/pages/yzp/{child.Table.Source.TableName}-list-{child.Page.Source.Id}.vue");
+            var binding=":parent_id='id'";
+            if (child.ParentBusinessKey is {} businessKey)
+            {
+                var value=$"originalChildParentKeys['{businessKey.JsonName}']";
+                binding=$"v-if=\"{value}\" :parent_id=\"{value}\"";
+            }
+            output.Append(tabs?$"<view v-show=\"currentSonItem === {index}\">":"")
+                .Append($"<{child.Component} :key=\"id + ':{child.Id}'\" {binding} :parentReadOnlyCondition='readOnlyCondition' :parent_page_sn='page_sn' :is_son_page='true' :child_page_open_type='{child.OpenType}' ref='{child.Component}' />")
+                .Append(tabs?"</view>":"");
+        }
         if(tabs)output.Append("</view>");return output.Append("</view><view v-else class='section-view'>为避免数据丢失，请先保存当前页面的数据，再维护子表。</view>").ToString();
     }
+    /// <summary>保存回执可能改变业务键。等子组件收到新父键后再执行原刷新动作。</summary>
+    private static string RefreshChildren(IReadOnlyList<ChildModel> children)
+    {
+        var calls=children.Select(child=>$"this.$refs.ChildList{child.Id}?.refreshData();").ToArray();
+        if (children.All(child=>child.ParentBusinessKey is null)) return string.Join("\n",calls);
+        return "const current=this.originalContext();\n      this.$nextTick(()=>{\n        if(!current()||!this.originalChildrenReady)return;\n        "+
+            string.Join("\n        ",calls)+"\n      });";
+    }
+
     /// <summary>原单表单标签模板，主表字段不因切组卸载。</summary>
     private const string GroupTabs="<view class='yzp-detail-groups' v-if='visibleDetailGroups.length'><scroll-view class='yzp-detail-groups__scroll' scroll-x :show-scrollbar='false' :scroll-into-view=\"'yzp-detail-group-' + activeDetailGroupKey\" scroll-with-animation><view class='yzp-detail-groups__inner' role='tablist'><view v-for='group in visibleDetailGroups' :key='group.key' :id=\"'yzp-detail-group-' + group.key\" class='yzp-detail-groups__item' :class=\"{'is-active':activeDetailGroupKey===group.key}\" role='tab' :aria-selected='activeDetailGroupKey===group.key' @click='selectDetailGroup(group.key)'>{{group.name}}</view></view></scroll-view></view>";
     /// <summary>嵌入原模板保持源码/CLI可搬移，不读取开发机器上的旧YZP文件。</summary>
     private static string Template(string name){var assembly=typeof(OriginalUniappDetailRenderer).Assembly;using var input=assembly.GetManifestResourceStream(assembly.GetManifestResourceNames().Single(resource=>resource.EndsWith("."+name,StringComparison.Ordinal)))!;using var reader=new StreamReader(input);return reader.ReadToEnd();}
     /// <summary>请求边界保留原整entity协议，只隔离在途请求、身份变化及未保存父记录，不裁剪字段。</summary>
-    private static string Runtime(OriginalDetailContext c)=>Template("original-detail.methods.js.tpl").Replace("##defaults##",c.Defaults.ToString(),StringComparison.Ordinal).Replace("##api##",Js(c.Api),StringComparison.Ordinal).Replace("##writable##",Js(c.Page.Writable.Select(column=>column.JsonName)),StringComparison.Ordinal);
+    private static string Runtime(OriginalDetailContext c)
+    {
+        var keys=c.Children.Select(child=>child.ParentBusinessKey).OfType<ColumnModel>().DistinctBy(key=>key.Source.Id).ToArray();
+        var readKeys="";
+        if (keys.Length>0)
+        {
+            var fields=keys.Select(key=>
+            {
+                var field=Js(key.JsonName);
+                var valid=key.Type=="string?" ? "value.trim().length>0" : "/^[1-9][0-9]*$/.test(value)";
+                return $"[{field},value=>typeof value==='string'&&{valid}]";
+            });
+            // 只在读/存回执确认记录 ID 后取值，正在编辑的表单不能切换子页范围。
+            readKeys="this.originalChildParentKeys=this.recordReady?Object.fromEntries(["+
+                string.Join(",",fields)+"].map(([field,valid])=>[field,valid(this.entity[field])?this.entity[field]:''])):{};";
+        }
+        return Template("original-detail.methods.js.tpl")
+            .Replace("##defaults##",c.Defaults.ToString(),StringComparison.Ordinal)
+            .Replace("##api##",Js(c.Api),StringComparison.Ordinal)
+            .Replace("##writable##",Js(c.Page.Writable.Select(column=>column.JsonName)),StringComparison.Ordinal)
+            .Replace("##reset_child_parent_keys##",keys.Length==0?"":"this.originalChildParentKeys={};",StringComparison.Ordinal)
+            .Replace("##read_child_parent_keys##",readKeys,StringComparison.Ordinal);
+    }
 }

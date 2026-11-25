@@ -104,6 +104,81 @@ public sealed class GeneratedChildrenTests
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
     }
 
+    /// <summary>真实父 VO 保留业务键，嵌入列表只消费已确认的回执，整数和文本均沿用原字符串协议。</summary>
+    [Theory]
+    [InlineData(0,"string")][InlineData(1,"string")][InlineData(0,"int64")][InlineData(1,"int64")]
+    public async Task Cross_table_children_use_the_business_key_from_the_confirmed_parent(int redundant,string logicalType)
+    {
+        const string ns="Example.CrossChild";
+        var catalog=BusinessKeyCatalog(redundant,logicalType,true);
+        var child=Assert.Single(ChildrenCompilation.Compile(GenerationModel.Create(catalog,ns)));
+        Assert.Equal("business_3",child.ParentBusinessKey?.Source.Id);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-business-key-children");
+        var output=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(output,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(output);
+            var entityType=assembly.GetType(ns+".Generated.Entities.CrosschildCountry",true)!;
+            var entity=Activator.CreateInstance(entityType)!;
+            var expected=logicalType=="string"?" 001+甲&北%# ":"9007199254740997";
+            entityType.GetProperty("Id")!.SetValue(entity,101L);
+            entityType.GetProperty("BusinessKey")!.SetValue(entity,logicalType=="string"?expected:(object)9007199254740997L);
+            var voType=assembly.GetType(ns+".Generated.VOs.CrosschildCountryPage301Vo",true)!;
+            var vo=voType.GetMethod("FromEntity")!.Invoke(null,[entity]);
+            var payload=JsonSerializer.SerializeToElement(vo,Metarill.Runtime.JsonDefaults.Options);
+            Assert.Equal(JsonValueKind.String,payload.GetProperty("businessKey").ValueKind);
+            Assert.Equal(expected,payload.GetProperty("businessKey").GetString());
+            var probe=NonRedundantApplicationFixture.Start("node",output);
+            probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GeneratedBusinessKeyChildrenProbe.mjs"));
+            probe.ArgumentList.Add(generated);
+            probe.ArgumentList.Add(payload.GetRawText());
+            probe.ArgumentList.Add(logicalType);
+            await NonRedundantApplicationFixture.RunAsync(probe);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(output,boundary); }
+    }
+
+    /// <summary>缺少父详情读取权限的字段不能被子页定义自动放进父 VO。</summary>
+    [Theory]
+    [InlineData(0)][InlineData(1)]
+    public void Cross_table_child_cannot_expand_the_parent_read_projection(int redundant)
+    {
+        var catalog=BusinessKeyCatalog(redundant,"string",false);
+        var model=GenerationModel.Create(catalog,"Example.CrossChild");
+        var error=Assert.Throws<InvalidOperationException>(()=>ChildrenCompilation.Compile(model));
+        Assert.Contains("业务父键必须由父详情页明确开放读取",error.Message);
+    }
+
+    /// <summary>用原主子配置引用跨表根层。根的实际主键和候选业务键互不相等。</summary>
+    private static MetadataCatalog BusinessKeyCatalog(int redundant,string logicalType,bool publishKey)
+    {
+        var catalog=CrossTableExcelImportColumnsTests.Catalog("crosschild","string");
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
+        var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        CrossTableExcelLosslessGenerationTests.AddBusinessKeys(catalog,control,primaryLevel:1);
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.ColumnName=="business_key"||column.Id=="45"))
+        {
+            column.LogicalType=logicalType;
+            if(logicalType=="string")column.ColumnLength="50";
+        }
+        catalog.ConfigColumns.Add(new(){Id="282",ConfigTableId="2",ColumnName="country_id",LogicalType=logicalType,
+            LinkConfigTableId="3",ColumnLength=logicalType=="string"?"50":""});
+        var child=catalog.ConfigPages.Single(page=>page.Id=="201");
+        child.WhereSql+=" AND country_id=@parent_id";
+        child.Extra.Remove("type");
+        child.IsNew=child.IsSave=1;
+        var parent=catalog.ConfigPages.Single(page=>page.Id=="301");
+        parent.IsSave=1;
+        parent.Extra["childPlace"]=JsonSerializer.SerializeToElement("Tab");
+        if(publishKey)catalog.ConfigPageColumns.Add(new(){Id="30190",ConfigPageId="301",ConfigColumnId="business_3",IsShow=1,IsEdit=1});
+        RedundantMultiNameCacheTests.Published(catalog);
+        catalog.ConfigChildren.Add(JsonSerializer.SerializeToElement(new{
+            id="9012",parentConfigPageId="301",childConfigPageId="201",childPageOpenType=2,yzProjectId=catalog.YzProjectId}));
+        return catalog;
+    }
+
     /// <summary>共享级联隐式地区槽按真实路径绑定，不能配置为其它父表。</summary>
     [Theory]
     [InlineData("401",true)]
