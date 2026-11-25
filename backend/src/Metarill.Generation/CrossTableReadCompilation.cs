@@ -92,9 +92,9 @@ internal static class CrossTableReadCompilation
             if(plan.HasTextKeys&&(model.Catalog.DatabaseProvider!="mysql"||table.Source.IsRongyu is not(0 or 1)||table.Source.IsView!=0||table.Source.IsFunctionTable!=0||table.IsGlobal||
                 result.Any(level=>level.Target.Source.IsView!=0||level.Target.Source.Id==table.Source.Id||
                     FixedPageConditionCompilation.HasAccountVariables(level.Page)||
-                    level.Target.IsGlobal&&(level.DerivedName||FixedPageConditionCompilation.HasLogicalFields(level.Page)))||
+                    level.Target.IsGlobal&&FixedPageConditionCompilation.HasLogicalFields(level.Page))||
                 !SupportsSourceParent(model,table,source,result)))
-                return Gap("文本业务键要求 MySQL 实体链，来源父范围须唯一，全局目标须使用固定物理名称范围。");
+                return Gap("文本业务键要求 MySQL 实体链，来源父范围须唯一，全局目标须使用已发布的固定标量名称及物理条件。");
             if(plan.HasTextKeys&&(!CrossTableFrontendProof.KeepsStorageDefinition(model,page,source)||result[^1].TextKey&&source.Type!="string?"))
                 return Gap("文本业务键要求表级定义及文本叶字段。");
             if(result.Any(level=>level.Target.Source.IsRongyu==0))NonRedundantCrossTargetsCompilation.Require(model,table,plan);return new(plan,null);

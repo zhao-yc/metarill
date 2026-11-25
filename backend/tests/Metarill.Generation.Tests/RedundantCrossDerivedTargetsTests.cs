@@ -18,16 +18,32 @@ public sealed class RedundantCrossDerivedTargetsTests
     [InlineData("derived","country_id")]
     [InlineData("mixed","area_id")]
     [InlineData("physical","place_id")]
-    public async Task Project_text_keys_resolve_R0_targets_and_generate_cache_consumers(string scenario,string parentColumn)
+    [InlineData("derived","country_id",true)]
+    [InlineData("derived","place_id",true,true)]
+    public async Task Project_text_keys_resolve_R0_targets_and_generate_cache_consumers(
+        string scenario,string parentColumn,bool globalRoot=false,bool sparse=false)
     {
         const string ns="Example.ProjectTextCache";
         var catalog=Catalog("project_text_cache","string","string",scenario);
+        if(sparse)catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
         var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
         CrossTableExcelLosslessGenerationTests.AddBusinessKeys(catalog,control,primaryLevel:1);
         foreach(var column in catalog.ConfigColumns.Where(column=>column.ColumnName=="business_key"))
         {
             column.LogicalType="string";
             column.ColumnLength="50";
+        }
+        if(globalRoot)
+        {
+            foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "3" or "6"))
+                table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=1";
+            catalog.ConfigPages.Single(page=>page.Id=="601").WhereSql="";
+            catalog.ConfigIndexColumns.RemoveAll(column=>
+                column.GetProperty("configIndexId").GetString()=="business_index_3"&&
+                column.GetProperty("configColumnId").GetString()=="33");
+            // 项目内地区保存全局国家的业务文本键。该物理字段只作为本层固定级联的父键。
+            catalog.ConfigColumns.Single(column=>column.Id=="45").LinkConfigTableId="";
         }
         var page=catalog.ConfigPages.Single(page=>page.Id=="201");
         page.WhereSql+=$" AND {parentColumn}=@parent_id";
@@ -51,10 +67,15 @@ public sealed class RedundantCrossDerivedTargetsTests
         Assert.True(resolved.Definition.Levels[2].TextKey);
         var definitions=RelationPropagationCompilation.Bindings(model).Concat(RelationPropagationCompilation.DerivedBindings(model))
             .Where(binding=>binding.Source.Source.Id=="2").ToArray();
-        Assert.Equal(3,definitions.Length);
-        Assert.Equal(2,definitions.Count(binding=>binding.TargetKey=="business_key"));
-        var maintenance=MixedRelationPropagationCompilation.ForModel(model);
-        if(scenario=="derived")Assert.Contains("business_key",maintenance.MixedTargetKeys("project_text_cache_country"));
+        if(sparse)
+            Assert.Empty(definitions);
+        else
+        {
+            Assert.Equal(3,definitions.Length);
+            Assert.Equal(2,definitions.Count(binding=>binding.TargetKey=="business_key"));
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            if(scenario=="derived")Assert.Contains("business_key",maintenance.MixedTargetKeys("project_text_cache_country"));
+        }
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-project-text-cache");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -67,9 +88,12 @@ public sealed class RedundantCrossDerivedTargetsTests
             Assert.NotNull(service.GetMethod("CrossPath201_25Async"));
             Assert.NotNull(service.GetMethod("Import201Async"));
             Assert.NotNull(service.GetMethod("Export201Async"));
-            var published=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
-            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(published.TypeHandle);
-            if(scenario=="derived")
+            if(!sparse)
+            {
+                var published=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(published.TypeHandle);
+            }
+            if(scenario=="derived"&&!sparse)
             {
                 var package=Path.Combine(directory,"package");
                 var root=NonRedundantApplicationFixture.Root();

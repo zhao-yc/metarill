@@ -767,6 +767,8 @@ public sealed class FileCommandFactoryTests
     [InlineData(true,false,true,true,false)]
     [InlineData(false,true,false,false,true)]
     [InlineData(true,true,false,true,true)]
+    [InlineData(false,false,true,false,true)]
+    [InlineData(true,true,true,true,true)]
     public async Task File_parent_scope_restores_actual_text_keys(bool locking,bool redundant,bool globalRoot,bool shared,bool derivedRoot)
     {
         var catalog=FileCrossParentScopeTests.Catalog("file_text","string","string");
@@ -809,13 +811,23 @@ public sealed class FileCommandFactoryTests
             var label=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="2"&&column.ColumnName=="name");
             label.Extra["isJoinColumn"]=System.Text.Json.JsonSerializer.SerializeToElement(1);
             label.Extra["columnFullName"]=System.Text.Json.JsonSerializer.SerializeToElement("company.name");
-            catalog.ConfigTables.Add(new(){Id="5",YzProjectId="1",TableName="file_text_company",IsRongyu=1});
+            var dictionary=new TableMetadata{Id="5",YzProjectId="1",TableName="file_text_company",IsRongyu=1};
+            catalog.ConfigTables.Add(dictionary);
             catalog.ConfigColumns.AddRange([
                 new(){Id="51",ConfigTableId="5",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
                 new(){Id="52",ConfigTableId="5",ColumnName="name",LogicalType="string"},
                 new(){Id="53",ConfigTableId="5",ColumnName="yz_project_id",LogicalType="int64"},
                 new(){Id="54",ConfigTableId="2",ColumnName="company_id",LogicalType="int64",LinkConfigTableId="5"}
             ]);
+            if(globalRoot)
+            {
+                dictionary.Extra["scopeKind"]=System.Text.Json.JsonSerializer.SerializeToElement("global");
+                catalog.ConfigPages.Add(new(){Id="501",ConfigTableId="5",YzProjectId="1"});
+                catalog.ConfigPageColumns.Add(new(){Id="50152",ConfigPageId="501",ConfigColumnId="52",IsShow=1});
+                var dictionaryId=catalog.ConfigColumns.Single(column=>column.Id=="54");
+                dictionaryId.ControlKind="List";
+                dictionaryId.ControlDetail="""{"tableId":"5","pageId":"501","nameField":"name"}""";
+            }
         }
         if(redundant||globalRoot)
         {

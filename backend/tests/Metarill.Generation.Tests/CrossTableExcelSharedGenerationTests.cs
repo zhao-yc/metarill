@@ -76,6 +76,7 @@ public sealed class CrossTableExcelSharedGenerationTests
     [InlineData(null,false,false)][InlineData("country_id",false,false)][InlineData("place_id",true,false)]
     [InlineData(null,false,true)][InlineData("country_id",false,true)][InlineData("place_id",true,true)]
     [InlineData("country_id",false,false,true)][InlineData("place_id",false,false,true)]
+    [InlineData("country_id",true,false,true)][InlineData("place_id",true,true,true)]
     public async Task Shared_text_keys_drive_original_write_and_workbook(string? fixedParent,bool global,bool sparse,bool derived=false)
     {
         var catalog=Catalog(derived?"derived-r1":global?"global-r1":"shared-r1");
@@ -91,10 +92,20 @@ public sealed class CrossTableExcelSharedGenerationTests
             column.LogicalType="string";
             column.ColumnLength="50";
         }
+        if(global&&derived)
+        {
+            GlobalSharedCrossGenerationTests.ApplyGlobals(catalog,mask:1,noProject:false);
+            catalog.ConfigTables.Single(table=>table.Id=="6").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigPages.Single(page=>page.Id=="601").WhereSql="";
+            // 目标页原始父文本由级联层声明关联，普通单选仍沿用自己的主键协议。
+            catalog.ConfigColumns.Single(column=>column.Id=="45").LinkConfigTableId="";
+        }
         if(global)
             catalog.ConfigIndexColumns.RemoveAll(column=>
-                (column.GetProperty("configIndexId").GetString() is "business_index_3" or "business_index_5")&&
-                (column.GetProperty("configColumnId").GetString() is "33" or "53"));
+                column.GetProperty("configIndexId").GetString()=="business_index_3"&&
+                column.GetProperty("configColumnId").GetString()=="33"||
+                !derived&&column.GetProperty("configIndexId").GetString()=="business_index_5"&&
+                column.GetProperty("configColumnId").GetString()=="53");
         var page=catalog.ConfigPages.Single(page=>page.Id=="201");
         page.IsNew=page.IsSave=1;
         page.Extra.Remove("type");
@@ -107,8 +118,11 @@ public sealed class CrossTableExcelSharedGenerationTests
         var source=model.Tables.Single(table=>table.Source.Id=="2");
         var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,source,Assert.Single(source.Pages)).Groups);
         Assert.All(group.Coordinator.Branches,branch=>Assert.True(branch.Levels[0].TextKey));
-        if(derived)Assert.Contains(RelationPropagationCompilation.DerivedBindings(model),binding=>binding.TargetKey=="business_key");
-        else if(!sparse)Assert.Contains(RelationPropagationCompilation.Bindings(model),binding=>binding.TargetKey=="business_key");
+        if(!sparse)
+        {
+            var bindings=derived?RelationPropagationCompilation.DerivedBindings(model):RelationPropagationCompilation.Bindings(model);
+            Assert.Contains(bindings,binding=>binding.TargetKey=="business_key");
+        }
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-cross-text");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -119,8 +133,11 @@ public sealed class CrossTableExcelSharedGenerationTests
             {
                 var generated=assembly.GetType(Namespace+".Generated.Services.SharedExcelSourceService",true)!;
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(generated.TypeHandle);
-                var maintenance=assembly.GetType(Namespace+".Generated.GeneratedRelationMaintenance",true)!;
-                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(maintenance.TypeHandle);
+                if(!sparse)
+                {
+                    var maintenance=assembly.GetType(Namespace+".Generated.GeneratedRelationMaintenance",true)!;
+                    System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(maintenance.TypeHandle);
+                }
                 Assert.NotNull(generated.GetMethod("Import201Async"));
                 Assert.NotNull(generated.GetMethod("Export201Async"));
                 return;

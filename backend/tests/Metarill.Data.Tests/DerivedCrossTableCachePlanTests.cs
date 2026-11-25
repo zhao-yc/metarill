@@ -15,8 +15,8 @@ public sealed class DerivedCrossTableCachePlanTests
         var c=Catalog(mask,type);var (direct,derived)=Split(c);var before=JsonSerializer.Serialize(c);var plan=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(c,direct,derived);Assert.Equal(before,JsonSerializer.Serialize(c));var source=Assert.Single(plan.MixedSourceColumns);Assert.Equal("cross_cache_source",source.Key);Assert.Equal(derived.Length,source.Value.Count);Assert.Contains("cross_dictionary",plan.MixedTargets);Assert.Equal(direct.Length,((IEnumerable)Read(Read(plan,"Propagation"),"Bindings")).Cast<object>().Count());Assert.ThrowsAny<Exception>(()=>RelationMutationPlan.Compile(c,derived));var fingerprint=plan.Fingerprint;c.ConfigColumns.Clear();Assert.Equal(fingerprint,plan.Fingerprint);Assert.Contains("cross_dictionary",plan.MixedTargets);
     }
     /// <summary>项目内派生名称刷新依赖真实目标键和字典，反查同时消费写前键与当前键。</summary>
-    [Fact]
-    public void Text_business_key_reverses_and_backfills_through_the_published_dictionary()
+    [Theory][InlineData(false)][InlineData(true)]
+    public void Text_business_key_reverses_and_backfills_through_the_published_dictionary(bool global)
     {
         var catalog=Catalog(1,"string");
         var control=catalog.ConfigColumns.Single(column=>column.Id=="control");
@@ -27,12 +27,33 @@ public sealed class DerivedCrossTableCachePlanTests
             LogicalType="string",ColumnLength="50",IsDbNotNull=1});
         catalog.ConfigColumns.Add(new(){Id="country_status",ConfigTableId="country",ColumnName="status",LogicalType="int32"});
         catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="country_unique",configTableId="country",isUnique=1}));
-        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{configIndexId="country_unique",configColumnId="country_project",sortNo=1}));
-        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{configIndexId="country_unique",configColumnId="country_key",sortNo=2}));
-        catalog.ConfigPages.Add(new(){Id="country_list",ConfigTableId="country",WhereSql="yz_project_id=@current_yz_project_id AND status=1"});
+        if(!global)catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{configIndexId="country_unique",configColumnId="country_project",sortNo=1}));
+        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{configIndexId="country_unique",configColumnId="country_key",sortNo=global?1:2}));
+        catalog.ConfigPages.Add(new(){Id="country_list",ConfigTableId="country",
+            WhereSql=global?"status=1":"yz_project_id=@current_yz_project_id AND status=1"});
         catalog.ConfigPageColumns.Add(new(){Id="country_list_caption",ConfigPageId="country_list",ConfigColumnId="country_label",IsShow=1});
 
+        if(global)
+        {
+            catalog.YzAdminTypes.Add(new(){Id="8",YzProjectId=catalog.YzProjectId});
+            foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "country" or "dictionary"))
+                table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            var page=catalog.ConfigPages.Single(item=>item.Id=="country_list");
+            page.YzAdminTypeId="8";
+            page.YzProjectId=catalog.YzProjectId;
+            catalog.ConfigPages.Add(new(){Id="dictionary_list",ConfigTableId="dictionary",YzAdminTypeId="8",YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPageColumns.Add(new(){Id="dictionary_caption",ConfigPageId="dictionary_list",ConfigColumnId="dictionary_name",IsShow=1});
+            var foreign=catalog.ConfigColumns.Single(column=>column.Id=="country_dictionary");
+            foreign.ControlKind="List";
+            foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="dictionary",pageId="dictionary_list",nameField="name"});
+        }
         var (direct,derived)=Split(catalog);
+        if(global)
+        {
+            var pages=new Dictionary<string,string>{{"country","country_list"}};
+            direct=direct.Select(binding=>binding with {CrossTableGlobalPages=pages}).ToArray();
+            derived=derived.Select(binding=>binding with {CrossTableGlobalPages=pages,CrossTablePageId="country_list"}).ToArray();
+        }
         var catalogPlan=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,direct,derived);
         var read=catalogPlan.Plans["source"].Read;
         Assert.NotNull(read);
@@ -43,7 +64,7 @@ public sealed class DerivedCrossTableCachePlanTests
         var reverse=Assert.Single(consumer.Read.Reverse,entry=>entry.TargetTable=="cross_cache_country");
         Assert.Equal("business_key",reverse.NodeKey!.Column);
         Assert.Equal("string",reverse.NodeKey.LogicalType);
-        Assert.Equal("int64",reverse.NodeKey.ProjectType);
+        Assert.Equal(global?"":"int64",reverse.NodeKey.ProjectType);
         Assert.Contains("BINARY b.`country_id`=BINARY @target_node_current",reverse.TargetPredicate);
         Assert.Contains("BINARY b.`country_id`=BINARY @target_node_previous",reverse.TargetPredicate);
         Assert.Contains("status",reverse.Outputs["country_name"]);
