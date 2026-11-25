@@ -773,19 +773,7 @@ public sealed class TextCascadeParentRelationTests
         var catalog=Catalog(1,import,export);
         ScopeTarget(catalog,"84");
         catalog.ConfigTables.Single(item=>item.Id=="84").IsRongyu=targetStorage;
-        catalog.ConfigColumns.AddRange([
-            new(){Id="8407",ConfigTableId="84",YzProjectId=catalog.YzProjectId,ColumnName="short_name",LogicalType="string"},
-            new(){Id="708",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="checkitem_short_names",
-                LogicalType="string",ColumnLength="max",Extra=new(){
-                    ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
-                    ["columnFullName"]=JsonSerializer.SerializeToElement("checkitem.short_name")}}
-        ]);
-        catalog.ConfigPageColumns.AddRange([
-            new(){Id="f8407",ConfigPageId="840",ConfigColumnId="8407",YzProjectId=catalog.YzProjectId,IsShow=1},
-            new(){Id="f708",ConfigPageId="201",ConfigColumnId="708",YzProjectId=catalog.YzProjectId,IsShow=1}
-        ]);
-        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="706").Extra["controlDetail"]=
-            JsonSerializer.SerializeToElement("""{"nameField":"short_name"}""");
+        PublishCheckboxShortName(catalog,storedCache:true);
         var model=GenerationModel.Create(catalog,"Example.StoredCheckboxTextParentLabels");
         var table=model.Tables.Single(item=>item.Source.Id=="2");
         var page=Assert.Single(table.Pages);
@@ -832,6 +820,101 @@ public sealed class TextCascadeParentRelationTests
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>非冗余业务表的原名称字段按页面实时读取简称，保留文本同父校验。</summary>
+    [Theory]
+    [InlineData(0,"OnlyNew","list")]
+    [InlineData(0,"OverWriteByFirstColumn","edit")]
+    [InlineData(1,"OnlyNew","list")]
+    [InlineData(1,"OverWriteByFirstColumn","edit")]
+    public async Task Sparse_checkbox_text_parent_reads_the_published_short_name(int targetStorage,string import,string export)
+    {
+        var catalog=Catalog(0,import,export);
+        ScopeTarget(catalog,"84");
+        catalog.ConfigTables.Single(item=>item.Id=="84").IsRongyu=targetStorage;
+        PublishCheckboxShortName(catalog,storedCache:false);
+        var setting=catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="706");
+        setting.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId=="707").Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        var model=GenerationModel.Create(catalog,"Example.SparseCheckboxShortName");
+        var owner=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(owner.Pages);
+        var resolved=DatabaseCheckboxCompilation.Resolve(model,owner,page,owner.Columns.Single(field=>field.Source.Id=="706"));
+        Assert.True(resolved.Definition is {UsesPageTextParent:true,UsesNameOverride:true},resolved.Reason);
+        Assert.Equal("checkitem_names",resolved.Definition!.Names!.Source.ColumnName);
+        Assert.Equal("short_name",resolved.Definition.Name.Source.ColumnName);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var bindings=NonRedundantCrossTableCompilation.Bindings(model,owner,page);
+        var targets=NonRedundantReadCompilation.ProjectMultiTargets(model,owner,page);
+        Assert.Contains(targets,target=>target.ColumnId=="706"&&target.TargetPageId=="840"&&target.ApplyPageScope);
+        var full=NameFilter(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-sparse-checkbox-text-short-name");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            Assert.Equal(full,NameFilter(await PublishedReadCatalog(directory)));
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            Assert.Contains("ImportCheckbox201_706Async",service);
+            Assert.Contains("ExportCheckbox201_706Async(entities,actor,request.ParentId",service);
+            Assert.Contains("\"checkitem_names\",FixedReadComparison.JsonArrayAnyContains",service);
+            Assert.Contains(targetStorage==0?"DerivedCheckboxRows201_706Async(logicalRelationParentId":
+                "CheckboxScope201_706Async(logicalRelationParentId",service);
+            Assert.Contains(targetStorage==0?"\"short_name\"":".ShortName",service);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+
+        string NameFilter(MetadataCatalog metadata)
+        {
+            var plan=Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(metadata,"2",["checkitem_names"],[],bindings,[],targets);
+            const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+            var mysql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+            var filters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(mysql.GetType().GetProperty("ArrayNamePredicates",flags)!.GetValue(mysql));
+            var sql=Assert.Single(filters).Value;
+            Assert.Contains("`short_name`",sql);
+            Assert.Contains("BINARY CAST",sql);
+            Assert.Contains("`business_key`",sql);
+            Assert.DoesNotContain("multi_parent.",sql);
+            return sql;
+        }
+    }
+
+    /// <summary>页面覆盖只能读取字典页已公开的物理简称。</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void Sparse_checkbox_text_parent_rejects_unpublished_short_name(int targetStorage)
+    {
+        var catalog=Catalog(0,"OnlyNew","list");
+        ScopeTarget(catalog,"84");
+        catalog.ConfigTables.Single(item=>item.Id=="84").IsRongyu=targetStorage;
+        PublishCheckboxShortName(catalog,storedCache:false);
+        catalog.ConfigPageColumns.RemoveAll(field=>field.Id=="f8407");
+        var model=GenerationModel.Create(catalog,"Example.SparseCheckboxHiddenShortName");
+        var owner=model.Tables.Single(item=>item.Source.Id=="2");
+        var result=DatabaseCheckboxCompilation.Resolve(model,owner,Assert.Single(owner.Pages),owner.Columns.Single(field=>field.Source.Id=="706"));
+        Assert.Null(result.Definition);
+        Assert.Contains("显式目标页必须已开放该字段",result.Reason);
+    }
+
+    /// <summary>字典页公开简称时，冗余来源仍显式声明独立物理副本。</summary>
+    private static void PublishCheckboxShortName(MetadataCatalog catalog,bool storedCache)
+    {
+        catalog.ConfigColumns.Add(new(){Id="8407",ConfigTableId="84",YzProjectId=catalog.YzProjectId,ColumnName="short_name",LogicalType="string"});
+        catalog.ConfigPageColumns.Add(new(){Id="f8407",ConfigPageId="840",ConfigColumnId="8407",YzProjectId=catalog.YzProjectId,IsShow=1});
+        if(storedCache)
+        {
+            catalog.ConfigColumns.Add(new(){Id="708",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="checkitem_short_names",
+                LogicalType="string",ColumnLength="max",Extra=new(){
+                    ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=JsonSerializer.SerializeToElement("checkitem.short_name")}});
+            catalog.ConfigPageColumns.Add(new(){Id="f708",ConfigPageId="201",ConfigColumnId="708",YzProjectId=catalog.YzProjectId,IsShow=1});
+        }
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="706").Extra["controlDetail"]=
+            JsonSerializer.SerializeToElement("""{"nameField":"short_name"}""");
     }
 
     /// <summary>使用生成应用实际装载的精简目录重放查询，包含页级范围与原控件绑定。</summary>
