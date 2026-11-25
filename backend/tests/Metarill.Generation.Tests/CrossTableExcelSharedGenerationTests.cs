@@ -75,9 +75,10 @@ public sealed class CrossTableExcelSharedGenerationTests
     [Theory]
     [InlineData(null,false,false)][InlineData("country_id",false,false)][InlineData("place_id",true,false)]
     [InlineData(null,false,true)][InlineData("country_id",false,true)][InlineData("place_id",true,true)]
-    public async Task Shared_text_keys_drive_original_write_and_workbook(string? fixedParent,bool global,bool sparse)
+    [InlineData("country_id",false,false,true)][InlineData("place_id",false,false,true)]
+    public async Task Shared_text_keys_drive_original_write_and_workbook(string? fixedParent,bool global,bool sparse,bool derived=false)
     {
-        var catalog=Catalog(global?"global-r1":"shared-r1");
+        var catalog=Catalog(derived?"derived-r1":global?"global-r1":"shared-r1");
         if(sparse)catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
         var main=catalog.ConfigColumns.Single(column=>column.Id=="25");
         CrossTableExcelLosslessGenerationTests.AddBusinessKeys(catalog,main,primaryLevel:1);
@@ -106,13 +107,24 @@ public sealed class CrossTableExcelSharedGenerationTests
         var source=model.Tables.Single(table=>table.Source.Id=="2");
         var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,source,Assert.Single(source.Pages)).Groups);
         Assert.All(group.Coordinator.Branches,branch=>Assert.True(branch.Levels[0].TextKey));
-        if(!sparse)Assert.Contains(RelationPropagationCompilation.Bindings(model),binding=>binding.TargetKey=="business_key");
+        if(derived)Assert.Contains(RelationPropagationCompilation.DerivedBindings(model),binding=>binding.TargetKey=="business_key");
+        else if(!sparse)Assert.Contains(RelationPropagationCompilation.Bindings(model),binding=>binding.TargetKey=="business_key");
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-cross-text");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),Namespace);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            if(derived)
+            {
+                var generated=assembly.GetType(Namespace+".Generated.Services.SharedExcelSourceService",true)!;
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(generated.TypeHandle);
+                var maintenance=assembly.GetType(Namespace+".Generated.GeneratedRelationMaintenance",true)!;
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(maintenance.TypeHandle);
+                Assert.NotNull(generated.GetMethod("Import201Async"));
+                Assert.NotNull(generated.GetMethod("Export201Async"));
+                return;
+            }
             var guard=new StopBeforeExcelWrite();
             using var runtime=new SharedExcelReadTransport(assembly,Namespace,"SharedExcelSource",guard:guard,mysqlDialect:true);
             Seed("Country",11,"国甲",key:"001");

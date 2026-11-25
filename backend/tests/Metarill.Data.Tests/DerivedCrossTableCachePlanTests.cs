@@ -14,6 +14,43 @@ public sealed class DerivedCrossTableCachePlanTests
     {
         var c=Catalog(mask,type);var (direct,derived)=Split(c);var before=JsonSerializer.Serialize(c);var plan=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(c,direct,derived);Assert.Equal(before,JsonSerializer.Serialize(c));var source=Assert.Single(plan.MixedSourceColumns);Assert.Equal("cross_cache_source",source.Key);Assert.Equal(derived.Length,source.Value.Count);Assert.Contains("cross_dictionary",plan.MixedTargets);Assert.Equal(direct.Length,((IEnumerable)Read(Read(plan,"Propagation"),"Bindings")).Cast<object>().Count());Assert.ThrowsAny<Exception>(()=>RelationMutationPlan.Compile(c,derived));var fingerprint=plan.Fingerprint;c.ConfigColumns.Clear();Assert.Equal(fingerprint,plan.Fingerprint);Assert.Contains("cross_dictionary",plan.MixedTargets);
     }
+    /// <summary>项目内派生名称刷新依赖真实目标键和字典，反查同时消费写前键与当前键。</summary>
+    [Fact]
+    public void Text_business_key_reverses_and_backfills_through_the_published_dictionary()
+    {
+        var catalog=Catalog(1,"string");
+        var control=catalog.ConfigColumns.Single(column=>column.Id=="control");
+        var definition=System.Text.Json.Nodes.JsonNode.Parse(control.ControlDetail)!;
+        definition["levels"]![0]!["idField"]="business_key";
+        control.ControlDetail=definition.ToJsonString();
+        catalog.ConfigColumns.Add(new(){Id="country_key",ConfigTableId="country",ColumnName="business_key",
+            LogicalType="string",ColumnLength="50",IsDbNotNull=1});
+        catalog.ConfigColumns.Add(new(){Id="country_status",ConfigTableId="country",ColumnName="status",LogicalType="int32"});
+        catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="country_unique",configTableId="country",isUnique=1}));
+        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{configIndexId="country_unique",configColumnId="country_project",sortNo=1}));
+        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{configIndexId="country_unique",configColumnId="country_key",sortNo=2}));
+        catalog.ConfigPages.Add(new(){Id="country_list",ConfigTableId="country",WhereSql="yz_project_id=@current_yz_project_id AND status=1"});
+        catalog.ConfigPageColumns.Add(new(){Id="country_list_caption",ConfigPageId="country_list",ConfigColumnId="country_label",IsShow=1});
+
+        var (direct,derived)=Split(catalog);
+        var catalogPlan=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,direct,derived);
+        var read=catalogPlan.Plans["source"].Read;
+        Assert.NotNull(read);
+        Assert.Matches(@"BINARY r\d+\.\x60business_key\x60=BINARY b\.\x60country_id\x60",read.From);
+        Assert.Matches(@"r\d+\.\x60status\x60=@[A-Za-z0-9_]+",read.From);
+        Assert.Contains("LEFT JOIN `cross_dictionary`",read.From);
+        var consumer=Assert.Single(catalogPlan.Mixed.Consumers);
+        var reverse=Assert.Single(consumer.Read.Reverse,entry=>entry.TargetTable=="cross_cache_country");
+        Assert.Equal("business_key",reverse.NodeKey!.Column);
+        Assert.Equal("string",reverse.NodeKey.LogicalType);
+        Assert.Equal("int64",reverse.NodeKey.ProjectType);
+        Assert.Contains("BINARY b.`country_id`=BINARY @target_node_current",reverse.TargetPredicate);
+        Assert.Contains("BINARY b.`country_id`=BINARY @target_node_previous",reverse.TargetPredicate);
+        Assert.Contains("status",reverse.Outputs["country_name"]);
+        Assert.Contains("business_key",reverse.Outputs["country_name"]);
+        Assert.Contains(consumer.Read.Reverse,entry=>entry.TargetTable=="cross_dictionary"&&entry.Outputs["country_name"].Contains("name"));
+    }
+
     /// <summary>R0物理名称仍由直接执行器处理，不粗略合并存储模式。</summary>
     [Fact]public void Physical_r0_name_keeps_direct_plan()
     {

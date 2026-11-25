@@ -139,10 +139,9 @@ public static class RedundantSharedParents
             });ids.Add(id);names.Add(name);previous=target;
         }
         if(ids[^1].Id!=control.Id)throw Unsupported();
-        // 全局物理名称沿原发布证明，文本键仍须有单列唯一索引。逻辑与账号条件保留各自边界。
+        // 项目内派生层由固定名称路径和缓存证明覆盖，文本父范围仍只读取物理键和固定条件。
         if(result.Any(level=>level.TextKey)&&(globalDerivedName||result.Any(level=>level.TableId==source.Id||
-            level.RecursiveCandidate is not null||level.Condition?.Variables.Count>0||
-            level.ProjectType is not null&&catalog.ConfigTables.Single(table=>table.Id==level.TableId).IsRongyu!=1)))throw Unsupported();
+            level.RecursiveCandidate is not null||level.Condition?.Variables.Count>0)))throw Unsupported();
         // 来源兼任候选时，真实父和名称不能被同一条链的归一化改写。
         var managed=ids.Concat(names).Select(field=>field.ColumnName).ToHashSet(StringComparer.Ordinal);
         if(result.Where(level=>level.TableId==source.Id).Any(level=>

@@ -93,7 +93,6 @@ internal static class CrossTableReadCompilation
                 result.Any(level=>level.Target.Source.IsView!=0||level.Target.Source.Id==table.Source.Id||
                     FixedPageConditionCompilation.HasAccountVariables(level.Page)||
                     level.Target.IsGlobal&&(level.DerivedName||FixedPageConditionCompilation.HasLogicalFields(level.Page)))||
-                table.Source.IsRongyu==1&&result.Any(level=>level.Target.Source.IsRongyu==0&&!level.Target.IsGlobal)||
                 !SupportsSourceParent(model,table,source,result)))
                 return Gap("文本业务键要求 MySQL 实体链，来源父范围须唯一，全局目标须使用固定物理名称范围。");
             if(plan.HasTextKeys&&(!CrossTableFrontendProof.KeepsStorageDefinition(model,page,source)||result[^1].TextKey&&source.Type!="string?"))

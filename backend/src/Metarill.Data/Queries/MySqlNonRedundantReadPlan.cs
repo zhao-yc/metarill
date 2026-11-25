@@ -20,6 +20,8 @@ internal sealed record MySqlReverseProjection(string TargetTable,string From,str
     internal string TargetPredicate => ForeignType switch
     {
         "predicate" => ForeignExpression,
+        // 文本业务键按原列字节寻找旧值和新值，避免先转换到连接字符集。
+        _ when NodeKey?.LogicalType=="string" => "(BINARY "+ForeignExpression+"=BINARY @target_node_current OR BINARY "+ForeignExpression+"=BINARY @target_node_previous)",
         _ when NodeKey is not null => "(BINARY CAST("+ForeignExpression+" AS CHAR)=BINARY @target_node_current OR BINARY CAST("+ForeignExpression+" AS CHAR)=BINARY @target_node_previous)",
         "string" => "("+ForeignExpression+"=@target_text AND BINARY "+ForeignExpression+"=BINARY @target_text)",
         _ => ForeignExpression+"=@target_id"

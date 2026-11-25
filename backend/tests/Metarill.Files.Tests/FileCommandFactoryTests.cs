@@ -753,19 +753,21 @@ public sealed class FileCommandFactoryTests
 
     /// <summary>业务附件从实际存储恢复混合父链，文本键逐字绑定，大小写相异直接拒绝。</summary>
     [Theory]
-    [InlineData(false,false,false,false)]
-    [InlineData(true,false,false,false)]
-    [InlineData(false,true,false,false)]
-    [InlineData(true,true,false,false)]
-    [InlineData(false,false,true,false)]
-    [InlineData(true,false,true,false)]
-    [InlineData(false,true,true,false)]
-    [InlineData(true,true,true,false)]
-    [InlineData(false,true,false,true)]
-    [InlineData(true,true,true,true)]
-    [InlineData(false,false,false,true)]
-    [InlineData(true,false,true,true)]
-    public async Task File_parent_scope_restores_actual_text_keys(bool locking,bool redundant,bool globalRoot,bool shared)
+    [InlineData(false,false,false,false,false)]
+    [InlineData(true,false,false,false,false)]
+    [InlineData(false,true,false,false,false)]
+    [InlineData(true,true,false,false,false)]
+    [InlineData(false,false,true,false,false)]
+    [InlineData(true,false,true,false,false)]
+    [InlineData(false,true,true,false,false)]
+    [InlineData(true,true,true,false,false)]
+    [InlineData(false,true,false,true,false)]
+    [InlineData(true,true,true,true,false)]
+    [InlineData(false,false,false,true,false)]
+    [InlineData(true,false,true,true,false)]
+    [InlineData(false,true,false,false,true)]
+    [InlineData(true,true,false,true,true)]
+    public async Task File_parent_scope_restores_actual_text_keys(bool locking,bool redundant,bool globalRoot,bool shared,bool derivedRoot)
     {
         var catalog=FileCrossParentScopeTests.Catalog("file_text","string","string");
         var control=catalog.ConfigColumns.Single(column=>column.Id=="15");
@@ -800,6 +802,20 @@ public sealed class FileCommandFactoryTests
             catalog.ConfigTables.Single(table=>table.Id=="2").Extra["scopeKind"]=
                 System.Text.Json.JsonSerializer.SerializeToElement("global");
             catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql="enabled=1";
+        }
+        if(derivedRoot)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
+            var label=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="2"&&column.ColumnName=="name");
+            label.Extra["isJoinColumn"]=System.Text.Json.JsonSerializer.SerializeToElement(1);
+            label.Extra["columnFullName"]=System.Text.Json.JsonSerializer.SerializeToElement("company.name");
+            catalog.ConfigTables.Add(new(){Id="5",YzProjectId="1",TableName="file_text_company",IsRongyu=1});
+            catalog.ConfigColumns.AddRange([
+                new(){Id="51",ConfigTableId="5",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id="52",ConfigTableId="5",ColumnName="name",LogicalType="string"},
+                new(){Id="53",ConfigTableId="5",ColumnName="yz_project_id",LogicalType="int64"},
+                new(){Id="54",ConfigTableId="2",ColumnName="company_id",LogicalType="int64",LinkConfigTableId="5"}
+            ]);
         }
         if(redundant||globalRoot)
         {
@@ -854,6 +870,7 @@ public sealed class FileCommandFactoryTests
                 Assert.Contains("`file_text_country`",command.CommandText);
                 Assert.Contains("BINARY `business_key`=BINARY @node",command.CommandText);
                 Assert.Equal("001",value);
+                if(derivedRoot)Assert.DoesNotContain("file_text_company",command.CommandText);
                 data.Columns.Add("business_key",typeof(string));
                 data.Rows.Add("001");
             }
