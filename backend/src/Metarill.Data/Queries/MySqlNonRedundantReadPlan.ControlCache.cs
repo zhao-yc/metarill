@@ -50,7 +50,7 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>控件条件附加到物理联接后的可见性，记录变为不可见时仍可反查并清空副本。</summary>
         private string SingleControlCacheCondition(TableMetadata table,string owner,TableMetadata target,string alias,
-            PageMetadata page,FixedConditionPlan condition,CascadeCacheOwner cacheOwner,bool storedPhysicalExact,bool allowJoinedCondition)
+            PageMetadata page,FixedConditionPlan condition,CascadeCacheOwner cacheOwner,bool storedPhysicalExact,bool sharedTextParent)
         {
             var members=columns[target.Id];
             var tree=SelfTreeConditionFields(catalog,target,page,members.Values.ToArray(),condition.Fields);
@@ -58,9 +58,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 .ToHashSet(StringComparer.Ordinal);
             var bindings=(cross.Count==0?[]:CrossMembershipBindings(catalog,target,page,cross))
                 .ToDictionary(binding=>binding.SourceColumnId,StringComparer.Ordinal);
-            bool Joined(ColumnMetadata column)=>allowJoinedCondition&&storage[target.Id].Kind(column)==MetadataFieldStorage.Join;
+            bool Joined(ColumnMetadata column)=>sharedTextParent&&storage[target.Id].Kind(column)==MetadataFieldStorage.Join;
             bool Logical(string field)=>tree.Contains(field)||cross.Contains(field)||Joined(Column(target,field));
-            if(condition.Fields.Any(field=>!Logical(field)&&!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,field))))
+            if(condition.Fields.Any(field=>!Logical(field)&&!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,field))&&
+                !(sharedTextParent&&ProjectScopedSingleRelationTarget.IsStoredConditionCache(catalog,target,Column(target,field)))))
                 throw new InvalidOperationException("名称副本控件条件缺少非凭据物理字段或固定逻辑层位。");
             var prefix=ConditionParameterPrefix("mt_single_control_"+alias);
             var account=condition.Terms.Where(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable&&
@@ -147,7 +148,16 @@ public static partial class MySqlNonRedundantReadCompiler
                 !physicalExact&&page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
                 throw new InvalidOperationException("原下拉的冗余字典需要已证明的物理范围和同一实际父键。");
 
-            if (terms.Any(term=>!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,term.Field))))
+            var parentSource=parent?.SingleSource(catalog,source,relation,sourcePage,
+                allowLogicalListForm:!GlobalCrossTableTarget.Declared(source)&&!global);
+            if(parentSource?.Column.Id!=sourceParentId)
+                throw new InvalidOperationException("冗余字典选项与来源记录没有相同的已发布父范围。");
+            // 两端确实共享已发布文本祖先时，附加条件才允许读取冗余字典的联接副本。
+            var sharedTextParent=parent is not null&&parentSource is {LogicalPages.Count:>0}&&!global&&
+                UsesSharedStoredTextParent(source,parentSource,target,page,parent);
+            if (terms.Any(term=>!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,term.Field))&&
+                !(sharedTextParent&&control.Terms.Contains(term)&&
+                    ProjectScopedSingleRelationTarget.IsStoredConditionCache(catalog,target,Column(target,term.Field)))))
                 throw new InvalidOperationException("冗余字典范围只可使用真实的非凭据物理列。");
             // 普通字典已由物理联接限定项目。全局字典只有声明了项目谓词才按当前身份限定。
             static bool Project(FixedConditionTerm term)=>term.Field=="yz_project_id"&&term.Comparison==FixedConditionComparison.Equal&&
@@ -178,30 +188,22 @@ public static partial class MySqlNonRedundantReadCompiler
                 Projection,(variable,type)=>AccountConditionVariables.IsSupported(variable)
                     ?null:SingleControlFormColumn(source,owner,validity,variable,type),deferAccount:cacheOwner is null);
             foreach(var parameter in clause.Parameters)crossConstants.Add(parameter.Key,parameter.Value);
-            if (parent is not null)
+            if (parent is not null&&parentSource is not null&&!pageScopeApplied)
             {
-                var parentSource=parent.SingleSource(catalog,source,relation,sourcePage,
-                    allowLogicalListForm:!GlobalCrossTableTarget.Declared(source)&&!global);
-                if (parentSource.Column.Id!=sourceParentId)
-                    throw new InvalidOperationException("冗余字典选项与来源记录没有相同的已发布父范围。");
-                if(!pageScopeApplied)
+                var sourceParent=SingleSourceParentValue(source,owner,parentSource);
+                if(sharedTextParent)
                 {
-                    var sourceParent=SingleSourceParentValue(source,owner,parentSource);
-                    if(!global&&parentSource.LogicalPages.Count>0&&
-                        UsesSharedStoredTextParent(source,parentSource,target,page,parent))
-                    {
-                        // 来源已验证此祖先，目标物理列比较原业务键即可复用同一祖先和账号范围。
-                        Use(target,parent.Target);
-                        Touch(targetAlias,parent.Target.ColumnName);
-                        validity.Add(SameSingleParent(targetAlias+"."+Q(parent.Target.ColumnName),sourceParent));
-                    }
-                    else validity.Add(SinglePhysicalParentCondition(source,owner,targetAlias,parent,parentSource.Column,sourceParent:sourceParent));
-                    foreach(var additional in parent.AdditionalTargets)
-                    {
-                        Use(target,additional.Target);
-                        Touch(targetAlias,additional.Target.ColumnName);
-                        validity.Add(SameSingleParent(targetAlias+"."+Q(additional.Target.ColumnName),sourceParent));
-                    }
+                    // 来源已验证此祖先，目标物理列比较原业务键即可复用同一祖先和账号范围。
+                    Use(target,parent.Target);
+                    Touch(targetAlias,parent.Target.ColumnName);
+                    validity.Add(SameSingleParent(targetAlias+"."+Q(parent.Target.ColumnName),sourceParent));
+                }
+                else validity.Add(SinglePhysicalParentCondition(source,owner,targetAlias,parent,parentSource.Column,sourceParent:sourceParent));
+                foreach(var additional in parent.AdditionalTargets)
+                {
+                    Use(target,additional.Target);
+                    Touch(targetAlias,additional.Target.ColumnName);
+                    validity.Add(SameSingleParent(targetAlias+"."+Q(additional.Target.ColumnName),sourceParent));
                 }
             }
             return string.Join(" AND ",new[]{clause.Sql}.Concat(validity).Where(part=>part.Length>0));

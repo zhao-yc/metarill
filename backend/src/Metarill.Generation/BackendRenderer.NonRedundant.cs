@@ -233,6 +233,9 @@ internal static partial class BackendRenderer
             DerivedRelationNamesCompilation.UsesPhysicalPlan(model, relation) &&
             DerivedRelationNamesCompilation.UsesFixedRead(model, relation)))
             helpers+="    /// <summary>普通 R1 候选使用项目范围和实际物理列。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompilePhysicalRelation(string tableId,string[] outputs,string[] dependencies)=>Metarill.Data.Queries.NonRedundantReads.CompilePhysicalRelation(Snapshot,tableId,outputs,dependencies);\n";
+        if(relations.Any(relation=>DerivedRelationNamesCompilation.UsesPhysicalPlan(model,relation)&&
+            DerivedRelationNamesCompilation.StoredControlCacheFields(relation).Length>0))
+            helpers+="    /// <summary>共用文本父键的冗余单值候选读取已证明的物理名称副本条件。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileStoredSingleRelation(string tableId,string pageId,string[] outputs,string[] dependencies,string[] conditionCaches,Metarill.Data.Queries.RedundantSharedParentPlan[]? parents=null)=>Metarill.Data.Queries.NonRedundantReads.CompileStoredSingleRelation(Snapshot,tableId,pageId,outputs,dependencies,conditionCaches,parents);\n";
         if (relations.Any(relation => DerivedRelationNamesCompilation.UsesPhysicalPlan(model, relation) &&
             DerivedRelationNamesCompilation.UsesFixedRead(model, relation) &&
             SharedRedundantParentCompilation.HasAccountPath(model, relation.Target, relation.TargetPage)))

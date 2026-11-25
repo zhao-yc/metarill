@@ -128,6 +128,15 @@ internal static class DerivedRelationNamesCompilation
         relation.Target.Source.IsRongyu == 1 && (relation.FunctionForm || UsesExactSingle(relation) ||
             relation.NameColumn.IsId || IsPhysicalTypedName(model, relation.Target, relation.NameColumn));
 
+    /// <summary>仅固定候选实际使用的控件附加条件可以将物理名称副本列纳入依赖。</summary>
+    internal static string[] StoredControlCacheFields(RelationModel relation)
+    {
+        if(relation.SharedTextParent is null||relation.Target.Source.IsRongyu!=1)return [];
+        var fields=relation.Conditions?.Syntax.Fields??(UsesExactSingle(relation)?relation.ImportCondition?.Syntax.Fields:null)??[];
+        return relation.Target.Columns.Where(column=>fields.Contains(column.Source.ColumnName)&&
+            GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")).Select(column=>column.Source.ColumnName).ToArray();
+    }
+
     /// <summary>物理名称仍使用真实声明类型作为 SQL 投影和精确反查的参数类型。</summary>
     internal static bool IsPhysicalTypedName(GenerationModel model, TableModel target, ColumnModel name) =>
         IsTypedLabel(name) && NonRedundantReadCompilation.Physical(model, target, name);
@@ -255,6 +264,7 @@ internal static class DerivedRelationNamesCompilation
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var outputs = name.IsId?new[]{"id"}:new[]{"id",name.Source.ColumnName};
         var projectTargets=ProjectCandidateTargets(model,relation,exact);
+        var conditionCaches=StoredControlCacheFields(relation);
         var plan = IsGlobalExactSingle(relation)
             ? NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog,target.Source.Id,relation.TargetPage.Source.Id,
                 outputs,dependencies,projectTargets,null,
@@ -267,8 +277,11 @@ internal static class DerivedRelationNamesCompilation
             : UsesGlobalPlan(model, relation)
             ? NonRedundantReads.CompileGlobalCandidate(model.Catalog, target.Source.Id, relation.TargetPage.Source.Id, outputs, dependencies, projectTargets)
             : UsesPhysicalPlan(model, relation)
-                ? NonRedundantReads.CompilePhysicalRelation(model.Catalog,target.Source.Id,outputs,dependencies,
-                    SharedRedundantParentCompilation.AccountPlans(model,target,relation.TargetPage))
+                ? conditionCaches.Length>0
+                    ? NonRedundantReads.CompileStoredSingleRelation(model.Catalog,target.Source.Id,relation.TargetPage.Source.Id,
+                        outputs,dependencies,conditionCaches,SharedRedundantParentCompilation.AccountPlans(model,target,relation.TargetPage))
+                    : NonRedundantReads.CompilePhysicalRelation(model.Catalog,target.Source.Id,outputs,dependencies,
+                        SharedRedundantParentCompilation.AccountPlans(model,target,relation.TargetPage))
                 : projectTargets.Count>0
                 ? NonRedundantReads.CompileProjectRelation(model.Catalog,target.Source.Id,outputs,dependencies,projectTargets)
                 : NonRedundantReads.Compile(model.Catalog, target.Source.Id, outputs, dependencies);

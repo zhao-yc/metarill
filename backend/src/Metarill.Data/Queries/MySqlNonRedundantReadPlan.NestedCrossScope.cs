@@ -311,6 +311,7 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         internal FixedConditionSqlPlan? CrossCandidateCondition{get;init;}
         internal IReadOnlySet<string> ControlConditionJoins{get;init;}=FrozenSet<string>.Empty;
+        internal IReadOnlySet<string> StoredConditionCaches{get;init;}=FrozenSet<string>.Empty;
         internal PageMetadata? SelectedMultiPage{get;init;}
         internal bool AllowLiteralMultiScope{get;init;}
         internal bool MultiCandidateProjectScoped{get;set;}
@@ -1056,6 +1057,7 @@ public static partial class MySqlNonRedundantReadCompiler
             if(parent is {Logical:false})
             {
                 var textPath=StoredTextCacheParent(table,binding!,target,page,parent);
+                sharedTextParent=textPath is not null;
                 visible+=(visible.Length==0?"":" AND ")+(textPath is null?
                     SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,cacheOwner,sourceParent,sourceFrom):
                     StoredTextCacheVisibility(table,owner,binding!,target,alias,textPath,cacheOwner));
@@ -1065,7 +1067,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 // 控件谓词留在可见性中以保留失效反查，直接目标路径不能简化该计划。
                 scalarCacheTarget=null;
                 var extra=SingleControlCacheCondition(table,owner,target,alias,page,control,cacheOwner,physicalExact,
-                    allowJoinedCondition:sharedTextParent&&foreign.ControlKind=="List");
+                    sharedTextParent:sharedTextParent&&foreign.ControlKind=="List");
                 if(extra.Length>0)visible+=(visible.Length==0?"":" AND ")+extra;
             }
             return (alias,alias+".`id` IS NOT NULL"+(visible.Length==0?"":" AND ("+visible+")"));

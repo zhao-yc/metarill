@@ -100,6 +100,41 @@ public static class ProjectScopedSingleRelationTarget
         return true;
     }
 
+    /// <summary>原冗余字典条件读取持久副本。沿声明的单值路径证明终点，避免凭据被联接别名掩盖。</summary>
+    public static bool IsStoredConditionCache(MetadataCatalog catalog,TableMetadata target,ColumnMetadata column)
+    {
+        if(target.IsRongyu!=1||!ProjectTable(target)||column.ConfigTableId!=target.Id||column.IsVirtualColumn!=0||
+            column.LogicalType is "json" or "binary"||
+            column.ControlKind is ("Title" or "Tab" or "FileLibrary" or "CascadeTree" or "MultiSelectPage" or
+                "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList" or "MultipleList" or "MultiCheckBoxConst")||
+            Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(column.ColumnName)||
+            !column.Extra.TryGetValue("isJoinColumn",out var flag)||
+            !(flag.ValueKind==JsonValueKind.True||flag.ToString()=="1"))
+            return false;
+        var path=Text(column,"columnFullName").Split('.');
+        if(path.Length is <2 or >17||path.Any(string.IsNullOrWhiteSpace))return false;
+        var current=target;
+        foreach(var segment in path[..^1])
+        {
+            var members=catalog.ConfigColumns.Where(field=>field.ConfigTableId==current.Id);
+            var foreign=members.SingleOrDefault(field=>field.ColumnName==segment+"_id")??
+                members.SingleOrDefault(field=>field.ColumnName==segment);
+            if(foreign is null||foreign.ControlKind is not ("List" or "SelectPage")||
+                !foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal)||foreign.LogicalType is not ("int64" or "string")||
+                !GlobalPhysicalRelationValue.IsScalar(MetadataStoragePolicy.ForTable(catalog,current),current,foreign))
+                return false;
+            current=GlobalSingleRelationTarget.ResolveTarget(catalog,foreign);
+            if(!ProjectTable(current))return false;
+        }
+        var storage=MetadataStoragePolicy.ForTable(catalog,current);
+        var terminal=storage.PhysicalColumns.SingleOrDefault(field=>field.ColumnName==path[^1]);
+        return terminal is not null&&terminal.LogicalType==column.LogicalType&&
+            terminal is not {ColumnName:"salt"}&&GlobalPhysicalRelationValue.IsScalar(storage,current,terminal);
+
+        bool ProjectTable(TableMetadata table)=>table.YzProjectId==catalog.YzProjectId&&
+            table is {IsView:0,IsFunctionTable:0}&&!GlobalCrossTableTarget.Declared(table);
+    }
+
     /// <summary>路径任一实际目标页有额外范围时，所有写入入口必须共享同一固定名称来源。</summary>
     public static (PageMetadata Page, ColumnMetadata Name)? Resolve(
         MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)

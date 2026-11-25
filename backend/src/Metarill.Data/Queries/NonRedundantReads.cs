@@ -463,6 +463,16 @@ public static class NonRedundantReads
         new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,
             [..new[]{"id",field}.Distinct(StringComparer.OrdinalIgnoreCase)],[],singleTargets,conditionFields,importPageType:"1"));
 
+    /// <summary>冗余单值字典编译已发布的物理父级和固定联接条件副本。</summary>
+    public static NonRedundantReadPlan CompileStoredSingleRelation(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<string> conditionCaches,
+        IReadOnlyList<RedundantSharedParentPlan>? parents=null)
+    {
+        if(metadata.DatabaseProvider!="mysql")throw new NotSupportedException("当前方言尚未接入冗余单值字典。");
+        return new(MySqlNonRedundantReadCompiler.CompileStoredSingleRelation(
+            metadata,tableId,pageId,outputs,dependencies,conditionCaches,parents));
+    }
+
     /// <summary>生成及维护按实际发布页核对派生名称的固定单值终点。</summary>
     public static NonRedundantReadPlan CompilePublishedScalarMatch(MetadataCatalog catalog,string tableId,string pageId,string field)
     {

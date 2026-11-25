@@ -221,6 +221,22 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<string>? dependencies,IReadOnlyList<RedundantSharedParentPlan> parents) =>
         CompileRelationScope(catalog,tableId,outputs,[],dependencies,false,scopedPhysicalCandidate:true,candidateParents:parents);
 
+    /// <summary>实际冗余单值字典的文本父范围允许使用已验证的物理联接条件列。</summary>
+    internal static MySqlNonRedundantReadPlan CompileStoredSingleRelation(MetadataCatalog catalog,string tableId,string pageId,
+        IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<string> conditionCaches,
+        IReadOnlyList<RedundantSharedParentPlan>? parents)
+    {
+        var target=catalog.ConfigTables.Single(table=>table.Id==tableId);
+        var page=catalog.ConfigPages.Single(candidate=>candidate.Id==pageId&&candidate.ConfigTableId==tableId);
+        if(GlobalCrossTableTarget.Declared(target)||page.YzProjectId!=catalog.YzProjectId||
+            !CrossTableStorageColumns.DeclaresStoredTextParent(catalog,target,page)||
+            !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId)||
+            conditionCaches.Any(field=>!dependencies.Contains(field,StringComparer.Ordinal)))
+            throw new NotSupportedException("冗余联接条件需要实际发布的文本父级字典。");
+        return CompileRelationScope(catalog,tableId,outputs,[],dependencies,false,scopedPhysicalCandidate:true,
+            candidateParents:parents,storedConditionCaches:conditionCaches);
+    }
+
     /// <summary>固定业务页在同一读取计划中绑定单值目标和已有跨表路径。</summary>
     internal static MySqlNonRedundantReadPlan CompileProjectPage(MetadataCatalog catalog,string tableId,IReadOnlyList<string> outputs,
         IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantCrossTableScope> crossTables,
@@ -232,7 +248,7 @@ public static partial class MySqlNonRedundantReadCompiler
     private static MySqlNonRedundantReadPlan CompileRelationScope(MetadataCatalog catalog, string tableId, IReadOnlyList<string> outputNames,
         IReadOnlyList<NonRedundantCrossTableScope> crossTables, IReadOnlyList<string>? dependencies, bool deferCascadeNames, bool scopedPhysicalCandidate = false,
         IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,
-        IReadOnlyList<NonRedundantMultiTargetScope>? multiTargets=null)
+        IReadOnlyList<NonRedundantMultiTargetScope>? multiTargets=null,IReadOnlyList<string>? storedConditionCaches=null)
     {
         ArgumentNullException.ThrowIfNull(crossTables);
         ArgumentNullException.ThrowIfNull(catalog); ArgumentNullException.ThrowIfNull(outputNames);
@@ -243,7 +259,8 @@ public static partial class MySqlNonRedundantReadCompiler
         var builder = new Builder(catalog, tableId, deferCascadeNames: deferCascadeNames, crossTables: crossTables, scopedPhysicalCandidate: scopedPhysicalCandidate,candidateParents:candidateParents)
         {
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
-            ProjectMultiTargets=(multiTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
+            ProjectMultiTargets=(multiTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
+            StoredConditionCaches=(storedConditionCaches??[]).ToFrozenSet(StringComparer.Ordinal)
         };
         return builder.Compile(outputNames,dependencies??[]);
     }
@@ -452,15 +469,16 @@ public static partial class MySqlNonRedundantReadCompiler
                 .Distinct(StringComparer.OrdinalIgnoreCase).Any(field => !CandidateField(field)))
                 throw new NotSupportedException("物理候选只读取已声明的非凭据标量和明确发布的标量名称副本。");
 
-            // 缓存仅作为显式返回的全局名称。复选投影已验证实际名称，不能将缓存列用作独立条件。
+            // 条件副本须在实际单值字典发布时登记，仍只读取真实物理列。
             bool CandidateField(string field)
             {
                 var column = Column(root,field);
                 var rootStorage = storage[root.Id];
                 return GlobalPhysicalRelationValue.IsScalar(rootStorage,root,column) ||
                     scopedPhysicalCandidate && !outputs.Contains(field,StringComparer.OrdinalIgnoreCase) &&
-                    rootStorage.IsPhysical(column) && candidateParents.Any(parent=>parent.ColumnName==field&&
-                        parent.ColumnId==column.Id&&parent.LogicalType==column.LogicalType) ||
+                    rootStorage.IsPhysical(column) &&
+                    (candidateParents.Any(parent=>parent.ColumnName==field&&parent.ColumnId==column.Id&&parent.LogicalType==column.LogicalType)||
+                     StoredConditionCaches.Contains(field)&&ProjectScopedSingleRelationTarget.IsStoredConditionCache(catalog,root,column)) ||
                     physicalCandidate && outputs.Contains(field,StringComparer.OrdinalIgnoreCase) &&
                     (MultiValueLabel.IsTyped(column.LogicalType) || multiLabel && field == cascadeLabelField) &&
                     GlobalPhysicalRelationValue.IsPublishedScalar(catalog,rootStorage,root,column);

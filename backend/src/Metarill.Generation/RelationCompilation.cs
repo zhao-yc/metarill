@@ -198,6 +198,17 @@ internal static class RelationCompilation
                 // 非冗余字典的页条件、控件逻辑条件和精确匹配字段沿同一个已发布父计划验证。
                 else if(fixedParent is not {Logical:true}||!fixedParent.HasTarget(sharedTextParent.Source.Id,logicalOnly:true))
                     throw new NotSupportedException("关联目标的文本父键必须沿目标页实际级联路径读取。");
+                if(target.Source.IsRongyu==1)
+                {
+                    // 冗余字典的联接条件使用维护后的物理副本，凭据别名和无效路径不能参与候选。
+                    foreach(var conditionField in (conditions?.Syntax.Fields??[]).Concat(selection?.ImportCondition?.Syntax.Fields??[]))
+                    {
+                        var column=target.Columns.Single(member=>member.Source.ColumnName==conditionField);
+                        if(GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&
+                            !ProjectScopedSingleRelationTarget.IsStoredConditionCache(model.Catalog,target.Source,column.Source))
+                            throw new NotSupportedException("冗余字典的附加联接条件需要同类型的非凭据标量副本。");
+                    }
+                }
             }
             IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
             ColumnModel[] independentOrder = [];

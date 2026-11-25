@@ -29,6 +29,7 @@ internal static class DerivedRelationNamesRenderer
             ? NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans ?? [])
             : accountParent ? ",OptionsAccountParentScope"+suffix : "";
         var projection=DerivedRelationNamesCompilation.ProjectionCondition(relation);
+        var conditionCaches=DerivedRelationNamesCompilation.StoredControlCacheFields(relation);
         var planStart = globalExact
             ? $"CompileGlobalExactSingleCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : logical
@@ -36,7 +37,9 @@ internal static class DerivedRelationNamesRenderer
             : DerivedRelationNamesCompilation.UsesGlobalPlan(model, relation)
             ? $"CompileGlobalCandidate({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
             : DerivedRelationNamesCompilation.UsesPhysicalPlan(model, relation)
-                ? $"CompilePhysicalRelation({Literal(relation.Target.Source.Id)}"
+                ? conditionCaches.Length>0
+                    ? $"CompileStoredSingleRelation({Literal(relation.Target.Source.Id)},{Literal(relation.TargetPage.Source.Id)}"
+                    : $"CompilePhysicalRelation({Literal(relation.Target.Source.Id)}"
                 : projectTargets.Count>0
                 ? $"CompileProjectRelation({Literal(relation.Target.Source.Id)}"
                 : NonRedundantReadCompilation.RelationPlanStart(relation.Target, relation.TargetPage);
@@ -46,7 +49,8 @@ internal static class DerivedRelationNamesRenderer
         // 精确过滤只引入目标页匹配字段所在路径，共享分支仍由同一个整组计划验证。
         var additionalFields=exact is not null&&(globalExact||embeddedParent)&&projection is {HasLogicalFields:true}
             ?",listFields:new string[]{"+string.Join(",",projection.Syntax.Fields.Select(Literal))+"}":"";
-        var plan = $"{planStart},{outputs},{fields}{parentPlan}{projectTargetArgument}{additionalFields})";
+        var cacheArgument=conditionCaches.Length==0?"":",new string[]{"+string.Join(",",conditionCaches.Select(Literal))+"}";
+        var plan = $"{planStart},{outputs},{fields}{cacheArgument}{parentPlan}{projectTargetArgument}{additionalFields})";
         if (!globalExact && !logical && exact is not null && (exact.CrossPlans is not null || exact.SingleTargets.Count > 0))
         {
             var crossArgument = exact.CrossPlans is { } crossPlans
