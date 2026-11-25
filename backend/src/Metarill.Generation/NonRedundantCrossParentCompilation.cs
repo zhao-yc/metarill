@@ -27,11 +27,11 @@ internal static class NonRedundantCrossParentCompilation
     internal static bool IsText(GenerationModel model,TableModel table,PageModel page,ColumnModel column)=>
         Managed(model,table,page,column)&&Find(model,table,page,column) is {} path&&path.Read.Levels[path.Index].TextKey;
 
-    /// <summary>验证稀疏来源与目标各自从同一发布祖先路径还原相同的文本键。</summary>
+    /// <summary>验证稀疏来源与目标共用同一发布祖先路径及文本键，目标可以物理保存父键。</summary>
     internal static ColumnModel? CommonTextParent(GenerationModel model,TableModel source,PageModel sourcePage,
-        TableModel target,PageModel targetPage)
+        TableModel target,PageModel targetPage,bool allowStoredTarget=false)
     {
-        if(source.Source.IsRongyu!=0||target.Source.IsRongyu!=0||source.IsGlobal||target.IsGlobal||
+        if(source.Source.IsRongyu!=0||target.Source.IsRongyu!=0&&(!allowStoredTarget||target.Source.IsRongyu!=1)||source.IsGlobal||target.IsGlobal||
             source.Source.YzProjectId!=model.Catalog.YzProjectId||target.Source.YzProjectId!=model.Catalog.YzProjectId||
             sourcePage.Source.YzProjectId!=model.Catalog.YzProjectId||targetPage.Source.YzProjectId!=model.Catalog.YzProjectId)
             return null;
@@ -39,11 +39,13 @@ internal static class NonRedundantCrossParentCompilation
         var targetFields=targetPage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
         if(sourceFields is not [var sourceKey]||targetFields is not [var targetKey]||sourceKey.Type!="string?"||targetKey.Type!="string?")
             return null;
-        if(Find(model,source,sourcePage,sourceKey) is not {} left||!left.Read.Levels[left.Index].TextKey||
-            Find(model,target,targetPage,targetKey) is not {} right||!right.Read.Levels[right.Index].TextKey)
+        if(Find(model,source,sourcePage,sourceKey) is not {} left||!left.Read.Levels[left.Index].TextKey)
             return null;
-        return SharedRedundantParentCompilation.Identity(new(left.Read,left.Index))==
-            SharedRedundantParentCompilation.Identity(new(right.Read,right.Index))?targetKey:null;
+        var right=target.Source.IsRongyu==1
+            ?SharedRedundantParentCompilation.ForColumn(model,target,targetPage,targetKey).SingleOrDefault()
+            :Find(model,target,targetPage,targetKey) is {} sparse?new SharedRedundantParentPath(sparse.Read,sparse.Index):null;
+        return right is not null&&right.Level.TextKey&&SharedRedundantParentCompilation.Identity(new(left.Read,left.Index))==
+            SharedRedundantParentCompilation.Identity(right)?targetKey:null;
     }
 
     /// <summary>混合链使用逐层键接口，即使当前选用的是整数父层。</summary>

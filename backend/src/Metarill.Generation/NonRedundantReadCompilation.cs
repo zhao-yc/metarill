@@ -273,7 +273,7 @@ internal static partial class NonRedundantReadCompilation
 
     /// <summary>业务页单值读取使用实际项目内非冗余目标以及已证明的父范围。</summary>
     internal static bool UsesProjectSingleRead(RelationModel relation)=>
-        relation.ParentBinding?.Declared!=true && (relation.ScopedStoredSingle ||
+        relation.ParentBinding?.Declared!=true && (relation.ScopedStoredSingle || relation.MixedStoredTextParent ||
             relation.Target.Source.IsRongyu==0 && (UsesProjectControlRead(relation)||!relation.Target.IsGlobal&&
                 (relation.TargetPage.Condition is not null||relation.TargetPage.Scopes.Any(scope=>scope.Source=="parent"))));
 
@@ -354,7 +354,7 @@ internal static partial class NonRedundantReadCompilation
         }
         return new(relation.SourceColumn.Source.Id,relation.TargetPage.Source.Id,parent?.Source.Id)
         {
-            SourcePageId=relation.ScopedStoredSingle||relation.CompoundProjectSource||UsesPageBoundGlobalList(relation)||
+            SourcePageId=relation.ScopedStoredSingle||relation.MixedStoredTextParent||relation.CompoundProjectSource||UsesPageBoundGlobalList(relation)||
                 relation.FixedParent is not null||relation.Target.IsGlobal&&parent is not null?page.Source.Id:null,
             ControlSourcePageId=relation.ScopedStoredSingle||UsesProjectControlRead(relation)?page.Source.Id:null
         };

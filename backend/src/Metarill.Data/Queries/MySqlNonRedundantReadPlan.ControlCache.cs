@@ -178,7 +178,15 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(!pageScopeApplied)
                 {
                     var sourceParent=SingleSourceParentValue(source,owner,parentSource);
-                    validity.Add(SinglePhysicalParentCondition(source,owner,targetAlias,parent,parentSource.Column,sourceParent:sourceParent));
+                    if(!global&&parentSource.LogicalPages.Count>0&&
+                        UsesSharedStoredTextParent(source,parentSource,target,page,parent))
+                    {
+                        // 来源已验证此祖先，目标物理列比较原业务键即可复用同一祖先和账号范围。
+                        Use(target,parent.Target);
+                        Touch(targetAlias,parent.Target.ColumnName);
+                        validity.Add(SameSingleParent(targetAlias+"."+Q(parent.Target.ColumnName),sourceParent));
+                    }
+                    else validity.Add(SinglePhysicalParentCondition(source,owner,targetAlias,parent,parentSource.Column,sourceParent:sourceParent));
                     foreach(var additional in parent.AdditionalTargets)
                     {
                         Use(target,additional.Target);
@@ -196,6 +204,45 @@ public static partial class MySqlNonRedundantReadCompiler
                 Touch(targetAlias,field);
                 return targetAlias+"."+Q(field);
             }
+        }
+
+        /// <summary>从实际发布元数据复核两端路径，只有完全相同的文本祖先可跳过主键联接。</summary>
+        private bool UsesSharedStoredTextParent(TableMetadata source,MultiSourceParent sourceParent,TableMetadata target,
+            PageMetadata targetPage,MultiTargetParentScope targetParent)
+        {
+            var field=sourceParent.Column.ColumnName;
+            var bindings=sourceParent.LogicalPages.SelectMany(page=>CrossMembershipBindings(catalog,source,page,
+                new HashSet<string>(StringComparer.Ordinal){field})).DistinctBy(binding=>binding.SourceColumnId).ToArray();
+            var paths=new List<(string TableId,string PageId,string NameId,string? Parent,string Key,bool Text)[]>();
+            foreach(var binding in bindings)
+            {
+                var control=catalog.ConfigColumns.Single(column=>column.Id==binding.SourceColumnId&&column.ConfigTableId==source.Id);
+                if(!CrossTableStorageColumns.ContainsPathField(control,field))continue;
+                var entries=Definition(control).GetProperty("levels").EnumerateArray().ToArray();
+                var index=System.Array.FindIndex(entries,entry=>(Value(entry,"columnPrefix") is {Length:>0} prefix?
+                    prefix:Value(entry,"table"))+"_id"==field);
+                if(index<0)throw new InvalidOperationException("稀疏来源缺少已声明的父路径层位。");
+                paths.Add(entries.Take(index+1).Select((entry,levelIndex)=>
+                {
+                    var table=tables.Values.Single(table=>table.TableName==Value(entry,"table"));
+                    var name=Value(entry,"nameField");
+                    var key=CrossTableStorageColumns.AlternateLevelKey(catalog,table,entry);
+                    return (table.Id,binding.Levels[levelIndex].PageId,Column(table,name.Length==0?"name":name).Id,
+                        levelIndex==0?null:Value(entry,"parentField"),key?.ColumnName??"id",key?.LogicalType=="string");
+                }).ToArray());
+            }
+            if(!paths.Any(path=>path[^1].Text))return false;
+            var published=RedundantSharedParents.Compile(catalog,target.Id,targetPage.Id);
+            if(source.YzProjectId!=catalog.YzProjectId||target.YzProjectId!=catalog.YzProjectId||
+                sourceParent.LogicalPages.Any(page=>page.YzProjectId!=catalog.YzProjectId)||
+                targetPage.YzProjectId!=catalog.YzProjectId||sourceParent.AdditionalColumns.Count>0||
+                targetParent.AdditionalTargets.Count>0||!published.TryGetValue(targetParent.Target.Id,out var expected)||
+                paths.Any(path=>!path[^1].Text||path.Length!=expected.Levels.Count||
+                    path.Where((level,index)=>!level.Equals((expected.Levels[index].TableId,expected.Levels[index].PageId,
+                        expected.Levels[index].NameId,expected.Levels[index].Parent,expected.Levels[index].KeyColumn,
+                        expected.Levels[index].TextKey))).Any()))
+                throw new InvalidOperationException("稀疏来源与冗余字典必须使用相同发布文本父路径。");
+            return true;
         }
 
         /// <summary>实时名称在目标子查询中求值，表单参数取实际来源行，账号参数由当前身份绑定。</summary>

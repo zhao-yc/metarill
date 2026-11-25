@@ -216,6 +216,92 @@ public sealed class TextCascadeParentRelationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
     }
 
+    /// <summary>非冗余来源和冗余字典使用同一文本业务键，原选档和工作簿共用范围。</summary>
+    [Theory]
+    [InlineData("OnlyNew","list")]
+    [InlineData("OverWriteByFirstColumn","edit")]
+    public async Task Sparse_source_stored_target_share_text_parent(string import,string export)
+    {
+        var catalog=Catalog(0,import,export);
+        ScopeTarget(catalog,"81");
+        ScopeTarget(catalog,"82");
+        var model=GenerationModel.Create(catalog,"Example.SparseStoredTextParent");
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var relations=RelationCompilation.ForPage(model,page,true,forExcel:true);
+        Assert.Equal(2,relations.Count);
+        Assert.All(relations,relation=>
+        {
+            Assert.Equal("country_id",relation.SharedTextParent?.Source.ColumnName);
+            Assert.True(relation.MixedStoredTextParent);
+            Assert.True(ControlRenderer.RelationContext(page,relation,false).SameParent);
+        });
+        var targets=NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,["listitem_name","singleitem_name"]);
+        Assert.All(targets.Where(target=>target.ColumnId is "700" or "702"),target=>
+        {
+            Assert.Equal("282",target.SourceParentId);
+            Assert.Equal("201",target.SourcePageId);
+            Assert.True(target.ApplyPageCondition);
+        });
+        Assert.Equal(2,targets.Count(target=>target.ColumnId is "700" or "702"));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var plan=NonRedundantReadCompilation.CompilePage(model,table,["listitem_name","singleitem_name"],[],
+            NonRedundantCrossTableCompilation.Bindings(model,table,page),targets,[]);
+        const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var mysql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+        var from=Assert.IsType<string>(mysql.GetType().GetProperty("From",flags)!.GetValue(mysql));
+        Assert.Contains("`business_key`",from);
+        Assert.DoesNotContain("single_parent_",from);
+        Assert.Equal(2,System.Text.RegularExpressions.Regex.Matches(from,
+            @"BINARY CAST\(\w+\.`country_id` AS CHAR\)=BINARY CAST\(CASE WHEN").Count);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-sparse-stored-text-parent");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            var registration=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/GeneratedRegistration.g.cs"));
+            var snapshot=System.Text.RegularExpressions.Regex.Match(registration,
+                """MetadataCatalog>\(("(?:\\.|[^"\\])*"),new System\.Text\.Json""");
+            Assert.True(snapshot.Success,"生成应用须内置其实际发布的读取目录。");
+            var published=JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Deserialize<string>(snapshot.Groups[1].Value)!,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            var frozen=Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(published,"2",["listitem_name","singleitem_name"],[],
+                NonRedundantCrossTableCompilation.Bindings(model,table,page),targets);
+            var frozenSql=frozen.GetType().GetProperty("MySql",flags)!.GetValue(frozen)!;
+            Assert.Equal(from,Assert.IsType<string>(frozenSql.GetType().GetProperty("From",flags)!.GetValue(frozenSql)));
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            Assert.Contains("ApplyTextParent(query,session,\"country_id\",targetParentId!,businessKey:true)",service);
+            Assert.Contains("OptionsScope201_700Async(logicalRelationParentId, null, actor, cancellationToken, true, false",service);
+            Assert.Contains("OptionsScope201_702Async(logicalRelationParentId, null, actor, cancellationToken, true, false",service);
+            Assert.Contains("ImportRelation201_700Async",service);
+            Assert.Contains("ImportRelation201_702Async",service);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>目标页使用实体主键时，发布名称计划也拒绝把来源文本业务键当成同一身份。</summary>
+    [Fact]
+    public void Sparse_source_text_parent_rejects_stored_target_primary_key()
+    {
+        var catalog=Catalog(0,"OnlyNew","list");
+        ScopeTarget(catalog,"81");
+        var column=catalog.ConfigColumns.Single(item=>item.Id=="8106");
+        var definition=System.Text.Json.Nodes.JsonNode.Parse(column.ControlDetail)!;
+        definition["levels"]![0]!["idField"]="id";
+        column.ControlDetail=definition.ToJsonString();
+        var model=GenerationModel.Create(catalog,"Example.SparseStoredDifferentKey");
+        var source=model.Tables.Single(item=>item.Source.Id=="2");
+        var target=model.Tables.Single(item=>item.Source.Id=="81");
+        Assert.Null(NonRedundantCrossParentCompilation.CommonTextParent(model,source,Assert.Single(source.Pages),
+            target,Assert.Single(target.Pages),allowStoredTarget:true));
+        var binding=new Metarill.Data.Queries.NonRedundantSingleTargetScope("700","810","282"){SourcePageId="201"};
+        var error=Assert.Throws<InvalidOperationException>(()=>Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(
+            catalog,"2",["listitem_name"],[],[],[binding],[]));
+        Assert.Contains("相同发布文本父路径",error.Message);
+    }
+
     private sealed class ScopeRow
     {
         public long Id { get; set; }

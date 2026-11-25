@@ -24,6 +24,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     internal bool FunctionForm { get; init; }
     internal bool ExcelTargetExact { get; init; }
     internal ColumnModel? SharedTextParent { get; init; }
+    internal bool MixedStoredTextParent=>SharedTextParent is not null&&LogicalSourceParent&&Target.Source.IsRongyu==1;
     internal string ExcelScopeArgument => ExcelTargetExact ? ", excelScope: true" : "";
     /// <summary>原 V8 路由按来源字段去掉 Id/Ids 后缀，不能用目标表名替代业务别名。</summary>
     public string LegacyEndpoint
@@ -177,7 +178,7 @@ internal static class RelationCompilation
                 CrossTableReadCompilation.TextSourceParent(model,owner,page) is not null)
             {
                 sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage)??
-                    NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage);
+                    NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowStoredTarget:true);
                 if(sharedTextParent is null||binding.Declared||scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent)||
                     !NonRedundantReadCompilation.Physical(model,target,name)||name.Type!="string?"||ExactDataManageCompilation.Declared(targetPage)||
                     conditions?.HasLogicalFields==true||FixedPageConditionCompilation.HasLogicalFields(targetPage))
@@ -278,11 +279,13 @@ internal static class RelationCompilation
                 NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,targetPage.Source.Id,sourceBinding);
             if (functionForm && targetParents.Length > 1)
                 throw new InvalidOperationException("功能表下拉必须绑定唯一目标父范围。");
+            var mixedStoredTextParent=sharedTextParent is not null&&owner.Source.IsRongyu==0&&target.Source.IsRongyu==1;
             var fixedSourceParent = functionForm && targetParents.Length == 1
                 ? FunctionTableSelectionCompilation.ResolveParentField(page, source, targetParents[0].Source)
+                : mixedStoredTextParent ? sourceKeys.Single()
                 : sourceBinding is null ? null : owner.Columns.Single(column => column.Source.Id == sourceBinding.Column.Id);
             var relation=new RelationModel(source,target,targetPage,name,"findNameId"+target.Name+source.Source.Id,scopes,sourceParents,targetParents,binding,ordering,conditions,
-                fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0)
+                fixedSourceParent,fixedParent,mixedStoredTextParent||sourceBinding?.LogicalPages.Count>0)
             {
                 ListPageOverride = listPageOverride,
                 ScopedStoredSingle = sharedTextParent is null&&(scopedStoredList||scopedStoredSelection),
@@ -360,6 +363,7 @@ internal static class RelationCompilation
         var effective=ProjectScopedSingleRelationTarget.ListWhereSql(model.Catalog,page.Source,source.Source);
         var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
         return SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage) is not null||
+            target.Source.IsRongyu==1&&NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowStoredTarget:true) is not null||
             target.Source.IsRongyu==1 && UsesProjectListPage(model,target,page,source) &&
                 ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)==targetPage.Source.Id &&
                 (HasStoredListRange(targetPage) || !string.IsNullOrWhiteSpace(effective)) ||
