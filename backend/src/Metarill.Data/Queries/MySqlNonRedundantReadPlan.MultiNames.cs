@@ -176,7 +176,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target) is {Page.Id:var publishedId} proof&&
                 publishedId==selectedScope.Id&&
                 (proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage||proof.UsesNonRedundantPhysicalParentPage);
-            var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,checkboxAccount:checkbox);
+            var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,
+                checkboxAccount:checkbox,allowStoredTextParent:true);
             var storedParent=selectedScope is null?null:GlobalCrossTableTarget.StoredProjectMultiParent(catalog,target,selectedScope,checkbox);
             var ordinaryForm=checkbox&&refreshFields is not null&&selectedScope is not null&&(sharedCheckbox||fixedParent is not null)
                 ?DatabaseCheckboxDefinition.Parse(relation.ControlDetail).AdditionalPhysicalFormConditions(catalog,target,selectedScope)
@@ -242,6 +243,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 sourceBinding is {LogicalPages.Count:0}&&UsesSharedStoredTextParent(target,new(pageParent.Target,[selectedScope]),table,
                     catalog.ConfigPages.Where(page=>page.ConfigTableId==table.Id).ToArray(),sourceBinding.Column,
                     pageParent.AdditionalTargets.Count>0||sourceBinding.AdditionalColumns.Count>0,storedToSparse:true);
+            var storedTextPath=selectedScope is not null&&sourceBinding is not null&&pageParent is not null
+                ?StoredTextCacheParent(table,sourceBinding,target,selectedScope,pageParent):null;
             if(pageParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0})
                 RequireCompoundGlobalSourceParent(catalog,target.Id,selectedScope!.Id,sourceBinding);
             var sourceParentSql=sourceBinding is {LogicalPages.Count:>0} or {AdditionalColumns.Count:>0}
@@ -264,6 +267,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 SelectedMultiPage=selectedPage,
                 MultiCandidateParent=fixedParent?.Target,
                 SharedStoredMultiTextParent=sharedStoredTextParent,
+                StoredMultiTextPath=storedTextPath,
                 AllowsExactMultiSelection=!checkbox,
                 AllowsStoredExactCheckbox=checkbox,
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent,[]),
@@ -335,8 +339,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 var dependency=new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,rootFields}};
                 // 删除树目标时仍按源数组找到消费者，不依赖目标当前还存在。
                 customReverse.Add(new(target.TableName,from,ArrayMember(array,"@target_text"),"predicate",dependency));
-                // 文本祖先使用下方稀疏目标的真实业务键反查，不能按父节点整数主键再匹配来源文本列。
-                if(parent is not null&&sourceParent is not null&&!sharedSparseTextParent)
+                // 文本祖先使用下方目标路径的真实业务键反查，不能按父节点整数主键匹配来源。
+                if(parent is not null&&sourceParent is not null&&!sharedSparseTextParent&&storedTextPath is null)
                 {
                     var parentFields=nested.PhysicalReferences.Where(item=>item.Table==parent.Parent.TableName).Select(item=>item.Column.Name).ToHashSet(StringComparer.Ordinal);
                     customReverse.Add(new(parent.Parent.TableName,from,owner+"."+Q(sourceParent.ColumnName),sourceParent.LogicalType,

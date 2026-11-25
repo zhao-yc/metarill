@@ -104,6 +104,21 @@ public static class CrossTableStorageColumns
         return false;
     }
 
+    /// <summary>只识别实际发布页用作父参数的文本级联层位，路径由数据层完整复核。</summary>
+    public static bool DeclaresStoredTextParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
+    {
+        if(table.IsRongyu!=1||page.ConfigTableId!=table.Id)return false;
+        var declared=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
+        if(!declared.Any(column=>column.ControlKind=="CascadeTree"))return false;
+        var columns=RelationStorageColumns.Expand(table,declared);
+        var textKeys=columns.Where(column=>DeclaresStoredTextKey(catalog,table,column))
+            .Select(column=>column.ColumnName).ToHashSet(StringComparer.Ordinal);
+        if(textKeys.Count==0)return false;
+        var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+        return condition.Terms.Any(term=>textKeys.Contains(term.Field)&&term.Values.Any(value=>
+            value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text)));
+    }
+
     /// <summary>固定条件在非冗余表上引用跨表层位时，按逻辑路径比较，原稀疏存储位不作为值。</summary>
     public static bool IsLogicalPathField(TableMetadata table,IEnumerable<ColumnMetadata> columns,string field)=>
         table.IsRongyu==0&&columns.Any(source=>source.ConfigTableId==table.Id&&source.ControlKind=="CascadeTree"&&

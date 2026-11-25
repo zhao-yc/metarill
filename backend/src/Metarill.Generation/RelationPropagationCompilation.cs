@@ -231,6 +231,16 @@ internal static class RelationPropagationCompilation
     {
         var recursive=definitions.Select(item=>item.ScopedSinglePageId??item.CrossTableRecursivePageId??
             (SelfTreeCache.HasScopedPage(model.Catalog,item.SelfTreePageId)?item.SelfTreePageId:null)).OfType<string>().ToHashSet(StringComparer.Ordinal);
+        // 文本父证明还会验证两端完整级联结构，父层之后的页面也须保留其原可见字段和范围。
+        foreach(var binding in definitions.Where(item=>item.Multiple))
+        {
+            var target=model.Catalog.ConfigTables.Single(table=>table.Id==binding.TargetTableId);
+            var relation=model.Catalog.ConfigColumns.Single(column=>column.Id==binding.ForeignColumnId);
+            if(Metarill.Data.Queries.MySqlNonRedundantReadCompiler.StoredTextMultiTargetPage(model.Catalog,target,relation) is not {} page)
+                continue;
+            recursive.Add(page.Id);
+            recursive.UnionWith(model.Catalog.ConfigPages.Where(source=>source.ConfigTableId==binding.SourceTableId).Select(source=>source.Id));
+        }
         var roots=model.Tables.SelectMany(table=>table.Pages.Where(page=>recursive.Contains(page.Source.Id)).Select(page=>(table,page)));
         var treePages=definitions.Where(item=>item.SelfTreePageId is not null&&SelfTreeCache.UsesWholePath(model.Catalog,
             model.Catalog.ConfigTables.Single(table=>table.Id==item.SourceTableId),item.SelfTreePageId)).Select(item=>item.SelfTreePageId!);

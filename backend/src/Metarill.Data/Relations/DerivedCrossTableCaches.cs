@@ -52,8 +52,9 @@ public static class DerivedCrossTableCaches
                 throw new InvalidOperationException("派生级联缓存要求已发布的R1来源和固定单值目标。");
             var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);var targetStorage=MetadataStoragePolicy.ForTable(catalog,target);var columns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(c=>c.ConfigTableId==source.Id));var foreign=columns.SingleOrDefault(c=>c.Id==d.ForeignColumnId);var cache=columns.SingleOrDefault(c=>c.Id==d.CacheColumnId);var value=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id)).SingleOrDefault(c=>c.Id==d.ValueColumnId);
             var scopedTree=SelfTreeCache.UsesWholePath(catalog,source,d.SelfTreePageId);
-            var scopedMultiple=projectForm||d.Multiple&&foreign is not null&&
-                Metarill.Data.Queries.NonRedundantReads.HasScopedMultiPage(catalog,target,foreign);
+            var multiPage=d.Multiple&&foreign is not null
+                ?Metarill.Data.Queries.MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign):null;
+            var scopedMultiple=projectForm||multiPage is not null;
             if(target.IsRongyu!=0&&d.CrossTableAccountPageId is null&&!globalTree&&!scopedMultiple)
                 throw new InvalidOperationException("派生级联缓存要求已发布的R1来源和固定单值目标。");
             if(foreign is null||cache is null||value is null||foreign.Id==cache.Id||!sourceStorage.IsPhysical(foreign)||Enabled(foreign)||!sourceStorage.IsPhysical(cache)||cache.IsVirtualColumn!=0||cache.LogicalType!="string"||foreign.LogicalType is not("string" or "int64")||value.IsVirtualColumn!=0||
@@ -85,12 +86,13 @@ public static class DerivedCrossTableCaches
             var self=SelfTreeCache.Require(catalog,source,foreign,target,value,cache,d,cross);
             if(d.Multiple)DerivedMultipleCacheProof.Require(catalog,source,foreign,target,value,cache,d.CheckboxTargetPageId,d.CheckboxSourceParentId);
             else if(!cross&&!self)throw new InvalidOperationException("逻辑缓存缺少跨表层或固定自树证明。");
-            // 附加表单范围和非冗余目标的逻辑父都要验证完整刷新计划，目标页单独编译无法证明来源行。
+            // 附加表单范围和级联父都要验证完整刷新计划，目标页单独编译无法证明来源行。
             var projectCheckboxControl=d.Multiple&&foreign.ControlKind=="MultiCheckBoxDatabase"&&
                 !string.IsNullOrWhiteSpace(Metarill.Core.Metadata.DatabaseCheckboxDefinition.Parse(foreign.ControlDetail).WhereSql)&&
                 Metarill.Data.Queries.MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign) is {} controlPage&&
                 Metarill.Data.Queries.NonRedundantReads.IsProjectStoredCheckboxAccountPage(catalog,target,controlPage);
-            if(d.CheckboxSourceParentId is not null||projectCheckboxControl||projectForm||scopedMultiple&&target.IsRongyu==0)
+            if(d.CheckboxSourceParentId is not null||projectCheckboxControl||projectForm||
+                multiPage is not null&&(target.IsRongyu==0||CrossTableStorageColumns.DeclaresStoredTextParent(catalog,target,multiPage)))
                 _=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileRefresh(catalog,source.Id,[cache.ColumnName],[d]);
             // 嵌套叶名条件的归属要在整条 SQL 中证明，仅凭外层候选能查到不能发布副本。
             if(self&&SelfTreeCache.HasSelfTreeScopedPage(catalog,d.SelfTreePageId))
@@ -103,7 +105,8 @@ public static class DerivedCrossTableCaches
     public static IReadOnlySet<string> ScopedSingleReferencedTables(MetadataCatalog catalog,IReadOnlyList<RelationCacheDefinition> definitions)
     {
         var referenced=new HashSet<string>(StringComparer.Ordinal);
-        var byTable=definitions.Where(definition=>definition.ScopedSinglePageId is not null||HasJoinedCheckboxName(definition)||HasJoinedCascadeName(definition))
+        var byTable=definitions.Where(definition=>definition.ScopedSinglePageId is not null||HasStoredMultiTextParent(definition)||
+            HasJoinedCheckboxName(definition)||HasJoinedCascadeName(definition))
             .GroupBy(definition=>definition.SourceTableId);
         foreach(var group in byTable)
         {
@@ -115,6 +118,14 @@ public static class DerivedCrossTableCaches
             referenced.UnionWith(read.PhysicalReferences.Select(reference=>reference.Table));
         }
         return referenced;
+
+        bool HasStoredMultiTextParent(RelationCacheDefinition definition)
+        {
+            if(!definition.Multiple)return false;
+            var target=catalog.ConfigTables.Single(table=>table.Id==definition.TargetTableId);
+            var relation=catalog.ConfigColumns.Single(column=>column.Id==definition.ForeignColumnId);
+            return Metarill.Data.Queries.MySqlNonRedundantReadCompiler.StoredTextMultiTargetPage(catalog,target,relation) is not null;
+        }
 
         bool HasJoinedCascadeName(RelationCacheDefinition definition)
         {

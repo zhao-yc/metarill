@@ -344,10 +344,23 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>混合存储的实时数组从实际来源还原已验证文本祖先，目标仍使用物理父列。</summary>
         private bool SharedStoredMultiTextParent { get; init; }
+        private RedundantSharedParentPlan? StoredMultiTextPath { get; init; }
 
         /// <summary>普通父表沿用实际项目范围。文本级联父由已验证的完整路径确定可见性。</summary>
         private string MultiParentPredicate(MultiTargetParentScope parent,string target)
         {
+            if(MultiParentOwner is {} role&&SelectedMultiPage is {} page)
+            {
+                // 独立名称计划也沿实际缓存来源复核文本祖先，与整条刷新 SQL 共用证明。
+                var sourceParent=new MultiSourceParent(role.Column,[]){AdditionalColumns=role.Additional};
+                var path=StoredMultiTextPath??StoredTextCacheParent(role.Owner.Table,sourceParent,root,page,parent);
+                if(path is not null)
+                {
+                    cascadeCacheOwnerFields.Add(role.Column.ColumnName);
+                    return StoredTextCacheVisibility(role.Owner.Table,role.Owner.Alias,sourceParent,root,rootAlias,
+                        path,cascadeCacheOwner??role.Owner);
+                }
+            }
             var predicate="("+target+") IS NOT NULL";
             // 投影已校验整条可见路径。文本业务键不能再用父表整数主键限制一次。
             var textPath=SharedStoredMultiTextParent||parent.Logical&&parent.Target.LogicalType=="string"&&

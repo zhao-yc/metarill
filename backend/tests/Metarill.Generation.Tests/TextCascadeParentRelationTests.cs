@@ -701,6 +701,67 @@ public sealed class TextCascadeParentRelationTests
         Assert.Null(ProjectScopedSingleRelationTarget.Resolve(catalog,source,foreign,target));
     }
 
+    /// <summary>两端冗余的数组名称在回填时沿同一原选档文本父键和真实祖先。</summary>
+    [Fact]
+    public void Stored_multi_names_refresh_from_published_text_parent()
+    {
+        var catalog=Catalog(1,"OnlyNew","list");
+        ScopeTarget(catalog,"83");
+        ScopeTarget(catalog,"84");
+        var model=GenerationModel.Create(catalog,"Example.StoredMultiTextCache");
+        var bindings=RelationPropagationCompilation.DerivedBindings(model);
+        Assert.Equal(2,bindings.Count(binding=>binding.Foreign.Source.Id is "704" or "706"));
+        var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+        Assert.Contains("textrel_multiitem",maintenance.MixedTargets);
+        Assert.Contains("textrel_checkitem",maintenance.MixedTargets);
+        const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",flags)!.GetValue(maintenance));
+        var source=plans["2"]!;
+        Assert.Null(source.GetType().GetProperty("Error")!.GetValue(source));
+        var read=source.GetType().GetProperty("Read")!.GetValue(source)!;
+        var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("Reverse",flags)!.GetValue(read));
+        var country=catalog.ConfigTables.Single(item=>item.Id=="3").TableName;
+        foreach(var column in new[]{"multiitem_names","checkitem_names"})
+        {
+            var label=Assert.IsType<string>(read.GetType().GetMethod("Expression",flags)!.Invoke(read,[column]));
+            Assert.Contains("BINARY CAST(multi_value.`country_id` AS CHAR)=BINARY CAST(b.`country_id` AS CHAR)",label);
+            Assert.Contains("`business_key`",label);
+            Assert.DoesNotContain("multi_parent.",label);
+            Assert.Contains(reverse.Cast<object>(),entry=>
+            {
+                var type=entry.GetType();
+                var outputs=Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(type.GetProperty("Outputs")!.GetValue(entry));
+                var key=type.GetProperty("NodeKey",flags)!.GetValue(entry);
+                return type.GetProperty("TargetTable")!.GetValue(entry) as string==country&&outputs.ContainsKey(column)&&
+                    key?.GetType().GetProperty("Column")?.GetValue(key) as string=="business_key";
+            });
+            Assert.Contains(reverse.Cast<object>(),entry=>
+            {
+                var type=entry.GetType();
+                var outputs=Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(type.GetProperty("Outputs")!.GetValue(entry));
+                return type.GetProperty("TargetTable")!.GetValue(entry) as string=="textrel_"+column[..^6]&&
+                    outputs.TryGetValue(column,out var fields)&&fields.Contains("country_id");
+            });
+        }
+    }
+
+    /// <summary>两种原多值控件都拒绝以同表的整数主键替代发布的文本祖先。</summary>
+    [Theory]
+    [InlineData("83","704","705")]
+    [InlineData("84","706","707")]
+    public void Stored_multi_refresh_rejects_different_parent_keys(string targetId,string relationId,string cacheId)
+    {
+        var catalog=Catalog(1,"OnlyNew","list");
+        ScopeTarget(catalog,targetId);
+        var column=catalog.ConfigColumns.Single(item=>item.Id=="25");
+        var definition=System.Text.Json.Nodes.JsonNode.Parse(column.ControlDetail)!;
+        definition["levels"]![0]!["idField"]="id";
+        column.ControlDetail=definition.ToJsonString();
+        var cache=new Metarill.Data.Relations.RelationCacheDefinition("2",relationId,targetId,targetId+"02",cacheId,true);
+        var error=Assert.Throws<InvalidOperationException>(()=>Metarill.Data.Relations.DerivedCrossTableCaches.Validate(catalog,[cache],[]));
+        Assert.Contains("相同发布文本父路径",error.Message);
+    }
+
     /// <summary>使用生成应用实际装载的精简目录重放查询，包含页级范围与原控件绑定。</summary>
     private static async Task<MetadataCatalog> PublishedReadCatalog(string directory)
     {
