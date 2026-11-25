@@ -53,7 +53,8 @@ internal static class SharedCrossTableCompilation
                         throw new NotSupportedException("共享R0页级覆盖不能改变固定存储定义。");
                     var read=CrossTableReadCompilation.Resolve(model,table,page,control);if(read.Definition is not{} definition)throw new InvalidOperationException(read.Reason??"共享同伴缺少完整读取链。");
 
-                    if(definition.HasTextKeys)throw new NotSupportedException("共享级联的文本业务键尚未接通。");
+                    if(definition.HasTextKeys&&table.Source.IsRongyu==0)
+                        throw new NotSupportedException("非冗余共享级联的文本业务键尚未接通。");
 
                     if (definition.Levels.Any(level=>level.Target.IsGlobal) && !CrossTableFrontendProof.KeepsStorageDefinition(model, page, control))
                         throw new NotSupportedException("全局共享控制列的页覆盖不能改变固定存储与传播定义。");
@@ -62,6 +63,7 @@ internal static class SharedCrossTableCompilation
                     {
                         var id=table.Columns.SingleOrDefault(c=>c.Source.ColumnName==level.Prefix+"_id");var name=table.Columns.SingleOrDefault(c=>c.Source.ColumnName==level.Prefix+"_name");
                         if(id is null||name is null||id.IsSystem||name.IsSystem||id.Type is not("string?" or "long?")||name.Type!="string?"||id.IsJsonArray||name.IsJsonArray||id.Source.IsVirtualColumn!=0||name.Source.IsVirtualColumn!=0||!storage.IsPhysical(id.Source)||(table.Source.IsRongyu==1?!storage.IsPhysical(name.Source):storage.Kind(name.Source)!=MetadataFieldStorage.RelationDisplay)||GenerationModel.Enabled(id.Source.Extra,"isJoinColumn"))throw new InvalidOperationException("共享级联要求明确的物理标量ID和缓存。");
+                        if(level.TextKey&&id.Type!="string?")throw new InvalidOperationException("共享文本业务键需要真实文本来源字段。");
                         if(id.Source.Id!=control.Source.Id&&id.Source.ControlKind.Length>0&&!(id.Source.ControlKind=="CascadeTree"&&ids.Contains(id.Source.Id)))throw new InvalidOperationException("共享辅助ID有其它独立控件规则。");
                         if(id.Source.LinkConfigTableId.Length>0&&id.Source.LinkConfigTableId!=level.Target.Source.Id)throw new InvalidOperationException("共享辅助ID关联表不一致。");
                         if(level.DerivedName&&level.Target.Source.Id!=table.Source.Id)
@@ -77,7 +79,7 @@ internal static class SharedCrossTableCompilation
                         var scopeText=JsonSerializer.Serialize(new{target=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,where=level.Page.Source.WhereSql});
                         if(level.AlternateKey is not null)scopeText+=":"+level.AlternateKey.Source.Id;
                         var scope=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(scopeText)));
-                        slots.Add(new(id.Source.ColumnName,name.Source.ColumnName,id.Type=="string?"?"string":"int64",scope));
+                        slots.Add(new(id.Source.ColumnName,name.Source.ColumnName,id.Type=="string?"?"string":"int64",scope){TextKey=level.TextKey});
                     }
                     var plan=new CrossTableWriteModel(definition,levels);if(CrossTableFrontendProof.Reason(model,page,plan) is{} mismatch)throw new InvalidOperationException(mismatch);plans.Add(plan);branches.Add(new(control.Source.Id,slots));
                 }

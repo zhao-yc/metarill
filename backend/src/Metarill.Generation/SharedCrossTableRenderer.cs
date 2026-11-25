@@ -23,7 +23,7 @@ internal static class SharedCrossTableRenderer
     {
         var output=new StringBuilder();foreach(var group in SharedCrossTableCompilation.ForPage(model,table,page).Groups)
         {
-            var suffix=page.Source.Id+"_"+group.Key;var branches=group.Coordinator.Branches.Select(b=>"new Metarill.Core.Cascades.SharedCrossTableBranch("+Literal(b.ControlId)+",new Metarill.Core.Cascades.SharedCrossTableSlot[]{"+string.Join(",",b.Levels.Select(s=>"new("+Literal(s.IdColumn)+","+Literal(s.NameColumn)+","+Literal(s.LogicalType)+","+Literal(s.ScopeKey)+")"))+"})");
+            var suffix=page.Source.Id+"_"+group.Key;var branches=group.Coordinator.Branches.Select(b=>"new Metarill.Core.Cascades.SharedCrossTableBranch("+Literal(b.ControlId)+",new Metarill.Core.Cascades.SharedCrossTableSlot[]{"+string.Join(",",b.Levels.Select(s=>"new("+Literal(s.IdColumn)+","+Literal(s.NameColumn)+","+Literal(s.LogicalType)+","+Literal(s.ScopeKey)+")"+(s.TextKey?"{TextKey=true}":"")))+"})");
             output.AppendLine("    /// <summary>共享规则来自已证明发布元数据，不在请求中解释目录或SQL。</summary>").AppendLine($"    private static readonly Metarill.Core.Cascades.SharedCrossTableCoordinator SharedCross{suffix}=new(new Metarill.Core.Cascades.SharedCrossTableBranch[]{{{string.Join(",",branches)}}});")
                 ;
             if(table.Source.IsRongyu==0){output.Append(SharedCrossTableSparseRenderer.GroupService(model,table,page,group));continue;}

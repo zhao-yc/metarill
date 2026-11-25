@@ -5,7 +5,11 @@ using Metarill.Core.Metadata;
 namespace Metarill.Core.Cascades;
 
 /// <summary>共享槽位的冻结身份；范围指纹由发布编译器产生，不接收客户端目录。</summary>
-public sealed record SharedCrossTableSlot(string IdColumn,string NameColumn,string LogicalType,string ScopeKey);
+public sealed record SharedCrossTableSlot(string IdColumn,string NameColumn,string LogicalType,string ScopeKey)
+{
+    /// <summary>仅发布为文本业务键的槽位接受原文本。字符串存储的普通主键仍按正整数校验。</summary>
+    public bool TextKey { get; init; }
+}
 /// <summary>一个原级联控件，层级顺序仍是根到叶。</summary>
 public sealed record SharedCrossTableBranch(string ControlId,IReadOnlyList<SharedCrossTableSlot> Levels);
 /// <summary>最终组值与确实参与本次写入的字段；省略整组返回空字段集。</summary>
@@ -27,7 +31,7 @@ public sealed class SharedCrossTableCoordinator
         foreach(var group in grouped)
         {
             var first=group.First();MetadataValidation.RequireIdentifier(first.IdColumn);MetadataValidation.RequireIdentifier(first.NameColumn);
-            if(first.LogicalType is not("string" or "int64")||string.IsNullOrWhiteSpace(first.ScopeKey)||!first.IdColumn.EndsWith("_id",StringComparison.Ordinal)||first.NameColumn!=first.IdColumn[..^3]+"_name"||group.Any(s=>s!=first))throw new ArgumentException("共享ID、名称、类型或读取范围不一致。",nameof(branches));all.Add(group.Key,first);
+            if(first.LogicalType is not("string" or "int64")||first.TextKey&&first.LogicalType!="string"||string.IsNullOrWhiteSpace(first.ScopeKey)||!first.IdColumn.EndsWith("_id",StringComparison.Ordinal)||first.NameColumn!=first.IdColumn[..^3]+"_name"||group.Any(s=>s!=first))throw new ArgumentException("共享ID、名称、类型或读取范围不一致。",nameof(branches));all.Add(group.Key,first);
             var paths=copy.Where(b=>b.Levels.Any(s=>s.IdColumn==group.Key)).Select(b=>string.Join("\0",b.Levels.TakeWhile(s=>s.IdColumn!=group.Key).Select(s=>s.IdColumn+"|"+s.ScopeKey))).Distinct(StringComparer.Ordinal).ToArray();if(paths.Length!=1)throw new ArgumentException("共享层的祖先路径不一致。",nameof(branches));
         }
         foreach(var b in copy)if(b.Levels.Select(s=>s.IdColumn).Distinct(StringComparer.Ordinal).Count()!=b.Levels.Count)throw new ArgumentException("同一控件不能重复同一个存储槽。",nameof(branches));
@@ -84,9 +88,14 @@ public sealed class SharedCrossTableCoordinator
     private static bool Empty(object? value)=>value is null or "";
     /// <summary>定位冻结层，不从请求字段猜层号。</summary>
     private static int Index(SharedCrossTableBranch b,string id){for(var i=0;i<b.Levels.Count;i++)if(b.Levels[i].IdColumn==id)return i;return -1;}
-    /// <summary>真实路径的回调结果必须满足原正整数ID合同。</summary>
+    /// <summary>回调按发布键类型验证。文本按原值比较，字符串承载的整数仍使用规范格式。</summary>
     private static string? Key(SharedCrossTableSlot slot,object? value)
     {
-        if(Empty(value))return null;if(slot.LogicalType=="int64"&&value is long number&&number>0)return number.ToString(CultureInfo.InvariantCulture);if(slot.LogicalType=="string"&&value is string text&&long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var key)&&key>0&&text==key.ToString(CultureInfo.InvariantCulture))return text;throw new InvalidOperationException("共享级联返回了非规范ID。");
+        if(Empty(value))return null;
+        if(slot.LogicalType=="int64"&&value is long number&&number>0)return number.ToString(CultureInfo.InvariantCulture);
+        if(slot.LogicalType=="string"&&value is string text&&
+            (slot.TextKey?!string.IsNullOrWhiteSpace(text):long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var key)&&
+                key>0&&text==key.ToString(CultureInfo.InvariantCulture)))return text;
+        throw new InvalidOperationException("共享级联返回了无效的发布键。");
     }
 }

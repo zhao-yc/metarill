@@ -753,15 +753,17 @@ public sealed class FileCommandFactoryTests
 
     /// <summary>业务附件从实际存储恢复混合父链，文本键逐字绑定，大小写相异直接拒绝。</summary>
     [Theory]
-    [InlineData(false,false,false)]
-    [InlineData(true,false,false)]
-    [InlineData(false,true,false)]
-    [InlineData(true,true,false)]
-    [InlineData(false,false,true)]
-    [InlineData(true,false,true)]
-    [InlineData(false,true,true)]
-    [InlineData(true,true,true)]
-    public async Task File_parent_scope_restores_actual_text_keys(bool locking,bool redundant,bool globalRoot)
+    [InlineData(false,false,false,false)]
+    [InlineData(true,false,false,false)]
+    [InlineData(false,true,false,false)]
+    [InlineData(true,true,false,false)]
+    [InlineData(false,false,true,false)]
+    [InlineData(true,false,true,false)]
+    [InlineData(false,true,true,false)]
+    [InlineData(true,true,true,false)]
+    [InlineData(false,true,false,true)]
+    [InlineData(true,true,true,true)]
+    public async Task File_parent_scope_restores_actual_text_keys(bool locking,bool redundant,bool globalRoot,bool shared)
     {
         var catalog=FileCrossParentScopeTests.Catalog("file_text","string","string");
         var control=catalog.ConfigColumns.Single(column=>column.Id=="15");
@@ -781,6 +783,15 @@ public sealed class FileCommandFactoryTests
         {
             catalog.ConfigTables[0].IsRongyu=1;
             catalog.ConfigPages[0].WhereSql="yz_project_id=@current_yz_project_id AND place_id=@parent_id";
+        }
+        if(shared)
+        {
+            // 同一目标被两个叶子角色引用时，附件依旧从本页实际 place_id 复核共同祖先。
+            var peer=System.Text.Json.Nodes.JsonNode.Parse(control.ControlDetail)!;
+            peer["levels"]![2]!["columnPrefix"]="warehouse";
+            peer["levels"]![2]!["key"]="warehouse";
+            catalog.ConfigColumns.Add(new(){Id="16",ConfigTableId="1",ColumnName="warehouse_id",LogicalType="string",
+                ControlKind="CascadeTree",LinkConfigTableId="4",ControlDetail=peer.ToJsonString()});
         }
         if(globalRoot)
         {

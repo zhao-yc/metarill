@@ -153,8 +153,7 @@ public static class RedundantSharedParents
     /// <summary>共享前缀由协调器验证；单链和共享链均由正式数据层证明缓存归属及派生名称。</summary>
     private static void Prove(MetadataCatalog catalog,TableMetadata source,IReadOnlyList<Branch> branches)
     {
-        if(branches.Count>1&&branches.Any(branch=>branch.Levels.Any(level=>level.TextKey)))throw Unsupported();
-        if(branches.Count>1)_=new SharedCrossTableCoordinator(branches.Select(b=>new SharedCrossTableBranch(b.Control.Id,b.Levels.Select((level,index)=>new SharedCrossTableSlot(b.Ids[index].ColumnName,b.Names[index].ColumnName,b.Ids[index].LogicalType,LevelIdentity(level))).ToArray())).ToArray());
+        if(branches.Count>1)_=new SharedCrossTableCoordinator(branches.Select(b=>new SharedCrossTableBranch(b.Control.Id,b.Levels.Select((level,index)=>new SharedCrossTableSlot(b.Ids[index].ColumnName,b.Names[index].ColumnName,b.Ids[index].LogicalType,LevelIdentity(level)){TextKey=level.TextKey}).ToArray())).ToArray());
         var physical=new List<RelationCacheDefinition>();var derived=new List<RelationCacheDefinition>();
         foreach(var uses in branches.SelectMany(b=>b.Ids.Select((id,index)=>(Branch:b,Id:id,Index:index))).GroupBy(x=>x.Id.Id,StringComparer.Ordinal))
         {

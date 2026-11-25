@@ -72,6 +72,55 @@ public sealed class SharedCrossTableCoordinatorTests
     {
         var a=Slots(type);var coordinator=new SharedCrossTableCoordinator([new("a",a),new("b",new[]{a[0],a[1],Slot("warehouse",type)}),new("c",new[]{a[0],Slot("district",type),Slot("port",type)})]);var original=Values(type);original["district_id"]=V(type,8);original["district_name"]="district8";original["port_id"]=V(type,90);original["port_name"]="port90";var current=new Dictionary<string,object?>(original){["city_id"]=V(type,11)};var result=await coordinator.NormalizeAsync(current,original,Set("city_id"),false,Reader(type));Assert.Equal(V(type,3),result.Values["country_id"]);Assert.Equal(V(type,4),result.Values["area_id"]);foreach(var prefix in new[]{"warehouse","district","port"}){Assert.True(result.Values[prefix+"_id"] is null or "");Assert.True(result.Values[prefix+"_name"] is null or "");}Assert.Equal(V(type,90),current["port_id"]);
     }
+    /// <summary>文本键按原值比较。更改共享根后清旧下级，相似文本或仍承载整数的槽位不能混用。</summary>
+    [Fact]
+    public async Task Text_keys_preserve_case_and_leading_zeros_across_branches()
+    {
+        var country=Slot("country","string") with { TextKey=true };
+        var city=Slot("city","string") with { TextKey=true };
+        var coordinator=new SharedCrossTableCoordinator([new("a",[country,Slot("area","string"),city]),
+            new("b",[country,Slot("area","string"),Slot("warehouse","string")])]);
+        var before=Values("string");
+        before["country_id"]="001";
+        before["city_id"]="City-A";
+        var current=new Dictionary<string,object?>(before){["city_id"]="City-B"};
+        string root="001";
+        string area="2";
+        Task<IReadOnlyDictionary<string,object?>> Resolve(string branch,IReadOnlyDictionary<string,object?> input,CancellationToken token)
+        {
+            var result=new Dictionary<string,object?>(input);
+            if(branch=="a")
+            {
+                result["country_id"]=root;
+                result["area_id"]=area;
+            }
+            else if(result["warehouse_id"] is "21")
+                result["country_id"]="1";
+            return Task.FromResult<IReadOnlyDictionary<string,object?>>(result);
+        }
+        var same=await coordinator.NormalizeAsync(current,before,Set("city_id"),false,Resolve);
+        Assert.Equal("001",same.Values["country_id"]);
+        Assert.Equal("20",same.Values["warehouse_id"]);
+        root="1";
+        var moved=await coordinator.NormalizeAsync(current,before,Set("city_id"),false,Resolve);
+        Assert.Equal("1",moved.Values["country_id"]);
+        Assert.Equal("",moved.Values["warehouse_id"]);
+        before["country_id"]="root-a";
+        current["country_id"]="root-a";
+        root="Root-A";
+        var caseChange=await coordinator.NormalizeAsync(current,before,Set("city_id"),false,Resolve);
+        Assert.Equal("Root-A",caseChange.Values["country_id"]);
+        Assert.Equal("",caseChange.Values["warehouse_id"]);
+        before["country_id"]=current["country_id"]="001";
+        root="001";
+        current["warehouse_id"]="21";
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>coordinator.NormalizeAsync(current,before,Set("city_id","warehouse_id"),false,Resolve));
+        current["warehouse_id"]="20";
+        area="02";
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>coordinator.NormalizeAsync(current,before,Set("city_id"),false,Resolve));
+        Assert.Equal("City-A",before["city_id"]);
+    }
+
     /// <summary>只构造固定测试规则；实际数据库权限与行锁由生成的回调验证。</summary>
     private static SharedCrossTableCoordinator Coordinator(string type)=>new([new("a",Slots(type)),new("b",new[]{Slot("country",type),Slot("area",type),Slot("warehouse",type)})]);
     /// <summary>同层字段的范围指纹固定且跨控件一致。</summary>

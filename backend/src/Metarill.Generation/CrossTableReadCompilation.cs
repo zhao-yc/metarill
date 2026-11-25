@@ -95,7 +95,7 @@ internal static class CrossTableReadCompilation
                     level.Target.IsGlobal&&(level.DerivedName||FixedPageConditionCompilation.HasLogicalFields(level.Page)))||
                 table.Source.IsRongyu==1&&result.Any(level=>level.Target.Source.IsRongyu==0&&!level.Target.IsGlobal)||
                 !SupportsSourceParent(table,result)))
-                return Gap("文本业务键要求 MySQL 独立实体链，来源父范围须绑定本链唯一层位，全局目标须使用固定物理名称范围。");
+                return Gap("文本业务键要求 MySQL 实体链，来源父范围须唯一，全局目标须使用固定物理名称范围。");
             if(plan.HasTextKeys&&(!CrossTableFrontendProof.KeepsStorageDefinition(model,page,source)||result[^1].TextKey&&source.Type!="string?"))
                 return Gap("文本业务键要求表级定义及文本叶字段。");
             if(result.Any(level=>level.Target.Source.IsRongyu==0))NonRedundantCrossTargetsCompilation.Require(model,table,plan);return new(plan,null);
@@ -111,8 +111,9 @@ internal static class CrossTableReadCompilation
             if(parents.Length==0)continue;
             if(parents.Length!=1)return false;
             var level=levels.SingleOrDefault(level=>level.Prefix+"_id"==parents[0].Source.ColumnName);
-            if(level is null)return false;
-            if(level.TextKey&&table.Columns.Any(column=>column.Source.ControlKind is "List" or "SelectPage"
+            // 冗余页面也可绑定另一共享分支的物理父槽，完整归属由 R1 父范围证明统一校验。
+            if(level is null&&table.Source.IsRongyu!=1)return false;
+            if(level?.TextKey==true&&table.Columns.Any(column=>column.Source.ControlKind is "List" or "SelectPage"
                 or "MultiSelectPage" or "MultiCheckBoxDatabase"))return false;
         }
         return true;

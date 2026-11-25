@@ -71,6 +71,90 @@ public sealed class CrossTableExcelSharedGenerationTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>文本根和末级与整数层混用，实际原 Excel 入口按共享范围读写。</summary>
+    [Theory]
+    [InlineData(null,false)][InlineData("country_id",false)][InlineData("place_id",true)]
+    public async Task Redundant_shared_text_keys_drive_original_write_and_workbook(string? fixedParent,bool global)
+    {
+        var catalog=Catalog(global?"global-r1":"shared-r1");
+        var main=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        CrossTableExcelLosslessGenerationTests.AddBusinessKeys(catalog,main,primaryLevel:1);
+        var warehouse=catalog.ConfigColumns.Single(column=>column.Id=="80");
+        var warehouseDetail=JsonNode.Parse(warehouse.ControlDetail)!;
+        warehouseDetail["levels"]![0]!["idField"]="business_key";
+        warehouse.ControlDetail=warehouseDetail.ToJsonString();
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.ColumnName=="business_key"||column.Id=="45"))
+        {
+            column.LogicalType="string";
+            column.ColumnLength="50";
+        }
+        if(global)
+            catalog.ConfigIndexColumns.RemoveAll(column=>
+                (column.GetProperty("configIndexId").GetString() is "business_index_3" or "business_index_5")&&
+                (column.GetProperty("configColumnId").GetString() is "33" or "53"));
+        var page=catalog.ConfigPages.Single(page=>page.Id=="201");
+        page.IsNew=page.IsSave=1;
+        page.Extra.Remove("type");
+        page.Extra["importMethod"]=JsonSerializer.SerializeToElement(fixedParent=="country_id"?"OverWriteByFirstColumn":"OnlyNew");
+        page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(fixedParent=="place_id"?"edit":"list");
+        if(fixedParent is not null)page.WhereSql+=$" AND {fixedParent}=@parent_id";
+        var model=GenerationModel.Create(catalog,Namespace);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        var source=model.Tables.Single(table=>table.Source.Id=="2");
+        var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,source,Assert.Single(source.Pages)).Groups);
+        Assert.All(group.Coordinator.Branches,branch=>Assert.True(branch.Levels[0].TextKey));
+        Assert.Contains(RelationPropagationCompilation.Bindings(model),binding=>binding.TargetKey=="business_key");
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-cross-text");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),Namespace);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var guard=new StopBeforeExcelWrite();
+            using var runtime=new SharedExcelReadTransport(assembly,Namespace,"SharedExcelSource",guard:guard,mysqlDialect:true);
+            Seed("Country",11,"国甲",key:"001");
+            Seed("Country",12,"国乙",key:"1");
+            Seed("Area",21,"区甲","SharedExcelCountryId","001");
+            Seed("Area",22,"区乙","SharedExcelCountryId","1");
+            Seed("Place",31,"城甲","SharedExcelAreaId",21,key:"City-A");
+            Seed("Place",32,"城乙","SharedExcelAreaId",22,key:"City-B");
+            Seed("Warehouse",41,"仓甲","SharedExcelAreaId",21);
+            Seed("Warehouse",42,"仓乙","SharedExcelAreaId",22);
+            runtime.Add("SharedExcelSource",new Dictionary<string,object?>{{"Id",101L},{"Name","同名"},
+                {"YzProjectId",catalog.YzProjectId},{"CountryId","001"},{"CountryName","国甲"},{"AreaId","21"},
+                {"AreaName","区甲"},{"PlaceId","City-A"},{"PlaceName","城甲"},{"WarehouseId","41"},{"WarehouseName","仓甲"}});
+            if(fixedParent=="country_id")
+                runtime.Add("SharedExcelSource",new Dictionary<string,object?>{{"Id",102L},{"Name","同名"},
+                    {"YzProjectId",catalog.YzProjectId},{"CountryId","1"},{"CountryName","国乙"},{"AreaId","22"},
+                    {"AreaName","区乙"},{"PlaceId","City-B"},{"PlaceName","城乙"},{"WarehouseId","42"},{"WarehouseName","仓乙"}});
+            var parentId=fixedParent switch{"country_id"=>"001","place_id"=>"City-A",_=>null};
+            var input=new Dictionary<string,object?>{{"名称","同名"},{"仓库路径","国甲/区甲/仓甲"}};
+            if(fixedParent!="place_id")input["主路径"]="国甲/区甲/城甲";
+            var stop=await Assert.ThrowsAsync<BusinessRuleException>(()=>runtime.Import([input],parentId));
+            Assert.Same(guard.Stop,stop);
+            Assert.Equal(fixedParent=="country_id"?RecordMutationOperation.Update:RecordMutationOperation.Create,guard.Validation!.Operation);
+            if(fixedParent=="country_id")Assert.Equal(101L,guard.Validation.RecordId);
+            var invalid=new Dictionary<string,object?>(input){["仓库路径"]="国乙/区乙/仓乙"};
+            await Assert.ThrowsAsync<PageImportException>(()=>runtime.Import([invalid],parentId));
+            var exported=await runtime.Export(new PageRequest{ParentId=parentId});
+            var row=Assert.Single(exported.Rows);
+            Assert.Equal("国甲/区甲/城甲",row[exported.Headers.ToList().IndexOf("主路径")]);
+            Assert.Equal("国甲/区甲/仓甲",row[exported.Headers.ToList().IndexOf("仓库路径")]);
+            Assert.Contains(runtime.Reads,read=>read=="binary:BusinessKey");
+            Assert.Empty(runtime.Transport.Commands);
+
+            void Seed(string suffix,long id,string name,string? parent=null,object? parentId=null,string? key=null)
+            {
+                var row=new Dictionary<string,object?>{{"Id",id},{"Name",name},{"Status",1},{"YzProjectId",catalog.YzProjectId}};
+                if(parent is not null)row[parent]=parentId;
+                if(key is not null)row["BusinessKey"]=key;
+                runtime.Add("SharedExcel"+suffix,row);
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>跨表级联候选与原 Excel 路径共用标量文本，布尔原始单元格也可还原。</summary>
     [Theory]
     [InlineData(false)]
@@ -1043,11 +1127,11 @@ internal sealed class SharedExcelReadTransport:IDisposable
     internal Action<string,int>? AfterRead{get;set;}
     internal int ExportLockCount{get;private set;}
     /// <summary>仅用实际生成Mapper与Service；额外目标list授权、ADO写入和网络访问均拒绝。</summary>
-    internal SharedExcelReadTransport(Assembly assembly,string rootNamespace,string serviceName,bool sourceCondition=false,string pageId="201",RuntimeActor? actor=null,IRuntimeAuthorization? authorization=null,IRecordMutationGuard? guard=null)
+    internal SharedExcelReadTransport(Assembly assembly,string rootNamespace,string serviceName,bool sourceCondition=false,string pageId="201",RuntimeActor? actor=null,IRuntimeAuthorization? authorization=null,IRecordMutationGuard? guard=null,bool mysqlDialect=false)
     {
         this.assembly=assembly;this.rootNamespace=rootNamespace;sourceEntity=serviceName;this.sourceCondition=sourceCondition;this.pageId=pageId;this.actor=actor??new(901,"共享Excel解析",false,"9007199254740993","5");
         var orm=(IFreeSql)Proxy(typeof(IFreeSql),(method,args)=>method.Name=="Select"?Select(method.GetGenericArguments()[0]):throw new InvalidOperationException("共享Excel离线读取禁止ORM写入或联网。"));
-        provider=new(Transport,orm);Session=new(new(){Provider="mysql",ExpectedDatabase="offline"},orm,provider);
+        provider=new(Transport,orm,mysqlDialect);Session=new(new(){Provider="mysql",ExpectedDatabase="offline"},orm,provider);
         var mapper=Activator.CreateInstance(assembly.GetType(rootNamespace+".Generated.Mappers."+serviceName+"Mapper",true)!,Session)!;
         serviceType=assembly.GetType(rootNamespace+".Generated.Services."+serviceName+"Service",true)!;
         service=Activator.CreateInstance(serviceType,Session,mapper,new SnowflakeIdGenerator(951),Array.Empty<IRecordMutationObserver>(),guard is null?Array.Empty<IRecordMutationGuard>():new[]{guard},authorization??new ImportOnly(this.actor))!;
@@ -1111,7 +1195,7 @@ internal sealed class SharedExcelReadTransport:IDisposable
         query=Proxy(typeof(ISelect<>).MakeGenericType(type),(method,args)=>
         {
             args??=[];
-            if(method.Name=="WithTransaction")return query;
+            if(method.Name is "WithTransaction" or "As")return query;
             if(method.Name=="Where")
             {
                 if(args.OfType<LambdaExpression>().SingleOrDefault() is{} expression){var compiled=expression.Compile();predicates.Add(row=>(bool)compiled.DynamicInvoke(row)!);}
@@ -1148,6 +1232,24 @@ internal sealed class SharedExcelReadTransport:IDisposable
     /// <summary>只解释status或明确来源模型的三个AND参数比较；括号／运算／字段／值均固定，未知语法拒绝。</summary>
     private Func<object,bool> FixedWhere(Type type,string sql,IReadOnlyDictionary<string,object?> parameters)
     {
+        // 文本键按字节精确匹配，数值字符串不得参与隐式等值。
+        var binary=Regex.Match(sql,@"^BINARY (?:(?:\(\x60a\x60\.\x60(?<field>[a-z_]+)\x60\))|(?:\x60(?<field>[a-z_]+)\x60))(?:(?:=BINARY @(?<parameter>[A-Za-z0-9_]+))|(?: IN \(BINARY @(?<parameter>[A-Za-z0-9_]+)(?:,BINARY @(?<parameter>[A-Za-z0-9_]+))*\)))$");
+        if(binary.Success)
+        {
+            Assert.Equal(binary.Groups["parameter"].Captures.Count,parameters.Count);
+            var accepted=binary.Groups["parameter"].Captures.Select(capture=>Assert.IsType<string>(parameters[capture.Value])).ToHashSet(StringComparer.Ordinal);
+            var property=type.GetProperty(GenerationModel.Pascal(binary.Groups["field"].Value))!;
+            Reads.Add("binary:"+property.Name);
+            return row=>property.GetValue(row) is string value&&accepted.Contains(value);
+        }
+        if(sql.StartsWith("EXISTS (SELECT 1 FROM `shared_excel_",StringComparison.Ordinal))
+        {
+            Assert.Equal(sourceEntity,type.Name);
+            Assert.Contains("REGEXP '[^[:space:]]'",sql);
+            Assert.Contains("BINARY ",sql);
+            // 独立数据层回归验证完整相关谓词；这里的已发布叶子通过生成的 ValidateParents 处理。
+            return _=>true;
+        }
         // 仅处理本测试明确声明的物理精确范围列，检查参数绑定和真实字段读值。
         const string exactPattern=@"^\x60scope_key\x60 IN \((@[A-Za-z0-9_]+(?:,@[A-Za-z0-9_]+)*)\)$";
         var exact=Regex.Match(sql,exactPattern);
@@ -1189,9 +1291,9 @@ internal sealed class SharedExcelReadTransport:IDisposable
     private sealed class ImportOnly(RuntimeActor actor):IRuntimeAuthorization
     {public RuntimeActor RequireActor()=>actor;public void RequirePagePermission(string page,string operation)=>throw new UnauthorizedAccessException("离线解析不能新增目标list权限。");}
     /// <summary>快照调用只记录请求，内部仍为离线ADO，不证明MySQL隔离和锁。</summary>
-    private sealed class SnapshotProvider(TrustedSecurityMemoryProvider inner,IFreeSql orm):IDatabaseProvider
+    private sealed class SnapshotProvider(TrustedSecurityMemoryProvider inner,IFreeSql orm,bool mysqlDialect):IDatabaseProvider
     {
-        internal int Snapshots;public string Name=>"offline";public DatabaseCapabilities Capabilities=>inner.Capabilities;
+        internal int Snapshots;public string Name=>mysqlDialect?"mysql":"offline";public DatabaseCapabilities Capabilities=>inner.Capabilities;
         public void Validate(DatabaseOptions options)=>inner.Validate(options);public IFreeSql CreateOrm(DatabaseOptions options)=>orm;public DbConnection CreateConnection(DatabaseOptions options)=>inner.CreateConnection(options);
         public string QuoteIdentifier(string identifier)=>inner.QuoteIdentifier(identifier);public string ParameterPlaceholder(string name)=>inner.ParameterPlaceholder(name);public string BuildSelectForUpdate(string sql)=>inner.BuildSelectForUpdate(sql);
         public ValueTask<DbTransaction> BeginReadSnapshotAsync(DbConnection connection,CancellationToken token=default){Snapshots++;return connection.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead,token);}
