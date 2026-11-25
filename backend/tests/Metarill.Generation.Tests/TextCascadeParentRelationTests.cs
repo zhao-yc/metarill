@@ -297,6 +297,87 @@ public sealed class TextCascadeParentRelationTests
         Assert.Contains("相同发布文本父路径",error.Message);
     }
 
+    /// <summary>冗余来源的物理父键与非冗余目标的逻辑祖先必须用于候选、写入和缓存重算。</summary>
+    [Theory]
+    [InlineData("OnlyNew","list")]
+    [InlineData("OverWriteByFirstColumn","edit")]
+    public async Task Stored_source_sparse_target_share_text_parent(string import,string export)
+    {
+        var catalog=Catalog(1,import,export);
+        foreach(var id in new[]{"81","82"})
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(item=>item.Id==id).IsRongyu=0;
+        }
+        var model=GenerationModel.Create(catalog,"Example.StoredSparseTextParent");
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var relations=RelationCompilation.ForPage(model,page,true,forExcel:true);
+        Assert.Equal(2,relations.Count);
+        Assert.All(relations,relation=>
+        {
+            Assert.Equal("country_id",relation.SharedTextParent?.Source.ColumnName);
+            Assert.Equal("282",relation.FixedSourceParent?.Source.Id);
+            Assert.True(ControlRenderer.RelationContext(page,relation,false).SameParent);
+            Assert.True(relation.FixedParent?.Logical);
+        });
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var caches=RelationPropagationCompilation.DerivedBindings(model)
+            .Where(item=>item.Foreign.Source.Id is "700" or "702").ToArray();
+        Assert.Equal(new[]{"810","820"},caches.Select(item=>item.ScopedSinglePageId));
+        var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+        Assert.Contains("textrel_listitem",maintenance.MixedTargets);
+        Assert.Contains("textrel_singleitem",maintenance.MixedTargets);
+        Assert.Contains("listitem_name",maintenance.MixedSourceColumns["textrel_source"]);
+        Assert.Contains("singleitem_name",maintenance.MixedSourceColumns["textrel_source"]);
+        const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",flags)!.GetValue(maintenance));
+        var source=plans["2"]!;
+        Assert.Null(source.GetType().GetProperty("Error")!.GetValue(source));
+        var read=source.GetType().GetProperty("Read")!.GetValue(source)!;
+        foreach(var column in new[]{"listitem_name","singleitem_name"})
+        {
+            var label=Assert.IsType<string>(read.GetType().GetMethod("Expression",flags)!.Invoke(read,[column]));
+            Assert.Contains("BINARY CAST(b.`country_id` AS CHAR)",label);
+            Assert.Contains("business_key",label);
+        }
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-stored-sparse-text-parent");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            Assert.Contains("NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,OptionsMembership201_700.BindAccount(actor)",service);
+            Assert.Contains("NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,OptionsMembership201_702.BindAccount(actor)",service);
+            Assert.Contains("OptionsScope201_700Async(entity.CountryId, null, actor, cancellationToken, true, false",service);
+            Assert.Contains("OptionsScope201_702Async(entity.CountryId, null, actor, cancellationToken, true, false",service);
+            Assert.Contains("ImportRelation201_700Async",service);
+            Assert.Contains("ImportRelation201_702Async",service);
+            Assert.DoesNotContain("out var targetParentKey",service);
+            var detail=await File.ReadAllTextAsync(Path.Combine(directory,"frontend/pages/yzp/textrel_source-detail-201.vue"));
+            Assert.Contains(":parent_id=\"parent_id\"",detail);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>缓存重算入口独立拒绝通过字符串父列借用整数主键路径。</summary>
+    [Fact]
+    public void Stored_source_text_parent_rejects_sparse_target_primary_key()
+    {
+        var catalog=Catalog(1,"OnlyNew","list");
+        ScopeTarget(catalog,"81");
+        catalog.ConfigTables.Single(item=>item.Id=="81").IsRongyu=0;
+        var column=catalog.ConfigColumns.Single(item=>item.Id=="8106");
+        var definition=System.Text.Json.Nodes.JsonNode.Parse(column.ControlDetail)!;
+        definition["levels"]![0]!["idField"]="id";
+        column.ControlDetail=definition.ToJsonString();
+        var cache=new Metarill.Data.Relations.RelationCacheDefinition("2","700","81","8102","701",false){ScopedSinglePageId="810"};
+        var error=Assert.Throws<InvalidOperationException>(()=>Metarill.Data.Relations.DerivedCrossTableCaches.Validate(catalog,[cache],[]));
+        Assert.Contains("相同发布文本父路径",error.Message);
+    }
+
     private sealed class ScopeRow
     {
         public long Id { get; set; }

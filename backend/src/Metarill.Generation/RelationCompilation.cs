@@ -177,7 +177,7 @@ internal static class RelationCompilation
             if(targetParents.Any(parent=>sourceParents.Any(sourceParent=>sourceParent.Source.Id==parent.Source.Id))&&
                 CrossTableReadCompilation.TextSourceParent(model,owner,page) is not null)
             {
-                sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage)??
+                sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowSparseTarget:true)??
                     NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowStoredTarget:true);
                 if(sharedTextParent is null||binding.Declared||scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent)||
                     !NonRedundantReadCompilation.Physical(model,target,name)||name.Type!="string?"||ExactDataManageCompilation.Declared(targetPage)||

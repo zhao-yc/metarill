@@ -1003,6 +1003,12 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             if(parent is {Global:true}&&binding is {AdditionalColumns.Count:>0})
                 RequireCompoundGlobalSourceParent(catalog,target.Id,page.Id,binding);
+            // 同一缓存供所有已发布来源页使用，每个入口都要能证明物理父键与目标逻辑父键等价。
+            if(table.IsRongyu==1&&target.IsRongyu==0&&parent is {Logical:true,Global:false}&&binding is not null&&
+                !GlobalCrossTableTarget.Declared(table)&&!GlobalCrossTableTarget.Declared(target))
+                _=UsesSharedStoredTextParent(target,new(parent.Target,[page]),table,
+                    catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==table.Id).ToArray(),binding.Column,
+                    parent.AdditionalTargets.Count>0||binding.AdditionalColumns.Count>0,storedToSparse:true);
             var sourceParent=binding is not null&&(parent?.Logical==true||binding.LogicalPages.Count>0||binding.AdditionalColumns.Count>0)
                 ?SingleSourceParentValue(table,owner,binding,cacheOwner):null;
             // 反查需要从最终写回的根表出发，保存中间记录及逻辑父表达式引用的祖先别名。
