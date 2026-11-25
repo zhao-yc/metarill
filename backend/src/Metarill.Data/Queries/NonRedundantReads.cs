@@ -353,10 +353,16 @@ public static class NonRedundantReads
 
     /// <summary>原 ORM 候选页与固定名称计划按同一规范文本父键比较，字段和值不作为请求 SQL。</summary>
     public static FreeSql.ISelect<T> ApplyTextParent<T>(FreeSql.ISelect<T> query,DatabaseSession session,string field,string parentId)
+        where T:class=>ApplyTextParent(query,session,field,parentId,businessKey:false);
+
+    /// <summary>已发布的文本业务键保留原字符串，原数字父键仍使用规范校验。</summary>
+    public static FreeSql.ISelect<T> ApplyTextParent<T>(FreeSql.ISelect<T> query,DatabaseSession session,string field,string parentId,bool businessKey)
         where T:class
     {
         if(session.Provider.Name!="mysql")throw new NotSupportedException("文本父键比较尚未完成该数据库适配。");
-        var parent=FixedReadFilter.RequireTextParent(parentId);
+        var parent=businessKey
+            ?!string.IsNullOrWhiteSpace(parentId)?parentId:throw new ArgumentException("当前页面要求非空文本父键。")
+            :FixedReadFilter.RequireTextParent(parentId);
         var column=session.Provider.QuoteIdentifier("a")+"."+session.Provider.QuoteIdentifier(field);
         var parameter="mt_parent_"+field;
         return query.As("a").Where("BINARY ("+column+")=BINARY "+session.Provider.ParameterPlaceholder(parameter),

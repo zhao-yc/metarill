@@ -50,6 +50,10 @@ internal static class SharedRedundantParentCompilation
         }
         return result;
     }
+    /// <summary>仅原层级明确声明的文本业务键进入非数值父协议。</summary>
+    internal static bool IsText(GenerationModel model,TableModel table,PageModel page,ColumnModel column)=>
+        column.Type=="string?"&&ForColumn(model,table,page,column).Any(path=>path.Level.TextKey);
+
     /// <summary>完整包逐个证明物理父字段，来源项目与后台必须明确发布。</summary>
     internal static void Require(GenerationModel model,TableModel table,PageModel page)
     {
@@ -72,14 +76,15 @@ internal static class SharedRedundantParentCompilation
         try{return RedundantSharedParents.Compile(model.Catalog,table.Source.Id,page.Source.Id);}catch(Exception invalid)when(invalid is InvalidOperationException or ArgumentException or JsonException){throw new NotSupportedException("R1公共父定义尚未通过完整证明。",invalid);}
     }
     /// <summary>公共元数据计划与生成器完整读取角色逐层一致，不能单独借用某个有效同伴。</summary>
-    private static bool Matches(RedundantSharedParentPlan plan,SharedRedundantParentPath path)=>plan.Levels.Count==path.Index+1&&plan.Levels.Select((level,index)=>level.TableId==path.Read.Levels[index].Target.Source.Id&&level.PageId==path.Read.Levels[index].Page.Source.Id&&level.NameId==path.Read.Levels[index].Name.Source.Id&&level.Parent==path.Read.Levels[index].Parent?.Source.ColumnName&&level.KeyColumn==path.Read.Levels[index].KeyColumn).All(value=>value);
-    /// <summary>有账号等值或递归条件的祖先需要额外相关范围，普通 R1 页沿用原查询。</summary>
+    private static bool Matches(RedundantSharedParentPlan plan,SharedRedundantParentPath path)=>plan.Levels.Count==path.Index+1&&plan.Levels.Select((level,index)=>level.TableId==path.Read.Levels[index].Target.Source.Id&&level.PageId==path.Read.Levels[index].Page.Source.Id&&level.NameId==path.Read.Levels[index].Name.Source.Id&&level.Parent==path.Read.Levels[index].Parent?.Source.ColumnName&&level.KeyColumn==path.Read.Levels[index].KeyColumn&&level.TextKey==path.Read.Levels[index].TextKey).All(value=>value);
+    /// <summary>账号、递归或文本业务键父链需要相关范围，普通整数父页沿用原查询。</summary>
     internal static IReadOnlyList<RedundantSharedParentPlan> AccountPlans(GenerationModel model,TableModel table,PageModel page)
     {
         if(table.Source.IsRongyu!=1||!page.Scopes.Any(scope=>scope.Source=="parent")||
+            !Enabled(model,table,page)||
+            !CrossTableReadCompilation.ForService(model,table,page).Any(read=>read.HasTextKeys)&&
             !model.Tables.SelectMany(candidate=>candidate.Pages).Any(candidate=>
-                FixedPageConditionCompilation.HasAccountVariables(candidate)||FixedPageConditionCompilation.HasLogicalFields(candidate))||
-            !Enabled(model,table,page))return [];
+                FixedPageConditionCompilation.HasAccountVariables(candidate)||FixedPageConditionCompilation.HasLogicalFields(candidate)))return [];
         return ParentPlans.GetValue(model,_=>new()).GetOrAdd((table.Source.Id,page.Source.Id),_=>CompileParents(model,table,page))
             .Values.Where(path=>path.Levels.Any(level=>level.RequiresCurrentScope))
             .OrderBy(path=>path.ColumnName,StringComparer.Ordinal).ToArray();
@@ -99,6 +104,7 @@ internal static class SharedRedundantParentCompilation
             var declaration=$"new({Literal(level.Key)},{Literal(level.Prefix)},{Literal(level.TableId)},{Literal(level.TableName)},{Literal(level.PageId)},{Literal(level.NameId)},{Literal(level.Parent)},{Literal(level.ProjectType)},{(level.SoftDelete?"true":"false")},{Literal(level.ConditionDefinition)},{FixedPageConditionCompilation.ConditionExpression(scope)})";
             var members=new List<string>();
             if(level.AlternateKey is not null)members.Add("AlternateKey="+Literal(level.AlternateKey));
+            if(level.TextKey)members.Add("TextKey=true");
             if(level.RecursiveCandidate is not null)
             {
                 var outputs=string.Join(",",new[]{"id",level.Parent,level.AlternateKey}.OfType<string>().Distinct(StringComparer.Ordinal).Select(Literal));
@@ -118,8 +124,11 @@ internal static class SharedRedundantParentCompilation
     internal static IReadOnlyList<SharedRedundantParentPath> ForTable(GenerationModel model,TableModel table,PageModel page,TableModel target)=>page.Scopes.Where(scope=>scope.Source=="parent").SelectMany(scope=>ForColumn(model,table,page,scope.Column)).Where(path=>path.Level.Target.Source.Id==target.Source.Id).DistinctBy(Identity,StringComparer.Ordinal).ToArray();
     /// <summary>共享目标角色按完整祖先定义比较，重复表名不能合并两个角色。</summary>
     private static string Identity(SharedRedundantParentPath path)=>JsonSerializer.Serialize(path.Read.Levels.Take(path.Index+1).Select(level=>new{table=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,condition=level.Page.Source.WhereSql,key=level.AlternateKey?.Source.Id}));
-    /// <summary>原ID协议保持规范正整数字符串；候选无锁，变更加入原事务当前读。</summary>
-    internal static string Call(SharedRedundantParentPath path,PageModel page,string locking)=>$"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,{locking},false).PathAsync({path.Index},SharedR1ParentKey{page.Source.Id}(parentId),cancellationToken);\n";
+    /// <summary>混合父链按层选键协议。写入及导入使用当前事务的锁读。</summary>
+    internal static string ReadPath(SharedRedundantParentPath path,PageModel page,string locking,string parent)=>
+        $"CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,{locking},false)"+
+        NonRedundantCrossParentCompilation.PathSuffix(path.Read,path.Index,$"SharedR1ParentKey{page.Source.Id}({parent})");
+    internal static string Call(SharedRedundantParentPath path,PageModel page,string locking)=>$"        await {ReadPath(path,page,locking,"parentId")};\n";
     /// <summary>实际存储复核不把R1缓存父键改为R0推导值，钩子或DML逃逸必须回滚。</summary>
     internal static string VerifyCall(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)?$"        await VerifySharedR1Parent{page.Source.Id}Async(entity,actor,parentId,cancellationToken);\n":"";
     /// <summary>为已证明的R1跨表父页生成私有键解析及写后／删除前实际行复核。</summary>
@@ -131,8 +140,12 @@ internal static class SharedRedundantParentCompilation
         var fields=FixedPageQueryCompilation.For(table,page).IdentityScopes.Where(scope=>exact||scope.Source=="parent").Select(scope=>scope.Column).DistinctBy(column=>column.Source.Id).ToArray();
         var storedQuery=exact?"query":$"Scope{page.Source.Id}(actor,parentId{(HasAccountPath(model,table,page)?",locking:true":"")})";
         var result=new StringBuilder();
-        result.AppendLine("    /// <summary>父ID不接受前导零、符号或空白。</summary>").AppendLine($"    private static long SharedR1ParentKey{page.Source.Id}(string? value){{if(!long.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||value!=id.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");return id;}}")
-            .AppendLine("    /// <summary>按实际物理父及来源项目复核，目标父保持固定范围和当前锁读。</summary>").AppendLine($"    private async Task VerifySharedR1Parent{page.Source.Id}Async({table.EntityType} entity,RuntimeActor actor,string? parentId,CancellationToken cancellationToken)").AppendLine("    {").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);")
+        var textParent=page.Scopes.Any(scope=>scope.Source=="parent"&&IsText(model,table,page,scope.Column));
+        if(textParent)
+            result.AppendLine("    /// <summary>保留当前页明确发布的文本业务父键。</summary>")
+                .AppendLine($"    private static string SharedR1ParentKey{page.Source.Id}(string? value)=>!string.IsNullOrWhiteSpace(value)?value:throw new ArgumentException(\"当前页面要求非空文本parentId。\");");
+        else result.AppendLine("    /// <summary>父ID不接受前导零、符号或空白。</summary>").AppendLine($"    private static long SharedR1ParentKey{page.Source.Id}(string? value){{if(!long.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||value!=id.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");return id;}}");
+        result.AppendLine("    /// <summary>按实际物理父及来源项目复核，目标父保持固定范围和当前锁读。</summary>").AppendLine($"    private async Task VerifySharedR1Parent{page.Source.Id}Async({table.EntityType} entity,RuntimeActor actor,string? parentId,CancellationToken cancellationToken)").AppendLine("    {").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);")
             .Append(exact?"        var query=mapper.Query();\n"+FixedPageConditionCompilation.Apply(page,"PageCondition"+page.Source.Id,"verify_parent"):"")
             .AppendLine($"        var stored=await {storedQuery}.Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>new {table.EntityType}{{Id=row.Id,{string.Join(",",fields.Select(column=>column.Property+"=row."+column.Property))}}},cancellationToken);")
             .AppendLine($"        if(stored is null||{string.Join("||",fields.Select(column=>"stored."+column.Property+"!=entity."+column.Property))})throw new InvalidOperationException(\"共享R1实际父归属发生变化，未提交。\");")

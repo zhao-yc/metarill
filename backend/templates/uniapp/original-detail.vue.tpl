@@ -86,7 +86,7 @@ export default {
       var that = this;
       // 功能表没有物理业务表，不能把菜单或 URL 参数当作实体 ID 使用。
       this.id = this.page_is_function_table ? '' : originalRecordId(e.id);
-      this.parent_id = originalRecordId(e.parent_id || e.parentId);
+      this.parent_id = ##parent_id_input##;
       this.parent_page_sn = originalRecordId(e.parent_page_sn || e.parentPageId);
       // 入口标识仅用于导航定位，不参与后端权限判定。
       this.yzpMenuId = e.yzpMenuId || '';
@@ -122,10 +122,10 @@ export default {
     },
     buildParentIdQuery: function () {
       // 单条接口需要父级范围时才追加 parentId，普通页面和历史 undefined 字符串都不传。
-      if (utils.isBlank(this.parent_id) || this.parent_id === 'undefined' || this.parent_id === 'null') {
+      if (##parent_id_is_blank##) {
         return '';
       }
-      return '?parentId=' + this.parent_id;
+      return '?parentId=' + ##parent_id_query_value##;
     },
     readonlyDisplayText: function (value, joiner) {
       // 只读态统一展示文本，兼容数组、JSON 数组字符串和普通字符串。

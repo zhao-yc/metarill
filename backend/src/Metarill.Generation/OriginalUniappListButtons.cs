@@ -55,7 +55,11 @@ internal static partial class OriginalUniappListRenderer
             switch (ObjInt(button,"actionType"))
             {
                 case 1:
-                    methods.Append("yzp.request({url:").Append(J(target+"?parentId=")).Append("+that.parent_id,sendSessionId:true,method:'POST',");
+                    var parent=page.Scopes.Any(scope=>scope.Source=="parent"&&(
+                        NonRedundantCrossParentCompilation.IsText(model,table,page,scope.Column)||
+                        SharedRedundantParentCompilation.IsText(model,table,page,scope.Column)))
+                        ?"encodeURIComponent(that.parent_id || '')":"that.parent_id";
+                    methods.Append("yzp.request({url:").Append(J(target+"?parentId=")).Append('+').Append(parent).Append(",sendSessionId:true,method:'POST',");
                     if (ObjInt(button,"isBatchSelectButton")==1) methods.Append("data:that.selectedList,");
                     methods.Append("success(res){if(res.code==200)that.notifyMenuMutation();yzp.customButtonHandler(res,that,false,'list');}});"); break;
                 case 2: methods.Append("uni.navigateTo({url:").Append(J("/"+target)).Append(",success:()=>{project.").Append(handler).Append("(that.entity);}});"); break;

@@ -93,7 +93,7 @@ internal static class CrossTableReadCompilation
                 result.Any(level=>level.Target.Source.IsView!=0||level.Target.IsGlobal||level.Target.Source.Id==table.Source.Id||FixedPageConditionCompilation.HasAccountVariables(level.Page))||
                 table.Source.IsRongyu==1&&result.Any(level=>level.Target.Source.IsRongyu==0)||
                 !SupportsSourceParent(table,result)))
-                return Gap("文本业务键当前要求 MySQL 独立项目实体链，当前仅接受已接通的独立非冗余来源父范围组合。");
+                return Gap("文本业务键当前要求 MySQL 独立项目实体链，来源父范围须绑定本链唯一层位。");
             if(plan.HasTextKeys&&(!CrossTableFrontendProof.KeepsStorageDefinition(model,page,source)||result[^1].TextKey&&source.Type!="string?"))
                 return Gap("文本业务键要求表级定义及文本叶字段。");
             if(result.Any(level=>level.Target.Source.IsRongyu==0))NonRedundantCrossTargetsCompilation.Require(model,table,plan);return new(plan,null);
@@ -107,7 +107,7 @@ internal static class CrossTableReadCompilation
         {
             var parents=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             if(parents.Length==0)continue;
-            if(table.Source.IsRongyu!=0||parents.Length!=1)return false;
+            if(parents.Length!=1)return false;
             var level=levels.SingleOrDefault(level=>level.Prefix+"_id"==parents[0].Source.ColumnName);
             if(level is null)return false;
             if(level.TextKey&&table.Columns.Any(column=>column.Source.ControlKind is "List" or "SelectPage"

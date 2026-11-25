@@ -16,12 +16,16 @@ public sealed record RedundantSharedParentLevel(string Key,string Prefix,string 
     [System.Text.Json.Serialization.JsonIgnore]
     public string KeyColumn=>AlternateKey??"id";
 
+    /// <summary>文本键和普通字符串承载的整数键使用各自的父路径协议。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool TextKey{get;init;}
+
     /// <summary>逻辑条件使用已发布非冗余读计划，物理父列仍来自当前来源记录。</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public NonRedundantReadPlan? RecursiveCandidate{get;init;}
-    /// <summary>账号等值与递归条件均需在实际业务读取中复核父记录。</summary>
+    /// <summary>账号等值、递归条件和文本业务键均需在实际业务读取中复核父记录。</summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public bool RequiresCurrentScope=>Condition?.Variables.Count>0||RecursiveCandidate is not null;
+    public bool RequiresCurrentScope=>TextKey||Condition?.Variables.Count>0||RecursiveCandidate is not null;
 }
 /// <summary>来源实际物理父键及其唯一已证明目标角色。</summary>
 public sealed record RedundantSharedParentPlan(string ColumnId,string ColumnName,string LogicalType,string ControlId,IReadOnlyList<RedundantSharedParentLevel> Levels);
@@ -91,10 +95,11 @@ public static class RedundantSharedParents
         {
             Object(level);if(Extra(level))throw Unsupported();var target=catalog.ConfigTables.Single(t=>t.TableName==Text(level,"table",""));if(target.IsRongyu is not(0 or 1)||target.IsView!=0||target.IsFunctionTable!=0)throw Unsupported();var prefix=Text(level,"columnPrefix",target.TableName);var key=Text(level,"key",target.TableName);MetadataValidation.RequireIdentifier(prefix);if(!prefixes.Add(prefix)||!keys.Add(key)||prefix is "yz_project" or "insert_manager" or "update_manager" or "insert_user" or "update_user")throw Unsupported();
             var alternate=CrossTableStorageColumns.AlternateLevelKey(catalog,target,level);
-            if(alternate?.LogicalType=="string")throw Unsupported();
             var targetColumns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id));var ts=MetadataStoragePolicy.ForTable(catalog,target);var primary=targetColumns.SingleOrDefault(c=>c.ColumnName=="id");var project=targetColumns.SingleOrDefault(c=>c.ColumnName=="yz_project_id");var global=GlobalCrossTableTarget.Declared(target);if(primary is null||primary.LogicalType!="int64"||primary.IsDbNotNull!=1||!Scalar(ts,target,primary)||!global&&(project is null||project.LogicalType is not("string" or "int64")||!Scalar(ts,target,project)))throw Unsupported();
             var display=targetColumns.Single(c=>c.ColumnName==Text(level,"nameField","name"));if(display.ColumnName=="id"||display.LogicalType is not("string" or "int32" or "int64")||display.IsVirtualColumn!=0)throw Unsupported();if(!ts.IsPhysical(display)&&!global){var read=NonRedundantReads.CompileMatch(catalog,target.Id,display.ColumnName);if(read.OutputTypes[display.ColumnName]!=display.LogicalType||NonRedundantReads.MatchReadsTable(catalog,target.Id,display.ColumnName,source.TableName))throw Unsupported();}
             var parent=previous is null?null:targetColumns.Single(c=>c.ColumnName==Text(level,"parentField",""));if(parent is not null&&(!Scalar(ts,target,parent)||parent.LogicalType is not("string" or "int64")||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=previous!.Id))throw Unsupported();
+            var textKey=alternate?.LogicalType=="string";
+            if(parent is not null&&result[^1].TextKey&&parent.LogicalType!="string")throw Unsupported();
             var required=new[]{display.Id}.Concat(parent is null?[]:new[]{parent.Id}).ToArray();
             var candidates=catalog.ConfigPages.Where(p=>p.ConfigTableId==target.Id&&required.All(id=>
                     catalog.ConfigPageColumns.Any(f=>f.ConfigPageId==p.Id&&f.ConfigColumnId==id&&Readable(f))))
@@ -124,13 +129,18 @@ public static class RedundantSharedParents
             var deleted=targetColumns.SingleOrDefault(c=>c.ColumnName=="delete_no");
             if(deleted is not null&&(deleted.LogicalType!="datetime"||deleted.IsDbNotNull!=0||!ts.IsPhysical(deleted)))throw Unsupported();
             var id=sourceColumns.Single(c=>c.ColumnName==prefix+"_id");var name=sourceColumns.Single(c=>c.ColumnName==prefix+"_name");if(id.LogicalType is not("string" or "int64")||id.IsDbNotNull!=0||!sourceStorage.IsPhysical(id)||id.IsVirtualColumn!=0||Join(id)||id.ControlKind.Length>0&&!(id.ControlKind=="CascadeTree"&&controls.Any(c=>c.Id==id.Id))||id.LinkConfigTableId.Length>0&&id.LinkConfigTableId!=target.Id||name.LogicalType!="string"||name.IsDbNotNull!=0||!sourceStorage.IsPhysical(name))throw Unsupported();
+            if(textKey&&id.LogicalType!="string")throw Unsupported();
             result.Add(new(key,prefix,target.Id,target.TableName,chosen.Page.Id,display.Id,parent?.ColumnName,global?null:project!.LogicalType,deleted is not null,chosen.Page.WhereSql,chosen.Condition.Plan)
             {
                 AlternateKey=alternate?.ColumnName,
+                TextKey=textKey,
                 RecursiveCandidate=recursive
             });ids.Add(id);names.Add(name);previous=target;
         }
         if(ids[^1].Id!=control.Id)throw Unsupported();
+        if(result.Any(level=>level.TextKey)&&result.Any(level=>level.ProjectType is null||level.TableId==source.Id||
+            level.RecursiveCandidate is not null||level.Condition?.Variables.Count>0||
+            catalog.ConfigTables.Single(table=>table.Id==level.TableId).IsRongyu!=1))throw Unsupported();
         // 来源兼任候选时，真实父和名称不能被同一条链的归一化改写。
         var managed=ids.Concat(names).Select(field=>field.ColumnName).ToHashSet(StringComparer.Ordinal);
         if(result.Where(level=>level.TableId==source.Id).Any(level=>
@@ -141,6 +151,7 @@ public static class RedundantSharedParents
     /// <summary>共享前缀由协调器验证；单链和共享链均由正式数据层证明缓存归属及派生名称。</summary>
     private static void Prove(MetadataCatalog catalog,TableMetadata source,IReadOnlyList<Branch> branches)
     {
+        if(branches.Count>1&&branches.Any(branch=>branch.Levels.Any(level=>level.TextKey)))throw Unsupported();
         if(branches.Count>1)_=new SharedCrossTableCoordinator(branches.Select(b=>new SharedCrossTableBranch(b.Control.Id,b.Levels.Select((level,index)=>new SharedCrossTableSlot(b.Ids[index].ColumnName,b.Names[index].ColumnName,b.Ids[index].LogicalType,LevelIdentity(level))).ToArray())).ToArray());
         var physical=new List<RelationCacheDefinition>();var derived=new List<RelationCacheDefinition>();
         foreach(var uses in branches.SelectMany(b=>b.Ids.Select((id,index)=>(Branch:b,Id:id,Index:index))).GroupBy(x=>x.Id.Id,StringComparer.Ordinal))
@@ -163,7 +174,7 @@ public static class RedundantSharedParents
     /// <summary>目标角色包含完整祖先，重复表名或数值ID不代表同一父身份。</summary>
     private static string Identity(RedundantSharedParentPlan plan)=>JsonSerializer.Serialize(plan.Levels.Select(LevelIdentity));
     /// <summary>层内身份及条件冻结为普通文本，不序列化可执行SQL计划的私有状态。</summary>
-    private static string LevelIdentity(RedundantSharedParentLevel level)=>JsonSerializer.Serialize(new{level.TableId,level.PageId,level.NameId,level.Parent,level.ConditionDefinition,level.AlternateKey});
+    private static string LevelIdentity(RedundantSharedParentLevel level)=>JsonSerializer.Serialize(new{level.TableId,level.PageId,level.NameId,level.Parent,level.ConditionDefinition,level.AlternateKey,level.TextKey});
     /// <summary>来源和目标均须显式发布，后台选择不是请求授权。</summary>
     private static void Realm(MetadataCatalog catalog,TableMetadata table,PageMetadata page){if(table.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||!catalog.YzAdminTypes.Any(a=>a.Id==page.YzAdminTypeId&&a.YzProjectId==catalog.YzProjectId))throw Unsupported();}
     /// <summary>真实物理标量身份排除虚拟、联接及凭据；字段类型由调用点继续限制。</summary>

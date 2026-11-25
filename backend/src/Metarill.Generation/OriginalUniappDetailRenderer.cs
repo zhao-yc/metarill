@@ -160,6 +160,17 @@ readOnlyCondition() { this.permissionVersion;return !this.permissionsReady || Bo
             ["//##original_methods##"]=Runtime(c),["##table_name##"]=table.Source.TableName,["##table_camel_name##"]=GenerationModel.Camel(table.Source.TableName),["##page_sn##"]=page.Source.Id,
             ["##$uni-primary##"]=c.PrimaryColor,["##is_auto_back_on_mobile_save##"]=Enabled(page.Source.Extra,"isAutoBackOnMobileSave").ToString().ToLowerInvariant()
         };
+        // 业务父键可以含空格、加号和 URL 保留符，记录主键仍按原模板解释。
+        var textParent=page.Scopes.Any(scope=>scope.Source=="parent"&&(
+            NonRedundantCrossParentCompilation.IsText(model,table,page,scope.Column)||
+            SharedRedundantParentCompilation.IsText(model,table,page,scope.Column)));
+        values["##parent_id_input##"]=textParent
+            ?"typeof (e.parent_id || e.parentId) === 'string' ? (e.parent_id || e.parentId) : ''"
+            :"originalRecordId(e.parent_id || e.parentId)";
+        values["##parent_id_is_blank##"]=textParent
+            ?"typeof this.parent_id !== 'string' || this.parent_id.trim().length === 0"
+            :"utils.isBlank(this.parent_id) || this.parent_id === 'undefined' || this.parent_id === 'null'";
+        values["##parent_id_query_value##"]=textParent?"encodeURIComponent(this.parent_id)":"this.parent_id";
         AddInFlightSaveRecovery(c,values);
         var result=Template("original-detail.vue.tpl");foreach(var (marker,value)in values)result=result.Replace(marker,value,StringComparison.Ordinal);
         if(Regex.IsMatch(result,"##[A-Za-z_$][A-Za-z0-9_$]*##"))throw new InvalidOperationException("原详情模板仍有未填充占位符。");return result;

@@ -45,7 +45,7 @@ internal sealed class FileCrossParentScope
         SourceId="r1:"+plan.ColumnId;
         Level=plan.Levels.Count-1;
         targets=plan.Levels.Select(level=>new Target(level.TableName,level.PageId,level.NameId,level.ProjectType,
-            level.SoftDelete,level.Parent,level.Condition,level.RecursiveCandidate,level.KeyColumn)).ToArray();
+            level.SoftDelete,level.Parent,level.Condition,level.RecursiveCandidate,level.KeyColumn,level.TextKey)).ToArray();
     }
     /// <summary>只有普通R0固定跨表的ID位可取得逻辑父证明，selfTree及普通外键继续原边界。</summary>
     internal static FileCrossParentScope? Compile(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata column)
@@ -126,7 +126,7 @@ internal sealed class FileCrossParentScope
     {
         token.ThrowIfCancellationRequested();
         if(shared is not null)return (await shared.PathAsync(store,record,actor,locking,token)).Select(NumberText).ToArray();
-        var selected=redundant is null?ReadSelection(record):new CrossTableSelectedKey(Level,NumberText(ReadPhysicalParent(record)));
+        var selected=redundant is null?ReadSelection(record):new CrossTableSelectedKey(Level,ReadPhysicalParent(record));
         if(selected is null)throw new UnauthorizedAccessException("文件来源没有真实跨表父选择。");
         // 按实际选中的路径一次绑定账号，缺少归属时不向数据库发出只带固定常量的查询。
         var project=FileReferenceScope.PositiveId(actor.ProjectId);
@@ -196,10 +196,10 @@ internal sealed class FileCrossParentScope
             Convert.ToString(reader.GetValue(1),CultureInfo.InvariantCulture);
     }
 
-    /// <summary>实际列值必须符合声明的数据库标量类型，拒绝浮点、前导零或空白转换。</summary>
-    private long ReadPhysicalParent(IReadOnlyDictionary<string,object?> record)
+    /// <summary>实际列值必须符合已声明的标量类型。只有整数协议拒绝前导零。</summary>
+    private string ReadPhysicalParent(IReadOnlyDictionary<string,object?> record)
     {
-        if(redundant is null||!record.TryGetValue(redundant.ColumnName,out var value)||redundant.LogicalType=="string"&&value is not string||redundant.LogicalType=="int64"&&value is not long)throw new UnauthorizedAccessException("实际R1物理父键类型无效。");return FileReferenceScope.CanonicalId(value);
+        if(redundant is null||!record.TryGetValue(redundant.ColumnName,out var value)||redundant.LogicalType=="string"&&value is not string||redundant.LogicalType=="int64"&&value is not long)throw new UnauthorizedAccessException("实际R1物理父键类型无效。");return KeyText(value,TextKey);
     }
     private static string NumberText(long value)=>value.ToString(CultureInfo.InvariantCulture);
     private static string KeyText(object? value,bool textKey)=>textKey?FileTextKey(value):NumberText(FileReferenceScope.CanonicalId(value));

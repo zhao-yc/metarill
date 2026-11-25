@@ -48,6 +48,40 @@ public sealed class NonRedundantCrossTableScopeSqlTests
         Assert.DoesNotContain("'001'",sql);
     }
 
+    /// <summary>R1 使用物理父字段限制来源行，再按精确键验证当前文本节点及其整数祖先。</summary>
+    [Fact]
+    public void Redundant_text_parent_validates_physical_key_and_target_visibility()
+    {
+        using var session=Session();
+        var root=new RedundantSharedParentLevel("root","country","2","country","201","22",null,"string",true,"",null)
+        {
+            AlternateKey="business_key",TextKey=true
+        };
+        var region=new RedundantSharedParentLevel("region","area","3","area","301","32","country_id","int64",true,"",null);
+        var leaf=new RedundantSharedParentLevel("leaf","place","4","place","401","42","area_id","string",true,"",null)
+        {
+            AlternateKey="business_key",TextKey=true
+        };
+        var plan=new RedundantSharedParentPlan("15","place_id","string","15",[root,region,leaf]);
+        var actor=new Metarill.Core.Security.RuntimeActor(2,"测试",false,"9007199254740993","3");
+        var clause=RedundantSharedParentScopeSql.Render(session.Provider,[plan],actor,"scope_test",
+            field=>"`a`.`"+field+"`",true);
+        Assert.Contains("ON BINARY rp1.`country_id`=BINARY rp0.`business_key`",clause.Sql);
+        Assert.Contains("BINARY rp2.`business_key`=BINARY `a`.`place_id`",clause.Sql);
+        Assert.Contains("rp2.`business_key` REGEXP '[^[:space:]]'",clause.Sql);
+        Assert.Contains("rp1.`id`>0",clause.Sql);
+        Assert.Contains("rp2.`delete_no` IS NULL",clause.Sql);
+        Assert.Contains("FOR UPDATE",clause.Sql);
+        Assert.Equal(actor.ProjectId,clause.Parameters["scope_test_0_0_project"]);
+        Assert.Equal(9007199254740993L,clause.Parameters["scope_test_0_1_project"]);
+        var query=session.Select<Row>();
+        Assert.Throws<ArgumentException>(()=>NonRedundantReads.ApplyTextParent(query,session,"place_id","001"));
+        Assert.Throws<ArgumentException>(()=>NonRedundantReads.ApplyTextParent(query,session,"place_id","  ",businessKey:true));
+        var sql=NonRedundantReads.ApplyTextParent(query,session,"place_id","001",businessKey:true).ToSql();
+        Assert.Contains("BINARY (`a`.`place_id`)=BINARY @mt_parent_place_id",sql);
+        Assert.DoesNotContain("'001'",sql);
+    }
+
     /// <summary>名称、未编译层位、错类型、非法／越界ID及项目不能被宽松转换成可匹配值。</summary>
     [Theory][InlineData("string")][InlineData("int64")]
     public void Unproved_fields_types_ids_and_project_fail_without_changing_query(string type)

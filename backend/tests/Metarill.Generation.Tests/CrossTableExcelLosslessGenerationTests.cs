@@ -165,6 +165,10 @@ public sealed class CrossTableExcelLosslessGenerationTests
     /// <summary>同一链混用原主键和文本业务键，原组件接口与 Excel 都保留前导零和大小写。</summary>
     [Theory]
     [InlineData(1,false,"OverWriteByFirstColumn",null)]
+    [InlineData(1,false,"OnlyNew","country_id")]
+    [InlineData(1,false,"OverWriteByFirstColumn","country_id")]
+    [InlineData(1,false,"OverwriteByCascade","area_id")]
+    [InlineData(1,false,"OnlyNew","place_id")]
     [InlineData(0,false,"OnlyNew",null)]
     [InlineData(0,false,"OverWriteByFirstColumn",null)]
     [InlineData(0,true,"OverWriteByFirstColumn",null)]
@@ -185,7 +189,15 @@ public sealed class CrossTableExcelLosslessGenerationTests
         catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId==control.Id).IsShow=1;
         catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
         var configuredPage=catalog.ConfigPages.Single(page=>page.Id=="201");
-        configuredPage.Extra["importMethod"]=JsonSerializer.SerializeToElement(importMode);
+        var leafOverwrite=importMode=="OverwriteByCascade";
+        configuredPage.Extra["importMethod"]=JsonSerializer.SerializeToElement(leafOverwrite?"OverWriteByFirstColumn":importMode);
+        if(leafOverwrite)control.SortNo=-1;
+        if(redundant==1&&parentColumn is not null)
+        {
+            configuredPage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(importMode=="OnlyNew"?"list":"edit");
+            if(parentColumn=="area_id")
+                catalog.ConfigColumns.Add(new(){Id="281",ConfigTableId="2",ColumnName="area_id",LogicalType="int64",LinkConfigTableId="4"});
+        }
         if(redundant==0)
         {
             catalog.ConfigColumns.Add(new(){Id="281",ConfigTableId="2",ColumnName="area_id",LogicalType="int64",LinkConfigTableId="4"});
@@ -233,8 +245,24 @@ public sealed class CrossTableExcelLosslessGenerationTests
         try
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);
+            if(leafOverwrite)
+            {
+                var source=model.Tables.Single(table=>table.Source.Id=="2");
+                var page=Assert.Single(source.Pages);
+                var import=ImportRenderer.Service(model,source,page);
+                Assert.Contains("ApplyTextParent(Scope201(actor, request.ParentId",import);
+                Assert.Contains("\"place_id\",key!,businessKey:true).ForUpdate()",import);
+                Assert.Contains("PathByKeyAsync(1,SharedR1ParentKey201(request.ParentId).ToString(CultureInfo.InvariantCulture)",import);
+            }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             if(!logicalTarget)await ExerciseParser(assembly,textKeys:true,sparse:redundant==0,parentColumn:parentColumn);
+            if(redundant==1&&parentColumn=="country_id"&&importMode=="OnlyNew")
+            {
+                var probe=NonRedundantApplicationFixture.Start("node",directory);
+                probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"CrossTableTextParentVueProbe.mjs"));
+                probe.ArgumentList.Add(Path.Combine(directory,"generated/frontend/pages/yzp/pathexcel_source-detail-201.vue"));
+                await NonRedundantApplicationFixture.RunAsync(probe);
+            }
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
@@ -256,10 +284,20 @@ public sealed class CrossTableExcelLosslessGenerationTests
                     {
                         // 仅解释本夹具实际发布的单一status等式；未知SQL必须失败，不能静默忽略范围。
                         var sql=Assert.IsType<string>(args[0]);
+                        if(textKeys&&sql.StartsWith("EXISTS (",StringComparison.Ordinal))
+                        {
+                            Assert.StartsWith("EXISTS (SELECT 1 FROM `pathexcel_",sql);
+                            Assert.Contains("BINARY ",sql);
+                            Assert.Contains("REGEXP '[^[:space:]]'",sql);
+                            Assert.Contains("`a`.`"+parentColumn+"`",sql);
+                            reads.Add("published-parent");
+                            return query;
+                        }
                         if(textKeys&&sql.StartsWith("BINARY ",StringComparison.Ordinal))
                         {
                             var bound=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(args[1]);
                             var prefix=Regex.Match(sql,@"^BINARY \x60([a-z_]+)\x60 IN \((BINARY @[A-Za-z0-9_]+)(,BINARY @[A-Za-z0-9_]+)*\)$");
+                            if(!prefix.Success)prefix=Regex.Match(sql,@"^BINARY \(\x60a\x60\.\x60([a-z_]+)\x60\)=BINARY @[A-Za-z0-9_]+$");
                             Assert.True(prefix.Success,sql);
                             var property=string.Concat(prefix.Groups[1].Value.Split('_').Select(part=>char.ToUpperInvariant(part[0])+part[1..]));
                             var member=type.GetProperty(property)!;
@@ -355,12 +393,15 @@ public sealed class CrossTableExcelLosslessGenerationTests
                 if(parentColumn=="area_id")await Assert.ThrowsAsync<ArgumentException>(()=>ValidateParent("021"));
                 else await Assert.ThrowsAsync<InvalidOperationException>(()=>ValidateParent(parentColumn=="country_id"?"1":"leaf-a"));
 
-                var filterMethod=type.GetMethod("ReadFilters201",BindingFlags.Static|BindingFlags.NonPublic)!;
-                var filters=Assert.IsAssignableFrom<IReadOnlyList<Metarill.Data.Queries.FixedReadFilter>>(
-                    filterMethod.Invoke(null,[new PageRequest{ParentId=parentKey},actor]));
-                var parentFilter=Assert.Single(filters,item=>item.Field==parentColumn);
-                if(parentColumn!="area_id")Assert.Equal(parentKey,Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<string>>(parentFilter.Value)));
-                else Assert.Equal(21L,parentFilter.Value);
+                if(sparse)
+                {
+                    var filterMethod=type.GetMethod("ReadFilters201",BindingFlags.Static|BindingFlags.NonPublic)!;
+                    var filters=Assert.IsAssignableFrom<IReadOnlyList<Metarill.Data.Queries.FixedReadFilter>>(
+                        filterMethod.Invoke(null,[new PageRequest{ParentId=parentKey},actor]));
+                    var parentFilter=Assert.Single(filters,item=>item.Field==parentColumn);
+                    if(parentColumn!="area_id")Assert.Equal(parentKey,Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<string>>(parentFilter.Value)));
+                    else Assert.Equal(21L,parentFilter.Value);
+                }
             }
             if(parentColumn!="place_id")
             {
@@ -418,9 +459,11 @@ public sealed class CrossTableExcelLosslessGenerationTests
                 Assert.Empty(transport.Commands);
                 return;
             }
-            var exported=await (Task<PageExportRequest>)type.GetMethod("Export201Async")!.Invoke(service,[new PageRequest(),actor,100,CancellationToken.None])!;
+            if(parentKey is not null)AddSource(103,"另一个父范围","A-01",22,"Leaf-B");
+            var exported=await (Task<PageExportRequest>)type.GetMethod("Export201Async")!.Invoke(service,[new PageRequest{ParentId=parentKey},actor,100,CancellationToken.None])!;
             Assert.Equal("国甲/区甲/城甲",Assert.Single(exported.Rows)[exported.Headers.ToList().IndexOf("级联")]);
-            var filter=new PageRequest{Filters=new(){{"placeId",JsonSerializer.SerializeToElement(new{placeId="leaf-a"})}}};
+            if(parentKey is not null)Assert.Contains("published-parent",reads);
+            var filter=new PageRequest{ParentId=parentKey,Filters=new(){{"placeId",JsonSerializer.SerializeToElement(new{placeId="leaf-a"})}}};
             var filtered=await (Task<PageExportRequest>)type.GetMethod("Export201Async")!.Invoke(service,[filter,actor,100,CancellationToken.None])!;
             Assert.Empty(filtered.Rows);
             Assert.Contains("binary:PlaceId",reads);
@@ -448,19 +491,24 @@ public sealed class CrossTableExcelLosslessGenerationTests
             return await session.InTransactionAsync(async()=>{
                 Task task;
                 var parameters=new List<object?>{JsonSerializer.SerializeToElement(row),parent,actor};
-                if(page=="202")parameters.Add((Func<Task<IReadOnlyDictionary<string,JsonElement>>>)ReadFixedParent);
+                var method=type.GetMethod("ParseImport"+page+"Async",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                if(method.GetParameters().Any(parameter=>parameter.Name=="readFixedCrossParent"))
+                    parameters.Add((Func<Task<IReadOnlyDictionary<string,JsonElement>>>)ReadFixedParent);
                 parameters.Add(CancellationToken.None);
-                try{task=(Task)type.GetMethod("ParseImport"+page+"Async",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(service,parameters.ToArray())!;}
+                try{task=(Task)method.Invoke(service,parameters.ToArray())!;}
                 catch(TargetInvocationException error)when(error.InnerException is not null){System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error.InnerException).Throw();throw;}
                 await task;return (Dictionary<string,JsonElement>)task.GetType().GetProperty("Result")!.GetValue(task)!;
             });
 
             async Task<IReadOnlyDictionary<string,JsonElement>> ReadFixedParent()
             {
-                var factory=type.GetMethod("CrossReader202_25",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                var factory=type.GetMethod("CrossReader"+page+"_25",BindingFlags.Instance|BindingFlags.NonPublic)!;
                 var reader=(CrossTableReader)factory.Invoke(service,[actor,true,false])!;
-                var path=await reader.PathAsync(0,long.Parse(parent!,System.Globalization.CultureInfo.InvariantCulture));
-                return new Dictionary<string,JsonElement>{{"countryId",JsonSerializer.SerializeToElement(Assert.Single(path.Path).Id)}};
+                var depth=parentColumn switch{"area_id"=>1,"place_id"=>2,_=>0};
+                var path=await reader.PathByKeyAsync(depth,parent);
+                var slots=new[]{"countryId","areaId","placeId"};
+                return path.Path.Select((node,index)=>(Slot:slots[index],Value:JsonSerializer.SerializeToElement(node.Id)))
+                    .ToDictionary(item=>item.Slot,item=>item.Value,StringComparer.Ordinal);
             }
         }
     }

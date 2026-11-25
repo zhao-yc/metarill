@@ -751,11 +751,13 @@ public sealed class FileCommandFactoryTests
         Assert.Equal(1,provider.Connections);
     }
 
-    /// <summary>业务附件从真实稀疏位恢复混合父链，文本键逐字绑定，大小写相异直接拒绝。</summary>
+    /// <summary>业务附件从实际存储恢复混合父链，文本键逐字绑定，大小写相异直接拒绝。</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task File_parent_scope_restores_text_keys_from_actual_sparse_rows(bool locking)
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    [InlineData(true,true)]
+    public async Task File_parent_scope_restores_actual_text_keys(bool locking,bool redundant)
     {
         var catalog=FileCrossParentScopeTests.Catalog("file_text","string","string");
         var control=catalog.ConfigColumns.Single(column=>column.Id=="15");
@@ -771,6 +773,13 @@ public sealed class FileCommandFactoryTests
             catalog.ConfigIndexColumns.Add(System.Text.Json.JsonSerializer.SerializeToElement(new{configIndexId=indexId,configColumnId=columnId}));
         }
         control.ControlDetail=definition.ToJsonString();
+        if(redundant)
+        {
+            catalog.ConfigTables[0].IsRongyu=1;
+            catalog.ConfigPages[0].WhereSql="yz_project_id=@current_yz_project_id AND place_id=@parent_id";
+            catalog.YzAdminTypes.Add(new(){Id="3",YzProjectId="1"});
+            foreach(var page in catalog.ConfigPages)page.YzAdminTypeId="3";
+        }
         var scope=FileReferenceScope.CompilePage(catalog,catalog.ConfigTables[0],catalog.ConfigPages[0]);
         Assert.True(Assert.Single(scope.Crosses).TextKey);
         var provider=new Provider();
@@ -817,7 +826,7 @@ public sealed class FileCommandFactoryTests
         };
         async Task<bool> Verify()
         {
-            Assert.Equal("001",Assert.Single(await FileCrossParentScope.KeyValuesAsync(scope.Crosses,store,source,actor,locking,default)));
+            Assert.Equal(redundant?"Leaf-A":"001",Assert.Single(await FileCrossParentScope.KeyValuesAsync(scope.Crosses,store,source,actor,locking,default)));
             Assert.Equal(new object[]{"Leaf-A",21L,"001"},visited);
             source["place_id"]="leaf-a";
             await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>FileCrossParentScope.KeyValuesAsync(scope.Crosses,store,source,actor,locking,default));

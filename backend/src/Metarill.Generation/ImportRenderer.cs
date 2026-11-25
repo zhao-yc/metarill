@@ -102,12 +102,19 @@ public sealed partial class {{page.Name}}ImportRequest
             result.AppendLine($"                if ({missingKey}!{parsed}.TryGetValue({Literal(first.JsonName)}, out var matchValue) || matchValue.ValueKind == JsonValueKind.Null{blankKey}) throw {missingError};")
                 .AppendLine($"                var key = matchValue.Deserialize<{first.BoundaryType}>(JsonOptions);");
             if(logicalMatch is not null)result.Append(NonRedundantImportMatchRenderer.Match(model,table,page,logicalMatch));
-            else result.AppendLine($"                var existing = await Scope{page.Source.Id}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"\"import\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(entity => entity.{first.Property} == key).ForUpdate().Limit(2).ToListAsync({OverwriteMatchProjection(table,page,dependency)}, cancellationToken);")
+            else
+            {
+                var query=$"Scope{page.Source.Id}(actor, request.ParentId{ExactDataManageCompilation.Argument(page,"\"import\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)})";
+                query=crossOverwrite&&CrossTableWriteCompilation.Resolve(model,table,page,first).Definition is {} firstPath&&firstPath.Levels[^1].Read.TextKey
+                    ?$"global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent({query},session,{Literal(first.Source.ColumnName)},key!,businessKey:true)"
+                    :$"{query}.Where(entity => entity.{first.Property} == key)";
+                result.AppendLine($"                var existing = await {query}.ForUpdate().Limit(2).ToListAsync({OverwriteMatchProjection(table,page,dependency)}, cancellationToken);")
                 .AppendLine(crossOverwrite&&table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent")
                     ?$"                if (existing.Count > 1) throw PageImportException.Input(PageImportError.AmbiguousOverwrite, columnName: {Literal(Header(first))});"
                     :crossOverwrite
                         ?$"                if (existing.Count > 1) throw PageImportException.Input(PageImportError.AmbiguousPageOverwrite, columnName: {Literal(Header(first))});"
                         :"                if (existing.Count > 1) throw new InvalidOperationException(\"覆盖匹配字段重名，不能确定目标记录。\");");
+            }
             if(contextual)
             {
                 if(logicalMatch is null)result.AppendLine("                if (existing.Count == 1) importExisting = existing[0];");
@@ -174,7 +181,8 @@ public sealed partial class {{page.Name}}ImportRequest
             var slots=crosses.SelectMany(cross=>cross.Levels).Select(level=>level.Id.Source.Id).ToHashSet(StringComparer.Ordinal);
             foreach(var scope in page.Scopes.Where(scope=>slots.Contains(scope.Column.Source.Id)))
             {
-                var value=scope.Source=="parent"&&NonRedundantCrossParentCompilation.IsText(model,table,page,scope.Column)?"parentId!":
+                var value=scope.Source=="parent"&&(NonRedundantCrossParentCompilation.IsText(model,table,page,scope.Column)||
+                    SharedRedundantParentCompilation.IsText(model,table,page,scope.Column))?"parentId!":
                     ScopeValue(scope.Column,scope.Source=="parent"?"parentId!":"actor.ProjectId");
                 result.AppendLine($"        values[{Literal(scope.Column.JsonName)}]=JsonSerializer.SerializeToElement({value},JsonOptions);");
             }
@@ -356,7 +364,7 @@ public sealed partial class {{page.Name}}ImportRequest
                 .Where(level=>slots.ContainsKey(level.Name)).ToArray();
             if(shared.Length==0)continue;
             var local="path"+path.Read.Source.Source.Id+"_"+path.Index;
-            body.AppendLine($"            var {local}=await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,true,false).PathAsync({path.Index},SharedR1ParentKey{page.Source.Id}(request.ParentId),cancellationToken);");
+            body.AppendLine($"            var {local}=await {SharedRedundantParentCompilation.ReadPath(path,page,"true","request.ParentId")};");
             foreach(var (column,index) in shared)
             {
                 var key=Literal(slots[column].JsonName);

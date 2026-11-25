@@ -85,6 +85,8 @@ public static class RedundantSharedParentScopeSql
                 !path.Levels.Any(level=>level.RequiresCurrentScope))throw new InvalidOperationException("冗余父范围缺少已发布的当前读取条件。");
             string Alias(int index)=>"rp"+index.ToString(CultureInfo.InvariantCulture);
             string Field(int index,string column)=>Alias(index)+"."+provider.QuoteIdentifier(column);
+            string EqualKey(string left,string right,bool textKey)=>textKey?"BINARY "+left+"=BINARY "+right:
+                "BINARY CAST("+left+" AS CHAR)=BINARY CAST("+right+" AS CHAR)";
             var last=path.Levels.Count-1;
             var from=new StringBuilder("SELECT 1 FROM ").Append(provider.QuoteIdentifier(path.Levels[last].TableName)).Append(' ').Append(Alias(last));
             // R1 比较的是来源真实存储父键；祖先从目标当前外键读取，不能依赖来源名称缓存。
@@ -92,17 +94,17 @@ public static class RedundantSharedParentScopeSql
             {
                 var parent=path.Levels[index].Parent??throw new InvalidOperationException("冗余父路径缺少物理祖先列。");
                 from.Append(" INNER JOIN ").Append(provider.QuoteIdentifier(path.Levels[index-1].TableName)).Append(' ').Append(Alias(index-1))
-                    .Append(" ON BINARY CAST(").Append(Field(index,parent)).Append(" AS CHAR)=BINARY CAST(").Append(Field(index-1,path.Levels[index-1].KeyColumn)).Append(" AS CHAR)");
+                    .Append(" ON ").Append(EqualKey(Field(index,parent),Field(index-1,path.Levels[index-1].KeyColumn),path.Levels[index-1].TextKey));
             }
             var correlated=new List<string>
             {
-                "BINARY CAST("+Field(last,path.Levels[last].KeyColumn)+" AS CHAR)=BINARY CAST("+sourceColumn(path.ColumnName)+" AS CHAR)"
+                EqualKey(Field(last,path.Levels[last].KeyColumn),sourceColumn(path.ColumnName),path.Levels[last].TextKey)
             };
             for(var index=0;index<path.Levels.Count;index++)
             {
                 var level=path.Levels[index];
                 var key=prefix+"_"+pathIndex.ToString(CultureInfo.InvariantCulture)+"_"+index.ToString(CultureInfo.InvariantCulture);
-                correlated.Add(Field(index,level.KeyColumn)+">0");
+                correlated.Add(Field(index,level.KeyColumn)+(level.TextKey?" REGEXP '[^[:space:]]'":">0"));
                 if(level.ProjectType is not null)
                 {
                     parameters.Add(key+"_project",level.ProjectType=="string"?actor.ProjectId:(object)project);

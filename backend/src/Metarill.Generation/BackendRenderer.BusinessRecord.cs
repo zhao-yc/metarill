@@ -63,6 +63,11 @@ internal static partial class BackendRenderer
         {
             if(source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,table,page,column))continue;
             // 按钮读取和写事务根锁沿用发布页的精确父键，避免普通排序规则改变记录范围。
+            if(source=="parent"&&SharedRedundantParentCompilation.IsText(model,table,page,column))
+            {
+                result.AppendLine($"        query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},parentId!,businessKey:true);");
+                continue;
+            }
             if(source=="parent"&&fixedTextParent&&column.Type=="string?")
             {
                 result.AppendLine($"        query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},parentId!);");
