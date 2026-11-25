@@ -23,6 +23,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     internal bool CompoundGlobalSource { get; init; }
     internal bool FunctionForm { get; init; }
     internal bool ExcelTargetExact { get; init; }
+    internal ColumnModel? SharedTextParent { get; init; }
     internal string ExcelScopeArgument => ExcelTargetExact ? ", excelScope: true" : "";
     /// <summary>原 V8 路由按来源字段去掉 Id/Ids 后缀，不能用目标表名替代业务别名。</summary>
     public string LegacyEndpoint
@@ -170,10 +171,18 @@ internal static class RelationCompilation
                     :accountParent?Parent(model,scope.Column,target,targetPage):Parent(model,scope.Column))
                 .DistinctBy(parent => parent.Source.Id).ToArray();
             var binding = FixedParentRelationCompilation.Resolve(model, page, source, sourceParents, targetParents, targetPage.Scopes.Concat(scopes).ToArray());
+            ColumnModel? sharedTextParent=null;
             // 即使实体相同，文本业务键也不能隐式代入关系目标的主键父范围。
             if(targetParents.Any(parent=>sourceParents.Any(sourceParent=>sourceParent.Source.Id==parent.Source.Id))&&
                 CrossTableReadCompilation.TextSourceParent(model,owner,page) is not null)
-                throw new NotSupportedException("关联目标与来源共用实体时，必须证明其父键也使用同一文本业务键。");
+            {
+                sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage);
+                if(sharedTextParent is null||binding.Declared||scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent)||
+                    !NonRedundantReadCompilation.Physical(model,target,name)||name.Type!="string?"||ExactDataManageCompilation.Declared(targetPage)||
+                    conditions?.HasLogicalFields==true||FixedPageConditionCompilation.HasLogicalFields(targetPage))
+                    throw new NotSupportedException("关联目标与来源共用实体时，必须证明其父键也使用同一文本业务键。");
+                fixedParent=null;
+            }
             IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
             ColumnModel[] independentOrder = [];
             var usesFixedListOrder = fixedCandidateQuery && source.Source.ControlKind == "List";
@@ -231,7 +240,7 @@ internal static class RelationCompilation
                     ProjectScopedSingleRelationTarget.HasPhysicalSingleExact(model.Catalog,target.Source,targetPage.Source,"SelectPage"));
             var sourceKeys=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column)
                 .DistinctBy(column=>column.Source.Id).ToArray();
-            var projectParentScope=!functionForm&&!binding.Declared&&!owner.IsGlobal&&!target.IsGlobal&&
+            var projectParentScope=sharedTextParent is null&&!functionForm&&!binding.Declared&&!owner.IsGlobal&&!target.IsGlobal&&
                 (selectionParent is not null||scopedStoredList||source.Source.ControlKind=="List"&&target.Source.IsRongyu==0);
             var sameParentTable=sourceParents is [var sourceParent]&&targetParents is [var targetParent]&&
                 sourceParent.Source.Id==targetParent.Source.Id;
@@ -257,7 +266,7 @@ internal static class RelationCompilation
                 throw new InvalidOperationException("原单值关联缺少已发布的来源复合物理父键。");
             var canonicalProjectParent=singleTextParent&&publishedParent is {Logical:false,Global:false}&&
                 publishedParent.SingleSource(model.Catalog,owner.Source,source.Source,page.Source).Column.Id==sourceKeys[0].Source.Id;
-            var parentProof=fixedParent??storedSelectionParent;
+            var parentProof=sharedTextParent is null?fixedParent??storedSelectionParent:null;
             var sourceBinding=compoundProjectSource??(parentProof is null||functionForm?null:
                 owner.Source.IsRongyu==0&&(globalListPageScope||!owner.IsGlobal&&!target.IsGlobal)
                     ?parentProof.SingleSource(model.Catalog,owner.Source,source.Source,page.Source)
@@ -273,7 +282,8 @@ internal static class RelationCompilation
                 fixedSourceParent,fixedParent,sourceBinding?.LogicalPages.Count>0)
             {
                 ListPageOverride = listPageOverride,
-                ScopedStoredSingle = scopedStoredList||scopedStoredSelection,
+                ScopedStoredSingle = sharedTextParent is null&&(scopedStoredList||scopedStoredSelection),
+                SharedTextParent = sharedTextParent,
                 FixedGlobalSelection = globalFixedSelection,
                 CompoundProjectSource = compoundProjectSource is not null,
                 CompoundProjectTarget = compoundTarget&&publishedParent is {Logical:false,Global:false,AdditionalTargets.Count:>0},
@@ -345,7 +355,9 @@ internal static class RelationCompilation
             return false;
         if(HasFixedTargetScope(target,targetPage)||DerivedRelationNamesCompilation.UsesExactSingleTarget(target,targetPage)||ListIdSetting(model,page,source))return true;
         var effective=ProjectScopedSingleRelationTarget.ListWhereSql(model.Catalog,page.Source,source.Source);
-        return target.Source.IsRongyu==1 && UsesProjectListPage(model,target,page,source) &&
+        var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
+        return SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage) is not null||
+            target.Source.IsRongyu==1 && UsesProjectListPage(model,target,page,source) &&
                 ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)==targetPage.Source.Id &&
                 (HasStoredListRange(targetPage) || !string.IsNullOrWhiteSpace(effective)) ||
             RelationConditionsCompilation.HasLogicalListFields(target,effective);
@@ -354,13 +366,15 @@ internal static class RelationCompilation
     /// <summary>隐藏的单选必须沿实际固定目标页复核默认和提交值。</summary>
     private static bool FixedSelectionTarget(GenerationModel model,PageModel page,ColumnModel source,bool includeExact)
     {
-        if(source.Source.ControlKind!="SelectPage"||ForeignValidationRenderer.Target(model,source) is not {} target||
-            !target.Pages.Any(HasScope))return false;
+        if(source.Source.ControlKind!="SelectPage"||ForeignValidationRenderer.Target(model,source) is not {} target)return false;
+        var owner=model.Tables.Single(table=>table.Source.Id==page.Source.ConfigTableId);
         // 只有内部保存和选档需要追加精确权限专用的范围。普通弹窗仍直接打开实际单选页。
         bool HasScope(PageModel candidate)=>includeExact&&DerivedRelationNamesCompilation.UsesExactSingleTarget(target,candidate)||
             target.Source.IsRongyu==0&&(HasFixedTargetScope(target,candidate)||
                 NonRedundantReadCompilation.SelfTreeExactColumn(target,candidate) is not null)||
-            target.Source.IsRongyu==1&&ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,target.Source,candidate.Source) is not null;
+            target.Source.IsRongyu==1&&(ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,target.Source,candidate.Source) is not null||
+                SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,candidate) is not null);
+        if(!target.Pages.Any(HasScope))return false;
         var field=model.Catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==page.Source.Id&&item.ConfigColumnId==source.Source.Id);
         var definition=SelectionControlDefinition.Resolve(source,field);
         return target.Pages.Any(candidate=>candidate.Source.Id==definition.PageId&&HasScope(candidate));

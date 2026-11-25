@@ -54,6 +54,24 @@ internal static class SharedRedundantParentCompilation
     internal static bool IsText(GenerationModel model,TableModel table,PageModel page,ColumnModel column)=>
         column.Type=="string?"&&ForColumn(model,table,page,column).Any(path=>path.Level.TextKey);
 
+    /// <summary>两页都以相同已发布祖先路径使用物理业务键，才能共享原 parentId。</summary>
+    internal static ColumnModel? CommonTextParent(GenerationModel model,TableModel source,PageModel sourcePage,
+        TableModel target,PageModel targetPage)
+    {
+        if(source.Source.IsRongyu!=1||target.Source.IsRongyu!=1||source.IsGlobal||target.IsGlobal||
+            source.Source.YzProjectId!=model.Catalog.YzProjectId||target.Source.YzProjectId!=model.Catalog.YzProjectId||
+            sourcePage.Source.YzProjectId!=model.Catalog.YzProjectId||targetPage.Source.YzProjectId!=model.Catalog.YzProjectId)
+            return null;
+        var sourceFields=sourcePage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
+        var targetFields=targetPage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
+        if(sourceFields is not [var sourceKey]||targetFields is not [var targetKey]||sourceKey.Type!="string?"||targetKey.Type!="string?")
+            return null;
+        if(ForColumn(model,source,sourcePage,sourceKey) is not [var left]||!left.Level.TextKey)
+            return null;
+        return ForColumn(model,target,targetPage,targetKey) is [var right]&&right.Level.TextKey&&
+            Identity(left)==Identity(right)?targetKey:null;
+    }
+
     /// <summary>完整包逐个证明物理父字段，来源项目与后台必须明确发布。</summary>
     internal static void Require(GenerationModel model,TableModel table,PageModel page)
     {

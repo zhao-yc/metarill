@@ -1104,7 +1104,13 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var canonicalParent=relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent||
                 relation.ScopedStoredSingle&&!relation.Target.IsGlobal&&targetParentScopes.Length>1||
                 relation.FixedGlobalSelection&&targetParentScopes.Any(scope=>scope.Column.Type=="string?");
-            if (relation.TargetParents.Count > 0)
+            if(relation.SharedTextParent is not null)
+            {
+                // 已验证来源路径与目标页使用同一发布父记录，显式目标参数只能确认原值。
+                result.AppendLine("        if(targetParentId is not null&&!string.Equals(targetParentId,parentId,StringComparison.Ordinal))throw new ArgumentException(\"关联目标父必须与来源文本业务键一致。\");")
+                    .AppendLine("        targetParentId=parentId;");
+            }
+            else if (relation.TargetParents.Count > 0)
             {
                 if (relation.LogicalSourceParent||sameParent&&
                     (canonicalParent||relation.FixedGlobalSelection||relation.FixedParent is {AdditionalTargets.Count:>0}||
@@ -1146,7 +1152,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             foreach (var (column, _) in targetParentScopes)
             {
                 // 与名称联接使用同一种规范十进制比较，字符串父键不能因数据库排序规则而跨范围。
-                if(canonicalParent&&column.Type=="string?")
+                if(relation.SharedTextParent==column)
+                    result.AppendLine($"        query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},targetParentId!,businessKey:true);");
+                else if(canonicalParent&&column.Type=="string?")
                     result.AppendLine($"        query = global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},targetParentId!);");
                 else
                     result.AppendLine($"        query = query.Where(entity => entity.{column.Property} == {ScopeValue(column, "targetParentId!")});");

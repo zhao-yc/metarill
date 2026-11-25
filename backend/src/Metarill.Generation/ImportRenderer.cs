@@ -407,12 +407,12 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("    {").AppendLine("        if (cell.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(cell.ToString())) return JsonSerializer.SerializeToElement<object?>(null);");
         var bound = relation.ParentBinding?.Declared == true;
         var mapped = dependency.Parents.GetValueOrDefault(relation.SourceColumn.Source.Id);
-        if (bound || relation.Conditions is not null || relation.TargetPage.Condition is not null || relation.SourceColumn.Source.ControlKind=="SelectPage" || mapped is not null)
+        if (bound || relation.SharedTextParent is not null || relation.Conditions is not null || relation.TargetPage.Condition is not null || relation.SourceColumn.Source.ControlKind=="SelectPage" || mapped is not null)
         {
             // 来源已按import授权；固定源父/目标父不能混用，名称匹配前先复用目标授权和服务器推导范围。
             // 无效声明同样走固定RejectBound，绝不回退宽查询；普通未绑定关系保持原合同。
             if(mapped is not null)result.AppendLine($"        if (!relationContext.TryGetValue({Literal(mapped.JsonName)}, out var targetParent) || targetParent.ValueKind == JsonValueKind.Null || string.IsNullOrWhiteSpace(targetParent.ToString())) throw PageImportException.Input(PageImportError.Relation);");
-            result.AppendLine($"        var query = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(parentId, {(mapped is null?"null":"targetParent.ToString()")}, actor, cancellationToken, false, false{RelationConditionsCompilation.ImportArgument(relation)});");
+            result.AppendLine($"        var query = await OptionsScope{page.Source.Id}_{relation.SourceColumn.Source.Id}Async(parentId, {(mapped is null?"null":"targetParent.ToString()")}, actor, cancellationToken, {(relation.SharedTextParent is not null?"true":"false")}, false{RelationConditionsCompilation.ImportArgument(relation)});");
         }
         else
         {
@@ -430,7 +430,7 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("            query = query.Where(entity => entity.Id == id);").AppendLine("        }")
             .AppendLine("        else").AppendLine("        {").AppendLine("            var name = cell.ToString().Trim();")
             .AppendLine($"            query = query.Where(entity => entity.{relation.NameColumn.Property} == name);").AppendLine("        }")
-            .AppendLine("        var candidates = await query.Limit(2).ToListAsync(entity => new { entity.Id }, cancellationToken);")
+            .AppendLine($"        var candidates = await query{(relation.SharedTextParent is not null?".ForUpdate()":"")}.Limit(2).ToListAsync(entity => new {{ entity.Id }}, cancellationToken);")
             .AppendLine("        if (candidates.Count != 1) throw PageImportException.Input(PageImportError.Relation);")
             .AppendLine("        return JsonSerializer.SerializeToElement(candidates[0].Id.ToString(CultureInfo.InvariantCulture));").AppendLine("    }");
         return result.ToString();
