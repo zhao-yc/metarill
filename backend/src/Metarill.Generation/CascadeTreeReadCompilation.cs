@@ -46,9 +46,8 @@ internal static class CascadeTreeReadCompilation
                 return Gap("页级配置不能替换表级业务节点键。");
             if(!key.IsId)
             {
-                if(table.IsGlobal||target.IsGlobal||
-                    table.Source.IsFunctionTable!=0)
-                    return Gap("业务节点键要求项目内普通实体。");
+                if(table.Source.IsFunctionTable!=0)
+                    return Gap("业务节点键要求普通实体来源。");
                 using var baseline=JsonDocument.Parse(source.Source.ControlDetail);
                 if(!baseline.RootElement.TryGetProperty("selfTree",out var savedTree)||Text(savedTree,"idField","id")!=keyName||
                     Text(savedTree,"table")!=target.Source.TableName)

@@ -63,9 +63,15 @@ public static partial class MySqlNonRedundantReadCompiler
         if(keyName!="id")
         {
             var source=catalog.ConfigTables.Single(table=>table.Id==control.ConfigTableId);
-            if(source.IsRongyu is not(0 or 1)||GlobalCrossTableTarget.Declared(source)||
-                GlobalCrossTableTarget.Declared(target)||key.Id==parent.Id||key.Id==name.Id)
-                throw new NotSupportedException("业务节点键要求项目内树，节点键与名称、父字段分别声明。");
+            if(source.IsRongyu is not(0 or 1)||key.Id==parent.Id||key.Id==name.Id)
+                throw new NotSupportedException("业务节点键要求普通实体，且与名称、父字段分别声明。");
+            if(GlobalCrossTableTarget.Declared(source)&&!GlobalCrossTableTarget.Declared(target))
+            {
+                var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);
+                if(!sourceStorage.PhysicalColumns.Any(column=>column.ColumnName=="yz_project_id"&&
+                    column.LogicalType is "string" or "int64"&&GlobalPhysicalRelationValue.IsScalar(sourceStorage,source,column)))
+                    throw new NotSupportedException("无行项目列的全局来源要求全局目标树。");
+            }
             if(key.LogicalType=="string"&&(control.LogicalType!="string"||parent.LogicalType!="string"))
                 throw new NotSupportedException("文本自树的来源和父键都必须是物理文本列。");
         }
@@ -258,7 +264,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     " WHERE "+walk+".node_id=@target_id OR "+MatchesEventKey(ComparableKey(walk+".parent_key"))+" LIMIT 1) IS NOT NULL)";
                 var fields=new[]{proof.Parent.ColumnName,proof.Name.ColumnName,proof.Key.ColumnName,"id","yz_project_id","delete_no"};
                 var eventKey=alternate?new MySqlReverseNodeKey(proof.Key.ColumnName,proof.Key.LogicalType,
-                    Column(proof.Target,"yz_project_id").LogicalType):null;
+                    global?"":Column(proof.Target,"yz_project_id").LogicalType):null;
                 // 逻辑叶名的选择键不在页面条件文本内，也必须在换选时触发传播。
                 AddReverse(proof.Target.TableName,predicate,fields.Concat(ConditionFields()).Concat(fixedTarget?.SourceDependencies??[]),eventKey);
                 if(global)publishedArrayIdentity=true;

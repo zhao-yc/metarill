@@ -20,7 +20,8 @@ public sealed class DerivedSelfTreeTests
     [InlineData(0, "globalDerived", "int64")]
     [InlineData(1, "globalDerived", "int32")]
     [InlineData(1, "globalCache", "int64")]
-    public async Task Self_tree_integer_name_reaches_existing_path_and_export(int sourceStorage,string kind,string type)
+    [InlineData(1, "globalDerived", "int32", true)]
+    public async Task Self_tree_integer_name_reaches_existing_path_and_export(int sourceStorage,string kind,string type,bool businessKey=false)
     {
         const string application = "Example.IntegerTree";
         var derived = kind is "derived" or "globalDerived";
@@ -70,6 +71,13 @@ public sealed class DerivedSelfTreeTests
             control["selfTree"]!["nameField"] = name.ColumnName;
             foreign.ControlDetail = control.ToJsonString();
         }
+        if(businessKey)
+        {
+            NonRedundantSelfTreeTests.AddBusinessTreeKey(catalog,target.Id,"25","int64");
+            var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+            targetPage.IsSave=1;
+            catalog.ConfigPageColumns.Add(new(){Id="301business",ConfigPageId="301",ConfigColumnId="alternate_tree_key",IsEdit=1});
+        }
 
         var model = GenerationModel.Create(catalog,application);
         var owner = model.Tables.Single(table => table.Source.Id == "2");
@@ -102,6 +110,8 @@ public sealed class DerivedSelfTreeTests
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var generated = assembly.GetType(application+".Generated.Services."+owner.Name+"Service",throwOnError:true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(generated.TypeHandle);
+            if(businessKey)
+                AssertBusinessKeyMaintenance(assembly,application,source.Id,target.TableName,"number_tree_company",expectedProjectType:"");
         }
         finally
         {
@@ -181,7 +191,8 @@ public sealed class DerivedSelfTreeTests
     }
 
     /// <summary>验证生成包初始化的回填及反查计划，旧键、现键和真实记录游标各自使用独立参数。</summary>
-    internal static object AssertBusinessKeyMaintenance(Assembly assembly,string ns,string owner,string tree,string? nameTable)
+    internal static object AssertBusinessKeyMaintenance(Assembly assembly,string ns,string owner,string tree,string? nameTable,
+        string? expectedProjectType=null)
     {
         const BindingFlags hidden=BindingFlags.Instance|BindingFlags.NonPublic;
         var declaration=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
@@ -201,6 +212,11 @@ public sealed class DerivedSelfTreeTests
         Assert.Contains(".node_id=@target_id",predicate);
         Assert.Contains("SELECT",predicate);
         Assert.Contains(".`id`,",predicate);
+        if(expectedProjectType is not null)
+        {
+            var nodeKey=entry.GetType().GetProperty("NodeKey",hidden)!.GetValue(entry)!;
+            Assert.Equal(expectedProjectType,nodeKey.GetType().GetProperty("ProjectType")!.GetValue(nodeKey));
+        }
         return mysql;
     }
 

@@ -154,6 +154,128 @@ public sealed class NonRedundantSelfTreeTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
+    /// <summary>全局唯一业务键与来源行项目独立证明，公开候选、Excel 和维护使用同一目标。</summary>
+    [Theory]
+    [InlineData("int64",0,"ordinary",false,true)]
+    [InlineData("string",0,"shared",false,false)]
+    [InlineData("int64",1,"ordinary",false,false)]
+    [InlineData("string",1,"shared",false,true)]
+    [InlineData("string",1,"rowProject",false,false)]
+    [InlineData("int64",1,"rowProject",true,true)]
+    [InlineData("string",0,"rowProject",true,true)]
+    [InlineData("string",0,"ordinary",false,true,0)]
+    public async Task Global_self_tree_business_keys_keep_target_and_source_scopes(
+        string keyType,int sourceStorage,string sourceScope,bool projectTarget,bool targetKeepsProject,int targetStorage=1)
+    {
+        const string ns="Example.GlobalTreeBusinessKey";
+        var catalog=Catalog("global_business",parentType:keyType,automatic:true);
+        var source=catalog.ConfigTables.Single(table=>table.Id=="2");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="3");
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+        source.IsRongyu=sourceStorage;
+        target.IsRongyu=targetStorage;
+        if(!projectTarget)target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(sourceScope!="ordinary")
+        {
+            source.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            sourcePage.WhereSql=sourceScope=="rowProject"&&sourceStorage==0?"yz_project_id=@current_yz_project_id":"";
+            if(sourceScope=="shared")catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="2"&&column.ColumnName=="yz_project_id");
+        }
+        var targetProject=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="3"&&column.ColumnName=="yz_project_id");
+        if(!targetKeepsProject)
+        {
+            catalog.ConfigColumns.Remove(targetProject);
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId==targetProject.Id);
+        }
+        targetPage.WhereSql="status=1";
+        if(!catalog.ConfigColumns.Any(column=>column.ConfigTableId=="3"&&column.ColumnName=="status"))
+            catalog.ConfigColumns.Add(new(){Id="global_business_status",ConfigTableId="3",ColumnName="status",LogicalType="int32"});
+        targetPage.IsSave=1;
+        targetPage.IsDelete=1;
+        AddBusinessTreeKey(catalog,"3","25",keyType);
+        if(targetStorage==0)
+        {
+            var parent=catalog.ConfigColumns.Single(column=>column.Id=="35");
+            parent.ControlKind="CascadeTree";
+            parent.ControlDetail=catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail;
+        }
+        if(projectTarget)
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="project_index_member",configIndexId="alternate_tree_index",
+                configColumnId=targetProject.Id,sortNo=20,yzProjectId=catalog.YzProjectId}));
+        catalog.ConfigPageColumns.Add(new(){Id="301business",ConfigPageId="301",ConfigColumnId="alternate_tree_key",IsEdit=1});
+        RedundantMultiNameCacheTests.Published(catalog);
+        var model=GenerationModel.Create(catalog,ns);
+        var sourceModel=model.Tables.Single(table=>table.Source.Id=="2");
+        var pageModel=sourceModel.Pages.Single(page=>page.Source.Id=="201");
+        var definition=CascadeTreeReadCompilation.Resolve(model,sourceModel,pageModel,sourceModel.Columns.Single(column=>column.Source.Id=="25"));
+        Assert.True(definition.Definition is not null,definition.Reason);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-business-key");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,output,ns);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var type=assembly.GetType(ns+".Generated.Services.GlobalBusinessSourceService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(type.TypeHandle);
+            var code=await File.ReadAllTextAsync(Path.Combine(output,"Services/GlobalBusinessSourceService.g.cs"));
+            Assert.Contains("RequirePagePermission(\"301\",\"list\")",code);
+            Assert.Contains("ImportCascade201_25Async",code);
+            Assert.Contains("ExcelCascadeTreeId(entity)",code);
+            var scope=CascadeTreeReadRenderer.Service(model,sourceModel,pageModel);
+            Assert.Equal(projectTarget,scope.Contains("row.YzProjectId",StringComparison.Ordinal));
+            if(keyType=="string")Assert.Contains("ParseTextLeaf()",code);
+            else
+            {
+                using var runtime=new SharedExcelReadTransport(assembly,ns,"GlobalBusinessSource");
+                var dataProject=projectTarget?catalog.YzProjectId:"2";
+                AddNode(11,111,"上级",null,dataProject);
+                AddNode(12,112,"子项",111,dataProject);
+                if(projectTarget)AddNode(13,112,"其它项目子项",111,"2");
+                var header=ImportRenderer.Header(sourceModel.Columns.Single(column=>column.Source.Id=="25"));
+                Assert.Equal("112",(await runtime.Parse(new(){[header]="上级/子项"}))["treeId"].GetString());
+                if(projectTarget)
+                    await Assert.ThrowsAsync<PageImportException>(()=>runtime.Parse(new(){[header]="上级/其它项目子项"}));
+
+                void AddNode(long id,long key,string name,long? parent,string projectId)
+                {
+                    var row=new Dictionary<string,object?>
+                        {["Id"]=id,["NodeBusinessKey"]=key,["Name"]=name,["Status"]=1,["ParentGlobalBusinessTreeId"]=parent};
+                    if(targetKeepsProject)row["YzProjectId"]=projectId;
+                    runtime.Add("GlobalBusinessTree",row);
+                }
+            }
+            if(sourceStorage==1)
+            {
+                var targetCode=await File.ReadAllTextAsync(Path.Combine(output,"Services/GlobalBusinessTreeService.g.cs"));
+                Assert.Contains("[\"node_business_key\"] = entity.NodeBusinessKey",targetCode);
+                if(sourceScope=="ordinary")
+                    Assert.Equal("node_business_key",Assert.Single(RelationPropagationCompilation.Bindings(model)).TargetKey);
+                else DerivedSelfTreeTests.AssertBusinessKeyMaintenance(assembly,ns,"2","global_business_tree",nameTable:null,
+                    expectedProjectType:projectTarget?targetProject.LogicalType:"");
+            }
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+
+        if(!projectTarget&&targetKeepsProject)
+        {
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="project_index_member",configIndexId="alternate_tree_index",
+                configColumnId=targetProject.Id,sortNo=20,yzProjectId=catalog.YzProjectId}));
+            Assert.Throws<NotSupportedException>(()=>CascadeTreeStorageColumns.ResolveNodeKey(catalog,target,"node_business_key"));
+            Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+        }
+        if(projectTarget)
+        {
+            sourcePage.WhereSql="";
+            catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="2"&&column.ColumnName=="yz_project_id");
+            Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog));
+        }
+    }
+
     /// <summary>候选、Excel 反查和导出的非字符串名称使用同一精确文本合同。</summary>
     [Theory]
     [InlineData("bool",true)]
@@ -411,14 +533,18 @@ public sealed class NonRedundantSelfTreeTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task Global_same_table_tree_and_bookmark_keep_generated_topology(bool rowProject)
+    [InlineData(true,"int64")]
+    [InlineData(false,"string")]
+    [InlineData(false,"string",1)]
+    public async Task Global_same_table_tree_and_bookmark_keep_generated_topology(bool rowProject,string? keyType=null,int storage=0)
     {
         const string ns="Example.GlobalOwnTree";
-        var catalog=RedundantMultiNameCacheTests.Published(CascadeTreeSameRowTests.Catalog("published_tree"));
+        var catalog=RedundantMultiNameCacheTests.Published(CascadeTreeSameRowTests.Catalog("published_tree",parentType:keyType??"int64"));
         var table=Assert.Single(catalog.ConfigTables);
-        table.IsRongyu=0;
+        table.IsRongyu=storage;
         table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
         if(!rowProject)catalog.ConfigColumns.RemoveAll(column=>column.ColumnName=="yz_project_id");
+        if(keyType is not null)AddBusinessTreeKey(catalog,table.Id,"6",keyType);
         var parent=catalog.ConfigColumns.Single(column=>column.ColumnName=="parent_id");
         parent.ControlKind="CascadeTree";
         parent.ControlDetail=catalog.ConfigColumns.Single(column=>column.ColumnName=="bookmark_id").ControlDetail;
@@ -477,6 +603,8 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(false,true,true,false,"decimal",false,false,"int64")]
     [InlineData(false,false,true,false,"string",false,false,"string")]
     [InlineData(false,true,true,false,"string",true,false,"string","int64")]
+    [InlineData(true,false,true,false,"string",true,false,"string")]
+    [InlineData(true,true,true,true,"string",true,false,"int64")]
     public async Task Fixed_cascade_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false,string nameKind="string",bool selfTreeCondition=false,bool globalSelection=false,string? businessKey=null,string? innerKey=null)
     {
         const string ns="Example.FixedSelfTreeNode";

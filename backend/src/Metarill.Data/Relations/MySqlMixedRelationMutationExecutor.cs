@@ -38,9 +38,10 @@ internal sealed class MySqlMixedRelationMutationExecutor(DatabaseSession session
         var quote=session.Provider.QuoteIdentifier;
         await using var command=MySqlFloatingCommand.Wrap(transaction.Connection!.CreateCommand());
         command.Transaction=transaction;
-        command.CommandText="SELECT "+quote(key.Column)+" FROM "+quote(table)+" WHERE `id`=@id AND `yz_project_id`=@project FOR SHARE";
+        var scope=key.ProjectType.Length==0?"":" AND `yz_project_id`=@project";
+        command.CommandText="SELECT "+quote(key.Column)+" FROM "+quote(table)+" WHERE `id`=@id"+scope+" FOR SHARE";
         Add(command,"id",id);
-        Add(command,"project",key.ProjectType=="string"?project:long.Parse(project,CultureInfo.InvariantCulture));
+        if(scope.Length>0)Add(command,"project",key.ProjectType=="string"?project:long.Parse(project,CultureInfo.InvariantCulture));
         var current=await command.ExecuteScalarAsync(token);
         return new(KeyText(current,key.LogicalType),KeyText(previous?.GetValueOrDefault(key.Column),key.LogicalType));
     }

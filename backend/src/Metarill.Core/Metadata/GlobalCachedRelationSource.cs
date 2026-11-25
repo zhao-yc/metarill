@@ -42,7 +42,8 @@ public static class GlobalCachedRelationSource
         if(!GlobalCrossTableTarget.Declared(source)||source.IsRongyu!=1||foreign.ConfigTableId!=source.Id||
             foreign.ControlKind!="List"||!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal))return [];
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==source.Id).ToArray();
-        if(!columns.Any(column=>column.ColumnName=="yz_project_id")||!columns.Any(CascadeTreeStorageColumns.IsPhysicalSelfTreeKey))return [];
+        if(!columns.Any(column=>column.ColumnName=="yz_project_id")||!columns.Any(column=>
+            CascadeTreeStorageColumns.IsPhysicalSelfTreeKey(column)||CascadeTreeStorageColumns.DeclaresAlternateNodeKey(column)))return [];
         var fields=RelationStorageColumns.Expand(source,columns).Select(column=>column.ColumnName).ToArray();
         return catalog.ConfigPages.Where(page=>page.ConfigTableId==source.Id&&IsParent(page)).ToArray();
 

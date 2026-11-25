@@ -69,6 +69,7 @@ public static class CascadeTreeStorageColumns
             throw new NotSupportedException("自树节点键必须为真实非空的整数列或业务文本列。");
         if(key.ColumnName=="id")return(key,null);
 
+        var global=GlobalCrossTableTarget.Declared(table);
         var project=storage.PhysicalColumns.SingleOrDefault(column=>column.ColumnName=="yz_project_id");
         foreach(var index in catalog.ConfigIndexes.OrderBy(index=>Value(index,"id"),StringComparer.Ordinal))
         {
@@ -78,11 +79,12 @@ public static class CascadeTreeStorageColumns
                 continue;
             var fields=catalog.ConfigIndexColumns.Where(item=>Value(item,"configIndexId")==id)
                 .Select(item=>Value(item,"configColumnId")).ToArray();
-            if(fields.Length==1&&fields[0]==key.Id||fields.Length==2&&project is not null&&
+            if(fields.Length==1&&fields[0]==key.Id||!global&&fields.Length==2&&project is not null&&
                 fields.Contains(project.Id,StringComparer.Ordinal)&&fields.Contains(key.Id,StringComparer.Ordinal))
                 return(key,id);
         }
-        throw new NotSupportedException("自树业务键需要单列唯一索引或项目与业务键的联合唯一索引。");
+        throw new NotSupportedException(global?"全局自树业务键需要单列唯一索引。":
+            "自树业务键需要单列唯一索引或项目与业务键的联合唯一索引。");
     }
 
     /// <summary>识别已声明的业务键；旧主键配置及无效表级定义维持原判断。</summary>

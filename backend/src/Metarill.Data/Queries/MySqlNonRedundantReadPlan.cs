@@ -876,7 +876,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var globalSourceParent=!global&&refreshFields is not null&&ownerAlias==rootAlias&&
                 GlobalCachedRelationSource.RowProjectSelfTreeParentPages(catalog,root,relation).Count>0;
             if(globalSourceParent)publishedPage=GlobalSingleRelationTarget.RequireProjectParent(catalog,root,relation,target).Page;
-            var projectParent=globalSourceParent||targetKey is not null&&publishedPage is not null;
+            var projectParent=globalSourceParent||!global&&targetKey is not null&&publishedPage is not null;
             if(global&&!validatedCrossGlobal)
             {
                 var owner=tables[relation.ConfigTableId];

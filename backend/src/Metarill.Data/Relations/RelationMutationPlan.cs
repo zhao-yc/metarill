@@ -164,7 +164,7 @@ public sealed class RelationMutationPlan
                 if(!published)throw new NotSupportedException("全局缓存终点必须为非凭据物理标量或已证明的全局单值名称缓存。");
             }
             var targetKey=selfTree?SelfTreeCache.AlternateKey(catalog,target,foreign):null;
-            if(targetKey is not null&&definition.SelfTreePageId is {} treePage)
+            if(!global&&targetKey is not null&&definition.SelfTreePageId is {} treePage)
                 publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,catalog.ConfigPages.Single(page=>page.Id==treePage),projectParent:true);
             result.Add(new(Table(source.Id,rowProjectSource:rowProjectSource),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000){PublishedCondition=publishedCondition,TextScalar=(selfTree||cross)&&MultiValueLabel.IsTyped(value.LogicalType),TargetKey=targetKey?.ColumnName,TextTargetKey=targetKey?.LogicalType=="string"});
         }

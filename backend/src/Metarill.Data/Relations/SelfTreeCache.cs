@@ -62,12 +62,12 @@ public static class SelfTreeCache
         if(keyName!="id")
         {
             var key=CascadeTreeStorageColumns.ResolveNodeKey(catalog,target,keyName).Key;
-            if(global||globalSource||key.Id==parent.Id||key.Id==value.Id)throw Invalid();
+            if(key.Id==parent.Id||key.Id==value.Id)throw Invalid();
             if(key.LogicalType=="string"&&(foreign.LogicalType!="string"||parent.LogicalType!="string"))throw Invalid();
             if(publishedPageId is not null&&!derived&&!scoped)
             {
                 var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==publishedPageId&&item.ConfigTableId==target.Id)??throw Invalid();
-                _=MySqlPublishedRelationCondition.Compile(catalog,target,page,projectParent:true);
+                _=MySqlPublishedRelationCondition.Compile(catalog,target,page,projectParent:!global);
             }
         }
         if(global||scoped||globalSource||derived&&publishedPageId is not null)
