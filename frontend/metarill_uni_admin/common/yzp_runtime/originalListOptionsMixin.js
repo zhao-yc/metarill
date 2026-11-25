@@ -7,7 +7,8 @@ function isSelectionCheckboxId(value) {
 }
 
 /** 父字段使用当前标量，安全整数可以转为接口要求的字符串。 */
-function checkboxParentId(value) {
+function checkboxParentId(value, textParent = false) {
+ if (textParent) return typeof value === 'string' && value.trim() !== '' ? value : null
  const text = Number.isSafeInteger(value) ? String(value) : value
  return isSelectionCheckboxId(text) ? text : null
 }
@@ -67,7 +68,7 @@ export function createOriginalListOptionsMixin({ targetParentFields = [], option
    },
    /** 原数组候选按发布范围查询，所有合法值到齐后再更新复选框。 */
    loadOriginalArrayCheckboxOptions(definition) {
-    const { field, url, requiresParent, sameParent, targetParentField, table, formFields, limit, formParentField, optionField } = definition
+    const { field, url, requiresParent, sameParent, targetParentField, table, formFields, limit, formParentField, optionField, textParent } = definition
     const range = optionField ?? (field + 'Range'), data = {}
     // 数据库复选原端点接收 parentId，独立值来自本页实际的父字段筛选。
     if (formParentField) {
@@ -75,7 +76,7 @@ export function createOriginalListOptionsMixin({ targetParentFields = [], option
      if (data.parentId === null) return
     }
     if (requiresParent) {
-     data.parentId = checkboxParentId(this.parent_id)
+     data.parentId = checkboxParentId(this.parent_id, textParent)
      if (data.parentId === null) return
     }
     if (sameParent || targetParentField) {

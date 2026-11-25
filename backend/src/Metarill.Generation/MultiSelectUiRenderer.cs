@@ -13,7 +13,14 @@ internal static class MultiSelectUiRenderer
     /// <summary>原目标组件在源详情显式注册。</summary>
     internal static string Components(IReadOnlyList<MultiSelectModel> defs) => defs.Count == 0 ? "" : string.Join(", ", defs.Select(Component)) + ", ";
     /// <summary>字段和名称只由稳定来源表/列ID定位，不下发动态查询信息。</summary>
-    internal static string Mixin(TableModel table, PageModel page, IReadOnlyList<MultiSelectModel> defs) => defs.Count == 0 ? "" : "createMultiSelectFieldMixin(" + JsonSerializer.Serialize(defs.Select(def => new { tableId = table.Source.Id, columnId = def.Source.Source.Id, field = def.Source.JsonName, namesField = def.Names?.JsonName, nameField = def.Name.JsonName, int32Name = def.IntegerLabel&&def.Name.Type=="int?", sameParent = def.SameParent, targetParentField = def.TargetParentField, requiresTargetParent = def.TargetParents.Count > 0, redundant = table.Source.IsRongyu == 1, writable = page.Writable.Any(column => column.Source.Id == def.Source.Source.Id), @ref = "multi_selection_" + def.Source.Source.Id })) + ")";
+    internal static string Mixin(TableModel table, PageModel page, IReadOnlyList<MultiSelectModel> defs) => defs.Count == 0 ? "" : "createMultiSelectFieldMixin(" + JsonSerializer.Serialize(defs.Select(def => new { tableId = table.Source.Id, columnId = def.Source.Source.Id, field = def.Source.JsonName, namesField = def.Names?.JsonName, nameField = def.Name.JsonName, int32Name = def.IntegerLabel&&def.Name.Type=="int?", sameParent = def.SameParent, targetParentField = def.TargetParentField, requiresTargetParent = def.TargetParents.Count > 0, redundant = table.Source.IsRongyu == 1, writable = page.Writable.Any(column => column.Source.Id == def.Source.Source.Id), @ref = "multi_selection_" + def.Source.Source.Id })) + TextParentArgument(defs) + ")";
+
+    /// <summary>只将通过发布证明的字段加入文本父名单；普通多选的原源码调用保持一致。</summary>
+    internal static string TextParentArgument(IReadOnlyList<MultiSelectModel> defs)
+    {
+        var fields=defs.Where(def=>def.SharedTextParent is not null).Select(def=>def.Source.JsonName).ToArray();
+        return fields.Length==0?"":","+JsonSerializer.Serialize(fields);
+    }
     /// <summary>保留原选择事件并沿用有限高度滚动容器；工具栏不能随长列表移出视口，关闭时卸载草稿。</summary>
     internal static string Popups(IReadOnlyList<MultiSelectModel> defs) => string.Join("\n", defs.Select(def => $"    <yzp-popup ref=\"multi_selection_{def.Source.Source.Id}\" type=\"center\" :mask-click=\"false\" @change=\"multiSelectionPopupChange('{def.Source.JsonName}', $event)\"><view class=\"select-page-dialog-view child-detail-dialog-view\"><{Component(def)} v-if=\"multiSelectionField === '{def.Source.JsonName}'\" :key=\"multiSelectionVersion\" :selectedIds=\"entity.{def.Source.JsonName}\" :selectedNames=\"entity.{def.Names?.JsonName ?? def.Source.JsonName}\" selected-name-field=\"{SecurityElement.Escape(def.Name.JsonName)}\" :parent_id=\"multiTargetParent('{def.Source.JsonName}')\" :parentReadOnlyCondition=\"readOnlyCondition || !multiSelectionCurrent('{def.Source.JsonName}')\" @onPopSelect=\"receiveMultiSelection('{def.Source.JsonName}', $event)\" @onPopClose=\"closeMultiSelection('{def.Source.JsonName}')\" /></view></yzp-popup>"));
 }

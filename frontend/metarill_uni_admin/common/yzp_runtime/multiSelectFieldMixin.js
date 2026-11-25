@@ -14,8 +14,9 @@ function isSelectionName(row, def) {
 }
 
 /** 元数据编译的字段只承接原弹层props/events，不提供动态目标或SQL入口。 */
-export function createMultiSelectFieldMixin(definitions) {
+export function createMultiSelectFieldMixin(definitions, textParentFields = []) {
  const fields = new Map(definitions.map(def => [def.field, Object.freeze({ ...def })]))
+ const textParents = new Set(textParentFields)
  return {
   data() { return { multiSelectionField: '', multiSelectionVersion: 0, multiSelectionError: '' } },
   methods: {
@@ -49,7 +50,10 @@ export function createMultiSelectFieldMixin(definitions) {
     const def = fields.get(field); if (!this._alive || this.readOnlyCondition || !def?.writable) return
     try {
      const ids = arrayValue(this.entity[field]); if (ids.length > 200 || ids.some(id => typeof id !== 'string' || !/^[1-9][0-9]{0,18}$/.test(id) || id.length === 19 && id > '9223372036854775807') || new Set(ids).size !== ids.length) throw new Error('已选值必须为最多200个不重复的完整字符串ID。')
-     const targetParent = this.multiTargetParent(field); if (def.requiresTargetParent && (!/^[1-9][0-9]{0,18}$/.test(targetParent) || targetParent.length === 19 && targetParent > '9223372036854775807')) throw new Error('目标父范围尚未明确，请先选择或保存父记录。')
+     // 文本只核对非空，原字符串随弹层传输，实际范围仍由后端验证。
+     const targetParent = this.multiTargetParent(field)
+     const validParent = textParents.has(field) ? targetParent.trim() !== '' : /^[1-9][0-9]{0,18}$/.test(targetParent) && (targetParent.length < 19 || targetParent <= '9223372036854775807')
+     if (def.requiresTargetParent && !validParent) throw new Error('目标父范围尚未明确，请先选择或保存父记录。')
      this.closeMultiSelection(this.multiSelectionField); this.multiSelectionField = field; this.multiSelectionVersion++; this.multiSelectionError = ''
      this._multiSelectionSnapshot = { field, id: this.id, parentId: this.parentId, targetParent, identity: this.currentIdentity() }
      this.$nextTick(() => { if (this.multiSelectionCurrent(field)) this.$refs[def.ref]?.open() })

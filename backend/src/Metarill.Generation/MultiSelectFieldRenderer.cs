@@ -17,7 +17,7 @@ internal static class MultiSelectFieldRenderer
         {
             var suffix = page.Source.Id + "_" + def.Source.Source.Id;
             var caches=MultiNameWriteCompilation.ForSource(model,table,def);
-            var scoped=FixedPageConditionCompilation.HasMultiTargetScope(model,def.Target,def.TargetPage);
+            var scoped=def.SharedTextParent is null&&FixedPageConditionCompilation.HasMultiTargetScope(model,def.Target,def.TargetPage);
             result.Append(scoped?"":FixedPageConditionCompilation.Declaration(def.TargetPage,"MultiPageCondition"+suffix))
                 .Append(SharedRedundantParentCompilation.AccountDeclaration(model,def.Target,def.TargetPage,"MultiAccountParentScope"+suffix))
                 .Append(DerivedMultiNamesCompilation.Declaration(model,page,def));
@@ -55,7 +55,14 @@ internal static class MultiSelectFieldRenderer
                 .AppendLine("        var selected = values.RootElement.EnumerateArray().Select(value => value.ValueKind == JsonValueKind.String && long.TryParse(value.GetString(), NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0 && value.GetString() == id.ToString(CultureInfo.InvariantCulture) ? id : throw new ArgumentException(\"多选ID必须为不带前导零的正整数字符串。\")).ToArray();")
                 .AppendLine("        if (selected.Distinct().Count() != selected.Length) throw new ArgumentException(\"多选ID不能重复。\");");
             var parentExpression = def.SameParent ? table.Columns.Single(column => column.Source.Id == page.Scopes.First(scope => scope.Source == "parent").Column.Source.Id) : table.Columns.SingleOrDefault(column => column.JsonName == def.TargetParentField);
-            if (def.TargetParents.Count > 0)
+            if(def.SharedTextParent is not null)
+            {
+                // 两端共用已发布路径，按当前来源实体的文本键核对，保留前导零及大小写。
+                result.AppendLine($"        var targetParentId=SharedR1ParentKey{page.Source.Id}(entity.{parentExpression!.Property});");
+                foreach(var path in SharedRedundantParentCompilation.ForColumn(model,table,page,parentExpression))
+                    result.AppendLine($"        await {SharedRedundantParentCompilation.ReadPath(path,page,"true","targetParentId")};");
+            }
+            else if (def.TargetParents.Count > 0)
             {
                 result.AppendLine(def.LogicalSourceParent?"        var targetParentId = logicalRelationParentId;":$"        var targetParentId = Convert.ToString(entity.{parentExpression!.Property}, CultureInfo.InvariantCulture);")
                     .AppendLine("        if (!long.TryParse(targetParentId, NumberStyles.None, CultureInfo.InvariantCulture, out var targetParentKey) || targetParentKey <= 0) throw new ArgumentException(\"多选目标要求有效父记录。\");");
@@ -102,7 +109,8 @@ internal static class MultiSelectFieldRenderer
                 if (def.Target.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine("        query = query.Where(row => row.DeleteNo == null);");
                 var targetProject = def.Target.Columns.SingleOrDefault(column => column.Source.ColumnName == "yz_project_id");
                 if (targetProject is not null && (!def.Target.IsGlobal || def.TargetPage.Scopes.Any(scope => scope.Source == "project"))) result.AppendLine($"        query = query.Where(row => row.{targetProject.Property} == {Scope(targetProject, "actor.ProjectId")});");
-                foreach (var scope in def.TargetPage.Scopes.Where(scope => scope.Source == "parent")) result.AppendLine($"        query = query.Where(row => row.{scope.Column.Property} == {Scope(scope.Column, "targetParentId!")});");
+                foreach (var scope in def.TargetPage.Scopes.Where(scope => scope.Source == "parent"))
+                    result.AppendLine(ParentFilter(def,scope.Column,"        "));
                 result.Append(FixedPageConditionCompilation.Apply(def.TargetPage,"MultiPageCondition"+suffix,"multi_page_"+suffix))
                     .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,def.Target,def.TargetPage,"MultiAccountParentScope"+suffix,"r1_multi","true"));
                 if(def.ExactTarget is not null)
@@ -138,6 +146,11 @@ internal static class MultiSelectFieldRenderer
         }
         return result.ToString();
     }
+
+    /// <summary>同一目标父谓词用于多选保存和 Excel；普通物理父依旧按声明字段比较。</summary>
+    internal static string ParentFilter(MultiSelectModel def,ColumnModel column,string indent)=>def.SharedTextParent==column
+        ?$"{indent}query=global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},targetParentId!,businessKey:true);"
+        :$"{indent}query = query.Where(row => row.{column.Property} == {Scope(column,"targetParentId!")});";
     /// <summary>已选保存和导入复用目标列表授权，派生匹配沿该目标页的同事务当前读。</summary>
     internal static string ExactQuery(GenerationModel model,MultiSelectModel multi,string prefix)
     {

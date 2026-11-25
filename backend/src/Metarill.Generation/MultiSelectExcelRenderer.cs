@@ -30,14 +30,23 @@ internal static class MultiSelectExcelRenderer
             var parent=dependency.Parents[multi.Source.Source.Id];
             result.AppendLine($"        if(!relationContext.TryGetValue({Literal(parent.JsonName)},out var parentValue)||parentValue.ValueKind==JsonValueKind.Null)throw PageImportException.Input(PageImportError.Relation);");targetParent="parentValue.ToString()";
         }
-        if(multi.TargetParents.Count>0)result.AppendLine($"        var targetParentId={targetParent};if(!long.TryParse(targetParentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0)throw PageImportException.Input(PageImportError.Relation);");
+        if(multi.SharedTextParent is not null)
+        {
+            result.AppendLine($"        var targetParentId=SharedR1ParentKey{page.Source.Id}(parentId);");
+            var field=page.Scopes.Single(scope=>scope.Source=="parent").Column;
+            foreach(var path in SharedRedundantParentCompilation.ForColumn(model,table,page,field))
+                result.AppendLine($"        await {SharedRedundantParentCompilation.ReadPath(path,page,"true","targetParentId")};");
+        }
+        else if(multi.TargetParents.Count>0)result.AppendLine($"        var targetParentId={targetParent};if(!long.TryParse(targetParentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0)throw PageImportException.Input(PageImportError.Relation);");
         result.Append(ImportConditionBinding(multi,suffix));
         result.AppendLine("        foreach(var item in cell.EnumerateArray())").AppendLine("        {")
             .AppendLine($"            if({InvalidLabelKind(multi.Name,true)})throw PageImportException.Input(PageImportError.Relation);")
             .AppendLine($"            var query=session.Select<{multi.Target.EntityType}>();");
         if(multi.Target.Columns.Any(column=>column.Source.ColumnName=="delete_no"))result.AppendLine("            query=query.Where(row=>row.DeleteNo==null);");
         if(multi.Target.Columns.SingleOrDefault(column=>column.Source.ColumnName=="yz_project_id") is {} project&&(!multi.Target.IsGlobal||multi.TargetPage.Scopes.Any(scope=>scope.Source=="project")))result.AppendLine($"            query=query.Where(row=>row.{project.Property}=={Scope(project,"actor.ProjectId")});");
-        foreach(var scope in multi.TargetPage.Scopes.Where(scope=>scope.Source=="parent"))result.AppendLine($"            query=query.Where(row=>row.{scope.Column.Property}=={Scope(scope.Column,"targetParentId!")});");
+        foreach(var scope in multi.TargetPage.Scopes.Where(scope=>scope.Source=="parent"))
+            result.AppendLine(multi.SharedTextParent is not null?MultiSelectFieldRenderer.ParentFilter(multi,scope.Column,"            "):
+                $"            query=query.Where(row=>row.{scope.Column.Property}=={Scope(scope.Column,"targetParentId!")});");
         result.Append(FixedPageConditionCompilation.Apply(multi.TargetPage,"MultiPageCondition"+suffix,"multi_import_"+suffix))
             .Append(SharedRedundantParentCompilation.ApplyAccountScope(model,multi.Target,multi.TargetPage,"MultiAccountParentScope"+suffix,"r1_import","true"))
             .Append(MultiSelectFieldRenderer.ExactQuery(model,multi,"multiImportExact"));

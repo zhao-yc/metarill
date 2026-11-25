@@ -114,6 +114,55 @@ public sealed class TextCascadeParentRelationTests
         Assert.Null(SharedRedundantParentCompilation.CommonTextParent(model,source,Assert.Single(source.Pages),target,Assert.Single(target.Pages)));
     }
 
+    /// <summary>共用文本父键的两个多值控件沿原候选、写入及工作簿合同生成。</summary>
+    [Theory]
+    [InlineData("OnlyNew","list")]
+    [InlineData("OverWriteByFirstColumn","edit")]
+    public async Task Matching_published_text_parent_scopes_multi_relations(string import,string export)
+    {
+        var catalog=Catalog(1,import,export);
+        ScopeTarget(catalog,"83");
+        ScopeTarget(catalog,"84");
+        catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="706")
+            .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        var model=GenerationModel.Create(catalog,"Example.MultiSameTextParent");
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var multi=Assert.Single(MultiSelectCompilation.ForPage(model,table,page));
+        var checkbox=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,page));
+        Assert.True(multi.SameParent);
+        Assert.Equal("country_id",multi.SharedTextParent?.Source.ColumnName);
+        Assert.Equal("country_id",checkbox.SharedTextParent?.Source.ColumnName);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-multi-same-text-parent");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            Assert.Contains("targetParentId=SharedR1ParentKey201(entity.CountryId)",service);
+            Assert.Contains("targetParentId=SharedR1ParentKey201(parentId)",service);
+            Assert.Contains("\"country_id\",targetParentId!,businessKey:true)",service);
+            Assert.Contains("\"country_id\",parentId!,businessKey:true)",service);
+            Assert.Contains("CheckboxScope201_706Async(entity.CountryId",service);
+            Assert.Contains("ImportMulti201_704Async",service);
+            Assert.Contains("ImportCheckbox201_706Async",service);
+            Assert.Contains("Export201Async",service);
+            Assert.DoesNotContain("out var targetParentKey",service);
+            var detail=await File.ReadAllTextAsync(Path.Combine(directory,"frontend/pages/yzp/textrel_source-detail-201.vue"));
+            Assert.Contains(",[\"multiitemIds\"])",detail);
+            var list=await File.ReadAllTextAsync(Path.Combine(directory,"frontend/pages/yzp/textrel_source-list-201.vue"));
+            Assert.Contains("loadOriginalArrayCheckboxOptions(",list);
+            Assert.Contains("\"textParent\":true",list);
+            var probe=NonRedundantApplicationFixture.Start("node",directory);
+            probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GeneratedMultiTextParentProbe.mjs"));
+            probe.ArgumentList.Add(Path.Combine(directory,"frontend"));
+            await NonRedundantApplicationFixture.RunAsync(probe);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>两张业务表发布同一真实国家业务键，候选数据仍来自各自的表和页面。</summary>
     private static void ScopeTarget(MetadataCatalog catalog,string id)
     {

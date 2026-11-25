@@ -36,11 +36,12 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     /// <summary>原列表勾选的加载和冗余数组匹配共用同一候选范围证明。</summary>
     internal bool SupportsRedundantArrayFilter =>
         FormParentField is not null || SharedLogicalParentScope || HasStoredIdentityScope || HasStoredStaticScope ||
-        HasProjectStoredAccountScope || ProjectFormScope;
+        HasProjectStoredAccountScope || ProjectFormScope || SharedTextParent is not null;
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
     internal bool IndependentTextSource { get; init; }
+    internal ColumnModel? SharedTextParent { get; init; }
     internal IReadOnlyList<ColumnModel> SourceScopeColumns { get; init; } = [];
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal PageModel? GlobalParentPage { get; init; }
@@ -180,6 +181,10 @@ internal static class DatabaseCheckboxCompilation
             var sharedNamesPage=pageNames.Any(field=>field!=baseline.NameField);
             // 普通物理父范围由实际两端页面证明，逻辑来源继续使用已有的级联路径。
             var sourceScopeColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
+            var sharedTextParent=namePage is null?null:SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,namePage);
+            if(sharedTextParent is not null&&(derived||name.Type!="string?"||exactTarget is not null||usesNameOverride||sharedNamesPage||
+                explicitPage!=fixedPage||FixedPageConditionCompilation.HasLogicalFields(namePage!)))
+                return Gap("共用文本父键的复选需要表级发布的物理文本名称和物理页面条件。");
             var ordinaryCompoundParent=!functionForm&&!table.IsGlobal&&exactTarget is null&&namePage is {} actualTarget&&
                 (sourceScopeColumns.Length>1||actualTarget.Scopes.Count(scope=>scope.Source=="parent")>1)&&
                 !sourceScopeColumns.Any(column=>NonRedundantCrossParentCompilation.Managed(model,table,page,column))
@@ -229,7 +234,7 @@ internal static class DatabaseCheckboxCompilation
             // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。
             var compoundTargetParents=!functionForm&&target.Source.IsRongyu==0&&
                 namePage?.Scopes.Count(scope=>scope.Source=="parent")>1;
-            var logicalPage=ordinaryCompoundParent is null&&!sharedAccountScope&&!storedIdentityPage&&namePage is not null&&
+            var logicalPage=sharedTextParent is null&&ordinaryCompoundParent is null&&!sharedAccountScope&&!storedIdentityPage&&namePage is not null&&
                 (compoundTargetParents||FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage,includeProjectFixedScope:false))&&
                 (!functionForm||FixedPageConditionCompilation.HasLogicalFields(namePage)||namePage.Scopes.Any(scope=>scope.Source=="parent"&&
                     (!NonRedundantReadCompilation.Physical(model,target,scope.Column)||
@@ -268,6 +273,8 @@ internal static class DatabaseCheckboxCompilation
                     return Gap("同一名称副本的页面必须沿用表级复选候选条件。");
             }
             var (scopes,conditions)=RelationConditionsCompilation.Compile(model,table,page,target,whereSql);
+            if(sharedTextParent is not null&&scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent))
+                return Gap("复选的控件父范围必须与发布的文本父字段一致。");
             if(projectForm is not null&&page.Searchable.Contains(source)&&conditions!.Forms.Any(binding=>
                 !sourceScopeColumns.Contains(binding.Column)&&!ControlRenderer.HasScalarSourceFilter(model,page,binding.Column)))
                 return Gap("启用复选列表筛选时须开启表单依赖字段的标量筛选。");
@@ -294,7 +301,7 @@ internal static class DatabaseCheckboxCompilation
                 (namePage.Condition is {Syntax.Variables.Count:0}||namePage.Condition is null&&namePage.Scopes.Any(scope=>scope.Source=="parent"))&&
                 !FixedPageConditionCompilation.HasLogicalFields(namePage)&&namePage.Scopes.Count(scope=>scope.Source=="parent")<=1;
             // 普通全局派生名称没有行项目列时，固定发布条件由复选查询显式合并。
-            if((realtimeRead||functionForm||globalPage is not null||exactTarget is not null||sharedFixedPage||projectStoredAccount||ordinaryCompoundParent is not null||projectForm is not null)&&!scopeAlreadyBound&&namePage is not null&&
+            if((sharedTextParent is not null||realtimeRead||functionForm||globalPage is not null||exactTarget is not null||sharedFixedPage||projectStoredAccount||ordinaryCompoundParent is not null||projectForm is not null)&&!scopeAlreadyBound&&namePage is not null&&
                 (functionForm||projectForm is not null||namePage.Condition is not null||namePage.Scopes.Any(scope=>scope.Source=="parent")))
             {
                 physicalPage=namePage;
@@ -338,7 +345,7 @@ internal static class DatabaseCheckboxCompilation
             var pageHasParent=logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true;
             var independentTextSource=textSource is not null&&physicalParents.Length==0&&!pageHasParent&&
                 namePage?.Scopes.Any(scope=>scope.Source=="parent")!=true;
-            if(textSource is not null&&!independentTextSource)
+            if(textSource is not null&&!independentTextSource&&sharedTextParent is null)
                 return Gap("复选目标父尚未证明使用与来源相同的文本业务键。");
             if(logicalSource&&!independentTextSource&&physicalParents.Length==0&&!pageHasParent)
                 return Gap("来源逻辑父键须对应明确的控件或目标页父范围。");
@@ -440,7 +447,7 @@ internal static class DatabaseCheckboxCompilation
                 scopes=scopes.Concat(scopedPage.Scopes.Where(scope=>scope.Source=="parent")).DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
             }
             // 控件物理范围必须匹配由路由或详情表单证明的同一张实际父表。
-            if(!functionForm&&physicalParents.Any(scope=>sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id))
+            if(!functionForm&&physicalParents.Any(scope=>scope.Column!=sharedTextParent&&(sourceParent is null||Parent(scope.Column).Source.Id!=parents[0].Source.Id)))
                 return Gap("原parentId必须由来源页同一真实父表证明，不能猜测其他父范围。");
             // 只有显式关联了实际级联祖先时，原复选可直接沿来源的全局层位校验。
             var explicitGlobalPath=logicalSource&&physicalParents.Length>0&&parents[0].IsGlobal&&
@@ -494,6 +501,7 @@ internal static class DatabaseCheckboxCompilation
                     logicalPage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column)),
                 ExactTarget=exactTarget,
                 IndependentTextSource=independentTextSource,
+                SharedTextParent=sharedTextParent,
                 LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)
                     .DistinctBy(path=>(path.Read.Source.Source.Id,path.Index)).ToArray(),
                 SourceScopeColumns=sourceScopeColumns,

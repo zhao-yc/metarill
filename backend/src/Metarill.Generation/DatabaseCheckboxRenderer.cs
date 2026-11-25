@@ -33,6 +33,8 @@ internal static class DatabaseCheckboxRenderer
             result.Append(Declaration(def,suffix)).Append(Reader(def,suffix));
             if((def.PhysicalTargetPage??DerivedCheckboxNamesCompilation.ExactMembershipPage(model,def)) is {} physicalPage)
                 result.Append(FixedPageConditionCompilation.Declaration(physicalPage,"CheckboxTargetCondition"+suffix));
+            if(def.SharedTextParent is not null)
+                result.Append(SharedRedundantParentCompilation.AccountDeclaration(model,def.Target,def.PhysicalTargetPage!,"CheckboxTextParentScope"+suffix));
             if(def.GlobalPage is not null&&!def.DerivedName)
                 result.Append(FixedPageConditionCompilation.Declaration(def.GlobalPage,"CheckboxGlobalCondition"+suffix));
             if(def.DerivedName)result.Append(DerivedCheckboxNamesRenderer.Service(model,table,page,def,
@@ -54,7 +56,7 @@ internal static class DatabaseCheckboxRenderer
                     result.AppendLine($"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,locking,false){NonRedundantCrossParentCompilation.PathSuffix(path.Read,path.Index,"parentKey")};");
                 if(def.GlobalParent)result.AppendLine(MultiGlobalParentCompilation.Check("CheckboxGlobalParent"+suffix,"parentKey","locking"));
             }
-            else if(def.IndependentTextSource)
+            else if(def.IndependentTextSource||def.SharedTextParent is not null)
             {
                 foreach(var path in SharedRedundantParentCompilation.ForColumn(model,table,page,def.SourceParent))
                     result.Append(SharedRedundantParentCompilation.Call(path,page,"locking"));
@@ -78,7 +80,7 @@ internal static class DatabaseCheckboxRenderer
             {
                 // 物理字典的字符串父键与回填共用规范十进制比较，避免数据库文本排序规则扩大范围。
                 if(source=="parent"&&column.Type=="string?")
-                    result.AppendLine($"        query=global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},parentId!);");
+                    result.AppendLine($"        query=global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},parentId!{(def.SharedTextParent==column?",businessKey:true":"")});");
                 else
                     result.AppendLine($"        query=query.Where(row=>row.{column.Property}=={Scope(column,source=="project"?"actor.ProjectId":"parentId!")});");
             }
@@ -91,6 +93,8 @@ internal static class DatabaseCheckboxRenderer
             }
             if(def.PhysicalTargetPage is {} targetPage)
                 result.Append(FixedPageConditionCompilation.Apply(targetPage,"CheckboxTargetCondition"+suffix,"checkbox_target_"+suffix));
+            if(def.SharedTextParent is not null)
+                result.Append(SharedRedundantParentCompilation.ApplyAccountScope(model,def.Target,def.PhysicalTargetPage!,"CheckboxTextParentScope"+suffix,"checkbox_text_"+suffix,"locking"));
             if(def.ExactTarget is not null&&!def.DerivedName)
             {
                 var exactPage=def.NameTargetPage!;

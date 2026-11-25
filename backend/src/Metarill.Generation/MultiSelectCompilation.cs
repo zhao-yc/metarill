@@ -8,6 +8,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
     bool SameParent, string? TargetParentField, IReadOnlyList<TableModel> TargetParents, string ButtonText)
 {
     internal bool LogicalSourceParent { get; init; }
+    internal ColumnModel? SharedTextParent { get; init; }
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal bool PublishedPhysicalSource { get; init; }
     internal bool UsesPageRead { get; init; }
@@ -107,15 +108,20 @@ internal static class MultiSelectCompilation
             var scalarLabel=name is not null&&SupportsTypedLabel(model,table,source,target,name);
             if (name is null || GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&!DerivedMultiNamesCompilation.Declared(model,target,name)&&!globalCachedName || name.IsJsonArray || name.Type != "string?" && !name.IsId&&!scalarLabel || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
-            var scoped=FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage);
+            var sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,targetPage);
+            var scoped=sharedTextParent is null&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage);
             var derived=DerivedMultiNamesCompilation.Declared(model,target,name);
             // 功能表确认直接使用目标页的查询范围；业务表的写入和导入也需要同一精确范围。
             var exactTarget=functionForm?null:ExactDataManageCompilation.Resolve(model,target,targetPage);
+            if(sharedTextParent is not null&&(derived||name.Type!="string?"||exactTarget is not null||
+                FixedPageConditionCompilation.HasLogicalFields(targetPage)))
+                return Gap("共用文本父键的多选需要已发布的物理文本名称和物理页面条件。");
 
             if(!functionForm&&(scoped||derived))DerivedMultiNamesCompilation.Require(model,table,target,targetPage,name,exactTarget);
             var fixedPage=Scalar(root,"pageId");
             if(fixedPage.Length==0)fixedPage=source.Source.Extra.GetValueOrDefault("linkConfigPageId").ToString();
             var pageOverride=pageId!=fixedPage;
+            if(sharedTextParent is not null&&pageOverride)return Gap("共用文本父键的多选需沿用表级候选页。");
             // 实时名称绑定实际候选页。普通备用页仍须证明同项目，但无需套用默认字典的固定条件。
             var projectOnlyOverride=pageOverride&&table.Source.IsRongyu==0&&!table.IsGlobal&&
                 Metarill.Data.Queries.NonRedundantReads.IsProjectOnlyStoredMultiSelectPage(model.Catalog,target.Source,targetPage.Source);
@@ -159,11 +165,13 @@ internal static class MultiSelectCompilation
             }
             if(functionForm)scopedParent??=MultiGlobalParentCompilation.PhysicalPageParent(model,target,targetPage);
             var targetParents = scopedParent is not null?[model.Tables.Single(parent=>parent.Source.Id==scopedParent.Parent.Id)]:
-                targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => Parent(scope.Column)).DistinctBy(parent => parent.Source.Id).ToArray();
+                targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => scope.Column==sharedTextParent
+                    ?SharedRedundantParentCompilation.ForColumn(model,target,targetPage,scope.Column).Single().Level.Target:Parent(scope.Column))
+                    .DistinctBy(parent => parent.Source.Id).ToArray();
             if (scopedParent?.Global!=true&&targetParents.Any(parent => !parent.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))) return Gap("目标父表未声明项目归属。");
             if(scopedParent?.Global==true)_=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,targetPage.Source.Id);
             var same = targetParents.Length > 0 && sourceParents.SequenceEqual(targetParents.Select(parent => parent.Source.Id).Order());
-            if(same&&CrossTableReadCompilation.TextSourceParent(model,table,page) is not null)
+            if(same&&sharedTextParent is null&&CrossTableReadCompilation.TextSourceParent(model,table,page) is not null)
                 return Gap("多选目标父尚未证明使用与来源相同的文本业务键。");
             string? targetField = null;
             if (targetParents.Length > 1) return Gap("多个目标父定义未形成唯一合同。");
@@ -248,6 +256,7 @@ internal static class MultiSelectCompilation
             return new(new(source, target, targetPage, name, names, same, targetField, targetParents, Value("buttonText", "选择"))
                 {
                     LogicalSourceParent=logicalSourceParent,
+                    SharedTextParent=sharedTextParent,
                     CompoundSourceDependencies=compoundSourceDependencies,
                     PublishedPhysicalSource=publishedPhysicalSource,
                     GlobalParent=scopedParent?.Global==true,

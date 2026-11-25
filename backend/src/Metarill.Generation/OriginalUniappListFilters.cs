@@ -46,7 +46,7 @@ internal static partial class OriginalUniappListRenderer
                         (table.Source.IsRongyu==0||checkbox.SupportsRedundantArrayFilter) =>
                         AppendArrayCheckboxFilterOptions(model, table, page, column, checkbox.Endpoint,
                             checkbox.SourceParent is not null && checkbox.FormParentField is null, checkbox.Conditions, requests,
-                            formParentField:checkbox.FormParentField),
+                            formParentField:checkbox.FormParentField,textParent:checkbox.SharedTextParent is not null),
                     "MultiSelectPage" when MultiSelectCompilation.CheckboxFilterOptions(model, table, page, column) is { } selection =>
                         AppendSelectionCheckboxFilterOptions(selection, requests),
                     _ => null
@@ -83,12 +83,12 @@ internal static partial class OriginalUniappListRenderer
                     // 原下拉仍提交单个 ID，候选和已选值随实际门店或父范围失效。
                     if(kind=="MultiCheckBoxDatabase"&&DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is {} checkbox&&
                         (checkbox.FormParentField is not null||checkbox.HasStoredIdentityScope||checkbox.HasStoredStaticScope||
-                            checkbox.HasProjectStoredAccountScope||checkbox.ProjectFormScope))
+                            checkbox.HasProjectStoredAccountScope||checkbox.ProjectFormScope||checkbox.SharedTextParent is not null))
                     {
                         optionFields.Add(name+"_list");
                         var scope=AppendArrayCheckboxFilterOptions(model,table,page,column,checkbox.Endpoint,
                             checkbox.SourceParent is not null&&checkbox.FormParentField is null,checkbox.Conditions,requests,
-                            formParentField:checkbox.FormParentField,optionField:name+"_list");
+                            formParentField:checkbox.FormParentField,optionField:name+"_list",textParent:checkbox.SharedTextParent is not null);
                         if(scope is not null)checkboxOptions.Add(scope);
                     }
                     else if(remote is null){optionFields.Add(name+"_list");requests.Append(OriginalOptionsRequest(model,table,page,column,name));}
@@ -158,13 +158,13 @@ internal static partial class OriginalUniappListRenderer
         var context = ControlRenderer.RelationContext(page, relation, true);
         if (context.UnresolvedTarget) return null;
         return AppendArrayCheckboxFilterOptions(model, table, page, column, relation.LegacyEndpoint,
-            relation.SourceParents.Count > 0, relation.Conditions, requests, context);
+            relation.SourceParents.Count > 0, relation.Conditions, requests, context,textParent:relation.SharedTextParent is not null);
     }
 
     /// <summary>数组候选只接收固定来源父级、目标父级和当前页已开放的表单标量。</summary>
     private static CheckboxOptionScope? AppendArrayCheckboxFilterOptions(GenerationModel model, TableModel table, PageModel page,
         ColumnModel column, string endpoint, bool requiresParent, RelationConditionModel? condition, StringBuilder requests,
-        RelationUiContext? context = null, ColumnModel? formParentField=null, string? optionField=null)
+        RelationUiContext? context = null, ColumnModel? formParentField=null, string? optionField=null,bool textParent=false)
     {
         var parentFields = requiresParent
             ? page.Scopes.Where(scope => scope.Source == "parent").Select(scope => scope.Column.Source.Id).ToHashSet(StringComparer.Ordinal)
@@ -203,6 +203,7 @@ internal static partial class OriginalUniappListRenderer
             dependencies=dependencies.Append(formParentField.JsonName);
         }
         if(optionField is not null)bindings["optionField"]=optionField;
+        if(textParent)bindings["textParent"]=true;
         requests.AppendLine($"that.loadOriginalArrayCheckboxOptions({J(bindings)});");
         return new(column.JsonName, requiresParent, dependencies.Distinct(StringComparer.Ordinal).ToArray());
     }
