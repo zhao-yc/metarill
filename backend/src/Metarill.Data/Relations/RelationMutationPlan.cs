@@ -50,6 +50,9 @@ internal sealed record RelationCache(RelationTable Source,string Foreign,string 
     /// <summary>级联标量名称按原协议保存文本，普通单值业务缓存保留原类型。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     public bool TextScalar{get;init;}
+    /// <summary>反查消费者时使用的目标键，主键关系留空。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetKey{get;init;}
 }
 
 /// <summary>编译后只保留不可变标识符／类型与依赖，不再保存外部可变元数据。</summary>
@@ -157,14 +160,18 @@ public sealed class RelationMutationPlan
                 var published=GlobalPhysicalRelationValue.IsPublishedScalar(catalog,targetStorage,target,value);
                 if(!published)throw new NotSupportedException("全局缓存终点必须为非凭据物理标量或已证明的全局单值名称缓存。");
             }
-            result.Add(new(Table(source.Id,rowProjectSource:rowProjectSource),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000){PublishedCondition=publishedCondition,TextScalar=(selfTree||cross)&&MultiValueLabel.IsTyped(value.LogicalType)});
+            var targetKey=selfTree?SelfTreeCache.AlternateKey(catalog,target,foreign):null;
+            if(targetKey is not null&&definition.SelfTreePageId is {} treePage)
+                publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,catalog.ConfigPages.Single(page=>page.Id==treePage),projectParent:true);
+            result.Add(new(Table(source.Id,rowProjectSource:rowProjectSource),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000){PublishedCondition=publishedCondition,TextScalar=(selfTree||cross)&&MultiValueLabel.IsTyped(value.LogicalType),TargetKey=targetKey});
         }
-        var sorted=result.Distinct().OrderBy(binding=>binding.Source.Name,StringComparer.Ordinal).ThenBy(binding=>binding.Cache,StringComparer.Ordinal).ToArray();if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Foreign)).Any(group=>group.Select(binding=>(binding.Target,binding.PublishedCondition?.Definition)).Distinct().Count()!=1))throw new InvalidOperationException("同一外键不能绑定不同传播目标。");if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Cache)).Any(group=>group.Count()!=1))throw new InvalidOperationException("同一缓存存在多个传播定义。");
+        var sorted=result.Distinct().OrderBy(binding=>binding.Source.Name,StringComparer.Ordinal).ThenBy(binding=>binding.Cache,StringComparer.Ordinal).ToArray();if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Foreign)).Any(group=>group.Select(binding=>(binding.Target,binding.TargetKey,binding.PublishedCondition?.Definition)).Distinct().Count()!=1))throw new InvalidOperationException("同一外键不能绑定不同传播目标。");if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Cache)).Any(group=>group.Count()!=1))throw new InvalidOperationException("同一缓存存在多个传播定义。");
         // 拒绝字段级循环；普通自关联的物理名称不是派生列，不属于此循环。
         var byCache=sorted.ToDictionary(binding=>binding.Source.Name+"."+binding.Cache,StringComparer.Ordinal);var active=new HashSet<string>(StringComparer.Ordinal);var visited=new HashSet<string>(StringComparer.Ordinal);
         void Visit(string key){if(visited.Contains(key))return;if(!active.Add(key))throw new InvalidOperationException("传播派生字段存在循环依赖。");var binding=byCache[key];var dependency=binding.Target.Name+"."+binding.Value;if(byCache.ContainsKey(dependency))Visit(dependency);active.Remove(key);visited.Add(key);}
         foreach(var key in byCache.Keys)Visit(key);return new(catalog.YzProjectId,sorted);
     }
+
     /// <summary>沿既有1/true标志，不能把普通文本当作受管联接。</summary>
     private static bool Enabled(ColumnMetadata column)=>column.Extra.TryGetValue("isJoinColumn",out var value)&&(value.ValueKind==JsonValueKind.True||value.ToString()=="1");
 }

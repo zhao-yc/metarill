@@ -12,6 +12,7 @@ internal sealed record RelationPropagationBinding(TableModel Source,ColumnModel 
     internal string? ScopedSinglePageId { get; init; }
     internal string? CheckboxTargetPageId { get; init; }
     internal string? CheckboxSourceParentId { get; init; }
+    internal string? TargetKey { get; init; }
 }
 /// <summary>下发已证明的普通多值及跨表级联物理名称依赖，平台固定配置仍由其专用协调器维护。</summary>
 internal static class RelationPropagationCompilation
@@ -58,7 +59,7 @@ internal static class RelationPropagationCompilation
             }
         }
         foreach(var group in result.GroupBy(binding=>(binding.Source.Source.Id,binding.Cache.Source.Id)))
-            if(group.Select(binding=>(binding.Foreign.Source.Id,binding.Target.Source.Id,binding.Value.Source.Id,binding.Multiple,binding.CrossTableColumnId,binding.CrossTableLevelKey,binding.CrossTablePageId,binding.SelfTreePageId,binding.CrossTableAccountPageId,binding.CrossTableRecursivePageId,binding.ScopedSinglePageId,binding.CheckboxTargetPageId,binding.CheckboxSourceParentId,PagesIdentity(binding.CrossTableGlobalPages))).Distinct().Count()!=1&&!group.All(binding=>SharedCrossTableCompilation.Equivalent(model,group.First(),binding)))throw new InvalidOperationException("同一名称缓存存在相互冲突的页面关系定义，未发布传播计划。");
+            if(group.Select(binding=>(binding.Foreign.Source.Id,binding.Target.Source.Id,binding.Value.Source.Id,binding.Multiple,binding.CrossTableColumnId,binding.CrossTableLevelKey,binding.CrossTablePageId,binding.SelfTreePageId,binding.CrossTableAccountPageId,binding.CrossTableRecursivePageId,binding.ScopedSinglePageId,binding.CheckboxTargetPageId,binding.CheckboxSourceParentId,binding.TargetKey,PagesIdentity(binding.CrossTableGlobalPages))).Distinct().Count()!=1&&!group.All(binding=>SharedCrossTableCompilation.Equivalent(model,group.First(),binding)))throw new InvalidOperationException("同一名称缓存存在相互冲突的页面关系定义，未发布传播计划。");
         var bindings=result.GroupBy(binding=>(binding.Source.Source.Id,binding.Cache.Source.Id)).Select(group=>group.OrderByDescending(binding=>binding.CrossTableColumnId==binding.Foreign.Source.Id).ThenBy(binding=>binding.CrossTableColumnId,StringComparer.Ordinal).First()).OrderBy(binding=>binding.Source.Source.TableName,StringComparer.Ordinal).ThenBy(binding=>binding.Cache.Source.ColumnName,StringComparer.Ordinal).ToArray();
         var physical=bindings.Where(binding=>!Derived(model,binding)).ToArray();var derived=bindings.Where(binding=>Derived(model,binding)).ToArray();if(physical.Length>0)_=RelationMutationPlan.Compile(model.Catalog,Definitions(physical));if(derived.Length>0)DerivedCrossTableCaches.Validate(model.Catalog,Definitions(derived),Definitions(physical));return bindings;
     }

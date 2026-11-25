@@ -621,6 +621,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                         ? $"        if(businessButtonId is not null)await ValidateParents{suffix}Async(parentId,actor,cancellationToken);\n":"")
                 .AppendLine($"        var entity = await {(buttonUpdate?$"(businessButtonId is null ? Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"update\"":"\"update\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == request.Id).ForUpdate() : ButtonRecordQuery{suffix}(request.Id,parentId,businessButtonId,actor,true))":$"Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,operationAwareImport?"authorizationOperation == RecordMutationOperation.Import ? \"import\" : \"update\"":"\"update\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == request.Id).ForUpdate()")}.FirstAsync(cancellationToken) ?? throw new BusinessRuleException(\"数据不存在或无权限\");")
                 .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
+                .Append(CapturePreviousRelationKeys(model,table))
                 .Append(SharedCrossTableRenderer.Capture(model,table,page))
                 .Append(NonRedundantCrossTableCompilation.HydrateCall(model,table,page))
                 .Append(RelationConditionsCompilation.CaptureMutation(model,table,page))
@@ -638,7 +639,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             foreach (var (column, source) in page.Scopes.Where(x => x.Source == "parent"))
                 result.AppendLine($"        if ({NonRedundantCrossParentCompilation.SubmittedCondition(model,table,page,column)}entity.{column.Property} != {ScopeValue(column, "parentId!")}) throw new InvalidOperationException(\"不能修改页面归属字段。\");");
             result.Append(CrossTableWriteRenderer.ScopeCheck(model,table,page)).Append(NonRedundantCrossTableCompilation.PackCall(model,table,page)).Append(buttonUpdate?$"        if(businessButtonId is not null)RequireButtonRecordAccess{suffix}(request.Id,businessButtonId,actor);\n":"").Append(AccountScopeCheck(table,page)).Append(KeepManagedGlobalProject(table)).Append(WriteCall(page, "Update", "originalScopeValues",businessButton:buttonUpdate?"businessButtonId":null)).Append(buttonUpdate?$"        if(businessButtonId is not null)await RequireButtonCurrent{suffix}Async(request.Id,businessButtonId,actor,cancellationToken);\n":"").AppendLine("        if (submitted.Count > 0 && await mapper.UpdateAsync(entity, submitted.ToArray(), cancellationToken) != 1) throw new InvalidOperationException(\"修改失败。\");").Append(TimeFieldCompilation.AfterWrite(model,table,true)).Append(CrossTableWriteRenderer.After(model,table,page,false,ImportRenderer.RelationOperationAware(model,table,page))).Append(CascadeTreeTopologyRenderer.After(model,table,page,false)).Append(CascadeTreeMergedWriteRenderer.After(model,table,page,false,ImportRenderer.RelationOperationAware(model,table,page)))
-                .Append(NonRedundantCrossParentCompilation.VerifyCall(model,table,page)).Append(SharedRedundantParentCompilation.VerifyCall(model,table,page)).AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, false, cancellationToken{(importFiles?", authorizationOperation":"")}{(buttonUpdate?(HasPhysicalFileColumns(model,table)&&!importFiles?", null":"")+", businessButtonId":"")});").AppendLine($"        return {RoleResult(model,table,page,"update")};").AppendLine("    }, cancellationToken);");
+                .Append(NonRedundantCrossParentCompilation.VerifyCall(model,table,page)).Append(SharedRedundantParentCompilation.VerifyCall(model,table,page)).AppendLine($"        await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, submitted, false, false, cancellationToken{(importFiles?", authorizationOperation":"")}{(buttonUpdate?(HasPhysicalFileColumns(model,table)&&!importFiles?", null":"")+", businessButtonId":"")}{PreviousRelationKeysArgument(model,table)});").AppendLine($"        return {RoleResult(model,table,page,"update")};").AppendLine("    }, cancellationToken);");
         }
         if (page.Source.IsDelete == 1)
         {
@@ -648,6 +649,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .Append(checkedParent?$"        await ValidateParents{suffix}Async(parentId,actor,cancellationToken);\n":"")
                 .AppendLine($"        var entity = await Scope{suffix}(actor, parentId{ExactDataManageCompilation.Argument(page,"\"delete\"")}{NonRedundantCrossParentCompilation.LockArgument(model,table,page)}).Where(row => row.Id == id).ForUpdate().FirstAsync(cancellationToken) ?? throw new BusinessRuleException(\"数据不存在或无权限\");")
                 .AppendLine("        var originalScopeValues = MutationScopeValues(entity);")
+                .Append(CapturePreviousRelationKeys(model,table))
                 .Append(TrustedSecurityServiceCompilation.RequirePrepared(model,table,"false","true")).AppendLine("        BeforeDelete(entity, actor);")
                 .Append(BoundRelationValidationRenderer.Call(model, table, page, true, true))
                 .Append(BoundRelationValidationRenderer.Call(model, table, page, true, false))
@@ -659,7 +661,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 if(HasPhysicalFileColumns(model,table))result.AppendLine($"        var deletionContext=new RecordMutationContext({Literal(page.Source.Id)},{Literal(table.Source.TableName)},entity.Id,{ProjectExpression(table)},new Dictionary<string,object?>(),true,session.CurrentTransaction!);")
                     .AppendLine("        foreach(var observer in observers)await observer.BeforePhysicalDeleteAsync(deletionContext,cancellationToken);");
                 result.AppendLine("        var deleted = await mapper.DeleteAsync(id, cancellationToken) == 1;");
-            } result.AppendLine($"        if (deleted) await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, new HashSet<string>(), true, true, cancellationToken);").AppendLine("        return deleted;");
+            } result.AppendLine($"        if (deleted) await Notify{table.Name}Async({Literal(page.Source.Id)}, entity, actor, new HashSet<string>(), true, true, cancellationToken{PreviousRelationKeysArgument(model,table)});").AppendLine("        return deleted;");
             result.AppendLine("    }, cancellationToken);");
         }
         return result.ToString();
@@ -752,13 +754,25 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
 """;
     }
 
+    /// <summary>仅更新和删除已有记录需要写前业务键。复制沿新记录处理，不通知原记录的旧键。</summary>
+    private static string CapturePreviousRelationKeys(GenerationModel model,TableModel table)
+    {
+        var keys=RelationPropagationRenderer.PreviousKeys(model,table);
+        if(keys.Count==0)return "";
+        var values=string.Join(", ",keys.Select(column=>$"[{Literal(column.Source.ColumnName)}] = entity.{column.Property}"));
+        return $"        var previousRelationKeys = new Dictionary<string, object?>(StringComparer.Ordinal) {{ {values} }};\n";
+    }
+
+    private static string PreviousRelationKeysArgument(GenerationModel model,TableModel table)=>
+        RelationPropagationRenderer.PreviousKeys(model,table).Count==0?"":", previousRelationKeys: previousRelationKeys";
+
     private static string Observer(GenerationModel model, TableModel table)
     {
         var business=table.Pages.Any(page=>BusinessRecordButtons(model,page).Count>0);
         var batchInsert=table.Pages.Any(page=>GlobalCachedParentCompilation.CanBatchAppendInsert(model,table,page));
         var sourceProperties=new List<string>();if(HasPhysicalFileColumns(model,table))sourceProperties.Add("AuthorizationOperation = authorizationOperation");if(business)sourceProperties.Add("BusinessButtonId = businessButtonId");
         var result = new StringBuilder().AppendLine("    /// <summary>文件引用和平台元数据联动加入本次实际事务。</summary>")
-            .AppendLine($"    private async Task Notify{table.Name}Async(string pageId, {table.EntityType} entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation? authorizationOperation = null":"")}{(business?", string? businessButtonId = null":"")}{(batchInsert?", IReadOnlyDictionary<string,object?>? insertedCache = null":"")})")
+            .AppendLine($"    private async Task Notify{table.Name}Async(string pageId, {table.EntityType} entity, RuntimeActor actor, ISet<string> submitted, bool deleting, bool allFields, CancellationToken cancellationToken{(HasPhysicalFileColumns(model,table)?", RecordMutationOperation? authorizationOperation = null":"")}{(business?", string? businessButtonId = null":"")}{(batchInsert?", IReadOnlyDictionary<string,object?>? insertedCache = null":"")}{(RelationPropagationRenderer.PreviousKeys(model,table).Count>0?", IReadOnlyDictionary<string,object?>? previousRelationKeys = null":"")})")
             .AppendLine("    {").Append(RelationPropagationRenderer.Notify(model,table,ProjectExpression(table),batchInsert)).AppendLine("        var values = new Dictionary<string, object?>").AppendLine("        {");
         foreach (var column in table.Columns.Where(column => !column.IsLayoutOnly))
             result.AppendLine($"            [{Literal(column.Source.ColumnName)}] = entity.{column.Property},");

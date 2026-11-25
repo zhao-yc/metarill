@@ -13,7 +13,7 @@ public static class CascadeTreeStorageColumns
         var columns=declared.ToArray();
         if(table.IsRongyu is not(0 or 1)||table.IsFunctionTable!=0||table.IsView!=0)return columns;
         var result=columns.ToList();
-        foreach(var source in columns.Where(column=>IsPhysicalSelfTreeKey(column,allowAlternate:table.IsRongyu==0)))
+        foreach(var source in columns.Where(column=>IsPhysicalSelfTreeKey(column,allowAlternate:true)))
         {
             var name=source.ColumnName[..^3]+"_name";MetadataValidation.RequireIdentifier(name);
             // 包括虚拟、错误类型和大小写冲突的显式列都不覆盖，正式生成继续暴露其缺口。

@@ -18,6 +18,32 @@ public sealed class SelfTreeCacheTests
             var saved=JsonSerializer.Serialize(c);var definition=SelfTreeCache.Compile(c,"source","foreign");Assert.False(definition.Multiple);Assert.Null(definition.CrossTableColumnId);var plan=RelationMutationPlan.Compile(c,[definition]);Assert.Equal("cache",definition.CacheColumnId);Assert.Equal(mode=="same"?"source_name":"value",definition.ValueColumnId);Assert.Equal(mode=="same"?"source":"target",definition.TargetTableId);Assert.NotEmpty(plan.Fingerprint);Assert.Equal(saved,JsonSerializer.Serialize(c));
         }
     }
+    /// <summary>来源匹配、目标缓存名称与回填联接使用相同业务键和发布条件。</summary>
+    [Theory]
+    [InlineData("int64")]
+    [InlineData("string")]
+    public void Ordinary_r1_self_tree_propagation_uses_business_key(string type)
+    {
+        var catalog=Catalog(type,"int64");
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="foreign");
+        foreign.ControlDetail=foreign.ControlDetail.Replace("\"selfTree\":{\"table\"","\"selfTree\":{\"idField\":\"node_key\",\"table\"",StringComparison.Ordinal);
+        catalog.ConfigColumns.Add(new(){Id="node_key",ConfigTableId="target",ColumnName="node_key",LogicalType="int64",IsDbNotNull=1});
+        catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="node_index",configTableId="target",indexName="uq_node_key",isUnique=1,isEnabled=1,yzProjectId=catalog.YzProjectId}));
+        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="node_index_column",configIndexId="node_index",configColumnId="node_key",sortNo=10,yzProjectId=catalog.YzProjectId}));
+        catalog.ConfigPages.Add(new(){Id="tree_page",ConfigTableId="target",WhereSql="yz_project_id=@current_yz_project_id AND caption='公开'"});
+        var definition=SelfTreeCache.Compile(catalog,"source","foreign","tree_page");
+        var maintenance=RelationMaintenanceCatalog.Compile(catalog,[definition]);
+        var binding=Assert.Single(maintenance.Propagation.Bindings);
+        Assert.Equal("node_key",binding.TargetKey);
+        Assert.Equal("caption",Assert.Single(binding.PublishedCondition!.Fields));
+        var read=Assert.IsType<Metarill.Data.Queries.MySqlNonRedundantReadPlan>(maintenance.Plans["source"].Read);
+        Assert.Contains("r0.`node_key`=",read.From);
+        Assert.Contains("r0.`yz_project_id`",read.From);
+        Assert.Contains("公开",read.Constants.Values);
+        Assert.Contains(read.PhysicalReferences,reference=>reference.Table=="cache_node"&&reference.Column.Name=="node_key");
+        catalog.ConfigIndexes.Clear();
+        Assert.Throws<NotSupportedException>(()=>SelfTreeCache.Compile(catalog,"source","foreign","tree_page"));
+    }
     /// <summary>坏定义、范围、非物理拓扑及凭据不会因为后缀匹配而成为可写缓存。</summary>
     [Theory][InlineData("mode")][InlineData("where")][InlineData("globalSource")][InlineData("globalTarget")][InlineData("sourceR0")][InlineData("virtualForeign")][InlineData("joinValue")][InlineData("virtualValue")][InlineData("wrongLink")][InlineData("badParent")][InlineData("credential")][InlineData("cacheLink")][InlineData("textType")]
     public void Unproven_leaf_definition_never_compiles(string kind)

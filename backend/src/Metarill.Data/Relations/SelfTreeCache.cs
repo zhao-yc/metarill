@@ -39,7 +39,7 @@ public static class SelfTreeCache
         var source=catalog.ConfigTables.Single(t=>t.Id==sourceTableId);var sourceColumns=RelationStorageColumns.Expand(source,catalog.ConfigColumns.Where(c=>c.ConfigTableId==source.Id));var foreign=sourceColumns.Single(c=>c.Id==controlId);var sourceStorage=MetadataStoragePolicy.ForTable(catalog,source);
         if(source.IsRongyu!=1||source.IsView!=0||source.IsFunctionTable!=0||foreign.ControlKind!="CascadeTree"||foreign.LogicalType is not("string" or "int64")||!Scalar(sourceStorage,foreign)||!foreign.ColumnName.EndsWith("_id",StringComparison.Ordinal))throw Invalid();
         using var json=JsonDocument.Parse(foreign.ControlDetail);var root=json.RootElement;Object(root);if(Text(root,"sourceMode","")!="selfTree"||!root.TryGetProperty("selfTree",out var tree))throw Invalid();Object(tree);
-        if(Extra(root)||Extra(tree)||Text(tree,"idField","id")!="id"||Text(tree,"rootMode","blank")!="blank"||Text(tree,"filterMatchMode","selfAndDescendants") is not("exact" or "selfAndDescendants"))throw Invalid();
+        if(Extra(root)||Extra(tree)||Text(tree,"rootMode","blank")!="blank"||Text(tree,"filterMatchMode","selfAndDescendants") is not("exact" or "selfAndDescendants"))throw Invalid();
         var target=catalog.ConfigTables.Single(t=>t.TableName==Text(tree,"table",""));if(target.IsRongyu is not(0 or 1)||target.IsView!=0||target.IsFunctionTable!=0||foreign.LinkConfigTableId.Length>0&&foreign.LinkConfigTableId!=target.Id)throw Invalid();
         var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id));var storage=MetadataStoragePolicy.ForTable(catalog,target);var value=columns.Single(c=>c.ColumnName==Text(tree,"nameField","name"));var parent=columns.Single(c=>c.ColumnName==Text(tree,"parentField",""));
         var derived=!storage.IsPhysical(value);
@@ -58,6 +58,17 @@ public static class SelfTreeCache
                     GlobalPhysicalRelationValue.IsScalar(storage,target,column))))throw Invalid();
         }
         var scoped=HasScopedPage(catalog,publishedPageId);
+        var keyName=Text(tree,"idField","id");
+        if(keyName!="id")
+        {
+            var key=CascadeTreeStorageColumns.ResolveNodeKey(catalog,target,keyName).Key;
+            if(source.Id==target.Id||global||globalSource||derived||scoped||key.Id==parent.Id||key.Id==value.Id)throw Invalid();
+            if(publishedPageId is not null)
+            {
+                var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==publishedPageId&&item.ConfigTableId==target.Id)??throw Invalid();
+                _=MySqlPublishedRelationCondition.Compile(catalog,target,page,projectParent:true);
+            }
+        }
         if(global||scoped||globalSource||derived&&publishedPageId is not null)
         {
             var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==publishedPageId&&p.ConfigTableId==target.Id)??throw Invalid();
@@ -79,7 +90,7 @@ public static class SelfTreeCache
             }
             else if(global)GlobalCrossTableTarget.RequireSelfTreeName(catalog,target,page,value);
         }
-        else if(publishedPageId is not null)throw Invalid();
+        else if(publishedPageId is not null&&keyName=="id")throw Invalid();
         if(!global&&derived)
         {
             var labelType=publishedPageId is null
@@ -109,6 +120,14 @@ public static class SelfTreeCache
         if(proof.TargetTableId!=target.Id||proof.ValueColumnId!=value.Id||proof.CacheColumnId!=cache.Id)throw Invalid();
         return true;
     }
+    /// <summary>已证明的自树缓存读取与传播共用同一业务键；旧主键关系使用默认键。</summary>
+    internal static string? AlternateKey(MetadataCatalog catalog,TableMetadata target,ColumnMetadata foreign)
+    {
+        using var json=JsonDocument.Parse(foreign.ControlDetail);
+        var name=Text(json.RootElement.GetProperty("selfTree"),"idField","id");
+        return name=="id"?null:CascadeTreeStorageColumns.ResolveNodeKey(catalog,target,name).Key.ColumnName;
+    }
+
     /// <summary>结构、ID及名称必须物理且非凭据；数组和联接不充当树拓扑。</summary>
     private static bool Scalar(MetadataStoragePlan storage,ColumnMetadata column)=>storage.IsPhysical(column)&&column.IsVirtualColumn==0&&!Enabled(column)&&!ExactDataManageValues.IsSensitiveField(column.ColumnName)&&column.ControlKind is not("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "MultiList" or "CheckBoxList");
     /// <summary>固定定义保留排序与外观配置，不忽略附加查询或在线页映射。</summary>

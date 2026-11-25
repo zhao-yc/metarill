@@ -104,6 +104,58 @@ public sealed class CascadeTreeExcelTests
         Assert.Null(unproven.Definition);
     }
 
+    /// <summary>R1整包必须下发固定字典条件、写前业务键和可加载的维护目录。</summary>
+    [Theory]
+    [InlineData(0,"int64")]
+    [InlineData(1,"string")]
+    public async Task Redundant_self_tree_business_key_builds_with_maintenance_and_old_key_snapshot(int targetMode,string sourceType)
+    {
+        const string ns="Example.RedundantTreeBusinessKey";
+        var catalog=RedundantMultiNameCacheTests.Published(Catalog("cachekey",sourceType,"int64"));
+        catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=targetMode;
+        foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="2"))page.Extra.Remove("type");
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+        targetPage.IsSave=1;
+        targetPage.IsDelete=1;
+        catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail=
+            catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail.Replace("\"idField\":\"id\"","\"idField\":\"node_key\"",StringComparison.Ordinal);
+        catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
+            ColumnName="node_key",LogicalType="int64",IsDbNotNull=1});
+        catalog.ConfigPageColumns.Add(new(){Id="30138",ConfigPageId="301",ConfigColumnId="38",IsEdit=1});
+        catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="71",configTableId="3",indexName="uq_tree_node_key",
+            isUnique=1,isEnabled=1,yzProjectId=catalog.YzProjectId}));
+        if(targetMode==0)catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="711",configIndexId="71",
+            configColumnId="33",sortNo=10,yzProjectId=catalog.YzProjectId}));
+        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="712",configIndexId="71",configColumnId="38",
+            sortNo=20,yzProjectId=catalog.YzProjectId}));
+
+        var model=GenerationModel.Create(catalog,ns);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-cache-business-key");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/CachekeyTreeService.g.cs"));
+            Assert.Contains("[\"node_key\"] = entity.NodeKey",service);
+            Assert.Contains("previousRelationKeys: previousRelationKeys",service);
+            var consumer=await File.ReadAllTextAsync(Path.Combine(generated,"Services/CachekeySourceService.g.cs"));
+            Assert.Contains("ImportCascade201_25Async",consumer);
+            Assert.Contains("ImportCascade202_25Async",consumer);
+            Assert.Contains("ExcelCascadeTreeId(entity)",consumer);
+            Assert.DoesNotContain("previousRelationKeys",consumer);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var declaration=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
+            var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(declaration.GetProperty("Catalog")!.GetValue(null));
+            var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+            var sourcePlan=plans["2"] ?? throw new InvalidOperationException("生成目录缺少来源表维护计划。");
+            Assert.Null(sourcePlan.GetType().GetProperty("Error")!.GetValue(sourcePlan));
+        }
+        finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>导入页无普通新增/编辑入口；覆盖按明确第一物理业务字段，不改变原页面协议。</summary>
     internal static Metarill.Core.Metadata.MetadataCatalog Catalog(string prefix="excel",string sourceType="string",string parentType="int64")
     {

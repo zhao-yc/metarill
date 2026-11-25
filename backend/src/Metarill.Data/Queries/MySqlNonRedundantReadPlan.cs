@@ -600,7 +600,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     var id=Resolve(table,alias,foreign.ColumnName);
                     // 普通树仍按已保存的叶键更新，仅名称的字典联接需要新的页级证明。
                     var joinPage=joinedTree?null:publishedPage;
-                    var targetAlias=Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||joinPage is not null,cachePage:joinPage,account:account);
+                    var treeKey=foreign.ControlKind=="CascadeTree"&&IsSelfTreeLabel(foreign,name)?SelfTreeCache.AlternateKey(catalog,target,foreign):null;
+                    var targetAlias=Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||joinPage is not null,cachePage:joinPage,account:account,targetKey:treeKey);
                     CascadeCacheOwner? nameOwner=null;
                     // 旧项目内纯物理联接定义可以没有目标页，仍沿原项目及物理终点校验。
                     if((joinedCross||joinedTree)&&(crossGlobal||catalog.ConfigPages.Any(page=>page.ConfigTableId==target.Id)))
@@ -846,7 +847,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var key=Column(target,"id");if(key.LogicalType!="int64"||key.IsDbNotNull!=1||!storage[target.Id].IsPhysical(key))throw new InvalidOperationException("关联目标必须使用非空int64物理主键。");
         }
         /// <summary>同一路径复用别名，不同角色到同表和自关联分别命名。</summary>
-        private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType,bool validatedCrossGlobal=false,bool ordinaryRelation=false,PageMetadata? cachePage=null,AccountScopedCrossCache? account=null,bool scopedCacheLink=false)
+        private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType,bool validatedCrossGlobal=false,bool ordinaryRelation=false,PageMetadata? cachePage=null,AccountScopedCrossCache? account=null,bool scopedCacheLink=false,string? targetKey=null)
         {
             // 单值读取和已证明的缓存联接都按物理外键的规范整数文本匹配，避免相邻 bigint 被折叠。
             var fixedTextKey = sourceType=="string" && (ordinaryRelation||scopedCacheLink) &&
@@ -867,9 +868,10 @@ public static partial class MySqlNonRedundantReadCompiler
             var scopedProject=false;
             MultiTargetParentScope? accountParent=null;
             MultiSourceParent? parentBinding=null;
-            var projectParent=!global&&refreshFields is not null&&ownerAlias==rootAlias&&
+            var globalSourceParent=!global&&refreshFields is not null&&ownerAlias==rootAlias&&
                 GlobalCachedRelationSource.RowProjectSelfTreeParentPages(catalog,root,relation).Count>0;
-            if(projectParent)publishedPage=GlobalSingleRelationTarget.RequireProjectParent(catalog,root,relation,target).Page;
+            if(globalSourceParent)publishedPage=GlobalSingleRelationTarget.RequireProjectParent(catalog,root,relation,target).Page;
+            var projectParent=globalSourceParent||targetKey is not null&&publishedPage is not null;
             if(global&&!validatedCrossGlobal)
             {
                 var owner=tables[relation.ConfigTableId];
@@ -901,7 +903,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var exactTextKey = sourceType == "string" && (refreshFields is not null || global);
             aggregateJoinsPreserveCardinality &= sourceType is "int64" or "int32" || exactTextKey;
             var path=ownerAlias+":"+relation.Id+(cachePage is null?"":":"+cachePage.Id)+(account is null?"":":account:"+account.PageId)+
-                (scopedCacheLink?":scoped-cache:"+output:"");
+                (scopedCacheLink?":scoped-cache:"+output:"")+(targetKey is null?"":":key:"+targetKey);
             var directSave=refreshFields is not null&&ordinaryRelation&&ownerAlias==rootAlias&&storage[root.Id].IsPhysical(relation)&&source==ownerAlias+"."+Q(relation.ColumnName);
             if(aliases.TryGetValue(path,out var existing))
             {
@@ -912,7 +914,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         storedProject:scopedProject);
                 if(account is not null)_=AccountCacheScope(account,target,existing,ownerAlias,render:false);
                 aggregateFields[existing].Add(output);
-                Touch(existing,"id");return existing;
+                Touch(existing,targetKey??"id");return existing;
             }
             var ownerTable=tables[relation.ConfigTableId];
             // 来源路径须先加入联接；后续目标别名的 ON 才能引用已经声明的祖先。
@@ -938,19 +940,21 @@ public static partial class MySqlNonRedundantReadCompiler
                 var condition=ProjectSingleReadCondition(ownerTable,ownerAlias,relation,target,alias,projectSingle);
                 if(condition.Length>0)scope+=(scope.Length==0?"":" AND ")+condition;
             }
-            if(trackReverse)
+            if(trackReverse&&targetKey is null)
             {
                 Touch(alias,"id");reverse.Add(alias,(target.TableName,prefix,source,sourceType));
                 if(directSave)directSaveAliases.Add(alias);
             }
             if(refreshFields is not null&&sourceType is not("int64" or "string"))throw new NotSupportedException("维护关系ID必须为int64或规范字符串。");
-            var equality=(exactTextKey||fixedTextKey)?"BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+source:alias+"."+Q("id")+"="+source;
+            var keySql=alias+"."+Q(targetKey??"id");
+            if(targetKey is not null)_=Column(target,targetKey);
+            var equality=(exactTextKey||fixedTextKey)?"BINARY CAST("+keySql+" AS CHAR)=BINARY "+source:keySql+"="+source;
             if(refreshFields is not null&&sourceType=="string")
             {
                 // 先以来源的规范整数形式查找目标主键，再用原字节比较排除隐式等值。
                 // 使用定点数覆盖有符号 64 位边界，超界字符串不会溢出或转换成另一目标。
                 var lookup=$"CASE WHEN REGEXP_LIKE(CONCAT({source},'#'),'^(0|-?[1-9][0-9]{{0,18}})#$','c') THEN CAST({source} AS DECIMAL(20,0)) END";
-                equality=$"{alias}.`id`={lookup} AND {equality}";
+                equality=$"{keySql}={lookup} AND {equality}";
             }
             if(account is not null)scope+=(scope.Length==0?"":" AND ")+AccountCacheScope(account,target,alias,ownerAlias,render:true);
             var predicate=equality+(scope.Length==0?"":" AND "+scope);

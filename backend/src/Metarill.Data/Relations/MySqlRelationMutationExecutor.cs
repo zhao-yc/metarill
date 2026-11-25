@@ -8,25 +8,28 @@ namespace Metarill.Data.Relations;
 internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
 {
     /// <summary>只返回原变动实体自身被刷新字段，生成服务据此保持写回执与同事务数据库一致。</summary>
-    public async Task<IReadOnlyDictionary<string,object?>> AfterMutationAsync(RelationMutationPlan plan,string table,long id,string projectId,IReadOnlySet<string> changed,bool allFields,CancellationToken token=default,Action<string,long,IReadOnlyDictionary<string,object?>>? onChanged=null)
+    public async Task<IReadOnlyDictionary<string,object?>> AfterMutationAsync(RelationMutationPlan plan,string table,long id,string projectId,IReadOnlySet<string> changed,bool allFields,CancellationToken token=default,Action<string,long,IReadOnlyDictionary<string,object?>>? onChanged=null,IReadOnlyDictionary<string,object?>? previousValues=null)
     {
-        try{return await RunAsync(plan,table,id,projectId,changed,allFields,token,onChanged);}
+        try{return await RunAsync(plan,table,id,projectId,changed,allFields,token,onChanged,previousValues);}
         catch(MySqlConnector.MySqlException error)when(error.Number is 1213 or 1205){throw new InvalidOperationException("名称传播遇到并发冲突，当前操作不提交，请重试。",error);}
     }
     /// <summary>外层事务统一负责回滚，不重试可能带有业务副作用的整个Service。</summary>
-    private async Task<IReadOnlyDictionary<string,object?>> RunAsync(RelationMutationPlan plan,string table,long id,string projectId,IReadOnlySet<string> changed,bool allFields,CancellationToken token,Action<string,long,IReadOnlyDictionary<string,object?>>? onChanged)
+    private async Task<IReadOnlyDictionary<string,object?>> RunAsync(RelationMutationPlan plan,string table,long id,string projectId,IReadOnlySet<string> changed,bool allFields,CancellationToken token,Action<string,long,IReadOnlyDictionary<string,object?>>? onChanged,IReadOnlyDictionary<string,object?>? previousValues)
     {
         if(session.Options.Provider!="mysql")throw new NotSupportedException("该方言尚未完成关系传播验收。");var transaction=session.CurrentTransaction??throw new InvalidOperationException("关系传播要求当前业务事务。");if(id<=0||string.IsNullOrWhiteSpace(projectId))throw new ArgumentException("关系传播缺少真实记录或项目。");
-        var origin=new Dictionary<string,object?>(StringComparer.Ordinal);var pending=new Queue<(string Table,long Id,HashSet<string> Fields,bool All)>();pending.Enqueue((table,id,new(changed,StringComparer.Ordinal),allFields));
+        var origin=new Dictionary<string,object?>(StringComparer.Ordinal);var pending=new Queue<(string Table,long Id,HashSet<string> Fields,bool All,IReadOnlyDictionary<string,object?>? Previous)>();pending.Enqueue((table,id,new(changed,StringComparer.Ordinal),allFields,previousValues));
         while(pending.TryDequeue(out var change))
         {
             token.ThrowIfCancellationRequested();
-            foreach(var group in plan.Bindings.Where(binding=>binding.Target.Name==change.Table&&(change.All||change.Fields.Contains(binding.Value)||binding.PublishedCondition?.Fields.Any(change.Fields.Contains)==true)).GroupBy(binding=>(binding.Source.Name,binding.Foreign)))
+            foreach(var group in plan.Bindings.Where(binding=>binding.Target.Name==change.Table&&(change.All||change.Fields.Contains(binding.Value)||binding.TargetKey is {} targetKey&&change.Fields.Contains(targetKey)||binding.PublishedCondition?.Fields.Any(change.Fields.Contains)==true)).GroupBy(binding=>(binding.Source.Name,binding.Foreign)))
             {
                 var bindings=group.ToArray();long after=0;
+                var targetKeys=await TargetKeys(bindings[0],change.Id,change.Previous,transaction,projectId,token);
+                if(targetKeys.Length==0)continue;
                 while(true)
                 {
-                    var rows=await Consumers(plan.Bindings,bindings,change.Id,after,transaction,projectId,token);if(rows.Count==0)break;after=rows[^1].Id;
+                    var rows=await Consumers(plan.Bindings,bindings[0],targetKeys,after,transaction,projectId,token);
+                    if(rows.Count==0)break;after=rows[^1].Id;
                     // 同一来源外键的所有缓存共用本批目标集合和当前锁读取，不逐缓存／逐记录查询名称。
                     var peers=plan.Bindings.Where(binding=>binding.Source.Name==group.Key.Name&&binding.Foreign==group.Key.Foreign).ToArray();var ids=rows.SelectMany(row=>Members(row.Foreign,peers[0])).OfType<long>().Distinct().Order().ToArray();var values=await Targets(peers,ids,transaction,projectId,token);
                     var changedRows=new List<RelationRowPatch>();
@@ -42,25 +45,47 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
                     }
                     // 本批写回全部核验后才进入下游队列；失败由同一外层事务回滚全部先前批次。
                     await RelationCacheStorageVerifier.VerifyManyAsync(session,peers[0].Source.Name,Scope(peers[0].Source,"c"),Project(peers[0].Source,projectId),changedRows,transaction,token);
-                    foreach(var patch in changedRows){if(group.Key.Name==table&&patch.Id==id)foreach(var item in patch.Values)origin[item.Key]=item.Value;onChanged?.Invoke(group.Key.Name,patch.Id,patch.Values);pending.Enqueue((group.Key.Name,patch.Id,new(patch.Values.Keys,StringComparer.Ordinal),false));}
+                    foreach(var patch in changedRows){if(group.Key.Name==table&&patch.Id==id)foreach(var item in patch.Values)origin[item.Key]=item.Value;onChanged?.Invoke(group.Key.Name,patch.Id,patch.Values);pending.Enqueue((group.Key.Name,patch.Id,new(patch.Values.Keys,StringComparer.Ordinal),false,null));}
                 }
             }
         }
         return origin;
     }
     private sealed record Consumer(long Id,object? Foreign,IReadOnlyDictionary<string,object?> Values);
-    /// <summary>反查真实外键，不依赖可能已被删除的目标联接；按主键分批取得写锁。</summary>
-    private async Task<IReadOnlyList<Consumer>> Consumers(IReadOnlyList<RelationCache> plan,RelationCache[] bindings,long target,long after,DbTransaction transaction,string project,CancellationToken token)
+
+    private async Task<long[]> TargetKeys(RelationCache binding,long id,IReadOnlyDictionary<string,object?>? previous,DbTransaction transaction,string project,CancellationToken token)
     {
-        var binding=bindings[0]; // 缓存投影由完整源外键集合补齐，避免另一缓存被误判为缺省。
+        if(binding.TargetKey is null)return [id];
+        var values=new List<long>();
+        await using(var command=Command(transaction))
+        {
+            // 当前键按真实行和项目读取。删除后仍可由同一事务预先捕获的键定位消费者。
+            command.CommandText="SELECT t."+Q(binding.TargetKey)+" FROM "+Q(binding.Target.Name)+" t WHERE t.`id`=@id AND "+Scope(binding.Target,"t")+" FOR SHARE";
+            Add(command,"id",id);
+            Add(command,"project",Project(binding.Target,project));
+            await using var reader=await command.ExecuteReaderAsync(token);
+            if(await reader.ReadAsync(token)&&!reader.IsDBNull(0))values.Add(reader.GetInt64(0));
+        }
+        if(Id(previous?.GetValueOrDefault(binding.TargetKey)) is {} oldKey&&!values.Contains(oldKey))
+            values.Add(oldKey);
+        return values.ToArray();
+    }
+    /// <summary>反查真实外键，不依赖可能已被删除的目标联接；按主键分批取得写锁。</summary>
+    private async Task<IReadOnlyList<Consumer>> Consumers(IReadOnlyList<RelationCache> plan,RelationCache binding,long[] targets,long after,DbTransaction transaction,string project,CancellationToken token)
+    {
+        // 缓存投影由完整源外键集合补齐；新旧键共用排序、分页和锁读取。
         var all=plan.Where(item=>item.Source.Name==binding.Source.Name&&item.Foreign==binding.Foreign).ToArray();
         await using var command=Command(transaction);var alias="c";var foreign=alias+"."+Q(binding.Foreign);var condition=binding.Multiple?"((SELECT 1 FROM JSON_TABLE(CASE WHEN JSON_VALID("+foreign+") THEN CASE WHEN JSON_TYPE(CAST("+foreign+" AS JSON))='ARRAY' THEN "+foreign+" ELSE '[]' END ELSE '[]' END, '$[*]' COLUMNS(member_value VARCHAR(32) PATH '$')) relation_member WHERE BINARY relation_member.member_value=BINARY @member LIMIT 1) IS NOT NULL)":binding.ForeignType=="string"?"BINARY "+foreign+"=BINARY @member":foreign+"=@target";
+        if(targets.Length==2)condition=binding.ForeignType=="string"?
+            $"({condition} OR BINARY {foreign}=BINARY @old_member)":$"{foreign} IN (@target,@old_target)";
+        if(targets.Length==2){Add(command,"old_member",targets[1].ToString(CultureInfo.InvariantCulture));Add(command,"old_target",targets[1]);}
+        var target=targets[0];
         command.CommandText="SELECT c.`id`,"+foreign+","+string.Join(",",all.Select(item=>"c."+Q(item.Cache)))+" FROM "+Q(binding.Source.Name)+" c WHERE "+Scope(binding.Source,alias)+" AND c.`id`>@after AND "+condition+" ORDER BY c.`id` LIMIT 128 FOR UPDATE";Add(command,"project",Project(binding.Source,project));Add(command,"after",after);Add(command,"member",target.ToString(CultureInfo.InvariantCulture));Add(command,"target",target);var result=new List<Consumer>();await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token)){var values=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<all.Length;index++)values[all[index].Cache]=await reader.IsDBNullAsync(index+2,token)?null:reader.GetValue(index+2);result.Add(new(reader.GetInt64(0),await reader.IsDBNullAsync(1,token)?null:reader.GetValue(1),values));}return result;
     }
     /// <summary>目标当前读保留项目与软删边界，按真实ID批量查询；缺失目标只置空名称，不修改外键。</summary>
     private async Task<Dictionary<(long,string),object?>> Targets(RelationCache[] bindings,long[] ids,DbTransaction transaction,string project,CancellationToken token)
     {
-        var target=bindings[0].Target;var fields=bindings.Select(binding=>binding.Value).Distinct(StringComparer.Ordinal).ToArray();var result=new Dictionary<(long,string),object?>();
+        var target=bindings[0].Target;var key="t."+Q(bindings[0].TargetKey??"id");var fields=bindings.Select(binding=>binding.Value).Distinct(StringComparer.Ordinal).ToArray();var result=new Dictionary<(long,string),object?>();
         // 数组与级联名称采用相同的文本转换，普通单值业务缓存保留原始标量。
         var labels=bindings.Where(binding=>binding.Multiple||binding.TextScalar).DistinctBy(binding=>binding.Value)
             .ToDictionary(binding=>binding.Value,binding=>binding.ValueType,StringComparer.Ordinal);
@@ -72,7 +97,7 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
         {
             await using var command=Command(transaction);
             if(condition is not null)foreach(var parameter in condition.Parameters)Add(command,parameter.Key,parameter.Value);
-            command.CommandText="SELECT t.`id`,"+string.Join(",",values)+" FROM "+Q(target.Name)+" t WHERE "+scope+" AND t.`id` IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@id"+index))+") ORDER BY t.`id` FOR SHARE";Add(command,"project",Project(target,project));for(var index=0;index<batch.Length;index++)Add(command,"id"+index,batch[index]);await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))for(var index=0;index<fields.Length;index++)result[(reader.GetInt64(0),fields[index])]=await reader.IsDBNullAsync(index+1,token)?null:reader.GetValue(index+1);
+            command.CommandText="SELECT "+key+","+string.Join(",",values)+" FROM "+Q(target.Name)+" t WHERE "+scope+" AND "+key+" IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@id"+index))+") ORDER BY "+key+" FOR SHARE";Add(command,"project",Project(target,project));for(var index=0;index<batch.Length;index++)Add(command,"id"+index,batch[index]);await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))for(var index=0;index<fields.Length;index++)result[(reader.GetInt64(0),fields[index])]=await reader.IsDBNullAsync(index+1,token)?null:reader.GetValue(index+1);
         }
         return result;
     }
