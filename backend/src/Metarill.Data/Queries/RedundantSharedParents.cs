@@ -90,13 +90,14 @@ public static class RedundantSharedParents
         var overlay=catalog.ConfigPageColumns.SingleOrDefault(f=>f.ConfigPageId==page.Id&&f.ConfigColumnId==control.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();
         if (!CrossTableStorageColumns.KeepsDefinition(control.ControlDetail, overlay)) throw Unsupported();
         using var json=JsonDocument.Parse(control.ControlDetail);var root=json.RootElement;Object(root);if(Text(root,"sourceMode","crossTable")!="crossTable"||Extra(root)||!root.TryGetProperty("levels",out var levels)||levels.ValueKind!=JsonValueKind.Array||levels.GetArrayLength()<2)throw Unsupported();
-        var result=new List<RedundantSharedParentLevel>();var ids=new List<ColumnMetadata>();var names=new List<ColumnMetadata>();var keys=new HashSet<string>(StringComparer.Ordinal);var prefixes=new HashSet<string>(StringComparer.OrdinalIgnoreCase);TableMetadata? previous=null;
+        var result=new List<RedundantSharedParentLevel>();var ids=new List<ColumnMetadata>();var names=new List<ColumnMetadata>();var keys=new HashSet<string>(StringComparer.Ordinal);var prefixes=new HashSet<string>(StringComparer.OrdinalIgnoreCase);TableMetadata? previous=null;var globalDerivedName=false;
         foreach(var level in levels.EnumerateArray())
         {
             Object(level);if(Extra(level))throw Unsupported();var target=catalog.ConfigTables.Single(t=>t.TableName==Text(level,"table",""));if(target.IsRongyu is not(0 or 1)||target.IsView!=0||target.IsFunctionTable!=0)throw Unsupported();var prefix=Text(level,"columnPrefix",target.TableName);var key=Text(level,"key",target.TableName);MetadataValidation.RequireIdentifier(prefix);if(!prefixes.Add(prefix)||!keys.Add(key)||prefix is "yz_project" or "insert_manager" or "update_manager" or "insert_user" or "update_user")throw Unsupported();
             var alternate=CrossTableStorageColumns.AlternateLevelKey(catalog,target,level);
             var targetColumns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(c=>c.ConfigTableId==target.Id));var ts=MetadataStoragePolicy.ForTable(catalog,target);var primary=targetColumns.SingleOrDefault(c=>c.ColumnName=="id");var project=targetColumns.SingleOrDefault(c=>c.ColumnName=="yz_project_id");var global=GlobalCrossTableTarget.Declared(target);if(primary is null||primary.LogicalType!="int64"||primary.IsDbNotNull!=1||!Scalar(ts,target,primary)||!global&&(project is null||project.LogicalType is not("string" or "int64")||!Scalar(ts,target,project)))throw Unsupported();
             var display=targetColumns.Single(c=>c.ColumnName==Text(level,"nameField","name"));if(display.ColumnName=="id"||display.LogicalType is not("string" or "int32" or "int64")||display.IsVirtualColumn!=0)throw Unsupported();if(!ts.IsPhysical(display)&&!global){var read=NonRedundantReads.CompileMatch(catalog,target.Id,display.ColumnName);if(read.OutputTypes[display.ColumnName]!=display.LogicalType||NonRedundantReads.MatchReadsTable(catalog,target.Id,display.ColumnName,source.TableName))throw Unsupported();}
+            globalDerivedName|=global&&!ts.IsPhysical(display);
             var parent=previous is null?null:targetColumns.Single(c=>c.ColumnName==Text(level,"parentField",""));if(parent is not null&&(!Scalar(ts,target,parent)||parent.LogicalType is not("string" or "int64")||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=previous!.Id))throw Unsupported();
             var textKey=alternate?.LogicalType=="string";
             if(parent is not null&&result[^1].TextKey&&parent.LogicalType!="string")throw Unsupported();
@@ -138,9 +139,10 @@ public static class RedundantSharedParents
             });ids.Add(id);names.Add(name);previous=target;
         }
         if(ids[^1].Id!=control.Id)throw Unsupported();
-        if(result.Any(level=>level.TextKey)&&result.Any(level=>level.ProjectType is null||level.TableId==source.Id||
+        // 全局物理名称沿原发布证明，文本键仍须有单列唯一索引。逻辑与账号条件保留各自边界。
+        if(result.Any(level=>level.TextKey)&&(globalDerivedName||result.Any(level=>level.TableId==source.Id||
             level.RecursiveCandidate is not null||level.Condition?.Variables.Count>0||
-            catalog.ConfigTables.Single(table=>table.Id==level.TableId).IsRongyu!=1))throw Unsupported();
+            level.ProjectType is not null&&catalog.ConfigTables.Single(table=>table.Id==level.TableId).IsRongyu!=1)))throw Unsupported();
         // 来源兼任候选时，真实父和名称不能被同一条链的归一化改写。
         var managed=ids.Concat(names).Select(field=>field.ColumnName).ToHashSet(StringComparer.Ordinal);
         if(result.Where(level=>level.TableId==source.Id).Any(level=>

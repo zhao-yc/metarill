@@ -53,6 +53,52 @@ public sealed class CrossTableCachePlanTests
         Assert.Throws<InvalidOperationException>(()=>RelationMutationPlan.Compile(catalog,[account]));
     }
 
+    /// <summary>显式全局文本键使改名和整表回填使用同一个固定候选范围及字节等值。</summary>
+    [Theory]
+    [InlineData(0,true)][InlineData(0,false)][InlineData(1,true)][InlineData(1,false)]
+    public void Global_text_key_keeps_the_published_scope_in_propagation_and_maintenance(int targetMode,bool storedProject)
+    {
+        var catalog=Catalog("string","caption");
+        var country=catalog.ConfigTables.Single(table=>table.Id=="country");
+        country.IsRongyu=targetMode;
+        country.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        if(!storedProject)catalog.ConfigColumns.RemoveAll(column=>column.Id=="country_project");
+        var control=catalog.ConfigColumns.Single(column=>column.Id=="control");
+        var definition=JsonNode.Parse(control.ControlDetail)!;
+        definition["levels"]![0]!["idField"]="business_key";
+        control.ControlDetail=definition.ToJsonString();
+        catalog.ConfigColumns.Add(new(){Id="country_key",ConfigTableId="country",ColumnName="business_key",
+            LogicalType="string",ColumnLength="50",IsDbNotNull=1});
+        catalog.ConfigColumns.Add(new(){Id="country_enabled",ConfigTableId="country",ColumnName="enabled",LogicalType="bool"});
+        catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="country_unique",configTableId="country",isUnique=1}));
+        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{configIndexId="country_unique",configColumnId="country_key",sortNo=1}));
+        catalog.YzAdminTypes.Add(new(){Id="8",YzProjectId=catalog.YzProjectId});
+        catalog.ConfigPages.Add(new(){Id="country_list",ConfigTableId="country",YzProjectId=catalog.YzProjectId,YzAdminTypeId="8",WhereSql="enabled=1"});
+        catalog.ConfigPageColumns.Add(new(){Id="country_list_label",ConfigPageId="country_list",ConfigColumnId="country_label",IsShow=1});
+        var definitions=Definitions(catalog).Select(item=>item with
+        {
+            CrossTableGlobalPages=new Dictionary<string,string>{{"country","country_list"}},
+            CrossTablePageId=item.TargetTableId=="country"?"country_list":null
+        }).ToArray();
+        var plan=RelationMaintenanceCatalog.Compile(catalog,definitions);
+        var binding=Assert.Single(plan.Propagation.Bindings,item=>item.Target.Name=="cross_cache_country");
+        Assert.Equal("business_key",binding.TargetKey);
+        Assert.True(binding.TextTargetKey);
+        Assert.Equal("",binding.Target.ProjectType);
+        Assert.Contains("enabled",binding.PublishedCondition!.Fields);
+        var read=plan.Plans["source"].Read;
+        Assert.NotNull(read);
+        Assert.Matches(@"BINARY r\d+\.\x60business_key\x60=BINARY b\.\x60country_id\x60",read.From);
+        Assert.Matches(@"r\d+\.\x60enabled\x60=@[A-Za-z0-9_]+",read.From);
+        var targetJoin=Assert.Single(read.From.Split(" LEFT JOIN ").Where(sql=>sql.StartsWith("`cross_cache_country` ",StringComparison.Ordinal)));
+        Assert.DoesNotContain("yz_project_id",targetJoin);
+        if(storedProject)
+        {
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{configIndexId="country_unique",configColumnId="country_project",sortNo=2}));
+            Assert.ThrowsAny<Exception>(()=>RelationMutationPlan.Compile(catalog,definitions));
+        }
+    }
+
     /// <summary>跨表缓存不能通过伪造字段、表、层、额外SQL或派生终点放宽普通标量合同。</summary>
     [Theory][InlineData("noControl")][InlineData("noLevel")][InlineData("wrongLevel")][InlineData("wrongTarget")][InlineData("wrongCache")][InlineData("multiple")][InlineData("extra")][InlineData("duplicateKey")][InlineData("global")][InlineData("derived")][InlineData("credential")][InlineData("parent")][InlineData("parentSystem")][InlineData("foreignControl")][InlineData("invalidR0")]
     public void Invalid_cross_proofs_fail_before_connection(string kind)

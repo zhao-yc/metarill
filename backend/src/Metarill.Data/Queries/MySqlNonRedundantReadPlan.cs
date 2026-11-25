@@ -610,8 +610,11 @@ public static partial class MySqlNonRedundantReadCompiler
                     var joinPage=joinedTree?null:publishedPage;
                     var treeKey=foreign.ControlKind=="CascadeTree"&&IsSelfTreeLabel(foreign,name)?SelfTreeCache.AlternateKey(catalog,target,foreign):null;
                     var crossKey=CrossTableCacheProof.AlternateKey(catalog,target,refresh);
-                    if(crossKey is not null&&!crossGlobal&&account is null)
-                        joinPage=CrossTableCacheProof.NamePage(catalog,target,value,refresh).Page;
+                    // 业务键传播和整表回填沿同一候选页，普通全局字符串名称也要执行固定条件。
+                    if(crossKey is not null&&account is null)
+                        joinPage=crossGlobal
+                            ?catalog.ConfigPages.Single(page=>page.Id==refresh.CrossTablePageId&&page.ConfigTableId==target.Id)
+                            :CrossTableCacheProof.NamePage(catalog,target,value,refresh).Page;
                     var targetAlias=Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||joinPage is not null,cachePage:joinPage,account:account,targetKey:treeKey?.ColumnName??crossKey?.ColumnName,reverseAlternate:crossKey is not null);
                     CascadeCacheOwner? nameOwner=null;
                     // 旧项目内纯物理联接定义可以没有目标页，仍沿原项目及物理终点校验。

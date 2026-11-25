@@ -164,19 +164,23 @@ public sealed class CrossTableExcelLosslessGenerationTests
 
     /// <summary>同一链混用原主键和文本业务键，原组件接口与 Excel 都保留前导零和大小写。</summary>
     [Theory]
-    [InlineData(1,false,"OverWriteByFirstColumn",null)]
-    [InlineData(1,false,"OnlyNew","country_id")]
-    [InlineData(1,false,"OverWriteByFirstColumn","country_id")]
-    [InlineData(1,false,"OverwriteByCascade","area_id")]
-    [InlineData(1,false,"OnlyNew","place_id")]
-    [InlineData(0,false,"OnlyNew",null)]
-    [InlineData(0,false,"OverWriteByFirstColumn",null)]
-    [InlineData(0,true,"OverWriteByFirstColumn",null)]
-    [InlineData(0,false,"OnlyNew","country_id")]
-    [InlineData(0,false,"OverWriteByFirstColumn","country_id")]
-    [InlineData(0,false,"OverWriteByFirstColumn","area_id")]
-    [InlineData(0,false,"OnlyNew","place_id")]
-    public async Task Mixed_text_business_keys_use_the_original_page_and_excel(int redundant,bool logicalTarget,string importMode,string? parentColumn)
+    [InlineData(1,false,"OverWriteByFirstColumn",null,-1,-1)]
+    [InlineData(1,false,"OnlyNew","country_id",-1,-1)]
+    [InlineData(1,false,"OverWriteByFirstColumn","country_id",-1,-1)]
+    [InlineData(1,false,"OverwriteByCascade","area_id",-1,-1)]
+    [InlineData(1,false,"OnlyNew","place_id",-1,-1)]
+    [InlineData(0,false,"OnlyNew",null,-1,-1)]
+    [InlineData(0,false,"OverWriteByFirstColumn",null,-1,-1)]
+    [InlineData(0,true,"OverWriteByFirstColumn",null,-1,-1)]
+    [InlineData(0,false,"OnlyNew","country_id",-1,-1)]
+    [InlineData(0,false,"OverWriteByFirstColumn","country_id",-1,-1)]
+    [InlineData(0,false,"OverWriteByFirstColumn","area_id",-1,-1)]
+    [InlineData(0,false,"OnlyNew","place_id",-1,-1)]
+    [InlineData(0,false,"OverWriteByFirstColumn","country_id",0,1)]
+    [InlineData(1,false,"OverWriteByFirstColumn","country_id",0,0)]
+    [InlineData(0,false,"OnlyNew",null,2,0)]
+    [InlineData(1,false,"OnlyNew","place_id",2,1)]
+    public async Task Mixed_text_business_keys_use_the_original_page_and_excel(int redundant,bool logicalTarget,string importMode,string? parentColumn,int globalLevel,int globalMode)
     {
         var catalog=CrossTableExcelImportColumnsTests.Catalog("pathexcel","string");
         var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
@@ -213,6 +217,8 @@ public sealed class CrossTableExcelLosslessGenerationTests
         }
         if(logicalTarget)
             catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=0;
+        if(globalLevel>=0)
+            PublishGlobalTextLevel(catalog,globalLevel,globalMode);
         RedundantMultiNameCacheTests.Published(catalog);
         catalog.ConfigMenus.Add(new(){Id="2200",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",Name="来源",Kind="GENERATED_PAGE",ConfigPageId="201"});
         var model=GenerationModel.Create(catalog,"Example.PathExcel");
@@ -255,7 +261,13 @@ public sealed class CrossTableExcelLosslessGenerationTests
                 Assert.Contains("PathByKeyAsync(1,SharedR1ParentKey201(request.ParentId).ToString(CultureInfo.InvariantCulture)",import);
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
-            if(!logicalTarget)await ExerciseParser(assembly,textKeys:true,sparse:redundant==0,parentColumn:parentColumn);
+            if(!logicalTarget&&globalMode!=0)
+                await ExerciseParser(assembly,textKeys:true,sparse:redundant==0,parentColumn:parentColumn,globalLevel:globalLevel);
+            if(globalMode==0)
+            {
+                var service=assembly.GetType(model.Namespace+".Generated.Services.PathexcelSourceService",true)!;
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            }
             if(redundant==1&&parentColumn=="country_id"&&importMode=="OnlyNew")
             {
                 var probe=NonRedundantApplicationFixture.Start("node",directory);
@@ -267,8 +279,22 @@ public sealed class CrossTableExcelLosslessGenerationTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
+    /// <summary>仅显式全局层免项目匹配。全局唯一约束必须只包含业务键。</summary>
+    private static void PublishGlobalTextLevel(MetadataCatalog catalog,int level,int mode)
+    {
+        var id=(level+3).ToString();
+        var target=catalog.ConfigTables.Single(table=>table.Id==id);
+        target.IsRongyu=mode;
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        catalog.ConfigPages.Single(page=>page.ConfigTableId==id).WhereSql="status=1";
+        var indexId="business_index_"+id;
+        catalog.ConfigIndexColumns.RemoveAll(column=>column.GetProperty("configIndexId").GetString()==indexId&&
+            column.GetProperty("configColumnId").GetString()!="business_"+id);
+        if(level==2)catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId==id&&column.ColumnName=="yz_project_id");
+    }
+
     /// <summary>真实私有解析器在原DatabaseSession事务中运行；按父/项目/状态过滤，不返回预设成功ID。</summary>
-    private static async Task ExerciseParser(Assembly assembly,bool businessKeys=false,bool textKeys=false,bool sparse=false,string? parentColumn=null)
+    private static async Task ExerciseParser(Assembly assembly,bool businessKeys=false,bool textKeys=false,bool sparse=false,string? parentColumn=null,int globalLevel=-1)
     {
         DatabaseSession? currentSession=null;var transport=new TrustedSecurityMemoryProvider();var rows=new Dictionary<Type,List<object>>();var reads=new List<string>();
         object Select(Type type)
@@ -377,6 +403,14 @@ public sealed class CrossTableExcelLosslessGenerationTests
             Add("Area",22,"区乙","PathexcelCountryId","A-01");
             Add("Place",31,"城甲","PathexcelAreaId",21,key:"Leaf-A");
             Add("Place",32,"城乙","PathexcelAreaId",22,key:"Leaf-B");
+            if(globalLevel==0)
+            {
+                Add("Country",14,"关闭",status:0,project:2,key:"closed");
+                var roots=new CascadeTreeOptionsRequest{LevelKey="country",SelectedPath=JsonSerializer.SerializeToElement(new{})};
+                var available=await (Task<IReadOnlyList<CrossTableOption>>)type.GetMethod("CrossOptions201_25Async")!.Invoke(service,[roots,actor,CancellationToken.None])!;
+                Assert.Contains(available,item=>item.Id=="outside");
+                Assert.DoesNotContain(available,item=>item.Id=="closed");
+            }
             var leafRequest=new CascadeTreePathRequest{LeafId=JsonSerializer.SerializeToElement("Leaf-A")};
             var pathMethod=type.GetMethod("CrossPath201_25Async")!;
             var path=await (Task<CrossTablePath>)pathMethod.Invoke(service,[leafRequest,actor,CancellationToken.None])!;
@@ -476,7 +510,7 @@ public sealed class CrossTableExcelLosslessGenerationTests
         {
             var entityType=assembly.GetType("Example.PathExcel.Generated.Entities.Pathexcel"+name)!;var row=Activator.CreateInstance(entityType)!;
             void Set(string field,object? value){var property=entityType.GetProperty(field)!;var destination=Nullable.GetUnderlyingType(property.PropertyType)??property.PropertyType;property.SetValue(row,value is null?null:Convert.ChangeType(value,destination,System.Globalization.CultureInfo.InvariantCulture));}
-            Set("Id",businessKeys?9_007_199_254_740_990L+id:id);if(businessKeys||key is not null)Set("BusinessKey",key is not null?key:id);Set("Name",label);Set("YzProjectId",project);Set("Status",status);if(deleted)Set("DeleteNo",DateTime.UtcNow);if(parent is not null)Set(parent,parentId);
+            Set("Id",businessKeys?9_007_199_254_740_990L+id:id);if(businessKeys||key is not null)Set("BusinessKey",key is not null?key:id);Set("Name",label);if(entityType.GetProperty("YzProjectId") is not null)Set("YzProjectId",project);Set("Status",status);if(deleted)Set("DeleteNo",DateTime.UtcNow);if(parent is not null)Set(parent,parentId);
             if(!rows.TryGetValue(entityType,out var data))rows[entityType]=data=[];data.Add(row);
         }
         object AddSource(long id,string name,object country,object? area,object? place)
