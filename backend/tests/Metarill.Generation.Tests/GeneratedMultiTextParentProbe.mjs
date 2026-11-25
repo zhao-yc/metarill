@@ -46,3 +46,13 @@ assert.deepEqual(requests[0].data, { parentId: '001' })
 search.parent_id = '1'
 listMixin.methods.loadOriginalArrayCheckboxOptions.call(search, definition)
 assert.deepEqual(requests[1].data, { parentId: '1' })
+
+if (process.argv[3] === 'sparse') {
+ const selection = Array.from(list.matchAll(/loadOriginalSelectionCheckboxOptions\(\s*(\{[^\r\n]+?\})\s*,/g), match => JSON.parse(match[1]))
+  .find(candidate => candidate.field === 'multiitemIds' && candidate.textParent === true)
+ assert.ok(selection, '原多选项筛选沿已发布文本父加载目标页面')
+ listMixin.methods.loadOriginalSelectionCheckboxOptions.call(search, selection, '001')
+ assert.equal(requests[2].data.parentId, '001')
+ listMixin.methods.loadOriginalSelectionCheckboxOptions.call(search, selection, '1')
+ assert.equal(requests[3].data.parentId, '1')
+}

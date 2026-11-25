@@ -51,6 +51,15 @@ internal static class NonRedundantCrossParentCompilation
         read.HasTextKeys ? $".PathByKeyAsync({index},{key}{(read.Levels[index].TextKey?"":".ToString(CultureInfo.InvariantCulture)")},cancellationToken)" :
             $".PathAsync({index},{key},cancellationToken)";
 
+    /// <summary>共享文本参数从已授权的来源页验证祖先，在原写入事务锁定真实路径。</summary>
+    internal static string ValidateTextParent(GenerationModel model,TableModel table,PageModel page,string argument)
+    {
+        var column=page.Scopes.Single(scope=>scope.Source=="parent").Column;
+        var path=Find(model,table,page,column)??throw new InvalidOperationException("共享文本父缺少来源级联路径。");
+        return $"        var targetParentId=LogicalParentId{page.Source.Id}({argument});\n"+
+            $"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,true,false){PathSuffix(path.Read,path.Index,"targetParentId")};";
+    }
+
     /// <summary>跨表导出需要验证独立物理父记录仍存在且同项目。纯逻辑父继续由路径 SQL 限定。</summary>
     internal static bool ChecksPhysicalParentOnExport(GenerationModel model,TableModel table,PageModel page)=>
         table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent"&&!Managed(model,table,page,scope.Column))&&

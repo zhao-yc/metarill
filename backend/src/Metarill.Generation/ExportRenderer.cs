@@ -111,7 +111,7 @@ internal static class ExportRenderer
             .AppendLine("        if (entities.Count > maxRows) throw new InvalidOperationException(\"导出记录数量超过服务端上限，请缩小筛选范围后重试。\");");
         }
         foreach(var multi in logicalReads?multis:[])result.AppendLine($"        var multiNames{multi.Source.Source.Id}=rawRows.ToDictionary(row=>Metarill.Data.Queries.NonRedundantReads.Value<long>(row,\"id\"),row=>Metarill.Data.Queries.NonRedundantReads.Value<string?>(row,{Literal(multi.Names!.Source.ColumnName)}));");
-        foreach(var checkbox in checkboxes)result.AppendLine($"        var checkboxNames{checkbox.Source.Source.Id}=await ExportCheckbox{page.Source.Id}_{checkbox.Source.Source.Id}Async(entities,actor,{(checkbox.IndependentTextSource&&checkbox.LogicalSourceParent?"request.ParentId,":"")}cancellationToken);");
+        foreach(var checkbox in checkboxes)result.AppendLine($"        var checkboxNames{checkbox.Source.Source.Id}=await ExportCheckbox{page.Source.Id}_{checkbox.Source.Source.Id}Async(entities,actor,{(checkbox.UsesPageTextParent?"request.ParentId,":"")}cancellationToken);");
         if (admin is not null) result.AppendLine("        var adminNames = " + FixedRoleAdminNameRenderer.ProjectCall(page,"entities","export") + ";");
         foreach (var relation in relations)
         {

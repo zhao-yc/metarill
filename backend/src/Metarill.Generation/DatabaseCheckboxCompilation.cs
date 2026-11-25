@@ -42,6 +42,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
     internal bool IndependentTextSource { get; init; }
     internal ColumnModel? SharedTextParent { get; init; }
+    internal bool UsesPageTextParent=>LogicalSourceParent&&(IndependentTextSource||SharedTextParent is not null);
     internal IReadOnlyList<ColumnModel> SourceScopeColumns { get; init; } = [];
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal PageModel? GlobalParentPage { get; init; }
@@ -181,7 +182,8 @@ internal static class DatabaseCheckboxCompilation
             var sharedNamesPage=pageNames.Any(field=>field!=baseline.NameField);
             // 普通物理父范围由实际两端页面证明，逻辑来源继续使用已有的级联路径。
             var sourceScopeColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
-            var sharedTextParent=namePage is null?null:SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,namePage);
+            var sharedTextParent=namePage is null?null:SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,namePage)??
+                NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,namePage);
             if(sharedTextParent is not null&&(derived||name.Type!="string?"||exactTarget is not null||usesNameOverride||sharedNamesPage||
                 explicitPage!=fixedPage||FixedPageConditionCompilation.HasLogicalFields(namePage!)))
                 return Gap("共用文本父键的复选需要表级发布的物理文本名称和物理页面条件。");
@@ -234,7 +236,7 @@ internal static class DatabaseCheckboxCompilation
             // 功能表没有持久化来源值。纯物理条件直接使用已绑定的账号和当前表单父键。
             var compoundTargetParents=!functionForm&&target.Source.IsRongyu==0&&
                 namePage?.Scopes.Count(scope=>scope.Source=="parent")>1;
-            var logicalPage=sharedTextParent is null&&ordinaryCompoundParent is null&&!sharedAccountScope&&!storedIdentityPage&&namePage is not null&&
+            var logicalPage=(sharedTextParent is null||target.Source.IsRongyu==0)&&ordinaryCompoundParent is null&&!sharedAccountScope&&!storedIdentityPage&&namePage is not null&&
                 (compoundTargetParents||FixedPageConditionCompilation.HasMultiTargetScope(model,target,namePage,includeProjectFixedScope:false))&&
                 (!functionForm||FixedPageConditionCompilation.HasLogicalFields(namePage)||namePage.Scopes.Any(scope=>scope.Source=="parent"&&
                     (!NonRedundantReadCompilation.Physical(model,target,scope.Column)||
@@ -308,12 +310,12 @@ internal static class DatabaseCheckboxCompilation
                 scopes=scopes.Concat(physicalPage.Scopes.Where(scope=>scope.Source=="parent"||target.IsGlobal))
                     .DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
             }
-            if(functionForm&&logicalPage is not null)
+            if((functionForm||sharedTextParent is not null)&&logicalPage is not null)
                 scopes=scopes.Concat(logicalPage.Scopes.Where(scope=>scope.Source=="parent"))
                     .DistinctBy(scope=>(scope.Column.Source.Id,scope.Source)).ToArray();
-            bool FunctionLogicalParent(ColumnModel column)=>functionForm&&logicalPage is not null&&
+            bool PublishedLogicalParent(ColumnModel column)=>(functionForm||column==sharedTextParent)&&logicalPage is not null&&
                 NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,column);
-            if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)&&!FunctionLogicalParent(scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量。");
+            if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)&&!PublishedLogicalParent(scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量或已发布的逻辑父级。");
             TableModel Parent(ColumnModel column)=>model.Tables.SingleOrDefault(parent=>column.Source.LinkConfigTableId.Length>0?parent.Source.Id==column.Source.LinkConfigTableId:parent.Source.TableName+"_id"==column.Source.ColumnName)??throw new InvalidOperationException("复选父范围缺少明确真实父表。");
             var textSource=CrossTableReadCompilation.TextSourceParent(model,table,page);
             if(sourceScopeColumns.Any(column=>(column!=textSource&&!NonRedundantReadCompilation.Physical(model,table,column))||column.IsJsonArray||

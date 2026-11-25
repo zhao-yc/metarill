@@ -119,9 +119,9 @@ export function createOriginalListOptionsMixin({ targetParentFields = [], option
    },
    /** 逐页取齐已发布的多选候选；高精度名称分批走原回读，只发布完整的一组结果。 */
    loadOriginalSelectionCheckboxOptions(definition, parent) {
-    const { field, url, nameField, int32Name, textNames, requiresParent, limit } = definition
+    const { field, url, nameField, int32Name, textNames, requiresParent, limit, textParent } = definition
     const key = 'selection-checkbox:' + field, range = field + 'Range'
-    const parentId = checkboxParentId(parent)
+    const parentId = checkboxParentId(parent, textParent)
     if (requiresParent && parentId === null) return
     const scope = requiresParent ? { parentId } : {}
     const pageSize = 1000, labelsBatchSize = 200

@@ -33,8 +33,8 @@ internal static class DatabaseCheckboxRenderer
             result.Append(Declaration(def,suffix)).Append(Reader(def,suffix));
             if((def.PhysicalTargetPage??DerivedCheckboxNamesCompilation.ExactMembershipPage(model,def)) is {} physicalPage)
                 result.Append(FixedPageConditionCompilation.Declaration(physicalPage,"CheckboxTargetCondition"+suffix));
-            if(def.SharedTextParent is not null)
-                result.Append(SharedRedundantParentCompilation.AccountDeclaration(model,def.Target,def.PhysicalTargetPage!,"CheckboxTextParentScope"+suffix));
+            if(def.SharedTextParent is not null&&def.PhysicalTargetPage is {} textParentPage)
+                result.Append(SharedRedundantParentCompilation.AccountDeclaration(model,def.Target,textParentPage,"CheckboxTextParentScope"+suffix));
             if(def.GlobalPage is not null&&!def.DerivedName)
                 result.Append(FixedPageConditionCompilation.Declaration(def.GlobalPage,"CheckboxGlobalCondition"+suffix));
             if(def.DerivedName)result.Append(DerivedCheckboxNamesRenderer.Service(model,table,page,def,
@@ -93,8 +93,8 @@ internal static class DatabaseCheckboxRenderer
             }
             if(def.PhysicalTargetPage is {} targetPage)
                 result.Append(FixedPageConditionCompilation.Apply(targetPage,"CheckboxTargetCondition"+suffix,"checkbox_target_"+suffix));
-            if(def.SharedTextParent is not null)
-                result.Append(SharedRedundantParentCompilation.ApplyAccountScope(model,def.Target,def.PhysicalTargetPage!,"CheckboxTextParentScope"+suffix,"checkbox_text_"+suffix,"locking"));
+            if(def.SharedTextParent is not null&&def.PhysicalTargetPage is {} textScopePage)
+                result.Append(SharedRedundantParentCompilation.ApplyAccountScope(model,def.Target,textScopePage,"CheckboxTextParentScope"+suffix,"checkbox_text_"+suffix,"locking"));
             if(def.ExactTarget is not null&&!def.DerivedName)
             {
                 var exactPage=def.NameTargetPage!;

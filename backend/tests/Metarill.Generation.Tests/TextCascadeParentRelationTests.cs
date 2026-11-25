@@ -188,6 +188,7 @@ public sealed class TextCascadeParentRelationTests
         });
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var plan=Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(catalog,"81","810",["id"],[]);
+        AssertTextParentSql(plan);
         using var session=new Metarill.Data.DatabaseSession(new(){ExpectedDatabase="offline",
             ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
         foreach(var key in new[]{"001","1","Country-A"})
@@ -218,6 +219,68 @@ public sealed class TextCascadeParentRelationTests
     private sealed class ScopeRow
     {
         public long Id { get; set; }
+    }
+
+    /// <summary>两端稀疏多值关系在列表、弹层、写入和名称工作簿使用相同真实父键。</summary>
+    [Theory]
+    [InlineData("OnlyNew","list")]
+    [InlineData("OverWriteByFirstColumn","edit")]
+    public async Task Sparse_same_text_parent_scopes_multi_relations(string import,string export)
+    {
+        var catalog=Catalog(0,import,export);
+        foreach(var id in new[]{"83","84"})
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(item=>item.Id==id).IsRongyu=0;
+        }
+        foreach(var columnId in new[]{"704","706"})
+        {
+            catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==columnId)
+                .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+            catalog.ConfigColumns.Single(column=>column.Id==columnId).Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
+        }
+        var model=GenerationModel.Create(catalog,"Example.SparseMultiSameTextParent");
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var multi=MultiSelectCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="704"));
+        var checkbox=DatabaseCheckboxCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="706"));
+        Assert.True(multi.Definition is {LogicalSourceParent:true,SharedTextParent:not null},multi.Reason);
+        Assert.True(checkbox.Definition is {UsesPageTextParent:true,DerivedName:true},checkbox.Reason);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        AssertTextParentSql(Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(catalog,"83","830","name",["id","name"],[]));
+        AssertTextParentSql(Metarill.Data.Queries.NonRedundantReads.CompileScopedCheckboxLabel(catalog,"84","840","name",["id","name"],[],false));
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-sparse-multi-same-text-parent");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            Assert.Contains("targetParentId=LogicalParentId201(logicalRelationParentId)",service);
+            Assert.Contains("targetParentId=LogicalParentId201(parentId)",service);
+            Assert.Contains("\"country_id\",FixedReadComparison.Equal,targetParentId!",service);
+            Assert.Contains("\"country_id\",FixedReadComparison.Equal,parentId!",service);
+            Assert.Contains("DerivedCheckboxRows201_706Async(logicalRelationParentId",service);
+            Assert.Contains("ExportCheckbox201_706Async(entities,actor,request.ParentId",service);
+            Assert.DoesNotContain("out var targetParentKey",service);
+            var probe=NonRedundantApplicationFixture.Start("node",directory);
+            probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GeneratedMultiTextParentProbe.mjs"));
+            probe.ArgumentList.Add(Path.Combine(directory,"frontend"));
+            probe.ArgumentList.Add("sparse");
+            await NonRedundantApplicationFixture.RunAsync(probe);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>固定候选以真实业务键关联父路径，同时避免将业务键与整数主键再比较。</summary>
+    private static void AssertTextParentSql(Metarill.Data.Queries.NonRedundantReadPlan plan)
+    {
+        const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var mysql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+        var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",flags)!.GetValue(mysql));
+        var from=Assert.IsType<string>(mysql.GetType().GetProperty("From",flags)!.GetValue(mysql));
+        Assert.Contains("`business_key`",from);
+        Assert.DoesNotContain("multi_parent.`id`",scope);
     }
 
     /// <summary>两张业务表发布同一真实国家业务键，候选数据仍来自各自的表和页面。</summary>

@@ -108,8 +108,9 @@ internal static class MultiSelectCompilation
             var scalarLabel=name is not null&&SupportsTypedLabel(model,table,source,target,name);
             if (name is null || GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&!DerivedMultiNamesCompilation.Declared(model,target,name)&&!globalCachedName || name.IsJsonArray || name.Type != "string?" && !name.IsId&&!scalarLabel || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
-            var sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,targetPage);
-            var scoped=sharedTextParent is null&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage);
+            var sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,targetPage)??
+                NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,targetPage);
+            var scoped=(sharedTextParent is null||target.Source.IsRongyu==0)&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage);
             var derived=DerivedMultiNamesCompilation.Declared(model,target,name);
             // 功能表确认直接使用目标页的查询范围；业务表的写入和导入也需要同一精确范围。
             var exactTarget=functionForm?null:ExactDataManageCompilation.Resolve(model,target,targetPage);
@@ -165,7 +166,7 @@ internal static class MultiSelectCompilation
             }
             if(functionForm)scopedParent??=MultiGlobalParentCompilation.PhysicalPageParent(model,target,targetPage);
             var targetParents = scopedParent is not null?[model.Tables.Single(parent=>parent.Source.Id==scopedParent.Parent.Id)]:
-                targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => scope.Column==sharedTextParent
+                targetPage.Scopes.Where(scope => scope.Source == "parent").Select(scope => scope.Column==sharedTextParent&&target.Source.IsRongyu==1
                     ?SharedRedundantParentCompilation.ForColumn(model,target,targetPage,scope.Column).Single().Level.Target:Parent(scope.Column))
                     .DistinctBy(parent => parent.Source.Id).ToArray();
             if (scopedParent?.Global!=true&&targetParents.Any(parent => !parent.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))) return Gap("目标父表未声明项目归属。");

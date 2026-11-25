@@ -300,6 +300,7 @@ public static partial class MySqlNonRedundantReadCompiler
         internal MultiTargetParentScope? MultiCandidateParent{get;set;}
         internal PageMetadata? MultiCandidatePage{get;init;}
         private string? selectedMultiParentSql;
+        private bool selectedMultiParentText;
         private readonly Dictionary<string,string> additionalMultiParentSql=new(StringComparer.Ordinal);
 
         /// <summary>补全其它实际父字段的逻辑投影，并以同一规范父键同时限定所有层位。</summary>
@@ -345,7 +346,11 @@ public static partial class MySqlNonRedundantReadCompiler
         private string MultiParentPredicate(MultiTargetParentScope parent,string target)
         {
             var predicate="("+target+") IS NOT NULL";
-            if(!parent.Global)
+            // 投影已校验整条可见路径。文本业务键不能再用父表整数主键限制一次。
+            var textPath=parent.Logical&&parent.Target.LogicalType=="string"&&
+                (selectedMultiParentText||HasTextParentPath(crossProjections.Where(item=>item.Key.StartsWith(rootAlias+":",StringComparison.Ordinal))
+                    .Select(item=>item.Value),parent.Target.ColumnName));
+            if(!parent.Global&&!textPath)
             {
                 var alias=aliasPrefix+"multi_parent";
                 if(!parent.Logical){Use(root,parent.Target);Touch(rootAlias,parent.Target.ColumnName);}
@@ -1152,7 +1157,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 }
                 // 同一可见路径既负责页面条件，也负责恢复可能没有实际落库的逻辑父键。
                 if(sourceParent is null&&multiParent is not null&&level.LogicalFields.Contains(multiParent.ColumnName))
+                {
                     selectedMultiParentSql=Projection(multiParent.ColumnName);
+                    selectedMultiParentText=HasTextParentPath(ScopedCrossPaths(owner,bindings.Keys),multiParent.ColumnName);
+                }
                 if(additionalParents is not null&&!compareAdditionalParents)
                     foreach(var field in additionalParents.Where(level.LogicalFields.Contains))
                         additionalMultiParentSql[field]=Projection(field);
@@ -1217,6 +1225,14 @@ public static partial class MySqlNonRedundantReadCompiler
                 var key=owner+":"+source;
                 return scopedCrossProjections.GetValueOrDefault(key)??crossProjections[key];
             });
+
+        /// <summary>仅由实际编译路径确认文本键；旧字符串主键沿用整数验证。</summary>
+        private static bool HasTextParentPath(IEnumerable<MySqlCrossTableProjection> paths,string field)
+        {
+            var keys=paths.SelectMany(path=>path.Selection.Slots.Select((slot,index)=>(slot,index))
+                .Where(item=>item.slot.ColumnName==field).Select(item=>path.Selection.TextKeys[item.index])).ToArray();
+            return keys.Length>0&&keys.All(key=>key);
+        }
 
         /// <summary>已存的路径必须实际可见；只有全部原始槽为空才是未选择。</summary>
         private static IEnumerable<string> ValidScopedPaths(IEnumerable<MySqlCrossTableProjection> paths)=>

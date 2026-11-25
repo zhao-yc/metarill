@@ -57,7 +57,7 @@ internal static class DatabaseCheckboxExcelRenderer
     {
         var suffix=DatabaseCheckboxRenderer.Suffix(page,def);
         // 逻辑父来自本次导出的已验证范围，稀疏行自身未必存有该层业务键。
-        var textParent=def.IndependentTextSource&&def.LogicalSourceParent;
+        var textParent=def.UsesPageTextParent;
         var parent=textParent?"parentId":DatabaseCheckboxRenderer.ParentValue(def,"entity");
         // 未设置表单父且没有选项时，只保留原 null 或空数组，无需候选查询。
         var emptyParent=def.FormParentField is null?"":$"            if(selected.Length==0&&string.IsNullOrWhiteSpace({DatabaseCheckboxRenderer.ParentValue(def,"entity")})){{values[entity.Id]=entity.{def.Source.Property} is null?null:\"[]\";continue;}}\n";

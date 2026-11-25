@@ -17,7 +17,7 @@ internal static class MultiSelectFieldRenderer
         {
             var suffix = page.Source.Id + "_" + def.Source.Source.Id;
             var caches=MultiNameWriteCompilation.ForSource(model,table,def);
-            var scoped=def.SharedTextParent is null&&FixedPageConditionCompilation.HasMultiTargetScope(model,def.Target,def.TargetPage);
+            var scoped=(def.SharedTextParent is null||def.Target.Source.IsRongyu==0)&&FixedPageConditionCompilation.HasMultiTargetScope(model,def.Target,def.TargetPage);
             result.Append(scoped?"":FixedPageConditionCompilation.Declaration(def.TargetPage,"MultiPageCondition"+suffix))
                 .Append(SharedRedundantParentCompilation.AccountDeclaration(model,def.Target,def.TargetPage,"MultiAccountParentScope"+suffix))
                 .Append(DerivedMultiNamesCompilation.Declaration(model,page,def));
@@ -55,7 +55,9 @@ internal static class MultiSelectFieldRenderer
                 .AppendLine("        var selected = values.RootElement.EnumerateArray().Select(value => value.ValueKind == JsonValueKind.String && long.TryParse(value.GetString(), NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0 && value.GetString() == id.ToString(CultureInfo.InvariantCulture) ? id : throw new ArgumentException(\"多选ID必须为不带前导零的正整数字符串。\")).ToArray();")
                 .AppendLine("        if (selected.Distinct().Count() != selected.Length) throw new ArgumentException(\"多选ID不能重复。\");");
             var parentExpression = def.SameParent ? table.Columns.Single(column => column.Source.Id == page.Scopes.First(scope => scope.Source == "parent").Column.Source.Id) : table.Columns.SingleOrDefault(column => column.JsonName == def.TargetParentField);
-            if(def.SharedTextParent is not null)
+            if(def.SharedTextParent is not null&&def.LogicalSourceParent)
+                result.AppendLine(NonRedundantCrossParentCompilation.ValidateTextParent(model,table,page,"logicalRelationParentId"));
+            else if(def.SharedTextParent is not null)
             {
                 // 两端共用已发布路径，按当前来源实体的文本键核对，保留前导零及大小写。
                 result.AppendLine($"        var targetParentId=SharedR1ParentKey{page.Source.Id}(entity.{parentExpression!.Property});");

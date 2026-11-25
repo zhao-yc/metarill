@@ -132,17 +132,18 @@ internal static partial class OriginalUniappListRenderer
         var field = selection.Source.JsonName;
         var targetParent = selection.TargetParentField;
         var parent = selection.SameParent ? "that.parent_id" : targetParent is null ? "null" : $"that.filters?.[{J(targetParent)}]";
-        var options = J(new
+        var options = new Dictionary<string,object?>
         {
-            field,
-            url = $"/admin/auto/{selection.Target.Source.TableName}/{selection.TargetPage.Source.Id}",
-            nameField = selection.Name.JsonName,
-            int32Name = selection.IntegerLabel && selection.Name.Type == "int?",
-            textNames = selection.TypedLabel && !selection.IntegerLabel,
-            requiresParent = selection.TargetParents.Count > 0,
-            limit = DatabaseCheckboxValue.MaximumItems
-        });
-        requests.AppendLine($"that.loadOriginalSelectionCheckboxOptions({options},{parent});");
+            ["field"]=field,
+            ["url"]=$"/admin/auto/{selection.Target.Source.TableName}/{selection.TargetPage.Source.Id}",
+            ["nameField"]=selection.Name.JsonName,
+            ["int32Name"]=selection.IntegerLabel&&selection.Name.Type=="int?",
+            ["textNames"]=selection.TypedLabel&&!selection.IntegerLabel,
+            ["requiresParent"]=selection.TargetParents.Count>0,
+            ["limit"]=DatabaseCheckboxValue.MaximumItems
+        };
+        if(selection.SharedTextParent is not null)options["textParent"]=true;
+        requests.AppendLine($"that.loadOriginalSelectionCheckboxOptions({J(options)},{parent});");
         return new(field, selection.SameParent, targetParent is null ? [] : [targetParent]);
     }
 
