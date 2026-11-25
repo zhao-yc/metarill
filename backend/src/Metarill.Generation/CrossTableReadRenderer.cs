@@ -67,7 +67,7 @@ internal static class CrossTableReadRenderer
                 var level=plan.Levels[index];
                 if(level.Target.Source.IsRongyu==0)
                 {
-                    output.AppendLine($"        case {index}:return await CrossTargetRows{suffix}_{index}Async(actor,[new({Literal(level.KeyColumn)},FixedReadComparison.In,ids.Select(id=>(object?)id).ToArray())],ids.Count,currentRead,ct);");continue;
+                    output.AppendLine($"        case {index}:return await CrossTargetRows{suffix}_{index}Async(actor,[{NonRedundantCrossTargetsRenderer.BatchFilter(plan,index)}],ids.Count,currentRead,ct);");continue;
                 }
                 var batchScope=$"CrossScope{suffix}_{index}(actor,false)";
                 var keys=plan.HasTextKeys?"ids.Select(id=>"+(level.AlternateKey?.Type=="long?"?"(long?)":"")+"long.Parse(id,CultureInfo.InvariantCulture)).ToArray()":

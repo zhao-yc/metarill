@@ -163,8 +163,12 @@ public sealed class CrossTableExcelLosslessGenerationTests
     }
 
     /// <summary>同一链混用原主键和文本业务键，原组件接口与 Excel 都保留前导零和大小写。</summary>
-    [Fact]
-    public async Task Mixed_text_business_keys_use_the_original_page_and_excel()
+    [Theory]
+    [InlineData(1,false,"OverWriteByFirstColumn")]
+    [InlineData(0,false,"OnlyNew")]
+    [InlineData(0,false,"OverWriteByFirstColumn")]
+    [InlineData(0,true,"OverWriteByFirstColumn")]
+    public async Task Mixed_text_business_keys_use_the_original_page_and_excel(int redundant,bool logicalTarget,string importMode)
     {
         var catalog=CrossTableExcelImportColumnsTests.Catalog("pathexcel","string");
         var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
@@ -175,28 +179,56 @@ public sealed class CrossTableExcelLosslessGenerationTests
             column.ColumnLength="50";
         }
         catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId==control.Id).IsShow=1;
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
+        var configuredPage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        configuredPage.Extra["importMethod"]=JsonSerializer.SerializeToElement(importMode);
+        if(redundant==0)
+        {
+            catalog.ConfigColumns.Add(new(){Id="281",ConfigTableId="2",ColumnName="area_id",LogicalType="int64",LinkConfigTableId="4"});
+            configuredPage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(logicalTarget?"edit":"list");
+        }
+        if(logicalTarget)
+            catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=0;
         RedundantMultiNameCacheTests.Published(catalog);
         catalog.ConfigMenus.Add(new(){Id="2200",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",Name="来源",Kind="GENERATED_PAGE",ConfigPageId="201"});
         var model=GenerationModel.Create(catalog,"Example.PathExcel");
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         new FrontendPackager().Validate(catalog);
         var bindings=RelationPropagationCompilation.Bindings(model);
-        Assert.Equal(2,bindings.Count(binding=>binding.TargetKey=="business_key"));
-        var published=GenerationMetadataPublisher.ForRelations(catalog);
-        _=Metarill.Data.Relations.RelationMutationPlan.Compile(published,RelationPropagationCompilation.Definitions(bindings));
+        if(redundant==1)
+        {
+            Assert.Equal(2,bindings.Count(binding=>binding.TargetKey=="business_key"));
+            var published=GenerationMetadataPublisher.ForRelations(catalog);
+            _=Metarill.Data.Relations.RelationMutationPlan.Compile(published,RelationPropagationCompilation.Definitions(bindings));
+        }
+        else
+        {
+            Assert.Empty(bindings);
+            var source=model.Tables.Single(table=>table.Source.Id=="2");
+            var page=Assert.Single(source.Pages);
+            var scopes=NonRedundantCrossTableCompilation.Bindings(model,source,page);
+            var sql=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileWithCrossTables(catalog,"2",
+                ["country_id","country_name","area_id","place_id"],scopes);
+            var from=Assert.IsType<string>(sql.GetType().GetProperty("From",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(sql));
+            Assert.Contains("ON BINARY cross2.`business_key`=BINARY",from);
+            Assert.Contains("cross1.`pathexcel_country_id` REGEXP '[^[:space:]]'",from);
+            Assert.Contains("ON BINARY CAST(cross1.`id` AS CHAR)=BINARY",from);
+            Assert.Contains("b.`place_id` REGEXP '[^[:space:]]'",from);
+        }
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-text-key");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);
-            await ExerciseParser(await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory),textKeys:true);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            if(!logicalTarget)await ExerciseParser(assembly,textKeys:true,sparse:redundant==0);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
     /// <summary>真实私有解析器在原DatabaseSession事务中运行；按父/项目/状态过滤，不返回预设成功ID。</summary>
-    private static async Task ExerciseParser(Assembly assembly,bool businessKeys=false,bool textKeys=false)
+    private static async Task ExerciseParser(Assembly assembly,bool businessKeys=false,bool textKeys=false,bool sparse=false)
     {
         DatabaseSession? currentSession=null;var transport=new TrustedSecurityMemoryProvider();var rows=new Dictionary<Type,List<object>>();var reads=new List<string>();
         object Select(Type type)
@@ -320,6 +352,30 @@ public sealed class CrossTableExcelLosslessGenerationTests
             });
             Assert.Equal("001",entity.GetType().GetProperty("CountryId")!.GetValue(entity));
             Assert.Equal("21",Convert.ToString(entity.GetType().GetProperty("AreaId")!.GetValue(entity),System.Globalization.CultureInfo.InvariantCulture));
+            if(sparse)
+            {
+                var pack=type.GetMethod("PackCross201_25",BindingFlags.Static|BindingFlags.NonPublic)!;
+                var hydrate=type.GetMethod("HydrateStoredCross201_25Async",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                var fields=new HashSet<string>{"place_id"};
+                pack.Invoke(null,[entity,fields]);
+                Assert.Null(entity.GetType().GetProperty("CountryId")!.GetValue(entity));
+                Assert.Null(entity.GetType().GetProperty("AreaId")!.GetValue(entity));
+                Assert.Equal("Leaf-A",entity.GetType().GetProperty("PlaceId")!.GetValue(entity));
+                await session.InTransactionAsync(async()=>
+                {
+                    await (Task)hydrate.Invoke(service,[entity,actor,CancellationToken.None])!;
+                    return true;
+                });
+                Assert.Equal("001",entity.GetType().GetProperty("CountryId")!.GetValue(entity));
+                Assert.Equal(21L,entity.GetType().GetProperty("AreaId")!.GetValue(entity));
+                var middle=AddSource(102,"只到区","001",21,null);
+                pack.Invoke(null,[middle,new HashSet<string>{"area_id"}]);
+                Assert.Null(middle.GetType().GetProperty("CountryId")!.GetValue(middle));
+                Assert.Equal(21L,middle.GetType().GetProperty("AreaId")!.GetValue(middle));
+                Assert.Null(middle.GetType().GetProperty("PlaceId")!.GetValue(middle));
+                Assert.Empty(transport.Commands);
+                return;
+            }
             var exported=await (Task<PageExportRequest>)type.GetMethod("Export201Async")!.Invoke(service,[new PageRequest(),actor,100,CancellationToken.None])!;
             Assert.Equal("国甲/区甲/城甲",Assert.Single(exported.Rows)[exported.Headers.ToList().IndexOf("级联")]);
             var filter=new PageRequest{Filters=new(){{"placeId",JsonSerializer.SerializeToElement(new{placeId="leaf-a"})}}};

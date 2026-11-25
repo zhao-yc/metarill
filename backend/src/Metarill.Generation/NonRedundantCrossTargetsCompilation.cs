@@ -40,7 +40,7 @@ internal static class NonRedundantCrossTargetsCompilation
                 level.DerivedName, level.DerivedOrder, level.Order, fields);
             return level.AlternateKey is null ? result :
                 (result.Dependencies.Append(level.KeyColumn).Distinct(StringComparer.Ordinal).ToArray(),
-                    result.SortDependencies, result.Targets, result.SortTargets);
+                    result.SortDependencies.Count==0?result.SortDependencies:result.SortDependencies.Append(level.KeyColumn).Distinct(StringComparer.Ordinal).ToArray(), result.Targets, result.SortTargets);
         }
         var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(level.Order.Select(item=>item.Column.Source.ColumnName))
             .Append("id").Append(level.KeyColumn).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -53,7 +53,7 @@ internal static class NonRedundantCrossTargetsCompilation
             ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,level.Page.Source.Id,outputs,dependencies,targets)
             :targets.Count>0?NonRedundantReads.CompileProjectRelation(model.Catalog,target.Source.Id,outputs,dependencies,targets)
             :NonRedundantReads.Compile(model.Catalog,target.Source.Id,outputs,dependencies);
-        if(read.OutputTypes[level.KeyColumn]!="int64"||read.OutputTypes[level.Name.Source.ColumnName]!=level.Name.Source.LogicalType)
+        if(read.OutputTypes[level.KeyColumn]!=(level.TextKey?"string":"int64")||read.OutputTypes[level.Name.Source.ColumnName]!=level.Name.Source.LogicalType)
             throw new InvalidOperationException("跨表名称必须落到同类型的固定单值。");
         return (dependencies, [], targets, []);
     }

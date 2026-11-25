@@ -15,6 +15,7 @@ internal static class NonRedundantCrossTableCompilation
         if(table.IsGlobal)GlobalDerivedRelationSource.RequireTable(model.Catalog,table.Source);
         foreach(var level in plan.Levels.Where(level=>level.Target.IsGlobal))NonRedundantCrossTargetsCompilation.RequireGlobal(model,level.Target,level.Page,level.Name);
         var shared=SharedCrossTableCompilation.ForSource(model,table,page,plan.Source.Source.Id);var storage=shared is null?CrossTableSparseSelection.Compile(table.Source,plan.Source.Source.Id,model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id)):SharedCrossTableSparseSelection.Compile(table.Source,plan.Source.Source.Id,model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id)).BranchSelection(plan.Source.Source.Id);
+        if(plan.HasTextKeys)_=storage.WithTextKeys(plan.Levels.Select(level=>level.TextKey).ToArray());
         if(!storage.Slots.Select(slot=>slot.ColumnName).SequenceEqual(plan.Levels.Select(level=>level.Prefix+"_id"),StringComparer.Ordinal))throw new InvalidOperationException("页级跨表定义不能改变固定存储层位。");
         if (!CrossTableFrontendProof.KeepsStorageDefinition(model, page, plan.Source))
             throw new InvalidOperationException("非冗余跨表页级目标覆盖仍待独立存储证明。");
@@ -55,13 +56,17 @@ internal static class NonRedundantCrossTableCompilation
     {
         var source=plan.Read.Source;var result=new StringBuilder().AppendLine($"        if(request.Filters.TryGetValue({Literal(source.JsonName)},out var crossValue{source.Source.Id})&&!(crossValue{source.Source.Id}.ValueKind==JsonValueKind.Array&&crossValue{source.Source.Id}.GetArrayLength()==0))")
             .AppendLine("        {").AppendLine($"            var selected=CrossFilter{page.Source.Id}_{source.Source.Id}.Parse(crossValue{source.Source.Id});if(selected is not null)switch(selected.Level)").AppendLine("            {");
-        for(var index=0;index<plan.Levels.Count;index++){var column=plan.Levels[index].Id;var value=column.Type=="string?"?"selected.Id":"long.Parse(selected.Id,NumberStyles.None,CultureInfo.InvariantCulture)";result.AppendLine($"                case {index}:result.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,{value}));break;");}
+        for(var index=0;index<plan.Levels.Count;index++){var level=plan.Levels[index];
+            var column=Literal(level.Id.Source.ColumnName);
+            var value=level.Id.Type=="string?"?"selected.Id":"long.Parse(selected.Id,NumberStyles.None,CultureInfo.InvariantCulture)";
+            var filter=level.Read.TextKey?$"FixedReadFilter.ForTextTree({column},[selected.Id])":$"new({column},FixedReadComparison.Equal,{value})";
+            result.AppendLine($"                case {index}:result.Add({filter});break;");}
         return result.AppendLine("                default:throw new InvalidOperationException(\"跨表筛选层位无效。\");").AppendLine("            }").AppendLine("        }").ToString();
     }
     /// <summary>统一在逻辑校验／范围之后，写守卫／DML之前编码；未提交关联时保留原始存储。</summary>
     internal static string PackCall(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu!=0?"":string.Concat(CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is null).Select(plan=>$"        PackCross{page.Source.Id}_{plan.Read.Source.Source.Id}(entity,submitted);\n"))+SharedCrossTableSparseRenderer.PackCall(model,table,page);
     /// <summary>复制只接受可唯一恢复的旧存储，不能把多位非空历史数据静默选成最深位。</summary>
-    internal static string ValidateCopy(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu!=0?"":string.Concat(CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is null).Select(plan=>$"        _=CrossStorage{page.Source.Id}_{plan.Read.Source.Source.Id}.ReadStored(new Dictionary<string,object?>{{{string.Join(",",plan.Levels.Select(level=>"["+Literal(level.Id.Source.ColumnName)+"]=source."+level.Id.Property))}}});\n"))+SharedCrossTableSparseRenderer.CopyValidation(model,table,page);
+    internal static string ValidateCopy(GenerationModel model,TableModel table,PageModel page)=>table.Source.IsRongyu!=0?"":string.Concat(CrossTableWriteCompilation.ForService(model,table,page).Where(plan=>SharedCrossTableCompilation.ForSource(model,table,page,plan.Read.Source.Source.Id) is null).Select(plan=>$"        _=CrossStorage{page.Source.Id}_{plan.Read.Source.Source.Id}.ReadStored{(plan.Read.HasTextKeys?"Key":"")}(new Dictionary<string,object?>{{{string.Join(",",plan.Levels.Select(level=>"["+Literal(level.Id.Source.ColumnName)+"]=source."+level.Id.Property))}}});\n"))+SharedCrossTableSparseRenderer.CopyValidation(model,table,page);
     /// <summary>仅局部提交ID时恢复原逻辑值再合并请求，显式null可退到原祖先，全部清空不依赖旧目标。</summary>
     internal static string HydrateCall(GenerationModel model,TableModel table,PageModel page)
     {
@@ -78,19 +83,28 @@ internal static class NonRedundantCrossTableCompilation
     internal static string PackService(GenerationModel model,TableModel table,PageModel page,CrossTableWriteModel plan)
     {
         if(table.Source.IsRongyu!=0)return "";var suffix=page.Source.Id+"_"+plan.Read.Source.Source.Id;
-        var result=new StringBuilder().AppendLine($"    private static readonly Metarill.Core.Metadata.CrossTableSparseSelection CrossStorage{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileSelection({Literal(table.Source.Id)},{Literal(plan.Read.Source.Source.Id)});")
+        var text=plan.Read.HasTextKeys;
+        var selection=text?".WithTextKeys("+plan.Read.TextLevels+")":"";
+        var result=new StringBuilder().AppendLine($"    private static readonly Metarill.Core.Metadata.CrossTableSparseSelection CrossStorage{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileSelection({Literal(table.Source.Id)},{Literal(plan.Read.Source.Source.Id)}){selection};")
             .AppendLine("    /// <summary>省略保持稀疏值；真实提交以最深ID编码，祖先ID及派生名称不缓存。</summary>")
             .AppendLine($"    private static void PackCross{suffix}({table.EntityType} entity,ISet<string> submitted)")
-            .AppendLine("    {").AppendLine($"        if(!({CrossTableWriteRenderer.Trigger(plan,"false")}))return;var path=new List<long>();");
-        foreach(var level in plan.Levels)result.AppendLine($"        if(!string.IsNullOrWhiteSpace(Convert.ToString(entity.{level.Id.Property},CultureInfo.InvariantCulture)))path.Add(long.Parse(Convert.ToString(entity.{level.Id.Property},CultureInfo.InvariantCulture)!,NumberStyles.None,CultureInfo.InvariantCulture));");
-        result.AppendLine($"        var packed=CrossStorage{suffix}.PackValidatedPath(path);");
+            .AppendLine("    {").AppendLine($"        if(!({CrossTableWriteRenderer.Trigger(plan,"false")}))return;var path=new List<{(text?"string":"long")}>();");
+        foreach(var level in plan.Levels)
+        {
+            var field=$"Convert.ToString(entity.{level.Id.Property},CultureInfo.InvariantCulture)";
+            if(text)
+                result.AppendLine($"        if({field} is {{Length:>0}} key{level.Id.Property}&&!string.IsNullOrWhiteSpace(key{level.Id.Property}))path.Add(key{level.Id.Property});");
+            else
+                result.AppendLine($"        if(!string.IsNullOrWhiteSpace({field}))path.Add(long.Parse({field}!,NumberStyles.None,CultureInfo.InvariantCulture));");
+        }
+        result.AppendLine($"        var packed=CrossStorage{suffix}.PackValidated{(text?"Keys":"Path")}(path);");
         foreach(var level in plan.Levels)result.AppendLine($"        entity.{level.Id.Property}=({level.Id.Type})packed[{Literal(level.Id.Source.ColumnName)}];submitted.Add({Literal(level.Id.Source.ColumnName)});entity.{level.Name.Property}=null;submitted.Remove({Literal(level.Name.Source.ColumnName)});");
         result.AppendLine("    }")
             .AppendLine("    /// <summary>先锁原节点路径再合并局部请求，不用共享锁升级；省略整项时完全跳过。</summary>")
             .AppendLine($"    private async Task HydrateStoredCross{suffix}Async({table.EntityType} entity,RuntimeActor actor,CancellationToken cancellationToken)")
             .AppendLine("    {")
-            .AppendLine($"        var selected=CrossStorage{suffix}.ReadStored(new Dictionary<string,object?>{{{string.Join(",",plan.Levels.Select(level=>"["+Literal(level.Id.Source.ColumnName)+"]=entity."+level.Id.Property))}}});if(selected is null)return;")
-            .AppendLine($"        var path=await CrossReader{suffix}(actor,true,false).PathAsync(selected.Level,selected.Id,cancellationToken);");
+            .AppendLine($"        var selected=CrossStorage{suffix}.ReadStored{(text?"Key":"")}(new Dictionary<string,object?>{{{string.Join(",",plan.Levels.Select(level=>"["+Literal(level.Id.Source.ColumnName)+"]=entity."+level.Id.Property))}}});if(selected is null)return;")
+            .AppendLine($"        var path=await CrossReader{suffix}(actor,true,false).Path{(text?"ByKey":"")}Async(selected.Level,selected.Id,cancellationToken);");
         for(var index=0;index<plan.Levels.Count;index++){var level=plan.Levels[index];var value=level.Id.Type=="string?"?$"path.Path[{index}].Id":$"long.Parse(path.Path[{index}].Id,CultureInfo.InvariantCulture)";result.AppendLine($"        entity.{level.Id.Property}=path.Path.Count>{index}?{value}:null;entity.{level.Name.Property}=path.Path.Count>{index}?path.Path[{index}].Name:null;");}
         return result.AppendLine("    }").ToString();
     }

@@ -50,7 +50,7 @@ internal static class CrossTableExcelRenderer
                 if(level.Target.Source.IsRongyu==0)
                 {
                     result.AppendLine($"            var filters=new List<FixedReadFilter>{{new({L(level.Name.Source.ColumnName)},FixedReadComparison.Equal,{lookup})}};");
-                    if(level.Parent is{} parent)result.AppendLine($"            if(bindParent)filters.Add(new({L(parent.Source.ColumnName)},FixedReadComparison.Equal,{(parent.Type=="string?"?"parent?.ToString(CultureInfo.InvariantCulture)":"parent")}));");
+                    if(level.Parent is not null)result.AppendLine($"            if(bindParent)filters.Add({NonRedundantCrossTargetsRenderer.ParentFilter(plan.Read,index)});");
                     result.AppendLine($"            return await CrossTargetRows{scope}Async(actor,filters,2,currentRead,ct);");
                 }
                 else

@@ -189,7 +189,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
                         throw new InvalidOperationException(validateAllCrosses ? InvalidCrossStorage : "共享跨表存储或实际祖先路径冲突，未返回数据。");
                     row.Remove(alias);
                 }
-                foreach(var input in crossInputs){_=input.Plan.Selection.ReadStored(input.Fields.ToDictionary(pair=>pair.Key,pair=>row[pair.Value],StringComparer.Ordinal));foreach(var alias in input.Fields.Values)row.Remove(alias);}
+                foreach(var input in crossInputs){_=input.Plan.Selection.ReadStoredKey(input.Fields.ToDictionary(pair=>pair.Key,pair=>row[pair.Value],StringComparer.Ordinal));foreach(var alias in input.Fields.Values)row.Remove(alias);}
             }
             foreach(var name in multis)await PopulateMultiAsync(connection,plan,plan.MultiProjections[name],name,hidden[name].Source,hidden[name].Owners,records,projectId,currentRead,cancellationToken);
             return new FixedReadPage(total,records.Select(row=>(IReadOnlyDictionary<string,object?>)new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(row)).ToArray());

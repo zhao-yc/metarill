@@ -89,10 +89,11 @@ internal static class CrossTableReadCompilation
             if(!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId)&&source.Source.LinkConfigTableId!=result[^1].Target.Source.Id)return Gap("叶子关联表与末级不一致。");
             if(result.Select(level=>GenerationModel.Camel(level.Prefix+"_id")).Distinct(StringComparer.Ordinal).Count()!=result.Count)return Gap("层级JSON字段名冲突。");
             var joiner=Text(root,"displayJoiner","/");var plan=new CrossTableReadModel(source,result.ToArray(),joiner);
-            if(plan.HasTextKeys&&(model.Catalog.DatabaseProvider!="mysql"||table.Source.IsRongyu!=1||table.Source.IsView!=0||table.Source.IsFunctionTable!=0||table.IsGlobal||
-                result.Any(level=>level.Target.Source.IsRongyu!=1||level.Target.Source.IsView!=0||level.Target.IsGlobal||level.Target.Source.Id==table.Source.Id||FixedPageConditionCompilation.HasAccountVariables(level.Page))||
+            if(plan.HasTextKeys&&(model.Catalog.DatabaseProvider!="mysql"||table.Source.IsRongyu is not(0 or 1)||table.Source.IsView!=0||table.Source.IsFunctionTable!=0||table.IsGlobal||
+                result.Any(level=>level.Target.Source.IsView!=0||level.Target.IsGlobal||level.Target.Source.Id==table.Source.Id||FixedPageConditionCompilation.HasAccountVariables(level.Page))||
+                table.Source.IsRongyu==1&&result.Any(level=>level.Target.Source.IsRongyu==0)||
                 table.Pages.Any(candidate=>candidate.Scopes.Any(scope=>scope.Source=="parent"))))
-                return Gap("文本业务键当前要求 MySQL 独立的普通冗余来源及目标，逻辑父范围、全局或派生目标组合待接通。");
+                return Gap("文本业务键当前要求 MySQL 独立项目实体链，来源父范围、全局、来源兼任层位及冗余来源的非冗余目标待接通。");
             if(plan.HasTextKeys&&(!CrossTableFrontendProof.KeepsStorageDefinition(model,page,source)||result[^1].TextKey&&source.Type!="string?"))
                 return Gap("文本业务键要求表级定义及文本叶字段。");
             if(result.Any(level=>level.Target.Source.IsRongyu==0))NonRedundantCrossTargetsCompilation.Require(model,table,plan);return new(plan,null);

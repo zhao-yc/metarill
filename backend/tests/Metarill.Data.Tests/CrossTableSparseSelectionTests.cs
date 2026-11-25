@@ -43,6 +43,31 @@ public sealed class CrossTableSparseSelectionTests
         var wrong=plan.PackValidatedPath([10,20]).ToDictionary();wrong["area_id"]="20";Assert.Throws<InvalidOperationException>(()=>plan.ReadStored(wrong));
     }
 
+    /// <summary>文本层逐字存储，混合整数层仍必须规范，多位坏数据拒绝进入回显。</summary>
+    [Fact]
+    public void Text_business_keys_keep_their_bytes_in_mixed_sparse_storage()
+    {
+        var catalog=Catalog("string",true);
+        catalog.ConfigColumns.Single(column=>column.ColumnName=="area_id").LogicalType="int64";
+        var numeric=CrossTableSparseSelection.Compile(catalog.ConfigTables[0],"3",catalog.ConfigColumns);
+        Assert.Throws<ArgumentException>(()=>numeric.WithTextKeys([true,true,true]));
+        var plan=numeric.WithTextKeys([true,false,true]);
+        Assert.Equal(new CrossTableSelectedKey(0,"001"),plan.ReadStoredKey(plan.PackValidatedKeys(["001"])));
+        var middle=plan.PackValidatedKeys(["001","21"]);
+        Assert.Equal(21L,middle["area_id"]);
+        Assert.Equal(new CrossTableSelectedKey(1,"21"),plan.ReadStoredKey(middle));
+        var leaf=plan.PackValidatedKeys(["001","21","城-A "]);
+        Assert.Equal("城-A ",leaf["place_id"]);
+        Assert.Equal(new CrossTableSelectedKey(2,"城-A "),plan.ReadStoredKey(leaf));
+        Assert.Throws<ArgumentException>(()=>plan.PackValidatedKeys(["001","021"]));
+        Assert.Throws<ArgumentException>(()=>plan.PackValidatedKeys(["\t "]));
+        var corrupt=leaf.ToDictionary();
+        corrupt["country_id"]="001";
+        Assert.Throws<InvalidOperationException>(()=>plan.ReadStoredKey(corrupt));
+        Assert.Throws<InvalidOperationException>(()=>plan.ReadStored(leaf));
+        Assert.Throws<ArgumentException>(()=>numeric.PackValidatedKeys(["001"]));
+    }
+
     /// <summary>已有来源只有末级列时，只预览增加两个可空ID位；不写数据库、不删除历史显示列。</summary>
     [Theory][InlineData("string")][InlineData("int64")]
     public void Schema_preview_adds_only_nullable_id_slots_and_keeps_original_catalog(string type)
