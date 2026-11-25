@@ -62,7 +62,7 @@ public static class SelfTreeCache
         if(keyName!="id")
         {
             var key=CascadeTreeStorageColumns.ResolveNodeKey(catalog,target,keyName).Key;
-            if(source.Id==target.Id||global||globalSource||derived||scoped||key.Id==parent.Id||key.Id==value.Id)throw Invalid();
+            if(global||globalSource||derived||scoped||key.Id==parent.Id||key.Id==value.Id)throw Invalid();
             if(publishedPageId is not null)
             {
                 var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==publishedPageId&&item.ConfigTableId==target.Id)??throw Invalid();

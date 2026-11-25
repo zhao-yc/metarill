@@ -63,9 +63,9 @@ public static partial class MySqlNonRedundantReadCompiler
         if(keyName!="id")
         {
             var source=catalog.ConfigTables.Single(table=>table.Id==control.ConfigTableId);
-            if(source.IsRongyu!=0||source.Id==target.Id||GlobalCrossTableTarget.Declared(source)||
+            if(source.IsRongyu!=0||GlobalCrossTableTarget.Declared(source)||
                 GlobalCrossTableTarget.Declared(target)||key.Id==parent.Id||key.Id==name.Id||scoped||!storage.IsPhysical(name))
-                throw new NotSupportedException("业务节点键要求独立项目树、普通物理叶名和已证明的来源范围。");
+                throw new NotSupportedException("业务节点键要求项目内树、普通物理叶名和已证明的来源范围。");
         }
         return new(target,key,name,parent,page,condition,scoped,selfTreeScoped);
     }

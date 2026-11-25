@@ -45,9 +45,9 @@ internal static class CascadeTreeReadCompilation
                 return Gap("页级配置不能替换表级业务节点键。");
             if(!key.IsId)
             {
-                if(table.Source.Id==target.Source.Id||table.IsGlobal||target.IsGlobal||
+                if(table.IsGlobal||target.IsGlobal||
                     table.Source.IsFunctionTable!=0)
-                    return Gap("业务节点键要求项目内独立树和普通业务来源。");
+                    return Gap("业务节点键要求项目内普通实体。");
                 using var baseline=JsonDocument.Parse(source.Source.ControlDetail);
                 if(!baseline.RootElement.TryGetProperty("selfTree",out var savedTree)||Text(savedTree,"idField","id")!=keyName||
                     Text(savedTree,"table")!=target.Source.TableName)
@@ -107,7 +107,7 @@ internal static class CascadeTreeReadCompilation
             if(!ordering.Any(item=>item.Column.IsId))ordering.Add((target.Columns.Single(column=>column.IsId),false));
             var joiner=Text(root,"displayJoiner","/");if(joiner.Length>32)return Gap("路径分隔符过长。");
             var plan=new CascadeTreeReadModel(source,target,candidates[0],key,name,parent,joiner,ordering,Text(tree,"filterMatchMode","selfAndDescendants")=="exact",derived,joinedOrder.Length>0);
-            if(!key.IsId&&(key==name||key==parent||plan.UsesFixedRead))return Gap("业务节点键当前要求独立物理名称、父键及普通目标范围。");
+            if(!key.IsId&&(key==name||key==parent||plan.UsesFixedRead))return Gap("业务节点键当前要求物理名称、物理父键及普通目标范围。");
             if(plan.UsesFixedRead)DerivedCascadeNamesCompilation.Require(model,table,plan);return new(plan,null);
         }
         catch(Exception error)when(error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException){return Gap("定义无法安全编译："+error.Message);}

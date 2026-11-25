@@ -9,7 +9,9 @@ internal static class CascadeTreeTopologyRenderer
     {
         var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var parent=plan.Parent;
         var parentValue=$"Convert.ToString(row.{parent.Property},CultureInfo.InvariantCulture)";
-        var projection=$"row=>new {table.EntityType}{{Id=row.Id,{parent.Property}=row.{parent.Property}}}";
+        var nodeKey=plan.Key.Property;
+        var rowKey=plan.Key.IsId?"row.Id":$"row.{nodeKey}!.Value";
+        var projection=$"row=>new {table.EntityType}{{{nodeKey}=row.{nodeKey},{parent.Property}=row.{parent.Property}}}";
         var keys=parent.Type=="string?"?"parents.Select(id=>id.ToString(CultureInfo.InvariantCulture)).ToArray()":"parents.ToArray()";
         var predicate=parent.Type=="string?"?$"values.Contains(row.{parent.Property}!)":$"row.{parent.Property}!=null&&values.Contains(row.{parent.Property}.Value)";
         return $$"""
@@ -18,18 +20,49 @@ internal static class CascadeTreeTopologyRenderer
     {
         var pathReader=new Metarill.Core.Cascades.SelfTreeReader(async(id,ct)=>
         {
-            var row=await CascadeScope{{suffix}}(actor,false,false,true).Where(row=>row.Id==id).ForUpdate().FirstAsync({{projection}},ct);
-            return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode(row.Id,null,{{parentValue}});
+            var row=await CascadeScope{{suffix}}(actor,false,false,true).Where(row=>row.{{nodeKey}}==id).ForUpdate().FirstAsync({{projection}},ct);
+            return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode({{rowKey}},null,{{parentValue}});
         },(_,_,_)=>throw new InvalidOperationException("拓扑校验不枚举界面候选。"),(_,_)=>throw new InvalidOperationException("拓扑校验不枚举界面候选。"),"/");
         return new(pathReader,(_,_)=>throw new InvalidOperationException("拓扑校验不读取展示字段。"),async(parents,after,take,ct)=>
         {
-            var values={{keys}};var rows=await CascadeScope{{suffix}}(actor,false,false,true).Where(row=>row.Id>after&&{{predicate}}).OrderBy(row=>row.Id).ForUpdate().Limit(take).ToListAsync({{projection}},ct);
-            return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,null,{{parentValue}})).ToArray();
+            var values={{keys}};var rows=await CascadeScope{{suffix}}(actor,false,false,true).Where(row=>row.{{nodeKey}}>after&&{{predicate}}).OrderBy(row=>row.{{nodeKey}}).ForUpdate().Limit(take).ToListAsync({{projection}},ct);
+            return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode({{rowKey}},null,{{parentValue}})).ToArray();
         },"/");
     }
 
 """;
     }
     /// <summary>直接父控件也在通知前验证整棵分支，防止只检查父链后把已有后代推到第65层。</summary>
-    internal static string After(GenerationModel model,TableModel table,PageModel page,bool creating)=>string.Concat(CascadeTreeWriteCompilation.ForService(model,table,page).Where(plan=>plan.Read.Target.Source.Id==table.Source.Id&&plan.Read.Parent.Source.Id==plan.Read.Source.Source.Id).Select(plan=>$"        if({creating.ToString().ToLowerInvariant()}||submitted.Contains({JsonSerializer.Serialize(plan.Read.Parent.Source.ColumnName)}))_ = await CascadeTopology{page.Source.Id}_{plan.Read.Source.Source.Id}(actor).FilterIdsAsync(entity.Id,false,cancellationToken);\n"));
+    internal static string After(GenerationModel model,TableModel table,PageModel page,bool creating)=>string.Concat(
+        CascadeTreeWriteCompilation.ForService(model,table,page)
+            .Where(plan=>plan.Read.Target.Source.Id==table.Source.Id&&plan.Read.Parent.Source.Id==plan.Read.Source.Source.Id)
+            .Select(plan=>
+            {
+                var read=plan.Read;
+                var changed=ParentOrKeyChanged(read);
+                var suffix=page.Source.Id+"_"+read.Source.Source.Id;
+                var trigger=creating.ToString().ToLowerInvariant()+"||"+changed;
+                if(read.Key.IsId)return $"        if({trigger})_ = await CascadeTopology{suffix}(actor).FilterIdsAsync(entity.Id,false,cancellationToken);\n";
+
+                // 只读回刚写入的真实主键，避免数据库触发器改变业务键后错误验证另一节点。
+                var key=read.Key.Property;
+                return $$"""
+        if({{trigger}})
+        {
+            var storedKey=await CascadeScope{{suffix}}(actor,false,false,true).Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>row.{{key}},cancellationToken);
+            if(storedKey is null||storedKey!=entity.{{key}})throw new InvalidOperationException("自树业务键在存储后发生变化，未提交。");
+            _ = await CascadeTopology{{suffix}}(actor).FilterIdsAsync(storedKey.Value,false,cancellationToken);
+        }
+
+""";
+            }));
+
+    /// <summary>业务键也是拓扑依赖，改键需要重新验证即使父键未提交。</summary>
+    internal static string ParentOrKeyChanged(CascadeTreeReadModel plan)=>
+        $"submitted.Contains({JsonSerializer.Serialize(plan.Parent.Source.ColumnName)})"+
+        (plan.Key.IsId?"":$"||submitted.Contains({JsonSerializer.Serialize(plan.Key.Source.ColumnName)})");
+
+    /// <summary>现有图按已配置节点键遍历。缺少或无效的键复用原路径验证拒绝。</summary>
+    internal static string NodeKey(CascadeTreeReadModel plan,string variable)=>
+        plan.Key.IsId?$"{variable}.Id":$"{variable}.{plan.Key.Property}.GetValueOrDefault()";
 }
