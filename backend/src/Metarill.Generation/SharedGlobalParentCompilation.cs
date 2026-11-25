@@ -30,7 +30,7 @@ internal static class SharedGlobalParentCompilation
             // 混合物理父键必须有独立单值证明，并与共享链同一个固定目标页／名称一致。
             var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(column.Source.ControlDetail)))throw new NotSupportedException("全局物理父键的页覆盖不能替换固定关系。");
             var single=RelationCompilation.GlobalTargetForPage(model,table,page,column,target);
-            paths=paths.Where(path=>path.Shared&&path.Level.Page.Source.Id==single.Page.Id&&path.Level.Name.Source.Id==single.Name.Id);
+            paths=paths.Where(path=>path.Shared&&path.Level.AlternateKey is null&&path.Level.Page.Source.Id==single.Page.Id&&path.Level.Name.Source.Id==single.Name.Id);
         }
         var result=paths.DistinctBy(Identity,StringComparer.Ordinal).ToArray();
         if(result.Length!=1)throw new NotSupportedException("全局共享父字段缺少唯一已证明层位，不能猜测重复目标角色。");
@@ -66,7 +66,7 @@ internal static class SharedGlobalParentCompilation
         return result;
     }
     /// <summary>比较完整实际祖先范围，不把同一目标表的不同角色合成一个父身份。</summary>
-    private static string Identity(SharedGlobalParentPath path)=>JsonSerializer.Serialize(path.Read.Levels.Take(path.Index+1).Select(level=>new{target=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,condition=level.Page.Source.WhereSql}));
+    private static string Identity(SharedGlobalParentPath path)=>JsonSerializer.Serialize(path.Read.Levels.Take(path.Index+1).Select(level=>new{target=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,condition=level.Page.Source.WhereSql,key=level.AlternateKey?.Source.Id}));
     /// <summary>新全局父入口按原字符串ID规范解析，普通页面不增加此方法。</summary>
     internal static string KeyService(GenerationModel model,TableModel table,PageModel page)=>page.Scopes.Where(scope=>scope.Source=="parent").Any(scope=>ForColumn(model,table,page,scope.Column).Count>0)?$"    /// <summary>父ID不接受前导零、符号或空白，不把客户端上下文当授权。</summary>\n    private static long SharedGlobalParentKey{page.Source.Id}(string? value){{if(!long.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||value!=id.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");return id;}}\n":"";
     /// <summary>写操作加入原事务当前读；候选来源父只读，不获取写锁或借用目标候选权限。</summary>

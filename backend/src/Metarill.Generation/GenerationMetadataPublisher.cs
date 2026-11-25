@@ -65,9 +65,13 @@ public static class GenerationMetadataPublisher
             .Concat(selfTreeNamePages??[]).ToHashSet(StringComparer.Ordinal);
         var nestedPages=published.ConfigPages.Where(page=>nestedTables?.Contains(page.ConfigTableId)==true)
             .Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
+        var businessKeys=CrossTableStorageColumns.RequiredNodeIndexes(published);
+        var businessTables=businessKeys.Select(entry=>entry.TableId).ToHashSet(StringComparer.Ordinal);
+        var businessPages=published.ConfigPages.Where(page=>businessTables.Contains(page.ConfigTableId)).Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
+        // 业务键传播需要在宿主重启后重新证明实际名称页与固定范围。
         // 全局复选多缓存只保留证明所需的来源覆盖及目标列，不携带额外页面配置。
         bool KeepsCheckboxProof(PageColumnMetadata field)=>checkboxProofFields?.Contains((field.ConfigPageId,field.ConfigColumnId))==true;
-        bool KeepsVisibility(PageColumnMetadata field)=>labelPages.Contains(field.ConfigPageId)||nestedPages.Contains(field.ConfigPageId)||KeepsCheckboxProof(field);
+        bool KeepsVisibility(PageColumnMetadata field)=>labelPages.Contains(field.ConfigPageId)||nestedPages.Contains(field.ConfigPageId)||businessPages.Contains(field.ConfigPageId)||KeepsCheckboxProof(field);
         published.ConfigMenus=[];published.ConfigCustomPages=[];
         published.ConfigPageColumns=published.ConfigPageColumns.Where(f=>KeepsVisibility(f)||
             multiProof.TryGetValue(f.ConfigPageId,out var names)&&names.Contains(f.ConfigColumnId)).Select(f=>new PageColumnMetadata
@@ -78,7 +82,7 @@ public static class GenerationMetadataPublisher
                 Extra=KeepsVisibility(f)?f.Extra.Where(pair=>pair.Key is "isInGrid" or "isInEdit"||
                     (pair.Key is "controlDetail" or "controlKind")&&(nestedPages.Contains(f.ConfigPageId)||labelPages.Contains(f.ConfigPageId)||KeepsCheckboxProof(f))).ToDictionary():new()
             }).OrderBy(f=>f.Id,StringComparer.Ordinal).ToList();
-        var treeIndexes=CascadeTreeStorageColumns.RequiredNodeIndexes(published);
+        var treeIndexes=CascadeTreeStorageColumns.RequiredNodeIndexes(published).Union(businessKeys.Select(entry=>entry.IndexId)).ToHashSet(StringComparer.Ordinal);
         published.ConfigChildren=[];
         published.ConfigIndexes=treeIndexes.Count==0?[]:published.ConfigIndexes.Where(
             row=>row.TryGetProperty("id",out var id)&&treeIndexes.Contains(id.ToString())).ToList();
@@ -88,7 +92,7 @@ public static class GenerationMetadataPublisher
         var globalR0Pages=published.ConfigPages.Where(page=>published.ConfigTables.Any(table=>table.Id==page.ConfigTableId&&table.IsRongyu==0&&GlobalCrossTableTarget.Declared(table))).Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
         // 只有实际参与传播或维护的级联目标页才下发其常量条件。
         var globalRowProjects=published.ConfigColumns.Where(column=>column.ColumnName=="yz_project_id").Select(column=>column.ConfigTableId).ToHashSet(StringComparer.Ordinal);
-        published.ConfigPages=published.ConfigPages.Select(page=>new PageMetadata{WhereSql=(globalR0Pages.Contains(page.Id)&&globalRowProjects.Contains(page.ConfigTableId)||cascadePages?.Contains(page.Id)==true||labelPages.Contains(page.Id)||labelOwnershipPages.Contains(page.Id)||nestedPages.Contains(page.Id))?page.WhereSql:"",Id=page.Id,ConfigTableId=page.ConfigTableId,YzProjectId=page.YzProjectId,YzAdminTypeId=page.YzAdminTypeId,Extra=ExecutionPageFlags(page)}).ToList();
+        published.ConfigPages=published.ConfigPages.Select(page=>new PageMetadata{WhereSql=(globalR0Pages.Contains(page.Id)&&globalRowProjects.Contains(page.ConfigTableId)||cascadePages?.Contains(page.Id)==true||labelPages.Contains(page.Id)||labelOwnershipPages.Contains(page.Id)||nestedPages.Contains(page.Id)||businessPages.Contains(page.Id))?page.WhereSql:"",Id=page.Id,ConfigTableId=page.ConfigTableId,YzProjectId=page.YzProjectId,YzAdminTypeId=page.YzAdminTypeId,Extra=ExecutionPageFlags(page)}).ToList();
         // 精简目录保留会影响候选资格的原页面属性，避免多个页面在发布后意外变成同一候选。
         Dictionary<string,JsonElement> ExecutionPageFlags(PageMetadata page)
         {

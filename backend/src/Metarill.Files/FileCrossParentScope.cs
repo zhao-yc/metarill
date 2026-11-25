@@ -10,7 +10,7 @@ namespace Metarill.Runtime.Files;
 internal sealed class FileCrossParentScope
 {
     private sealed record Target(string Table,string PageId,string NameId,string? ProjectType,bool SoftDelete,string? Parent,FixedConditionSqlPlan? Condition,
-        NonRedundantReadPlan? LogicalPlan=null);
+        NonRedundantReadPlan? LogicalPlan=null,string KeyColumn="id");
     private readonly CrossTableSparseSelection? selection;
     private readonly FileSharedCrossParentScope? shared;
     private readonly RedundantSharedParentPlan? redundant;
@@ -24,7 +24,7 @@ internal sealed class FileCrossParentScope
     /// <summary>仅共享路径可为同页物理全局父提供等值证明；目标页和名称均须完全相同。</summary>
     internal bool CoversGlobalParent(string table,string page,string name)=>shared is not null&&shared.CoversTarget(StorageNames[Level],table,page,name);
     /// <summary>共享编译器只读取已冻结的分支目标身份，不重新解释目录。</summary>
-    internal bool CoversTargetAt(int level,string table,string page,string name)=>level>=0&&level<targets.Length&&targets[level].Table==table&&targets[level].PageId==page&&targets[level].NameId==name;
+    internal bool CoversTargetAt(int level,string table,string page,string name)=>level>=0&&level<targets.Length&&targets[level].Table==table&&targets[level].PageId==page&&targets[level].NameId==name&&targets[level].KeyColumn=="id";
     /// <summary>路径字段、目标与常量在发布时冻结；构造器不暴露任意SQL或在线替换入口。</summary>
     private FileCrossParentScope(string sourceId,int level,CrossTableSparseSelection selection,Target[] targets,
         NonRedundantCrossTableScope binding)
@@ -44,7 +44,7 @@ internal sealed class FileCrossParentScope
         SourceId="r1:"+plan.ColumnId;
         Level=plan.Levels.Count-1;
         targets=plan.Levels.Select(level=>new Target(level.TableName,level.PageId,level.NameId,level.ProjectType,
-            level.SoftDelete,level.Parent,level.Condition,level.RecursiveCandidate)).ToArray();
+            level.SoftDelete,level.Parent,level.Condition,level.RecursiveCandidate,level.KeyColumn)).ToArray();
     }
     /// <summary>只有普通R0固定跨表的ID位可取得逻辑父证明，selfTree及普通外键继续原边界。</summary>
     internal static FileCrossParentScope? Compile(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata column)
@@ -86,10 +86,11 @@ internal sealed class FileCrossParentScope
                 else GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,target,chosen.Page,display);
             }
             var project=global?null:columns.Single(field=>field.ColumnName=="yz_project_id");
+            var alternate=CrossTableStorageColumns.AlternateLevelKey(catalog,target,level);
             var logical=chosen.Condition.HasLogical?NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,chosen.Page.Id,
-                parent is null?["id"]:["id",parent],[]):null;
+                new[]{"id",parent,alternate?.ColumnName}.OfType<string>().Distinct(StringComparer.Ordinal).ToArray(),[]):null;
             targets.Add(new(target.TableName,chosen.Page.Id,display.Id,project?.LogicalType,
-                columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan,logical));
+                columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan,logical,alternate?.ColumnName??"id"));
         }
         var binding=new NonRedundantCrossTableScope(source.Id,bindings.AsReadOnly());
         return(new FileCrossParentScope(source.Id,levelIndex,selection,targets.ToArray(),binding),binding);
@@ -127,8 +128,12 @@ internal sealed class FileCrossParentScope
             var target=targets[index];string? parent;
             if(logical[index] is{} plan)
             {
-                var rows=await new NonRedundantReader(session).KeyRowsAsync(plan,[],[current],token,actor.ProjectId,currentRead:locking);
-                if(rows.Count!=1||NonRedundantReads.Value<long>(rows[0],"id")!=current)
+                var reader=new NonRedundantReader(session);
+                var filters=new FixedReadFilter[]{new(target.KeyColumn,FixedReadComparison.Equal,current)};
+                var rows=target.KeyColumn=="id"?await reader.KeyRowsAsync(plan,[],[current],token,actor.ProjectId,currentRead:locking):
+                    locking?await reader.CurrentRowsAsync(plan,filters,[],2,token,actor.ProjectId):
+                    await reader.RowsAsync(plan,filters,[],2,token,actor.ProjectId);
+                if(rows.Count!=1||NonRedundantReads.Value<long>(rows[0],target.KeyColumn)!=current)
                     throw new UnauthorizedAccessException("文件跨表目标缺失、已删除或不在固定范围。");
                 parent=target.Parent is null?null:Convert.ToString(rows[0][target.Parent],CultureInfo.InvariantCulture);
             }
@@ -157,8 +162,8 @@ internal sealed class FileCrossParentScope
             return provider.ParameterPlaceholder(name);
         }
 
-        var select="SELECT "+provider.QuoteIdentifier("id")+(target.Parent is null?"":","+provider.QuoteIdentifier(target.Parent));
-        var sql=select+" FROM "+provider.QuoteIdentifier(target.Table)+" WHERE "+provider.QuoteIdentifier("id")+"="+Parameter("node",current);
+        var select="SELECT "+provider.QuoteIdentifier(target.KeyColumn)+(target.Parent is null?"":","+provider.QuoteIdentifier(target.Parent));
+        var sql=select+" FROM "+provider.QuoteIdentifier(target.Table)+" WHERE "+provider.QuoteIdentifier(target.KeyColumn)+"="+Parameter("node",current);
         if(target.ProjectType is not null)
             sql+=" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter("project",
                 target.ProjectType=="string"?project.ToString(CultureInfo.InvariantCulture):(object)project);

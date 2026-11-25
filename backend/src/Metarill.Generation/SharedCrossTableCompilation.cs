@@ -28,7 +28,7 @@ internal static class SharedCrossTableCompilation
     /// <summary>物理缓存只登记一次；相同槽的其它控件仍必须有完整同范围证明。</summary>
     internal static bool Equivalent(GenerationModel model,RelationPropagationBinding left,RelationPropagationBinding right)
     {
-        if(left.Multiple||right.Multiple||left.CrossTableColumnId is null||right.CrossTableColumnId is null||left.Source.Source.Id!=right.Source.Source.Id||left.Foreign.Source.Id!=right.Foreign.Source.Id||left.Cache.Source.Id!=right.Cache.Source.Id||left.Target.Source.Id!=right.Target.Source.Id||left.Value.Source.Id!=right.Value.Source.Id||left.CrossTablePageId!=right.CrossTablePageId||left.CrossTableAccountPageId!=right.CrossTableAccountPageId||left.CrossTableRecursivePageId!=right.CrossTableRecursivePageId)return false;
+        if(left.Multiple||right.Multiple||left.CrossTableColumnId is null||right.CrossTableColumnId is null||left.Source.Source.Id!=right.Source.Source.Id||left.Foreign.Source.Id!=right.Foreign.Source.Id||left.Cache.Source.Id!=right.Cache.Source.Id||left.Target.Source.Id!=right.Target.Source.Id||left.Value.Source.Id!=right.Value.Source.Id||left.TargetKey!=right.TargetKey||left.CrossTablePageId!=right.CrossTablePageId||left.CrossTableAccountPageId!=right.CrossTableAccountPageId||left.CrossTableRecursivePageId!=right.CrossTableRecursivePageId)return false;
         if(left.CrossTableColumnId==right.CrossTableColumnId)return left.CrossTableLevelKey==right.CrossTableLevelKey&&RelationPropagationCompilation.PagesIdentity(left.CrossTableGlobalPages)==RelationPropagationCompilation.PagesIdentity(right.CrossTableGlobalPages);
         return left.Source.Pages.Any(page=>ForPage(model,left.Source,page).Groups.Any(g=>g.Plans.Any(p=>p.Read.Source.Source.Id==left.CrossTableColumnId&&MatchesPages(left,p)&&p.Levels.Any(l=>l.Read.Key==left.CrossTableLevelKey&&l.Id.Source.Id==left.Foreign.Source.Id))&&g.Plans.Any(p=>p.Read.Source.Source.Id==right.CrossTableColumnId&&MatchesPages(right,p)&&p.Levels.Any(l=>l.Read.Key==right.CrossTableLevelKey&&l.Id.Source.Id==right.Foreign.Source.Id))));
     }
@@ -71,7 +71,11 @@ internal static class SharedCrossTableCompilation
                                 level.Name.Source.ColumnName,table.Source.TableName,targets,logicalPage))
                                 throw new NotSupportedException("共享派生路径不能间接回到当前写入来源。");
                         }
-                        levels.Add(new(level,id,name));var scope=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{target=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,where=level.Page.Source.WhereSql}))));slots.Add(new(id.Source.ColumnName,name.Source.ColumnName,id.Type=="string?"?"string":"int64",scope));
+                        levels.Add(new(level,id,name));
+                        var scopeText=JsonSerializer.Serialize(new{target=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,where=level.Page.Source.WhereSql});
+                        if(level.AlternateKey is not null)scopeText+=":"+level.AlternateKey.Source.Id;
+                        var scope=Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(scopeText)));
+                        slots.Add(new(id.Source.ColumnName,name.Source.ColumnName,id.Type=="string?"?"string":"int64",scope));
                     }
                     var plan=new CrossTableWriteModel(definition,levels);if(CrossTableFrontendProof.Reason(model,page,plan) is{} mismatch)throw new InvalidOperationException(mismatch);plans.Add(plan);branches.Add(new(control.Source.Id,slots));
                 }

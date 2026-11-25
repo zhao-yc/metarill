@@ -58,9 +58,9 @@ internal static class CrossTableExcelRenderer
                     if(level.Parent is{} parent)result.AppendLine($"            if(bindParent){{var parentKey={(parent.Type=="string?"?"parent?.ToString(CultureInfo.InvariantCulture)":"parent")};query=query.Where(row=>row.{parent.Property}==parentKey);}}");
                     var label=MultiSelectExcelRenderer.LabelText(level.Name,"row."+level.Name.Property);
                     var parentValue=level.Parent is not{} p?"null":p.Type=="string?"?"row."+p.Property:"row."+p.Property+"?.ToString(CultureInfo.InvariantCulture)";
-                    var projection=$"row=>new {level.Target.EntityType}{{Id=row.Id,{level.Name.Property}=row.{level.Name.Property}{(level.Parent is{} parentColumn?","+parentColumn.Property+"=row."+parentColumn.Property:"")}}}";
+                    var projection=CrossTableReadRenderer.Projection(level);
                     result.AppendLine($"            if(currentRead)query=query.ForUpdate();var rows=await query.OrderBy(row=>row.Id).Limit(2).ToListAsync({projection},ct);")
-                        .AppendLine($"            return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,{label},{parentValue})).ToArray();");
+                        .AppendLine($"            return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode({level.KeyValue("row")},{label},{parentValue})).ToArray();");
                 }
                 result.AppendLine("        }");
             }

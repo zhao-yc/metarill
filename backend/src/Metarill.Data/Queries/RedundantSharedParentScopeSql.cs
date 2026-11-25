@@ -92,17 +92,17 @@ public static class RedundantSharedParentScopeSql
             {
                 var parent=path.Levels[index].Parent??throw new InvalidOperationException("冗余父路径缺少物理祖先列。");
                 from.Append(" INNER JOIN ").Append(provider.QuoteIdentifier(path.Levels[index-1].TableName)).Append(' ').Append(Alias(index-1))
-                    .Append(" ON BINARY CAST(").Append(Field(index,parent)).Append(" AS CHAR)=BINARY CAST(").Append(Field(index-1,"id")).Append(" AS CHAR)");
+                    .Append(" ON BINARY CAST(").Append(Field(index,parent)).Append(" AS CHAR)=BINARY CAST(").Append(Field(index-1,path.Levels[index-1].KeyColumn)).Append(" AS CHAR)");
             }
             var correlated=new List<string>
             {
-                "BINARY CAST("+Field(last,"id")+" AS CHAR)=BINARY CAST("+sourceColumn(path.ColumnName)+" AS CHAR)"
+                "BINARY CAST("+Field(last,path.Levels[last].KeyColumn)+" AS CHAR)=BINARY CAST("+sourceColumn(path.ColumnName)+" AS CHAR)"
             };
             for(var index=0;index<path.Levels.Count;index++)
             {
                 var level=path.Levels[index];
                 var key=prefix+"_"+pathIndex.ToString(CultureInfo.InvariantCulture)+"_"+index.ToString(CultureInfo.InvariantCulture);
-                correlated.Add(Field(index,"id")+">0");
+                correlated.Add(Field(index,level.KeyColumn)+">0");
                 if(level.ProjectType is not null)
                 {
                     parameters.Add(key+"_project",level.ProjectType=="string"?actor.ProjectId:(object)project);

@@ -1,8 +1,16 @@
 using System.Text.Json;
 using Metarill.Core.Contracts;
+using Metarill.Core.Metadata;
 namespace Metarill.Generation;
 
-internal sealed record CrossTableLevelModel(string Key,string Prefix,TableModel Target,PageModel Page,ColumnModel Name,ColumnModel? Parent,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool DerivedName=false,IReadOnlyList<string>? NameDependencies=null,bool DerivedOrder=false);
+internal sealed record CrossTableLevelModel(string Key,string Prefix,TableModel Target,PageModel Page,ColumnModel Name,ColumnModel? Parent,IReadOnlyList<(ColumnModel Column,bool Descending)> Order,bool DerivedName=false,IReadOnlyList<string>? NameDependencies=null,bool DerivedOrder=false,ColumnModel? AlternateKey=null)
+{
+    internal string KeyProperty => AlternateKey?.Property ?? "Id";
+    internal string KeyColumn => AlternateKey?.Source.ColumnName ?? "id";
+
+    /// <summary>业务列在实体上可空，实际发布结构必须有非空约束。</summary>
+    internal string KeyValue(string row) => row+"."+KeyProperty+(AlternateKey?.Type=="long?"?"!.Value":"");
+}
 internal sealed record CrossTableReadModel(ColumnModel Source,IReadOnlyList<CrossTableLevelModel> Levels,string Joiner);
 internal sealed record CrossTableReadResult(CrossTableReadModel? Definition,string? Reason);
 
@@ -32,7 +40,9 @@ internal static class CrossTableReadCompilation
                 Object(entry);if(Extra(entry))return Gap("层级额外范围或目标页映射不能忽略。");var nameOfTable=Text(entry,"table","");var target=model.Tables.SingleOrDefault(candidate=>candidate.Source.TableName==nameOfTable);
                 if(target is null||target.Source.IsFunctionTable==1||target.Source.IsRongyu is not(0 or 1)||ManagerCredentialCompilation.IsTable(target)||TrustedSecurityServiceCompilation.Applies(model,target))return Gap("目标必须是已声明的普通实体表。");
                 var key=Text(entry,"key",nameOfTable);var prefix=Text(entry,"columnPrefix",nameOfTable);Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(prefix);
-                if(!keys.Add(key)||!prefixes.Add(prefix))return Gap("层标识或字段前缀重复。");if(Text(entry,"idField","id")!="id")return Gap("主键只支持id。");
+                if(!keys.Add(key)||!prefixes.Add(prefix))return Gap("层标识或字段前缀重复。");
+                var alternate = CrossTableStorageColumns.AlternateLevelKey(model.Catalog,target.Source,entry);
+                var keyColumn = alternate is null ? null : target.Columns.Single(column=>column.Source.Id==alternate.Id);
                 bool Physical(ColumnModel column)=>NonRedundantReadCompilation.Physical(model,target,column)&&!GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&!column.IsJsonArray&&!ManagerCredentialCompilation.IsCredential(target,column);
                 var name=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==Text(entry,"nameField","name"));
                 if(name is null||(name.Source.LogicalType!="string"&&!MultiValueLabel.IsTyped(name.Source.LogicalType))||name.IsJsonArray)
@@ -67,7 +77,7 @@ internal static class CrossTableReadCompilation
                 var nameDependencies = derived && target.Source.Id == table.Source.Id
                     ? Metarill.Data.Queries.NonRedundantReads.CompileSourceDependencies(model.Catalog, target.Source.Id, name.Source.ColumnName)
                     : null;
-                result.Add(new(key, prefix, target, pages[0], name, parent, order, derived, nameDependencies, joinedOrder.Length > 0));
+                result.Add(new(key, prefix, target, pages[0], name, parent, order, derived, nameDependencies, joinedOrder.Length > 0,keyColumn));
             }
             if(result[^1].Prefix+"_id"!=source.Source.ColumnName)return Gap("末级前缀与来源叶子字段不一致。");
             if(!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId)&&source.Source.LinkConfigTableId!=result[^1].Target.Source.Id)return Gap("叶子关联表与末级不一致。");

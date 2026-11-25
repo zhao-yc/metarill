@@ -163,9 +163,14 @@ public sealed class RelationMutationPlan
                 var published=GlobalPhysicalRelationValue.IsPublishedScalar(catalog,targetStorage,target,value);
                 if(!published)throw new NotSupportedException("全局缓存终点必须为非凭据物理标量或已证明的全局单值名称缓存。");
             }
-            var targetKey=selfTree?SelfTreeCache.AlternateKey(catalog,target,foreign):null;
+            var targetKey=selfTree?SelfTreeCache.AlternateKey(catalog,target,foreign):cross?CrossTableCacheProof.AlternateKey(catalog,target,definition):null;
             if(!global&&targetKey is not null&&definition.SelfTreePageId is {} treePage)
                 publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,catalog.ConfigPages.Single(page=>page.Id==treePage),projectParent:true);
+            if(cross&&targetKey is not null)
+            {
+                var page=CrossTableCacheProof.NamePage(catalog,target,value,definition).Page;
+                publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,page,projectParent:!global);
+            }
             result.Add(new(Table(source.Id,rowProjectSource:rowProjectSource),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000){PublishedCondition=publishedCondition,TextScalar=(selfTree||cross)&&MultiValueLabel.IsTyped(value.LogicalType),TargetKey=targetKey?.ColumnName,TextTargetKey=targetKey?.LogicalType=="string"});
         }
         var sorted=result.Distinct().OrderBy(binding=>binding.Source.Name,StringComparer.Ordinal).ThenBy(binding=>binding.Cache,StringComparer.Ordinal).ToArray();if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Foreign)).Any(group=>group.Select(binding=>(binding.Target,binding.TargetKey,binding.PublishedCondition?.Definition)).Distinct().Count()!=1))throw new InvalidOperationException("同一外键不能绑定不同传播目标。");if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Cache)).Any(group=>group.Count()!=1))throw new InvalidOperationException("同一缓存存在多个传播定义。");

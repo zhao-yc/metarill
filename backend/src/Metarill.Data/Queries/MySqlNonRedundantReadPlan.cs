@@ -20,6 +20,7 @@ internal sealed record MySqlReverseProjection(string TargetTable,string From,str
     internal string TargetPredicate => ForeignType switch
     {
         "predicate" => ForeignExpression,
+        _ when NodeKey is not null => "(BINARY CAST("+ForeignExpression+" AS CHAR)=BINARY @target_node_current OR BINARY CAST("+ForeignExpression+" AS CHAR)=BINARY @target_node_previous)",
         "string" => "("+ForeignExpression+"=@target_text AND BINARY "+ForeignExpression+"=BINARY @target_text)",
         _ => ForeignExpression+"=@target_id"
     };
@@ -340,6 +341,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private readonly Dictionary<string,HashSet<string>> directSaveOutputs=new(StringComparer.Ordinal);
         private string output="";
         private readonly Dictionary<string,(string Table,string From,string Foreign,string Type)> reverse=new(StringComparer.Ordinal);
+        private readonly Dictionary<string,MySqlReverseNodeKey> reverseKeys=new(StringComparer.Ordinal);
         private readonly Dictionary<string,Dictionary<string,HashSet<string>>> aliasFields=new(StringComparer.Ordinal);
         private readonly bool deferCascadeNames;
         private IReadOnlySet<string> queryDependencies=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -558,6 +560,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var reversePlans=reverse.Select(item=>new MySqlReverseProjection(item.Value.Table,item.Value.From,item.Value.Foreign,item.Value.Type,
                 new ReadOnlyDictionary<string,IReadOnlySet<string>>(aliasFields[item.Key].ToDictionary(field=>field.Key,field=>(IReadOnlySet<string>)field.Value.ToFrozenSet(StringComparer.Ordinal),StringComparer.Ordinal)))
             {
+                NodeKey=reverseKeys.GetValueOrDefault(item.Key),
                 DirectSaveOutputs=directSaveOutputs.TryGetValue(item.Key,out var fields)?fields.ToFrozenSet(StringComparer.Ordinal):FrozenSet<string>.Empty
             }).Concat(customReverse).ToArray();
             // 全局是关联目标的读取资格；根自身已有真实项目列时仍保留该来源范围。
@@ -606,7 +609,10 @@ public static partial class MySqlNonRedundantReadCompiler
                     // 普通树仍按已保存的叶键更新，仅名称的字典联接需要新的页级证明。
                     var joinPage=joinedTree?null:publishedPage;
                     var treeKey=foreign.ControlKind=="CascadeTree"&&IsSelfTreeLabel(foreign,name)?SelfTreeCache.AlternateKey(catalog,target,foreign):null;
-                    var targetAlias=Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||joinPage is not null,cachePage:joinPage,account:account,targetKey:treeKey?.ColumnName);
+                    var crossKey=CrossTableCacheProof.AlternateKey(catalog,target,refresh);
+                    if(crossKey is not null&&!crossGlobal&&account is null)
+                        joinPage=CrossTableCacheProof.NamePage(catalog,target,value,refresh).Page;
+                    var targetAlias=Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||joinPage is not null,cachePage:joinPage,account:account,targetKey:treeKey?.ColumnName??crossKey?.ColumnName,reverseAlternate:crossKey is not null);
                     CascadeCacheOwner? nameOwner=null;
                     // 旧项目内纯物理联接定义可以没有目标页，仍沿原项目及物理终点校验。
                     if((joinedCross||joinedTree)&&(crossGlobal||catalog.ConfigPages.Any(page=>page.ConfigTableId==target.Id)))
@@ -852,7 +858,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var key=Column(target,"id");if(key.LogicalType!="int64"||key.IsDbNotNull!=1||!storage[target.Id].IsPhysical(key))throw new InvalidOperationException("关联目标必须使用非空int64物理主键。");
         }
         /// <summary>同一路径复用别名，不同角色到同表和自关联分别命名。</summary>
-        private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType,bool validatedCrossGlobal=false,bool ordinaryRelation=false,PageMetadata? cachePage=null,AccountScopedCrossCache? account=null,bool scopedCacheLink=false,string? targetKey=null)
+        private string Join(string ownerAlias,ColumnMetadata relation,TableMetadata target,string source,string sourceType,bool validatedCrossGlobal=false,bool ordinaryRelation=false,PageMetadata? cachePage=null,AccountScopedCrossCache? account=null,bool scopedCacheLink=false,string? targetKey=null,bool reverseAlternate=false)
         {
             // 单值读取和已证明的缓存联接都按物理外键的规范整数文本匹配，避免相邻 bigint 被折叠。
             var fixedTextKey = sourceType=="string" && (ordinaryRelation||scopedCacheLink) &&
@@ -905,7 +911,7 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             // 全局文本外键用主键的十进制字节串匹配，至多命中一个目标。
             // 普通混合键仍用原隐式比较，多个相邻高位整数可能被转换成同一个浮点值。
-            var exactTextKey = sourceType == "string" && (refreshFields is not null || global);
+            var exactTextKey = sourceType == "string" && (refreshFields is not null || global || reverseAlternate);
             aggregateJoinsPreserveCardinality &= sourceType is "int64" or "int32" || exactTextKey;
             var path=ownerAlias+":"+relation.Id+(cachePage is null?"":":"+cachePage.Id)+(account is null?"":":account:"+account.PageId)+
                 (scopedCacheLink?":scoped-cache:"+output:"")+(targetKey is null?"":":key:"+targetKey);
@@ -945,9 +951,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 var condition=ProjectSingleReadCondition(ownerTable,ownerAlias,relation,target,alias,projectSingle);
                 if(condition.Length>0)scope+=(scope.Length==0?"":" AND ")+condition;
             }
-            if(trackReverse&&targetKey is null)
+            if(trackReverse&&(targetKey is null||reverseAlternate))
             {
-                Touch(alias,"id");reverse.Add(alias,(target.TableName,prefix,source,sourceType));
+                Touch(alias,"id");RegisterReverse(alias,target,prefix,source,sourceType,targetKey is null?null:Column(target,targetKey));
                 if(directSave)directSaveAliases.Add(alias);
             }
             if(refreshFields is not null&&sourceType is not("int64" or "string"))throw new NotSupportedException("维护关系ID必须为int64或规范字符串。");
@@ -1059,6 +1065,17 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!trackReverse)return;if(!aliasFields.TryGetValue(alias,out var fields))aliasFields[alias]=fields=new(StringComparer.Ordinal);if(!fields.TryGetValue(output,out var names))fields[output]=names=new(StringComparer.Ordinal);names.Add(field);
         }
         /// <summary>来源依赖独立记录；只有回填用途编译物理结构，普通读取不增加执行期结构预检。</summary>
+        /// <summary>反向定位按物理记录事件取得当前及旧业务键，物理删除后仍能找到受影响来源。</summary>
+        private void RegisterReverse(string alias,TableMetadata target,string from,string source,string sourceType,ColumnMetadata? alternate)
+        {
+            reverse.Add(alias,(target.TableName,from,source,sourceType));
+            if(alternate is null)return;
+            var projectType=GlobalCrossTableTarget.Declared(target)?"":Column(target,"yz_project_id").LogicalType;
+            reverseKeys.Add(alias,new(alternate.ColumnName,alternate.LogicalType,projectType));
+            Touch(alias,alternate.ColumnName);
+            Use(target,alternate);
+        }
+
         private void Use(TableMetadata table,ColumnMetadata column){if(table.Id==root.Id)sourceDependencies.Add(column.ColumnName);if(trackReverse)references.TryAdd((table.TableName,column.ColumnName),new(table.TableName,Metarill.Data.Schema.MySqlSchemaPlanner.CompileColumn(column)));}
     }
     /// <summary>控件定义仅作结构解析；旧式或重复JSON键必须明确拒绝。</summary>

@@ -52,6 +52,7 @@ internal static class RelationPropagationCompilation
                     result.Add(new(table,level.Id,level.Read.Target,level.Read.Name,level.Name,false,plan.Read.Source.Source.Id,level.Read.Key,level.Read.Target.IsGlobal?level.Read.Page.Source.Id:null)
                     {
                         CrossTableGlobalPages=globalPages,
+                        TargetKey=level.Read.AlternateKey?.Source.ColumnName,
                         CrossTableAccountPageId=!recursive&&FixedPageConditionCompilation.HasAccountVariables(level.Read.Page)?level.Read.Page.Source.Id:null,
                         CrossTableRecursivePageId=recursive?level.Read.Page.Source.Id:null
                     });

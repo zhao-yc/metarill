@@ -44,17 +44,17 @@ internal static class CrossTableReadRenderer
             {
                 var level=plan.Levels[index];var projection=Projection(level);
                 // 写前只覆盖已授权来源自身的待存名称/父键；真实范围与路径必须在正常DML后再次由SQL核验。
-                var overlay=level.Target.Source.Id==table.Source.Id?$"if(sourceOverride is not null&&id==sourceOverride.Id){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");return new Metarill.Core.Cascades.CascadeTreeNode(sourceOverride.Id,{(level.DerivedName?"null":MultiSelectExcelRenderer.LabelText(level.Name,"sourceOverride."+level.Name.Property))},{Parent(level).Replace("row.","sourceOverride.",StringComparison.Ordinal)});}}":"";
+                var overlay=level.Target.Source.Id==table.Source.Id?$"if(sourceOverride is not null&&id==sourceOverride.{level.KeyProperty}){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");return new Metarill.Core.Cascades.CascadeTreeNode({level.KeyValue("sourceOverride")},{(level.DerivedName?"null":MultiSelectExcelRenderer.LabelText(level.Name,"sourceOverride."+level.Name.Property))},{Parent(level).Replace("row.","sourceOverride.",StringComparison.Ordinal)});}}":"";
                 // 派生名称写前不读IsIgnore属性；R0不缓存名称，正常DML后必须用真实FK重新锁读完整路径。
                 if(level.Target.Source.IsRongyu==0){output.AppendLine(NonRedundantCrossTargetsRenderer.Find(page,plan,index,overlay));continue;}
-                output.AppendLine($"        case {index}:{{{overlay}var query=CrossScope{suffix}_{index}(actor,false).Where(row=>row.Id==id);if(currentRead)query=query.ForUpdate();var row=await query.FirstAsync({projection},ct);return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode(row.Id,{MultiSelectExcelRenderer.LabelText(level.Name,"row."+level.Name.Property)},{Parent(level)});}}");
+                output.AppendLine($"        case {index}:{{{overlay}var query=CrossScope{suffix}_{index}(actor,false).Where(row=>row.{level.KeyProperty}==id);if(currentRead)query=query.ForUpdate();var row=await query.FirstAsync({projection},ct);return row is null?null:new Metarill.Core.Cascades.CascadeTreeNode({level.KeyValue("row")},{MultiSelectExcelRenderer.LabelText(level.Name,"row."+level.Name.Property)},{Parent(level)});}}");
             }
             output.AppendLine("        default:throw new ArgumentException(\"跨表层号无效。\");}},async(index,parent,ct)=>{switch(index){");
             for(var index=0;index<plan.Levels.Count;index++)
             {
                 if(plan.Levels[index].Target.Source.IsRongyu==0){output.AppendLine(NonRedundantCrossTargetsRenderer.Children(page,plan,index));continue;}
                 var level=plan.Levels[index];var filter=level.Parent is{} parent?$"var parentKey={(parent.Type=="string?"?"parent?.ToString(CultureInfo.InvariantCulture)":"parent")};query=query.Where(row=>row.{parent.Property}==parentKey);":"";var order=string.Concat(level.Order.Select(item=>$".{(item.Descending?"OrderByDescending":"OrderBy")}(row=>row.{item.Column.Property})"));
-                output.AppendLine($"        case {index}:{{var query=CrossScope{suffix}_{index}(actor,false);{filter}var rows=await query{order}.ToListAsync({Projection(level)},ct);return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,{MultiSelectExcelRenderer.LabelText(level.Name,"row."+level.Name.Property)},{Parent(level)})).ToArray();}}");
+                output.AppendLine($"        case {index}:{{var query=CrossScope{suffix}_{index}(actor,false);{filter}var rows=await query{order}.ToListAsync({Projection(level)},ct);return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode({level.KeyValue("row")},{MultiSelectExcelRenderer.LabelText(level.Name,"row."+level.Name.Property)},{Parent(level)})).ToArray();}}");
             }
             output.AppendLine($"        default:throw new ArgumentException(\"跨表层号无效。\");}}}},{Literal(plan.Joiner)},{(sameSource?"sourceOverride is not null?null:":"")}async(index,ids,ct)=>{{switch(index){{");
             // 待写来源覆盖仅走原单路径委托，批读不会丢失尚未提交的名称或父键。
@@ -63,9 +63,9 @@ internal static class CrossTableReadRenderer
                 var level=plan.Levels[index];
                 if(level.Target.Source.IsRongyu==0)
                 {
-                    output.AppendLine($"        case {index}:return await CrossTargetRows{suffix}_{index}Async(actor,[new(\"id\",FixedReadComparison.In,ids.Select(id=>(object?)id).ToArray())],ids.Count,currentRead,ct);");continue;
+                    output.AppendLine($"        case {index}:return await CrossTargetRows{suffix}_{index}Async(actor,[new({Literal(level.KeyColumn)},FixedReadComparison.In,ids.Select(id=>(object?)id).ToArray())],ids.Count,currentRead,ct);");continue;
                 }
-                output.AppendLine($"        case {index}:{{var keys=ids.ToArray();var query=CrossScope{suffix}_{index}(actor,false).Where(row=>keys.Contains(row.Id));if(currentRead)query=query.ForUpdate();var rows=await query.ToListAsync({Projection(level)},ct);return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(row.Id,{MultiSelectExcelRenderer.LabelText(level.Name,"row."+level.Name.Property)},{Parent(level)})).ToArray();}}");
+                output.AppendLine($"        case {index}:{{var keys={(level.AlternateKey?.Type=="long?"?"ids.Select(id=>(long?)id).ToArray()":"ids.ToArray()")};var query=CrossScope{suffix}_{index}(actor,false).Where(row=>keys.Contains(row.{level.KeyProperty}));if(currentRead)query=query.ForUpdate();var rows=await query.ToListAsync({Projection(level)},ct);return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode({level.KeyValue("row")},{MultiSelectExcelRenderer.LabelText(level.Name,"row."+level.Name.Property)},{Parent(level)})).ToArray();}}");
             }
             output.AppendLine("        default:throw new ArgumentException(\"跨表层号无效。\");}});")
                 .AppendLine("    /// <summary>逐级目标和祖先读取使用同一明确快照，弱外层事务不能混用。</summary>")
@@ -76,7 +76,12 @@ internal static class CrossTableReadRenderer
         return output.ToString();
     }
     /// <summary>只读取本级ID/名称及下一跳所需父键。</summary>
-    private static string Projection(CrossTableLevelModel level)=>$"row=>new {level.Target.EntityType}{{Id=row.Id,{level.Name.Property}=row.{level.Name.Property}{(level.Parent is{} parent?","+parent.Property+"=row."+parent.Property:"")}}}";
+    internal static string Projection(CrossTableLevelModel level)
+    {
+        var properties = new[] {"Id",level.Name.Property,level.Parent?.Property,level.AlternateKey?.Property}
+            .OfType<string>().Distinct(StringComparer.Ordinal);
+        return $"row=>new {level.Target.EntityType}{{{string.Join(",",properties.Select(property=>property+"=row."+property))}}}";
+    }
     /// <summary>根层不读取父列，非根保留字符串或精确整数文本。</summary>
     private static string Parent(CrossTableLevelModel level)=>level.Parent is not{} parent?"null":parent.Type=="string?"?"row."+parent.Property:"row."+parent.Property+"?.ToString(CultureInfo.InvariantCulture)";
     /// <summary>元数据文本只能作为转义后的C#字面量。</summary>

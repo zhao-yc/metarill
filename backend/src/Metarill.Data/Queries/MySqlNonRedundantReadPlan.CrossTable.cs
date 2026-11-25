@@ -24,7 +24,10 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>层位别名逐段带上已发布页面，重复目标表也各自使用自己的页面。</summary>
         private PageMetadata? CrossNamePage(string alias)=>
             alias==rootAlias?CrossNameSourcePage:crossNameSourcePages.GetValueOrDefault(alias);
-        private sealed record CrossLevel(TableMetadata Table,ColumnMetadata Name,ColumnMetadata? Parent,NonRedundantCrossTableTargetScope Scope,PageMetadata Page,IReadOnlySet<string> LogicalFields,IReadOnlySet<string>? SelfTreeFields=null);
+        private sealed record CrossLevel(TableMetadata Table,ColumnMetadata Name,ColumnMetadata? Parent,NonRedundantCrossTableTargetScope Scope,PageMetadata Page,IReadOnlySet<string> LogicalFields,IReadOnlySet<string>? SelfTreeFields=null,ColumnMetadata? AlternateKey=null)
+        {
+            internal string KeyColumn=>AlternateKey?.ColumnName??"id";
+        }
 
         /// <summary>一个控件只生成一条从末层向根的线性联接链，全部用途复用逻辑字段表达式。</summary>
         private (string Sql,string Type) CrossValue(TableMetadata table,string owner,ColumnMetadata source,CrossTableSparseSelection selection,NonRedundantCrossTableScope binding,string name,bool labelPath=false,bool scopeOnly=false,CascadeCacheOwner? cacheOwner=null)
@@ -52,6 +55,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(target.IsRongyu is not(0 or 1))throw new NotSupportedException("跨表读取要求普通实体目标。");ValidateTarget(target);
                     var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==binding.Levels[index].PageId&&item.ConfigTableId==target.Id)??throw new InvalidOperationException("跨表目标页与固定目标表不符。");
                     if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||CrossText(page,"exactDataManageMatchField").Length>0)throw new NotSupportedException("跨表目标页的项目／精确权限范围尚未接线。");
+                    var alternate=CrossTableStorageColumns.AlternateLevelKey(catalog,target,entry);
                     var global=GlobalCrossTableTarget.Declared(target);if(!global&&(!columns[target.Id].TryGetValue("yz_project_id",out var project)||!storage[target.Id].IsPhysical(project)))throw new InvalidOperationException("跨表目标缺少真实物理项目范围。");
                     var display=Column(target,Value(entry,"nameField") is {Length:>0} field?field:"name");
                     if(display.ColumnName=="id"||(display.LogicalType!="string"&&!MultiValueLabel.IsTyped(display.LogicalType))||ExactDataManageValues.IsSensitiveField(display.ColumnName))
@@ -78,7 +82,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var label=selection.Slots[index].ColumnName[..^3]+"_name";if(columns[table.Id].TryGetValue(label,out var declared)&&declared.LogicalType.ToLowerInvariant()!="string")throw new InvalidOperationException("跨表来源显示字段类型与逻辑名称不符。");
                     var logical=RequireCrossCondition(target,page,binding.Levels[index].Condition,selfTreeFields:selfTreeFields);
                     if(global&&(logical.Count>0||scopeOnly&&cacheOwner is not null))scopedGlobalCrossTarget=true;
-                    levels.Add(new(target,display,parent,binding.Levels[index],page,logical,selfTreeFields));
+                    levels.Add(new(target,display,parent,binding.Levels[index],page,logical,selfTreeFields,alternate));
                 }
                 if(trackReverse&&(labelPath||scopeOnly))
                     foreach(var slot in selection.Slots)
@@ -100,7 +104,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     {
                         Touch(alias,"id");
                         if(level.Parent is {} parent)Touch(alias,parent.ColumnName);
-                        reverse.Add(alias,(level.Table.TableName," FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),effective,"string"));
+                        RegisterReverse(alias,level.Table," FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),effective,"string",level.AlternateKey);
                     }
                     var scope=Scope(level.Table,alias,projectScoped:!GlobalCrossTableTarget.Declared(level.Table));
                     if(level.Scope.Condition is{} condition&&level.LogicalFields.Count==0)
@@ -112,7 +116,7 @@ public static partial class MySqlNonRedundantReadCompiler
                             rowConditions[index]=" AND "+conditionSql;
                         else if(conditionSql.Length>0)scope+=(scope.Length==0?"":" AND ")+conditionSql;
                     }
-                    var join=" LEFT JOIN "+Q(level.Table.TableName)+" "+alias+" ON BINARY CAST("+alias+".`id` AS CHAR)=BINARY "+effective+(scope.Length==0?"":" AND "+scope);
+                    var join=" LEFT JOIN "+Q(level.Table.TableName)+" "+alias+" ON BINARY CAST("+alias+"."+Q(level.KeyColumn)+" AS CHAR)=BINARY "+effective+(scope.Length==0?"":" AND "+scope);
                     joins.Add(join);
                     if(refreshFields is not null)maintenanceJoins.Add((alias,join));
                     // 子路径联接使用本层别名，先发布本层联接，再用完整子路径限制本层是否可见。
@@ -123,7 +127,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var result=new Dictionary<string,(string Sql,string Type)>(StringComparer.OrdinalIgnoreCase);
                 for(var index=0;index<levels.Count;index++)
                 {
-                    var slot=selection.Slots[index];var resolved=targetAliases[index]+".`id`";if(slot.LogicalType=="string")resolved="CAST("+resolved+" AS CHAR)";
+                    var slot=selection.Slots[index];var resolved=targetAliases[index]+"."+Q(levels[index].KeyColumn);if(slot.LogicalType=="string")resolved="CAST("+resolved+" AS CHAR)";
                     var ancestors=index+1<levels.Count?string.Join(" OR ",paths.Skip(index+1)):"FALSE";
                     // 账号范围之外的目标不能借直接选择的物理ID参与公开投影、匹配或统计。
                     var direct=requireVisible?paths[index]:selected[index];

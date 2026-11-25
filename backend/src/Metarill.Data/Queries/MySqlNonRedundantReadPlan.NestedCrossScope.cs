@@ -1088,8 +1088,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var (page,condition,treeNames)=CrossTableCacheProof.RequireRecursivePage(catalog,target,value,definition);
             var logical=RequireCrossCondition(target,page,condition,selfTreeFields:treeNames);
             var sourceId=Resolve(table,owner,foreign.ColumnName);
+            var alternate=CrossTableCacheProof.AlternateKey(catalog,target,definition);
             var alias=Join(owner,foreign,target,sourceId.Sql,sourceId.Type,
-                validatedCrossGlobal:GlobalCrossTableTarget.Declared(target));
+                validatedCrossGlobal:GlobalCrossTableTarget.Declared(target),targetKey:alternate?.ColumnName,reverseAlternate:alternate is not null);
             var level=new CrossLevel(target,value,null,new(page.Id,condition),page,logical);
             var row=new CascadeCacheOwner(table,owner);
             var visible=NestedCrossCondition(level,alias,row,selfTreeFields:treeNames);

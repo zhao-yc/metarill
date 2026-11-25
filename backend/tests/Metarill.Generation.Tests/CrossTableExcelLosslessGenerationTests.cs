@@ -1,9 +1,12 @@
 using System.Collections;
 using System.Data.Common;
 using Metarill.Core.Exports;
+using Metarill.Core.Cascades;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using Metarill.Core.Metadata;
 using System.Text.RegularExpressions;
 using FreeSql;
 using Metarill.Core.Contracts;
@@ -34,6 +37,7 @@ public sealed class CrossTableExcelLosslessGenerationTests
             scoped.Id="202";scoped.Extra.Remove("type");scoped.WhereSql+=" AND country_id=@parent_id";catalog.ConfigPages.Add(scoped);
             foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="201").ToArray())
             {var copy=JsonSerializer.Deserialize<Metarill.Core.Metadata.PageColumnMetadata>(JsonSerializer.Serialize(field))!;copy.Id="202"+field.Id;copy.ConfigPageId="202";catalog.ConfigPageColumns.Add(copy);}
+            RedundantMultiNameCacheTests.Published(catalog);
         }
         var before=JsonSerializer.Serialize(catalog);
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-excel-lossless");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -46,8 +50,120 @@ public sealed class CrossTableExcelLosslessGenerationTests
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>原页面与 Excel 引用业务键，即使根、区、叶的物理主键完全不同也保持路径。</summary>
+    [Fact]
+    public async Task Integer_business_keys_reach_original_excel_and_parent_scope()
+    {
+        var catalog=CrossTableExcelImportColumnsTests.Catalog("pathexcel","string");
+        var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        AddBusinessKeys(catalog,source);
+        catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId==source.Id).IsShow=1;
+        var scope = JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(catalog.ConfigPages.Single(page=>page.Id=="201")))!;
+        scope.Id="202";
+        scope.Extra.Remove("type");
+        scope.WhereSql+=" AND country_id=@parent_id";
+        catalog.ConfigPages.Add(scope);
+        catalog.ConfigColumns.Add(new(){Id="28",ConfigTableId="2",ColumnName="country_id",Name="祖先ID",LogicalType="string",LinkConfigTableId="3"});
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="201").ToArray())
+        {
+            var copy = JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
+            copy.Id="202"+field.Id;
+            copy.ConfigPageId="202";
+            catalog.ConfigPageColumns.Add(copy);
+        }
+        foreach(var pageId in new[]{"201","202"})
+            catalog.ConfigPageColumns.Add(new(){Id=pageId+"28",ConfigPageId=pageId,ConfigColumnId="28",IsShow=0,IsEdit=1,SortNo=30});
+        RedundantMultiNameCacheTests.Published(catalog);
+        var model=GenerationModel.Create(catalog,"Example.PathExcel");
+        var generated = model.Tables.Single(table=>table.Source.Id=="2");
+        var scoped = generated.Pages.Single(page=>page.Source.Id=="202");
+        Assert.Contains("business_key",CrossTableReadCompilation.ForPage(model,generated,scoped).Single().Levels.Select(level=>level.KeyColumn));
+        var published=GenerationMetadataPublisher.ForRelations(catalog);
+        Assert.Equal(3,published.ConfigIndexes.Count);
+        var bindings=RelationPropagationCompilation.Bindings(model);
+        Assert.Equal(3,bindings.Count);
+        _=Metarill.Data.Relations.RelationMutationPlan.Compile(published,RelationPropagationCompilation.Definitions(bindings));
+        Assert.All(bindings,binding=>Assert.Equal("business_key",binding.TargetKey));
+        Assert.Equal("business_key",Metarill.Data.Queries.RedundantSharedParents.Compile(catalog,"2","202")["28"].Levels[0].KeyColumn);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-business-key");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);
+            await ExerciseParser(await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory), businessKeys:true);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    /// <summary>非冗余行沿业务键还原稀疏层，混用主键时各自匹配，源父及 Excel 使用同一发布定义。</summary>
+    [Fact]
+    public async Task Integer_business_keys_reach_nonredundant_read_and_excel()
+    {
+        var catalog=CrossTableExcelPublicationTests.ParentScopedCatalog("country_id","OverWriteByFirstColumn","edit");
+        var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        AddBusinessKeys(catalog,control,primaryLevel:1);
+        catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=0;
+        const string ns="Example.NonredundantCrossBusinessKey";
+        var model=GenerationModel.Create(catalog,ns);
+        var source=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=Assert.Single(source.Pages);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        var bindings=NonRedundantCrossTableCompilation.Bindings(model,source,page);
+        var sqlPlan=Metarill.Data.Queries.MySqlNonRedundantReadCompiler.CompileWithCrossTables(catalog,"2",
+            ["country_id","country_name","area_id","place_id"],bindings);
+        var from=Assert.IsType<string>(sqlPlan.GetType().GetProperty("From",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(sqlPlan));
+        Assert.Contains("cross0.`business_key` AS CHAR",from);
+        Assert.Contains("cross1.`id` AS CHAR",from);
+        Assert.Contains("cross2.`business_key` AS CHAR",from);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-business-key-r0");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
+            await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    /// <summary>没有按项目证明的唯一索引时拒绝整条跨表路径，不能回退到目标主键。</summary>
+    [Fact]
+    public void Integer_business_keys_require_a_unique_index()
+    {
+        var catalog=CrossTableReadTests.Catalog();
+        AddBusinessKeys(catalog,catalog.ConfigColumns.Single(column=>column.Id=="25"));
+        catalog.ConfigIndexes.Clear();
+        var model=GenerationModel.Create(catalog,"Example.InvalidCrossBusinessKey");
+        var table=model.Tables.Single(table=>table.Source.Id=="2");
+        var result=CrossTableReadCompilation.Resolve(model,table,Assert.Single(table.Pages),table.Columns.Single(column=>column.Source.Id=="25"));
+        Assert.Null(result.Definition);
+        Assert.Contains("唯一索引",result.Reason);
+    }
+
+    /// <summary>逐层使用各自目标表的项目联合唯一键，编译时仍允许同路径混用主键。</summary>
+    internal static void AddBusinessKeys(MetadataCatalog catalog, ColumnMetadata control, int? primaryLevel=null)
+    {
+        var detail=JsonNode.Parse(control.ControlDetail)!;
+        foreach(var (level,position) in detail["levels"]!.AsArray().Select((item,index)=>(item!,index)))
+        {
+            if(position==primaryLevel)continue;
+            level["idField"]="business_key";
+            var target=catalog.ConfigTables.Single(table=>table.TableName==level["table"]!.GetValue<string>());
+            var columnId="business_"+target.Id;
+            if(catalog.ConfigColumns.Any(column=>column.Id==columnId))continue;
+            catalog.ConfigColumns.Add(new(){Id=columnId,ConfigTableId=target.Id,ColumnName="business_key",LogicalType="int64",IsDbNotNull=1});
+            var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName=="yz_project_id");
+            var indexId="business_index_"+target.Id;
+            catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id=indexId,configTableId=target.Id,isUnique=1,indexName="uniq_project_business"}));
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id=indexId+"a",configIndexId=indexId,configColumnId=project.Id,sortNo=1}));
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id=indexId+"b",configIndexId=indexId,configColumnId=columnId,sortNo=2}));
+        }
+        control.ControlDetail=detail.ToJsonString();
+    }
+
     /// <summary>真实私有解析器在原DatabaseSession事务中运行；按父/项目/状态过滤，不返回预设成功ID。</summary>
-    private static async Task ExerciseParser(Assembly assembly)
+    private static async Task ExerciseParser(Assembly assembly,bool businessKeys=false)
     {
         DatabaseSession? currentSession=null;var transport=new TrustedSecurityMemoryProvider();var rows=new Dictionary<Type,List<object>>();var reads=new List<string>();
         object Select(Type type)
@@ -116,13 +232,18 @@ public sealed class CrossTableExcelLosslessGenerationTests
         Assert.Equal("11",Text((await Parse(new Dictionary<string,object?>{{"级联","国甲//"}}))["countryId"]));
         Add("Country",13,"国甲");await Assert.ThrowsAsync<PageImportException>(()=>Parse(new Dictionary<string,object?>{{"级联","国甲//"}}));
         Assert.Contains("scope:status",reads);Assert.Contains(reads,value=>value.StartsWith("lock:",StringComparison.Ordinal));Assert.Empty(transport.Commands);Assert.Equal(7,transport.Rollbacks);
+        if(businessKeys)
+        {
+            Add("Country",9_007_199_254_740_995L,"高位业务键");
+            Assert.Equal("9007199254740995",Text((await Parse(new Dictionary<string,object?>{{"级联","高位业务键//"}}))["countryId"]));
+        }
         return;
 
         void Add(string name,long id,string label,string? parent=null,long parentId=0,int status=1,long project=9007199254740993,bool deleted=false)
         {
             var entityType=assembly.GetType("Example.PathExcel.Generated.Entities.Pathexcel"+name)!;var row=Activator.CreateInstance(entityType)!;
             void Set(string field,object? value){var property=entityType.GetProperty(field)!;var destination=Nullable.GetUnderlyingType(property.PropertyType)??property.PropertyType;property.SetValue(row,value is null?null:Convert.ChangeType(value,destination,System.Globalization.CultureInfo.InvariantCulture));}
-            Set("Id",id);Set("Name",label);Set("YzProjectId",project);Set("Status",status);if(deleted)Set("DeleteNo",DateTime.UtcNow);if(parent is not null)Set(parent,parentId);
+            Set("Id",businessKeys?9_007_199_254_740_990L+id:id);if(businessKeys)Set("BusinessKey",id);Set("Name",label);Set("YzProjectId",project);Set("Status",status);if(deleted)Set("DeleteNo",DateTime.UtcNow);if(parent is not null)Set(parent,parentId);
             if(!rows.TryGetValue(entityType,out var data))rows[entityType]=data=[];data.Add(row);
         }
         void AddSource(long id,string name,long country,long? area,long? place)
@@ -135,10 +256,22 @@ public sealed class CrossTableExcelLosslessGenerationTests
         async Task<Dictionary<string,JsonElement>> Parse(Dictionary<string,object?> row,string page="201",string? parent=null)
         {
             return await session.InTransactionAsync(async()=>{
-                Task task;try{task=(Task)type.GetMethod("ParseImport"+page+"Async",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(service,[JsonSerializer.SerializeToElement(row),parent,actor,CancellationToken.None])!;}
+                Task task;
+                var parameters=new List<object?>{JsonSerializer.SerializeToElement(row),parent,actor};
+                if(page=="202")parameters.Add((Func<Task<IReadOnlyDictionary<string,JsonElement>>>)ReadFixedParent);
+                parameters.Add(CancellationToken.None);
+                try{task=(Task)type.GetMethod("ParseImport"+page+"Async",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(service,parameters.ToArray())!;}
                 catch(TargetInvocationException error)when(error.InnerException is not null){System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error.InnerException).Throw();throw;}
                 await task;return (Dictionary<string,JsonElement>)task.GetType().GetProperty("Result")!.GetValue(task)!;
             });
+
+            async Task<IReadOnlyDictionary<string,JsonElement>> ReadFixedParent()
+            {
+                var factory=type.GetMethod("CrossReader202_25",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                var reader=(CrossTableReader)factory.Invoke(service,[actor,true,false])!;
+                var path=await reader.PathAsync(0,long.Parse(parent!,System.Globalization.CultureInfo.InvariantCulture));
+                return new Dictionary<string,JsonElement>{{"countryId",JsonSerializer.SerializeToElement(Assert.Single(path.Path).Id)}};
+            }
         }
     }
     /// <summary>只记录生成导出是否请求适配器快照，内部ADO仍为离线传输，不证明MySQL隔离或锁。</summary>

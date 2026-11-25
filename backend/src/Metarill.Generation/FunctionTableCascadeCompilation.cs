@@ -54,8 +54,8 @@ internal static class FunctionTableCascadeCompilation
     }
 
     /// <summary>共享层的父列、目标投影和页面权限须同时一致。</summary>
-    private static (string Prefix,string Table,string Page,string Label,string? Parent) Scope(CrossTableLevelModel level)=>
-        (level.Prefix,level.Target.Source.Id,level.Page.Source.Id,level.Name.Source.Id,level.Parent?.Source.Id);
+    private static (string Prefix,string Table,string Page,string Label,string? Parent,string Key) Scope(CrossTableLevelModel level)=>
+        (level.Prefix,level.Target.Source.Id,level.Page.Source.Id,level.Name.Source.Id,level.Parent?.Source.Id,level.KeyColumn);
 
     /// <summary>候选运行于包内已发布业务后台；跨表和自树都保留目标页读取权限。</summary>
     private static string? Published(GenerationModel model,TableModel target,PageModel page)

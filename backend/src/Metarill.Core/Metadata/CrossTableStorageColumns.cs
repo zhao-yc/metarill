@@ -41,6 +41,47 @@ public static class CrossTableStorageColumns
         }
         return result.ToArray();
     }
+    /// <summary>逐层解析目标键。数值键沿用原正整数协议，校验唯一索引后才允许绑定。</summary>
+    public static ColumnMetadata? AlternateLevelKey(MetadataCatalog catalog, TableMetadata target, JsonElement level)
+    {
+        var name = Text(level, "idField", "id");
+        if (name == "id")
+            return null;
+        var (key, _) = CascadeTreeStorageColumns.ResolveNodeKey(catalog, target, name);
+        if (key.LogicalType != "int64")
+            throw new NotSupportedException("跨表级联文本业务键尚未接通。");
+        return key;
+    }
+
+    /// <summary>精简运行时目录保留各层实际引用的业务键索引，由完整计划验证坏定义。</summary>
+    public static IReadOnlySet<(string TableId,string IndexId)> RequiredNodeIndexes(MetadataCatalog catalog)
+    {
+        var result = new HashSet<(string TableId,string IndexId)>();
+        foreach (var control in catalog.ConfigColumns.Where(column => column.ControlKind == "CascadeTree"))
+        {
+            if (LevelPrefixes(control).Count == 0)
+                continue;
+            using var json = JsonDocument.Parse(control.ControlDetail);
+            foreach (var level in json.RootElement.GetProperty("levels").EnumerateArray())
+            {
+                var target = catalog.ConfigTables.SingleOrDefault(table => table.TableName == Text(level, "table", ""));
+                if (target is null)
+                    continue;
+                try
+                {
+                    if (AlternateLevelKey(catalog, target, level) is { } alternate &&
+                        CascadeTreeStorageColumns.ResolveNodeKey(catalog, target, alternate.ColumnName).IndexId is { } index)
+                        result.Add((target.Id,index));
+                }
+                catch (NotSupportedException)
+                {
+                    // 不产生推断索引，读取与存储计划仍会报告无效业务键。
+                }
+            }
+        }
+        return result;
+    }
+
     /// <summary>在完整固定跨表定义中识别其逻辑 ID 或名称。</summary>
     public static bool ContainsPathField(ColumnMetadata source,string field)=>
         LevelPrefixes(source).Any(prefix=>field==prefix+"_id"||field==prefix+"_name");
@@ -59,7 +100,7 @@ public static class CrossTableStorageColumns
             var result=new List<string>();var keys=new HashSet<string>(StringComparer.Ordinal);var names=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach(var level in levels.EnumerateArray())
             {
-                if(!Object(level))return [];var table=Text(level,"table","");MetadataValidation.RequireIdentifier(table);var prefix=Text(level,"columnPrefix",table);MetadataValidation.RequireIdentifier(prefix);MetadataValidation.RequireIdentifier(Text(level,"nameField","name"));if(Text(level,"idField","id")!="id"||!keys.Add(Text(level,"key",table))||!names.Add(prefix)||prefix is "yz_project" or "insert_manager" or "update_manager" or "insert_user" or "update_user")return [];
+                if(!Object(level))return [];var table=Text(level,"table","");MetadataValidation.RequireIdentifier(table);var prefix=Text(level,"columnPrefix",table);MetadataValidation.RequireIdentifier(prefix);MetadataValidation.RequireIdentifier(Text(level,"nameField","name"));MetadataValidation.RequireIdentifier(Text(level,"idField","id"));if(!keys.Add(Text(level,"key",table))||!names.Add(prefix)||prefix is "yz_project" or "insert_manager" or "update_manager" or "insert_user" or "update_user")return [];
                 if(result.Count>0)MetadataValidation.RequireIdentifier(Text(level,"parentField",""));result.Add(prefix);
             }
             return result[^1]+"_id"==source.ColumnName?result:[];

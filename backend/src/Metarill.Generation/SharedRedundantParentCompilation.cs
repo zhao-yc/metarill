@@ -35,7 +35,7 @@ internal static class SharedRedundantParentCompilation
         {
             var target=model.Tables.SingleOrDefault(target=>target.Source.Id==column.Source.LinkConfigTableId);if(target is null||!target.IsGlobal)return [];
             var overlay=model.Catalog.ConfigPageColumns.SingleOrDefault(field=>field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==column.Source.Id)?.Extra.GetValueOrDefault("controlDetail").ToString();if(!string.IsNullOrWhiteSpace(overlay)&&!JsonNode.DeepEquals(JsonNode.Parse(overlay),JsonNode.Parse(column.Source.ControlDetail)))throw new NotSupportedException("R1全局物理父不能替换固定关系覆盖。");
-            var single=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,column.Source,target.Source);matches=paths.Where(path=>path.Level.Target.Source.Id==target.Source.Id&&path.Level.Page.Source.Id==single.Page.Id&&path.Level.Name.Source.Id==single.Name.Id).ToArray();
+            var single=GlobalSingleRelationTarget.RequireCached(model.Catalog,table.Source,column.Source,target.Source);matches=paths.Where(path=>path.Level.Target.Source.Id==target.Source.Id&&path.Level.AlternateKey is null&&path.Level.Page.Source.Id==single.Page.Id&&path.Level.Name.Source.Id==single.Name.Id).ToArray();
         }
         var result=matches.DistinctBy(Identity,StringComparer.Ordinal).ToArray();
         if(result.Length!=1)throw new NotSupportedException("R1跨表父字段缺少唯一固定目标角色。");
@@ -72,7 +72,7 @@ internal static class SharedRedundantParentCompilation
         try{return RedundantSharedParents.Compile(model.Catalog,table.Source.Id,page.Source.Id);}catch(Exception invalid)when(invalid is InvalidOperationException or ArgumentException or JsonException){throw new NotSupportedException("R1公共父定义尚未通过完整证明。",invalid);}
     }
     /// <summary>公共元数据计划与生成器完整读取角色逐层一致，不能单独借用某个有效同伴。</summary>
-    private static bool Matches(RedundantSharedParentPlan plan,SharedRedundantParentPath path)=>plan.Levels.Count==path.Index+1&&plan.Levels.Select((level,index)=>level.TableId==path.Read.Levels[index].Target.Source.Id&&level.PageId==path.Read.Levels[index].Page.Source.Id&&level.NameId==path.Read.Levels[index].Name.Source.Id&&level.Parent==path.Read.Levels[index].Parent?.Source.ColumnName).All(value=>value);
+    private static bool Matches(RedundantSharedParentPlan plan,SharedRedundantParentPath path)=>plan.Levels.Count==path.Index+1&&plan.Levels.Select((level,index)=>level.TableId==path.Read.Levels[index].Target.Source.Id&&level.PageId==path.Read.Levels[index].Page.Source.Id&&level.NameId==path.Read.Levels[index].Name.Source.Id&&level.Parent==path.Read.Levels[index].Parent?.Source.ColumnName&&level.KeyColumn==path.Read.Levels[index].KeyColumn).All(value=>value);
     /// <summary>有账号等值或递归条件的祖先需要额外相关范围，普通 R1 页沿用原查询。</summary>
     internal static IReadOnlyList<RedundantSharedParentPlan> AccountPlans(GenerationModel model,TableModel table,PageModel page)
     {
@@ -97,9 +97,14 @@ internal static class SharedRedundantParentCompilation
             var target=model.Tables.Single(candidate=>candidate.Source.Id==level.TableId);
             var scope=target.Pages.Single(candidate=>candidate.Source.Id==level.PageId).Condition;
             var declaration=$"new({Literal(level.Key)},{Literal(level.Prefix)},{Literal(level.TableId)},{Literal(level.TableName)},{Literal(level.PageId)},{Literal(level.NameId)},{Literal(level.Parent)},{Literal(level.ProjectType)},{(level.SoftDelete?"true":"false")},{Literal(level.ConditionDefinition)},{FixedPageConditionCompilation.ConditionExpression(scope)})";
-            if(level.RecursiveCandidate is null)return declaration;
-            var outputs=level.Parent is null?"\"id\"":"\"id\","+Literal(level.Parent);
-            return declaration+$"{{RecursiveCandidate=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileCrossPageCandidate({Literal(level.TableId)},{Literal(level.PageId)},new string[]{{{outputs}}},new string[]{{}})}}";
+            var members=new List<string>();
+            if(level.AlternateKey is not null)members.Add("AlternateKey="+Literal(level.AlternateKey));
+            if(level.RecursiveCandidate is not null)
+            {
+                var outputs=string.Join(",",new[]{"id",level.Parent,level.AlternateKey}.OfType<string>().Distinct(StringComparer.Ordinal).Select(Literal));
+                members.Add($"RecursiveCandidate=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileCrossPageCandidate({Literal(level.TableId)},{Literal(level.PageId)},new string[]{{{outputs}}},new string[]{{}})");
+            }
+            return members.Count==0?declaration:declaration+"{"+string.Join(",",members)+"}";
         }
         return $"    private static readonly global::Metarill.Data.Queries.RedundantSharedParentPlan[] {name}=[{string.Join(",",paths.Select(path=>$"new({Literal(path.ColumnId)},{Literal(path.ColumnName)},{Literal(path.LogicalType)},{Literal(path.ControlId)},new global::Metarill.Data.Queries.RedundantSharedParentLevel[]{{{string.Join(",",path.Levels.Select(Level))}}})"))}];\n";
     }
@@ -112,7 +117,7 @@ internal static class SharedRedundantParentCompilation
     /// <summary>候选只验证来源父，目标候选自身的父上下文仍走原逻辑。</summary>
     internal static IReadOnlyList<SharedRedundantParentPath> ForTable(GenerationModel model,TableModel table,PageModel page,TableModel target)=>page.Scopes.Where(scope=>scope.Source=="parent").SelectMany(scope=>ForColumn(model,table,page,scope.Column)).Where(path=>path.Level.Target.Source.Id==target.Source.Id).DistinctBy(Identity,StringComparer.Ordinal).ToArray();
     /// <summary>共享目标角色按完整祖先定义比较，重复表名不能合并两个角色。</summary>
-    private static string Identity(SharedRedundantParentPath path)=>JsonSerializer.Serialize(path.Read.Levels.Take(path.Index+1).Select(level=>new{table=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,condition=level.Page.Source.WhereSql}));
+    private static string Identity(SharedRedundantParentPath path)=>JsonSerializer.Serialize(path.Read.Levels.Take(path.Index+1).Select(level=>new{table=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,condition=level.Page.Source.WhereSql,key=level.AlternateKey?.Source.Id}));
     /// <summary>原ID协议保持规范正整数字符串；候选无锁，变更加入原事务当前读。</summary>
     internal static string Call(SharedRedundantParentPath path,PageModel page,string locking)=>$"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,{locking},false).PathAsync({path.Index},SharedR1ParentKey{page.Source.Id}(parentId),cancellationToken);\n";
     /// <summary>实际存储复核不把R1缓存父键改为R0推导值，钩子或DML逃逸必须回滚。</summary>

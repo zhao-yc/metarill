@@ -50,9 +50,10 @@ internal static class CrossTableCacheProof
         var keys=new HashSet<string>(StringComparer.Ordinal);var prefixes=new HashSet<string>(StringComparer.OrdinalIgnoreCase);var found=false;var last="";TableMetadata? previous=null;
         foreach(var level in levels.EnumerateArray())
         {
-            Object(level);if(Extra(level)||Text(level,"idField","id")!="id")throw new InvalidOperationException("跨表名称缓存不接受额外查询范围或非id主键。");var tableName=Text(level,"table","");var prefix=Text(level,"columnPrefix",tableName);var key=Text(level,"key",tableName);var field=Text(level,"nameField","name");MetadataValidation.RequireIdentifier(tableName);MetadataValidation.RequireIdentifier(prefix);MetadataValidation.RequireIdentifier(field);if(!keys.Add(key)||!prefixes.Add(prefix)||prefix is "yz_project" or "insert_manager" or "update_manager" or "insert_user" or "update_user")throw new InvalidOperationException("跨表名称缓存层标识或前缀重复。");
+            Object(level);if(Extra(level))throw new InvalidOperationException("跨表名称缓存不接受额外查询范围。");var tableName=Text(level,"table","");var prefix=Text(level,"columnPrefix",tableName);var key=Text(level,"key",tableName);var field=Text(level,"nameField","name");MetadataValidation.RequireIdentifier(tableName);MetadataValidation.RequireIdentifier(prefix);MetadataValidation.RequireIdentifier(field);if(!keys.Add(key)||!prefixes.Add(prefix)||prefix is "yz_project" or "insert_manager" or "update_manager" or "insert_user" or "update_user")throw new InvalidOperationException("跨表名称缓存层标识或前缀重复。");
             var node=catalog.ConfigTables.SingleOrDefault(x=>x.TableName==tableName&&(x.YzProjectId.Length==0||x.YzProjectId==catalog.YzProjectId))
                 ??throw new InvalidOperationException("跨表名称缓存目标不属于发布项目。");
+            _=CrossTableStorageColumns.AlternateLevelKey(catalog,node,level);
             var storage=MetadataStoragePolicy.ForTable(catalog,node);
             var columns=RelationStorageColumns.Expand(node,catalog.ConfigColumns.Where(x=>x.ConfigTableId==node.Id));
             var name=columns.SingleOrDefault(x=>x.ColumnName==field);
@@ -111,6 +112,20 @@ internal static class CrossTableCacheProof
         if(definition.CrossTableGlobalPages is{} complete&&!globalKeys.SetEquals(complete.Keys))throw new InvalidOperationException("共享全局层页映射必须完整且仅含当前控制列的全局层。");
         if(!found||control.ColumnName!=last+"_id")throw new InvalidOperationException("跨表名称缓存层位或末级列不匹配。");return true;
     }
+    /// <summary>传播键取自已发布控制列和指定层位，目标表、字段和唯一约束均来自元数据。</summary>
+    internal static ColumnMetadata? AlternateKey(MetadataCatalog catalog, TableMetadata target, RelationCacheDefinition definition)
+    {
+        if (definition.CrossTableColumnId is null)
+            return null;
+        var control = catalog.ConfigColumns.Single(column => column.Id==definition.CrossTableColumnId &&
+            column.ConfigTableId==definition.SourceTableId);
+        using var document = JsonDocument.Parse(control.ControlDetail);
+        var level = document.RootElement.GetProperty("levels").EnumerateArray()
+            .Single(item => Text(item,"key",Text(item,"table",""))==definition.CrossTableLevelKey &&
+                Text(item,"table","")==target.TableName);
+        return CrossTableStorageColumns.AlternateLevelKey(catalog,target,level);
+    }
+
     /// <summary>重复JSON键不可依赖后值覆盖。</summary>
     private static void Object(JsonElement value){if(value.ValueKind!=JsonValueKind.Object||value.EnumerateObject().Select(x=>x.Name).Distinct(StringComparer.Ordinal).Count()!=value.EnumerateObject().Count())throw new InvalidOperationException("跨表名称缓存定义必须是无重复键对象。");}
     /// <summary>固定查询以外的范围必须独立证明，不静默忽略。</summary>

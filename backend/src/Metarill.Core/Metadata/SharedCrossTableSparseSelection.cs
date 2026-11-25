@@ -36,7 +36,7 @@ public sealed class SharedCrossTableSparseSelection
             {
                 var prefix=prefixes[index];var name=prefix+"_id";var column=all.SingleOrDefault(c=>c.ColumnName==name)??throw new InvalidOperationException("共享稀疏缺少真实ID位。");var type=column.LogicalType.ToLowerInvariant();
                 if(column.IsVirtualColumn!=0||Enabled(column,"isJoinColumn")||type is not("string" or "int64")||column.IsDbNotNull!=0||!string.IsNullOrWhiteSpace(column.DefaultValue)||column.ControlKind.Length>0&&!(column.ControlKind=="CascadeTree"&&members.Contains(column.Id)))throw new InvalidOperationException("共享稀疏ID须为可空、无默认值、无其它独立控件的物理标量。");
-                var level=levels[index];var identity=JsonSerializer.Serialize(new[]{level.GetProperty("table").GetString(),Text(level,"nameField","name"),index==0?"":Text(level,"parentField","")});var previous=string.Join("\0",path);if(proofs.TryGetValue(name,out var proof)&&(proof.Identity!=identity||proof.Ancestors!=previous))throw new InvalidOperationException("共享稀疏槽的目标、名称、父键或祖先不一致。");proofs[name]=(identity,previous);path.Add(name+"|"+identity);slots.Add(new(column.Id,name,type));
+                var level=levels[index];var identity=JsonSerializer.Serialize(new[]{level.GetProperty("table").GetString(),Text(level,"nameField","name"),index==0?"":Text(level,"parentField",""),Text(level,"idField","id")});var previous=string.Join("\0",path);if(proofs.TryGetValue(name,out var proof)&&(proof.Identity!=identity||proof.Ancestors!=previous))throw new InvalidOperationException("共享稀疏槽的目标、节点键、名称、父键或祖先不一致。");proofs[name]=(identity,previous);path.Add(name+"|"+identity);slots.Add(new(column.Id,name,type));
             }
             branches.Add(new(control.Id,Array.AsReadOnly(slots.ToArray())));
         }

@@ -35,11 +35,16 @@ internal static class NonRedundantCrossTargetsCompilation
         if(!target.IsGlobal)
             _=NonRedundantReads.CompilePublishedScalarMatch(model.Catalog,target.Source.Id,level.Page.Source.Id,level.Name.Source.ColumnName);
         if (level.DerivedOrder)
-            return CascadeTargetOrderCompilation.Require(model, target, level.Page, level.Name, level.Parent,
+        {
+            var result = CascadeTargetOrderCompilation.Require(model, target, level.Page, level.Name, level.Parent,
                 level.DerivedName, level.DerivedOrder, level.Order, fields);
+            return level.AlternateKey is null ? result :
+                (result.Dependencies.Append(level.KeyColumn).Distinct(StringComparer.Ordinal).ToArray(),
+                    result.SortDependencies, result.Targets, result.SortTargets);
+        }
         var dependencies=fields.Select(column=>column.Source.ColumnName).Concat(level.Order.Select(item=>item.Column.Source.ColumnName))
-            .Append("id").Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        var outputs=new[]{"id",level.Name.Source.ColumnName}.Concat(level.Parent is{} p?new[]{p.Source.ColumnName}:[]).ToArray();
+            .Append("id").Append(level.KeyColumn).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var outputs=Outputs(level);
         // 级联候选及运行时共用实际目标页的名称路径和条件。
         var targets=NonRedundantReadCompilation.ProjectPathTargets(model,target,level.Page,outputs.Concat(dependencies));
         var read=FixedPageConditionCompilation.HasLogicalFields(level.Page)
@@ -48,8 +53,13 @@ internal static class NonRedundantCrossTargetsCompilation
             ?NonRedundantReads.CompileGlobalCandidate(model.Catalog,target.Source.Id,level.Page.Source.Id,outputs,dependencies,targets)
             :targets.Count>0?NonRedundantReads.CompileProjectRelation(model.Catalog,target.Source.Id,outputs,dependencies,targets)
             :NonRedundantReads.Compile(model.Catalog,target.Source.Id,outputs,dependencies);
-        if(read.OutputTypes["id"]!="int64"||read.OutputTypes[level.Name.Source.ColumnName]!=level.Name.Source.LogicalType)
+        if(read.OutputTypes[level.KeyColumn]!="int64"||read.OutputTypes[level.Name.Source.ColumnName]!=level.Name.Source.LogicalType)
             throw new InvalidOperationException("跨表名称必须落到同类型的固定单值。");
         return (dependencies, [], targets, []);
     }
+
+    /// <summary>业务键与原主键都来自物理投影，按实际选用字段返回选项值。</summary>
+    internal static string[] Outputs(CrossTableLevelModel level) =>
+        new[] {"id",level.Name.Source.ColumnName,level.Parent?.Source.ColumnName,level.AlternateKey?.Source.ColumnName}
+            .OfType<string>().Distinct(StringComparer.Ordinal).ToArray();
 }
