@@ -22,7 +22,8 @@ const form = mountGenerated(source, {}, {}, {
  runtimeDirectory: join(frontend, 'common/yzp_runtime'),
  components: { 'yzp-cascade-tree': cascade, 'uni-icons': Stub, 'uni-load-more': Stub, 'scroll-view': Stub }
 })
-const tree = '9007199254740993', country = '9007199254740994', area = '9007199254740995', place = '9007199254740996'
+const tree = process.argv[3] ?? '9007199254740993'
+const country = '9007199254740994', area = '9007199254740995', place = '9007199254740996'
 const country2 = '9007199254740997', area2 = '9007199254740998'
 const answered = new Set()
 

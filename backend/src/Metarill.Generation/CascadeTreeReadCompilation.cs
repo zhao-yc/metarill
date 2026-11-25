@@ -42,12 +42,11 @@ internal static class CascadeTreeReadCompilation
             var keyName=Text(tree,"idField","id");
             var key=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==keyName);
             if(key is null)return Gap("节点键未在目标表声明。");
-            if(key.IsId&&!string.IsNullOrWhiteSpace(overlay)&&CascadeTreeStorageColumns.DeclaresAlternateNodeKey(source.Source))
+            if(key.IsId&&!string.IsNullOrWhiteSpace(overlay)&&
+                CascadeTreeStorageColumns.DeclaresAlternateNodeKey(source.Source,table.Source.IsFunctionTable==1))
                 return Gap("页级配置不能替换表级业务节点键。");
             if(!key.IsId)
             {
-                if(table.Source.IsFunctionTable!=0)
-                    return Gap("业务节点键要求普通实体来源。");
                 using var baseline=JsonDocument.Parse(source.Source.ControlDetail);
                 if(!baseline.RootElement.TryGetProperty("selfTree",out var savedTree)||Text(savedTree,"idField","id")!=keyName||
                     Text(savedTree,"table")!=target.Source.TableName)

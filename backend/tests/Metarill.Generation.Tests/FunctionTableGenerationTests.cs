@@ -141,6 +141,84 @@ public sealed class FunctionTableGenerationTests : IDisposable
         CheckCheckboxPlan(output, scopedTargetStorage, logical);
     }
 
+    /// <summary>功能表的业务键沿用原控件和远端只读权限，整个包不生成来源持久化。</summary>
+    [Theory]
+    [InlineData("int64","physical","9007199254740995")]
+    [InlineData("string","physical","001")]
+    [InlineData("string","derived","A-01")]
+    [InlineData("string","global","Ab-01")]
+    public async Task Function_self_tree_preserves_the_published_business_key(string keyType,string targetKind,string selected)
+    {
+        const string ns="Example.FunctionForm";
+        var catalog=WithCascades(Catalog());
+        var source=catalog.ConfigColumns.Single(column=>column.Id=="27");
+        source.LogicalType=keyType;
+        source.DefaultValue=selected;
+        catalog.ConfigColumns.Single(column=>column.Id=="306").LogicalType=keyType;
+        var target=catalog.ConfigTables.Single(table=>table.Id=="3");
+        var targetPage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        if(targetKind=="global")
+        {
+            target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            targetPage.WhereSql="";
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="303");
+        }
+        if(targetKind=="derived")
+        {
+            target.IsRongyu=0;
+            var label=catalog.ConfigColumns.Single(column=>column.Id=="302");
+            label.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("dictionary.name");
+            catalog.ConfigColumns.Add(new(){Id="309",ConfigTableId="3",YzProjectId=catalog.YzProjectId,ColumnName="dictionary_id",
+                LogicalType="int64",ControlKind="List",LinkConfigTableId="4",ControlDetail="""{"tableId":"4","pageId":"301","nameField":"name"}"""});
+        }
+        NonRedundantSelfTreeTests.AddBusinessTreeKey(catalog,"3","27",keyType);
+        Assert.Contains("alternate_tree_index",CascadeTreeStorageColumns.RequiredNodeIndexes(catalog));
+        Assert.Contains(GenerationMetadataPublisher.ForRelations(catalog).ConfigIndexes,index=>
+            index.GetProperty("id").GetString()=="alternate_tree_index");
+
+        var project=GenerationModel.Create(catalog,ns);
+        var owner=project.Tables.Single(table=>table.Source.Id=="2");
+        var page=owner.Pages.Single(instance=>instance.Source.Id=="102");
+        var plan=CascadeTreeReadCompilation.Resolve(project,owner,page,owner.Columns.Single(column=>column.Source.Id=="27"));
+        Assert.True(plan.Definition is not null,plan.Reason);
+        Assert.Equal(keyType,plan.Definition.Key.Source.LogicalType);
+        new ApplicationPackager().Create(catalog,output,ns,SourceRoot());
+        var generated=Path.Combine(output,"backend/generated");
+        var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/SummaryFormService.g.cs"));
+        Assert.Contains("relationAuthorization.RequirePagePermission(\"201\",\"list\")",service);
+        Assert.Contains(keyType=="string"?"request.ParseTextLeaf()":"row.NodeBusinessKey==id",service);
+        if(targetKind=="derived")Assert.Contains("DerivedCascadePlan102_27",service);
+        Assert.DoesNotContain("ValidateCascade",service);
+        Assert.DoesNotContain("InsertAsync",service);
+        Assert.False(File.Exists(Path.Combine(generated,"Entities/SummaryForm.g.cs")));
+        Assert.False(File.Exists(Path.Combine(generated,"Mappers/SummaryFormMapper.g.cs")));
+        Assert.DoesNotContain(MySqlSchemaPlanner.Compile(catalog,"form_test").Tables,table=>table.Name=="summary_form");
+        await VerifyVueAsync(output,"GeneratedFunctionFormCascadeProbe.mjs",selected);
+        await BuildFullAsync(output);
+
+        var context=new AssemblyLoadContext("FunctionSelfTree."+Guid.NewGuid().ToString("N"),isCollectible:true);
+        try
+        {
+            using var binary=File.OpenRead(Path.Combine(output,"backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"));
+            var runtime=context.LoadFromStream(binary).GetType(ns+".Generated.Services.SummaryFormService",true)!;
+            RuntimeHelpers.RunClassConstructor(runtime.TypeHandle);
+            Assert.NotNull(runtime.GetMethod("CascadeOptions102_27Async"));
+            Assert.NotNull(runtime.GetMethod("CascadePath102_27Async"));
+        }
+        finally { context.Unload(); }
+
+        var overlay=catalog.ConfigPageColumns.Single(column=>column.ConfigPageId=="102"&&column.ConfigColumnId=="27");
+        var altered=System.Text.Json.Nodes.JsonNode.Parse(source.ControlDetail)!;
+        altered["selfTree"]!["idField"]="id";
+        overlay.Extra["controlDetail"]=JsonSerializer.SerializeToElement(altered);
+        Assert.Contains("页级配置不能替换表级业务节点键",Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog)).Message);
+        overlay.Extra.Remove("controlDetail");
+        catalog.ConfigIndexes.Clear();
+        Assert.Contains(targetKind=="global"?"全局自树业务键需要单列唯一索引":"联合唯一索引",
+            Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog)).Message);
+    }
+
     /// <summary>实际生成的 type=2 目标在列表和已选回读中使用同一精确权限和父范围。</summary>
     [Theory]
     [InlineData("physical")]

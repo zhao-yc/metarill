@@ -38,8 +38,8 @@ public static class CascadeTreeStorageColumns
     /// <summary>结构扩展和原父范围只识别表级声明的实际自树外键。</summary>
     internal static bool IsPhysicalSelfTreeKey(ColumnMetadata column)=>IsPhysicalSelfTreeKey(column,allowAlternate:false);
 
-    private static bool IsPhysicalSelfTreeKey(ColumnMetadata column,bool allowAlternate)=>
-        column.ControlKind=="CascadeTree"&&column.IsVirtualColumn==0&&!Enabled(column,"isJoinColumn")&&
+    private static bool IsPhysicalSelfTreeKey(ColumnMetadata column,bool allowAlternate,bool formParameter=false)=>
+        column.ControlKind=="CascadeTree"&&(column.IsVirtualColumn==0||formParameter&&column.IsVirtualColumn==1)&&!Enabled(column,"isJoinColumn")&&
         (string.Equals(column.LogicalType,"string",StringComparison.OrdinalIgnoreCase)||string.Equals(column.LogicalType,"int64",StringComparison.OrdinalIgnoreCase))&&
         column.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
         column.ColumnName is not("yz_project_id" or "insert_manager_id" or "update_manager_id" or "insert_user_id" or "update_user_id")&&
@@ -89,13 +89,19 @@ public static class CascadeTreeStorageColumns
 
     /// <summary>识别已声明的业务键；旧主键配置及无效表级定义维持原判断。</summary>
     public static bool DeclaresAlternateNodeKey(ColumnMetadata column)=>
-        IsPhysicalSelfTreeKey(column,allowAlternate:true)&&!IsPhysicalSelfTreeKey(column);
+        DeclaresAlternateNodeKey(column,formParameter:false);
+
+    /// <summary>功能表的虚拟参数也可声明目标业务键，但不会因此生成来源物理列。</summary>
+    public static bool DeclaresAlternateNodeKey(ColumnMetadata column,bool formParameter)=>
+        IsPhysicalSelfTreeKey(column,allowAlternate:true,formParameter)&&
+        !IsPhysicalSelfTreeKey(column,allowAlternate:false,formParameter);
 
     /// <summary>只在运行时目录保留原自树定义实际使用的唯一索引。</summary>
     public static IReadOnlySet<string> RequiredNodeIndexes(MetadataCatalog catalog)
     {
         var ids=new HashSet<string>(StringComparer.Ordinal);
-        foreach(var column in catalog.ConfigColumns.Where(DeclaresAlternateNodeKey))
+        var forms=catalog.ConfigTables.Where(table=>table.IsFunctionTable==1).Select(table=>table.Id).ToHashSet(StringComparer.Ordinal);
+        foreach(var column in catalog.ConfigColumns.Where(column=>DeclaresAlternateNodeKey(column,forms.Contains(column.ConfigTableId))))
         {
             using var definition=JsonDocument.Parse(column.ControlDetail);
             var tree=definition.RootElement.GetProperty("selfTree");
