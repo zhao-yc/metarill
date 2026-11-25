@@ -216,6 +216,92 @@ public sealed class TextCascadeParentRelationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
     }
 
+    /// <summary>原下拉及单选在同一非冗余字典父范围内叠加实际发布页的角色权限。</summary>
+    [Theory]
+    [InlineData(0,"OnlyNew","list")]
+    [InlineData(0,"OverWriteByFirstColumn","edit")]
+    [InlineData(1,"OnlyNew","list")]
+    [InlineData(1,"OverWriteByFirstColumn","edit")]
+    public async Task Single_text_parent_keeps_exact_dictionary_permission(int sourceStorage,string import,string export)
+    {
+        var catalog=Catalog(sourceStorage,import,export);
+        foreach(var id in new[]{"81","82"})
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=0;
+            catalog.ConfigColumns.Add(new(){Id=id+"09",ConfigTableId=id,YzProjectId=catalog.YzProjectId,
+                ColumnName="scope_code",LogicalType="string"});
+            var dictionary=catalog.ConfigPages.Single(item=>item.ConfigTableId==id);
+            dictionary.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
+            dictionary.WhereSql+=id=="81"?" AND area_name <> '下拉隐藏地区'":" AND area_name <> '单选隐藏地区'";
+        }
+        foreach(var admin in catalog.YzAdminTypes)
+            admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        var model=GenerationModel.Create(catalog,"Example.TextParentExactSingle");
+        var owner=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=Assert.Single(owner.Pages);
+        var relations=RelationCompilation.ForPage(model,page,true,forExcel:true);
+        Assert.Equal(2,relations.Count);
+        Assert.All(relations,relation=>
+        {
+            Assert.Equal("country_id",relation.SharedTextParent?.Source.ColumnName);
+            Assert.Equal("scope_code",DerivedRelationNamesCompilation.CandidateExact(model,owner,relation)?.Column.Source.ColumnName);
+        });
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-text-parent-exact-single");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            Assert.Contains("ResolveExactDataManage(\"810\", \"list\", \"real_name\")",service);
+            Assert.Contains("ResolveExactDataManage(\"820\", \"list\", \"real_name\")",service);
+            Assert.Contains("\"scope_code\", FixedReadComparison.In",service);
+            Assert.Contains("OptionsScope201_700Async(",service);
+            Assert.Contains("OptionsScope201_702Async(",service);
+            Assert.Contains("ImportRelation201_700Async",service);
+            Assert.Contains("ImportRelation201_702Async",service);
+            Assert.Contains("Export201Async",service);
+            var published=await PublishedReadCatalog(directory);
+            const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+            foreach(var relation in relations)
+            {
+                var plan=Metarill.Data.Queries.NonRedundantReads.CompileExactSingleParentCandidate(published,
+                    relation.Target.Source.Id,relation.TargetPage.Source.Id,["id","name"],["scope_code"],[],[]);
+                AssertTextParentSql(plan);
+                var sql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+                var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",flags)!.GetValue(sql));
+                AssertExclusion(sql,scope,relation.SourceColumn.Source.ControlKind=="List"?"下拉隐藏地区":"单选隐藏地区");
+            }
+            if(sourceStorage==1)
+            {
+                var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+                Assert.Contains("textrel_listitem",maintenance.MixedTargets);
+                Assert.Contains("textrel_singleitem",maintenance.MixedTargets);
+                var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",flags)!.GetValue(maintenance));
+                var source=plans["2"]!;
+                Assert.Null(source.GetType().GetProperty("Error")!.GetValue(source));
+                var sql=source.GetType().GetProperty("Read")!.GetValue(source)!;
+                foreach(var (field,exclusion) in new[]{("listitem_name","下拉隐藏地区"),("singleitem_name","单选隐藏地区")})
+                {
+                    var expression=Assert.IsType<string>(sql.GetType().GetMethod("Expression",flags)!.Invoke(sql,[field]));
+                    Assert.Contains("BINARY CAST(b.`country_id` AS CHAR)",expression);
+                    AssertExclusion(sql,expression,exclusion);
+                }
+            }
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+
+        // 比较发布页真正绑定的常量，防止下拉和单选错误复用对方的过滤条件。
+        static void AssertExclusion(object plan,string sql,string value)
+        {
+            const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+            var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(plan.GetType().GetProperty("Constants",flags)!.GetValue(plan));
+            Assert.Contains(parameters,parameter=>Equals(parameter.Value,value)&&sql.Contains(parameter.Key,StringComparison.Ordinal));
+        }
+    }
+
     /// <summary>非冗余来源和冗余字典使用同一文本业务键，原选档和工作簿共用范围。</summary>
     [Theory]
     [InlineData("OnlyNew","list")]

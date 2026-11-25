@@ -180,10 +180,12 @@ internal static class RelationCompilation
                 sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowSparseTarget:true)??
                     NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowStoredTarget:true);
                 if(sharedTextParent is null||binding.Declared||scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent)||
-                    !NonRedundantReadCompilation.Physical(model,target,name)||name.Type!="string?"||ExactDataManageCompilation.Declared(targetPage)||
-                    conditions?.HasLogicalFields==true||FixedPageConditionCompilation.HasLogicalFields(targetPage))
+                    !NonRedundantReadCompilation.Physical(model,target,name)||name.Type!="string?"||
+                    target.Source.IsRongyu!=0&&(ExactDataManageCompilation.Declared(targetPage)||FixedPageConditionCompilation.HasLogicalFields(targetPage))||
+                    conditions?.HasLogicalFields==true)
                     throw new NotSupportedException("关联目标与来源共用实体时，必须证明其父键也使用同一文本业务键。");
                 if(target.Source.IsRongyu==1)fixedParent=null;
+                // 非冗余字典的页条件和精确匹配字段由同一个已发布的逻辑父计划验证。
                 else if(fixedParent is not {Logical:true}||!fixedParent.HasTarget(sharedTextParent.Source.Id,logicalOnly:true))
                     throw new NotSupportedException("关联目标的文本父键必须沿目标页实际级联路径读取。");
             }
