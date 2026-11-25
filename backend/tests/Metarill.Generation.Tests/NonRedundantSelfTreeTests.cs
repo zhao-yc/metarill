@@ -468,7 +468,11 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(false,false,true,true,"string",true)]
     [InlineData(true,false,true,false,"string",true)]
     [InlineData(true,false,true,true,"string",true)]
-    public async Task Fixed_cascade_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false,string nameKind="string",bool selfTreeCondition=false,bool globalSelection=false)
+    [InlineData(false,false,false,false,"string",true,false,"int64")]
+    [InlineData(false,true,false,false,"string",true,false,"string")]
+    [InlineData(false,true,false,false,"decimal",false,false,"int64")]
+    [InlineData(false,false,false,false,"string",false,false,"string")]
+    public async Task Fixed_cascade_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false,string nameKind="string",bool selfTreeCondition=false,bool globalSelection=false,string? businessKey=null)
     {
         const string ns="Example.FixedSelfTreeNode";
         var catalog=selfTreeCondition?Catalog("scoped_tree",automatic:true):
@@ -525,6 +529,11 @@ public sealed class NonRedundantSelfTreeTests
             }
         }
         catalog.ConfigPageColumns.Add(new(){Id="20127",ConfigPageId="201",ConfigColumnId="27"});
+        if(businessKey is not null)
+        {
+            AddBusinessTreeKey(catalog,target.Id,"94",businessKey);
+            catalog.ConfigColumns.Single(column=>column.Id=="27").LogicalType=businessKey;
+        }
         foreach(var id in new[]{"93","94","95"})
             catalog.ConfigPageColumns.Add(new(){Id="901"+id,ConfigPageId="901",ConfigColumnId=id,IsShow=1,IsEdit=id=="95"?0:1,
                 Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(id=="95"?1:0)}});
@@ -570,6 +579,16 @@ public sealed class NonRedundantSelfTreeTests
             Assert.Contains("DerivedCascadeRows901_94Async",code);
             Assert.Contains("AllRowsAsync(DerivedCascadePlan901_94.BindAccount(actor)",code);
             Assert.Contains("DerivedCascadeOrder901_94,null,false,ct",code);
+            if(businessKey is not null)
+            {
+                Assert.Contains("node_business_key",code);
+                if(businessKey=="string")
+                {
+                    Assert.Contains("FixedReadFilter.ForTextTreeRoot",code);
+                    Assert.Contains("CascadeTreeExcelPath.ResolveTextAsync",code);
+                }
+                else Assert.Contains("new(\"node_business_key\",FixedReadComparison.Greater,after)",code);
+            }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service=assembly.GetType(ns+".Generated.Services.ScopedTreeConsumerService",true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
@@ -592,6 +611,7 @@ public sealed class NonRedundantSelfTreeTests
                 var native=typeof(NonRedundantReadPlan).GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(filter)!;
                 var sql=Assert.IsType<string>(native.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(native,["node_name"]));
                 Assert.Contains("WITH RECURSIVE",sql);
+                if(businessKey is not null)Assert.Contains("`node_business_key`",sql);
                 Assert.Contains("`scoped_tree_source`",sql);
                 Assert.Contains("`scoped_tree_tree`",sql);
                 Assert.Contains(".`store_id`=@",sql);
@@ -622,6 +642,21 @@ public sealed class NonRedundantSelfTreeTests
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>在生成夹具中开启唯一业务键，保留来源项目与目标物理主键。</summary>
+    internal static void AddBusinessTreeKey(MetadataCatalog catalog,string targetId,string controlId,string keyType)
+    {
+        var control=catalog.ConfigColumns.Single(column=>column.Id==controlId);
+        var settings=System.Text.Json.Nodes.JsonNode.Parse(control.ControlDetail)!;
+        settings["selfTree"]!["idField"]="node_business_key";
+        control.ControlDetail=settings.ToJsonString();
+        catalog.ConfigColumns.Add(new(){Id="alternate_tree_key",ConfigTableId=targetId,YzProjectId=catalog.YzProjectId,
+            ColumnName="node_business_key",LogicalType=keyType,ColumnLength="48",IsDbNotNull=1});
+        catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="alternate_tree_index",configTableId=targetId,
+            indexName="uq_node_business_key",isUnique=1,isEnabled=1,yzProjectId=catalog.YzProjectId}));
+        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="alternate_tree_index_column",
+            configIndexId="alternate_tree_index",configColumnId="alternate_tree_key",sortNo=10,yzProjectId=catalog.YzProjectId}));
     }
 
     /// <summary>全局候选可能读取其它行项目，内层树必须显式全局才能用于该范围。</summary>

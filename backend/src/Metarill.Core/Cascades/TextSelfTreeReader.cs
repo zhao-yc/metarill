@@ -18,6 +18,10 @@ public sealed class TextSelfTreeReader(
     public static string? FilterId(JsonElement value,string idKey,string nameKey)=>
         CascadeTreeId.ParseText(CascadeTreeGraphReader.FilterValue(value,idKey,nameKey),true);
 
+    /// <summary>名称与排序分开读取时，用同一批真实主键对齐两次查询。</summary>
+    public static IReadOnlyList<TextCascadeTreeNode> OrderCandidates(IReadOnlyList<TextCascadeTreeNode> rows,IReadOnlyList<long> orderedIds)=>
+        CascadeTreeNode.OrderCandidates(rows,orderedIds,row=>row.Cursor);
+
     /// <summary>当前层保留原排序，分批查询下级标记并校验父键。</summary>
     public async Task<IReadOnlyList<CascadeTreeOption>> OptionsAsync(string? parent,CancellationToken cancellationToken=default)
     {

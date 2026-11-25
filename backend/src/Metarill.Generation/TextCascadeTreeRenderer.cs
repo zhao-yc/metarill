@@ -83,6 +83,37 @@ internal static class TextCascadeTreeRenderer
 """;
     }
 
+    /// <summary>同表写后验证只读实际拓扑。隐藏的名称和候选条件不会截断后代链。</summary>
+    internal static string Topology(PageModel page,CascadeTreeReadModel plan)
+    {
+        var suffix=page.Source.Id+"_"+plan.Source.Source.Id;
+        var key=plan.Key.Property;
+        var parent=plan.Parent.Property;
+        var target=plan.Target.EntityType;
+        var project=$"row=>new {target}{{Id=row.Id,{key}=row.{key},{parent}=row.{parent}}}";
+        var map=$"rows.Select(row=>new {NodeType}(row.{key}!,row.Id,null,row.{parent})).ToArray()";
+        return $$"""
+    private {{ReaderType}} CascadeTopology{{suffix}}(RuntimeActor actor)=>new(
+        (_,_)=>throw new InvalidOperationException("拓扑校验不枚举界面候选。"),
+        (_,_)=>throw new InvalidOperationException("拓扑校验不枚举界面候选。"),
+        async(ids,ct)=>
+        {
+            var query=TextCascadeTreeSql.Match(CascadeScope{{suffix}}(actor,false,false,true),session,
+                {{Literal(plan.Key.Source.ColumnName)}},{{Literal("mt_tree_topology_key_"+suffix)}},ids);
+            var rows=await query.ForUpdate().ToListAsync({{project}},ct);
+            return {{map}};
+        },
+        async(parents,after,take,ct)=>
+        {
+            var query=TextCascadeTreeSql.Match(CascadeScope{{suffix}}(actor,false,false,true),session,
+                {{Literal(plan.Parent.Source.ColumnName)}},{{Literal("mt_tree_topology_parent_"+suffix)}},parents);
+            var rows=await query.Where(row=>row.Id>after).OrderBy(row=>row.Id).ForUpdate().Limit(take).ToListAsync({{project}},ct);
+            return {{map}};
+        },"/");
+
+""";
+    }
+
     private static string Projection(CascadeTreeReadModel plan)
     {
         var fields=new[]{"Id",plan.Key.Property,plan.Name.Property,plan.Parent.Property}.Distinct(StringComparer.Ordinal)

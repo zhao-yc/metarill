@@ -6,17 +6,20 @@ namespace Metarill.Core.Cascades;
 public sealed record CascadeTreeNode(long Id,string? Name,string? ParentId)
 {
     /// <summary>同一快照的排序只提供顺序，必须逐个匹配已读取的原节点才能返回候选。</summary>
-    public static IReadOnlyList<CascadeTreeNode> OrderCandidates(IReadOnlyList<CascadeTreeNode> nodes, IReadOnlyList<long> orderedIds)
+    public static IReadOnlyList<CascadeTreeNode> OrderCandidates(IReadOnlyList<CascadeTreeNode> nodes, IReadOnlyList<long> orderedIds)=>
+        OrderCandidates(nodes,orderedIds,node=>node.Id);
+
+    internal static IReadOnlyList<T> OrderCandidates<T>(IReadOnlyList<T> nodes, IReadOnlyList<long> orderedIds, Func<T,long> cursor)
     {
         if (nodes.Count != orderedIds.Count)
             throw new InvalidOperationException("级联排序与原候选范围不一致。");
 
-        var byId = new Dictionary<long, CascadeTreeNode>(nodes.Count);
+        var byId = new Dictionary<long,T>(nodes.Count);
         foreach (var node in nodes)
-            if (!byId.TryAdd(node.Id, node))
+            if (!byId.TryAdd(cursor(node), node))
                 throw new InvalidOperationException("级联原候选存在重复节点。");
 
-        var result = new CascadeTreeNode[nodes.Count];
+        var result = new T[nodes.Count];
         for (var index = 0; index < orderedIds.Count; index++)
         {
             if (!byId.Remove(orderedIds[index], out var node))

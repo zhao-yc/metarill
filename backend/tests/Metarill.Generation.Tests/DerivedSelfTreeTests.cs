@@ -119,6 +119,106 @@ public sealed class DerivedSelfTreeTests
         try{new CSharpGenerator().Generate(c,Path.Combine(directory,"generated"),"Example.DerivedTree");await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);Assert.Equal(before,JsonSerializer.Serialize(c));Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(c,"Example.DerivedTree")));Assert.DoesNotContain("name",MetadataStoragePolicy.ForTable(c,c.ConfigTables.Single(table=>table.Id=="3")).PhysicalColumns.Select(column=>column.ColumnName));}
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+
+    /// <summary>固定联接名称与节点业务键共用实际生成计划，原查询、Excel 及叶名筛选均保留原协议。</summary>
+    [Theory]
+    [InlineData("int64","string")]
+    [InlineData("string","string")]
+    public async Task Derived_tree_names_keep_the_business_key(string keyType,string parentType)
+    {
+        const string ns="Example.DerivedTreeBusinessKey";
+        var catalog=Catalog("derived_key","string",parentType,automatic:false);
+        NonRedundantSelfTreeTests.AddBusinessTreeKey(catalog,"3","25",keyType);
+        var source=catalog.ConfigPages.Single(page=>page.Id=="201");
+        source.IsExport=1;
+        source.IsImport=1;
+        var name=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="26");
+        name.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-tree-key");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,ns)));
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.DerivedKeySourceService",true)!;
+            const BindingFlags hidden=BindingFlags.Static|BindingFlags.NonPublic;
+            var candidate=Assert.IsType<NonRedundantReadPlan>(service.GetField("DerivedCascadePlan201_25",hidden)!.GetValue(null));
+            Assert.Equal(keyType,candidate.OutputTypes["node_business_key"]);
+            var read=Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan201",hidden)!.GetValue(null));
+            var mysql=read.GetType().GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(read)!;
+            var leaf=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(mysql,["tree_name"]));
+            Assert.Contains("`node_business_key`",leaf);
+            Assert.Contains("`derived_key_company`",leaf);
+            var generatedSource=await File.ReadAllTextAsync(Path.Combine(generated,"Services/DerivedKeySourceService.g.cs"));
+            Assert.Contains("ImportCascade201_25Async",generatedSource);
+            Assert.Contains("ExcelCascadeTreeId(entity)",generatedSource);
+            if(keyType=="string")
+                Assert.Contains("FixedReadFilter.ForTextTree(\"node_business_key\",ids)",generatedSource);
+            else
+                Assert.Contains("new(\"node_business_key\",FixedReadComparison.Equal,id)",generatedSource);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>同表书签的显示联接和真实拓扑不互相覆盖，写后跟进业务键而非物理主键。</summary>
+    [Theory]
+    [InlineData("int64")]
+    [InlineData("string")]
+    public async Task Same_table_derived_names_keep_business_key_topology(string keyType)
+    {
+        const string ns="Example.DerivedSameKey";
+        var catalog=CascadeTreeSameRowTests.Catalog("derived_same_key","string",keyType);
+        catalog.ConfigTables.Single().IsRongyu=0;
+        catalog.ConfigColumns.Single(column=>column.Id=="1").Id="10001";
+        foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigColumnId=="1"))field.ConfigColumnId="10001";
+        var bookmark=catalog.ConfigColumns.Single(column=>column.Id=="6");
+        bookmark.ControlDetail=bookmark.ControlDetail.Replace("\"nameField\":\"name\"","\"nameField\":\"joined_label\"",StringComparison.Ordinal);
+        NonRedundantSelfTreeTests.AddBusinessTreeKey(catalog,"1","6",keyType);
+        var parent=catalog.ConfigColumns.Single(column=>column.Id=="5");
+        parent.ControlKind="CascadeTree";
+        parent.ControlDetail=bookmark.ControlDetail;
+        catalog.ConfigTables.Add(new(){Id="400",TableName="derived_same_key_dictionary"});
+        catalog.ConfigPages.Add(new(){Id="401",ConfigTableId="400",WhereSql="yz_project_id=@current_yz_project_id"});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="410",ConfigTableId="400",ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="411",ConfigTableId="400",ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="412",ConfigTableId="400",ColumnName="name",LogicalType="string"},
+            new(){Id="413",ConfigTableId="1",ColumnName="dictionary_id",LogicalType="int64",ControlKind="List",
+                LinkConfigTableId="400",ControlDetail="""{"tableId":"400","pageId":"401","nameField":"name"}"""},
+            new(){Id="414",ConfigTableId="1",ColumnName="joined_label",LogicalType="string",Extra=new()
+                {["isJoinColumn"]=JsonSerializer.SerializeToElement(1),["columnFullName"]=JsonSerializer.SerializeToElement("dictionary.name")}}
+        ]);
+        catalog.ConfigPageColumns.AddRange([
+            new(){Id="401412",ConfigPageId="401",ConfigColumnId="412",IsShow=1},
+            new(){Id="202414",ConfigPageId="202",ConfigColumnId="414",IsShow=1}
+        ]);
+        foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="1"))
+        {
+            page.IsSave=1;
+            page.IsExport=1;
+        }
+        RedundantMultiNameCacheTests.Published(catalog);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-derived-same-key");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,output,ns);
+            Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(catalog,ns)));
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.DerivedSameKeyNodeService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            var source=await File.ReadAllTextAsync(Path.Combine(output,"Services/DerivedSameKeyNodeService.g.cs"));
+            Assert.Contains("CascadeTopology202_5(actor)",source);
+            Assert.Contains("CascadeScope202_5(actor,false,false,true)",source);
+            Assert.Contains("ValidateStoredCascade201_6Async",source);
+            Assert.Contains(keyType=="string"?"FixedReadFilter.ForTextTree(\"node_business_key\",[id])":
+                "new(\"node_business_key\",FixedReadComparison.Equal,id)",source);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
     /// <summary>同时开放的独立R0物理名称目标仍生成编译完整三列路径，不能只验证派生分支。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Independent_physical_R0_target_keeps_the_original_reader(bool automatic)

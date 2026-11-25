@@ -54,8 +54,12 @@ internal static class CascadeTreeReadRenderer
             else result.Append(FixedPageConditionCompilation.Apply(plan.TargetPage,"CascadeCondition"+suffix,"cascade_"+suffix));
             result.AppendLine("        return query;").AppendLine("    }");
             if(sameRow&&!plan.TextKey)result.Append(CascadeTreeTopologyRenderer.Service(table,page,plan));
-            if(plan.TextKey)result.Append(TextCascadeTreeRenderer.Service(table,page,plan));
-            else if(plan.UsesFixedRead)result.Append(DerivedCascadeNamesRenderer.Reader(model,table,page,plan));
+            if(plan.UsesFixedRead)
+            {
+                if(sameRow&&plan.TextKey)result.Append(TextCascadeTreeRenderer.Topology(page,plan));
+                result.Append(DerivedCascadeNamesRenderer.Reader(model,table,page,plan));
+            }
+            else if(plan.TextKey)result.Append(TextCascadeTreeRenderer.Service(table,page,plan));
             else
             result.AppendLine("    /// <summary>只投影树结构必需三列，候选有界且不加载整表。</summary>")
                 .AppendLine($"    private Metarill.Core.Cascades.SelfTreeReader CascadeReader{suffix}(RuntimeActor actor,bool locking=false,bool requireSourceList=true,bool requireTargetList=true) => new(")

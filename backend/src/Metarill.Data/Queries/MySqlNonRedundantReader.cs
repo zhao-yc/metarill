@@ -13,6 +13,10 @@ public sealed record FixedReadFilter(string Field,FixedReadComparison Comparison
     public static FixedReadFilter ForTextTree(string field,IReadOnlyList<string> keys)=>
         new(field,FixedReadComparison.In,keys){ExactTextTree=true};
 
+    /// <summary>文本自树的根兼容原空白表示，不参与按业务键匹配。</summary>
+    public static FixedReadFilter ForTextTreeRoot(string field)=>
+        new(field,FixedReadComparison.IsNull){ExactTextTree=true};
+
     /// <summary>已发布的文本父键比较规范十进制字节，数据库排序规则不能改变父记录身份。</summary>
     public static FixedReadFilter ForTextParent(string field,string parentId)=>
         new(field,FixedReadComparison.Equal,RequireTextParent(parentId)){ExactParentText=true};
@@ -363,8 +367,12 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         var type = plan.Types[filter.Field];
         if(filter.ExactParentText&&(type!="string"||filter.Comparison!=FixedReadComparison.Equal||value is not string))
             throw new InvalidOperationException("文本父键筛选缺少实际的文本字段或值。");
-        if(filter.ExactTextTree&&(type!="string"||filter.Comparison!=FixedReadComparison.In||value is not IReadOnlyList<object?> keys||
-            keys.Any(key=>key is not string text||string.IsNullOrWhiteSpace(text))))
+        if(filter.ExactTextTree&&(type!="string"||filter.Comparison switch
+        {
+            FixedReadComparison.IsNull=>value is not null,
+            FixedReadComparison.In=>value is not IReadOnlyList<object?> keys||keys.Any(key=>key is not string text||string.IsNullOrWhiteSpace(text)),
+            _=>true
+        }))
             throw new InvalidOperationException("文本自树筛选缺少有效的文本节点集合。");
         // 普通 JSON 文本与关系数组分别处理。精确比较沿用 MySQL 的 JSON 值比较。
         if (type == "json")
@@ -421,6 +429,7 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         var expression=filter.SharedExact?ExactDataManageSql.CrossExpression(plan,filter.Field):plan.Expression(filter.Field);var value=filter.Value;var parameter="@filter_"+index;
         if(filter.ExactTextTree)
         {
+            if(filter.Comparison==FixedReadComparison.IsNull)return "("+expression+" IS NULL OR "+expression+" REGEXP '^[[:space:]]*$')";
             var keys=(IReadOnlyList<object?>)value!;
             return keys.Count==0?"1=0":"BINARY ("+expression+") IN ("+
                 string.Join(",",Enumerable.Range(0,keys.Count).Select(item=>"BINARY "+parameter+"_"+item))+")";

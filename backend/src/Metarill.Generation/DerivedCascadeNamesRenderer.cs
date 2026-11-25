@@ -9,7 +9,6 @@ internal static class DerivedCascadeNamesRenderer
     {
         var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var (dependencies,sortDependencies,targets,sortTargets)=DerivedCascadeNamesCompilation.Require(model,table,plan);var scopes=plan.TargetPage.Scopes.Select(scope=>"        bound.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+(scope.Column.Type=="string?"?"actor.ProjectId":"long.Parse(actor.ProjectId,CultureInfo.InvariantCulture)")+"));");
         var parent=plan.Parent;var nodeParent=parent.Type=="string?"?"NonRedundantReads.Value<string?>(row,"+Literal(parent.Source.ColumnName)+")":"NonRedundantReads.Value<long?>(row,"+Literal(parent.Source.ColumnName)+")?.ToString(CultureInfo.InvariantCulture)";
-        var childParent=parent.Type=="string?"?"parentId.Value.ToString(CultureInfo.InvariantCulture)":"(object)parentId.Value";var root=Root(plan);
         var condition=plan.ScopedCondition?"null":FixedPageConditionCompilation.Bound(plan.TargetPage,"CascadeCondition"+suffix);
         var separateOrder = sortDependencies.Count > 0;
         var readPlan="DerivedCascadePlan"+suffix+(plan.ScopedCondition||targets.Count>0?".BindAccount(actor)":"");
@@ -18,16 +17,26 @@ internal static class DerivedCascadeNamesRenderer
             NonRedundantReadCompilation.RelationPlanStart(plan.Target,plan.TargetPage);
         var label=MultiSelectExcelRenderer.LabelText(plan.Name,$"NonRedundantReads.Value<{plan.Name.Type}>(row,{Literal(plan.Name.Source.ColumnName)})");
         var parents=parent.Type=="string?"?"var keys=ids.Select(id=>id.ToString(CultureInfo.InvariantCulture)).ToArray();var rows=await CascadeScope"+suffix+"(actor).Where(row=>keys.Contains(row."+parent.Property+"!)).Distinct().ToListAsync(row=>row."+parent.Property+",ct);return rows.Select(text=>long.Parse(text!,CultureInfo.InvariantCulture)).ToHashSet();":"var keys=ids.ToArray();var rows=await CascadeScope"+suffix+"(actor).Where(row=>row."+parent.Property+"!=null&&keys.Contains(row."+parent.Property+".Value)).Distinct().ToListAsync(row=>row."+parent.Property+",ct);return rows.Select(value=>value!.Value).ToHashSet();";
-        var parentFilter = $"parentId is null?{root}:new({Literal(parent.Source.ColumnName)},FixedReadComparison.Equal,{childParent})";
-        var children = separateOrder ? $"async(parentId,_,ct)=>await OrderedCascadeChildren{suffix}Async(parentId,actor,requireSourceList,requireTargetList,ct)" :
-            $"async(parentId,_,ct)=>await DerivedCascadeRows{suffix}Async(actor,[{parentFilter}],DerivedCascadeOrder{suffix},null,false,ct,requireSourceList,requireTargetList)";
+        var parentFilter=ParentFilter(plan);
+        var childArgs=plan.TextKey?"parentId,ct":"parentId,_,ct";
+        var children = separateOrder ? $"async({childArgs})=>await OrderedCascadeChildren{suffix}Async(parentId,actor,requireSourceList,requireTargetList,ct)" :
+            $"async({childArgs})=>await DerivedCascadeRows{suffix}Async(actor,[{parentFilter}],DerivedCascadeOrder{suffix},null,false,ct,requireSourceList,requireTargetList)";
+        var node=plan.TextKey?"TextCascadeTreeNode":"CascadeTreeNode";
+        var readerType=plan.TextKey?"TextSelfTreeReader":"SelfTreeReader";
+        var primaryKey=plan.Key.Source.ColumnName;
+        var key=Literal(primaryKey);
+        var keyOutput=plan.Key.IsId?"":","+key;
+        var orderCursor=plan.TextKey?"id":primaryKey;
+        var orderProjection=Literal(orderCursor);
+        var keyValue=plan.TextKey?$"NonRedundantReads.Value<string>(row,{key})!,NonRedundantReads.Value<long>(row,\"id\")":
+            $"NonRedundantReads.Value<long>(row,{key})";
         var orderedChildren = separateOrder ? $$"""
 
     /// <summary>排序联接的条件只参与排序，不进入显示名称或写入当前读。</summary>
-    private static readonly NonRedundantReadPlan DerivedCascadeSortPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{start}},new string[]{"id"},new string[]{ {{string.Join(",",sortDependencies.Select(Literal))}} }{{NonRedundantReadCompilation.SingleTargetArgument(sortTargets,"singleTargets")}});
+    private static readonly NonRedundantReadPlan DerivedCascadeSortPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{start}},new string[]{ {{orderProjection}} },new string[]{ {{string.Join(",",sortDependencies.Select(Literal))}} }{{NonRedundantReadCompilation.SingleTargetArgument(sortTargets,"singleTargets")}});
 
     /// <summary>在候选的同一读取快照内核对两个计划的节点，再按固定 SQL 次序返回原名称。</summary>
-    private async Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeNode>> OrderedCascadeChildren{{suffix}}Async(long? parentId, RuntimeActor actor, bool requireSourceList, bool requireTargetList, CancellationToken ct)
+    private async Task<IReadOnlyList<Metarill.Core.Cascades.{{node}}>> OrderedCascadeChildren{{suffix}}Async({{(plan.TextKey?"string?":"long?")}} parentId, RuntimeActor actor, bool requireSourceList, bool requireTargetList, CancellationToken ct)
     {
         FixedReadFilter parentFilter = {{parentFilter}};
         var labels = await DerivedCascadeRows{{suffix}}Async(actor, [parentFilter], [new("id")], null, false, ct, requireSourceList, requireTargetList);
@@ -35,16 +44,16 @@ internal static class DerivedCascadeNamesRenderer
 {{string.Join("\n",scopes)}}
         var ordered = await new NonRedundantReader(session).AllRowsAsync(DerivedCascadeSortPlan{{suffix}}.BindAccount(actor),
             bound, DerivedCascadeOrder{{suffix}}, ct, actor.ProjectId, {{condition}});
-        return Metarill.Core.Cascades.SelfTreeReader.OrderCandidates(labels, ordered.Select(row => NonRedundantReads.Value<long>(row, "id")).ToArray());
+        return Metarill.Core.Cascades.{{readerType}}.OrderCandidates(labels, ordered.Select(row => NonRedundantReads.Value<long>(row, {{orderProjection}})).ToArray());
     }
 """ : "";
 
         return $$"""
     /// <summary>目标三列与依赖只从发布定义编译，不读取忽略持久化的实体名称。</summary>
-    private static readonly NonRedundantReadPlan DerivedCascadePlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{start}},new string[]{"id",{{Literal(plan.Name.Source.ColumnName)}},{{Literal(parent.Source.ColumnName)}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} }{{bindings}});
+    private static readonly NonRedundantReadPlan DerivedCascadePlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{start}},new string[]{"id",{{Literal(plan.Name.Source.ColumnName)}},{{Literal(parent.Source.ColumnName)}}{{keyOutput}}},new string[]{ {{string.Join(",",dependencies.Select(Literal))}} }{{bindings}});
     private static readonly FixedReadOrder[] DerivedCascadeOrder{{suffix}}=[{{Orders(plan)}}];
     /// <summary>授权与固定条件沿原树范围；当前读要求真实事务并锁住根及名称联接。</summary>
-    private async Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeNode>> DerivedCascadeRows{{suffix}}Async(RuntimeActor actor,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int? limit,bool locking,CancellationToken ct,bool requireSourceList=false,bool requireTargetList=false)
+    private async Task<IReadOnlyList<Metarill.Core.Cascades.{{node}}>> DerivedCascadeRows{{suffix}}Async(RuntimeActor actor,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int? limit,bool locking,CancellationToken ct,bool requireSourceList=false,bool requireTargetList=false)
     {
         _=CascadeScope{{suffix}}(actor,requireSourceList,requireTargetList);var bound=new List<FixedReadFilter>(filters);
 {{string.Join("\n",scopes)}}
@@ -54,35 +63,59 @@ internal static class DerivedCascadeNamesRenderer
             ?await reader.AllRowsAsync({{readPlan}},bound,order,ct,actor.ProjectId,{{condition}})
             :locking?await reader.CurrentRowsAsync({{readPlan}},bound,order,limit.Value,ct,actor.ProjectId,{{condition}})
                 :await reader.RowsAsync({{readPlan}},bound,order,limit.Value,ct,actor.ProjectId,{{condition}});
-        return rows.Select(row=>new Metarill.Core.Cascades.CascadeTreeNode(NonRedundantReads.Value<long>(row,"id"),{{label}},{{nodeParent}})).ToArray();
+        return rows.Select(row=>new Metarill.Core.Cascades.{{node}}({{keyValue}},{{label}},{{nodeParent}})).ToArray();
     }
 {{orderedChildren}}
+{{(plan.TextKey?TextReader(plan,suffix,children):$$"""
     /// <summary>候选按固定 SQL 排序，根同时匹配 null 与空字符串；父链逐跳读取原名称。</summary>
     private Metarill.Core.Cascades.SelfTreeReader CascadeReader{{suffix}}(RuntimeActor actor,bool locking=false,bool requireSourceList=true,bool requireTargetList=true)=>new(
-        async(id,ct)=>(await DerivedCascadeRows{{suffix}}Async(actor,[new("id",FixedReadComparison.Equal,id)],[new("id")],1,locking,ct,requireSourceList,requireTargetList)).SingleOrDefault(),
+        async(id,ct)=>(await DerivedCascadeRows{{suffix}}Async(actor,[{{SelectedKey(plan)}}],[new("id")],1,locking,ct,requireSourceList,requireTargetList)).SingleOrDefault(),
         {{children}},
         async(ids,ct)=>{ {{parents}} },{{Literal(plan.Joiner)}});
+""")}}
 
+""";
+    }
+
+    /// <summary>文本键在编译计划中精确匹配，游标仍使用真实主键。</summary>
+    private static string TextReader(CascadeTreeReadModel plan,string suffix,string children)
+    {
+        var parent=Literal(plan.Parent.Source.ColumnName);
+        return $$"""
+    private Metarill.Core.Cascades.TextSelfTreeReader CascadeReader{{suffix}}(RuntimeActor actor,bool locking=false,bool requireSourceList=true,bool requireTargetList=true)=>new(
+        {{children}},
+        async(ids,ct)=>
+        {
+            var rows=await TextCascadeTreeSql.Match(CascadeScope{{suffix}}(actor,requireSourceList,requireTargetList),session,
+                {{parent}},{{Literal("mt_tree_derived_children_"+suffix)}},ids).ToListAsync(row=>row.{{plan.Parent.Property}},ct);
+            return rows.OfType<string>().ToHashSet(StringComparer.Ordinal);
+        },
+        async(ids,ct)=>await DerivedCascadeRows{{suffix}}Async(actor,[FixedReadFilter.ForTextTree({{Literal(plan.Key.Source.ColumnName)}},ids)],[new("id")],ids.Count,locking,ct,requireSourceList,requireTargetList),
+        async(parents,after,take,ct)=>await DerivedCascadeRows{{suffix}}Async(actor,[FixedReadFilter.ForTextTree({{parent}},parents),new("id",FixedReadComparison.Greater,after)],[new("id")],take,locking,ct,requireSourceList,requireTargetList),
+        {{Literal(plan.Joiner)}});
+
+    private Metarill.Core.Cascades.TextSelfTreeReader CascadeGraph{{suffix}}(RuntimeActor actor,bool currentRead=false)=>CascadeReader{{suffix}}(actor,currentRead,false,false);
 """;
     }
     /// <summary>图批量路径和后代筛选共享同一读计划，分页前按原图算法恢复可见祖先。</summary>
     internal static string Graph(PageModel page,CascadeTreeReadModel plan)
     {
         var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var parents=plan.Parent.Type=="string?"?"parents.Select(id=>(object?)id.ToString(CultureInfo.InvariantCulture)).ToArray()":"parents.Select(id=>(object?)id).ToArray()";
+        var key=Literal(plan.Key.Source.ColumnName);
         return $$"""
     /// <summary>已授权来源内部图不额外授予候选读取，按固定批次读取和稳定ID游标遍历。</summary>
     private Metarill.Core.Cascades.CascadeTreeGraphReader CascadeGraph{{suffix}}(RuntimeActor actor,bool currentRead=false)=>new(CascadeReader{{suffix}}(actor,currentRead,false,false),
-        async(ids,ct)=>await DerivedCascadeRows{{suffix}}Async(actor,[new("id",FixedReadComparison.In,ids.Select(id=>(object?)id).ToArray())],[new("id")],ids.Count,currentRead,ct),
-        async(parents,after,take,ct)=>await DerivedCascadeRows{{suffix}}Async(actor,[new({{Literal(plan.Parent.Source.ColumnName)}},FixedReadComparison.In,{{parents}}),new("id",FixedReadComparison.Greater,after)],[new("id")],take,currentRead,ct),{{Literal(plan.Joiner)}});
+        async(ids,ct)=>await DerivedCascadeRows{{suffix}}Async(actor,[new({{key}},FixedReadComparison.In,ids.Select(id=>(object?)id).ToArray())],[new({{key}})],ids.Count,currentRead,ct),
+        async(parents,after,take,ct)=>await DerivedCascadeRows{{suffix}}Async(actor,[new({{Literal(plan.Parent.Source.ColumnName)}},FixedReadComparison.In,{{parents}}),new({{key}},FixedReadComparison.Greater,after)],[new({{key}})],take,currentRead,ct),{{Literal(plan.Joiner)}});
 
 """;
     }
     /// <summary>完整路径逐层当前读精确反查，任何歧义或断链交由原导入事务整批回滚。</summary>
     internal static string Import(PageModel page,ColumnModel source,CascadeTreeReadModel plan)
     {
-        var suffix=page.Source.Id+"_"+source.Source.Id;var parent=plan.Parent.Type=="string?"?"parentId.Value.ToString(CultureInfo.InvariantCulture)":"(object)parentId.Value";
+        var suffix=page.Source.Id+"_"+source.Source.Id;
         var lookup=plan.Name.Type=="string?"?"text":"key";
-        var rows=$"await DerivedCascadeRows{suffix}Async(actor,[new({Literal(plan.Name.Source.ColumnName)},FixedReadComparison.Equal,{lookup}),parentId is null?{Root(plan)}:new({Literal(plan.Parent.Source.ColumnName)},FixedReadComparison.Equal,{parent})],[new(\"id\")],2,true,ct)";
+        var rows=$"await DerivedCascadeRows{suffix}Async(actor,[new({Literal(plan.Name.Source.ColumnName)},FixedReadComparison.Equal,{lookup}),{ParentFilter(plan)}],[new(\"id\")],2,true,ct)";
         var read=plan.Name.Type=="string?"?rows:"{"+MultiSelectExcelRenderer.ParseLabel(plan.Name,"text","key")+" return "+rows+";}";
         return $$"""
     /// <summary>名称与原父范围同一固定SQL内匹配，不退回IsIgnore属性或宽表查询。</summary>
@@ -91,12 +124,25 @@ internal static class DerivedCascadeNamesRenderer
         if(cell.ValueKind==JsonValueKind.Null||cell.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(cell.GetString()))return JsonSerializer.SerializeToElement<object?>(null);
         if({{MultiSelectExcelRenderer.InvalidLabelKind(plan.Name,allowNumber:true,input:"cell")}})throw PageImportException.Input(PageImportError.Relation);
         if(session.CurrentTransaction is null)throw new InvalidOperationException("级联导入要求来源事务。");
-        var id=await Metarill.Core.Cascades.CascadeTreeExcelPath.ResolveAsync(cell.ToString(),{{Literal(plan.Joiner)}},async(text,parentId,ct)=>{{read}},cancellationToken);
-        return JsonSerializer.SerializeToElement({{(source.Type=="string?"?"id.ToString(CultureInfo.InvariantCulture)":"(long?)id")}},JsonOptions);
+        var id=await Metarill.Core.Cascades.CascadeTreeExcelPath.Resolve{{(plan.TextKey?"Text":"")}}Async(cell.ToString(),{{Literal(plan.Joiner)}},async(text,parentId,ct)=>{{read}},cancellationToken);
+        return JsonSerializer.SerializeToElement({{(plan.TextKey?"id":source.Type=="string?"?"id.ToString(CultureInfo.InvariantCulture)":"(long?)id")}},JsonOptions);
     }
 
 """;
     }
+    /// <summary>固定业务节点键用于读取叶子，与物理主键游标分别绑定。</summary>
+    internal static string SelectedKey(CascadeTreeReadModel plan)=>plan.TextKey
+        ?$"FixedReadFilter.ForTextTree({Literal(plan.Key.Source.ColumnName)},[id])"
+        :$"new({Literal(plan.Key.Source.ColumnName)},FixedReadComparison.Equal,id)";
+
+    private static string ParentFilter(CascadeTreeReadModel plan)
+    {
+        var column=Literal(plan.Parent.Source.ColumnName);
+        if(plan.TextKey)return $"parentId is null?FixedReadFilter.ForTextTreeRoot({column}):FixedReadFilter.ForTextTree({column},[parentId])";
+        var value=plan.Parent.Type=="string?"?"parentId.Value.ToString(CultureInfo.InvariantCulture)":"(object)parentId.Value";
+        return $"parentId is null?{Root(plan)}:new({column},FixedReadComparison.Equal,{value})";
+    }
+
     /// <summary>复用已支持的IN空成员语义，保持字符串空根与整数null根，不新增操作符。</summary>
     private static string Root(CascadeTreeReadModel plan)=>"new("+Literal(plan.Parent.Source.ColumnName)+","+(plan.Parent.Type=="string?"?"FixedReadComparison.In,new object?[]{null,"+Literal("")+"}":"FixedReadComparison.IsNull")+")";
     /// <summary>排序字段及方向来自生成期证明，不能由请求扩展。</summary>

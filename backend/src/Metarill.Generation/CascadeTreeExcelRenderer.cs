@@ -13,8 +13,8 @@ internal static class CascadeTreeExcelRenderer
         if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is{} cross)return CrossTableExcelRenderer.Import(page,cross);
         var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;
         if(plan is null)return $"    private Task<JsonElement> ImportCascade{page.Source.Id}_{source.Source.Id}Async(JsonElement cell,RuntimeActor actor,CancellationToken cancellationToken)=>throw new NotSupportedException(\"级联导入范围尚未证明。\");\n";
-        if(plan.Read.TextKey)return TextCascadeTreeRenderer.Import(page,source,plan.Read);
         if(plan.Read.UsesFixedRead)return DerivedCascadeNamesRenderer.Import(page,source,plan.Read);
+        if(plan.Read.TextKey)return TextCascadeTreeRenderer.Import(page,source,plan.Read);
         var read=plan.Read;var suffix=page.Source.Id+"_"+source.Source.Id;var target=read.Target;var parent=read.Parent;var name=read.Name;
         var key=read.Key.Property;
         var nodeId=read.Key.IsId?"row.Id":$"row.{key}!.Value";
