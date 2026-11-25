@@ -456,7 +456,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var checkbox=DatabaseCheckboxCompilation.Generic(table,column)?DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition:null;
             var multiIdCheckbox=ControlRenderer.UsesMultiIdCheckboxFilter(column);
             // 已发布的原列表复选按精确数组成员查询，使用和候选加载相同的能力判断。
-            if(multiIdCheckbox&&checkbox?.SupportsRedundantArrayFilter==true)
+            if(multiIdCheckbox&&(checkbox?.SupportsRedundantArrayFilter==true||
+                MultiSelectCompilation.CheckboxFilterOptions(model,table,page,column) is not null))
                 result.AppendLine("                    var selectedIds=DatabaseCheckboxValue.ReadSelected(filter.Value);")
                     .AppendLine($"                    if(selectedIds.Length>0)query=Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayHasAnyId(session,query,entity=>entity.{column.Property},selectedIds);");
             else if(checkbox is not null&&!multiIdCheckbox)result.AppendLine($"                    query=Metarill.Data.Queries.JsonArrayNameQuery.ApplyJsonArrayHasId(session,query,entity=>entity.{column.Property},DatabaseCheckboxValue.ReadId(filter.Value));");

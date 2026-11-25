@@ -58,12 +58,7 @@ internal static class MultiSelectFieldRenderer
             if(def.SharedTextParent is not null&&def.LogicalSourceParent)
                 result.AppendLine(NonRedundantCrossParentCompilation.ValidateTextParent(model,table,page,"logicalRelationParentId"));
             else if(def.SharedTextParent is not null)
-            {
-                // 两端共用已发布路径，按当前来源实体的文本键核对，保留前导零及大小写。
-                result.AppendLine($"        var targetParentId=SharedR1ParentKey{page.Source.Id}(entity.{parentExpression!.Property});");
-                foreach(var path in SharedRedundantParentCompilation.ForColumn(model,table,page,parentExpression))
-                    result.AppendLine($"        await {SharedRedundantParentCompilation.ReadPath(path,page,"true","targetParentId")};");
-            }
+                result.AppendLine(SharedRedundantParentCompilation.ValidateTextParent(model,table,page,$"entity.{parentExpression!.Property}"));
             else if (def.TargetParents.Count > 0)
             {
                 result.AppendLine(def.LogicalSourceParent?"        var targetParentId = logicalRelationParentId;":$"        var targetParentId = Convert.ToString(entity.{parentExpression!.Property}, CultureInfo.InvariantCulture);")

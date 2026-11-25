@@ -529,6 +529,103 @@ public sealed class TextCascadeParentRelationTests
         Assert.Contains("相同发布文本父路径",error.Message);
     }
 
+    /// <summary>冗余多选与复选的保存、回填及筛选都沿非冗余目标的实际文本父路径。</summary>
+    [Theory]
+    [InlineData("OnlyNew","list")]
+    [InlineData("OverWriteByFirstColumn","edit")]
+    public async Task Stored_source_sparse_multi_targets_share_text_parent(string import,string export)
+    {
+        var catalog=Catalog(1,import,export);
+        foreach(var id in new[]{"83","84"})
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(item=>item.Id==id).IsRongyu=0;
+        }
+        foreach(var id in new[]{"704","706"})
+        {
+            catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==id)
+                .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+            catalog.ConfigColumns.Single(column=>column.Id==id).Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
+        }
+        var model=GenerationModel.Create(catalog,"Example.StoredSparseMultiTextParent");
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var multi=MultiSelectCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="704"));
+        var checkbox=DatabaseCheckboxCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="706"));
+        Assert.True(multi.Definition is {SameParent:true,LogicalSourceParent:false,SharedTextParent:not null},multi.Reason);
+        Assert.True(checkbox.Definition is {LogicalSourceParent:false,LogicalTargetPage:not null,SharedTextParent:not null},checkbox.Reason);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+        Assert.Contains("textrel_multiitem",maintenance.MixedTargets);
+        Assert.Contains("textrel_checkitem",maintenance.MixedTargets);
+        Assert.Contains("multiitem_names",maintenance.MixedSourceColumns["textrel_source"]);
+        Assert.Contains("checkitem_names",maintenance.MixedSourceColumns["textrel_source"]);
+        const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",flags)!.GetValue(maintenance));
+        var source=plans["2"]!;
+        Assert.Null(source.GetType().GetProperty("Error")!.GetValue(source));
+        var read=source.GetType().GetProperty("Read")!.GetValue(source)!;
+        var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("Reverse",flags)!.GetValue(read));
+        var country=catalog.ConfigTables.Single(item=>item.Id=="3").TableName;
+        foreach(var column in new[]{"multiitem_names","checkitem_names"})
+        {
+            var names=Assert.IsType<string>(read.GetType().GetMethod("Expression",flags)!.Invoke(read,[column]));
+            Assert.Contains("BINARY CAST(b.`country_id` AS CHAR)",names);
+            Assert.Contains("business_key",names);
+            Assert.DoesNotContain("multi_parent.",names);
+            Assert.Contains(reverse.Cast<object>(),entry=>
+            {
+                var type=entry.GetType();
+                var outputs=Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(type.GetProperty("Outputs")!.GetValue(entry));
+                var key=type.GetProperty("NodeKey",flags)!.GetValue(entry);
+                return type.GetProperty("TargetTable")!.GetValue(entry) as string==country&&outputs.ContainsKey(column)&&
+                    key?.GetType().GetProperty("Column")?.GetValue(key) as string=="business_key";
+            });
+        }
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-stored-sparse-multi-text");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            Assert.Contains("targetParentId=SharedR1ParentKey201(entity.CountryId)",service);
+            Assert.Contains("targetParentId=SharedR1ParentKey201(parentId)",service);
+            Assert.Contains("DerivedCheckboxRows201_706Async(entity.CountryId",service);
+            Assert.Contains("ImportCheckbox201_706Async",service);
+            Assert.Contains("ApplyJsonArrayHasAnyId(session,query,entity=>entity.MultiitemIds",service);
+            Assert.Contains("ApplyJsonArrayHasAnyId(session,query,entity=>entity.CheckitemIds",service);
+            Assert.Contains("entity.MultiitemNames,",service);
+            Assert.Contains("entity.CheckitemNames,",service);
+            Assert.DoesNotContain("out var targetParentKey",service);
+            var probe=NonRedundantApplicationFixture.Start("node",directory);
+            probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GeneratedMultiTextParentProbe.mjs"));
+            probe.ArgumentList.Add(Path.Combine(directory,"frontend"));
+            probe.ArgumentList.Add("sparse");
+            await NonRedundantApplicationFixture.RunAsync(probe);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>直接编译多值缓存时也必须拒绝不同类型的实际父身份。</summary>
+    [Theory]
+    [InlineData("83","704","705")]
+    [InlineData("84","706","707")]
+    public void Stored_source_text_parent_rejects_sparse_multi_target_primary_key(string targetId,string relationId,string cacheId)
+    {
+        var catalog=Catalog(1,"OnlyNew","list");
+        ScopeTarget(catalog,targetId);
+        catalog.ConfigTables.Single(item=>item.Id==targetId).IsRongyu=0;
+        var column=catalog.ConfigColumns.Single(item=>item.Id==targetId+"06");
+        var definition=System.Text.Json.Nodes.JsonNode.Parse(column.ControlDetail)!;
+        definition["levels"]![0]!["idField"]="id";
+        column.ControlDetail=definition.ToJsonString();
+        var cache=new Metarill.Data.Relations.RelationCacheDefinition("2",relationId,targetId,targetId+"02",cacheId,true);
+        var error=Assert.Throws<InvalidOperationException>(()=>Metarill.Data.Relations.DerivedCrossTableCaches.Validate(catalog,[cache],[]));
+        Assert.Contains("相同发布文本父路径",error.Message);
+    }
+
     /// <summary>使用生成应用实际装载的精简目录重放查询，包含页级范围与原控件绑定。</summary>
     private static async Task<MetadataCatalog> PublishedReadCatalog(string directory)
     {

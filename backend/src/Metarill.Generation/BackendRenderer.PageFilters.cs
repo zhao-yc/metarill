@@ -58,7 +58,8 @@ internal static partial class BackendRenderer
         var checkbox = DatabaseCheckboxCompilation.Generic(table, column)
             ? DatabaseCheckboxCompilation.Resolve(model, table, page, column).Definition : null;
         var multiId = ControlRenderer.UsesMultiIdCheckboxFilter(column);
-        if (multiId && (fixedRead && table.Source.IsRongyu == 0 || checkbox?.SupportsRedundantArrayFilter == true && !fixedRead))
+        if (multiId && (fixedRead && table.Source.IsRongyu == 0 || !fixedRead&&
+            (checkbox?.SupportsRedundantArrayFilter == true||MultiSelectCompilation.CheckboxFilterOptions(model,table,page,column) is not null)))
             return Alternatives(PositiveId(), Sequence(PositiveId(), max: DatabaseCheckboxValue.MaximumItems),
                 new { type = "string", description = "兼容原 JSON 编码的 ID 数组文本。" }, Type("null"));
         if (checkbox is not null && !multiId)

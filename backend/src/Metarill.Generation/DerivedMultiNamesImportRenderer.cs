@@ -20,8 +20,9 @@ internal static class DerivedMultiNamesImportRenderer
         var scopes=multi.TargetPage.Scopes.Select(scope=>"            filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Value(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));");
         var exact=multi.ExactTarget is {} proof
             ?ExactDataManageCompilation.ReadFilter(multi.TargetPage,proof,Literal("list"),"multiImportExact","filters"):"";
-        var validateParent=multi.SharedTextParent is not null&&multi.LogicalSourceParent
-            ?NonRedundantCrossParentCompilation.ValidateTextParent(model,table,page,"parentId")
+        var validateParent=multi.SharedTextParent is not null
+            ?multi.LogicalSourceParent?NonRedundantCrossParentCompilation.ValidateTextParent(model,table,page,"parentId"):
+                SharedRedundantParentCompilation.ValidateTextParent(model,table,page,"parentId")
             :multi.TargetParents.Count==0?"":"        var targetParentId="+(parent is null?"parentId":"parentValue.ToString()")+";if(!long.TryParse(targetParentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0"+canonicalParent+")throw PageImportException.Input(PageImportError.Relation);";
         return $$"""
     /// <summary>名称数组使用固定联接计划，不查询忽略持久化的实体名称属性。</summary>

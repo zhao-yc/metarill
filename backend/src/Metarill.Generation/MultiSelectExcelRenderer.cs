@@ -33,12 +33,7 @@ internal static class MultiSelectExcelRenderer
         if(multi.SharedTextParent is not null&&multi.LogicalSourceParent)
             result.AppendLine(NonRedundantCrossParentCompilation.ValidateTextParent(model,table,page,"parentId"));
         else if(multi.SharedTextParent is not null)
-        {
-            result.AppendLine($"        var targetParentId=SharedR1ParentKey{page.Source.Id}(parentId);");
-            var field=page.Scopes.Single(scope=>scope.Source=="parent").Column;
-            foreach(var path in SharedRedundantParentCompilation.ForColumn(model,table,page,field))
-                result.AppendLine($"        await {SharedRedundantParentCompilation.ReadPath(path,page,"true","targetParentId")};");
-        }
+            result.AppendLine(SharedRedundantParentCompilation.ValidateTextParent(model,table,page,"parentId"));
         else if(multi.TargetParents.Count>0)result.AppendLine($"        var targetParentId={targetParent};if(!long.TryParse(targetParentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0)throw PageImportException.Input(PageImportError.Relation);");
         result.Append(ImportConditionBinding(multi,suffix));
         result.AppendLine("        foreach(var item in cell.EnumerateArray())").AppendLine("        {")

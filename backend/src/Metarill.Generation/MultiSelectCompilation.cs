@@ -70,11 +70,13 @@ internal static class MultiSelectCompilation
     /// <summary>非冗余显式复选使用已发布多选页；独立父级必须在本列表能取得实际标量。</summary>
     internal static MultiSelectModel? CheckboxFilterOptions(GenerationModel model, TableModel table, PageModel page, ColumnModel source)
     {
-        if (table.Source.IsRongyu != 0 || source.Source.ControlKind != "MultiSelectPage" ||
+        if (source.Source.ControlKind != "MultiSelectPage" ||
             !ControlRenderer.UsesMultiIdCheckboxFilter(source) ||
             SelectionNameFilterCompilation.EffectiveFilterKind(model, page, source) != "MultiSelectPage")
             return null;
         var definition = Resolve(model, table, page, source, forService: true).Definition;
+        if(table.Source.IsRongyu!=0&&definition is not {SharedTextParent:not null,Target.Source.IsRongyu:0})
+            return null;
         if (definition?.TargetParentField is {} field &&
             !page.Searchable.Any(column => column.JsonName == field && ControlRenderer.HasScalarSourceFilter(model, page, column)))
             return null;
@@ -108,7 +110,7 @@ internal static class MultiSelectCompilation
             var scalarLabel=name is not null&&SupportsTypedLabel(model,table,source,target,name);
             if (name is null || GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&!DerivedMultiNamesCompilation.Declared(model,target,name)&&!globalCachedName || name.IsJsonArray || name.Type != "string?" && !name.IsId&&!scalarLabel || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
-            var sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,targetPage)??
+            var sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,targetPage,allowSparseTarget:true)??
                 NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,targetPage,allowStoredTarget:true);
             var scoped=(sharedTextParent is null||target.Source.IsRongyu==0)&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage);
             var derived=DerivedMultiNamesCompilation.Declared(model,target,name);

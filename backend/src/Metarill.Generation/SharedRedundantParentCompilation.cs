@@ -149,6 +149,13 @@ internal static class SharedRedundantParentCompilation
         $"CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,{locking},false)"+
         NonRedundantCrossParentCompilation.PathSuffix(path.Read,path.Index,$"SharedR1ParentKey{page.Source.Id}({parent})");
     internal static string Call(SharedRedundantParentPath path,PageModel page,string locking)=>$"        await {ReadPath(path,page,locking,"parentId")};\n";
+    /// <summary>原多值保存和导入沿来源已发布物理父路径锁定祖先，文本保留原值。</summary>
+    internal static string ValidateTextParent(GenerationModel model,TableModel table,PageModel page,string argument)
+    {
+        var column=page.Scopes.Single(scope=>scope.Source=="parent").Column;
+        return $"        var targetParentId=SharedR1ParentKey{page.Source.Id}({argument});\n"+
+            string.Join("\n",ForColumn(model,table,page,column).Select(path=>$"        await {ReadPath(path,page,"true","targetParentId")};"));
+    }
     /// <summary>实际存储复核不把R1缓存父键改为R0推导值，钩子或DML逃逸必须回滚。</summary>
     internal static string VerifyCall(GenerationModel model,TableModel table,PageModel page)=>Enabled(model,table,page)?$"        await VerifySharedR1Parent{page.Source.Id}Async(entity,actor,parentId,cancellationToken);\n":"";
     /// <summary>为已证明的R1跨表父页生成私有键解析及写后／删除前实际行复核。</summary>

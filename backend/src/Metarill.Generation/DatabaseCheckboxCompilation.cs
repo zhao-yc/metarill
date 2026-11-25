@@ -182,7 +182,7 @@ internal static class DatabaseCheckboxCompilation
             var sharedNamesPage=pageNames.Any(field=>field!=baseline.NameField);
             // 普通物理父范围由实际两端页面证明，逻辑来源继续使用已有的级联路径。
             var sourceScopeColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
-            var sharedTextParent=namePage is null?null:SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,namePage)??
+            var sharedTextParent=namePage is null?null:SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,namePage,allowSparseTarget:true)??
                 NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,namePage,allowStoredTarget:true);
             if(sharedTextParent is not null&&(derived||name.Type!="string?"||exactTarget is not null||usesNameOverride||sharedNamesPage||
                 explicitPage!=fixedPage||FixedPageConditionCompilation.HasLogicalFields(namePage!)))
