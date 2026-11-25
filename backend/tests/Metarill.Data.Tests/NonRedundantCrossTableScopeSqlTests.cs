@@ -23,6 +23,31 @@ public sealed class NonRedundantCrossTableScopeSqlTests
         Assert.DoesNotContain(NonRedundantCrossTableReadTests.BlockedTitle,sql);Assert.DoesNotContain("9007199254740993",sql);Assert.DoesNotContain("FOR UPDATE",sql);
         Assert.Contains("b.`id`=`a`.`id`",sql);Assert.Equal(new[]{"id"},plan.OutputTypes.Keys);
     }
+    /// <summary>文本父级由发布层决定，逻辑祖先按字节匹配且所有原值独立绑定。</summary>
+    [Fact]
+    public void Text_parent_matches_the_logical_ancestor_by_exact_bytes()
+    {
+        var catalog=NonRedundantCrossTableReadTests.Catalog("scope_text","string","string");
+        var control=catalog.ConfigColumns.Single(column=>column.Id=="15");
+        var definition=System.Text.Json.Nodes.JsonNode.Parse(control.ControlDetail)!;
+        definition["levels"]![0]!["idField"]="business_key";
+        control.ControlDetail=definition.ToJsonString();
+        catalog.ConfigColumns.Add(new(){Id="29",ConfigTableId="2",ColumnName="business_key",
+            LogicalType="string",ColumnLength="50",IsDbNotNull=1});
+        catalog.ConfigIndexes.Add(System.Text.Json.JsonSerializer.SerializeToElement(new{id="210",configTableId="2",isUnique=1}));
+        catalog.ConfigIndexColumns.Add(System.Text.Json.JsonSerializer.SerializeToElement(new{configIndexId="210",configColumnId="29"}));
+        var plan=NonRedundantReads.CompileWithCrossTables(catalog,"1",["id"],NonRedundantCrossTableReadTests.Scopes(catalog),["country_id"]);
+        using var session=Session();
+        var query=session.Select<Row>();
+        Assert.Throws<ArgumentException>(()=>NonRedundantCrossTableScopeSql.Apply(query,session,plan,"country_id","text_parent","  ",catalog.YzProjectId));
+        Assert.Throws<ArgumentException>(()=>NonRedundantCrossTableScopeSql.Apply(query,session,plan,"country_id","text_parent",1L,catalog.YzProjectId));
+        var sql=NonRedundantCrossTableScopeSql.Apply(query,session,plan,"country_id","text_parent","001",catalog.YzProjectId).ToSql();
+        Assert.Contains(")=BINARY @text_parent_value",sql);
+        Assert.Contains("cross2.`business_key`",sql);
+        Assert.Contains("b.`id`=`a`.`id`",sql);
+        Assert.DoesNotContain("'001'",sql);
+    }
+
     /// <summary>名称、未编译层位、错类型、非法／越界ID及项目不能被宽松转换成可匹配值。</summary>
     [Theory][InlineData("string")][InlineData("int64")]
     public void Unproved_fields_types_ids_and_project_fail_without_changing_query(string type)

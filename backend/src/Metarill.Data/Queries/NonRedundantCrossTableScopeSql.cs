@@ -17,8 +17,14 @@ public static class NonRedundantCrossTableScopeSql
         var compiled=plan.MySql;
         var selected=compiled.Crosses.Where(cross=>cross.Selection.Slots.Any(slot=>slot.ColumnName==field)).ToArray();
         if(selected.Length==0||selected.Length>1&&(selected.Any(cross=>cross.SharedGroupKey is null)||selected.Select(cross=>cross.SharedGroupKey).Distinct(StringComparer.Ordinal).Count()!=1)||!compiled.Types.TryGetValue(field,out var type))throw new InvalidOperationException("父范围必须是本固定计划的跨表ID表达式。");
-        if(!(type=="int64"&&value is long number&&number>0||type=="string"&&value is string text&&Positive(text,out _)))throw new ArgumentException("逻辑父ID必须与固定字段同类型且为规范正整数。",nameof(value));
-        var match=compiled.Expression(field)+"="+session.Provider.ParameterPlaceholder(parameterPrefix+"_value");
+        var textKey=selected.All(cross=>cross.Selection.Slots.Select((slot,index)=>(slot,index))
+            .Any(item=>item.slot.ColumnName==field&&cross.Selection.TextKeys[item.index]));
+        if(!(type=="int64"&&value is long number&&number>0||
+            type=="string"&&value is string text&&(textKey?!string.IsNullOrWhiteSpace(text):Positive(text,out _))))
+            throw new ArgumentException("逻辑父ID必须与固定字段的键类型一致。",nameof(value));
+        var expression=compiled.Expression(field);
+        var parameter=session.Provider.ParameterPlaceholder(parameterPrefix+"_value");
+        var match=textKey?"BINARY ("+expression+")=BINARY "+parameter:expression+"="+parameter;
         var reachable=selected.Length==1?selected[0].Reachable:"("+string.Join(" OR ",selected.Select(cross=>cross.Reachable))+")";
         return ApplyScope(query,session,compiled,parameterPrefix,projectId,locking,new[]{match,reachable},
             new Dictionary<string,object?>{{parameterPrefix+"_value",value}});

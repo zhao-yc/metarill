@@ -36,7 +36,8 @@ internal static class SelectionPageRenderer
             if(NonRedundantCrossParentCompilation.Managed(model,table,page,column))
             {
                 var path=NonRedundantCrossParentCompilation.Find(model,table,page,column)!.Value;
-                result.AppendLine($"        _=LogicalParentId{suffix}(parentId);await CrossReader{suffix}_{path.Read.Source.Source.Id}(actor,false,false).PathAsync({path.Index},long.Parse(parentId!,NumberStyles.None,CultureInfo.InvariantCulture),cancellationToken);");continue;
+                var key=path.Read.HasTextKeys?$"LogicalParentId{suffix}(parentId)":"long.Parse(parentId!,NumberStyles.None,CultureInfo.InvariantCulture)";
+                result.AppendLine($"        _=LogicalParentId{suffix}(parentId);await CrossReader{suffix}_{path.Read.Source.Source.Id}(actor,false,false){NonRedundantCrossParentCompilation.PathSuffix(path.Read,path.Index,key)};");continue;
             }
             if(globalParent||GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null)
             {

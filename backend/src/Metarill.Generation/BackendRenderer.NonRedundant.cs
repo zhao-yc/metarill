@@ -388,7 +388,9 @@ internal static class GeneratedNonRedundantReadCatalog
         if(NonRedundantCrossParentCompilation.Enabled(model,table,page))result.AppendLine($"        _=LogicalParentId{suffix}(request.ParentId);");
         foreach(var (column,source) in fixedQuery.IdentityScopes)
         {
-            if(source=="parent"&&fixedTextParent&&column.Type=="string?")
+            if(source=="parent"&&NonRedundantCrossParentCompilation.IsText(model,table,page,column))
+                result.AppendLine($"        result.Add(FixedReadFilter.ForTextTree({Literal(column.Source.ColumnName)},[request.ParentId!]));");
+            else if(source=="parent"&&fixedTextParent&&column.Type=="string?")
                 result.AppendLine($"        result.Add(FixedReadFilter.ForTextParent({Literal(column.Source.ColumnName)},request.ParentId!));");
             else
             {
@@ -488,6 +490,11 @@ internal static class GeneratedNonRedundantReadCatalog
             foreach(var (column,source) in fixedQuery.IdentityScopes)
             {
                 // 写后回显的窄查询也要核对已发布的文本父键，不能借排序规则命中近似记录。
+                if(source=="parent"&&NonRedundantCrossParentCompilation.IsText(model,table,page,column))
+                {
+                    result.AppendLine($"        filters.Add(FixedReadFilter.ForTextTree({Literal(column.Source.ColumnName)},[parentId!]));");
+                    continue;
+                }
                 if(source=="parent"&&fixedTextParent&&column.Type=="string?")
                 {
                     result.AppendLine($"        filters.Add(FixedReadFilter.ForTextParent({Literal(column.Source.ColumnName)},parentId!));");

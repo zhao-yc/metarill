@@ -51,7 +51,7 @@ internal static class DatabaseCheckboxRenderer
                 result.AppendLine($"        var parentKey=LogicalParentId{page.Source.Id}(parentId);");
                 // 同一个实际父记录也要通过每条发布路径的范围核验；写入口复用原事务。
                 foreach(var path in def.LogicalSourcePaths)
-                    result.AppendLine($"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,locking,false).PathAsync({path.Index},parentKey,cancellationToken);");
+                    result.AppendLine($"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,locking,false){NonRedundantCrossParentCompilation.PathSuffix(path.Read,path.Index,"parentKey")};");
                 if(def.GlobalParent)result.AppendLine(MultiGlobalParentCompilation.Check("CheckboxGlobalParent"+suffix,"parentKey","locking"));
             }
             else

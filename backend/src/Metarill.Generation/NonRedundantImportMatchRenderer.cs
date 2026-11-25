@@ -38,9 +38,15 @@ internal static class NonRedundantImportMatchRenderer
         $"    private sealed record ImportExistingContext{page.Source.Id}("+string.Join(",",plan.Context.Select(column=>$"{column.Type} {column.Property}"))+");\n"+
         $"    private static ImportExistingContext{page.Source.Id} ImportContext{page.Source.Id}(IReadOnlyDictionary<string,object?> row)=>new("+string.Join(",",plan.Context.Select(column=>$"NonRedundantReads.Value<{column.Type}>(row,{L(column.Source.ColumnName)})"))+");\n");
     /// <summary>逻辑当前读负责歧义判断，再按主键锁定并核验物理范围。标准更新负责完整读写。</summary>
-    internal static string Match(GenerationModel model,TableModel table,PageModel page,NonRedundantImportMatchPlan plan)=>$$"""
+    internal static string Match(GenerationModel model,TableModel table,PageModel page,NonRedundantImportMatchPlan plan)
+    {
+        var field=L(plan.Key.Source.ColumnName);
+        var text=CrossTableWriteCompilation.ForService(model,table,page).SelectMany(path=>path.Levels)
+            .Any(level=>level.Id.Source.Id==plan.Key.Source.Id&&level.Read.TextKey);
+        var filter=text?$"FixedReadFilter.ForTextTree({field},[key!])":$"new({field},FixedReadComparison.Equal,key)";
+        return $$"""
                 var importFilters=ReadFilters{{page.Source.Id}}(new PageRequest{ParentId=request.ParentId},actor{{ExactDataManageCompilation.Argument(page,"\"import\"")}});
-                importFilters.Add(new({{L(plan.Key.Source.ColumnName)}},FixedReadComparison.Equal,key));
+                importFilters.Add({{filter}});
                 var importMatches=await new NonRedundantReader(session).ImportMatchesAsync({{NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ImportMatchPlan"+page.Source.Id)}},importFilters,cancellationToken,projectId:actor.ProjectId{{FixedPageConditionCompilation.ReadArgument(page,true)}});
                 if(importMatches.Count>1)throw new InvalidOperationException("覆盖匹配字段重名，不能确定目标记录。");
                 var existing=new List<{{table.EntityType}}>();
@@ -52,6 +58,7 @@ internal static class NonRedundantImportMatchRenderer
                 }
 
 """;
+    }
     /// <summary>只供行解析的私有上下文记录，不构造或修改持久实体，也不向更新DTO补交省略字段。</summary>
     internal static string Context(PageModel page)=>$"                if(existing.Count==1)importExisting=ImportContext{page.Source.Id}(importMatches[0]);\n";
     /// <summary>元数据值始终作为字符串字面量，不拼成任意代码。</summary>

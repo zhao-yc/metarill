@@ -92,14 +92,30 @@ internal static class CrossTableReadCompilation
             if(plan.HasTextKeys&&(model.Catalog.DatabaseProvider!="mysql"||table.Source.IsRongyu is not(0 or 1)||table.Source.IsView!=0||table.Source.IsFunctionTable!=0||table.IsGlobal||
                 result.Any(level=>level.Target.Source.IsView!=0||level.Target.IsGlobal||level.Target.Source.Id==table.Source.Id||FixedPageConditionCompilation.HasAccountVariables(level.Page))||
                 table.Source.IsRongyu==1&&result.Any(level=>level.Target.Source.IsRongyu==0)||
-                table.Pages.Any(candidate=>candidate.Scopes.Any(scope=>scope.Source=="parent"))))
-                return Gap("文本业务键当前要求 MySQL 独立项目实体链，来源父范围、全局、来源兼任层位及冗余来源的非冗余目标待接通。");
+                !SupportsSourceParent(table,result)))
+                return Gap("文本业务键当前要求 MySQL 独立项目实体链，当前仅接受已接通的独立非冗余来源父范围组合。");
             if(plan.HasTextKeys&&(!CrossTableFrontendProof.KeepsStorageDefinition(model,page,source)||result[^1].TextKey&&source.Type!="string?"))
                 return Gap("文本业务键要求表级定义及文本叶字段。");
             if(result.Any(level=>level.Target.Source.IsRongyu==0))NonRedundantCrossTargetsCompilation.Require(model,table,plan);return new(plan,null);
         }
         catch(Exception error)when(error is JsonException or ArgumentException or InvalidOperationException or NotSupportedException){return Gap("定义不能安全编译："+error.Message);}
     }
+    /// <summary>文本父范围消费本链唯一逻辑层。普通关系候选仍有独立的整数父协议。</summary>
+    private static bool SupportsSourceParent(TableModel table,IReadOnlyList<CrossTableLevelModel> levels)
+    {
+        foreach(var page in table.Pages)
+        {
+            var parents=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
+            if(parents.Length==0)continue;
+            if(table.Source.IsRongyu!=0||parents.Length!=1)return false;
+            var level=levels.SingleOrDefault(level=>level.Prefix+"_id"==parents[0].Source.ColumnName);
+            if(level is null)return false;
+            if(level.TextKey&&table.Columns.Any(column=>column.Source.ControlKind is "List" or "SelectPage"
+                or "MultiSelectPage" or "MultiCheckBoxDatabase"))return false;
+        }
+        return true;
+    }
+
     /// <summary>不接受JSON最后值覆盖，结构与读取采用相同键解释。</summary>
     private static void Object(JsonElement value){if(value.ValueKind!=JsonValueKind.Object||value.EnumerateObject().Select(field=>field.Name).Distinct(StringComparer.Ordinal).Count()!=value.EnumerateObject().Count())throw new ArgumentException("层级必须为无重复键对象。");}
     /// <summary>原标签与固定层级外观不进入SQL；额外查询定义明确拒绝。</summary>

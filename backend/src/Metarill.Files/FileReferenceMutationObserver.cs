@@ -16,7 +16,7 @@ namespace Metarill.Runtime.Files;
 /// <summary>只同步 FileLibrary 字段；业务记录与引用校验、增删必须处于同一实际数据库事务。</summary>
 public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadataContext registry, IRuntimeAuthorization authorization, IIdGenerator ids, FileLibraryOptions? options = null) : IRecordMutationObserver
 {
-    private sealed record PhysicalDeletionProof(RuntimeActor Actor,string Project,IReadOnlyDictionary<string,object?> Record,IReadOnlyList<long> Parents);
+    private sealed record PhysicalDeletionProof(RuntimeActor Actor,string Project,IReadOnlyDictionary<string,object?> Record,IReadOnlyList<string> Parents);
     // 证明仅保存在当前观察器内部并以原事务弱引用隔离；不能由HTTP、上下文字段或另一个观察器伪造。
     private readonly ConditionalWeakTable<DbTransaction,ConcurrentDictionary<(string Page,string Table,long Id),PhysicalDeletionProof>> deletions=new();
 
@@ -61,12 +61,12 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
     public Task BeforeCommitAsync(RecordMutationContext context, CancellationToken cancellationToken = default)=>BeforeCommitCoreAsync(context,cancellationToken,false);
 
     /// <summary>旧同步入口没有经过生成 Service，须验证来源页和记录的当前修改范围。</summary>
-    internal Task SynchronizeExistingAsync(RecordMutationContext context, long? parentId, CancellationToken token) =>
+    internal Task SynchronizeExistingAsync(RecordMutationContext context, string? parentId, CancellationToken token) =>
         BeforeCommitCoreAsync(context, token, false, synchronizeExisting: true, expectedParentId: parentId);
 
     /// <summary>按钮文件引用由宿主封闭回调取得当前来源权限，内部标记不对HTTP开放，普通CRUD保持原路径。</summary>
     private async Task BeforeCommitCoreAsync(RecordMutationContext context,CancellationToken cancellationToken,bool currentFileScope,
-        bool synchronizeExisting = false, long? expectedParentId = null)
+        bool synchronizeExisting = false, string? expectedParentId = null)
     {
         var catalog = registry.Catalogs.SingleOrDefault(c => c.ConfigPages.Any(p => p.Id == context.PageId))
             ?? throw new UnauthorizedAccessException("来源页面未登记。");
@@ -199,13 +199,15 @@ public sealed class FileReferenceMutationObserver(SqlRowStore store, FileMetadat
     }
 
     /// <summary>父键只取已锁源记录；父锁在文件/引用之前取得，当前读拒绝并发删除后的父行。</summary>
-    private async Task<long[]> LockParentsAsync(RecordMutationContext context, FilePageScope scope, IReadOnlyDictionary<string, object?> record, RuntimeActor actor, CancellationToken token)
+    private async Task<string[]> LockParentsAsync(RecordMutationContext context, FilePageScope scope, IReadOnlyDictionary<string, object?> record, RuntimeActor actor, CancellationToken token)
     {
         var parents = scope.Parents.Select(parent => (Scope: parent, Id: parent.ReadStoredId(record))).ToArray();
-        var logical=await FileCrossParentScope.ValuesAsync(scope.Crosses,store,record,actor,true,token);
-        var ids=parents.Select(parent=>parent.Id).Concat(scope.GlobalParents.Select(parent=>FileReferenceScope.CanonicalId(record.GetValueOrDefault(parent.ColumnName)))).Concat(logical).ToArray();
+        var logical=await FileCrossParentScope.KeyValuesAsync(scope.Crosses,store,record,actor,true,token);
+        var ids=parents.Select(parent=>parent.Id.ToString(CultureInfo.InvariantCulture))
+            .Concat(scope.GlobalParents.Select(parent=>FileReferenceScope.CanonicalId(record.GetValueOrDefault(parent.ColumnName)).ToString(CultureInfo.InvariantCulture)))
+            .Concat(logical).ToArray();
         // 同一页面的@parentId只有一个实际值，多条等值条件不得被解释为互不相干的父身份。
-        if (ids.Distinct().Skip(1).Any()) throw new UnauthorizedAccessException("实际记录不满足同一父记录范围。");
+        if (ids.Distinct(StringComparer.Ordinal).Skip(1).Any()) throw new UnauthorizedAccessException("实际记录不满足同一父记录范围。");
         var provider = store.Session.Provider;
         foreach (var parent in parents.DistinctBy(parent => (parent.Scope.Parent.Id, parent.Id)).OrderBy(parent => parent.Scope.Parent.TableName, StringComparer.Ordinal).ThenBy(parent => parent.Id))
         {

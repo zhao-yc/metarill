@@ -23,6 +23,15 @@ internal static class NonRedundantCrossParentCompilation
     internal static bool Managed(GenerationModel model,TableModel table,PageModel page,ColumnModel column)=>page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==column.Source.Id)&&Find(model,table,page,column) is not null;
     /// <summary>存在逻辑父范围才增加私有参数，不改变普通生成源码。</summary>
     internal static bool Enabled(GenerationModel model,TableModel table,PageModel page)=>page.Scopes.Any(scope=>scope.Source=="parent"&&Find(model,table,page,scope.Column) is not null);
+    /// <summary>已发布父层决定输入键协议，文本原字节用于读写及源实体比较。</summary>
+    internal static bool IsText(GenerationModel model,TableModel table,PageModel page,ColumnModel column)=>
+        Managed(model,table,page,column)&&Find(model,table,page,column) is {} path&&path.Read.Levels[path.Index].TextKey;
+
+    /// <summary>混合链使用逐层键接口，即使当前选用的是整数父层。</summary>
+    internal static string PathSuffix(CrossTableReadModel read,int index,string key)=>
+        read.HasTextKeys ? $".PathByKeyAsync({index},{key}{(read.Levels[index].TextKey?"":".ToString(CultureInfo.InvariantCulture)")},cancellationToken)" :
+            $".PathAsync({index},{key},cancellationToken)";
+
     /// <summary>跨表导出需要验证独立物理父记录仍存在且同项目。纯逻辑父继续由路径 SQL 限定。</summary>
     internal static bool ChecksPhysicalParentOnExport(GenerationModel model,TableModel table,PageModel page)=>
         table.Source.IsRongyu==0&&page.Scopes.Any(scope=>scope.Source=="parent"&&!Managed(model,table,page,scope.Column))&&
@@ -65,12 +74,15 @@ internal static class NonRedundantCrossParentCompilation
     {
         if(!Enabled(model,table,page))return "";
         var parents=page.Scopes.Where(scope=>scope.Source=="parent"&&Managed(model,table,page,scope.Column)).Select(scope=>scope.Column).ToArray();var suffix=page.Source.Id;
+        var textParent=parents.Any(column=>IsText(model,table,page,column));
         var fields=CrossTableWriteCompilation.ForService(model,table,page).SelectMany(plan=>plan.Levels.Select(level=>level.Id)).Concat(page.Scopes.Select(scope=>scope.Column)).DistinctBy(column=>column.Source.Id).ToArray();
         var result=new StringBuilder().AppendLine("    /// <summary>逻辑父范围只编译id及实际父层位，不锁无关显示路径。</summary>")
             .AppendLine($"    private static readonly NonRedundantReadPlan LogicalParentPlan{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileCross({Literal(table.Source.Id)},new string[]{{\"id\"}},new string[]{{{string.Join(",",parents.Select(column=>Literal(column.Source.ColumnName)))}}}{NonRedundantCrossTableCompilation.BindingArgument(model,table,page)});")
             .AppendLine("    /// <summary>父ID保持原字符串接口，禁止宽松数值转换改变当前范围。</summary>")
-            .AppendLine($"    private static long LogicalParentId{suffix}(string? parentId)")
-            .AppendLine("    {").AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var key)||key<=0||parentId!=key.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");return key;").AppendLine("    }")
+            .AppendLine($"    private static {(textParent?"string":"long")} LogicalParentId{suffix}(string? parentId)")
+            .AppendLine("    {").AppendLine(textParent
+                ?"        if(string.IsNullOrWhiteSpace(parentId))throw new ArgumentException(\"当前页面要求非空文本parentId。\");return parentId;"
+                :"        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var key)||key<=0||parentId!=key.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前页面要求规范正整数parentId。\");return key;").AppendLine("    }")
             .AppendLine("    /// <summary>来源及目标完整路径同项目且可见，写用途加入原事务的当前锁读。</summary>")
             .AppendLine($"    private ISelect<{table.EntityType}> LogicalParentScope{suffix}(ISelect<{table.EntityType}> query,RuntimeActor actor,string? parentId,bool locking)")
             .AppendLine("    {").AppendLine($"        _=LogicalParentId{suffix}(parentId);");

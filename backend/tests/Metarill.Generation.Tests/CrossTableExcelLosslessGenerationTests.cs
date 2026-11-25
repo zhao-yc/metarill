@@ -164,11 +164,15 @@ public sealed class CrossTableExcelLosslessGenerationTests
 
     /// <summary>同一链混用原主键和文本业务键，原组件接口与 Excel 都保留前导零和大小写。</summary>
     [Theory]
-    [InlineData(1,false,"OverWriteByFirstColumn")]
-    [InlineData(0,false,"OnlyNew")]
-    [InlineData(0,false,"OverWriteByFirstColumn")]
-    [InlineData(0,true,"OverWriteByFirstColumn")]
-    public async Task Mixed_text_business_keys_use_the_original_page_and_excel(int redundant,bool logicalTarget,string importMode)
+    [InlineData(1,false,"OverWriteByFirstColumn",null)]
+    [InlineData(0,false,"OnlyNew",null)]
+    [InlineData(0,false,"OverWriteByFirstColumn",null)]
+    [InlineData(0,true,"OverWriteByFirstColumn",null)]
+    [InlineData(0,false,"OnlyNew","country_id")]
+    [InlineData(0,false,"OverWriteByFirstColumn","country_id")]
+    [InlineData(0,false,"OverWriteByFirstColumn","area_id")]
+    [InlineData(0,false,"OnlyNew","place_id")]
+    public async Task Mixed_text_business_keys_use_the_original_page_and_excel(int redundant,bool logicalTarget,string importMode,string? parentColumn)
     {
         var catalog=CrossTableExcelImportColumnsTests.Catalog("pathexcel","string");
         var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
@@ -186,6 +190,14 @@ public sealed class CrossTableExcelLosslessGenerationTests
         {
             catalog.ConfigColumns.Add(new(){Id="281",ConfigTableId="2",ColumnName="area_id",LogicalType="int64",LinkConfigTableId="4"});
             configuredPage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(logicalTarget?"edit":"list");
+        }
+        if(parentColumn is not null)
+        {
+            configuredPage.WhereSql+=$" AND {parentColumn}=@parent_id";
+            configuredPage.Extra.Remove("type");
+            configuredPage.IsNew=configuredPage.IsSave=1;
+            if(parentColumn=="country_id")
+                catalog.ConfigColumns.Add(new(){Id="282",ConfigTableId="2",ColumnName="country_id",LogicalType="string",LinkConfigTableId="3"});
         }
         if(logicalTarget)
             catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=0;
@@ -222,13 +234,13 @@ public sealed class CrossTableExcelLosslessGenerationTests
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
-            if(!logicalTarget)await ExerciseParser(assembly,textKeys:true,sparse:redundant==0);
+            if(!logicalTarget)await ExerciseParser(assembly,textKeys:true,sparse:redundant==0,parentColumn:parentColumn);
         }
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
     /// <summary>真实私有解析器在原DatabaseSession事务中运行；按父/项目/状态过滤，不返回预设成功ID。</summary>
-    private static async Task ExerciseParser(Assembly assembly,bool businessKeys=false,bool textKeys=false,bool sparse=false)
+    private static async Task ExerciseParser(Assembly assembly,bool businessKeys=false,bool textKeys=false,bool sparse=false,string? parentColumn=null)
     {
         DatabaseSession? currentSession=null;var transport=new TrustedSecurityMemoryProvider();var rows=new Dictionary<Type,List<object>>();var reads=new List<string>();
         object Select(Type type)
@@ -336,13 +348,43 @@ public sealed class CrossTableExcelLosslessGenerationTests
             var optionsRequest=new CascadeTreeOptionsRequest{LevelKey="地区-二",SelectedPath=JsonSerializer.SerializeToElement(new{countryId="001"})};
             var options=await (Task<IReadOnlyList<CrossTableOption>>)type.GetMethod("CrossOptions201_25Async")!.Invoke(service,[optionsRequest,actor,CancellationToken.None])!;
             Assert.Equal("21",Assert.Single(options).Id);
-            var parsed=await Parse(new Dictionary<string,object?>{{"级联","国甲/区甲/城甲"}});
-            Assert.Equal("001",Text(parsed["countryId"]));
-            Assert.Equal("Leaf-A",Text(parsed["placeId"]));
-            await Assert.ThrowsAsync<PageImportException>(()=>Parse(new Dictionary<string,object?>{{"级联","国甲/区乙/城乙"}}));
-            var rootOnly=await Parse(new Dictionary<string,object?>{{"级联","国甲//"}});
-            Assert.Equal("001",Text(rootOnly["countryId"]));
-            Assert.Null(Text(rootOnly["placeId"]));
+            var parentKey=parentColumn switch{"country_id"=>"001","area_id"=>"21","place_id"=>"Leaf-A",_=>null};
+            if(parentKey is not null)
+            {
+                await ValidateParent(parentKey);
+                if(parentColumn=="area_id")await Assert.ThrowsAsync<ArgumentException>(()=>ValidateParent("021"));
+                else await Assert.ThrowsAsync<InvalidOperationException>(()=>ValidateParent(parentColumn=="country_id"?"1":"leaf-a"));
+
+                var filterMethod=type.GetMethod("ReadFilters201",BindingFlags.Static|BindingFlags.NonPublic)!;
+                var filters=Assert.IsAssignableFrom<IReadOnlyList<Metarill.Data.Queries.FixedReadFilter>>(
+                    filterMethod.Invoke(null,[new PageRequest{ParentId=parentKey},actor]));
+                var parentFilter=Assert.Single(filters,item=>item.Field==parentColumn);
+                if(parentColumn!="area_id")Assert.Equal(parentKey,Assert.Single(Assert.IsAssignableFrom<IReadOnlyList<string>>(parentFilter.Value)));
+                else Assert.Equal(21L,parentFilter.Value);
+            }
+            if(parentColumn!="place_id")
+            {
+                var parsed=await Parse(new Dictionary<string,object?>{{"级联","国甲/区甲/城甲"}},parent:parentKey);
+                Assert.Equal("001",Text(parsed["countryId"]));
+                Assert.Equal("Leaf-A",Text(parsed["placeId"]));
+                await Assert.ThrowsAsync<PageImportException>(()=>Parse(new Dictionary<string,object?>{{"级联","国甲/区乙/城乙"}},parent:parentKey));
+                if(parentColumn is null or "country_id")
+                {
+                    var rootOnly=await Parse(new Dictionary<string,object?>{{"级联","国甲//"}},parent:parentKey);
+                    Assert.Equal("001",Text(rootOnly["countryId"]));
+                    Assert.Null(Text(rootOnly["placeId"]));
+                }
+                if(parentKey is not null)
+                    await Assert.ThrowsAsync<PageImportException>(()=>Parse(new Dictionary<string,object?>{{"级联","国乙/区乙/城乙"}},parent:parentKey));
+            }
+
+            async Task ValidateParent(string parent)=>await session.InTransactionAsync(async()=>
+            {
+                var method=type.GetMethod("ValidateParents201Async",BindingFlags.Instance|BindingFlags.NonPublic)!;
+                var extra=method.GetParameters().Skip(3).Select(parameter=>(object?)true);
+                await (Task)method.Invoke(service,new object?[]{parent,actor,CancellationToken.None}.Concat(extra).ToArray())!;
+                return true;
+            });
             var entity=AddSource(101,"叶记录","A-01",22,"Leaf-A");
             var normalize=type.GetMethod("NormalizeCross201_25Async",BindingFlags.Instance|BindingFlags.NonPublic)!;
             await session.InTransactionAsync(async()=>

@@ -173,7 +173,11 @@ public sealed partial class {{page.Name}}ImportRequest
             result.AppendLine($"        var crossInputs=new Metarill.Core.Cascades.CrossTableExcelRow({textArgument});");
             var slots=crosses.SelectMany(cross=>cross.Levels).Select(level=>level.Id.Source.Id).ToHashSet(StringComparer.Ordinal);
             foreach(var scope in page.Scopes.Where(scope=>slots.Contains(scope.Column.Source.Id)))
-                result.AppendLine($"        values[{Literal(scope.Column.JsonName)}]=JsonSerializer.SerializeToElement({ScopeValue(scope.Column,scope.Source=="parent"?"parentId!":"actor.ProjectId")},JsonOptions);");
+            {
+                var value=scope.Source=="parent"&&NonRedundantCrossParentCompilation.IsText(model,table,page,scope.Column)?"parentId!":
+                    ScopeValue(scope.Column,scope.Source=="parent"?"parentId!":"actor.ProjectId");
+                result.AppendLine($"        values[{Literal(scope.Column.JsonName)}]=JsonSerializer.SerializeToElement({value},JsonOptions);");
+            }
         }
         if (contextual)
         {
@@ -315,7 +319,7 @@ public sealed partial class {{page.Name}}ImportRequest
         foreach(var parent in parents)
         {
             var source=parent.Read.Source.Source.Id;
-            body.AppendLine($"            var path{source}=await CrossReader{page.Source.Id}_{source}(actor,true,false).PathAsync({parent.Levels.Count-1},LogicalParentId{page.Source.Id}(request.ParentId),cancellationToken);");
+            body.AppendLine($"            var path{source}=await CrossReader{page.Source.Id}_{source}(actor,true,false){NonRedundantCrossParentCompilation.PathSuffix(parent.Read,parent.Levels.Count-1,$"LogicalParentId{page.Source.Id}(request.ParentId)")};");
             foreach(var (level,index) in parent.Levels.Take(parent.Levels.Count-1).Select((level,index)=>(level,index)))
             {
                 var key=Literal(level.Id.JsonName);

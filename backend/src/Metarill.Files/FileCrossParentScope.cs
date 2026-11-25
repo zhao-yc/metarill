@@ -10,7 +10,7 @@ namespace Metarill.Runtime.Files;
 internal sealed class FileCrossParentScope
 {
     private sealed record Target(string Table,string PageId,string NameId,string? ProjectType,bool SoftDelete,string? Parent,FixedConditionSqlPlan? Condition,
-        NonRedundantReadPlan? LogicalPlan=null,string KeyColumn="id");
+        NonRedundantReadPlan? LogicalPlan=null,string KeyColumn="id",bool TextKey=false);
     private readonly CrossTableSparseSelection? selection;
     private readonly FileSharedCrossParentScope? shared;
     private readonly RedundantSharedParentPlan? redundant;
@@ -18,6 +18,7 @@ internal sealed class FileCrossParentScope
     internal string SourceId{get;}
     internal int Level{get;}
     internal bool IsShared=>shared is not null;
+    internal bool TextKey=>!IsShared&&targets[Level].TextKey;
     /// <summary>文件精确读取复用当前父级已发布的绑定，R1 只读取物理父键。</summary>
     internal IReadOnlyList<NonRedundantCrossTableScope> ReadBindings{get;}=[];
     internal IReadOnlyList<string> StorageNames=>redundant is not null?new[]{redundant.ColumnName}:shared?.StorageNames??selection!.Slots.Select(slot=>slot.ColumnName).ToArray();
@@ -90,7 +91,12 @@ internal sealed class FileCrossParentScope
             var logical=chosen.Condition.HasLogical?NonRedundantReads.CompileCrossPageCandidate(catalog,target.Id,chosen.Page.Id,
                 new[]{"id",parent,alternate?.ColumnName}.OfType<string>().Distinct(StringComparer.Ordinal).ToArray(),[]):null;
             targets.Add(new(target.TableName,chosen.Page.Id,display.Id,project?.LogicalType,
-                columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan,logical,alternate?.ColumnName??"id"));
+                columns.Any(field=>field.ColumnName=="delete_no"),parent,chosen.Condition.Plan,logical,alternate?.ColumnName??"id",alternate?.LogicalType=="string"));
+        }
+        if(targets.Any(target=>target.TextKey))
+        {
+            if(!allowExactSource||catalog.DatabaseProvider!="mysql")throw new NotSupportedException("文件文本父键要求独立 MySQL 跨表路径。");
+            selection=selection.WithTextKeys(targets.Select(target=>target.TextKey).ToArray());
         }
         var binding=new NonRedundantCrossTableScope(source.Id,bindings.AsReadOnly());
         return(new FileCrossParentScope(source.Id,levelIndex,selection,targets.ToArray(),binding),binding);
@@ -100,18 +106,27 @@ internal sealed class FileCrossParentScope
     /// <summary>显示标志沿true／1判断，不把字符串true当作许可。</summary>
     private static bool Flag(PageColumnMetadata field,string key,bool fallback)=>field.Extra.TryGetValue(key,out var value)?value.ValueKind==JsonValueKind.True||value.ToString()=="1":fallback;
     /// <summary>同一控件只解析一次完整父链，多条父等值条件共同消费同一组实际节点。</summary>
-    internal static async Task<long[]> ValuesAsync(IReadOnlyList<FileCrossParentScope> scopes,SqlRowStore store,IReadOnlyDictionary<string,object?> record,RuntimeActor actor,bool locking,CancellationToken token)
+    internal static async Task<long[]> ValuesAsync(IReadOnlyList<FileCrossParentScope> scopes,SqlRowStore store,IReadOnlyDictionary<string,object?> record,RuntimeActor actor,bool locking,CancellationToken token)=>
+        (await KeyValuesAsync(scopes,store,record,actor,locking,token)).Select(FileReferenceScope.CanonicalId).ToArray();
+
+    /// <summary>从真实稀疏路径返回各父级的规范整数文本或精确业务文本。</summary>
+    internal static async Task<string[]> KeyValuesAsync(IReadOnlyList<FileCrossParentScope> scopes,SqlRowStore store,IReadOnlyDictionary<string,object?> record,RuntimeActor actor,bool locking,CancellationToken token)
     {
-        var values=new Dictionary<string,long[]>(StringComparer.Ordinal);
-        foreach(var group in scopes.GroupBy(scope=>scope.SourceId,StringComparer.Ordinal))values.Add(group.Key,await group.First().PathAsync(store,record,actor,locking,token));
-        return scopes.Select(scope=>scope.Level<values[scope.SourceId].Length&&values[scope.SourceId][scope.Level]>0?values[scope.SourceId][scope.Level]:throw new UnauthorizedAccessException("所选层位未提供当前文件父范围。")).ToArray();
+        var values=new Dictionary<string,string[]>(StringComparer.Ordinal);
+        foreach(var group in scopes.GroupBy(scope=>scope.SourceId,StringComparer.Ordinal))
+            values.Add(group.Key,await group.First().PathKeysAsync(store,record,actor,locking,token));
+        return scopes.Select(scope=>scope.Level<values[scope.SourceId].Length?values[scope.SourceId][scope.Level]:
+            throw new UnauthorizedAccessException("所选层位未提供当前文件父范围。")).ToArray();
     }
     /// <summary>只读使用同一快照，写入及删除复用原事务的当前锁读，值与元数据标识符分别处理。</summary>
-    internal async Task<long[]> PathAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,RuntimeActor actor,bool locking,CancellationToken token)
+    internal async Task<long[]> PathAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,RuntimeActor actor,bool locking,CancellationToken token)=>
+        (await PathKeysAsync(store,record,actor,locking,token)).Select(FileReferenceScope.CanonicalId).ToArray();
+
+    private async Task<string[]> PathKeysAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,RuntimeActor actor,bool locking,CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        if(shared is not null)return await shared.PathAsync(store,record,actor,locking,token);
-        var selected=redundant is null?ReadSelection(record):new CrossTableSelectedNode(Level,ReadPhysicalParent(record));
+        if(shared is not null)return (await shared.PathAsync(store,record,actor,locking,token)).Select(NumberText).ToArray();
+        var selected=redundant is null?ReadSelection(record):new CrossTableSelectedKey(Level,NumberText(ReadPhysicalParent(record)));
         if(selected is null)throw new UnauthorizedAccessException("文件来源没有真实跨表父选择。");
         // 按实际选中的路径一次绑定账号，缺少归属时不向数据库发出只带固定常量的查询。
         var project=FileReferenceScope.PositiveId(actor.ProjectId);
@@ -120,33 +135,33 @@ internal sealed class FileCrossParentScope
         var session=store.Session;var transaction=session.CurrentTransaction;
         if(locking&&transaction is null)throw new InvalidOperationException("文件逻辑父锁必须加入原事务。");
         if(transaction is null&&logical.Any(plan=>plan is not null))
-            return await session.InReadSnapshotAsync(()=>PathAsync(store,record,actor,false,token),token);
+            return await session.InReadSnapshotAsync(()=>PathKeysAsync(store,record,actor,false,token),token);
         await using var owned=transaction is null?session.Provider.CreateConnection(session.Options):null;var connection=transaction?.Connection??owned??throw new InvalidOperationException("文件父路径连接不可用。");if(owned is not null)await owned.OpenAsync(token);
-        var result=new long[selected.Level+1];var current=selected.Id;
+        var result=new string[selected.Level+1];var current=selected.Id;
         for(var index=selected.Level;index>=0;index--)
         {
             var target=targets[index];string? parent;
             if(logical[index] is{} plan)
             {
                 var reader=new NonRedundantReader(session);
-                var filters=new FixedReadFilter[]{new(target.KeyColumn,FixedReadComparison.Equal,current)};
-                var rows=target.KeyColumn=="id"?await reader.KeyRowsAsync(plan,[],[current],token,actor.ProjectId,currentRead:locking):
+                var key=target.TextKey?FileTextKey(current):(object)FileReferenceScope.CanonicalId(current);
+                var filters=new FixedReadFilter[]{target.TextKey?FixedReadFilter.ForTextTree(target.KeyColumn,[current]):new(target.KeyColumn,FixedReadComparison.Equal,key)};
+                var rows=target.KeyColumn=="id"?await reader.KeyRowsAsync(plan,[],[(long)key],token,actor.ProjectId,currentRead:locking):
                     locking?await reader.CurrentRowsAsync(plan,filters,[],2,token,actor.ProjectId):
                     await reader.RowsAsync(plan,filters,[],2,token,actor.ProjectId);
-                if(rows.Count!=1||NonRedundantReads.Value<long>(rows[0],target.KeyColumn)!=current)
+                if(rows.Count!=1||KeyText(rows[0][target.KeyColumn],target.TextKey)!=current)
                     throw new UnauthorizedAccessException("文件跨表目标缺失、已删除或不在固定范围。");
                 parent=target.Parent is null?null:Convert.ToString(rows[0][target.Parent],CultureInfo.InvariantCulture);
             }
             else parent=await ReadPhysicalNode(target,conditions[index],current,project,session,connection,locking,token);
             result[index]=current;
-            if(index>0&&(!long.TryParse(parent,NumberStyles.None,CultureInfo.InvariantCulture,out current)||current<=0||
-                parent!=current.ToString(CultureInfo.InvariantCulture)))throw new UnauthorizedAccessException("文件跨表实际父键无效。");
+            if(index>0)current=KeyText(parent,targets[index-1].TextKey);
         }
         return result;
     }
 
     /// <summary>纯物理目标继续执行原精确键读取；逻辑目标从固定候选读计划取得同样的父键。</summary>
-    private static async Task<string?> ReadPhysicalNode(Target target,FixedConditionSqlPlan? condition,long current,long project,
+    private static async Task<string?> ReadPhysicalNode(Target target,FixedConditionSqlPlan? condition,string current,long project,
         Metarill.Data.DatabaseSession session,System.Data.Common.DbConnection connection,bool locking,CancellationToken token)
     {
         var provider=session.Provider;
@@ -163,7 +178,10 @@ internal sealed class FileCrossParentScope
         }
 
         var select="SELECT "+provider.QuoteIdentifier(target.KeyColumn)+(target.Parent is null?"":","+provider.QuoteIdentifier(target.Parent));
-        var sql=select+" FROM "+provider.QuoteIdentifier(target.Table)+" WHERE "+provider.QuoteIdentifier(target.KeyColumn)+"="+Parameter("node",current);
+        var field=provider.QuoteIdentifier(target.KeyColumn);
+        var node=Parameter("node",target.TextKey?FileTextKey(current):(object)FileReferenceScope.CanonicalId(current));
+        var sql=select+" FROM "+provider.QuoteIdentifier(target.Table)+" WHERE "+
+            (target.TextKey?"BINARY "+field+"=BINARY "+node:field+"="+node);
         if(target.ProjectType is not null)
             sql+=" AND "+provider.QuoteIdentifier("yz_project_id")+"="+Parameter("project",
                 target.ProjectType=="string"?project.ToString(CultureInfo.InvariantCulture):(object)project);
@@ -172,7 +190,7 @@ internal sealed class FileCrossParentScope
         command.CommandText=locking?provider.BuildSelectForUpdate(sql):sql;
 
         await using var reader=await command.ExecuteReaderAsync(token);
-        if(!await reader.ReadAsync(token)||Convert.ToInt64(reader.GetValue(0),CultureInfo.InvariantCulture)!=current)
+        if(!await reader.ReadAsync(token)||KeyText(reader.GetValue(0),target.TextKey)!=current)
             throw new UnauthorizedAccessException("文件跨表目标缺失、已删除或不在固定范围。");
         return target.Parent is null||await reader.IsDBNullAsync(1,token)?null:
             Convert.ToString(reader.GetValue(1),CultureInfo.InvariantCulture);
@@ -183,10 +201,15 @@ internal sealed class FileCrossParentScope
     {
         if(redundant is null||!record.TryGetValue(redundant.ColumnName,out var value)||redundant.LogicalType=="string"&&value is not string||redundant.LogicalType=="int64"&&value is not long)throw new UnauthorizedAccessException("实际R1物理父键类型无效。");return FileReferenceScope.CanonicalId(value);
     }
+    private static string NumberText(long value)=>value.ToString(CultureInfo.InvariantCulture);
+    private static string KeyText(object? value,bool textKey)=>textKey?FileTextKey(value):NumberText(FileReferenceScope.CanonicalId(value));
+    private static string FileTextKey(object? value)=>value is string key&&!string.IsNullOrWhiteSpace(key)
+        ?key:throw new UnauthorizedAccessException("文件跨表实际文本父键无效。");
+
     /// <summary>仅转换编码器的纯存储异常，数据库与连接异常必须向上传播。</summary>
-    private CrossTableSelectedNode? ReadSelection(IReadOnlyDictionary<string,object?> record)
+    private CrossTableSelectedKey? ReadSelection(IReadOnlyDictionary<string,object?> record)
     {
-        try{return selection!.ReadStored(selection.Slots.ToDictionary(slot=>slot.ColumnName,slot=>record.TryGetValue(slot.ColumnName,out var value)?value:throw new InvalidOperationException("缺少实际稀疏位。")));}
+        try{return selection!.ReadStoredKey(selection.Slots.ToDictionary(slot=>slot.ColumnName,slot=>record.TryGetValue(slot.ColumnName,out var value)?value:throw new InvalidOperationException("缺少实际稀疏位。")));}
         catch(InvalidOperationException invalid){throw new UnauthorizedAccessException("文件来源稀疏选择无效。",invalid);}
     }
 }

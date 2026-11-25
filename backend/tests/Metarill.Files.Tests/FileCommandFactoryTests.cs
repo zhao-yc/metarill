@@ -751,6 +751,85 @@ public sealed class FileCommandFactoryTests
         Assert.Equal(1,provider.Connections);
     }
 
+    /// <summary>业务附件从真实稀疏位恢复混合父链，文本键逐字绑定，大小写相异直接拒绝。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task File_parent_scope_restores_text_keys_from_actual_sparse_rows(bool locking)
+    {
+        var catalog=FileCrossParentScopeTests.Catalog("file_text","string","string");
+        var control=catalog.ConfigColumns.Single(column=>column.Id=="15");
+        var definition=System.Text.Json.Nodes.JsonNode.Parse(control.ControlDetail)!;
+        foreach(var (index,tableId) in new[]{(0,"2"),(2,"4")})
+        {
+            definition["levels"]![index]!["idField"]="business_key";
+            var columnId=tableId+"09";
+            var indexId=tableId+"10";
+            catalog.ConfigColumns.Add(new(){Id=columnId,ConfigTableId=tableId,ColumnName="business_key",
+                LogicalType="string",ColumnLength="50",IsDbNotNull=1});
+            catalog.ConfigIndexes.Add(System.Text.Json.JsonSerializer.SerializeToElement(new{id=indexId,configTableId=tableId,isUnique=1}));
+            catalog.ConfigIndexColumns.Add(System.Text.Json.JsonSerializer.SerializeToElement(new{configIndexId=indexId,configColumnId=columnId}));
+        }
+        control.ControlDetail=definition.ToJsonString();
+        var scope=FileReferenceScope.CompilePage(catalog,catalog.ConfigTables[0],catalog.ConfigPages[0]);
+        Assert.True(Assert.Single(scope.Crosses).TextKey);
+        var provider=new Provider();
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline"},null,provider);
+        var store=new SqlRowStore(session,catalog);
+        var actor=new RuntimeActor(14,"文本父范围",false,"1","3");
+        var source=new Dictionary<string,object?>{{"country_id",null},{"area_id",null},{"place_id","Leaf-A"}};
+        var visited=new List<object>();
+        provider.Read=command=>
+        {
+            Assert.Same(session.CurrentTransaction,command.Transaction);
+            Assert.Equal(locking,command.CommandText.EndsWith(" FOR UPDATE",StringComparison.Ordinal));
+            var project=command.Parameters["project"].Value;
+            if(command.CommandText.Contains("`file_text_area`",StringComparison.Ordinal))
+                Assert.Equal("1",Assert.IsType<string>(project));
+            else
+                Assert.Equal(1L,Assert.IsType<long>(project));
+            var value=command.Parameters["node"].Value!;
+            visited.Add(value);
+            var data=new DataTable();
+            if(command.CommandText.Contains("`file_text_place`",StringComparison.Ordinal))
+            {
+                Assert.Contains("BINARY `business_key`=BINARY @node",command.CommandText);
+                data.Columns.Add("business_key",typeof(string));
+                data.Columns.Add("area_id",typeof(string));
+                if(Equals(value,"Leaf-A"))data.Rows.Add("Leaf-A","21");
+            }
+            else if(command.CommandText.Contains("`file_text_area`",StringComparison.Ordinal))
+            {
+                Assert.Equal(21L,value);
+                data.Columns.Add("id",typeof(long));
+                data.Columns.Add("country_id",typeof(string));
+                data.Rows.Add(21L,"001");
+            }
+            else
+            {
+                Assert.Contains("`file_text_country`",command.CommandText);
+                Assert.Contains("BINARY `business_key`=BINARY @node",command.CommandText);
+                Assert.Equal("001",value);
+                data.Columns.Add("business_key",typeof(string));
+                data.Rows.Add("001");
+            }
+            return data.CreateDataReader();
+        };
+        async Task<bool> Verify()
+        {
+            Assert.Equal("001",Assert.Single(await FileCrossParentScope.KeyValuesAsync(scope.Crosses,store,source,actor,locking,default)));
+            Assert.Equal(new object[]{"Leaf-A",21L,"001"},visited);
+            source["place_id"]="leaf-a";
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>FileCrossParentScope.KeyValuesAsync(scope.Crosses,store,source,actor,locking,default));
+            Assert.Equal("leaf-a",visited[^1]);
+            Assert.Equal(4,visited.Count);
+            return true;
+        }
+        if(locking)await session.InTransactionAsync(Verify);
+        else await session.InReadSnapshotAsync(Verify);
+        Assert.Equal(1,provider.Connections);
+    }
+
     /// <summary>只给固定身份；本用例没有任何文件行，不触发或替代来源权限判定。</summary>
     private sealed class Authorization:IRuntimeAuthorization
     {

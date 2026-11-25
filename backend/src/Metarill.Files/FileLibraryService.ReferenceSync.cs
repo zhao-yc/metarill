@@ -23,8 +23,10 @@ public sealed partial class FileLibraryService
             throw new UnauthorizedAccessException("文件字段与已发布的来源表不一致。");
         authorization.RequirePagePermission(page.Id, "update");
         var recordId = FileReferenceScope.CanonicalId(request.SourceRecordId);
-        var parentId = string.IsNullOrWhiteSpace(request.SourceParentId)
-            ? (long?)null : FileReferenceScope.CanonicalId(request.SourceParentId);
+        var scope=registry.PageScope(catalog,page);
+        var parentId=string.IsNullOrWhiteSpace(request.SourceParentId)?null:
+            scope.Crosses.Any(parent=>parent.TextKey)?request.SourceParentId:
+                FileReferenceScope.CanonicalId(request.SourceParentId).ToString(System.Globalization.CultureInfo.InvariantCulture);
         var values = FileValidation.ParseFileIds(request.FileIds);
         // 原引用观察器逐项核对已存值、文件可用性和权限，引用与来源锁全部使用同一会话。
         var observer = new FileReferenceMutationObserver(store, registry, authorization, ids, options);
