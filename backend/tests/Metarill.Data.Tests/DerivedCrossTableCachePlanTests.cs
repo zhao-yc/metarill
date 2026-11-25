@@ -15,8 +15,8 @@ public sealed class DerivedCrossTableCachePlanTests
         var c=Catalog(mask,type);var (direct,derived)=Split(c);var before=JsonSerializer.Serialize(c);var plan=RelationMaintenanceCatalog.CompileWithDerivedCrossTables(c,direct,derived);Assert.Equal(before,JsonSerializer.Serialize(c));var source=Assert.Single(plan.MixedSourceColumns);Assert.Equal("cross_cache_source",source.Key);Assert.Equal(derived.Length,source.Value.Count);Assert.Contains("cross_dictionary",plan.MixedTargets);Assert.Equal(direct.Length,((IEnumerable)Read(Read(plan,"Propagation"),"Bindings")).Cast<object>().Count());Assert.ThrowsAny<Exception>(()=>RelationMutationPlan.Compile(c,derived));var fingerprint=plan.Fingerprint;c.ConfigColumns.Clear();Assert.Equal(fingerprint,plan.Fingerprint);Assert.Contains("cross_dictionary",plan.MixedTargets);
     }
     /// <summary>项目内派生名称刷新依赖真实目标键和字典，反查同时消费写前键与当前键。</summary>
-    [Theory][InlineData(false)][InlineData(true)]
-    public void Text_business_key_reverses_and_backfills_through_the_published_dictionary(bool global)
+    [Theory][InlineData(false,false)][InlineData(true,false)][InlineData(false,true)][InlineData(true,true)]
+    public void Text_business_key_reverses_and_backfills_through_the_published_dictionary(bool global,bool account)
     {
         var catalog=Catalog(1,"string");
         var control=catalog.ConfigColumns.Single(column=>column.Id=="control");
@@ -47,7 +47,15 @@ public sealed class DerivedCrossTableCachePlanTests
             foreign.ControlKind="List";
             foreign.ControlDetail=JsonSerializer.Serialize(new{tableId="dictionary",pageId="dictionary_list",nameField="name"});
         }
+        if(account)
+        {
+            catalog.ConfigColumns.Add(new(){Id="source_dealer",ConfigTableId="source",ColumnName="record_dealer_id",LogicalType="int64"});
+            catalog.ConfigColumns.Add(new(){Id="country_dealer",ConfigTableId="country",ColumnName="dealer_id",LogicalType="string"});
+            catalog.ConfigPages.Add(new(){Id="source_form",ConfigTableId="source",WhereSql="record_dealer_id=@current_dealer_id"});
+            catalog.ConfigPages.Single(page=>page.Id=="country_list").WhereSql+=" AND dealer_id=@current_dealer_id";
+        }
         var (direct,derived)=Split(catalog);
+        if(account)derived=derived.Select(binding=>binding with {CrossTableAccountPageId="country_list"}).ToArray();
         if(global)
         {
             var pages=new Dictionary<string,string>{{"country","country_list"}};
@@ -59,6 +67,13 @@ public sealed class DerivedCrossTableCachePlanTests
         Assert.NotNull(read);
         Assert.Matches(@"BINARY r\d+\.\x60business_key\x60=BINARY b\.\x60country_id\x60",read.From);
         Assert.Matches(@"r\d+\.\x60status\x60=@[A-Za-z0-9_]+",read.From);
+        Assert.False(read.RequiresAccount);
+        if(account)
+        {
+            Assert.Contains("BINARY CAST(b.`record_dealer_id` AS CHAR)",read.From);
+            Assert.Contains(".`dealer_id` AS CHAR)=BINARY",read.From);
+            Assert.DoesNotContain("current_dealer_id",read.From);
+        }
         Assert.Contains("LEFT JOIN `cross_dictionary`",read.From);
         var consumer=Assert.Single(catalogPlan.Mixed.Consumers);
         var reverse=Assert.Single(consumer.Read.Reverse,entry=>entry.TargetTable=="cross_cache_country");
@@ -70,6 +85,12 @@ public sealed class DerivedCrossTableCachePlanTests
         Assert.Contains("status",reverse.Outputs["country_name"]);
         Assert.Contains("business_key",reverse.Outputs["country_name"]);
         Assert.Contains(consumer.Read.Reverse,entry=>entry.TargetTable=="cross_dictionary"&&entry.Outputs["country_name"].Contains("name"));
+        if(account)
+        {
+            Assert.Contains("dealer_id",reverse.Outputs["country_name"]);
+            catalog.ConfigPages.Add(new(){Id="source_unrestricted",ConfigTableId="source"});
+            Assert.Throws<InvalidOperationException>(()=>RelationMaintenanceCatalog.CompileWithDerivedCrossTables(catalog,direct,derived));
+        }
     }
 
     /// <summary>R0物理名称仍由直接执行器处理，不粗略合并存储模式。</summary>

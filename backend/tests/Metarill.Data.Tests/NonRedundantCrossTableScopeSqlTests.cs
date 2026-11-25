@@ -82,11 +82,14 @@ public sealed class NonRedundantCrossTableScopeSqlTests
     }
 
     /// <summary>R1 使用物理父字段限制来源行，再按精确键验证当前文本节点及其整数祖先。</summary>
-    [Fact]
-    public void Redundant_text_parent_validates_physical_key_and_target_visibility()
+    [Theory][InlineData(false)][InlineData(true)]
+    public void Redundant_text_parent_validates_physical_key_and_target_visibility(bool account)
     {
         using var session=Session();
-        var root=new RedundantSharedParentLevel("root","country","2","country","201","22",null,"string",true,"",null)
+        const long dealer=9007199254740993L;
+        var rule=account?FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile("dealer_id=@current_dealer_id",["dealer_id"]),
+            new Dictionary<string,string>{{"dealer_id","string"}}):null;
+        var root=new RedundantSharedParentLevel("root","country","2","country","201","22",null,account?null:"string",true,"",rule)
         {
             AlternateKey="business_key",TextKey=true
         };
@@ -96,7 +99,7 @@ public sealed class NonRedundantCrossTableScopeSqlTests
             AlternateKey="business_key",TextKey=true
         };
         var plan=new RedundantSharedParentPlan("15","place_id","string","15",[root,region,leaf]);
-        var actor=new Metarill.Core.Security.RuntimeActor(2,"测试",false,"9007199254740993","3");
+        var actor=new Metarill.Core.Security.RuntimeActor(2,"测试",false,"9007199254740993","3"){DealerId=account?dealer:null};
         var clause=RedundantSharedParentScopeSql.Render(session.Provider,[plan],actor,"scope_test",
             field=>"`a`.`"+field+"`",true);
         Assert.Contains("ON BINARY rp1.`country_id`=BINARY rp0.`business_key`",clause.Sql);
@@ -105,7 +108,15 @@ public sealed class NonRedundantCrossTableScopeSqlTests
         Assert.Contains("rp1.`id`>0",clause.Sql);
         Assert.Contains("rp2.`delete_no` IS NULL",clause.Sql);
         Assert.Contains("FOR UPDATE",clause.Sql);
-        Assert.Equal(actor.ProjectId,clause.Parameters["scope_test_0_0_project"]);
+        if(account)
+        {
+            Assert.Contains("rp0.`dealer_id`=@scope_test_0_0_scope_",clause.Sql);
+            Assert.DoesNotContain("scope_test_0_0_project",clause.Parameters.Keys);
+            Assert.Contains("9007199254740993",clause.Parameters.Values);
+            Assert.Throws<UnauthorizedAccessException>(()=>RedundantSharedParentScopeSql.Render(session.Provider,[plan],
+                actor with{DealerId=null},"scope_test",field=>"`a`.`"+field+"`",true));
+        }
+        else Assert.Equal(actor.ProjectId,clause.Parameters["scope_test_0_0_project"]);
         Assert.Equal(9007199254740993L,clause.Parameters["scope_test_0_1_project"]);
         var query=session.Select<Row>();
         Assert.Throws<ArgumentException>(()=>NonRedundantReads.ApplyTextParent(query,session,"place_id","001"));

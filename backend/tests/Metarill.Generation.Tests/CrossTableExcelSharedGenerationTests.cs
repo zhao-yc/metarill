@@ -77,7 +77,9 @@ public sealed class CrossTableExcelSharedGenerationTests
     [InlineData(null,false,true)][InlineData("country_id",false,true)][InlineData("place_id",true,true)]
     [InlineData("country_id",false,false,true)][InlineData("place_id",false,false,true)]
     [InlineData("country_id",true,false,true)][InlineData("place_id",true,true,true)]
-    public async Task Shared_text_keys_drive_original_write_and_workbook(string? fixedParent,bool global,bool sparse,bool derived=false)
+    [InlineData("country_id",true,false,true,true)][InlineData("place_id",true,true,true,true)]
+    public async Task Shared_text_keys_drive_original_write_and_workbook(
+        string? fixedParent,bool global,bool sparse,bool derived=false,bool account=false)
     {
         var catalog=Catalog(derived?"derived-r1":global?"global-r1":"shared-r1");
         if(sparse)catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
@@ -109,6 +111,16 @@ public sealed class CrossTableExcelSharedGenerationTests
         var page=catalog.ConfigPages.Single(page=>page.Id=="201");
         page.IsNew=page.IsSave=1;
         page.Extra.Remove("type");
+        if(account)
+        {
+            catalog.ConfigColumns.Add(new(){Id="country_owner",ConfigTableId="3",ColumnName="dealer_id",LogicalType="string"});
+            catalog.ConfigPages.Single(item=>item.Id=="301").WhereSql+=" AND dealer_id=@current_dealer_id";
+            if(!sparse)
+            {
+                catalog.ConfigColumns.Add(new(){Id="source_owner",ConfigTableId="2",ColumnName="record_dealer_id",LogicalType="int64"});
+                page.WhereSql+=" AND record_dealer_id=@current_dealer_id";
+            }
+        }
         page.Extra["importMethod"]=JsonSerializer.SerializeToElement(fixedParent=="country_id"?"OverWriteByFirstColumn":"OnlyNew");
         page.Extra["exportMethod"]=JsonSerializer.SerializeToElement(fixedParent=="place_id"?"edit":"list");
         if(fixedParent is not null)page.WhereSql+=$" AND {fixedParent}=@parent_id";
@@ -140,6 +152,12 @@ public sealed class CrossTableExcelSharedGenerationTests
                 }
                 Assert.NotNull(generated.GetMethod("Import201Async"));
                 Assert.NotNull(generated.GetMethod("Export201Async"));
+                if(account)
+                {
+                    var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated","Services","SharedExcelSourceService.g.cs"));
+                    Assert.Contains("CrossCondition201_25_0.BindAccount(actor)",code);
+                    Assert.Contains("CrossCondition201_80_0.BindAccount(actor)",code);
+                }
                 return;
             }
             var guard=new StopBeforeExcelWrite();

@@ -769,7 +769,10 @@ public sealed class FileCommandFactoryTests
     [InlineData(true,true,false,true,true)]
     [InlineData(false,false,true,false,true)]
     [InlineData(true,true,true,true,true)]
-    public async Task File_parent_scope_restores_actual_text_keys(bool locking,bool redundant,bool globalRoot,bool shared,bool derivedRoot)
+    [InlineData(false,false,true,true,true,true)]
+    [InlineData(true,true,true,false,true,true)]
+    public async Task File_parent_scope_restores_actual_text_keys(
+        bool locking,bool redundant,bool globalRoot,bool shared,bool derivedRoot,bool account=false)
     {
         var catalog=FileCrossParentScopeTests.Catalog("file_text","string","string");
         var control=catalog.ConfigColumns.Single(column=>column.Id=="15");
@@ -834,12 +837,23 @@ public sealed class FileCommandFactoryTests
             catalog.YzAdminTypes.Add(new(){Id="3",YzProjectId="1"});
             foreach(var page in catalog.ConfigPages)page.YzAdminTypeId="3";
         }
+        const long dealer=9007199254740993;
+        if(account)
+        {
+            catalog.ConfigColumns.Add(new(){Id="country_dealer",ConfigTableId="2",ColumnName="dealer_id",LogicalType="string"});
+            catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND dealer_id=@current_dealer_id";
+            if(redundant)
+            {
+                catalog.ConfigColumns.Add(new(){Id="source_dealer",ConfigTableId="1",ColumnName="record_dealer_id",LogicalType="int64"});
+                catalog.ConfigPages[0].WhereSql+=" AND record_dealer_id=@current_dealer_id";
+            }
+        }
         var scope=FileReferenceScope.CompilePage(catalog,catalog.ConfigTables[0],catalog.ConfigPages[0]);
         Assert.True(Assert.Single(scope.Crosses).TextKey);
         var provider=new Provider();
         using var session=new DatabaseSession(new(){ExpectedDatabase="offline"},null,provider);
         var store=new SqlRowStore(session,catalog);
-        var actor=new RuntimeActor(14,"文本父范围",false,"1","3");
+        var actor=new RuntimeActor(14,"文本父范围",false,"1","3"){DealerId=account?dealer:null};
         var source=new Dictionary<string,object?>{{"country_id",null},{"area_id",null},{"place_id","Leaf-A"}};
         if(shared)source["warehouse_id"]=null;
         var visited=new List<object>();
@@ -884,7 +898,10 @@ public sealed class FileCommandFactoryTests
                 Assert.Equal("001",value);
                 if(derivedRoot)Assert.DoesNotContain("file_text_company",command.CommandText);
                 data.Columns.Add("business_key",typeof(string));
-                data.Rows.Add("001");
+                if(account)Assert.Contains("`dealer_id`=@file_cross_",command.CommandText);
+                if(!account||command.Parameters.Cast<DbParameter>().Any(parameter=>
+                    Equals(parameter.Value,dealer.ToString(System.Globalization.CultureInfo.InvariantCulture))))
+                    data.Rows.Add("001");
             }
             return data.CreateDataReader();
         };
@@ -896,6 +913,16 @@ public sealed class FileCommandFactoryTests
             await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>FileCrossParentScope.KeyValuesAsync(scope.Crosses,store,source,actor,locking,default));
             Assert.Equal("leaf-a",visited[^1]);
             Assert.Equal(4,visited.Count);
+            if(account)
+            {
+                source["place_id"]="Leaf-A";
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>FileCrossParentScope.KeyValuesAsync(
+                    scope.Crosses,store,source,actor with{DealerId=null},locking,default));
+                Assert.Equal(4,visited.Count);
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(()=>FileCrossParentScope.KeyValuesAsync(
+                    scope.Crosses,store,source,actor with{DealerId=dealer+1},locking,default));
+                Assert.Equal(7,visited.Count);
+            }
             return true;
         }
         if(locking)await session.InTransactionAsync(Verify);

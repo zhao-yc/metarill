@@ -20,8 +20,12 @@ public sealed class RedundantCrossDerivedTargetsTests
     [InlineData("physical","place_id")]
     [InlineData("derived","country_id",true)]
     [InlineData("derived","place_id",true,true)]
+    [InlineData("derived","country_id",true,false,true)]
+    [InlineData("derived","place_id",true,true,true)]
+    [InlineData("derived","country_id",false,false,true)]
+    [InlineData("physical","country_id",true,false,true)]
     public async Task Project_text_keys_resolve_R0_targets_and_generate_cache_consumers(
-        string scenario,string parentColumn,bool globalRoot=false,bool sparse=false)
+        string scenario,string parentColumn,bool globalRoot=false,bool sparse=false,bool account=false)
     {
         const string ns="Example.ProjectTextCache";
         var catalog=Catalog("project_text_cache","string","string",scenario);
@@ -38,7 +42,7 @@ public sealed class RedundantCrossDerivedTargetsTests
             foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "3" or "6"))
                 table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
             catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=1";
-            catalog.ConfigPages.Single(page=>page.Id=="601").WhereSql="";
+            if(scenario!="physical")catalog.ConfigPages.Single(page=>page.Id=="601").WhereSql="";
             catalog.ConfigIndexColumns.RemoveAll(column=>
                 column.GetProperty("configIndexId").GetString()=="business_index_3"&&
                 column.GetProperty("configColumnId").GetString()=="33");
@@ -47,6 +51,16 @@ public sealed class RedundantCrossDerivedTargetsTests
         }
         var page=catalog.ConfigPages.Single(page=>page.Id=="201");
         page.WhereSql+=$" AND {parentColumn}=@parent_id";
+        if(account)
+        {
+            catalog.ConfigColumns.Add(new(){Id="country_dealer",ConfigTableId="3",ColumnName="dealer_id",LogicalType="string"});
+            catalog.ConfigPages.Single(item=>item.Id=="301").WhereSql+=" AND dealer_id=@current_dealer_id";
+            if(!sparse)
+            {
+                catalog.ConfigColumns.Add(new(){Id="source_dealer",ConfigTableId="2",ColumnName="record_dealer_id",LogicalType="int64"});
+                page.WhereSql+=" AND record_dealer_id=@current_dealer_id";
+            }
+        }
         page.IsNew=page.IsSave=page.IsImport=page.IsExport=1;
         page.Extra.Remove("type");
         var pathField=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==page.Id&&field.ConfigColumnId==control.Id);
@@ -93,7 +107,14 @@ public sealed class RedundantCrossDerivedTargetsTests
                 var published=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
                 System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(published.TypeHandle);
             }
-            if(scenario=="derived"&&!sparse)
+            if(account)
+            {
+                var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated","Services","ProjectTextCacheSourceService.g.cs"));
+                Assert.Contains("CrossCondition201_25_0.BindAccount(actor)",code);
+                if(sparse)Assert.Contains("ReadPlan201.BindAccount(actor)",code);
+                else Assert.Contains(definitions,binding=>binding.CrossTableAccountPageId=="301");
+            }
+            if(scenario=="derived"&&!sparse&&(!account||globalRoot))
             {
                 var package=Path.Combine(directory,"package");
                 var root=NonRedundantApplicationFixture.Root();

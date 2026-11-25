@@ -138,9 +138,9 @@ public static class RedundantSharedParents
             });ids.Add(id);names.Add(name);previous=target;
         }
         if(ids[^1].Id!=control.Id)throw Unsupported();
-        // 项目内与全局派生层均由各自固定名称路径证明，文本父范围只读取物理键和固定条件。
+        // 文本父范围沿实际目标行验证账号等值，名称回填另由 Prove 核对来源行的归属。
         if(result.Any(level=>level.TextKey)&&result.Any(level=>level.TableId==source.Id||
-            level.RecursiveCandidate is not null||level.Condition?.Variables.Count>0))throw Unsupported();
+            level.RecursiveCandidate is not null))throw Unsupported();
         // 来源兼任候选时，真实父和名称不能被同一条链的归一化改写。
         var managed=ids.Concat(names).Select(field=>field.ColumnName).ToHashSet(StringComparer.Ordinal);
         if(result.Where(level=>level.TableId==source.Id).Any(level=>
