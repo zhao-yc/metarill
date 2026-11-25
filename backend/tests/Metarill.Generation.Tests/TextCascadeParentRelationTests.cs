@@ -368,6 +368,106 @@ public sealed class TextCascadeParentRelationTests
         }
     }
 
+    /// <summary>共用文本父键的原下拉、单选 Excel 沿实际级联字段执行控件附加条件。</summary>
+    [Theory]
+    [InlineData(0,false,false)]
+    [InlineData(0,false,true)]
+    [InlineData(0,true,false)]
+    [InlineData(0,true,true)]
+    [InlineData(1,false,false)]
+    [InlineData(1,false,true)]
+    [InlineData(1,true,false)]
+    [InlineData(1,true,true)]
+    public async Task Single_text_parent_uses_control_conditions(int sourceStorage,bool exact,bool form)
+    {
+        var catalog=Catalog(sourceStorage,form?"OverWriteByFirstColumn":"OnlyNew",form?"edit":"list");
+        if(form)
+        {
+            catalog.ConfigColumns.Add(new(){Id="709",ConfigTableId="2",YzProjectId=catalog.YzProjectId,
+                ColumnName="match_region",LogicalType="string"});
+            catalog.ConfigPageColumns.Add(new(){Id="f709",ConfigPageId="201",ConfigColumnId="709",YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1});
+        }
+        foreach(var (id,foreign) in new[]{("81","700"),("82","702")})
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=0;
+            var control=catalog.ConfigColumns.Single(column=>column.Id==foreign);
+            var definition=JsonSerializer.Deserialize<Dictionary<string,string>>(control.ControlDetail)!;
+            definition["whereSql"]=form?"area_name = @formParameters.matchRegion":$"area_name <> '控件排除{id}'";
+            control.ControlDetail=JsonSerializer.Serialize(definition);
+            var dictionary=catalog.ConfigPages.Single(item=>item.ConfigTableId==id);
+            dictionary.WhereSql+=" AND area_name <> '字典排除地区'";
+            if(exact)
+            {
+                catalog.ConfigColumns.Add(new(){Id=id+"09",ConfigTableId=id,YzProjectId=catalog.YzProjectId,
+                    ColumnName="scope_code",LogicalType="string"});
+                dictionary.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
+            }
+        }
+        if(exact)
+            foreach(var admin in catalog.YzAdminTypes)
+                admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        var model=GenerationModel.Create(catalog,"Example.TextParentSingleControls");
+        var owner=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=Assert.Single(owner.Pages);
+        var relations=RelationCompilation.ForPage(model,page,true,forExcel:true);
+        var list=Assert.Single(relations,relation=>relation.SourceColumn.Source.Id=="700");
+        var single=Assert.Single(relations,relation=>relation.SourceColumn.Source.Id=="702");
+        Assert.All(relations,relation=>Assert.Equal("country_id",relation.SharedTextParent?.Source.ColumnName));
+        Assert.Contains("area_name",list.Conditions!.CrossFields);
+        Assert.Null(single.Conditions);
+        Assert.Contains("area_name",single.ImportCondition!.CrossFields);
+        Assert.Equal(form,list.Conditions.Forms.Count==1);
+        Assert.Equal(form,single.ImportCondition.Forms.Count==1);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        if(sourceStorage==1)
+        {
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("listitem_name",maintenance.MixedSourceColumns["textrel_source"]);
+            Assert.Contains("singleitem_name",maintenance.MixedSourceColumns["textrel_source"]);
+        }
+        var compilePackage=form==(sourceStorage==1);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-single-text-parent-control-conditions");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=compilePackage?Path.Combine(directory,"backend/generated"):directory;
+            if(compilePackage)new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            else new CSharpGenerator().Generate(catalog,directory,model.Namespace);
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/TextrelSourceService.g.cs"));
+            Assert.Contains("OptionsCondition201_700.BindVariables",service);
+            Assert.Contains("SingleImportCondition201_702",service);
+            Assert.DoesNotContain("OptionsCondition201_702",service);
+            Assert.Contains("ImportRelation201_700Async",service);
+            Assert.Contains("ImportRelation201_702Async",service);
+            Assert.Contains("Export201Async",service);
+            if(form)
+            {
+                Assert.Contains("MatchRegion",service);
+                Assert.Contains("relationContext[\"matchRegion\"]",service);
+            }
+            var metadata=compilePackage?await PublishedReadCatalog(directory):catalog;
+            var listPlan=exact?Metarill.Data.Queries.NonRedundantReads.CompileExactSingleParentCandidate(metadata,"81","810",["id"],["area_name","scope_code"],[],[],["area_name"])
+                :Metarill.Data.Queries.NonRedundantReads.CompileGlobalListCandidate(metadata,"81","810",["area_name"],["id"],[]);
+            var selectPlan=exact?Metarill.Data.Queries.NonRedundantReads.CompileExactSingleParentCandidate(metadata,"82","820",["id","name"],["area_name","scope_code"],[],[],["area_name"])
+                :Metarill.Data.Queries.NonRedundantReads.CompileSingleImportLabel(metadata,"82","820","name",["area_name"]);
+            AssertTextParentSql(listPlan);
+            AssertTextParentSql(selectPlan);
+            using var session=new Metarill.Data.DatabaseSession(new(){ExpectedDatabase="offline",
+                ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
+            var variables=new Dictionary<string,object?>();
+            if(form)variables.Add("formParameters.matchRegion","实际选择地区");
+            var predicate=Metarill.Data.Queries.FixedConditionSqlPlan.Compile(list.Conditions.Syntax,list.Conditions.Types).BindVariables(variables);
+            var sql=Metarill.Data.Queries.NonRedundantCrossTableScopeSql.ApplyCondition(session.Select<ScopeRow>(),session,
+                listPlan,predicate,"single_relation",catalog.YzProjectId,parentId:"001").ToSql();
+            Assert.Contains("BINARY @single_relation_parent",sql);
+            Assert.Contains("@single_relation_condition_",sql);
+            if(compilePackage)
+                foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>非冗余来源和冗余字典使用同一文本业务键，原选档和工作簿共用范围。</summary>
     [Theory]
     [InlineData("OnlyNew","list")]

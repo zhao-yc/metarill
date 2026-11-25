@@ -186,11 +186,10 @@ internal static class RelationCompilation
                     name.Type!="string?"&&!typedName||
                     target.Source.IsRongyu!=0&&(FixedPageConditionCompilation.HasLogicalFields(targetPage)||
                         ExactDataManageCompilation.Declared(targetPage)&&
-                        !ProjectScopedSingleRelationTarget.HasPhysicalSingleExact(model.Catalog,target.Source,targetPage.Source,source.Source.ControlKind))||
-                    conditions?.HasLogicalFields==true)
+                        !ProjectScopedSingleRelationTarget.HasPhysicalSingleExact(model.Catalog,target.Source,targetPage.Source,source.Source.ControlKind)))
                     throw new NotSupportedException("关联目标与来源共用实体时，必须证明其父键也使用同一文本业务键。");
                 if(target.Source.IsRongyu==1)fixedParent=null;
-                // 非冗余字典的页条件和精确匹配字段由同一个已发布的逻辑父计划验证。
+                // 非冗余字典的页条件、控件逻辑条件和精确匹配字段沿同一个已发布父计划验证。
                 else if(fixedParent is not {Logical:true}||!fixedParent.HasTarget(sharedTextParent.Source.Id,logicalOnly:true))
                     throw new NotSupportedException("关联目标的文本父键必须沿目标页实际级联路径读取。");
             }
