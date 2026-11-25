@@ -53,8 +53,9 @@ internal static class CascadeTreeReadRenderer
                 result.AppendLine($"        query=NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,DerivedCascadePlan{suffix}.BindAccount(actor),{Literal("cascade_"+suffix)},actor.ProjectId);");
             else result.Append(FixedPageConditionCompilation.Apply(plan.TargetPage,"CascadeCondition"+suffix,"cascade_"+suffix));
             result.AppendLine("        return query;").AppendLine("    }");
-            if(sameRow)result.Append(CascadeTreeTopologyRenderer.Service(table,page,plan));
-            if(plan.UsesFixedRead)result.Append(DerivedCascadeNamesRenderer.Reader(model,table,page,plan));
+            if(sameRow&&!plan.TextKey)result.Append(CascadeTreeTopologyRenderer.Service(table,page,plan));
+            if(plan.TextKey)result.Append(TextCascadeTreeRenderer.Service(table,page,plan));
+            else if(plan.UsesFixedRead)result.Append(DerivedCascadeNamesRenderer.Reader(model,table,page,plan));
             else
             result.AppendLine("    /// <summary>只投影树结构必需三列，候选有界且不加载整表。</summary>")
                 .AppendLine($"    private Metarill.Core.Cascades.SelfTreeReader CascadeReader{suffix}(RuntimeActor actor,bool locking=false,bool requireSourceList=true,bool requireTargetList=true) => new(")
@@ -66,11 +67,11 @@ internal static class CascadeTreeReadRenderer
                 .AppendLine($"        {Literal(plan.Joiner)});");
             result
                 .AppendLine("    /// <summary>同一读取事务内回读根链及候选，保留原组件请求合同。</summary>")
-                .AppendLine($"    public Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeOption>> CascadeOptions{suffix}Async(CascadeTreeOptionsRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync(async()=>{{var parent=request.ParseParent();_=CascadeScope{suffix}(actor);return await CascadeReader{suffix}(actor).OptionsAsync(parent,cancellationToken);}},cancellationToken);")
+                .AppendLine($"    public Task<IReadOnlyList<Metarill.Core.Cascades.CascadeTreeOption>> CascadeOptions{suffix}Async(CascadeTreeOptionsRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync(async()=>{{var parent=request.Parse{(plan.TextKey?"Text":"")}Parent();_=CascadeScope{suffix}(actor);return await CascadeReader{suffix}(actor).OptionsAsync(parent,cancellationToken);}},cancellationToken);")
                 .AppendLine("    /// <summary>空路径也执行来源和目标权限检查。</summary>")
                 .AppendLine($"    public Task<Metarill.Core.Cascades.CascadeTreePath> CascadePath{suffix}Async(CascadeTreePathRequest request,RuntimeActor actor,CancellationToken cancellationToken)=>session.InTransactionAsync(async()=>")
                 .AppendLine("    {")
-                .AppendLine("        var leaf=request.ParseLeaf();")
+                .AppendLine($"        var leaf=request.Parse{(plan.TextKey?"Text":"")}Leaf();")
                 .AppendLine($"        _=CascadeScope{suffix}(actor);")
                 .AppendLine($"        var path=await CascadeReader{suffix}(actor).PathAsync(leaf,cancellationToken);")
                 .AppendLine("        // 只在原路径接口将缺失名称转为空文本，内部缓存继续使用真实列值。")

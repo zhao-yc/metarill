@@ -8,6 +8,7 @@ internal sealed record CascadeTreeReadModel(ColumnModel Source,TableModel Target
 {
     internal bool ScopedCondition=>FixedPageConditionCompilation.HasLogicalFields(TargetPage);
     internal bool UsesFixedRead=>DerivedName||ScopedCondition||DerivedOrder;
+    internal bool TextKey=>Key.Source.LogicalType=="string";
 }
 internal sealed record CascadeTreeReadResult(CascadeTreeReadModel? Definition,string? Reason);
 
@@ -108,6 +109,7 @@ internal static class CascadeTreeReadCompilation
             var joiner=Text(root,"displayJoiner","/");if(joiner.Length>32)return Gap("路径分隔符过长。");
             var plan=new CascadeTreeReadModel(source,target,candidates[0],key,name,parent,joiner,ordering,Text(tree,"filterMatchMode","selfAndDescendants")=="exact",derived,joinedOrder.Length>0);
             if(!key.IsId&&(key==name||key==parent||plan.UsesFixedRead))return Gap("业务节点键当前要求物理名称、物理父键及普通目标范围。");
+            if(plan.TextKey&&(source.Type!="string?"||parent.Type!="string?"))return Gap("文本业务节点键要求文本来源列和真实文本父键。");
             if(plan.UsesFixedRead)DerivedCascadeNamesCompilation.Require(model,table,plan);return new(plan,null);
         }
         catch(Exception error)when(error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException){return Gap("定义无法安全编译："+error.Message);}

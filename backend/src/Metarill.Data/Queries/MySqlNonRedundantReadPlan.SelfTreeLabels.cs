@@ -66,6 +66,8 @@ public static partial class MySqlNonRedundantReadCompiler
             if(source.IsRongyu!=0||GlobalCrossTableTarget.Declared(source)||
                 GlobalCrossTableTarget.Declared(target)||key.Id==parent.Id||key.Id==name.Id||scoped||!storage.IsPhysical(name))
                 throw new NotSupportedException("业务节点键要求项目内树、普通物理叶名和已证明的来源范围。");
+            if(key.LogicalType=="string"&&(control.LogicalType!="string"||parent.LogicalType!="string"))
+                throw new NotSupportedException("文本自树的来源和父键都必须是物理文本列。");
         }
         return new(target,key,name,parent,page,condition,scoped,selfTreeScoped);
     }
@@ -147,7 +149,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var targetTable=Q(proof.Target.TableName);
             var nodeKey=Q(proof.Key.ColumnName);
             var source=owner+"."+Q(control.ColumnName);
-            var leafKey=PositiveText("CAST("+source+" AS CHAR)");
+            var leafKey=ComparableKey(source);
             var max=SelfTreeReader.MaximumDepth.ToString(CultureInfo.InvariantCulture);
             var display=prefix+"display";
             // 名称副本的目标账号条件从来源行取值。普通候选仍绑定请求的真实身份。
@@ -270,9 +272,14 @@ public static partial class MySqlNonRedundantReadCompiler
                 " WHERE BINARY CAST("+seed+"."+nodeKey+" AS CHAR)=BINARY "+leafKey+WithScope(seedScope)+NestedReadLockMarker+
                 ") UNION ALL (SELECT "+ancestor+"."+nodeKey+","+ancestor+"."+Q(proof.Parent.ColumnName)+","+walk+".depth+1,"+
                 "JSON_ARRAY_APPEND("+walk+".seen,'$',CAST("+ancestor+"."+nodeKey+" AS CHAR)) FROM "+walk+" JOIN "+targetTable+" "+ancestor+
-                " ON BINARY CAST("+ancestor+"."+nodeKey+" AS CHAR)=BINARY "+PositiveText("CAST("+walk+".parent_key AS CHAR)")+
+                " ON BINARY CAST("+ancestor+"."+nodeKey+" AS CHAR)=BINARY "+ComparableKey(walk+".parent_key")+
                 " WHERE "+walk+".depth<"+max+" AND NOT JSON_CONTAINS("+walk+".seen,JSON_QUOTE(CAST("+ancestor+"."+nodeKey+" AS CHAR)))"+
                 WithScope(ancestorScope)+NestedReadLockMarker+")) ";
+
+            // 不修剪业务键或做数字转换。纯空白仅用于原根节点表示。
+            string ComparableKey(string expression)=>proof.Key.LogicalType=="string"
+                ?"(CASE WHEN NOT ("+expression+" REGEXP '^[[:space:]]*$') THEN "+expression+" END)"
+                :PositiveText("CAST("+expression+" AS CHAR)");
 
             string NodeScope(string alias)
             {

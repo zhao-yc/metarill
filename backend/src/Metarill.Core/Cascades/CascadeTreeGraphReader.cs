@@ -14,13 +14,15 @@ public sealed class CascadeTreeGraphReader(SelfTreeReader pathReader,
     public const int PageSize=1000;
 
     /// <summary>原筛选只解释叶子ID；名称仅作回显，不能传入表名、SQL或匹配模式。</summary>
-    public static long? FilterId(JsonElement value,string idKey,string nameKey)
+    public static long? FilterId(JsonElement value,string idKey,string nameKey)=>CascadeTreeId.Parse(FilterValue(value,idKey,nameKey),true);
+
+    internal static JsonElement FilterValue(JsonElement value,string idKey,string nameKey)
     {
-        if(value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined || value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(value.GetString()))return null;
+        if(value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined || value.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(value.GetString()))return default;
         if(value.ValueKind!=JsonValueKind.Object)throw new ArgumentException("级联筛选必须为原节点对象。");
         var fields=value.EnumerateObject().ToArray();
         if(fields.Select(field=>field.Name).Distinct(StringComparer.Ordinal).Count()!=fields.Length || fields.Any(field=>field.Name!=idKey&&field.Name!=nameKey))throw new ArgumentException("级联筛选含重复或未开放字段。");
-        return value.TryGetProperty(idKey,out var id)?CascadeTreeId.Parse(id,true):null;
+        return value.TryGetProperty(idKey,out var id)?id:default;
     }
 
     /// <summary>每个后代必须在同一固定可读范围，超过路径深度或坏数据整体拒绝，不返回部分ID。</summary>

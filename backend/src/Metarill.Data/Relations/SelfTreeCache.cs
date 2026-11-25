@@ -63,6 +63,7 @@ public static class SelfTreeCache
         {
             var key=CascadeTreeStorageColumns.ResolveNodeKey(catalog,target,keyName).Key;
             if(global||globalSource||derived||scoped||key.Id==parent.Id||key.Id==value.Id)throw Invalid();
+            if(key.LogicalType=="string"&&(foreign.LogicalType!="string"||parent.LogicalType!="string"))throw Invalid();
             if(publishedPageId is not null)
             {
                 var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==publishedPageId&&item.ConfigTableId==target.Id)??throw Invalid();
@@ -121,11 +122,11 @@ public static class SelfTreeCache
         return true;
     }
     /// <summary>已证明的自树缓存读取与传播共用同一业务键；旧主键关系使用默认键。</summary>
-    internal static string? AlternateKey(MetadataCatalog catalog,TableMetadata target,ColumnMetadata foreign)
+    internal static ColumnMetadata? AlternateKey(MetadataCatalog catalog,TableMetadata target,ColumnMetadata foreign)
     {
         using var json=JsonDocument.Parse(foreign.ControlDetail);
         var name=Text(json.RootElement.GetProperty("selfTree"),"idField","id");
-        return name=="id"?null:CascadeTreeStorageColumns.ResolveNodeKey(catalog,target,name).Key.ColumnName;
+        return name=="id"?null:CascadeTreeStorageColumns.ResolveNodeKey(catalog,target,name).Key;
     }
 
     /// <summary>结构、ID及名称必须物理且非凭据；数组和联接不充当树拓扑。</summary>

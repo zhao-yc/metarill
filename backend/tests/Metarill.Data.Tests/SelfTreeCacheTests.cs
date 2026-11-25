@@ -20,14 +20,15 @@ public sealed class SelfTreeCacheTests
     }
     /// <summary>来源匹配、目标缓存名称与回填联接使用相同业务键和发布条件。</summary>
     [Theory]
-    [InlineData("int64")]
-    [InlineData("string")]
-    public void Ordinary_r1_self_tree_propagation_uses_business_key(string type)
+    [InlineData("int64",false)]
+    [InlineData("string",false)]
+    [InlineData("string",true)]
+    public void Ordinary_r1_self_tree_propagation_uses_business_key(string type,bool textKey)
     {
-        var catalog=Catalog(type,"int64");
+        var catalog=Catalog(type,textKey?"string":"int64");
         var foreign=catalog.ConfigColumns.Single(column=>column.Id=="foreign");
         foreign.ControlDetail=foreign.ControlDetail.Replace("\"selfTree\":{\"table\"","\"selfTree\":{\"idField\":\"node_key\",\"table\"",StringComparison.Ordinal);
-        catalog.ConfigColumns.Add(new(){Id="node_key",ConfigTableId="target",ColumnName="node_key",LogicalType="int64",IsDbNotNull=1});
+        catalog.ConfigColumns.Add(new(){Id="node_key",ConfigTableId="target",ColumnName="node_key",LogicalType=textKey?"string":"int64",ColumnLength="48",IsDbNotNull=1});
         catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="node_index",configTableId="target",indexName="uq_node_key",isUnique=1,isEnabled=1,yzProjectId=catalog.YzProjectId}));
         catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="node_index_column",configIndexId="node_index",configColumnId="node_key",sortNo=10,yzProjectId=catalog.YzProjectId}));
         catalog.ConfigPages.Add(new(){Id="tree_page",ConfigTableId="target",WhereSql="yz_project_id=@current_yz_project_id AND caption='公开'"});
@@ -35,9 +36,19 @@ public sealed class SelfTreeCacheTests
         var maintenance=RelationMaintenanceCatalog.Compile(catalog,[definition]);
         var binding=Assert.Single(maintenance.Propagation.Bindings);
         Assert.Equal("node_key",binding.TargetKey);
+        Assert.Equal(textKey,binding.TextTargetKey);
         Assert.Equal("caption",Assert.Single(binding.PublishedCondition!.Fields));
         var read=Assert.IsType<Metarill.Data.Queries.MySqlNonRedundantReadPlan>(maintenance.Plans["source"].Read);
-        Assert.Contains("r0.`node_key`=",read.From);
+        if(textKey)
+        {
+            Assert.Contains("BINARY r0.`node_key`=BINARY b.`tree_id`",read.From);
+            Assert.DoesNotContain("AS DECIMAL",read.From);
+            var parent=catalog.ConfigColumns.Single(column=>column.Id=="parent");
+            parent.LogicalType="int64";
+            Assert.Throws<NotSupportedException>(()=>SelfTreeCache.Compile(catalog,"source","foreign","tree_page"));
+            parent.LogicalType="string";
+        }
+        else Assert.Contains("r0.`node_key`=",read.From);
         Assert.Contains("r0.`yz_project_id`",read.From);
         Assert.Contains("公开",read.Constants.Values);
         Assert.Contains(read.PhysicalReferences,reference=>reference.Table=="cache_node"&&reference.Column.Name=="node_key");

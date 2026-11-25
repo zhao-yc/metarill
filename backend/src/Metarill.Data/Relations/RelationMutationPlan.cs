@@ -53,6 +53,9 @@ internal sealed record RelationCache(RelationTable Source,string Foreign,string 
     /// <summary>反查消费者时使用的目标键，主键关系留空。</summary>
     [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? TargetKey{get;init;}
+    /// <summary>文本业务键与规范整数键使用不同的值绑定与集合比较。</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition=System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool TextTargetKey{get;init;}
 }
 
 /// <summary>编译后只保留不可变标识符／类型与依赖，不再保存外部可变元数据。</summary>
@@ -163,7 +166,7 @@ public sealed class RelationMutationPlan
             var targetKey=selfTree?SelfTreeCache.AlternateKey(catalog,target,foreign):null;
             if(targetKey is not null&&definition.SelfTreePageId is {} treePage)
                 publishedCondition=MySqlPublishedRelationCondition.Compile(catalog,target,catalog.ConfigPages.Single(page=>page.Id==treePage),projectParent:true);
-            result.Add(new(Table(source.Id,rowProjectSource:rowProjectSource),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000){PublishedCondition=publishedCondition,TextScalar=(selfTree||cross)&&MultiValueLabel.IsTyped(value.LogicalType),TargetKey=targetKey});
+            result.Add(new(Table(source.Id,rowProjectSource:rowProjectSource),foreign.ColumnName,foreign.LogicalType,Table(target.Id,global),value.ColumnName,value.LogicalType,cache.ColumnName,definition.Multiple,foreign.ControlKind=="MultiSelectPage"?200:5000){PublishedCondition=publishedCondition,TextScalar=(selfTree||cross)&&MultiValueLabel.IsTyped(value.LogicalType),TargetKey=targetKey?.ColumnName,TextTargetKey=targetKey?.LogicalType=="string"});
         }
         var sorted=result.Distinct().OrderBy(binding=>binding.Source.Name,StringComparer.Ordinal).ThenBy(binding=>binding.Cache,StringComparer.Ordinal).ToArray();if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Foreign)).Any(group=>group.Select(binding=>(binding.Target,binding.TargetKey,binding.PublishedCondition?.Definition)).Distinct().Count()!=1))throw new InvalidOperationException("同一外键不能绑定不同传播目标。");if(sorted.GroupBy(binding=>(binding.Source.Name,binding.Cache)).Any(group=>group.Count()!=1))throw new InvalidOperationException("同一缓存存在多个传播定义。");
         // 拒绝字段级循环；普通自关联的物理名称不是派生列，不属于此循环。

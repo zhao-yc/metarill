@@ -31,14 +31,17 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
                     var rows=await Consumers(plan.Bindings,bindings[0],targetKeys,after,transaction,projectId,token);
                     if(rows.Count==0)break;after=rows[^1].Id;
                     // 同一来源外键的所有缓存共用本批目标集合和当前锁读取，不逐缓存／逐记录查询名称。
-                    var peers=plan.Bindings.Where(binding=>binding.Source.Name==group.Key.Name&&binding.Foreign==group.Key.Foreign).ToArray();var ids=rows.SelectMany(row=>Members(row.Foreign,peers[0])).OfType<long>().Distinct().Order().ToArray();var values=await Targets(peers,ids,transaction,projectId,token);
+                    var peers=plan.Bindings.Where(binding=>binding.Source.Name==group.Key.Name&&binding.Foreign==group.Key.Foreign).ToArray();
+                    var keys=rows.SelectMany(row=>Members(row.Foreign,peers[0])).OfType<object>().Distinct();
+                    var ids=peers[0].TextTargetKey?keys.Cast<string>().Order(StringComparer.Ordinal).Cast<object>():keys.Cast<long>().Order().Cast<object>();
+                    var values=await Targets(peers,ids,transaction,projectId,token);
                     var changedRows=new List<RelationRowPatch>();
                     foreach(var row in rows)
                     {
                         var patch=new Dictionary<string,object?>(StringComparer.Ordinal);var members=Members(row.Foreign,peers[0]);
                         foreach(var binding in peers)
                         {
-                            object? value=binding.Multiple?row.Foreign is null?null:JsonSerializer.Serialize(members.Select(member=>member is null?null:values.GetValueOrDefault((member.Value,binding.Value))).ToArray()):members.FirstOrDefault() is{} key?values.GetValueOrDefault((key,binding.Value)):null;
+                            object? value=binding.Multiple?row.Foreign is null?null:JsonSerializer.Serialize(members.Select(member=>member is null?null:values.GetValueOrDefault((member,binding.Value))).ToArray()):members.FirstOrDefault() is{} key?values.GetValueOrDefault((key,binding.Value)):null;
                             if(!Same(row.Values.GetValueOrDefault(binding.Cache),value))patch[binding.Cache]=value;
                         }
                         if(patch.Count==0)continue;await Update(peers[0].Source,row.Id,patch,transaction,projectId,token);changedRows.Add(new(row.Id,new System.Collections.ObjectModel.ReadOnlyDictionary<string,object?>(patch)));
@@ -53,10 +56,10 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
     }
     private sealed record Consumer(long Id,object? Foreign,IReadOnlyDictionary<string,object?> Values);
 
-    private async Task<long[]> TargetKeys(RelationCache binding,long id,IReadOnlyDictionary<string,object?>? previous,DbTransaction transaction,string project,CancellationToken token)
+    private async Task<object[]> TargetKeys(RelationCache binding,long id,IReadOnlyDictionary<string,object?>? previous,DbTransaction transaction,string project,CancellationToken token)
     {
         if(binding.TargetKey is null)return [id];
-        var values=new List<long>();
+        var values=new List<object>();
         await using(var command=Command(transaction))
         {
             // 当前键按真实行和项目读取。删除后仍可由同一事务预先捕获的键定位消费者。
@@ -64,28 +67,34 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
             Add(command,"id",id);
             Add(command,"project",Project(binding.Target,project));
             await using var reader=await command.ExecuteReaderAsync(token);
-            if(await reader.ReadAsync(token)&&!reader.IsDBNull(0))values.Add(reader.GetInt64(0));
+            if(await reader.ReadAsync(token)&&!reader.IsDBNull(0))
+            {
+                object? key=binding.TextTargetKey?Key(reader.GetString(0),binding):reader.GetInt64(0);
+                if(key is not null)values.Add(key);
+            }
         }
-        if(Id(previous?.GetValueOrDefault(binding.TargetKey)) is {} oldKey&&!values.Contains(oldKey))
+        if(Key(previous?.GetValueOrDefault(binding.TargetKey),binding) is {} oldKey&&!values.Contains(oldKey))
             values.Add(oldKey);
         return values.ToArray();
     }
     /// <summary>反查真实外键，不依赖可能已被删除的目标联接；按主键分批取得写锁。</summary>
-    private async Task<IReadOnlyList<Consumer>> Consumers(IReadOnlyList<RelationCache> plan,RelationCache binding,long[] targets,long after,DbTransaction transaction,string project,CancellationToken token)
+    private async Task<IReadOnlyList<Consumer>> Consumers(IReadOnlyList<RelationCache> plan,RelationCache binding,object[] targets,long after,DbTransaction transaction,string project,CancellationToken token)
     {
         // 缓存投影由完整源外键集合补齐；新旧键共用排序、分页和锁读取。
         var all=plan.Where(item=>item.Source.Name==binding.Source.Name&&item.Foreign==binding.Foreign).ToArray();
         await using var command=Command(transaction);var alias="c";var foreign=alias+"."+Q(binding.Foreign);var condition=binding.Multiple?"((SELECT 1 FROM JSON_TABLE(CASE WHEN JSON_VALID("+foreign+") THEN CASE WHEN JSON_TYPE(CAST("+foreign+" AS JSON))='ARRAY' THEN "+foreign+" ELSE '[]' END ELSE '[]' END, '$[*]' COLUMNS(member_value VARCHAR(32) PATH '$')) relation_member WHERE BINARY relation_member.member_value=BINARY @member LIMIT 1) IS NOT NULL)":binding.ForeignType=="string"?"BINARY "+foreign+"=BINARY @member":foreign+"=@target";
         if(targets.Length==2)condition=binding.ForeignType=="string"?
             $"({condition} OR BINARY {foreign}=BINARY @old_member)":$"{foreign} IN (@target,@old_target)";
-        if(targets.Length==2){Add(command,"old_member",targets[1].ToString(CultureInfo.InvariantCulture));Add(command,"old_target",targets[1]);}
+        if(targets.Length==2){Add(command,"old_member",Convert.ToString(targets[1],CultureInfo.InvariantCulture));Add(command,"old_target",targets[1]);}
         var target=targets[0];
-        command.CommandText="SELECT c.`id`,"+foreign+","+string.Join(",",all.Select(item=>"c."+Q(item.Cache)))+" FROM "+Q(binding.Source.Name)+" c WHERE "+Scope(binding.Source,alias)+" AND c.`id`>@after AND "+condition+" ORDER BY c.`id` LIMIT 128 FOR UPDATE";Add(command,"project",Project(binding.Source,project));Add(command,"after",after);Add(command,"member",target.ToString(CultureInfo.InvariantCulture));Add(command,"target",target);var result=new List<Consumer>();await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token)){var values=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<all.Length;index++)values[all[index].Cache]=await reader.IsDBNullAsync(index+2,token)?null:reader.GetValue(index+2);result.Add(new(reader.GetInt64(0),await reader.IsDBNullAsync(1,token)?null:reader.GetValue(1),values));}return result;
+        command.CommandText="SELECT c.`id`,"+foreign+","+string.Join(",",all.Select(item=>"c."+Q(item.Cache)))+" FROM "+Q(binding.Source.Name)+" c WHERE "+Scope(binding.Source,alias)+" AND c.`id`>@after AND "+condition+" ORDER BY c.`id` LIMIT 128 FOR UPDATE";Add(command,"project",Project(binding.Source,project));Add(command,"after",after);Add(command,"member",Convert.ToString(target,CultureInfo.InvariantCulture));Add(command,"target",target);var result=new List<Consumer>();await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token)){var values=new Dictionary<string,object?>(StringComparer.Ordinal);for(var index=0;index<all.Length;index++)values[all[index].Cache]=await reader.IsDBNullAsync(index+2,token)?null:reader.GetValue(index+2);result.Add(new(reader.GetInt64(0),await reader.IsDBNullAsync(1,token)?null:reader.GetValue(1),values));}return result;
     }
     /// <summary>目标当前读保留项目与软删边界，按真实ID批量查询；缺失目标只置空名称，不修改外键。</summary>
-    private async Task<Dictionary<(long,string),object?>> Targets(RelationCache[] bindings,long[] ids,DbTransaction transaction,string project,CancellationToken token)
+    private async Task<Dictionary<(object,string),object?>> Targets(RelationCache[] bindings,IEnumerable<object> ids,DbTransaction transaction,string project,CancellationToken token)
     {
-        var target=bindings[0].Target;var key="t."+Q(bindings[0].TargetKey??"id");var fields=bindings.Select(binding=>binding.Value).Distinct(StringComparer.Ordinal).ToArray();var result=new Dictionary<(long,string),object?>();
+        var head=bindings[0];
+        var target=head.Target;var key="t."+Q(head.TargetKey??"id");var fields=bindings.Select(binding=>binding.Value).Distinct(StringComparer.Ordinal).ToArray();var result=new Dictionary<(object,string),object?>();
+        var comparison=head.TextTargetKey?"BINARY ":"";
         // 数组与级联名称采用相同的文本转换，普通单值业务缓存保留原始标量。
         var labels=bindings.Where(binding=>binding.Multiple||binding.TextScalar).DistinctBy(binding=>binding.Value)
             .ToDictionary(binding=>binding.Value,binding=>binding.ValueType,StringComparer.Ordinal);
@@ -97,7 +106,17 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
         {
             await using var command=Command(transaction);
             if(condition is not null)foreach(var parameter in condition.Parameters)Add(command,parameter.Key,parameter.Value);
-            command.CommandText="SELECT "+key+","+string.Join(",",values)+" FROM "+Q(target.Name)+" t WHERE "+scope+" AND "+key+" IN ("+string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>"@id"+index))+") ORDER BY "+key+" FOR SHARE";Add(command,"project",Project(target,project));for(var index=0;index<batch.Length;index++)Add(command,"id"+index,batch[index]);await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))for(var index=0;index<fields.Length;index++)result[(reader.GetInt64(0),fields[index])]=await reader.IsDBNullAsync(index+1,token)?null:reader.GetValue(index+1);
+            command.CommandText="SELECT "+key+","+string.Join(",",values)+" FROM "+Q(target.Name)+" t WHERE "+scope+" AND "+comparison+key+" IN ("+
+                string.Join(",",Enumerable.Range(0,batch.Length).Select(index=>comparison+"@id"+index))+") ORDER BY "+key+" FOR SHARE";
+            Add(command,"project",Project(target,project));
+            for(var index=0;index<batch.Length;index++)Add(command,"id"+index,batch[index]);
+            await using var reader=await command.ExecuteReaderAsync(token);
+            while(await reader.ReadAsync(token))
+            {
+                object identity=head.TextTargetKey?reader.GetString(0):reader.GetInt64(0);
+                for(var index=0;index<fields.Length;index++)
+                    result[(identity,fields[index])]=await reader.IsDBNullAsync(index+1,token)?null:reader.GetValue(index+1);
+            }
         }
         return result;
     }
@@ -107,11 +126,14 @@ internal sealed class MySqlRelationMutationExecutor(DatabaseSession session)
         await using var command=Command(transaction);command.CommandText="UPDATE "+Q(table.Name)+" c SET "+string.Join(",",patch.Keys.Select((field,index)=>Q(field)+"=@value"+index))+" WHERE c.`id`=@id AND "+Scope(table,"c");Add(command,"id",id);Add(command,"project",Project(table,project));var ordinal=0;foreach(var value in patch.Values)Add(command,"value"+ordinal++,value);if(await command.ExecuteNonQueryAsync(token)!=1)throw new InvalidOperationException("名称传播消费者在当前事务中不再匹配，已拒绝提交。");
     }
     /// <summary>历史坏成员仅产生空名称位置，不修补原ID；非数组／坏JSON的显示沿原空数组合同。</summary>
-    private static long?[] Members(object? raw,RelationCache binding)
+    private static object?[] Members(object? raw,RelationCache binding)
     {
-        if(raw is null)return [];if(!binding.Multiple)return [Id(raw)];
-        try{using var document=JsonDocument.Parse(Convert.ToString(raw,CultureInfo.InvariantCulture)!);if(document.RootElement.ValueKind!=JsonValueKind.Array)return [];if(document.RootElement.GetArrayLength()>binding.MaximumItems)throw new InvalidOperationException("名称传播引用超过已发布数组预算，未截断数据。");return document.RootElement.EnumerateArray().Select(value=>value.ValueKind is JsonValueKind.String or JsonValueKind.Number?Id(value.ValueKind==JsonValueKind.String?value.GetString():value.GetRawText()):null).ToArray();}catch(JsonException){return [];}
+        if(raw is null)return [];if(!binding.Multiple)return [Key(raw,binding)];
+        try{using var document=JsonDocument.Parse(Convert.ToString(raw,CultureInfo.InvariantCulture)!);if(document.RootElement.ValueKind!=JsonValueKind.Array)return [];if(document.RootElement.GetArrayLength()>binding.MaximumItems)throw new InvalidOperationException("名称传播引用超过已发布数组预算，未截断数据。");return document.RootElement.EnumerateArray().Select(value=>value.ValueKind is JsonValueKind.String or JsonValueKind.Number?(object?)Id(value.ValueKind==JsonValueKind.String?value.GetString():value.GetRawText()):null).ToArray();}catch(JsonException){return [];}
     }
+    /// <summary>文本键按原值传播，不将空根当节点，也不把前导零折叠到整数键。</summary>
+    private static object? Key(object? raw,RelationCache binding)=>
+        binding.TextTargetKey?(raw is string text&&!string.IsNullOrWhiteSpace(text)?text:null):Id(raw);
     /// <summary>整数和字符串始终精确解析，不经浮点数或宽松数值转换。</summary>
     private static long? Id(object? value){var text=Convert.ToString(value,CultureInfo.InvariantCulture);return long.TryParse(text,System.Globalization.NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&id>0&&id.ToString(CultureInfo.InvariantCulture)==text?id:null;}
     /// <summary>驱动标量同类型比较，空值一致；缓存JSON只在实际文本变化时写入。</summary>

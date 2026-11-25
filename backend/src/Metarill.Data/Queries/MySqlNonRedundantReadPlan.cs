@@ -601,7 +601,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     // 普通树仍按已保存的叶键更新，仅名称的字典联接需要新的页级证明。
                     var joinPage=joinedTree?null:publishedPage;
                     var treeKey=foreign.ControlKind=="CascadeTree"&&IsSelfTreeLabel(foreign,name)?SelfTreeCache.AlternateKey(catalog,target,foreign):null;
-                    var targetAlias=Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||joinPage is not null,cachePage:joinPage,account:account,targetKey:treeKey);
+                    var targetAlias=Join(alias,foreign,target,id.Sql,id.Type,crossGlobal||joinPage is not null,cachePage:joinPage,account:account,targetKey:treeKey?.ColumnName);
                     CascadeCacheOwner? nameOwner=null;
                     // 旧项目内纯物理联接定义可以没有目标页，仍沿原项目及物理终点校验。
                     if((joinedCross||joinedTree)&&(crossGlobal||catalog.ConfigPages.Any(page=>page.ConfigTableId==target.Id)))
@@ -947,9 +947,11 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             if(refreshFields is not null&&sourceType is not("int64" or "string"))throw new NotSupportedException("维护关系ID必须为int64或规范字符串。");
             var keySql=alias+"."+Q(targetKey??"id");
-            if(targetKey is not null)_=Column(target,targetKey);
-            var equality=(exactTextKey||fixedTextKey)?"BINARY CAST("+keySql+" AS CHAR)=BINARY "+source:keySql+"="+source;
-            if(refreshFields is not null&&sourceType=="string")
+            var textTarget=targetKey is not null&&Column(target,targetKey).LogicalType=="string";
+            var equality=textTarget
+                ?"BINARY "+keySql+"=BINARY "+source+" AND NOT ("+source+" REGEXP '^[[:space:]]*$')"
+                :(exactTextKey||fixedTextKey)?"BINARY CAST("+keySql+" AS CHAR)=BINARY "+source:keySql+"="+source;
+            if(refreshFields is not null&&sourceType=="string"&&!textTarget)
             {
                 // 先以来源的规范整数形式查找目标主键，再用原字节比较排除隐式等值。
                 // 使用定点数覆盖有符号 64 位边界，超界字符串不会溢出或转换成另一目标。

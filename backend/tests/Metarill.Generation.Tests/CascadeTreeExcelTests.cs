@@ -38,12 +38,14 @@ public sealed class CascadeTreeExcelTests
     }
     /// <summary>原自树允许使用已声明的唯一业务键，业务行、候选和 XLSX 全部保留该键。</summary>
     [Theory]
-    [InlineData(0,"int64")]
-    [InlineData(1,"string")]
-    public async Task Ordinary_self_tree_uses_its_unique_business_node_key(int targetMode,string sourceType)
+    [InlineData(0,"int64",false)]
+    [InlineData(1,"string",false)]
+    [InlineData(0,"string",true)]
+    [InlineData(1,"string",true)]
+    public async Task Ordinary_self_tree_uses_its_unique_business_node_key(int targetMode,string sourceType,bool textKey)
     {
         const string ns="Example.TreeBusinessKey";
-        var catalog=RedundantMultiNameCacheTests.Published(Catalog("businesskey",sourceType,"int64"));
+        var catalog=RedundantMultiNameCacheTests.Published(Catalog("businesskey",sourceType,textKey?"string":"int64"));
         catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
         catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=targetMode;
         foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="2"))page.Extra.Remove("type");
@@ -52,7 +54,7 @@ public sealed class CascadeTreeExcelTests
         var selection=catalog.ConfigColumns.Single(column=>column.Id=="25");
         selection.ControlDetail=selection.ControlDetail.Replace("\"idField\":\"id\"","\"idField\":\"node_key\"",StringComparison.Ordinal);
         catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
-            ColumnName="node_key",LogicalType="int64",IsDbNotNull=1});
+            ColumnName="node_key",LogicalType=textKey?"string":"int64",ColumnLength="48",IsDbNotNull=1});
         catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="71",configTableId="3",indexName="uq_tree_node_key",
             isUnique=1,isEnabled=1,yzProjectId=catalog.YzProjectId}));
         if(targetMode==0)catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="711",configIndexId="71",
@@ -72,9 +74,19 @@ public sealed class CascadeTreeExcelTests
         {
             new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),ns);
             var service=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/BusinesskeySourceService.g.cs"));
-            Assert.Contains("Where(row=>row.NodeKey==id)",service);
-            Assert.Contains("row.NodeKey>after",service);
-            Assert.Contains("keys.Contains(row.NodeKey!.Value)",service);
+            if(textKey)
+            {
+                Assert.Contains("TextCascadeTreeSql.Match",service);
+                Assert.Contains(".Where(row=>row.Id>after)",service);
+                Assert.Contains("FixedReadFilter.ForTextTree(\"tree_id\",ids)",service);
+                Assert.Contains("CascadeTreeExcelPath.ResolveTextAsync",service);
+            }
+            else
+            {
+                Assert.Contains("Where(row=>row.NodeKey==id)",service);
+                Assert.Contains("row.NodeKey>after",service);
+                Assert.Contains("keys.Contains(row.NodeKey!.Value)",service);
+            }
             Assert.Contains("await CascadeReader201_25(actor,true,false,requireTargetList).PathAsync",service);
             Assert.Contains("ImportCascade201_25Async",service);
             Assert.Contains("ImportCascade202_25Async",service);
@@ -89,6 +101,7 @@ public sealed class CascadeTreeExcelTests
                 var mysql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
                 var leaf=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",hidden)!.Invoke(mysql,["tree_name"]));
                 Assert.Contains("`node_key`",leaf);
+                if(textKey)Assert.Contains("REGEXP '^[[:space:]]*$'",leaf);
             }
             var app=Path.Combine(directory,"app");
             Assert.True(new ApplicationPackager().Create(catalog,app,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
@@ -106,12 +119,14 @@ public sealed class CascadeTreeExcelTests
 
     /// <summary>R1整包必须下发固定字典条件、写前业务键和可加载的维护目录。</summary>
     [Theory]
-    [InlineData(0,"int64")]
-    [InlineData(1,"string")]
-    public async Task Redundant_self_tree_business_key_builds_with_maintenance_and_old_key_snapshot(int targetMode,string sourceType)
+    [InlineData(0,"int64",false)]
+    [InlineData(1,"string",false)]
+    [InlineData(0,"string",true)]
+    [InlineData(1,"string",true)]
+    public async Task Redundant_self_tree_business_key_builds_with_maintenance_and_old_key_snapshot(int targetMode,string sourceType,bool textKey)
     {
         const string ns="Example.RedundantTreeBusinessKey";
-        var catalog=RedundantMultiNameCacheTests.Published(Catalog("cachekey",sourceType,"int64"));
+        var catalog=RedundantMultiNameCacheTests.Published(Catalog("cachekey",sourceType,textKey?"string":"int64"));
         catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=targetMode;
         foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId=="2"))page.Extra.Remove("type");
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="301");
@@ -120,7 +135,7 @@ public sealed class CascadeTreeExcelTests
         catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail=
             catalog.ConfigColumns.Single(column=>column.Id=="25").ControlDetail.Replace("\"idField\":\"id\"","\"idField\":\"node_key\"",StringComparison.Ordinal);
         catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
-            ColumnName="node_key",LogicalType="int64",IsDbNotNull=1});
+            ColumnName="node_key",LogicalType=textKey?"string":"int64",ColumnLength="48",IsDbNotNull=1});
         catalog.ConfigPageColumns.Add(new(){Id="30138",ConfigPageId="301",ConfigColumnId="38",IsEdit=1});
         catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="71",configTableId="3",indexName="uq_tree_node_key",
             isUnique=1,isEnabled=1,yzProjectId=catalog.YzProjectId}));
@@ -146,6 +161,7 @@ public sealed class CascadeTreeExcelTests
             Assert.Contains("ImportCascade202_25Async",consumer);
             Assert.Contains("ExcelCascadeTreeId(entity)",consumer);
             Assert.DoesNotContain("previousRelationKeys",consumer);
+            if(textKey)Assert.Contains("query=TextCascadeTreeSql.Match(query,session,\"tree_id\"",consumer);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var declaration=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
             var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(declaration.GetProperty("Catalog")!.GetValue(null));
@@ -154,6 +170,36 @@ public sealed class CascadeTreeExcelTests
             Assert.Null(sourcePlan.GetType().GetProperty("Error")!.GetValue(sourcePlan));
         }
         finally{if(Directory.Exists(directory))await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
+    /// <summary>原字节键贯通父对象、候选、后代、回显和 Excel，前导零、字母大小写及空格保留。</summary>
+    [Fact]
+    public async Task Text_key_cascade_round_trips_original_tokens()
+    {
+        var nodes=new TextCascadeTreeNode[]
+        {
+            new("001",10,"根一"," \t"),new("1",20,"根二",null),new("Ab ",30,"子","001"),new("ab ",40,"子","1")
+        };
+        var reader=new TextSelfTreeReader(
+            (parent,_)=>Task.FromResult<IReadOnlyList<TextCascadeTreeNode>>(nodes.Where(node=>
+                (string.IsNullOrWhiteSpace(node.ParentKey)?null:node.ParentKey)==parent).ToArray()),
+            (keys,_)=>Task.FromResult<IReadOnlySet<string>>(nodes.Select(node=>node.ParentKey).OfType<string>().Where(keys.Contains).ToHashSet()),
+            (keys,_)=>Task.FromResult<IReadOnlyList<TextCascadeTreeNode>>(nodes.Where(node=>keys.Contains(node.Key)).ToArray()),
+            (keys,after,take,_)=>Task.FromResult<IReadOnlyList<TextCascadeTreeNode>>(nodes.Where(node=>
+                node.Cursor>after&&node.ParentKey is {} parent&&keys.Contains(parent)).Take(take).ToArray()),"/");
+        Assert.Equal("001",new CascadeTreeOptionsRequest{SelectedPath=JsonSerializer.SerializeToElement(new{parentId="001"})}.ParseTextParent());
+        Assert.Equal("Ab ",TextSelfTreeReader.FilterId(JsonSerializer.SerializeToElement(new{treeId="Ab "}),"treeId","treeName"));
+        Assert.Equal("1e2",JsonSerializer.Deserialize<CascadeTreePathRequest>("""{"LeafId":1e2}""")!.ParseTextLeaf());
+        Assert.Equal(new[]{"001","1"},(await reader.OptionsAsync(null)).Select(option=>option.Id));
+        Assert.Equal("Ab ",Assert.Single(await reader.OptionsAsync("001")).Id);
+        Assert.Equal(new[]{"001","Ab "},await reader.FilterIdsAsync("001",false));
+        Assert.Equal(new[]{"1","ab "},await reader.FilterIdsAsync("1",false));
+        var path=await reader.PathAsync("Ab ");
+        Assert.Equal("根一/子",CascadeTreeExcelPath.Format(path,"/"));
+        Assert.Equal("Ab ",await CascadeTreeExcelPath.ResolveTextAsync("根一/子","/",(name,parent,_)=>
+            Task.FromResult<IReadOnlyList<TextCascadeTreeNode>>(nodes.Where(node=>node.Name==name&&
+                (string.IsNullOrWhiteSpace(node.ParentKey)?null:node.ParentKey)==parent).ToArray())));
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>reader.PathAsync("Ab"));
     }
 
     /// <summary>导入页无普通新增/编辑入口；覆盖按明确第一物理业务字段，不改变原页面协议。</summary>

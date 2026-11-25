@@ -7,6 +7,11 @@ public sealed record FixedReadFilter(string Field,FixedReadComparison Comparison
 {
     internal bool SharedExact {get;private init;}
     internal bool ExactParentText {get;private init;}
+    internal bool ExactTextTree {get;private init;}
+
+    /// <summary>已由文本自树验证的节点集合按原文本精确筛选。</summary>
+    public static FixedReadFilter ForTextTree(string field,IReadOnlyList<string> keys)=>
+        new(field,FixedReadComparison.In,keys){ExactTextTree=true};
 
     /// <summary>已发布的文本父键比较规范十进制字节，数据库排序规则不能改变父记录身份。</summary>
     public static FixedReadFilter ForTextParent(string field,string parentId)=>
@@ -358,6 +363,9 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         var type = plan.Types[filter.Field];
         if(filter.ExactParentText&&(type!="string"||filter.Comparison!=FixedReadComparison.Equal||value is not string))
             throw new InvalidOperationException("文本父键筛选缺少实际的文本字段或值。");
+        if(filter.ExactTextTree&&(type!="string"||filter.Comparison!=FixedReadComparison.In||value is not IReadOnlyList<object?> keys||
+            keys.Any(key=>key is not string text||string.IsNullOrWhiteSpace(text))))
+            throw new InvalidOperationException("文本自树筛选缺少有效的文本节点集合。");
         // 普通 JSON 文本与关系数组分别处理。精确比较沿用 MySQL 的 JSON 值比较。
         if (type == "json")
         {
@@ -411,6 +419,12 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
     private static string Filter(MySqlNonRedundantReadPlan plan,FixedReadFilter filter,int index)
     {
         var expression=filter.SharedExact?ExactDataManageSql.CrossExpression(plan,filter.Field):plan.Expression(filter.Field);var value=filter.Value;var parameter="@filter_"+index;
+        if(filter.ExactTextTree)
+        {
+            var keys=(IReadOnlyList<object?>)value!;
+            return keys.Count==0?"1=0":"BINARY ("+expression+") IN ("+
+                string.Join(",",Enumerable.Range(0,keys.Count).Select(item=>"BINARY "+parameter+"_"+item))+")";
+        }
         if(filter.Comparison==FixedReadComparison.In)
         {var items=(IReadOnlyList<object?>)value!;var indexes=Enumerable.Range(0,items.Count).Where(item=>items[item] is not null).ToArray();var member=indexes.Length==0?"":expression+" IN ("+string.Join(",",indexes.Select(item=>parameter+"_"+item))+")";var hasNull=items.Any(item=>item is null);return member.Length==0?hasNull?expression+" IS NULL":"1=0":hasNull?"("+member+" OR "+expression+" IS NULL)":member;}
         if(value is not(null or string or byte[] or long or int or decimal or double or float or bool or DateTime or DateTimeOffset or TimeSpan))throw new InvalidOperationException("固定筛选值必须是受支持的标量。");

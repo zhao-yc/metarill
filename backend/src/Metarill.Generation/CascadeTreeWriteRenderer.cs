@@ -45,20 +45,25 @@ internal static class CascadeTreeWriteRenderer
                 .AppendLine(source.Type=="string?"?$"            entity.{source.Property}=entity.{source.Property} is null?null:\"\";entity.{name.Property}=entity.{source.Property} is null?null:\"\";":$"            entity.{name.Property}=null;")
                 .AppendLine($"            submitted.Add({Literal(source.Source.ColumnName)});submitted.Add({Literal(name.Source.ColumnName)});return;")
                 .AppendLine("        }")
-                .AppendLine("        if(!long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||text!=id.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"级联ID必须是不带前导零的正整数。\");")
+                .AppendLine("        "+ParseKey(plan.Read))
                 .AppendLine($"        var path=await CascadeReader{suffix}(actor,true,false,requireTargetList).PathAsync(id,cancellationToken);");
             if(plan.Read.Target.Source.Id==table.Source.Id&&plan.Read.Parent.Source.Id==source.Source.Id)
-                result.AppendLine($"        if(path.Path.Any(node=>node.Id=={CascadeTreeTopologyRenderer.NodeKey(plan.Read,"entity")}.ToString(CultureInfo.InvariantCulture)))throw new InvalidOperationException(\"不能将父节点设为自身或后代。\");")
+                result.AppendLine($"        if(path.Path.Any(node=>node.Id=={CascadeTreeTopologyRenderer.NodeKeyText(plan.Read,"entity")}))throw new InvalidOperationException(\"不能将父节点设为自身或后代。\");")
                     .AppendLine("        if(path.Path.Count>=Metarill.Core.Cascades.SelfTreeReader.MaximumDepth)throw new InvalidOperationException(\"级联父路径已达64层，不能再挂一层。\");");
             result.AppendLine("        var actualName=path.Path[^1].Name;");
             if(table.Source.IsRongyu==1&&int.TryParse(name.Source.ColumnLength,NumberStyles.None,CultureInfo.InvariantCulture,out var maximum)&&maximum>0)
                 result.AppendLine($"        if(actualName is {{ Length: > {maximum} }})throw new ArgumentException(\"级联名称超过物理列声明长度，未保存。\");");
-            result.AppendLine($"        entity.{source.Property}={(source.Type=="string?"?"id.ToString(CultureInfo.InvariantCulture)":"id")};entity.{name.Property}=actualName;")
+            result.AppendLine($"        entity.{source.Property}={AssignedKey(plan.Read)};entity.{name.Property}=actualName;")
                 .AppendLine($"        submitted.Add({Literal(source.Source.ColumnName)});submitted.Add({Literal(name.Source.ColumnName)});")
                 .AppendLine("    }");
         }
         return result.Append(CrossTableWriteRenderer.Service(model,table,page)).Append(SharedCrossTableRenderer.Service(model,table,page)).ToString();
     }
+    /// <summary>非空文本键使用原值；整数键继续要求原规范十进制表示。</summary>
+    internal static string ParseKey(CascadeTreeReadModel plan)=>plan.TextKey?"var id=text!;":
+        "if(!long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||text!=id.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"级联ID必须是不带前导零的正整数。\");";
+
+    internal static string AssignedKey(CascadeTreeReadModel plan)=>!plan.TextKey&&plan.Source.Type=="string?"?"id.ToString(CultureInfo.InvariantCulture)":"id";
     /// <summary>所有配置文本只能作为转义后的C#字面量。</summary>
     private static string Literal(string text)=>JsonSerializer.Serialize(text);
 }

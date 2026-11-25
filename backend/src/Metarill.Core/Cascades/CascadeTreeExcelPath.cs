@@ -14,9 +14,7 @@ public static class CascadeTreeExcelPath
     /// <summary>原分隔规则按完整分隔符切割、去首尾空白/空段，每一层都要求唯一可见候选。</summary>
     public static async Task<long> ResolveAsync(string text,string joiner,Func<string,long?,CancellationToken,Task<IReadOnlyList<CascadeTreeNode>>> find,CancellationToken cancellationToken=default)
     {
-        if(string.IsNullOrEmpty(joiner))throw new InvalidOperationException("级联分隔符未配置。");
-        var parts=text.Split(joiner,StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);
-        if(parts.Length is 0 or >SelfTreeReader.MaximumDepth)throw PageImportException.Input(PageImportError.Relation);
+        var parts=Split(text,joiner);
         long? parent=null;var visited=new HashSet<long>();
         foreach(var part in parts)
         {
@@ -25,5 +23,33 @@ public static class CascadeTreeExcelPath
             parent=rows[0].Id;
         }
         return parent!.Value;
+    }
+
+    /// <summary>文本节点键与名称分开处理，逐级复核返回的父键和业务键。</summary>
+    public static async Task<string> ResolveTextAsync(string text,string joiner,
+        Func<string,string?,CancellationToken,Task<IReadOnlyList<TextCascadeTreeNode>>> find,CancellationToken cancellationToken=default)
+    {
+        string? parent=null;
+        var visited=new HashSet<string>(StringComparer.Ordinal);
+        foreach(var part in Split(text,joiner))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var rows=await find(part,parent,cancellationToken);
+            if(rows.Count!=1)throw PageImportException.Input(PageImportError.Relation);
+            var node=rows[0];
+            var actualParent=string.IsNullOrWhiteSpace(node.ParentKey)?null:node.ParentKey;
+            if(actualParent!=parent||node.Cursor<=0||string.IsNullOrWhiteSpace(node.Key)||!visited.Add(node.Key))
+                throw PageImportException.Input(PageImportError.Relation);
+            parent=node.Key;
+        }
+        return parent!;
+    }
+
+    private static string[] Split(string text,string joiner)
+    {
+        if(string.IsNullOrEmpty(joiner))throw new InvalidOperationException("级联分隔符未配置。");
+        var parts=text.Split(joiner,StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries);
+        if(parts.Length is 0 or >SelfTreeReader.MaximumDepth)throw PageImportException.Input(PageImportError.Relation);
+        return parts;
     }
 }

@@ -51,7 +51,7 @@ internal static class CascadeTreeTopologyRenderer
         {
             var storedKey=await CascadeScope{{suffix}}(actor,false,false,true).Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>row.{{key}},cancellationToken);
             if(storedKey is null||storedKey!=entity.{{key}})throw new InvalidOperationException("自树业务键在存储后发生变化，未提交。");
-            _ = await CascadeTopology{{suffix}}(actor).FilterIdsAsync(storedKey.Value,false,cancellationToken);
+            _ = await CascadeTopology{{suffix}}(actor).FilterIdsAsync(storedKey{{(read.TextKey?"":".Value")}},false,cancellationToken);
         }
 
 """;
@@ -64,5 +64,9 @@ internal static class CascadeTreeTopologyRenderer
 
     /// <summary>现有图按已配置节点键遍历。缺少或无效的键复用原路径验证拒绝。</summary>
     internal static string NodeKey(CascadeTreeReadModel plan,string variable)=>
-        plan.Key.IsId?$"{variable}.Id":$"{variable}.{plan.Key.Property}.GetValueOrDefault()";
+        plan.Key.IsId?$"{variable}.Id":plan.TextKey?$"{variable}.{plan.Key.Property}!":$"{variable}.{plan.Key.Property}.GetValueOrDefault()";
+
+    /// <summary>直接与路径的原协议文本比较，业务文本键省略数字格式化。</summary>
+    internal static string NodeKeyText(CascadeTreeReadModel plan,string variable)=>
+        NodeKey(plan,variable)+(plan.TextKey?"":".ToString(CultureInfo.InvariantCulture)");
 }

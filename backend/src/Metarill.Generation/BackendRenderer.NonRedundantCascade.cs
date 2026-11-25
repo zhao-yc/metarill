@@ -29,9 +29,13 @@ internal static partial class BackendRenderer
             {result.Append(NonRedundantCrossTableCompilation.Filter(cross,page));continue;}
             var plan=CascadeTreeReadCompilation.Resolve(model,table,page,source).Definition??throw new InvalidOperationException("非冗余树筛选缺少固定定义。");
             var key=JsonSerializer.Serialize(source.JsonName);var name=JsonSerializer.Serialize(GenerationModel.Camel(source.Source.ColumnName[..^3]+"_name"));
+            var field=JsonSerializer.Serialize(source.Source.ColumnName);
+            var reader=plan.TextKey?"TextSelfTreeReader":"CascadeTreeGraphReader";
+            var selected=plan.TextKey?"selected":"selected.Value";
+            var filter=plan.TextKey?$"FixedReadFilter.ForTextTree({field},ids)":$"new({field},FixedReadComparison.In,ids.Select(id=>(object?){(source.Type=="string?"?"id.ToString(CultureInfo.InvariantCulture)":"id")}).ToArray())";
             result.AppendLine($"        if(request.Filters.TryGetValue({key},out var value{source.Source.Id})&&!(value{source.Source.Id}.ValueKind==JsonValueKind.Array&&value{source.Source.Id}.GetArrayLength()==0))")
-                .AppendLine("        {").AppendLine($"            var selected=Metarill.Core.Cascades.CascadeTreeGraphReader.FilterId(value{source.Source.Id},{key},{name});")
-                .AppendLine($"            if(selected is not null){{var ids=await CascadeGraph{page.Source.Id}_{source.Source.Id}(actor).FilterIdsAsync(selected.Value,{plan.Exact.ToString().ToLowerInvariant()},cancellationToken);result.Add(new({JsonSerializer.Serialize(source.Source.ColumnName)},FixedReadComparison.In,ids.Select(id=>(object?){(source.Type=="string?"?"id.ToString(CultureInfo.InvariantCulture)":"id")}).ToArray()));}}")
+                .AppendLine("        {").AppendLine($"            var selected=Metarill.Core.Cascades.{reader}.FilterId(value{source.Source.Id},{key},{name});")
+                .AppendLine($"            if(selected is not null){{var ids=await CascadeGraph{page.Source.Id}_{source.Source.Id}(actor).FilterIdsAsync({selected},{plan.Exact.ToString().ToLowerInvariant()},cancellationToken);result.Add({filter});}}")
                 .AppendLine("        }");
         }
         return result.AppendLine(awaits?"        return result;":"        return Task.FromResult(result);").AppendLine("    }").ToString();

@@ -13,6 +13,7 @@ internal static class CascadeTreeExcelRenderer
         if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is{} cross)return CrossTableExcelRenderer.Import(page,cross);
         var plan=CascadeTreeWriteCompilation.Resolve(model,table,page,source).Definition;
         if(plan is null)return $"    private Task<JsonElement> ImportCascade{page.Source.Id}_{source.Source.Id}Async(JsonElement cell,RuntimeActor actor,CancellationToken cancellationToken)=>throw new NotSupportedException(\"级联导入范围尚未证明。\");\n";
+        if(plan.Read.TextKey)return TextCascadeTreeRenderer.Import(page,source,plan.Read);
         if(plan.Read.UsesFixedRead)return DerivedCascadeNamesRenderer.Import(page,source,plan.Read);
         var read=plan.Read;var suffix=page.Source.Id+"_"+source.Source.Id;var target=read.Target;var parent=read.Parent;var name=read.Name;
         var key=read.Key.Property;
@@ -54,6 +55,15 @@ internal static class CascadeTreeExcelRenderer
             if(CrossTableWriteCompilation.Resolve(model,table,page,source).Definition is{} cross){result.Append(CrossTableExcelRenderer.Export(table,page,cross));continue;}
             var plan=CascadeTreeReadCompilation.Resolve(model,table,page,source).Definition;var suffix=page.Source.Id+"_"+source.Source.Id;
             if(plan is null||source.Type is not("string?" or "long?")){result.AppendLine($"        string? ExcelCascade{source.Property}({table.EntityType} entity)=>throw new NotSupportedException(\"级联导出范围尚未证明。\");");continue;}
+            if(plan.TextKey)
+            {
+                result.AppendLine($"        var excelIds{source.Property}=entities.Select(entity=>entity.{source.Property}).Where(key=>!string.IsNullOrWhiteSpace(key)).OfType<string>().Distinct(StringComparer.Ordinal).ToArray();")
+                    .AppendLine($"        var excelPaths{source.Property}=await CascadeGraph{suffix}(actor).PathsAsync(excelIds{source.Property},cancellationToken);")
+                    .AppendLine($"        string? ExcelCascade{source.Property}({table.EntityType} entity){{var key=entity.{source.Property};return string.IsNullOrWhiteSpace(key)?null:Metarill.Core.Cascades.CascadeTreeExcelPath.Format(excelPaths{source.Property}.GetValueOrDefault(key),{Literal(plan.Joiner)});}}");
+                if(table.Source.IsRongyu==0&&CascadeTreeViewRenderer.Name(table,source) is{} textName&&columns.Any(column=>column.Source.Id==textName.Source.Id))
+                    result.AppendLine($"        foreach(var entity in entities)entity.{textName.Property}=entity.{source.Property} is {{}} key&&excelPaths{source.Property}.TryGetValue(key,out var path)?path?.Path.LastOrDefault()?.Name:null;");
+                continue;
+            }
             result.AppendLine($"        var excelIds{source.Property}=entities.Select(entity=>Convert.ToString(entity.{source.Property},CultureInfo.InvariantCulture)).Where(text=>!string.IsNullOrWhiteSpace(text)).Select(text=>long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&id>0?id:throw new InvalidOperationException(\"级联ID无效，未导出。\")).Distinct().ToArray();")
                 .AppendLine($"        var excelPaths{source.Property}=await CascadeGraph{suffix}(actor).PathsAsync(excelIds{source.Property},cancellationToken);")
                 .AppendLine($"        string? ExcelCascade{source.Property}({table.EntityType} entity){{var text=Convert.ToString(entity.{source.Property},CultureInfo.InvariantCulture);if(string.IsNullOrWhiteSpace(text))return null;var id=long.Parse(text,CultureInfo.InvariantCulture);return Metarill.Core.Cascades.CascadeTreeExcelPath.Format(excelPaths{source.Property}.GetValueOrDefault(id),{Literal(plan.Joiner)});}}");

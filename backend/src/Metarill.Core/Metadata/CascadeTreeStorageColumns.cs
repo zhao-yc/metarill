@@ -59,13 +59,14 @@ public static class CascadeTreeStorageColumns
         }
         catch(Exception error)when(error is JsonException or InvalidOperationException or ArgumentException){return false;}
     }
-    /// <summary>树节点键必须来自目标实体；业务键要求非空整型和与项目范围相符的唯一索引。</summary>
+    /// <summary>树节点键必须来自目标实体；业务键要求非空整型或文本及与项目范围相符的唯一索引。</summary>
     public static (ColumnMetadata Key,string? IndexId) ResolveNodeKey(MetadataCatalog catalog,TableMetadata table,string name)
     {
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
         var key=storage.PhysicalColumns.SingleOrDefault(column=>column.ColumnName==name);
-        if(key is not {LogicalType:"int64",IsDbNotNull:1}||!GlobalPhysicalRelationValue.IsScalar(storage,table,key))
-            throw new NotSupportedException("自树节点键必须为真实非空的整数列。");
+        if(key is not {LogicalType:"int64" or "string",IsDbNotNull:1}||key.ColumnName=="id"&&key.LogicalType!="int64"||
+            !GlobalPhysicalRelationValue.IsScalar(storage,table,key))
+            throw new NotSupportedException("自树节点键必须为真实非空的整数列或业务文本列。");
         if(key.ColumnName=="id")return(key,null);
 
         var project=storage.PhysicalColumns.SingleOrDefault(column=>column.ColumnName=="yz_project_id");

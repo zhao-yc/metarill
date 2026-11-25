@@ -22,7 +22,7 @@ internal static class CascadeTreeMergedWriteRenderer
     {
         var source=plan.Read.Source;var name=plan.Name;var parent=plan.Read.Parent;var label=plan.Read.Name;var suffix=page.Source.Id+"_"+source.Source.Id;
         var limit=table.Source.IsRongyu==1&&int.TryParse(name.Source.ColumnLength,out var length)&&length>0?$"if(actualName is {{ Length: > {length} }})throw new ArgumentException(\"级联名称超过物理列声明长度，未保存。\");":"";
-        var assignment=source.Type=="string?"?"id.ToString(CultureInfo.InvariantCulture)":"id";
+        var assignment=CascadeTreeWriteRenderer.AssignedKey(plan.Read);
         var emptyName=source.Type=="string?"?$"entity.{source.Property} is null?null:\"\"":"null";
         var clearIdentity=source.Type=="string?"?$"entity.{source.Property}=entity.{source.Property} is null?null:{Literal(string.Empty)};":"";
         var storedEmptyName=source.Type=="string?"?$"stored.{source.Property} is null?null:{Literal(string.Empty)}":"null";
@@ -31,8 +31,12 @@ internal static class CascadeTreeMergedWriteRenderer
         var storedNodeKey=CascadeTreeTopologyRenderer.NodeKey(plan.Read,"stored");
         var keyProperty=plan.Read.Key.Property;
         if(!plan.Read.Key.IsId)identity+=$"||stored.{keyProperty}!=entity.{keyProperty}";
+        var nodeScope=$"CascadeScope{suffix}(actor,false,requireTargetList)";
+        var byKey=plan.Read.TextKey?$"TextCascadeTreeSql.Match({nodeScope},session,{Literal(plan.Read.Key.Source.ColumnName)},{Literal("mt_tree_prepare_"+suffix)},[id])":$"{nodeScope}.Where(row=>row.{keyProperty}==id)";
+        var submittedLabel=MultiSelectExcelRenderer.LabelText(label,$"entity.{label.Property}");
+        var storedLabel=MultiSelectExcelRenderer.LabelText(label,$"leaf.{label.Property}");
         // R0自指的逻辑名称只在正常DML后按实际外键读取；不能把IsIgnore属性当作当前名称。
-        var prepare=plan.Read.UsesFixedRead?$"if(id=={nodeKey}){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");actualName=null;}}else{{var leaf=(await DerivedCascadeRows{suffix}Async(actor,[new(\"id\",FixedReadComparison.Equal,id)],[new(\"id\")],1,true,cancellationToken)).SingleOrDefault();if(leaf is null)throw new InvalidOperationException(\"级联记录不存在、已删除或不在当前可读范围。\");actualName=leaf.Name;}}":$"if(id=={nodeKey}){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");actualName=entity.{label.Property};}}\n        else{{var leaf=await CascadeScope{suffix}(actor,false,requireTargetList).Where(row=>row.{keyProperty}==id).ForUpdate().FirstAsync(row=>new {table.EntityType}{{{keyProperty}=row.{keyProperty},{label.Property}=row.{label.Property}}},cancellationToken);if(leaf is null)throw new InvalidOperationException(\"级联记录不存在、已删除或不在当前可读范围。\");actualName=leaf.{label.Property};}}";
+        var prepare=plan.Read.UsesFixedRead?$"if(id=={nodeKey}){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");actualName=null;}}else{{var leaf=(await DerivedCascadeRows{suffix}Async(actor,[new(\"id\",FixedReadComparison.Equal,id)],[new(\"id\")],1,true,cancellationToken)).SingleOrDefault();if(leaf is null)throw new InvalidOperationException(\"级联记录不存在、已删除或不在当前可读范围。\");actualName=leaf.Name;}}":$"if(id=={nodeKey}){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");actualName={submittedLabel};}}\n        else{{var leaf=await {byKey}.ForUpdate().FirstAsync(row=>new {table.EntityType}{{{keyProperty}=row.{keyProperty},{label.Property}=row.{label.Property}}},cancellationToken);if(leaf is null)throw new InvalidOperationException(\"级联记录不存在、已删除或不在当前可读范围。\");actualName={storedLabel};}}";
         return $$"""
     /// <summary>只准备已提交关联的叶子名称；涉及来源本身时不拿旧行决定最终路径。</summary>
     private async Task ValidateCascade{{suffix}}Async({{table.EntityType}} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,bool requireTargetList=true,bool creating=false)
@@ -46,7 +50,7 @@ internal static class CascadeTreeMergedWriteRenderer
             {{clearIdentity}}entity.{{name.Property}}={{emptyName}};
             submitted.Add({{Literal(source.Source.ColumnName)}});submitted.Add({{Literal(name.Source.ColumnName)}});return;
         }
-        if(!long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||text!=id.ToString(CultureInfo.InvariantCulture))throw new ArgumentException("级联ID必须是不带前导零的正整数。");
+        {{CascadeTreeWriteRenderer.ParseKey(plan.Read)}}
         _=CascadeScope{{suffix}}(actor,false,requireTargetList);string? actualName;
         {{prepare}}
         {{limit}}
@@ -67,9 +71,9 @@ internal static class CascadeTreeMergedWriteRenderer
         if(string.IsNullOrWhiteSpace(text))actualName={{storedEmptyName}};
         else
         {
-            if(!long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)||id<=0||text!=id.ToString(CultureInfo.InvariantCulture))throw new ArgumentException("级联ID必须是不带前导零的正整数。");
+            {{CascadeTreeWriteRenderer.ParseKey(plan.Read)}}
             var path=await CascadeReader{{suffix}}(actor,true,false,refresh&&requireTargetList).PathAsync(id,cancellationToken);
-            if(creating&&path.Path.Any(node=>node.Id=={{nodeKey}}.ToString(CultureInfo.InvariantCulture)))throw new InvalidOperationException("级联路径不能包含本次新建节点。");
+            if(creating&&path.Path.Any(node=>node.Id=={{CascadeTreeTopologyRenderer.NodeKeyText(plan.Read,"entity")}}))throw new InvalidOperationException("级联路径不能包含本次新建节点。");
             actualName=path.Path[^1].Name;
         }
         if(!refresh)return;

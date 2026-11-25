@@ -27,11 +27,14 @@ public sealed class CascadeTreeSameRowTests
     }
     /// <summary>实际编译同表业务键的直接父和书签，核对锁内图、写后存储及 Excel。</summary>
     [Theory]
-    [InlineData(0,"string","int64")]
-    [InlineData(0,"int64","string")]
-    [InlineData(1,"string","int64")]
-    [InlineData(1,"int64","string")]
-    public async Task Same_table_business_key_drives_topology_bookmarks_and_excel(int redundant,string sourceType,string parentType)
+    [InlineData(0,"string","int64",false,false)]
+    [InlineData(0,"int64","string",false,false)]
+    [InlineData(1,"string","int64",false,false)]
+    [InlineData(1,"int64","string",false,false)]
+    [InlineData(0,"string","string",true,false)]
+    [InlineData(1,"string","string",true,false)]
+    [InlineData(1,"string","string",true,true)]
+    public async Task Same_table_business_key_drives_topology_bookmarks_and_excel(int redundant,string sourceType,string parentType,bool textKey,bool typedLabel)
     {
         const string ns="Example.SameBusinessKey";
         var catalog=RedundantMultiNameCacheTests.Published(Catalog("same_key",sourceType,parentType));
@@ -41,14 +44,21 @@ public sealed class CascadeTreeSameRowTests
             field.ConfigColumnId="10001";
         var details=JsonSerializer.Serialize(new
         {
-            sourceMode="selfTree",selfTree=new{table="same_key_node",parentField="parent_id",nameField="name",idField="node_key"}
+            sourceMode="selfTree",selfTree=new{table="same_key_node",parentField="parent_id",nameField=typedLabel?"node_label":"name",idField="node_key"}
         });
         var parent=catalog.ConfigColumns.Single(column=>column.Id=="5");
         parent.ControlKind="CascadeTree";
         parent.ControlDetail=details;
         catalog.ConfigColumns.Single(column=>column.Id=="6").ControlDetail=details;
         catalog.ConfigColumns.Add(new(){Id="10",ConfigTableId="1",YzProjectId=catalog.YzProjectId,Name="节点键",
-            ColumnName="node_key",LogicalType="int64",IsDbNotNull=1,SortNo=9});
+            ColumnName="node_key",LogicalType=textKey?"string":"int64",ColumnLength="48",IsDbNotNull=1,SortNo=9});
+        if(typedLabel)
+        {
+            catalog.ConfigColumns.Add(new(){Id="11",ConfigTableId="1",YzProjectId=catalog.YzProjectId,
+                Name="节点号",ColumnName="node_label",LogicalType="int32",SortNo=10});
+            catalog.ConfigPageColumns.Add(new(){Id="202_label",ConfigPageId="202",ConfigColumnId="11",
+                YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=1,SortNo=10});
+        }
         foreach(var page in catalog.ConfigPages)
         {
             page.IsSave=1;
@@ -78,13 +88,25 @@ public sealed class CascadeTreeSameRowTests
             var generated=Path.Combine(directory,"generated");
             new CSharpGenerator().Generate(catalog,generated,ns);
             var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/SameKeyNodeService.g.cs"));
-            Assert.Contains("row.NodeKey>after",service);
-            Assert.Contains("row=>row.NodeKey==id).ForUpdate()",service);
-            Assert.Contains("FilterIdsAsync(storedKey.Value,false,cancellationToken)",service);
+            if(textKey)
+            {
+                Assert.Contains("row.Id>after",service);
+                Assert.Contains("TextCascadeTreeSql.Match",service);
+                Assert.Contains("FilterIdsAsync(storedKey,false,cancellationToken)",service);
+                Assert.Contains("FilterIdsAsync(stored.NodeKey!,false,cancellationToken)",service);
+                Assert.Contains("node.Id==entity.NodeKey!",service);
+                Assert.Contains("if(id==entity.NodeKey!)",service);
+            }
+            else
+            {
+                Assert.Contains("row.NodeKey>after",service);
+                Assert.Contains("row=>row.NodeKey==id).ForUpdate()",service);
+                Assert.Contains("FilterIdsAsync(storedKey.Value,false,cancellationToken)",service);
+                Assert.Contains("FilterIdsAsync(stored.NodeKey.GetValueOrDefault(),false,cancellationToken)",service);
+                Assert.Contains("node.Id==entity.NodeKey.GetValueOrDefault().ToString",service);
+                Assert.Contains("if(id==entity.NodeKey.GetValueOrDefault())",service);
+            }
             Assert.Contains("storedKey!=entity.NodeKey",service);
-            Assert.Contains("FilterIdsAsync(stored.NodeKey.GetValueOrDefault(),false,cancellationToken)",service);
-            Assert.Contains("node.Id==entity.NodeKey.GetValueOrDefault().ToString",service);
-            Assert.Contains("if(id==entity.NodeKey.GetValueOrDefault())",service);
             Assert.Contains("stored.NodeKey!=entity.NodeKey",service);
             Assert.Contains("ImportCascade201_6Async",service);
             Assert.Contains("ImportCascade203_6Async",service);

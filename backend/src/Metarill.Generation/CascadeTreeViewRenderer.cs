@@ -36,6 +36,10 @@ internal static class CascadeTreeViewRenderer
         var resolved=CascadeTreeReadCompilation.Resolve(model,table,page,source);
         if(resolved.Definition is not{} plan||source.Type is not("string?" or "long?")||!source.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal))return $"                    throw new ArgumentException({Literal(resolved.Reason??"级联筛选字段类型尚未支持。")});\n";
         var suffix=page.Source.Id+"_"+source.Source.Id;var key=source.JsonName;var name=GenerationModel.Camel(source.Source.ColumnName[..^3]+"_name");
+        if(plan.TextKey)return
+            $"                    var selected=Metarill.Core.Cascades.TextSelfTreeReader.FilterId(filter.Value,{Literal(key)},{Literal(name)});if(selected is null)break;\n"+
+            $"                    var ids=await CascadeGraph{suffix}(actor).FilterIdsAsync(selected,{plan.Exact.ToString().ToLowerInvariant()},cancellationToken);\n"+
+            $"                    query=TextCascadeTreeSql.Match(query,session,{Literal(source.Source.ColumnName)},{Literal("mt_tree_filter_"+suffix)},ids);\n";
         return $"                    var selected=Metarill.Core.Cascades.CascadeTreeGraphReader.FilterId(filter.Value,{Literal(key)},{Literal(name)});if(selected is null)break;\n"+
             $"                    var ids=await CascadeGraph{suffix}(actor).FilterIdsAsync(selected.Value,{plan.Exact.ToString().ToLowerInvariant()},cancellationToken);\n"+
             (source.Type=="string?"?$"                    var keys=ids.Select(id=>id.ToString(CultureInfo.InvariantCulture)).ToArray();query=query.Where(entity=>keys.Contains(entity.{source.Property}!));\n":$"                    var keys=ids.ToArray();query=query.Where(entity=>entity.{source.Property}!=null&&keys.Contains(entity.{source.Property}.Value));\n");
@@ -46,6 +50,7 @@ internal static class CascadeTreeViewRenderer
         var result=new StringBuilder(CrossTableDisplayRenderer.Service(model,table,page)+CrossTableFilterRenderer.Service(model,table,page));
         foreach(var plan in CascadeTreeReadCompilation.ForService(model,table,page))
         {
+            if(plan.TextKey)continue;
             var suffix=page.Source.Id+"_"+plan.Source.Source.Id;var target=plan.Target;var parent=plan.Parent;var name=plan.Name;
             if(plan.UsesFixedRead){result.Append(DerivedCascadeNamesRenderer.Graph(page,plan));continue;}
             var key=plan.Key.Property;
@@ -67,6 +72,16 @@ internal static class CascadeTreeViewRenderer
         foreach(var plan in plans)
         {
             var source=plan.Source;var suffix=page.Source.Id+"_"+source.Source.Id;
+            if(plan.TextKey)
+            {
+                var id=source.Source.Id;
+                var display=page.Readable.Any(column=>column.Source.Id==id)?$"values[index].{source.Property}DisplayText=path?.DisplayText??\"\";":"";
+                var leaf=table.Source.IsRongyu==0?$"values[index].{Name(table,source)!.Property}=path?.Path.LastOrDefault()?.Name;":"";
+                result.AppendLine($"        var ids{id}=entities.Select(entity=>entity.{source.Property}).Where(key=>!string.IsNullOrWhiteSpace(key)).OfType<string>().Distinct(StringComparer.Ordinal).ToArray();")
+                    .AppendLine($"        var paths{id}=await CascadeGraph{suffix}(actor,currentRead).PathsAsync(ids{id},cancellationToken);")
+                    .AppendLine($"        for(var index=0;index<values.Count;index++){{var key=entities[index].{source.Property};var path=key is null?null:paths{id}.GetValueOrDefault(key);{display}{leaf}}}");
+                continue;
+            }
             result.AppendLine($"        var ids{source.Source.Id}=entities.Select(entity=>Convert.ToString(entity.{source.Property},CultureInfo.InvariantCulture)).Select(text=>long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id)&&id>0?id:0).Where(id=>id>0).Distinct().ToArray();")
                 .AppendLine($"        var paths{source.Source.Id}=await CascadeGraph{suffix}(actor,currentRead).{(table.Source.IsRongyu==0?"PathsAsync":"DisplayAsync")}(ids{source.Source.Id},cancellationToken);")
                 .AppendLine($"        for(var index=0;index<values.Count;index++){{var text=Convert.ToString(entities[index].{source.Property},CultureInfo.InvariantCulture);var valid=long.TryParse(text,NumberStyles.None,CultureInfo.InvariantCulture,out var id);{(table.Source.IsRongyu==0?$"var path=valid?paths{source.Source.Id}.GetValueOrDefault(id):null;{(page.Readable.Any(column=>column.Source.Id==source.Source.Id)?$"values[index].{source.Property}DisplayText=path?.DisplayText??\"\";":"")}values[index].{Name(table,source)!.Property}=path?.Path.LastOrDefault()?.Name;":$"values[index].{source.Property}DisplayText=valid&&paths{source.Source.Id}.TryGetValue(id,out var path)?path:\"\";")}}}");
