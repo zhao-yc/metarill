@@ -84,6 +84,26 @@ public static class CrossTableStorageColumns
     public static bool ContainsPathField(ColumnMetadata source,string field)=>
         LevelPrefixes(source).Any(prefix=>field==prefix+"_id"||field==prefix+"_name");
 
+    /// <summary>识别冗余表中声明使用文本业务键的父层；候选和缓存仍须验证完整发布路径。</summary>
+    public static bool DeclaresStoredTextKey(MetadataCatalog catalog,TableMetadata table,ColumnMetadata slot)
+    {
+        if(table.IsRongyu!=1||slot.LogicalType!="string")return false;
+        foreach(var control in catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id&&column.ControlKind=="CascadeTree"))
+        {
+            var prefixes=LevelPrefixes(control);
+            var index=prefixes.TakeWhile(prefix=>prefix+"_id"!=slot.ColumnName).Count();
+            if(index==prefixes.Count)continue;
+            using var json=JsonDocument.Parse(control.ControlDetail);
+            var level=json.RootElement.GetProperty("levels")[index];
+            var tableName=Text(level,"table","");
+            var key=Text(level,"idField","id");
+            if(key!="id"&&catalog.ConfigTables.SingleOrDefault(candidate=>candidate.TableName==tableName) is {} target&&
+                catalog.ConfigColumns.Any(column=>column.ConfigTableId==target.Id&&column.ColumnName==key&&column.LogicalType=="string"))
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>固定条件在非冗余表上引用跨表层位时，按逻辑路径比较，原稀疏存储位不作为值。</summary>
     public static bool IsLogicalPathField(TableMetadata table,IEnumerable<ColumnMetadata> columns,string field)=>
         table.IsRongyu==0&&columns.Any(source=>source.ConfigTableId==table.Id&&source.ControlKind=="CascadeTree"&&

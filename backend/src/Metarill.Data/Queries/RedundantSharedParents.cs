@@ -168,7 +168,7 @@ public static class RedundantSharedParents
         _=RelationMutationPlan.Compile(catalog,physical);DerivedCrossTableCaches.Validate(catalog,derived,physical);
     }
     /// <summary>目标角色包含完整祖先，重复表名或数值ID不代表同一父身份。</summary>
-    private static string Identity(RedundantSharedParentPlan plan)=>JsonSerializer.Serialize(plan.Levels.Select(LevelIdentity));
+    internal static string Identity(RedundantSharedParentPlan plan)=>JsonSerializer.Serialize(plan.Levels.Select(LevelIdentity));
     /// <summary>层内身份及条件冻结为普通文本，不序列化可执行SQL计划的私有状态。</summary>
     private static string LevelIdentity(RedundantSharedParentLevel level)=>JsonSerializer.Serialize(new{level.TableId,level.PageId,level.NameId,level.Parent,level.ConditionDefinition,level.AlternateKey,level.TextKey});
     /// <summary>来源和目标均须显式发布，后台选择不是请求授权。</summary>

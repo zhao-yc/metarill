@@ -104,7 +104,11 @@ public static class ProjectScopedSingleRelationTarget
     public static (PageMetadata Page, ColumnMetadata Name)? Resolve(
         MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)
     {
-        var storedList = target.IsRongyu==1 && foreign.ControlKind=="List" && UsesFixedListCandidates(catalog);
+        // 旧下拉仍按原关联页选取字典。文本级联父也需要带此真实页面登记名称缓存。
+        var linkedPage=Text(foreign,"linkConfigPageId");
+        var fixedList=foreign.ControlKind=="List"&&UsesFixedListCandidates(catalog);
+        var storedList=target.IsRongyu==1&&foreign.ControlKind=="List"&&(fixedList||
+            catalog.ConfigPages.Any(page=>page.ConfigTableId==target.Id&&page.Id==linkedPage&&HasStoredTextParent(catalog,target,page)));
         var storedSelection=target.IsRongyu==1&&foreign.ControlKind=="SelectPage";
         if(owner.IsRongyu!=1||!IsProjectRole(owner,foreign,target,allowStoredTarget:storedList||storedSelection))return null;
         var sourcePages=catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id).ToArray();
@@ -113,7 +117,6 @@ public static class ProjectScopedSingleRelationTarget
         if(pages.Length==0)return null;
         using var document=Definition(foreign);
         var definition=document.RootElement;
-        var fixedList = foreign.ControlKind=="List" && UsesFixedListCandidates(catalog);
         var selected=SelectedPage(foreign,definition,fixedList);
         var linked=Text(foreign,"linkConfigPageId");
         var nameField=NameField(definition);
@@ -130,6 +133,7 @@ public static class ProjectScopedSingleRelationTarget
         // 无父字典的固定条件只约束生成器管理的物理副本，普通同名字段仍由业务维护。
         var managedCache=nameCache is {IsVirtualColumn:0}&&nameCache.Extra.TryGetValue("isJoinColumn",out var joined)&&
             (joined.ValueKind==JsonValueKind.True||joined.ToString()=="1");
+        if(storedList&&!fixedList&&!managedCache)return null;
         if(storedSelection&&!matches.Any(match=>match.Page is {} page&&
             (PhysicalSelectionParent(catalog,target,page) is not null||
                 managedCache&&HasScopedUnparentedSelection(catalog,target,page,columns,names))))
@@ -150,6 +154,20 @@ public static class ProjectScopedSingleRelationTarget
             name.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "MultiList" or "CheckBoxList")
             throw Invalid();
         return(matches[0].Page!,name);
+    }
+
+    /// <summary>只识别实际目标页的父参数和已声明的文本业务键层位，完整路径由数据层复核。</summary>
+    private static bool HasStoredTextParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
+    {
+        var declared=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
+        if(!declared.Any(column=>column.ControlKind=="CascadeTree"))return false;
+        var columns=RelationStorageColumns.Expand(target,declared);
+        var textKeys=columns.Where(column=>CrossTableStorageColumns.DeclaresStoredTextKey(catalog,target,column))
+            .Select(column=>column.ColumnName).ToHashSet(StringComparer.Ordinal);
+        if(textKeys.Count==0)return false;
+        var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+        return condition.Terms.Any(term=>textKeys.Contains(term.Field)&&term.Values.Any(value=>
+            value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text)));
     }
 
     /// <summary>沿中间记录的实际页面解析下一个目标，即使当前段没有额外范围也继续保留页归属。</summary>

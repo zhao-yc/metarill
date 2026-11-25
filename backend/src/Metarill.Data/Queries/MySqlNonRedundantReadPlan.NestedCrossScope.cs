@@ -1019,8 +1019,12 @@ public static partial class MySqlNonRedundantReadCompiler
             var visible=PublishedSingleCondition(target,alias,page,cacheOwner,parent?.Target,parent?.Logical==true?sourceParent:null,
                 allowFixedOnly:true,additionalScopes:parent?.AdditionalTargets,storedPhysicalExact:physicalExact);
             if(parent is {Logical:false})
-                visible+=(visible.Length==0?"":" AND ")+SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,
-                    cacheOwner,sourceParent,sourceFrom);
+            {
+                var textPath=StoredTextCacheParent(table,binding!,target,page,parent);
+                visible+=(visible.Length==0?"":" AND ")+(textPath is null?
+                    SinglePhysicalParentCondition(table,owner,alias,parent,binding!.Column,cacheOwner,sourceParent,sourceFrom):
+                    StoredTextCacheVisibility(table,owner,binding!,target,alias,textPath,cacheOwner));
+            }
             if(control is {Terms.Count:>0})
             {
                 // 控件谓词留在可见性中以保留失效反查，直接目标路径不能简化该计划。
@@ -1050,6 +1054,74 @@ public static partial class MySqlNonRedundantReadCompiler
 
         private static string SameSingleParent(string target,string source)=>
             "BINARY CAST("+target+" AS CHAR)=BINARY CAST("+source+" AS CHAR)";
+
+        /// <summary>缓存只接受两端发布页中完全相同的物理文本父路径。</summary>
+        private RedundantSharedParentPlan? StoredTextCacheParent(TableMetadata source,MultiSourceParent binding,
+            TableMetadata target,PageMetadata page,MultiTargetParentScope parent)
+        {
+            if(source.IsRongyu!=1||target.IsRongyu!=1||parent.Logical||parent.Global||
+                GlobalCrossTableTarget.Declared(source)||GlobalCrossTableTarget.Declared(target)||
+                !CrossTableStorageColumns.DeclaresStoredTextKey(catalog,source,binding.Column)&&
+                !CrossTableStorageColumns.DeclaresStoredTextKey(catalog,target,parent.Target))
+                return null;
+            var path=RedundantSharedParents.Compile(catalog,target.Id,page.Id).GetValueOrDefault(parent.Target.Id);
+            var sourcePages=catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==source.Id).ToArray();
+            if(path is null||!path.Levels[^1].TextKey||sourcePages.Length==0||binding.AdditionalColumns.Count>0||
+                parent.AdditionalTargets.Count>0||sourcePages.Any(candidate=>
+                    !RedundantSharedParents.Compile(catalog,source.Id,candidate.Id).TryGetValue(binding.Column.Id,out var sourcePath)||
+                    RedundantSharedParents.Identity(sourcePath)!=RedundantSharedParents.Identity(path)))
+                throw new InvalidOperationException("冗余来源与目标必须使用相同发布文本父路径。");
+            return path;
+        }
+
+        /// <summary>名称可见性比较真实文本父，祖先联接按业务键登记当前及历史事件反查。</summary>
+        private string StoredTextCacheVisibility(TableMetadata source,string owner,MultiSourceParent binding,
+            TableMetadata target,string targetAlias,RedundantSharedParentPlan path,CascadeCacheOwner cacheOwner)
+        {
+            var sourceValue=SingleSourceParentValue(source,owner,binding,cacheOwner);
+            var targetColumn=Column(target,path.ColumnName);
+            Use(target,targetColumn);
+            Touch(targetAlias,path.ColumnName);
+            var value=targetAlias+"."+Q(path.ColumnName);
+            var predicates=new List<string>{SameSingleParent(value,sourceValue)};
+            // 反查前缀只联接下级实体，父已删除或业务键变更时仍可定位原消费者。
+            for(var index=path.Levels.Count-1;index>=0;index--)
+            {
+                var level=path.Levels[index];
+                var table=tables[level.TableId];
+                var key=Column(table,level.KeyColumn);
+                var role=targetAlias+":stored-cache:"+path.ColumnId+":"+index;
+                var added=!aliases.TryGetValue(role,out var found);
+                var alias=added?aliasPrefix+"stored_cache_"+aliases.Count:found!;
+                if(added)
+                {
+                    aliases.Add(role,alias);
+                    if(trackReverse)RegisterReverse(alias,table," FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),
+                        value,"string",level.AlternateKey is null?null:key);
+                }
+                Use(table,key);Touch(alias,key.ColumnName);
+                Use(table,Column(table,"id"));Touch(alias,"id");
+                var keySql=alias+"."+Q(key.ColumnName);
+                var project=Scope(table,alias,projectScoped:level.ProjectType is not null);
+                if(added)
+                {
+                    var keyScope=keySql+(level.TextKey?" REGEXP '[^[:space:]]'":">0");
+                    var join=" LEFT JOIN "+Q(table.TableName)+" "+alias+" ON "+SameSingleParent(keySql,value)+
+                        " AND "+keyScope+(project.Length==0?"":" AND "+project);
+                    joins.Add(join);
+                    if(refreshFields is not null)maintenanceJoins.Add((alias,join));
+                }
+                var page=catalog.ConfigPages.Single(candidate=>candidate.Id==level.PageId&&candidate.ConfigTableId==table.Id);
+                var scope=PublishedSingleCondition(table,alias,page,cacheOwner,allowFixedOnly:true);
+                predicates.Add(alias+".`id` IS NOT NULL"+(scope.Length==0?"":" AND ("+scope+")"));
+                if(level.Parent is {} parentColumn)
+                {
+                    Use(table,Column(table,parentColumn));Touch(alias,parentColumn);
+                    value=alias+"."+Q(parentColumn);
+                }
+            }
+            return string.Join(" AND ",predicates);
+        }
 
         /// <summary>项目内和全局父均要求来源和目标实际父键相同；全局父再执行唯一发布页范围。</summary>
         private string SinglePhysicalParentCondition(TableMetadata source,string owner,string targetAlias,

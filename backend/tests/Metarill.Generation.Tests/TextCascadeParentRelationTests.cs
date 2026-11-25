@@ -626,6 +626,81 @@ public sealed class TextCascadeParentRelationTests
         Assert.Contains("相同发布文本父路径",error.Message);
     }
 
+    /// <summary>两端冗余时，改名传播和维护重算仍须跟原下拉及单选的文本父范围一致。</summary>
+    [Fact]
+    public void Stored_single_names_refresh_from_published_text_parent()
+    {
+        var catalog=Catalog(1,"OnlyNew","list");
+        ScopeTarget(catalog,"81");
+        ScopeTarget(catalog,"82");
+        catalog.ConfigColumns.Single(column=>column.Id=="700").Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("810");
+        var model=GenerationModel.Create(catalog,"Example.StoredSingleTextCache");
+        var bindings=RelationPropagationCompilation.DerivedBindings(model);
+        Assert.Equal(2,bindings.Count(binding=>binding.Foreign.Source.Id is "700" or "702"));
+        var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+        Assert.Contains("textrel_listitem",maintenance.MixedTargets);
+        Assert.Contains("textrel_singleitem",maintenance.MixedTargets);
+        const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",flags)!.GetValue(maintenance));
+        var source=plans["2"]!;
+        Assert.Null(source.GetType().GetProperty("Error")!.GetValue(source));
+        var read=source.GetType().GetProperty("Read")!.GetValue(source)!;
+        var from=Assert.IsType<string>(read.GetType().GetProperty("From",flags)!.GetValue(read));
+        Assert.Contains("`business_key`",from);
+        var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType().GetProperty("Reverse",flags)!.GetValue(read));
+        var country=catalog.ConfigTables.Single(item=>item.Id=="3").TableName;
+        foreach(var column in new[]{"listitem_name","singleitem_name"})
+        {
+            var label=Assert.IsType<string>(read.GetType().GetMethod("Expression",flags)!.Invoke(read,[column]));
+            Assert.Matches(@"BINARY CAST\(\w+\.`country_id` AS CHAR\)=BINARY CAST\(b\.`country_id` AS CHAR\)",label);
+            Assert.DoesNotContain("single_parent_",label);
+            Assert.Contains(reverse.Cast<object>(),entry=>
+            {
+                var type=entry.GetType();
+                var outputs=Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(type.GetProperty("Outputs")!.GetValue(entry));
+                var key=type.GetProperty("NodeKey",flags)!.GetValue(entry);
+                return type.GetProperty("TargetTable")!.GetValue(entry) as string==country&&outputs.ContainsKey(column)&&
+                    key?.GetType().GetProperty("Column")?.GetValue(key) as string=="business_key";
+            });
+            Assert.Contains(reverse.Cast<object>(),entry=>
+            {
+                var type=entry.GetType();
+                var outputs=Assert.IsAssignableFrom<IReadOnlyDictionary<string,IReadOnlySet<string>>>(type.GetProperty("Outputs")!.GetValue(entry));
+                return type.GetProperty("TargetTable")!.GetValue(entry) as string=="textrel_"+column[..^5]&&
+                    outputs.TryGetValue(column,out var fields)&&fields.Contains("country_id");
+            });
+        }
+    }
+
+    /// <summary>旧缓存配置中把文本父列改到主键层位时，维护入口也明确拒绝。</summary>
+    [Fact]
+    public void Stored_single_refresh_rejects_different_parent_keys()
+    {
+        var catalog=Catalog(1,"OnlyNew","list");
+        ScopeTarget(catalog,"82");
+        var column=catalog.ConfigColumns.Single(item=>item.Id=="8206");
+        var definition=System.Text.Json.Nodes.JsonNode.Parse(column.ControlDetail)!;
+        definition["levels"]![0]!["idField"]="id";
+        column.ControlDetail=definition.ToJsonString();
+        var cache=new Metarill.Data.Relations.RelationCacheDefinition("2","702","82","8202","703",false){ScopedSinglePageId="820"};
+        var error=Assert.Throws<InvalidOperationException>(()=>Metarill.Data.Relations.DerivedCrossTableCaches.Validate(catalog,[cache],[]));
+        Assert.Contains("相同发布文本父路径",error.Message);
+    }
+
+    /// <summary>旧下拉只有实际标记为生成器管理的名称列才增加缓存登记。</summary>
+    [Fact]
+    public void Stored_legacy_list_keeps_handwritten_text_column()
+    {
+        var catalog=Catalog(1,"OnlyNew","list");
+        ScopeTarget(catalog,"81");
+        var foreign=catalog.ConfigColumns.Single(column=>column.Id=="700");
+        foreign.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("810");
+        catalog.ConfigColumns.Single(column=>column.Id=="701").Extra.Remove("isJoinColumn");
+        var source=catalog.ConfigTables.Single(table=>table.Id=="2");
+        var target=catalog.ConfigTables.Single(table=>table.Id=="81");
+        Assert.Null(ProjectScopedSingleRelationTarget.Resolve(catalog,source,foreign,target));
+    }
+
     /// <summary>使用生成应用实际装载的精简目录重放查询，包含页级范围与原控件绑定。</summary>
     private static async Task<MetadataCatalog> PublishedReadCatalog(string directory)
     {
