@@ -1045,6 +1045,102 @@ public sealed class TextCascadeParentRelationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
     }
 
+    /// <summary>原多值名称可以沿字典固定联接读取，文本父级与终点名称各自通过实际发布证明。</summary>
+    [Theory]
+    [InlineData(0,"string","OnlyNew","list",true)]
+    [InlineData(1,"string","OverWriteByFirstColumn","edit",true)]
+    [InlineData(0,"int64","OverWriteByFirstColumn","edit",false)]
+    [InlineData(1,"int64","OnlyNew","list",true)]
+    [InlineData(0,"date","OverWriteByFirstColumn","edit",true)]
+    [InlineData(1,"date","OnlyNew","list",false)]
+    public async Task Multi_text_parent_reads_names_from_fixed_join(int sourceStorage,string kind,string import,string export,bool buildPackage)
+    {
+        var catalog=Catalog(sourceStorage,import,export);
+        catalog.ConfigTables.Add(new(){Id="86",YzProjectId=catalog.YzProjectId,TableName="textrel_name_dictionary",IsRongyu=1});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="8601",ConfigTableId="86",YzProjectId=catalog.YzProjectId,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="8602",ConfigTableId="86",YzProjectId=catalog.YzProjectId,ColumnName="name",LogicalType=kind},
+            new(){Id="8603",ConfigTableId="86",YzProjectId=catalog.YzProjectId,ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="8604",ConfigTableId="86",YzProjectId=catalog.YzProjectId,ColumnName="delete_no",LogicalType="datetime"}
+        ]);
+        catalog.ConfigPages.Add(new(){Id="860",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",ConfigTableId="86",
+            Name="名称字典",WhereSql="yz_project_id=@current_yz_project_id"});
+        catalog.ConfigPageColumns.Add(new(){Id="f8602",YzProjectId=catalog.YzProjectId,ConfigPageId="860",ConfigColumnId="8602",IsShow=1});
+        foreach(var id in new[]{"83","84"})
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=0;
+            catalog.ConfigPages.Single(page=>page.ConfigTableId==id).WhereSql+=" AND area_name <> '排除地区'";
+            var label=catalog.ConfigColumns.Single(column=>column.Id==id+"02");
+            label.LogicalType=kind;
+            label.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("label_item.name");
+            catalog.ConfigColumns.Add(new(){Id=id+"08",ConfigTableId=id,YzProjectId=catalog.YzProjectId,
+                ColumnName="label_item_id",LogicalType="int64",ControlKind="List",LinkConfigTableId="86",
+                ControlDetail="""{"tableId":"86","nameField":"name"}"""});
+            catalog.ConfigPageColumns.Add(new(){Id="f"+id+"08",ConfigPageId=id+"0",ConfigColumnId=id+"08",YzProjectId=catalog.YzProjectId});
+        }
+        var model=GenerationModel.Create(catalog,"Example.JoinedTextParentLabels");
+        var owner=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=Assert.Single(owner.Pages);
+        var multi=MultiSelectCompilation.Resolve(model,owner,page,owner.Columns.Single(column=>column.Source.Id=="704"));
+        var checkbox=DatabaseCheckboxCompilation.Resolve(model,owner,page,owner.Columns.Single(column=>column.Source.Id=="706"));
+        Assert.True(multi.Definition is {SameParent:true,SharedTextParent:not null},multi.Reason);
+        Assert.True(checkbox.Definition is {DerivedName:true,SharedTextParent:not null},checkbox.Reason);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        if(sourceStorage==1)
+        {
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("textrel_name_dictionary",maintenance.MixedTargets);
+            Assert.Contains("multiitem_names",maintenance.MixedSourceColumns["textrel_source"]);
+            Assert.Contains("checkitem_names",maintenance.MixedSourceColumns["textrel_source"]);
+        }
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-text-parent-joined-labels");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            string generated;
+            if(buildPackage)
+            {
+                new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+                generated=Path.Combine(directory,"backend/generated");
+                var published=await PublishedReadCatalog(directory);
+                AssertNamePlan(Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(published,"83","830","name",["id","name"],[]));
+                AssertNamePlan(sourceStorage==0
+                    ?Metarill.Data.Queries.NonRedundantReads.CompileScopedCheckboxLabel(published,"84","840","name",["id","name"],[],false)
+                    :Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(published,"84","840","name",["id","name"],[]));
+            }
+            else
+            {
+                new CSharpGenerator().Generate(catalog,directory,model.Namespace);
+                generated=directory;
+            }
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/TextrelSourceService.g.cs"));
+            Assert.Contains("CompileScopedMultiLabel(\"83\",\"830\",\"name\"",service);
+            Assert.Contains(sourceStorage==0?"CompileScopedCheckboxLabel(\"84\",\"840\",\"name\"":
+                "CompileScopedMultiLabel(\"84\",\"840\",\"name\"",service);
+            Assert.Contains("ImportMulti201_704Async",service);
+            Assert.Contains("ImportCheckbox201_706Async",service);
+            Assert.Contains("Export201Async",service);
+            if(buildPackage)
+                foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+
+        void AssertNamePlan(Metarill.Data.Queries.NonRedundantReadPlan plan)
+        {
+            Assert.Equal(kind,plan.OutputTypes["name"]);
+            AssertTextParentSql(plan);
+            const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+            var mysql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+            var from=Assert.IsType<string>(mysql.GetType().GetProperty("From",flags)!.GetValue(mysql));
+            Assert.Contains("`textrel_name_dictionary`",from);
+            var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",flags)!.GetValue(mysql));
+            var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(mysql.GetType().GetProperty("Constants",flags)!.GetValue(mysql));
+            Assert.Contains(parameters,parameter=>Equals(parameter.Value,"排除地区")&&scope.Contains(parameter.Key,StringComparison.Ordinal));
+        }
+    }
+
     /// <summary>页面覆盖只能读取字典页已公开的物理简称。</summary>
     [Theory]
     [InlineData(0)]

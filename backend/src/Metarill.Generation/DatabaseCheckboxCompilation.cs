@@ -184,10 +184,10 @@ internal static class DatabaseCheckboxCompilation
             var sourceScopeColumns=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var sharedTextParent=namePage is null?null:SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,namePage,allowSparseTarget:true)??
                 NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,namePage,allowStoredTarget:true);
-            // 父键按已发布的文本祖先比较，物理标量名称继续使用原复选的显示和反查合同。
-            if(sharedTextParent is not null&&(derived||name.Type!="string?"&&!scalarLabel||exactTarget is not null||
-                explicitPage!=fixedPage||target.Source.IsRongyu!=0&&FixedPageConditionCompilation.HasLogicalFields(namePage!)))
-                return Gap("共用文本父键的复选需要表级发布的物理标量名称和已证明的页面条件。");
+            // 文本父键沿已证明祖先比较，非冗余字典的名称联接沿同一发布页独立验证。
+            if(sharedTextParent is not null&&(name.Type!="string?"&&!scalarLabel||exactTarget is not null||
+                explicitPage!=fixedPage||target.Source.IsRongyu!=0&&(derived||FixedPageConditionCompilation.HasLogicalFields(namePage!))))
+                return Gap("共用文本父键的复选需要表级发布的标量名称和已证明的页面条件。");
             var ordinaryCompoundParent=!functionForm&&!table.IsGlobal&&exactTarget is null&&namePage is {} actualTarget&&
                 (sourceScopeColumns.Length>1||actualTarget.Scopes.Count(scope=>scope.Source=="parent")>1)&&
                 !sourceScopeColumns.Any(column=>NonRedundantCrossParentCompilation.Managed(model,table,page,column))
