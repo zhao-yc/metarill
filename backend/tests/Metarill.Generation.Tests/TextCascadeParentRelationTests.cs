@@ -764,12 +764,15 @@ public sealed class TextCascadeParentRelationTests
 
     /// <summary>原复选的页面简称使用同一已发布文本父级，全称和简称都登记可回填副本。</summary>
     [Theory]
-    [InlineData("OnlyNew","list")]
-    [InlineData("OverWriteByFirstColumn","edit")]
-    public async Task Stored_checkbox_text_parent_keeps_both_published_names(string import,string export)
+    [InlineData("OnlyNew","list",1)]
+    [InlineData("OverWriteByFirstColumn","edit",1)]
+    [InlineData("OnlyNew","list",0)]
+    [InlineData("OverWriteByFirstColumn","edit",0)]
+    public async Task Stored_checkbox_text_parent_keeps_both_published_names(string import,string export,int targetStorage)
     {
         var catalog=Catalog(1,import,export);
         ScopeTarget(catalog,"84");
+        catalog.ConfigTables.Single(item=>item.Id=="84").IsRongyu=targetStorage;
         catalog.ConfigColumns.AddRange([
             new(){Id="8407",ConfigTableId="84",YzProjectId=catalog.YzProjectId,ColumnName="short_name",LogicalType="string"},
             new(){Id="708",ConfigTableId="2",YzProjectId=catalog.YzProjectId,ColumnName="checkitem_short_names",
@@ -796,10 +799,12 @@ public sealed class TextCascadeParentRelationTests
         Assert.All(definitions,binding=>
         {
             Assert.Equal("840",binding.CheckboxTargetPageId);
-            Assert.Equal("282",binding.CheckboxSourceParentId);
+            Assert.Equal(targetStorage==1?"282":null,binding.CheckboxSourceParentId);
         });
         var maintained=MixedRelationPropagationCompilation.ForModel(model);
         Assert.Contains("textrel_checkitem",maintained.MixedTargets);
+        Assert.Contains("checkitem_names",maintained.MixedSourceColumns["textrel_source"]);
+        Assert.Contains("checkitem_short_names",maintained.MixedSourceColumns["textrel_source"]);
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-text-parent-labels");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -808,9 +813,18 @@ public sealed class TextCascadeParentRelationTests
             new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
             var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
             Assert.Contains("CheckboxScope201_706Async",service);
-            Assert.Contains("\"country_id\",parentId!,businessKey:true)",service);
-            Assert.Contains("Name=row.ShortName",service);
-            Assert.Contains("new {row.Id,row.Name,row.ShortName}",service);
+            if(targetStorage==1)
+            {
+                Assert.Contains("\"country_id\",parentId!,businessKey:true)",service);
+                Assert.Contains("Name=row.ShortName",service);
+                Assert.Contains("new {row.Id,row.Name,row.ShortName}",service);
+            }
+            else
+            {
+                Assert.Contains("DerivedCheckboxRows201_706Async(entity.CountryId",service);
+                Assert.Contains("names[id].CacheName",service);
+                Assert.Contains("names[id].CacheShortName",service);
+            }
             Assert.Contains("ImportCheckbox201_706Async",service);
             Assert.Contains("Export201Async",service);
             Assert.Contains("entity.CheckitemNames",service);
