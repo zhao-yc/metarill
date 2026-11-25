@@ -342,24 +342,27 @@ public static partial class MySqlNonRedundantReadCompiler
                 parent.AdditionalTargets.Any(scope=>scope.Logical&&scope.Target.ColumnName==field));
         internal (CascadeCacheOwner Owner,ColumnMetadata Column,IReadOnlyList<ColumnMetadata> Additional)? MultiParentOwner{get;init;}
 
-        /// <summary>普通父表沿用实际项目范围。全局逻辑父由已验证的完整级联表达式确定可见性。</summary>
+        /// <summary>混合存储的实时数组从实际来源还原已验证文本祖先，目标仍使用物理父列。</summary>
+        private bool SharedStoredMultiTextParent { get; init; }
+
+        /// <summary>普通父表沿用实际项目范围。文本级联父由已验证的完整路径确定可见性。</summary>
         private string MultiParentPredicate(MultiTargetParentScope parent,string target)
         {
             var predicate="("+target+") IS NOT NULL";
             // 投影已校验整条可见路径。文本业务键不能再用父表整数主键限制一次。
-            var textPath=parent.Logical&&parent.Target.LogicalType=="string"&&
+            var textPath=SharedStoredMultiTextParent||parent.Logical&&parent.Target.LogicalType=="string"&&
                 (selectedMultiParentText||HasTextParentPath(crossProjections.Where(item=>item.Key.StartsWith(rootAlias+":",StringComparison.Ordinal))
                     .Select(item=>item.Value),parent.Target.ColumnName));
+            if(!parent.Logical&&!parent.Global){Use(root,parent.Target);Touch(rootAlias,parent.Target.ColumnName);}
             if(!parent.Global&&!textPath)
             {
                 var alias=aliasPrefix+"multi_parent";
-                if(!parent.Logical){Use(root,parent.Target);Touch(rootAlias,parent.Target.ColumnName);}
                 Use(parent.Parent,Column(parent.Parent,"id"));
                 var key=alias+".`id`";
                 var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY ("+target+")":key+"="+target;
                 predicate="EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+alias+" WHERE "+same+" AND "+key+">0 AND "+Scope(parent.Parent,alias)+PublishedJoinLock+")";
             }
-            else if(!parent.Logical)predicate=PhysicalGlobalParentPredicate(parent,target);
+            else if(parent.Global&&!parent.Logical)predicate=PhysicalGlobalParentPredicate(parent,target);
             if(MultiParentOwner is not {} binding)return predicate;
             var (owner,source,additional)=binding;
             cascadeCacheOwnerFields.Add(source.ColumnName);

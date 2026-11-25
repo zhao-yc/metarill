@@ -109,7 +109,7 @@ internal static class MultiSelectCompilation
             if (name is null || GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&!DerivedMultiNamesCompilation.Declared(model,target,name)&&!globalCachedName || name.IsJsonArray || name.Type != "string?" && !name.IsId&&!scalarLabel || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
             var sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,targetPage)??
-                NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,targetPage);
+                NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,targetPage,allowStoredTarget:true);
             var scoped=(sharedTextParent is null||target.Source.IsRongyu==0)&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage);
             var derived=DerivedMultiNamesCompilation.Declared(model,target,name);
             // 功能表确认直接使用目标页的查询范围；业务表的写入和导入也需要同一精确范围。
@@ -187,7 +187,8 @@ internal static class MultiSelectCompilation
             var usesPageRead=pageRead&&(pageOverride||targetParents.Length>0||!scoped&&targetPage.Condition is not null);
             var usesTargetPageScope=usesPageRead&&!projectOnlyOverride;
             var usesNameOverride=false;
-            var logicalSourceParent=false;
+            // 混合存储由来源页还原父键，候选目标继续比较实际物理键列。
+            var logicalSourceParent=sharedTextParent is not null&&table.Source.IsRongyu==0&&target.Source.IsRongyu==1;
             var publishedPhysicalSource=false;
             IReadOnlyList<ColumnModel> compoundSourceDependencies=[];
             if(scopedParent is not null && !functionForm)

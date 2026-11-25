@@ -30,7 +30,9 @@ internal static class MultiSelectExcelRenderer
             var parent=dependency.Parents[multi.Source.Source.Id];
             result.AppendLine($"        if(!relationContext.TryGetValue({Literal(parent.JsonName)},out var parentValue)||parentValue.ValueKind==JsonValueKind.Null)throw PageImportException.Input(PageImportError.Relation);");targetParent="parentValue.ToString()";
         }
-        if(multi.SharedTextParent is not null)
+        if(multi.SharedTextParent is not null&&multi.LogicalSourceParent)
+            result.AppendLine(NonRedundantCrossParentCompilation.ValidateTextParent(model,table,page,"parentId"));
+        else if(multi.SharedTextParent is not null)
         {
             result.AppendLine($"        var targetParentId=SharedR1ParentKey{page.Source.Id}(parentId);");
             var field=page.Scopes.Single(scope=>scope.Source=="parent").Column;

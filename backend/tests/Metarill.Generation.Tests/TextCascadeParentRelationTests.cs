@@ -260,12 +260,7 @@ public sealed class TextCascadeParentRelationTests
         try
         {
             new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
-            var registration=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/GeneratedRegistration.g.cs"));
-            var snapshot=System.Text.RegularExpressions.Regex.Match(registration,
-                """MetadataCatalog>\(("(?:\\.|[^"\\])*"),new System\.Text\.Json""");
-            Assert.True(snapshot.Success,"生成应用须内置其实际发布的读取目录。");
-            var published=JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Deserialize<string>(snapshot.Groups[1].Value)!,
-                new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            var published=await PublishedReadCatalog(directory);
             var frozen=Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(published,"2",["listitem_name","singleitem_name"],[],
                 NonRedundantCrossTableCompilation.Bindings(model,table,page),targets);
             var frozenSql=frozen.GetType().GetProperty("MySql",flags)!.GetValue(frozen)!;
@@ -356,6 +351,112 @@ public sealed class TextCascadeParentRelationTests
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>生成的多选与复选沿同一发布文本父，候选键和来源业务键的原始字符一致。</summary>
+    [Theory]
+    [InlineData("OnlyNew","list")]
+    [InlineData("OverWriteByFirstColumn","edit")]
+    public async Task Sparse_source_stored_multi_targets_share_text_parent(string import,string export)
+    {
+        var catalog=Catalog(0,import,export);
+        ScopeTarget(catalog,"83");
+        ScopeTarget(catalog,"84");
+        foreach(var id in new[]{"704","706"})
+        {
+            catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId==id)
+                .Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+            catalog.ConfigColumns.Single(column=>column.Id==id).Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
+        }
+        var model=GenerationModel.Create(catalog,"Example.SparseStoredMultiTextParent");
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var multi=MultiSelectCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="704"));
+        var checkbox=DatabaseCheckboxCompilation.Resolve(model,table,page,table.Columns.Single(column=>column.Source.Id=="706"));
+        Assert.True(multi.Definition is {LogicalSourceParent:true,SharedTextParent:not null,UsesTargetPageScope:true},multi.Reason);
+        Assert.True(checkbox.Definition is {UsesPageTextParent:true,PhysicalTargetPage:not null,UsesPageRead:true},checkbox.Reason);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var bindings=NonRedundantCrossTableCompilation.Bindings(model,table,page);
+        var targets=NonRedundantReadCompilation.ProjectMultiTargets(model,table,page);
+        Assert.Equal(2,targets.Count);
+        var filters=Filters(catalog);
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-sparse-stored-multi-text");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            Assert.Equal(filters,Filters(await PublishedReadCatalog(directory)));
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            Assert.Contains("targetParentId=LogicalParentId201(logicalRelationParentId)",service);
+            Assert.Contains("targetParentId=LogicalParentId201(parentId)",service);
+            Assert.Contains("ApplyTextParent(query,session,\"country_id\",targetParentId!,businessKey:true)",service);
+            Assert.Contains("ApplyTextParent(query,session,\"country_id\",parentId!,businessKey:true)",service);
+            Assert.Contains("CheckboxScope201_706Async(logicalRelationParentId",service);
+            Assert.Contains("ExportCheckbox201_706Async(entities,actor,request.ParentId",service);
+            Assert.DoesNotContain("out var targetParentKey",service);
+            var probe=NonRedundantApplicationFixture.Start("node",directory);
+            probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"GeneratedMultiTextParentProbe.mjs"));
+            probe.ArgumentList.Add(Path.Combine(directory,"frontend"));
+            probe.ArgumentList.Add("sparse");
+            await NonRedundantApplicationFixture.RunAsync(probe);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+
+        string[] Filters(MetadataCatalog metadata)
+        {
+            var plan=Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(metadata,"2",
+                ["multiitem_names","checkitem_names"],[],bindings,[],targets);
+            const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+            var mysql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+            var filters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                mysql.GetType().GetProperty("ArrayNamePredicates",flags)!.GetValue(mysql));
+            Assert.Equal(2,filters.Count);
+            Assert.All(filters.Values,sql=>
+            {
+                Assert.Contains("BINARY CAST(multi_value.`country_id` AS CHAR)=BINARY CAST((CASE WHEN",sql);
+                Assert.DoesNotContain("multi_parent.",sql);
+            });
+            return filters.OrderBy(filter=>filter.Key,StringComparer.Ordinal).Select(filter=>filter.Value).ToArray();
+        }
+    }
+
+    /// <summary>名称数组只接受同一业务键父路径，即使目标列本身也是字符串。</summary>
+    [Theory]
+    [InlineData("83","704","multiitem_names")]
+    [InlineData("84","706","checkitem_names")]
+    public void Sparse_source_text_parent_rejects_stored_multi_target_primary_key(string tableId,string relationId,string names)
+    {
+        var catalog=Catalog(0,"OnlyNew","list");
+        ScopeTarget(catalog,tableId);
+        var targetParent=catalog.ConfigColumns.Single(item=>item.Id==tableId+"06");
+        var definition=System.Text.Json.Nodes.JsonNode.Parse(targetParent.ControlDetail)!;
+        definition["levels"]![0]!["idField"]="id";
+        targetParent.ControlDetail=definition.ToJsonString();
+        var model=GenerationModel.Create(catalog,"Example.SparseStoredMultiDifferentKey");
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var relation=table.Columns.Single(column=>column.Source.Id==relationId);
+        if(relationId=="704")
+            Assert.Null(MultiSelectCompilation.Resolve(model,table,page,relation).Definition);
+        else
+            Assert.Null(DatabaseCheckboxCompilation.Resolve(model,table,page,relation).Definition);
+        var binding=new Metarill.Data.Queries.NonRedundantMultiTargetScope(relationId,"201",tableId+"0",true);
+        var error=Assert.Throws<InvalidOperationException>(()=>Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(
+            catalog,"2",[names],[],[],[],[binding]));
+        Assert.Contains("相同发布文本父路径",error.Message);
+    }
+
+    /// <summary>使用生成应用实际装载的精简目录重放查询，包含页级范围与原控件绑定。</summary>
+    private static async Task<MetadataCatalog> PublishedReadCatalog(string directory)
+    {
+        var registration=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/GeneratedRegistration.g.cs"));
+        var snapshot=System.Text.RegularExpressions.Regex.Match(registration,
+            """MetadataCatalog>\(("(?:\\.|[^"\\])*"),new System\.Text\.Json""");
+        Assert.True(snapshot.Success,"生成应用须内置其实际发布的读取目录。");
+        return JsonSerializer.Deserialize<MetadataCatalog>(JsonSerializer.Deserialize<string>(snapshot.Groups[1].Value)!,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
     }
 
     /// <summary>固定候选以真实业务键关联父路径，同时避免将业务键与整数主键再比较。</summary>

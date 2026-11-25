@@ -233,6 +233,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 parent?.Source(catalog,table,relation,sourcePage);
             var sourceParent=sourceBinding?.Column;
             var logicalSource=sourceBinding?.LogicalPages.Count>0;
+            // 目标只在实际来源路径与物理字典页都证明同一个文本祖先时才能复用来源的可见性。
+            var sharedStoredTextParent=target.IsRongyu==1&&!global&&selectedScope is not null&&
+                pageParent is {Logical:false,Global:false}&&sourceBinding is {LogicalPages.Count:>0}&&
+                UsesSharedStoredTextParent(table,sourceBinding,target,selectedScope,pageParent);
             if(pageParent is {Global:true}&&sourceBinding is {AdditionalColumns.Count:>0})
                 RequireCompoundGlobalSourceParent(catalog,target.Id,selectedScope!.Id,sourceBinding);
             var sourceParentSql=sourceBinding is {LogicalPages.Count:>0} or {AdditionalColumns.Count:>0}
@@ -254,6 +258,7 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 SelectedMultiPage=selectedPage,
                 MultiCandidateParent=fixedParent?.Target,
+                SharedStoredMultiTextParent=sharedStoredTextParent,
                 AllowsExactMultiSelection=!checkbox,
                 AllowsStoredExactCheckbox=checkbox,
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent,[]),
