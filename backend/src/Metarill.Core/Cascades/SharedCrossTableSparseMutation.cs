@@ -54,9 +54,16 @@ public sealed class SharedCrossTableSparseMutation
         foreach(var branch in selection.Branches){var path=new List<string>();var empty=false;foreach(var slot in branch.Slots){var id=selection.ParseStoredKey(slot,expectedValues[slot.ColumnName]);if(id is null){empty=true;continue;}if(empty)throw new InvalidOperationException("共享逻辑路径存在空缺层级。");path.Add(id);}paths.Add(branch.SourceColumnId,path);}return packed=selection.PackValidatedKeys(paths);
     }
     /// <summary>正常DML后仅核验；原始位及实际完整路径均须与同笔写入的预期相符，不补写修复。</summary>
+    public Task VerifyStoredAsync(IReadOnlyDictionary<string,object?> stored,
+        Func<string,IReadOnlyDictionary<string,object?>,CancellationToken,Task<IReadOnlyDictionary<string,object?>>> readStored,
+        CancellationToken token=default,IReadOnlyCollection<string>? namesResolvedAfterWrite=null,long? sourceId=null)=>
+        VerifyStoredAsync(stored,readStored,token,namesResolvedAfterWrite,sourceId,null);
+
+    /// <summary>只有该层实际指向本次写入节点时，才允许写后联接补出其派生名称。</summary>
     public async Task VerifyStoredAsync(IReadOnlyDictionary<string,object?> stored,
         Func<string,IReadOnlyDictionary<string,object?>,CancellationToken,Task<IReadOnlyDictionary<string,object?>>> readStored,
-        CancellationToken token=default,IReadOnlyCollection<string>? namesResolvedAfterWrite=null,long? sourceId=null)
+        CancellationToken token,IReadOnlyCollection<string>? namesResolvedAfterWrite,long? sourceId,
+        IReadOnlyDictionary<string,string?>? sourceNameKeys)
     {
         ArgumentNullException.ThrowIfNull(readStored);token.ThrowIfCancellationRequested();if(!normalized)throw new InvalidOperationException("共享变更尚未归一化。");var actual=IdValues(stored);_=selection.ReadStoredKeys(actual);var wanted=packed??IdValues(raw);if(selection.Slots.Any(s=>!Equals(actual[s.ColumnName],wanted[s.ColumnName])))throw new InvalidOperationException("共享稀疏ID在存储后发生变化，未提交。");
         if(expected is null)return;if(packed is null)throw new InvalidOperationException("共享预期路径尚未整组打包。");var current=await ReadLogicalAsync(stored,readStored,token);// 来源行的派生名从写后真实联接取得。整组仍需核对所有ID及写前可知名称。
@@ -65,10 +72,13 @@ public sealed class SharedCrossTableSparseMutation
 
         bool IsPendingSourceName(string field)
         {
-            if(sourceId is null||!field.EndsWith("_name",StringComparison.Ordinal)||namesResolvedAfterWrite?.Contains(field)!=true)return false;
+            if(!field.EndsWith("_name",StringComparison.Ordinal)||namesResolvedAfterWrite?.Contains(field)!=true)return false;
             var slot=selection.Slots.Single(item=>item.ColumnName==field[..^5]+"_id");
-            return !selection.TextKeySlots.Contains(slot.ColumnName)&&
-                selection.ParseStoredKey(slot,expected[slot.ColumnName])==sourceId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var expectedKey=selection.ParseStoredKey(slot,expected[slot.ColumnName]);
+            if(sourceNameKeys?.TryGetValue(field,out var key)==true)
+                return expectedKey is not null&&expectedKey==key;
+            return sourceId is not null&&!selection.TextKeySlots.Contains(slot.ColumnName)&&
+                expectedKey==sourceId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
     }
     /// <summary>只沿真实独立末端恢复路径；共同物理选择位不重复查询，短控件祖先从另一分支补齐。</summary>

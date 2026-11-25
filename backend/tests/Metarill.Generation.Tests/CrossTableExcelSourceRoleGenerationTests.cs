@@ -279,7 +279,9 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
     [InlineData(1,false,true,true,"edit","OverWriteByFirstColumn",false,null,false,"scope_key")]
     [InlineData(0,true,true,true,"list","OverWriteByFirstColumn",false,"4",false,"country_id")]
     [InlineData(0,true,true,false,"edit","OnlyNew",true,null,false,"country_name")]
-    public Task Shared_source_role_excel_uses_coordinated_paths(int redundant,bool sourceRoot,bool sourceLeaf,bool scoped,string exportMode,string importMode,bool derived=false,string? globalId=null,bool sparseGlobal=false,string? exactField=null)
+    [InlineData(0,true,true,false,"edit","OverWriteByFirstColumn",true,null,false,null,true)]
+    [InlineData(0,true,true,true,"list","OnlyNew",true,null,false,null,true)]
+    public Task Shared_source_role_excel_uses_coordinated_paths(int redundant,bool sourceRoot,bool sourceLeaf,bool scoped,string exportMode,string importMode,bool derived=false,string? globalId=null,bool sparseGlobal=false,string? exactField=null,bool textKey=false)
     {
         var catalog=SharedCrossTableGenerationTests.Catalog(Prefix,"string","int64");
         catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant;
@@ -306,6 +308,24 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
                 column.LinkConfigTableId="2";
             }
             column.ControlDetail=definition.ToJsonString();
+        }
+        if(textKey)
+        {
+            var source=catalog.ConfigTables.Single(table=>table.Id=="2");
+            var project=catalog.ConfigColumns.Single(column=>column.ConfigTableId==source.Id&&column.ColumnName=="yz_project_id");
+            catalog.ConfigColumns.Add(new(){Id="role_key",ConfigTableId=source.Id,ColumnName="business_key",
+                LogicalType="string",ColumnLength="50",IsDbNotNull=1,YzProjectId=catalog.YzProjectId});
+            catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="role_index",configTableId=source.Id,isUnique=1}));
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="role_index_project",configIndexId="role_index",configColumnId=project.Id,sortNo=1}));
+            catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="role_index_key",configIndexId="role_index",configColumnId="role_key",sortNo=2}));
+            catalog.ConfigColumns.Single(column=>column.Id=="45").LogicalType="string";
+            foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "25" or "80"))
+            {
+                var definition=JsonNode.Parse(column.ControlDetail)!;
+                definition["levels"]![0]!["idField"]="business_key";
+                if(column.Id=="25")definition["levels"]![2]!["idField"]="business_key";
+                column.ControlDetail=definition.ToJsonString();
+            }
         }
         if(derived)
         {
@@ -345,6 +365,11 @@ public sealed class CrossTableExcelSourceRoleGenerationTests
             var table=model.Tables.Single(table=>table.Source.Id=="2");var page=table.Pages.Single(page=>page.Source.Id=="201");
             var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,table,page).Groups);
             Assert.Equal(2,group.Plans.Count);
+            if(textKey)
+            {
+                Assert.All(group.Plans, plan=>Assert.True(plan.Read.Levels[0].TextKey));
+                Assert.True(group.Plans.Single(plan=>plan.Read.Source.Source.Id=="25").Read.Levels[2].TextKey);
+            }
             if(globalId is not null)
                 Assert.All(group.Plans.SelectMany(plan=>plan.Levels).Where(level=>level.Read.Target.Source.Id==globalId),
                     level=>Assert.True(level.Read.Target.IsGlobal));

@@ -90,7 +90,7 @@ internal static class CrossTableReadCompilation
             if(result.Select(level=>GenerationModel.Camel(level.Prefix+"_id")).Distinct(StringComparer.Ordinal).Count()!=result.Count)return Gap("层级JSON字段名冲突。");
             var joiner=Text(root,"displayJoiner","/");var plan=new CrossTableReadModel(source,result.ToArray(),joiner);
             if(plan.HasTextKeys&&(model.Catalog.DatabaseProvider!="mysql"||table.Source.IsRongyu is not(0 or 1)||table.Source.IsView!=0||table.Source.IsFunctionTable!=0||table.IsGlobal||
-                result.Any(level=>level.Target.Source.IsView!=0||level.Target.Source.Id==table.Source.Id)||
+                result.Any(level=>level.Target.Source.IsView!=0)||
                 !SupportsSourceParent(model,table,source,result)))
                 return Gap("文本业务键要求 MySQL 实体链，来源父范围须唯一，全局目标须使用已发布的名称、键及候选页。");
             if(plan.HasTextKeys&&(!CrossTableFrontendProof.KeepsStorageDefinition(model,page,source)||result[^1].TextKey&&source.Type!="string?"))

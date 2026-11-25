@@ -77,7 +77,7 @@ internal static class CrossTableWriteRenderer
             .AppendLine($"        var refresh={Trigger(plan)};var deepest=-1;{(plan.Read.HasTextKeys?"string?":"long?")} selected=null;");
         for(var index=0;index<plan.Levels.Count;index++)
             result.AppendLine(Selection(plan,plan.Levels[index],index,"stored","actual","InvalidOperationException","跨表已存ID无效。"));
-        result.AppendLine($"        if(deepest<0)return;var path=await CrossReader{suffix}(actor,true,refresh&&requireTargetList).PathAsync(deepest,selected,cancellationToken);");
+        result.AppendLine($"        if(deepest<0)return;var path=await CrossReader{suffix}(actor,true,refresh&&requireTargetList).Path{(plan.Read.HasTextKeys?"ByKey":"")}Async(deepest,selected,cancellationToken);");
         for(var index=0;index<plan.Levels.Count;index++)
         {
             var level=plan.Levels[index];if(level.Read.Target.Source.Id==table.Source.Id)result.AppendLine($"        if(creating&&deepest>={index}&&path.Path[{index}].Id=={(level.Read.AlternateKey is null?"entity.Id.ToString(CultureInfo.InvariantCulture)":"Convert.ToString(stored."+level.Read.KeyProperty+",CultureInfo.InvariantCulture)")})throw new InvalidOperationException(\"跨表路径不能包含本次新建节点。\");");

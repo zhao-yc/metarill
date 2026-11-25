@@ -55,6 +55,42 @@ public sealed class SharedCrossTableSparseMutationTests
         }
     }
 
+    /// <summary>写前未知的名称只对实际选中的本次文本业务键补出，前导零不能折叠成同一节点。</summary>
+    [Fact]
+    public async Task Deferred_source_name_requires_the_exact_business_key()
+    {
+        var fixture=Fixture("string");
+        var selection=fixture.Selection.WithTextKeys(["country_id"]);
+        var coordinator=new SharedCrossTableCoordinator(fixture.Coordinator.Branches.Select(branch=>branch with
+        {
+            Levels=branch.Levels.Select(slot=>slot with {TextKey=slot.IdColumn=="country_id"}).ToArray()
+        }).ToArray());
+        var state=new SharedCrossTableSparseMutation(selection,coordinator,fixture.Raw);
+        await state.NormalizeAsync(fixture.Raw,Set(),true,Resolve(null),Resolve(null));
+        var packed=state.Pack()!;
+        Assert.Null(packed["country_id"]);
+        Assert.Equal("10",packed["place_id"]);
+        Assert.Equal("20",packed["warehouse_id"]);
+        await state.VerifyStoredAsync(packed,Resolve("写后实际名称"),default,["country_name"],1L,
+            new Dictionary<string,string?>{{"country_name","001"}});
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>state.VerifyStoredAsync(
+            packed,Resolve("写后实际名称"),default,["country_name"],1L,
+            new Dictionary<string,string?>{{"country_name","1"}}));
+
+        Func<string,IReadOnlyDictionary<string,object?>,CancellationToken,Task<IReadOnlyDictionary<string,object?>>> Resolve(string? name)=>
+            (control,input,token)=>
+            {
+                token.ThrowIfCancellationRequested();
+                var path=input.ToDictionary();
+                path["country_id"]="001";
+                path["country_name"]=name;
+                path["area_id"]="2";
+                path["area_name"]="地区";
+                path[control=="31"?"place_name":"warehouse_name"]="末级";
+                return Task.FromResult<IReadOnlyDictionary<string,object?>>(path);
+            };
+    }
+
     /// <summary>同父改城市保留仓库；预先恢复和钩子后才发现变化得到同一结果，原路径缓存不重复读。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Same_parent_hook_change_preserves_other_selection_and_old_snapshot_is_cached(bool hydrate)

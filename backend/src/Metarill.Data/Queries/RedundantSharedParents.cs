@@ -138,8 +138,6 @@ public static class RedundantSharedParents
             });ids.Add(id);names.Add(name);previous=target;
         }
         if(ids[^1].Id!=control.Id)throw Unsupported();
-        // 递归可见范围按已绑定节点的实体主键求值。当前来源兼任文本节点需要独立写入证明。
-        if(result.Any(level=>level.TextKey)&&result.Any(level=>level.TableId==source.Id))throw Unsupported();
         // 来源兼任候选时，真实父和名称不能被同一条链的归一化改写。
         var managed=ids.Concat(names).Select(field=>field.ColumnName).ToHashSet(StringComparer.Ordinal);
         if(result.Where(level=>level.TableId==source.Id).Any(level=>

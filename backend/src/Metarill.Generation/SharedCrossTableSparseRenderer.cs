@@ -39,8 +39,13 @@ internal static class SharedCrossTableSparseRenderer
         var currentSource=merged?",entity,creating":"";
         var lateNames=group.Plans.SelectMany(plan=>plan.Levels)
             .Where(level=>level.Read.Target.Source.Id==table.Source.Id&&level.Read.DerivedName)
-            .Select(level=>level.Name.Source.ColumnName).Distinct(StringComparer.Ordinal).ToArray();
-        var deferNames=lateNames.Length==0?"":",new string[]{"+string.Join(",",lateNames.Select(L))+"},entity.Id";
+            .DistinctBy(level=>level.Name.Source.ColumnName).ToArray();
+        var lateKeys=lateNames.Where(level=>level.Read.AlternateKey is not null).ToArray();
+        var deferNames=lateNames.Length==0?"":",new string[]{"+
+            string.Join(",",lateNames.Select(level=>L(level.Name.Source.ColumnName)))+"},entity.Id";
+        if(lateKeys.Length>0)
+            deferNames+=",new Dictionary<string,string?>{"+string.Join(",",lateKeys.Select(level=>
+                "["+L(level.Name.Source.ColumnName)+"]=Convert.ToString(stored."+level.Read.KeyProperty+",CultureInfo.InvariantCulture)"))+"}";
         var keys=group.Coordinator.Branches.SelectMany(branch=>branch.Levels)
             .Where(slot=>slot.TextKey).Select(slot=>slot.IdColumn).Distinct(StringComparer.Ordinal).ToArray();
         var textBinding=keys.Length==0?"":".WithTextKeys(new string[]{"+string.Join(",",keys.Select(L))+"})";
@@ -64,7 +69,7 @@ internal static class SharedCrossTableSparseRenderer
             .AppendLine("        if(packed is null)").AppendLine("        {");
         foreach(var c in ids)b.AppendLine($"            entity.{c.Property}=({c.Type})state.OriginalStoredIds[{L(c.Source.ColumnName)}];");foreach(var c in names)b.AppendLine($"            entity.{c.Property}=null;");b.AppendLine("            return;").AppendLine("        }");
         foreach(var c in ids)b.AppendLine($"        entity.{c.Property}=({c.Type})packed[{L(c.Source.ColumnName)}];submitted.Add({L(c.Source.ColumnName)});");foreach(var c in names)b.AppendLine($"        entity.{c.Property}=null;submitted.Remove({L(c.Source.ColumnName)});");b.AppendLine("    }");
-        var identity=FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(s=>s.Column).DistinctBy(c=>c.Source.Id).ToArray();var projection=ids.Concat(identity).DistinctBy(c=>c.Source.Id).ToArray();b.AppendLine("    /// <summary>真实原始位先核验，随后以当前锁读恢复路径比较写入前预期；作用域不能被数据库改写。</summary>")
+        var identity=FixedPageQueryCompilation.For(table,page).IdentityScopes.Select(s=>s.Column).DistinctBy(c=>c.Source.Id).ToArray();var projection=ids.Concat(identity).Concat(lateKeys.Select(level=>level.Read.AlternateKey!)).DistinctBy(c=>c.Source.Id).ToArray();b.AppendLine("    /// <summary>真实原始位先核验，随后以当前锁读恢复路径比较写入前预期；作用域不能被数据库改写。</summary>")
             .AppendLine($"    private async Task VerifySharedCross{suffix}Async({table.EntityType} entity,RuntimeActor actor,string? parentId,Metarill.Core.Cascades.SharedCrossTableSparseMutation state,CancellationToken token)").AppendLine("    {")
             .AppendLine($"        var stored=await Scope{page.Source.Id}(actor,parentId).Where(row=>row.Id==entity.Id).ForUpdate().FirstAsync(row=>new {table.EntityType}{{{string.Join(",",projection.Select(c=>c.Property+"=row."+c.Property))}}},token);")
             .AppendLine($"        if(stored is null{string.Concat(identity.Select(c=>"||stored."+c.Property+"!=entity."+c.Property))})throw new InvalidOperationException(\"共享R0存储后的真实作用域不一致，未提交。\");")

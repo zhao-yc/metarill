@@ -47,6 +47,78 @@ public sealed class RepeatedCrossSourceTests
         var c=Catalog("nr_repeat",mask,type,parentType,derived);var before=JsonSerializer.Serialize(c);var model=GenerationModel.Create(c,"Example.RepeatedSource");var table=model.Tables.Single(x=>x.Source.Id=="2");var page=Assert.Single(table.Pages);var plan=Assert.Single(CrossTableWriteCompilation.ForService(model,table,page));Assert.Equal(Roles(mask).Length,plan.Levels.Count(x=>x.Read.Target.Source.Id=="2"));Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-repeat-source");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));try{new CSharpGenerator().Generate(c,Path.Combine(directory,"generated"),model.Namespace);await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);Assert.Equal(before,JsonSerializer.Serialize(c));}finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
+    /// <summary>单个与重复来源角色可混用文本业务键，写前覆盖和写后读回都按同一键协议。</summary>
+    [Theory]
+    [InlineData(1,false,false,1)]
+    [InlineData(2,false,true,0)]
+    [InlineData(4,true,false,1)]
+    [InlineData(3,true,false,1)]
+    [InlineData(5,false,true,1)]
+    [InlineData(6,false,true,1)]
+    [InlineData(7,true,false,1)]
+    public async Task Source_roles_generate_with_text_business_keys(int mask,bool redundant,bool derived,int primaryLevel)
+    {
+        const string ns="Example.SourceRoleText";
+        const string prefix="role_keys";
+        var roles=Enumerable.Range(0,3).Where(index=>(mask&(1<<index))!=0).ToArray();
+        var catalog=roles.Length==1?NonRedundantCrossSourceTests.Catalog(prefix,roles[0],"string","string",derived):
+            Catalog(prefix,mask,"string","string",derived);
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=redundant?1:0;
+        var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        CrossTableExcelLosslessGenerationTests.AddBusinessKeys(catalog,control,primaryLevel);
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.ColumnName=="business_key"))
+        {
+            column.LogicalType="string";
+            column.ColumnLength="50";
+        }
+        var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+        sourcePage.WhereSql="yz_project_id=@current_yz_project_id";
+        sourcePage.IsNew=sourcePage.IsSave=sourcePage.IsImport=sourcePage.IsExport=1;
+        sourcePage.Extra["importMethod"]=JsonSerializer.SerializeToElement("OverWriteByFirstColumn");
+        sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement("list");
+        var pathField=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId==sourcePage.Id&&field.ConfigColumnId=="25");
+        pathField.IsShow=pathField.IsEdit=1;
+        catalog.ConfigColumns.Single(column=>column.Id=="22").Name="记录名";
+        control.Name="位置路径";
+
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(candidate=>candidate.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var plan=Assert.Single(CrossTableWriteCompilation.ForService(model,table,page));
+        Assert.All(roles,index=>Assert.Equal(index!=primaryLevel,plan.Read.Levels[index].TextKey));
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-source-role-text");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var code=await File.ReadAllTextAsync(Path.Combine(generated,"Services","RoleKeysSourceService.g.cs"));
+            Assert.Contains("string.Equals(id,Convert.ToString(sourceOverride.",code);
+            Assert.Contains(".PathByKeyAsync(deepest,selected,cancellationToken)",code);
+            Assert.Contains("跨表来源结构外键在存储后发生变化",code);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.RoleKeysSourceService",true)!;
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+            if(redundant&&roles[0]==0&&primaryLevel!=0)
+            {
+                using var runtime=new SharedExcelReadTransport(assembly,ns,"RoleKeysSource",mysqlDialect:true);
+                runtime.Add("RoleKeysSource",new Dictionary<string,object?>{{"Id",21L},{"BusinessKey","root-a"},
+                    {"Name","数据库较小写键"},{"YzProjectId",catalog.YzProjectId}});
+                var pending=await runtime.PendingCrossRoot("25","Root-A",creating:false);
+                Assert.Equal("Root-A",Assert.Single(pending.Path).Id);
+                Assert.Equal("待写名称",pending.DisplayText);
+                var existing=await runtime.PendingCrossRoot("25","root-a",creating:false);
+                Assert.Equal("数据库较小写键",existing.DisplayText);
+                await Assert.ThrowsAsync<InvalidOperationException>(()=>runtime.PendingCrossRoot("25","Root-A",creating:true));
+            }
+        }
+        finally {await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>同一表的首个来源角色读业务标识，其余角色读固定派生名称，不能把不同角色别名合并。</summary>
     [Theory]
     [InlineData(3,"string","string")]

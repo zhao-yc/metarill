@@ -1236,6 +1236,20 @@ internal sealed class SharedExcelReadTransport:IDisposable
             .Invoke(service,[request,actor,CancellationToken.None])!;
 
 
+    /// <summary>执行真实生成的待写来源覆盖，验证同一物理事务与精确键，不制造数据库写入。</summary>
+    internal Task<Metarill.Core.Cascades.CrossTablePath> PendingCrossRoot(string fieldId,string key,bool creating)=>
+        Session.InTransactionAsync(async()=>
+        {
+            var type=assembly.GetType(rootNamespace+".Generated.Entities."+sourceEntity,true)!;
+            var pending=Activator.CreateInstance(type)!;
+            type.GetProperty("Id")!.SetValue(pending,20L);
+            type.GetProperty("BusinessKey")!.SetValue(pending,"Root-A");
+            type.GetProperty("Name")!.SetValue(pending,"待写名称");
+            var factory=serviceType.GetMethod("CrossReader"+pageId+"_"+fieldId,BindingFlags.Instance|BindingFlags.NonPublic)!;
+            var reader=(Metarill.Core.Cascades.CrossTableReader)factory.Invoke(service,[actor,true,false,pending,creating])!;
+            return await reader.PathByKeyAsync(0,key);
+        });
+
     /// <summary>通过生成的公开入口读取跨表候选。</summary>
     internal Task<IReadOnlyList<Metarill.Core.Cascades.CrossTableOption>> CrossOptions(string fieldId,CascadeTreeOptionsRequest request)=>
         (Task<IReadOnlyList<Metarill.Core.Cascades.CrossTableOption>>)serviceType.GetMethod("CrossOptions"+pageId+"_"+fieldId+"Async")!

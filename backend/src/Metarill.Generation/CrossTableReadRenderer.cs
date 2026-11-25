@@ -45,7 +45,10 @@ internal static class CrossTableReadRenderer
             {
                 var level=plan.Levels[index];var projection=Projection(level);
                 // 写前只覆盖已授权来源自身的待存名称/父键；真实范围与路径必须在正常DML后再次由SQL核验。
-                var overlay=level.Target.Source.Id==table.Source.Id?$"if(sourceOverride is not null&&id==sourceOverride.{level.KeyProperty}){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");return new Metarill.Core.Cascades.CascadeTreeNode({level.KeyValue("sourceOverride")},{(level.DerivedName?"null":MultiSelectExcelRenderer.LabelText(level.Name,"sourceOverride."+level.Name.Property))},{Parent(level).Replace("row.","sourceOverride.",StringComparison.Ordinal)});}}":"";
+                var sourceKey="sourceOverride."+level.KeyProperty;
+                var sameKey=plan.HasTextKeys?$"string.Equals(id,Convert.ToString({sourceKey},CultureInfo.InvariantCulture),StringComparison.Ordinal)":$"id=={sourceKey}";
+                var overlay=level.Target.Source.Id==table.Source.Id
+                    ?$"if(sourceOverride is not null&&{sameKey}){{if(creating)throw new InvalidOperationException(\"不能关联本次尚未存在的新节点。\");return {Node(plan,level,"sourceOverride",level.DerivedName?"null":null)};}}":"";
                 // 派生名称写前不读IsIgnore属性；R0不缓存名称，正常DML后必须用真实FK重新锁读完整路径。
                 if(level.Target.Source.IsRongyu==0){output.AppendLine(NonRedundantCrossTargetsRenderer.Find(page,plan,index,overlay));continue;}
                 var scopeQuery=$"CrossScope{suffix}_{index}(actor,false)";
@@ -85,9 +88,9 @@ internal static class CrossTableReadRenderer
         return output.ToString();
     }
     /// <summary>候选、路径与 Excel 共用同一节点投影及字符串 ID 协议。</summary>
-    internal static string Node(CrossTableReadModel plan,CrossTableLevelModel level,string row)
+    internal static string Node(CrossTableReadModel plan,CrossTableLevelModel level,string row,string? pendingLabel=null)
     {
-        var label=MultiSelectExcelRenderer.LabelText(level.Name,row+"."+level.Name.Property);
+        var label=pendingLabel??MultiSelectExcelRenderer.LabelText(level.Name,row+"."+level.Name.Property);
         var key=level.KeyValue(row);
         var parent=Parent(level).Replace("row.",row+".",StringComparison.Ordinal);
         if(!plan.HasTextKeys)return $"new Metarill.Core.Cascades.CascadeTreeNode({key},{label},{parent})";
