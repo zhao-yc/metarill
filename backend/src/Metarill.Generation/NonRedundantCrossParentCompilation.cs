@@ -27,6 +27,25 @@ internal static class NonRedundantCrossParentCompilation
     internal static bool IsText(GenerationModel model,TableModel table,PageModel page,ColumnModel column)=>
         Managed(model,table,page,column)&&Find(model,table,page,column) is {} path&&path.Read.Levels[path.Index].TextKey;
 
+    /// <summary>验证稀疏来源与目标各自从同一发布祖先路径还原相同的文本键。</summary>
+    internal static ColumnModel? CommonTextParent(GenerationModel model,TableModel source,PageModel sourcePage,
+        TableModel target,PageModel targetPage)
+    {
+        if(source.Source.IsRongyu!=0||target.Source.IsRongyu!=0||source.IsGlobal||target.IsGlobal||
+            source.Source.YzProjectId!=model.Catalog.YzProjectId||target.Source.YzProjectId!=model.Catalog.YzProjectId||
+            sourcePage.Source.YzProjectId!=model.Catalog.YzProjectId||targetPage.Source.YzProjectId!=model.Catalog.YzProjectId)
+            return null;
+        var sourceFields=sourcePage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
+        var targetFields=targetPage.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
+        if(sourceFields is not [var sourceKey]||targetFields is not [var targetKey]||sourceKey.Type!="string?"||targetKey.Type!="string?")
+            return null;
+        if(Find(model,source,sourcePage,sourceKey) is not {} left||!left.Read.Levels[left.Index].TextKey||
+            Find(model,target,targetPage,targetKey) is not {} right||!right.Read.Levels[right.Index].TextKey)
+            return null;
+        return SharedRedundantParentCompilation.Identity(new(left.Read,left.Index))==
+            SharedRedundantParentCompilation.Identity(new(right.Read,right.Index))?targetKey:null;
+    }
+
     /// <summary>混合链使用逐层键接口，即使当前选用的是整数父层。</summary>
     internal static string PathSuffix(CrossTableReadModel read,int index,string key)=>
         read.HasTextKeys ? $".PathByKeyAsync({index},{key}{(read.Levels[index].TextKey?"":".ToString(CultureInfo.InvariantCulture)")},cancellationToken)" :

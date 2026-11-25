@@ -163,6 +163,63 @@ public sealed class TextCascadeParentRelationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
     }
 
+    /// <summary>非冗余单值关系从两端稀疏路径还原文本父键，名称和工作簿复用实际目标范围。</summary>
+    [Theory]
+    [InlineData("OnlyNew","list")]
+    [InlineData("OverWriteByFirstColumn","edit")]
+    public async Task Sparse_same_text_parent_scopes_single_relations(string import,string export)
+    {
+        var catalog=Catalog(0,import,export);
+        foreach(var id in new[]{"81","82"})
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(item=>item.Id==id).IsRongyu=0;
+        }
+        var model=GenerationModel.Create(catalog,"Example.SparseSameTextParent");
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var relations=RelationCompilation.ForPage(model,page,true,forExcel:true);
+        Assert.Equal(2,relations.Count);
+        Assert.All(relations,relation=>
+        {
+            Assert.Equal("country_id",relation.SharedTextParent?.Source.ColumnName);
+            Assert.True(relation.LogicalSourceParent);
+            Assert.True(ControlRenderer.RelationContext(page,relation,false).SameParent);
+        });
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        var plan=Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(catalog,"81","810",["id"],[]);
+        using var session=new Metarill.Data.DatabaseSession(new(){ExpectedDatabase="offline",
+            ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
+        foreach(var key in new[]{"001","1","Country-A"})
+        {
+            var sql=Metarill.Data.Queries.NonRedundantCrossTableScopeSql.ApplyCandidate(session.Select<ScopeRow>(),session,plan,
+                "same_text_parent",catalog.YzProjectId,false,key).ToSql();
+            Assert.Contains("=BINARY @same_text_parent_parent",sql);
+        }
+        Assert.Throws<ArgumentException>(()=>Metarill.Data.Queries.NonRedundantCrossTableScopeSql.ApplyCandidate(
+            session.Select<ScopeRow>(),session,plan,"same_text_parent",catalog.YzProjectId,false," "));
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-sparse-same-text-parent");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            Assert.Contains("NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,OptionsMembership201_700.BindAccount(actor)",service);
+            Assert.Contains("NonRedundantCrossTableScopeSql.ApplyCandidate(query,session,OptionsMembership201_702.BindAccount(actor)",service);
+            Assert.Contains("OptionsScope201_700Async(logicalRelationParentId, null, actor, cancellationToken, true, false",service);
+            Assert.Contains("OptionsScope201_702Async(logicalRelationParentId, null, actor, cancellationToken, true, false",service);
+            Assert.Contains("ImportRelation201_700Async",service);
+            Assert.Contains("ImportRelation201_702Async",service);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    private sealed class ScopeRow
+    {
+        public long Id { get; set; }
+    }
+
     /// <summary>两张业务表发布同一真实国家业务键，候选数据仍来自各自的表和页面。</summary>
     private static void ScopeTarget(MetadataCatalog catalog,string id)
     {

@@ -176,12 +176,15 @@ internal static class RelationCompilation
             if(targetParents.Any(parent=>sourceParents.Any(sourceParent=>sourceParent.Source.Id==parent.Source.Id))&&
                 CrossTableReadCompilation.TextSourceParent(model,owner,page) is not null)
             {
-                sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage);
+                sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage)??
+                    NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage);
                 if(sharedTextParent is null||binding.Declared||scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent)||
                     !NonRedundantReadCompilation.Physical(model,target,name)||name.Type!="string?"||ExactDataManageCompilation.Declared(targetPage)||
                     conditions?.HasLogicalFields==true||FixedPageConditionCompilation.HasLogicalFields(targetPage))
                     throw new NotSupportedException("关联目标与来源共用实体时，必须证明其父键也使用同一文本业务键。");
-                fixedParent=null;
+                if(target.Source.IsRongyu==1)fixedParent=null;
+                else if(fixedParent is not {Logical:true}||!fixedParent.HasTarget(sharedTextParent.Source.Id,logicalOnly:true))
+                    throw new NotSupportedException("关联目标的文本父键必须沿目标页实际级联路径读取。");
             }
             IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
             ColumnModel[] independentOrder = [];
@@ -266,7 +269,7 @@ internal static class RelationCompilation
                 throw new InvalidOperationException("原单值关联缺少已发布的来源复合物理父键。");
             var canonicalProjectParent=singleTextParent&&publishedParent is {Logical:false,Global:false}&&
                 publishedParent.SingleSource(model.Catalog,owner.Source,source.Source,page.Source).Column.Id==sourceKeys[0].Source.Id;
-            var parentProof=sharedTextParent is null?fixedParent??storedSelectionParent:null;
+            var parentProof=sharedTextParent is null?fixedParent??storedSelectionParent:fixedParent;
             var sourceBinding=compoundProjectSource??(parentProof is null||functionForm?null:
                 owner.Source.IsRongyu==0&&(globalListPageScope||!owner.IsGlobal&&!target.IsGlobal)
                     ?parentProof.SingleSource(model.Catalog,owner.Source,source.Source,page.Source)

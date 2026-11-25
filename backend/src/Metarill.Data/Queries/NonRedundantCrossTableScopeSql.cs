@@ -17,8 +17,7 @@ public static class NonRedundantCrossTableScopeSql
         var compiled=plan.MySql;
         var selected=compiled.Crosses.Where(cross=>cross.Selection.Slots.Any(slot=>slot.ColumnName==field)).ToArray();
         if(selected.Length==0||selected.Length>1&&(selected.Any(cross=>cross.SharedGroupKey is null)||selected.Select(cross=>cross.SharedGroupKey).Distinct(StringComparer.Ordinal).Count()!=1)||!compiled.Types.TryGetValue(field,out var type))throw new InvalidOperationException("父范围必须是本固定计划的跨表ID表达式。");
-        var textKey=selected.All(cross=>cross.Selection.Slots.Select((slot,index)=>(slot,index))
-            .Any(item=>item.slot.ColumnName==field&&cross.Selection.TextKeys[item.index]));
+        var textKey=UsesTextKey(compiled,field);
         if(!(type=="int64"&&value is long number&&number>0||
             type=="string"&&value is string text&&(textKey?!string.IsNullOrWhiteSpace(text):Positive(text,out _))))
             throw new ArgumentException("逻辑父ID必须与固定字段的键类型一致。",nameof(value));
@@ -87,18 +86,30 @@ public static class NonRedundantCrossTableScopeSql
         string parentId,Dictionary<string,object?> parameters)
     {
         var field=compiled.RequiredMultiParent??throw new InvalidOperationException("固定候选未声明父参数。");
-        if(!Positive(parentId,out var id))throw new ArgumentException("固定候选父ID必须为规范正整数。",nameof(parentId));
+        var type=compiled.Types[field];
+        var textKey=type=="string"&&UsesTextKey(compiled,field);
+        long id=0;
+        if(textKey?string.IsNullOrWhiteSpace(parentId):!Positive(parentId,out id))
+            throw new ArgumentException(textKey?"固定候选要求非空文本父键。":"固定候选父ID必须为规范正整数。",nameof(parentId));
         var name=parameterPrefix+"_parent";
         var expression=compiled.Expression(field);
         var placeholder=session.Provider.ParameterPlaceholder(name);
-        var predicate=compiled.Types[field] switch
+        var predicate=type switch
         {
             "string"=>"BINARY ("+expression+")=BINARY "+placeholder,
             "int64"=>expression+"="+placeholder,
             _=>throw new InvalidOperationException("固定候选父字段类型不受支持。")
         };
-        parameters.Add(name,compiled.Types[field]=="string"?parentId:(object)id);
+        parameters.Add(name,type=="string"?parentId:(object)id);
         return predicate;
+    }
+
+    /// <summary>字符串列可以保存旧整数主键。只有固定路径中的声明层位能启用原始文本键。</summary>
+    private static bool UsesTextKey(MySqlNonRedundantReadPlan plan,string field)
+    {
+        var keys=plan.Crosses.SelectMany(cross=>cross.Selection.Slots.Select((slot,index)=>(slot,index))
+            .Where(item=>item.slot.ColumnName==field).Select(item=>cross.Selection.TextKeys[item.index])).ToArray();
+        return keys.Length>0&&keys.All(key=>key);
     }
 
     /// <summary>物理对象查询与固定逻辑谓词按同一主键关联，账户和条件值全部参数化。</summary>

@@ -141,7 +141,7 @@ internal static class SharedRedundantParentCompilation
     /// <summary>候选只验证来源父，目标候选自身的父上下文仍走原逻辑。</summary>
     internal static IReadOnlyList<SharedRedundantParentPath> ForTable(GenerationModel model,TableModel table,PageModel page,TableModel target)=>page.Scopes.Where(scope=>scope.Source=="parent").SelectMany(scope=>ForColumn(model,table,page,scope.Column)).Where(path=>path.Level.Target.Source.Id==target.Source.Id).DistinctBy(Identity,StringComparer.Ordinal).ToArray();
     /// <summary>共享目标角色按完整祖先定义比较，重复表名不能合并两个角色。</summary>
-    private static string Identity(SharedRedundantParentPath path)=>JsonSerializer.Serialize(path.Read.Levels.Take(path.Index+1).Select(level=>new{table=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,condition=level.Page.Source.WhereSql,key=level.AlternateKey?.Source.Id}));
+    internal static string Identity(SharedRedundantParentPath path)=>JsonSerializer.Serialize(path.Read.Levels.Take(path.Index+1).Select(level=>new{table=level.Target.Source.Id,page=level.Page.Source.Id,name=level.Name.Source.Id,parent=level.Parent?.Source.Id,condition=level.Page.Source.WhereSql,key=level.AlternateKey?.Source.Id}));
     /// <summary>混合父链按层选键协议。写入及导入使用当前事务的锁读。</summary>
     internal static string ReadPath(SharedRedundantParentPath path,PageModel page,string locking,string parent)=>
         $"CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,{locking},false)"+
