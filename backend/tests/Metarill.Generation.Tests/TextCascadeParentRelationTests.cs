@@ -1147,18 +1147,31 @@ public sealed class TextCascadeParentRelationTests
     [InlineData(0,"OverWriteByFirstColumn","edit")]
     [InlineData(1,"OnlyNew","list")]
     [InlineData(1,"OverWriteByFirstColumn","edit")]
-    public async Task Multi_text_parent_keeps_exact_dictionary_permission(int sourceStorage,string import,string export)
+    public Task Multi_text_parent_keeps_exact_dictionary_permission(int sourceStorage,string import,string export)=>
+        VerifyTextParentExactDictionary(sourceStorage,0,import,export);
+
+    /// <summary>字典保存物理父键及显示字段时，两个控件仍按发布页校验精确权限。</summary>
+    [Theory]
+    [InlineData(0,"OnlyNew","list")]
+    [InlineData(0,"OverWriteByFirstColumn","edit")]
+    [InlineData(1,"OnlyNew","list")]
+    [InlineData(1,"OverWriteByFirstColumn","edit")]
+    public Task Stored_dictionary_text_parent_keeps_exact_permission(int sourceStorage,string import,string export)=>
+        VerifyTextParentExactDictionary(sourceStorage,1,import,export);
+
+    private static async Task VerifyTextParentExactDictionary(int sourceStorage,int targetStorage,string import,string export)
     {
         var catalog=Catalog(sourceStorage,import,export);
         foreach(var id in new[]{"83","84"})
         {
             ScopeTarget(catalog,id);
-            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=0;
+            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=targetStorage;
             catalog.ConfigColumns.Add(new(){Id=id+"09",ConfigTableId=id,YzProjectId=catalog.YzProjectId,
                 ColumnName="scope_code",LogicalType="string"});
             var target=catalog.ConfigPages.Single(page=>page.ConfigTableId==id);
             target.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
-            target.WhereSql+=" AND area_name <> '排除地区'";
+            target.WhereSql+=targetStorage==0?" AND area_name <> '排除地区'":
+                id=="83"?" AND scope_code <> '排除多选地区'":" AND scope_code <> '排除复选地区'";
         }
         foreach(var admin in catalog.YzAdminTypes)
             admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
@@ -1179,16 +1192,62 @@ public sealed class TextCascadeParentRelationTests
             var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
             Assert.Contains("ResolveExactDataManage(\"830\", \"list\", \"real_name\")",service);
             Assert.Contains("ResolveExactDataManage(\"840\", \"list\", \"real_name\")",service);
-            Assert.Contains("\"scope_code\", FixedReadComparison.In",service);
             Assert.Contains("ImportMulti201_704Async",service);
             Assert.Contains("ImportCheckbox201_706Async",service);
             Assert.Contains("Export201Async",service);
-            var published=await PublishedReadCatalog(directory);
-            AssertTextParentSql(Metarill.Data.Queries.NonRedundantReads.CompileExactMultiLabel(published,"83","830","name",["id","name"],[]));
-            AssertTextParentSql(Metarill.Data.Queries.NonRedundantReads.CompileScopedCheckboxLabel(published,"84","840","name",["id","name"],[],true));
+            if(targetStorage==0)
+            {
+                Assert.Contains("\"scope_code\", FixedReadComparison.In",service);
+                var published=await PublishedReadCatalog(directory);
+                AssertTextParentSql(Metarill.Data.Queries.NonRedundantReads.CompileExactMultiLabel(published,"83","830","name",["id","name"],[]));
+                AssertTextParentSql(Metarill.Data.Queries.NonRedundantReads.CompileScopedCheckboxLabel(published,"84","840","name",["id","name"],[],true));
+            }
+            else
+            {
+                Assert.Contains("ApplyTextParent(query,session,\"country_id\",targetParentId!,businessKey:true)",service);
+                Assert.Contains("ApplyTextParent(query,session,\"country_id\",parentId!,businessKey:true)",service);
+                Assert.Contains("multiExactScope.IsRequired) query = Metarill.Data.Queries.ExactDataManageSql.Apply(query, session, \"scope_code\"",service);
+                Assert.Contains("multiImportExactScope.IsRequired) query = Metarill.Data.Queries.ExactDataManageSql.Apply(query, session, \"scope_code\"",service);
+                Assert.Contains("checkboxExactScope.IsRequired) query = Metarill.Data.Queries.ExactDataManageSql.Apply(query, session, \"scope_code\"",service);
+                VerifyStoredExactDictionaryNames(catalog,model,owner,page);
+                if(sourceStorage==0)VerifyStoredExactDictionaryNames(await PublishedReadCatalog(directory),model,owner,page);
+            }
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>来源名称和回填复用字典各自的文本父范围及物理条件，精简目录重建后仍然相同。</summary>
+    private static void VerifyStoredExactDictionaryNames(MetadataCatalog metadata,GenerationModel model,TableModel owner,PageModel page)
+    {
+        string[] names=["multiitem_names","checkitem_names"];
+        const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        object sql;
+        if(owner.Source.IsRongyu==0)
+        {
+            var plan=Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(metadata,"2",names,[],
+                NonRedundantCrossTableCompilation.Bindings(model,owner,page),[],NonRedundantReadCompilation.ProjectMultiTargets(model,owner,page));
+            sql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+        }
+        else
+        {
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("textrel_multiitem",maintenance.MixedTargets);
+            Assert.Contains("textrel_checkitem",maintenance.MixedTargets);
+            var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",flags)!.GetValue(maintenance));
+            var source=plans["2"]!;
+            Assert.Null(source.GetType().GetProperty("Error")!.GetValue(source));
+            sql=source.GetType().GetProperty("Read")!.GetValue(source)!;
+        }
+        var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(sql.GetType().GetProperty("Constants",flags)!.GetValue(sql));
+        foreach(var (name,excluded) in names.Zip(new[]{"排除多选地区","排除复选地区"}))
+        {
+            var expression=Assert.IsType<string>(sql.GetType().GetMethod("Expression",flags)!.Invoke(sql,[name]));
+            Assert.Contains("BINARY CAST(multi_value.`country_id` AS CHAR)",expression);
+            Assert.Contains("`business_key`",expression);
+            Assert.DoesNotContain("multi_parent.",expression);
+            Assert.Contains(parameters,parameter=>Equals(parameter.Value,excluded)&&expression.Contains(parameter.Key,StringComparison.Ordinal));
+        }
     }
 
     /// <summary>页面覆盖只能读取字典页已公开的物理简称。</summary>

@@ -457,7 +457,10 @@ public static partial class MySqlNonRedundantReadCompiler
             }
             var treeNames=PublishedSelfTreeConditionFields(catalog,root,page,columns[root.Id].Values.ToArray());
             var global=GlobalCrossTableTarget.Declared(root);
-            var exact=UsesExactMultiSelection(page,rootAlias);
+            // 物理文本父字典的命中校验由生成服务叠加，既有记录的投影和维护复用固定字典条件。
+            var storedExact=root.IsRongyu==1&&page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0&&
+                IsProjectFixedMultiPage(catalog,root,page,checkboxAccount:AllowsStoredExactCheckbox,allowStoredTextParent:true);
+            var exact=!storedExact&&UsesExactMultiSelection(page,rootAlias);
             if(exact)_=RequireExactMultiSelection(catalog,root,page,storedCheckbox:AllowsStoredExactCheckbox);
             else if(global)
             {
@@ -468,8 +471,9 @@ public static partial class MySqlNonRedundantReadCompiler
             var additional=MultiCandidateParent is {AdditionalTargets.Count:>0} compound
                 ?compound.AdditionalTargets.Select(parent=>parent.Target.ColumnName).ToHashSet(StringComparer.Ordinal):null;
             if(additional is not null)cascadeLabelPages.Add(page.Id);
+            var separateExactScope=exact||storedExact;
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
-                multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,separateExactScope:exact,additionalParents:additional);
+                multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,separateExactScope:separateExactScope,additionalParents:additional);
             if(!condition.Allowed)
                 throw new NotSupportedException("多值目标页包含未接通的范围。");
             if(!condition.HasLogical)
@@ -482,7 +486,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(cascadeCacheOwner is {} owner)
                 {
                     var predicate=PhysicalAccountCacheCondition(root,rootAlias,page,owner,MultiCandidateParent?.Target,
-                        allowFixedOnly:AllowLiteralMultiScope||MultiCandidateParent is {Logical:false},separateExactScope:exact,
+                        allowFixedOnly:AllowLiteralMultiScope||MultiCandidateParent is {Logical:false},separateExactScope:separateExactScope,
                         additionalParents:additional,globalMultiProject:MultiCandidateProjectScoped);
                     return scope.Length==0?predicate:scope+" AND "+predicate;
                 }
