@@ -116,10 +116,10 @@ internal static class MultiSelectCompilation
             var derived=DerivedMultiNamesCompilation.Declared(model,target,name);
             // 功能表确认直接使用目标页的查询范围；业务表的写入和导入也需要同一精确范围。
             var exactTarget=functionForm?null:ExactDataManageCompilation.Resolve(model,target,targetPage);
-            // 非冗余字典的固定逻辑条件由后续名称计划复核，实际文本祖先与物理名称保持一致。
-            if(sharedTextParent is not null&&(derived||name.Type!="string?"||exactTarget is not null||
+            // 父键的文本身份与显示字段类型独立，物理标量沿用原多选的显示和反查合同。
+            if(sharedTextParent is not null&&(derived||name.Type!="string?"&&!scalarLabel||exactTarget is not null||
                 target.Source.IsRongyu!=0&&FixedPageConditionCompilation.HasLogicalFields(targetPage)))
-                return Gap("共用文本父键的多选需要已发布的物理文本名称和已证明的页面条件。");
+                return Gap("共用文本父键的多选需要已发布的物理标量名称和已证明的页面条件。");
 
             if(!functionForm&&(scoped||derived))DerivedMultiNamesCompilation.Require(model,table,target,targetPage,name,exactTarget);
             var fixedPage=Scalar(root,"pageId");

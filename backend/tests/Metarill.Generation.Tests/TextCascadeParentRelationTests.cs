@@ -976,6 +976,75 @@ public sealed class TextCascadeParentRelationTests
         }
     }
 
+    /// <summary>字典非字符串显示名沿用已有文本格式，选档与名称读取仍匹配真实祖先。</summary>
+    [Theory]
+    [InlineData("int32",0,0,false)]
+    [InlineData("int64",1,1,true)]
+    [InlineData("decimal",1,0,true)]
+    [InlineData("double",0,1,true)]
+    [InlineData("bool",1,1,false)]
+    [InlineData("date",0,1,false)]
+    [InlineData("datetime",1,0,false)]
+    [InlineData("time",0,0,true)]
+    public async Task Multi_text_parent_preserves_physical_scalar_labels(string kind,int sourceStorage,int targetStorage,bool buildPackage)
+    {
+        var catalog=Catalog(sourceStorage,"OverWriteByFirstColumn","edit");
+        foreach(var id in new[]{"83","84"})
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=targetStorage;
+            var label=catalog.ConfigColumns.Single(column=>column.Id==id+"02");
+            label.LogicalType=kind;
+            if(kind=="decimal")label.ColumnLength="24,6";
+            if(targetStorage==0)
+                catalog.ConfigPages.Single(page=>page.ConfigTableId==id).WhereSql+=" AND area_name <> '排除地区'";
+        }
+        var model=GenerationModel.Create(catalog,"Example.TextParentScalarLabels");
+        var owner=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=Assert.Single(owner.Pages);
+        var multi=MultiSelectCompilation.Resolve(model,owner,page,owner.Columns.Single(column=>column.Source.Id=="704"));
+        var checkbox=DatabaseCheckboxCompilation.Resolve(model,owner,page,owner.Columns.Single(column=>column.Source.Id=="706"));
+        Assert.True(multi.Definition is {SameParent:true,SharedTextParent:not null},multi.Reason);
+        Assert.True(checkbox.Definition is {TypedLabel:true,SharedTextParent:not null},checkbox.Reason);
+        Assert.Equal(kind,multi.Definition!.Name.Source.LogicalType);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        if(sourceStorage==1)
+        {
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("multiitem_names",maintenance.MixedSourceColumns["textrel_source"]);
+            Assert.Contains("checkitem_names",maintenance.MixedSourceColumns["textrel_source"]);
+        }
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-text-parent-scalar-labels");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            string generated;
+            if(buildPackage)
+            {
+                new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+                generated=Path.Combine(directory,"backend/generated");
+            }
+            else
+            {
+                new CSharpGenerator().Generate(catalog,directory,model.Namespace);
+                generated=directory;
+            }
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/TextrelSourceService.g.cs"));
+            Assert.Contains("ImportMulti201_704Async",service);
+            Assert.Contains("ImportCheckbox201_706Async",service);
+            Assert.Contains("Export201Async",service);
+            Assert.Contains(kind switch
+            {
+                "int32"=>"int.TryParse(label",
+                "int64"=>"long.TryParse(label",
+                _=>"MultiValueLabel.Parse(\""+kind+"\""
+            },service);
+            if(buildPackage)
+                foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>页面覆盖只能读取字典页已公开的物理简称。</summary>
     [Theory]
     [InlineData(0)]
