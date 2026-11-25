@@ -89,15 +89,26 @@ internal static class CrossTableReadCompilation
             if(!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId)&&source.Source.LinkConfigTableId!=result[^1].Target.Source.Id)return Gap("叶子关联表与末级不一致。");
             if(result.Select(level=>GenerationModel.Camel(level.Prefix+"_id")).Distinct(StringComparer.Ordinal).Count()!=result.Count)return Gap("层级JSON字段名冲突。");
             var joiner=Text(root,"displayJoiner","/");var plan=new CrossTableReadModel(source,result.ToArray(),joiner);
-            if(plan.HasTextKeys&&(model.Catalog.DatabaseProvider!="mysql"||table.Source.IsRongyu is not(0 or 1)||table.Source.IsView!=0||table.Source.IsFunctionTable!=0||table.IsGlobal||
+            var functionForm=table.Source.IsFunctionTable==1;
+            if(plan.HasTextKeys&&(model.Catalog.DatabaseProvider!="mysql"||table.Source.IsView!=0||table.IsGlobal||
                 result.Any(level=>level.Target.Source.IsView!=0)||
-                !SupportsSourceParent(model,table,source,result)))
-                return Gap("文本业务键要求 MySQL 实体链，来源父范围须唯一，全局目标须使用已发布的名称、键及候选页。");
+                !functionForm&&!SupportsSourceParent(model,table,source,result)))
+                return Gap("文本业务键要求已发布的 MySQL 候选链，实体来源父范围须唯一。");
+            if(functionForm&&!string.IsNullOrWhiteSpace(overlay)&&!CrossTableFrontendProof.KeepsStorageDefinition(model,page,source)&&
+                (result.Any(level=>level.AlternateKey is not null)||HasDeclaredBusinessKey(source.Source.ControlDetail)))
+                return Gap("功能表的页级配置不能替换表级业务节点键或固定路径。");
             if(plan.HasTextKeys&&(!CrossTableFrontendProof.KeepsStorageDefinition(model,page,source)||result[^1].TextKey&&source.Type!="string?"))
                 return Gap("文本业务键要求表级定义及文本叶字段。");
             if(result.Any(level=>level.Target.Source.IsRongyu==0))NonRedundantCrossTargetsCompilation.Require(model,table,plan);return new(plan,null);
         }
         catch(Exception error)when(error is JsonException or ArgumentException or InvalidOperationException or NotSupportedException){return Gap("定义不能安全编译："+error.Message);}
+    }
+    /// <summary>旧页面覆盖不能把已发布的业务键悄悄退回实体主键。</summary>
+    private static bool HasDeclaredBusinessKey(string detail)
+    {
+        using var definition=JsonDocument.Parse(detail);
+        return definition.RootElement.TryGetProperty("levels",out var levels)&&levels.ValueKind==JsonValueKind.Array&&
+            levels.EnumerateArray().Any(level=>Text(level,"idField","id")!="id");
     }
     /// <summary>文本父范围消费本链唯一逻辑层。普通关系候选仍有独立的整数父协议。</summary>
     private static bool SupportsSourceParent(GenerationModel model,TableModel table,ColumnModel source,IReadOnlyList<CrossTableLevelModel> levels)

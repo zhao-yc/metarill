@@ -22,9 +22,11 @@ const form = mountGenerated(source, {}, {}, {
  runtimeDirectory: join(frontend, 'common/yzp_runtime'),
  components: { 'yzp-cascade-tree': cascade, 'uni-icons': Stub, 'uni-load-more': Stub, 'scroll-view': Stub }
 })
-const tree = process.argv[3] ?? '9007199254740993'
-const country = '9007199254740994', area = '9007199254740995', place = '9007199254740996'
-const country2 = '9007199254740997', area2 = '9007199254740998'
+const crossText = process.argv[3] === 'crossText'
+const tree = crossText ? '9007199254740993' : process.argv[3] ?? '9007199254740993'
+const country = crossText ? '001' : '9007199254740994'
+const area = '9007199254740995', place = crossText ? 'Ab-A' : '9007199254740996'
+const country2 = crossText ? '1' : '9007199254740997', area2 = '9007199254740998'
 const answered = new Set()
 
 /** 只应答固定原接口。路径、全字段交接和共享变更运行原组件。 */
@@ -79,6 +81,15 @@ try {
  await pump()
  assert.equal(form.state.entity.placeId, place)
  assert.equal(short.internalValue.areaId, area)
+ if (crossText) {
+  assert.ok(calls.some(call => call.data.selectedPath?.countryId === country))
+  form.state.customerButtonHandler63()
+  form.dialogs.at(-1).success({ confirm: true })
+  await form.flush()
+  const initial = form.requests.find(entry => entry.options.url === '/admin/sys/config_button/execute')
+  assert.equal(plain(initial.options.data.entity).countryId, '001')
+  assert.equal(plain(initial.options.data.entity).placeId, 'Ab-A')
+ }
  short.activeLevelIndex = 0
  short.handleOptionSelect({ id: country2, name: '乙国' }, 1)
  await pump()
@@ -94,7 +105,7 @@ try {
  form.state.customerButtonHandler63()
  form.dialogs.at(-1).success({ confirm: true })
  await form.flush()
- const execute = form.requests.find(entry => entry.options.url === '/admin/sys/config_button/execute')
+ const execute = form.requests.filter(entry => entry.options.url === '/admin/sys/config_button/execute').at(-1)
  assert.ok(execute)
  const entity = plain(execute.options.data.entity)
  assert.equal(entity.treeNodeId, tree)

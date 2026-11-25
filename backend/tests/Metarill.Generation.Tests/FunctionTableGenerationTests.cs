@@ -219,6 +219,76 @@ public sealed class FunctionTableGenerationTests : IDisposable
             Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog)).Message);
     }
 
+    /// <summary>功能表共享根和末级可使用文本业务键，原按钮以表单参数提交完整路径。</summary>
+    [Theory]
+    [InlineData("physical")]
+    [InlineData("derived")]
+    [InlineData("global-account")]
+    public async Task Function_cross_table_keeps_text_keys_in_candidates_and_button_payload(string scenario)
+    {
+        const string ns="Example.FunctionForm";
+        var catalog=WithCascades(Catalog());
+        var shortPath=catalog.ConfigColumns.Single(column=>column.Id=="28");
+        var longPath=catalog.ConfigColumns.Single(column=>column.Id=="29");
+        CrossTableExcelLosslessGenerationTests.AddBusinessKeys(catalog,longPath,primaryLevel:1);
+        var shortDefinition=System.Text.Json.Nodes.JsonNode.Parse(shortPath.ControlDetail)!;
+        shortDefinition["levels"]![0]!["idField"]="business_key";
+        shortPath.ControlDetail=shortDefinition.ToJsonString();
+        longPath.DefaultValue="Ab-A";
+        foreach(var key in catalog.ConfigColumns.Where(column=>column.ColumnName=="business_key"||column.Id=="506"))
+        {
+            key.LogicalType="string";
+            key.ColumnLength="50";
+        }
+        if(scenario=="derived")
+        {
+            var area=catalog.ConfigColumns.Single(column=>column.Id=="502");
+            area.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            area.Extra["columnFullName"]=JsonSerializer.SerializeToElement("dictionary.name");
+            catalog.ConfigColumns.Add(new(){Id="509",ConfigTableId="5",ColumnName="dictionary_id",LogicalType="int64",
+                LinkConfigTableId="4",ControlKind="List",ControlDetail="""{"tableId":"4","pageId":"301","nameField":"name"}"""});
+        }
+        if(scenario=="global-account")
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="4").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="403");
+            catalog.ConfigIndexColumns.RemoveAll(column=>column.GetProperty("configColumnId").GetString()=="403");
+            catalog.ConfigColumns.Single(column=>column.Id=="506").LinkConfigTableId="";
+            catalog.ConfigColumns.Add(new(){Id="407",ConfigTableId="4",ColumnName="dealer_id",LogicalType="string"});
+            catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="dealer_id=@current_dealer_id";
+        }
+        var model=GenerationModel.Create(catalog,ns);
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=table.Pages.Single(item=>item.Source.Id=="102");
+        var cross=CrossTableReadCompilation.ForPage(model,table,page);
+        Assert.Equal(2,cross.Count);
+        Assert.All(cross,plan=>Assert.True(plan.Levels[0].TextKey));
+        Assert.True(cross.Single(plan=>plan.Source.Source.Id=="29").Levels[^1].TextKey);
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        Assert.Contains(GenerationMetadataPublisher.ForRelations(catalog).ConfigIndexes,index=>
+            index.GetProperty("id").GetString()=="business_index_4");
+        new ApplicationPackager().Create(catalog,output,ns,SourceRoot());
+        var generated=Path.Combine(output,"backend/generated");
+        var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/SummaryFormService.g.cs"));
+        Assert.Contains("relationAuthorization.RequirePagePermission(\"301\",\"list\")",service);
+        Assert.Contains("PathByKeyAsync(2,request.ParseTextLeaf()",service);
+        Assert.DoesNotContain("NormalizeCross",service);
+        Assert.False(File.Exists(Path.Combine(generated,"Entities/SummaryForm.g.cs")));
+        Assert.False(File.Exists(Path.Combine(generated,"Mappers/SummaryFormMapper.g.cs")));
+        Assert.DoesNotContain(MySqlSchemaPlanner.Compile(catalog,"form_test").Tables,item=>item.Name=="summary_form");
+        if(scenario=="global-account")Assert.Contains("CrossCondition102_29_0.BindAccount(actor)",service);
+        await VerifyVueAsync(output,"GeneratedFunctionFormCascadeProbe.mjs","crossText");
+        await BuildFullAsync(output);
+
+        var overlay=catalog.ConfigPageColumns.Single(item=>item.ConfigPageId=="102"&&item.ConfigColumnId=="28");
+        shortDefinition["levels"]![0]!["idField"]="id";
+        overlay.Extra["controlDetail"]=JsonSerializer.SerializeToElement(shortDefinition);
+        Assert.Contains("页级配置不能替换表级业务节点键",Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog)).Message);
+        overlay.Extra.Remove("controlDetail");
+        catalog.ConfigColumns.Add(new(){Id="function_invalid_root",ConfigTableId="2",ColumnName="country_id",LogicalType="int64",IsVirtualColumn=1});
+        Assert.Contains("功能表级联字段 country_id",Assert.Throws<InvalidOperationException>(()=>new FrontendPackager().Validate(catalog)).Message);
+    }
+
     /// <summary>实际生成的 type=2 目标在列表和已选回读中使用同一精确权限和父范围。</summary>
     [Theory]
     [InlineData("physical")]

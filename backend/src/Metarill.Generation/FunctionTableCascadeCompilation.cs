@@ -19,7 +19,7 @@ internal static class FunctionTableCascadeCompilation
         foreach(var level in plan.Levels)
         {
             var reason=Published(model,level.Target,level.Page) ??
-                FieldReason(table,level.Prefix+"_id",level.Target,asId:true,controls) ??
+                FieldReason(table,level.Prefix+"_id",level.Target,asId:true,controls,textKey:level.TextKey) ??
                 FieldReason(table,level.Prefix+"_name",level.Target,asId:false);
             if(reason is not null)return reason;
         }
@@ -67,12 +67,14 @@ internal static class FunctionTableCascadeCompilation
     }
 
     /// <summary>仅允许原级联属性或相同类型的显式表单字段，避免覆盖其他控件。</summary>
-    private static string? FieldReason(TableModel table,string field,TableModel target,bool asId,IReadOnlySet<string>? controls=null)
+    private static string? FieldReason(TableModel table,string field,TableModel target,bool asId,
+        IReadOnlySet<string>? controls=null,bool textKey=false)
     {
         var column=table.Columns.SingleOrDefault(item=>item.JsonName.Equals(GenerationModel.Camel(field),StringComparison.OrdinalIgnoreCase));
         if(column is null)return null;
         if(column.Source.ColumnName!=field||column.IsSystem||column.IsJsonArray||
             (asId?column.Type is not("string?" or "long?"):column.Type!="string?")||
+            (textKey&&column.Type!="string?")||
             (column.Source.ControlKind is not("" or "Text") && !(asId&&controls?.Contains(column.Source.Id)==true))||
             (asId&&column.Source.LinkConfigTableId.Length>0&&column.Source.LinkConfigTableId!=target.Source.Id))
             return $"功能表级联字段 {field} 与已声明的表单控件冲突。";
