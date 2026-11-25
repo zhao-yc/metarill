@@ -882,25 +882,31 @@ public sealed class TextCascadeParentRelationTests
         }
     }
 
-    /// <summary>原复选在同一文本父级下还需执行字典页的级联名称条件。</summary>
+    /// <summary>原多选和复选在同一文本父级下分别执行各自字典页的级联名称条件。</summary>
     [Theory]
     [InlineData(0,"OnlyNew","list")]
     [InlineData(0,"OverWriteByFirstColumn","edit")]
     [InlineData(1,"OnlyNew","list")]
     [InlineData(1,"OverWriteByFirstColumn","edit")]
-    public async Task Checkbox_text_parent_keeps_dictionary_cascade_condition(int sourceStorage,string import,string export)
+    public async Task Multi_controls_text_parent_keeps_dictionary_cascade_conditions(int sourceStorage,string import,string export)
     {
         var catalog=Catalog(sourceStorage,import,export);
-        ScopeTarget(catalog,"84");
-        catalog.ConfigTables.Single(item=>item.Id=="84").IsRongyu=0;
+        foreach(var id in new[]{"83","84"})
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(item=>item.Id==id).IsRongyu=0;
+        }
+        catalog.ConfigPages.Single(item=>item.Id=="830").WhereSql+=" AND area_name <> '排除多选地区'";
         catalog.ConfigPages.Single(item=>item.Id=="840").WhereSql+=" AND area_name <> '排除地区'";
         PublishCheckboxShortName(catalog,storedCache:sourceStorage==1);
-        var model=GenerationModel.Create(catalog,"Example.CheckboxTextParentCondition");
+        var model=GenerationModel.Create(catalog,"Example.MultiTextParentConditions");
         var owner=model.Tables.Single(item=>item.Source.Id=="2");
         var page=Assert.Single(owner.Pages);
         var relation=owner.Columns.Single(column=>column.Source.Id=="706");
         var result=DatabaseCheckboxCompilation.Resolve(model,owner,page,relation);
         Assert.True(result.Definition is {UsesNameOverride:true,SharedTextParent:not null,LogicalTargetPage:not null},result.Reason);
+        var multi=MultiSelectCompilation.Resolve(model,owner,page,owner.Columns.Single(column=>column.Source.Id=="704"));
+        Assert.True(multi.Definition is {SameParent:true,SharedTextParent:not null},multi.Reason);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
         if(sourceStorage==1)
@@ -908,49 +914,65 @@ public sealed class TextCascadeParentRelationTests
             var maintenance=MixedRelationPropagationCompilation.ForModel(model);
             Assert.Contains("checkitem_names",maintenance.MixedSourceColumns["textrel_source"]);
             Assert.Contains("checkitem_short_names",maintenance.MixedSourceColumns["textrel_source"]);
+            Assert.Contains("multiitem_names",maintenance.MixedSourceColumns["textrel_source"]);
             var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",flags)!.GetValue(maintenance));
             var source=plans["2"]!;
             var read=source.GetType().GetProperty("Read")!.GetValue(source)!;
-            foreach(var output in new[]{"checkitem_names","checkitem_short_names"})
-                Assert.Contains("<>",Assert.IsType<string>(read.GetType().GetMethod("Expression",flags)!.Invoke(read,[output])));
+            foreach(var output in new[]{"multiitem_names","checkitem_names","checkitem_short_names"})
+            {
+                var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",flags)!.Invoke(read,[output]));
+                AssertCondition(read,expression,output=="multiitem_names"?"排除多选地区":"排除地区");
+            }
         }
-        var boundary=Path.Combine(Path.GetTempPath(),"metarill-checkbox-text-parent-condition");
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-multi-text-parent-conditions");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
-            var expected=DictionaryScope(catalog);
+            var expected=new[]{DictionaryScope(catalog,checkbox:false),DictionaryScope(catalog,checkbox:true)};
             new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
             var published=await PublishedReadCatalog(directory);
-            Assert.Equal(expected,DictionaryScope(published));
+            Assert.Equal(expected,new[]{DictionaryScope(published,checkbox:false),DictionaryScope(published,checkbox:true)});
             if(sourceStorage==0)
             {
-                var listPlan=Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(published,"2",["checkitem_names"],[],
+                var listPlan=Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(published,"2",["multiitem_names","checkitem_names"],[],
                     NonRedundantCrossTableCompilation.Bindings(model,owner,page),[],NonRedundantReadCompilation.ProjectMultiTargets(model,owner,page));
                 var sql=listPlan.GetType().GetProperty("MySql",flags)!.GetValue(listPlan)!;
                 var filters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(sql.GetType().GetProperty("ArrayNamePredicates",flags)!.GetValue(sql));
-                var predicate=Assert.Single(filters).Value;
-                Assert.Contains("<>",predicate);
-                Assert.Contains("`short_name`",predicate);
+                Assert.Equal(2,filters.Count);
+                AssertCondition(sql,filters["multiitem_names"],"排除多选地区");
+                AssertCondition(sql,filters["checkitem_names"],"排除地区");
+                Assert.Contains("`short_name`",filters["checkitem_names"]);
             }
             var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
             Assert.Contains("CompileScopedCheckboxLabel(",service);
             Assert.Contains("DerivedCheckboxRows201_706Async",service);
             Assert.Contains("ImportCheckbox201_706Async",service);
+            Assert.Contains("CompileScopedMultiLabel(\"83\",\"830\",\"name\"",service);
+            Assert.Contains("ValidateMulti201_704Async",service);
+            Assert.Contains("ImportMulti201_704Async",service);
             Assert.Contains("Export201Async",service);
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
 
-        static string DictionaryScope(MetadataCatalog metadata)
+        string DictionaryScope(MetadataCatalog metadata,bool checkbox)
         {
-            var plan=Metarill.Data.Queries.NonRedundantReads.CompileScopedCheckboxLabel(metadata,"84","840","short_name",["id","short_name"],[],false);
+            var plan=checkbox
+                ?Metarill.Data.Queries.NonRedundantReads.CompileScopedCheckboxLabel(metadata,"84","840","short_name",["id","short_name"],[],false)
+                :Metarill.Data.Queries.NonRedundantReads.CompileScopedMultiLabel(metadata,"83","830","name",["id","name"],[]);
             AssertTextParentSql(plan);
-            const System.Reflection.BindingFlags sqlFlags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
-            var mysql=plan.GetType().GetProperty("MySql",sqlFlags)!.GetValue(plan)!;
-            var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",sqlFlags)!.GetValue(mysql));
-            Assert.Contains("<>",scope);
+            var mysql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+            var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",flags)!.GetValue(mysql));
+            AssertCondition(mysql,scope,checkbox?"排除地区":"排除多选地区");
             Assert.DoesNotContain("b.`area_name`",scope);
             return scope;
+        }
+
+        void AssertCondition(object mysql,string sql,string expected)
+        {
+            var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(mysql.GetType().GetProperty("Constants",flags)!.GetValue(mysql));
+            Assert.Contains("<>",sql);
+            Assert.Contains(parameters,parameter=>Equals(parameter.Value,expected)&&sql.Contains(parameter.Key,StringComparison.Ordinal));
         }
     }
 
