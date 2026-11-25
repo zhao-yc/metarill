@@ -48,6 +48,39 @@ public sealed class NonRedundantCrossTableScopeSqlTests
         Assert.DoesNotContain("'001'",sql);
     }
 
+    /// <summary>共享稀疏读取从两支恢复公共父键，比较实际文本并绑定用户提交的父值。</summary>
+    [Fact]
+    public void Shared_text_parent_matches_both_sparse_branches_by_exact_bytes()
+    {
+        var catalog=SharedCrossTableReadTests.Catalog("shared_text","string","string");
+        foreach(var control in catalog.ConfigColumns.Where(column=>column.Id is "31" or "41"))
+        {
+            var definition=System.Text.Json.Nodes.JsonNode.Parse(control.ControlDetail)!;
+            definition["levels"]![0]!["idField"]="business_key";
+            control.ControlDetail=definition.ToJsonString();
+        }
+        catalog.ConfigColumns.Add(new(){Id="root_key",ConfigTableId="2",ColumnName="business_key",
+            LogicalType="string",ColumnLength="50",IsDbNotNull=1,YzProjectId=catalog.YzProjectId});
+        catalog.ConfigIndexes.Add(System.Text.Json.JsonSerializer.SerializeToElement(new{id="root_index",configTableId="2",isUnique=1}));
+        catalog.ConfigIndexColumns.Add(System.Text.Json.JsonSerializer.SerializeToElement(new{configIndexId="root_index",configColumnId="root_key"}));
+        var scopes=SharedCrossTableReadTests.Scopes(catalog);
+        var fields=SharedCrossTableReadTests.Outputs(false);
+        var read=MySqlNonRedundantReadCompiler.CompileWithCrossTables(catalog,"1",fields,scopes);
+        Assert.Equal(2,read.Crosses.Count);
+        Assert.All(read.Crosses,branch=>Assert.True(branch.Selection.TextKeys[0]));
+        var validation=Assert.Single(read.Crosses,branch=>branch.RequireRowValidity).Validity;
+        Assert.Contains(")=BINARY (",validation);
+        Assert.DoesNotContain("AS SIGNED",read.Expressions["country_id"]);
+        var plan=NonRedundantReads.CompileWithCrossTables(catalog,"1",["id"],scopes,["country_id"]);
+        using var session=Session();
+        var sql=NonRedundantCrossTableScopeSql.Apply(session.Select<Row>(),session,plan,"country_id","shared_root","001",catalog.YzProjectId).ToSql();
+        Assert.Contains(")=BINARY @shared_root_value",sql);
+        Assert.Contains("COALESCE",sql);
+        Assert.Contains("shared_text_place",sql);
+        Assert.Contains("shared_text_warehouse",sql);
+        Assert.DoesNotContain("'001'",sql);
+    }
+
     /// <summary>R1 使用物理父字段限制来源行，再按精确键验证当前文本节点及其整数祖先。</summary>
     [Fact]
     public void Redundant_text_parent_validates_physical_key_and_target_visibility()

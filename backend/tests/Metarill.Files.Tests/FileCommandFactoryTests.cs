@@ -763,6 +763,8 @@ public sealed class FileCommandFactoryTests
     [InlineData(true,true,true,false)]
     [InlineData(false,true,false,true)]
     [InlineData(true,true,true,true)]
+    [InlineData(false,false,false,true)]
+    [InlineData(true,false,true,true)]
     public async Task File_parent_scope_restores_actual_text_keys(bool locking,bool redundant,bool globalRoot,bool shared)
     {
         var catalog=FileCrossParentScopeTests.Catalog("file_text","string","string");
@@ -811,6 +813,7 @@ public sealed class FileCommandFactoryTests
         var store=new SqlRowStore(session,catalog);
         var actor=new RuntimeActor(14,"文本父范围",false,"1","3");
         var source=new Dictionary<string,object?>{{"country_id",null},{"area_id",null},{"place_id","Leaf-A"}};
+        if(shared)source["warehouse_id"]=null;
         var visited=new List<object>();
         provider.Read=command=>
         {

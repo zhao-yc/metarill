@@ -18,7 +18,10 @@ internal sealed class FileCrossParentScope
     internal string SourceId{get;}
     internal int Level{get;}
     internal bool IsShared=>shared is not null;
-    internal bool TextKey=>!IsShared&&targets[Level].TextKey;
+    internal bool TextKey=>shared?.TextKeyAt(Level)??targets[Level].TextKey;
+
+    /// <summary>共享组键类型取自每个已验证的独立分支。</summary>
+    internal bool TextKeyAt(int index)=>targets[index].TextKey;
     /// <summary>文件精确读取复用当前父级已发布的绑定，R1 只读取物理父键。</summary>
     internal IReadOnlyList<NonRedundantCrossTableScope> ReadBindings{get;}=[];
     internal IReadOnlyList<string> StorageNames=>redundant is not null?new[]{redundant.ColumnName}:shared?.StorageNames??selection!.Slots.Select(slot=>slot.ColumnName).ToArray();
@@ -58,12 +61,12 @@ internal sealed class FileCrossParentScope
         }
         if(matches.Count==0)return null;if(matches.Count!=1)throw new NotSupportedException("文件逻辑父范围不能共享稀疏层位。");var match=matches[0];
         var branch=CompileBranch(catalog,table,page,match.Source,match.Selection,match.Level,
-            allowExactSource:true);
+            allowExactSource:true,allowTextKeys:true);
         // 单控件继续完整数据层证明；共享组在收齐所有同伴范围后一次证明。
         _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],[branch.Binding],[column.ColumnName]);return branch.Scope;
     }
     /// <summary>固定分支的页覆盖、目标页／常量与物理身份共用同一编译器，构造器不提供在线替换入口。</summary>
-    internal static (FileCrossParentScope Scope,NonRedundantCrossTableScope Binding) CompileBranch(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata source,CrossTableSparseSelection selection,int levelIndex,bool allowExactSource=false)
+    internal static (FileCrossParentScope Scope,NonRedundantCrossTableScope Binding) CompileBranch(MetadataCatalog catalog,TableMetadata table,PageMetadata page,ColumnMetadata source,CrossTableSparseSelection selection,int levelIndex,bool allowExactSource=false,bool allowTextKeys=false)
     {
         var overlay = catalog.ConfigPageColumns.SingleOrDefault(field => field.ConfigPageId == page.Id && field.ConfigColumnId == source.Id)
             ?.Extra.GetValueOrDefault("controlDetail").ToString();
@@ -95,7 +98,7 @@ internal sealed class FileCrossParentScope
         }
         if(targets.Any(target=>target.TextKey))
         {
-            if(!allowExactSource||catalog.DatabaseProvider!="mysql")throw new NotSupportedException("文件文本父键要求独立 MySQL 跨表路径。");
+            if(!allowTextKeys||catalog.DatabaseProvider!="mysql")throw new NotSupportedException("文件文本父键要求已发布的 MySQL 跨表路径。");
             selection=selection.WithTextKeys(targets.Select(target=>target.TextKey).ToArray());
         }
         var binding=new NonRedundantCrossTableScope(source.Id,bindings.AsReadOnly());
@@ -115,17 +118,17 @@ internal sealed class FileCrossParentScope
         var values=new Dictionary<string,string[]>(StringComparer.Ordinal);
         foreach(var group in scopes.GroupBy(scope=>scope.SourceId,StringComparer.Ordinal))
             values.Add(group.Key,await group.First().PathKeysAsync(store,record,actor,locking,token));
-        return scopes.Select(scope=>scope.Level<values[scope.SourceId].Length?values[scope.SourceId][scope.Level]:
+        return scopes.Select(scope=>scope.Level<values[scope.SourceId].Length&&values[scope.SourceId][scope.Level].Length>0?values[scope.SourceId][scope.Level]:
             throw new UnauthorizedAccessException("所选层位未提供当前文件父范围。")).ToArray();
     }
     /// <summary>只读使用同一快照，写入及删除复用原事务的当前锁读，值与元数据标识符分别处理。</summary>
     internal async Task<long[]> PathAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,RuntimeActor actor,bool locking,CancellationToken token)=>
         (await PathKeysAsync(store,record,actor,locking,token)).Select(FileReferenceScope.CanonicalId).ToArray();
 
-    private async Task<string[]> PathKeysAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,RuntimeActor actor,bool locking,CancellationToken token)
+    internal async Task<string[]> PathKeysAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,RuntimeActor actor,bool locking,CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
-        if(shared is not null)return (await shared.PathAsync(store,record,actor,locking,token)).Select(NumberText).ToArray();
+        if(shared is not null)return await shared.PathKeysAsync(store,record,actor,locking,token);
         var selected=redundant is null?ReadSelection(record):new CrossTableSelectedKey(Level,ReadPhysicalParent(record));
         if(selected is null)throw new UnauthorizedAccessException("文件来源没有真实跨表父选择。");
         // 按实际选中的路径一次绑定账号，缺少归属时不向数据库发出只带固定常量的查询。

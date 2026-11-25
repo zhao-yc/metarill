@@ -13,6 +13,48 @@ public sealed class SharedCrossTableSparseMutationTests
     {
         var f=Fixture(type);var current=f.Raw.ToDictionary();current["place_id"]=Value(type,11);var old=new List<string>();var now=new List<string>();var result=await f.State.NormalizeAsync(current,Set("place_id"),false,Reader(type,now),Reader(type,old));Assert.Equal(Value(type,3),result.Values["country_id"]);Assert.True(result.Values["warehouse_id"] is null or "");Assert.Equal(2,old.Count);var packed=f.State.Pack()!;Assert.Single(packed,p=>p.Value is not null);Assert.Equal(Value(type,11),packed["place_id"]);await f.State.VerifyStoredAsync(packed,Reader(type));Assert.Equal(Value(type,20),f.Raw["warehouse_id"]);
     }
+    /// <summary>文本公共键切换后清除旧分支，写后核验也能发现大小写或前导零漂移。</summary>
+    [Fact]
+    public async Task Text_leaf_change_replaces_exact_ancestor_and_verifies_actual_sparse_row()
+    {
+        var fixture=Fixture("string");
+        var selection=fixture.Selection.WithTextKeys(["country_id","place_id"]);
+        var coordinator=new SharedCrossTableCoordinator(fixture.Coordinator.Branches.Select(branch=>branch with
+        {
+            Levels=branch.Levels.Select(slot=>slot with {TextKey=selection.TextKeySlots.Contains(slot.IdColumn)}).ToArray()
+        }).ToArray());
+        var original=fixture.Raw;
+        original["place_id"]="City-A";
+        var state=new SharedCrossTableSparseMutation(selection,coordinator,original);
+        var current=original.ToDictionary();
+        current["place_id"]="City-B";
+        var normalized=await state.NormalizeAsync(current,Set("place_id"),false,Read,Read);
+        Assert.Equal("1",normalized.Values["country_id"]);
+        Assert.True(normalized.Values["warehouse_id"] is null or "");
+        var packed=state.Pack()!;
+        Assert.Null(packed["country_id"]);
+        Assert.Null(packed["warehouse_id"]);
+        Assert.Equal("City-B",packed["place_id"]);
+        await state.VerifyStoredAsync(packed,Read);
+        var wrongCase=packed.ToDictionary();
+        wrongCase["place_id"]="city-b";
+        await Assert.ThrowsAsync<InvalidOperationException>(()=>state.VerifyStoredAsync(wrongCase,Read));
+
+        Task<IReadOnlyDictionary<string,object?>> Read(string control,IReadOnlyDictionary<string,object?> input,CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            var leaf=control=="31"?"place_id":"warehouse_id";
+            var second=input[leaf] is null or ""?Equals(input["country_id"],"1"):Equals(input[leaf],"City-B");
+            var values=input.ToDictionary();
+            values["country_id"]=second?"1":"001";
+            values["country_name"]=second?"乙国":"甲国";
+            values["area_id"]=second?"4":"2";
+            values["area_name"]=second?"乙区":"甲区";
+            values[leaf[..^3]+"_name"]=input[leaf] is null or ""?null:control=="31"?"城市":"仓库";
+            return Task.FromResult<IReadOnlyDictionary<string,object?>>(values);
+        }
+    }
+
     /// <summary>同父改城市保留仓库；预先恢复和钩子后才发现变化得到同一结果，原路径缓存不重复读。</summary>
     [Theory][InlineData(false)][InlineData(true)]
     public async Task Same_parent_hook_change_preserves_other_selection_and_old_snapshot_is_cached(bool hydrate)

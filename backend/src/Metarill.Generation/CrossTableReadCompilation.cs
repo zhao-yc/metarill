@@ -94,7 +94,7 @@ internal static class CrossTableReadCompilation
                     FixedPageConditionCompilation.HasAccountVariables(level.Page)||
                     level.Target.IsGlobal&&(level.DerivedName||FixedPageConditionCompilation.HasLogicalFields(level.Page)))||
                 table.Source.IsRongyu==1&&result.Any(level=>level.Target.Source.IsRongyu==0&&!level.Target.IsGlobal)||
-                !SupportsSourceParent(table,result)))
+                !SupportsSourceParent(model,table,source,result)))
                 return Gap("文本业务键要求 MySQL 实体链，来源父范围须唯一，全局目标须使用固定物理名称范围。");
             if(plan.HasTextKeys&&(!CrossTableFrontendProof.KeepsStorageDefinition(model,page,source)||result[^1].TextKey&&source.Type!="string?"))
                 return Gap("文本业务键要求表级定义及文本叶字段。");
@@ -103,7 +103,7 @@ internal static class CrossTableReadCompilation
         catch(Exception error)when(error is JsonException or ArgumentException or InvalidOperationException or NotSupportedException){return Gap("定义不能安全编译："+error.Message);}
     }
     /// <summary>文本父范围消费本链唯一逻辑层。普通关系候选仍有独立的整数父协议。</summary>
-    private static bool SupportsSourceParent(TableModel table,IReadOnlyList<CrossTableLevelModel> levels)
+    private static bool SupportsSourceParent(GenerationModel model,TableModel table,ColumnModel source,IReadOnlyList<CrossTableLevelModel> levels)
     {
         foreach(var page in table.Pages)
         {
@@ -111,8 +111,14 @@ internal static class CrossTableReadCompilation
             if(parents.Length==0)continue;
             if(parents.Length!=1)return false;
             var level=levels.SingleOrDefault(level=>level.Prefix+"_id"==parents[0].Source.ColumnName);
-            // 冗余页面也可绑定另一共享分支的物理父槽，完整归属由 R1 父范围证明统一校验。
-            if(level is null&&table.Source.IsRongyu!=1)return false;
+            // 缺少本分支层位时，非冗余父范围必须属于同一已声明的共享组。
+            if(level is null&&table.Source.IsRongyu==0)
+            {
+                var columns=model.Catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Source.Id);
+                var group=SharedCrossTableSparseSelection.CompileAll(table.Source,columns)
+                    .SingleOrDefault(group=>group.Branches.Any(branch=>branch.SourceColumnId==source.Source.Id));
+                if(group is null||!group.Slots.Any(slot=>slot.ColumnName==parents[0].Source.ColumnName))return false;
+            }
             if(level?.TextKey==true&&table.Columns.Any(column=>column.Source.ControlKind is "List" or "SelectPage"
                 or "MultiSelectPage" or "MultiCheckBoxDatabase"))return false;
         }

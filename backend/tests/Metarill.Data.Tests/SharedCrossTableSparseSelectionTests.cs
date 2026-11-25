@@ -19,6 +19,32 @@ public sealed class SharedCrossTableSparseSelectionTests
         }
         Assert.Equal(before,JsonSerializer.Serialize(c));var frozen=plan.PackValidatedPaths(Paths([Large,Large+1,Large+2],[Large,Large+1,Large+3]));c.ConfigColumns.Single(x=>x.Id=="31").ColumnName="changed_after_compile";Assert.Equal(2,plan.ReadStored(frozen).Count);
     }
+    /// <summary>共享祖先按文本逐字比较，稀疏存储保留两个独立末端的物理类型。</summary>
+    [Fact]
+    public void Mixed_business_keys_keep_exact_shared_paths_and_sparse_leaves()
+    {
+        var catalog=Catalog("string");
+        catalog.ConfigColumns.Single(column=>column.Id=="41").LogicalType="int64";
+        var plan=Compile(catalog).WithTextKeys(["country_id","place_id"]);
+        var paths=new Dictionary<string,IReadOnlyList<string>>
+        {
+            ["31"]=["001","21","City-A"],
+            ["41"]=["001","21","41"]
+        };
+        var packed=plan.PackValidatedKeys(paths);
+        Assert.Null(packed["country_id"]);
+        Assert.Null(packed["area_id"]);
+        Assert.Equal("City-A",packed["place_id"]);
+        Assert.Equal(41L,packed["warehouse_id"]);
+        var leaves=plan.ReadBranchKeys(packed);
+        Assert.Equal("City-A",leaves["31"]!.Id);
+        Assert.Equal("41",leaves["41"]!.Id);
+        paths["41"]=["1","21","41"];
+        Assert.Throws<InvalidOperationException>(()=>plan.PackValidatedKeys(paths));
+        paths["41"]=["001","21","041"];
+        Assert.Throws<ArgumentException>(()=>plan.PackValidatedKeys(paths));
+    }
+
     /// <summary>短控件叶子与长控件父级共用；仓库本身即可恢复地区，不额外保存地区位。</summary>
     [Theory][InlineData("string")][InlineData("int64")]
     public void Shared_primary_leaf_is_not_stored_twice(string type)

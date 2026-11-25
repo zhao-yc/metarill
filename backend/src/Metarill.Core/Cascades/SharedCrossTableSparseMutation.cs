@@ -18,7 +18,8 @@ public sealed class SharedCrossTableSparseMutation
     public SharedCrossTableSparseMutation(SharedCrossTableSparseSelection selection,SharedCrossTableCoordinator coordinator,IReadOnlyDictionary<string,object?> original)
     {
         ArgumentNullException.ThrowIfNull(selection);ArgumentNullException.ThrowIfNull(coordinator);ArgumentNullException.ThrowIfNull(original);this.selection=selection;this.coordinator=coordinator;
-        var branches=coordinator.Branches.ToDictionary(b=>b.ControlId,StringComparer.Ordinal);if(branches.Count!=selection.Branches.Count)throw new ArgumentException("共享协调和存储组的控件不一致。");foreach(var branch in selection.Branches){if(!branches.TryGetValue(branch.SourceColumnId,out var other)||branch.Slots.Count!=other.Levels.Count||branch.Slots.Where((s,i)=>s.ColumnName!=other.Levels[i].IdColumn||s.LogicalType!=other.Levels[i].LogicalType).Any())throw new ArgumentException("共享协调和存储层位不一致。");}
+        var branches=coordinator.Branches.ToDictionary(b=>b.ControlId,StringComparer.Ordinal);if(branches.Count!=selection.Branches.Count)throw new ArgumentException("共享协调和存储组的控件不一致。");foreach(var branch in selection.Branches){if(!branches.TryGetValue(branch.SourceColumnId,out var other)||branch.Slots.Count!=other.Levels.Count||branch.Slots.Where((s,i)=>s.ColumnName!=other.Levels[i].IdColumn||s.LogicalType!=other.Levels[i].LogicalType||
+            selection.TextKeySlots.Contains(s.ColumnName)!=other.Levels[i].TextKey).Any())throw new ArgumentException("共享协调和存储层位不一致。");}
         fields=selection.Slots.SelectMany(s=>new[]{s.ColumnName,s.ColumnName[..^3]+"_name"}).ToFrozenSet(StringComparer.Ordinal);RequireFields(original);raw=Freeze(original);OriginalStoredIds=IdValues(raw);
     }
     /// <summary>部分请求合并之前恢复逻辑路径，实际选择位只读取一次；目标回调必须加入当前事务持锁。</summary>
@@ -49,15 +50,15 @@ public sealed class SharedCrossTableSparseMutation
     {
         if(!normalized)throw new InvalidOperationException("共享变更须先归一化再编码。");if(!writesSelection)return null;if(packed is not null)return packed;
         // 只有已归一化且确实写入的组才打包，预期快照缺失时明确拒绝，不能带空状态继续。
-        var expectedValues=expected??throw new InvalidOperationException("共享变更缺少归一化预期，不能打包。");var paths=new Dictionary<string,IReadOnlyList<long>>(StringComparer.Ordinal);
-        foreach(var branch in selection.Branches){var path=new List<long>();var empty=false;foreach(var slot in branch.Slots){var id=SharedCrossTableSparseSelection.ParseStoredId(slot,expectedValues[slot.ColumnName]);if(id is null){empty=true;continue;}if(empty)throw new InvalidOperationException("共享逻辑路径存在空缺层级。");path.Add(id.Value);}paths.Add(branch.SourceColumnId,path);}return packed=selection.PackValidatedPaths(paths);
+        var expectedValues=expected??throw new InvalidOperationException("共享变更缺少归一化预期，不能打包。");var paths=new Dictionary<string,IReadOnlyList<string>>(StringComparer.Ordinal);
+        foreach(var branch in selection.Branches){var path=new List<string>();var empty=false;foreach(var slot in branch.Slots){var id=selection.ParseStoredKey(slot,expectedValues[slot.ColumnName]);if(id is null){empty=true;continue;}if(empty)throw new InvalidOperationException("共享逻辑路径存在空缺层级。");path.Add(id);}paths.Add(branch.SourceColumnId,path);}return packed=selection.PackValidatedKeys(paths);
     }
     /// <summary>正常DML后仅核验；原始位及实际完整路径均须与同笔写入的预期相符，不补写修复。</summary>
     public async Task VerifyStoredAsync(IReadOnlyDictionary<string,object?> stored,
         Func<string,IReadOnlyDictionary<string,object?>,CancellationToken,Task<IReadOnlyDictionary<string,object?>>> readStored,
         CancellationToken token=default,IReadOnlyCollection<string>? namesResolvedAfterWrite=null,long? sourceId=null)
     {
-        ArgumentNullException.ThrowIfNull(readStored);token.ThrowIfCancellationRequested();if(!normalized)throw new InvalidOperationException("共享变更尚未归一化。");var actual=IdValues(stored);_=selection.ReadStored(actual);var wanted=packed??IdValues(raw);if(selection.Slots.Any(s=>!Equals(actual[s.ColumnName],wanted[s.ColumnName])))throw new InvalidOperationException("共享稀疏ID在存储后发生变化，未提交。");
+        ArgumentNullException.ThrowIfNull(readStored);token.ThrowIfCancellationRequested();if(!normalized)throw new InvalidOperationException("共享变更尚未归一化。");var actual=IdValues(stored);_=selection.ReadStoredKeys(actual);var wanted=packed??IdValues(raw);if(selection.Slots.Any(s=>!Equals(actual[s.ColumnName],wanted[s.ColumnName])))throw new InvalidOperationException("共享稀疏ID在存储后发生变化，未提交。");
         if(expected is null)return;if(packed is null)throw new InvalidOperationException("共享预期路径尚未整组打包。");var current=await ReadLogicalAsync(stored,readStored,token);// 来源行的派生名从写后真实联接取得。整组仍需核对所有ID及写前可知名称。
         if(fields.Any(f=>!Equals(current[f],expected[f])&&!IsPendingSourceName(f)))
             throw new InvalidOperationException("共享实际路径或名称与写入预期不一致，未提交。");
@@ -66,20 +67,21 @@ public sealed class SharedCrossTableSparseMutation
         {
             if(sourceId is null||!field.EndsWith("_name",StringComparison.Ordinal)||namesResolvedAfterWrite?.Contains(field)!=true)return false;
             var slot=selection.Slots.Single(item=>item.ColumnName==field[..^5]+"_id");
-            return SharedCrossTableSparseSelection.ParseStoredId(slot,expected[slot.ColumnName])==sourceId;
+            return !selection.TextKeySlots.Contains(slot.ColumnName)&&
+                selection.ParseStoredKey(slot,expected[slot.ColumnName])==sourceId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
     }
     /// <summary>只沿真实独立末端恢复路径；共同物理选择位不重复查询，短控件祖先从另一分支补齐。</summary>
     private async Task<IReadOnlyDictionary<string,object?>> ReadLogicalAsync(IReadOnlyDictionary<string,object?> source,
         Func<string,IReadOnlyDictionary<string,object?>,CancellationToken,Task<IReadOnlyDictionary<string,object?>>> read,CancellationToken token)
     {
-        ArgumentNullException.ThrowIfNull(read);var selected=selection.ReadBranchSelections(IdValues(source));var visited=new HashSet<string>(StringComparer.Ordinal);var result=fields.ToDictionary(f=>f,_=>(object?)null,StringComparer.Ordinal);
+        ArgumentNullException.ThrowIfNull(read);var selected=selection.ReadBranchKeys(IdValues(source));var visited=new HashSet<string>(StringComparer.Ordinal);var result=fields.ToDictionary(f=>f,_=>(object?)null,StringComparer.Ordinal);
         foreach(var branch in selection.Branches)
         {
             token.ThrowIfCancellationRequested();if(selected[branch.SourceColumnId] is not{} node||!visited.Add(branch.Slots[node.Level].ColumnName))continue;var names=branch.Slots.SelectMany(s=>new[]{s.ColumnName,s.ColumnName[..^3]+"_name"}).ToArray();var input=names.ToDictionary(f=>f,f=>source.TryGetValue(f,out var value)?value:null,StringComparer.Ordinal);var values=await read(branch.SourceColumnId,new ReadOnlyDictionary<string,object?>(input),token);if(values.Count!=names.Length||names.Any(f=>!values.ContainsKey(f)))throw new InvalidOperationException("共享路径回调返回未知或缺失字段。");
             for(var i=0;i<branch.Slots.Count;i++)
             {
-                var slot=branch.Slots[i];var id=SharedCrossTableSparseSelection.ParseStoredId(slot,values[slot.ColumnName]);var name=slot.ColumnName[..^3]+"_name";if(values[name] is not(null or string)||i<=node.Level&&id is null||i>node.Level&&id is not null||i==node.Level&&id!=node.Id)throw new InvalidOperationException("共享路径回调没有保持完整的实际选择层位。");if(id is null)continue;if(result[slot.ColumnName] is not null&&(!Equals(result[slot.ColumnName],values[slot.ColumnName])||!Equals(result[name],values[name])))throw new InvalidOperationException("共享已存独立末端的实际祖先路径冲突。");result[slot.ColumnName]=values[slot.ColumnName];result[name]=values[name];
+                var slot=branch.Slots[i];var id=selection.ParseStoredKey(slot,values[slot.ColumnName]);var name=slot.ColumnName[..^3]+"_name";if(values[name] is not(null or string)||i<=node.Level&&id is null||i>node.Level&&id is not null||i==node.Level&&id!=node.Id)throw new InvalidOperationException("共享路径回调没有保持完整的实际选择层位。");if(id is null)continue;if(result[slot.ColumnName] is not null&&(!Equals(result[slot.ColumnName],values[slot.ColumnName])||!Equals(result[name],values[name])))throw new InvalidOperationException("共享已存独立末端的实际祖先路径冲突。");result[slot.ColumnName]=values[slot.ColumnName];result[name]=values[name];
             }
         }
         return Freeze(result);

@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
@@ -12,6 +11,7 @@ internal sealed class FileSharedCrossParentScope
     private readonly SharedCrossTableSparseSelection selection;
     private readonly IReadOnlyDictionary<string,FileCrossParentScope> branches;
     internal IReadOnlyList<string> StorageNames{get;}
+    internal bool TextKeyAt(int index)=>selection.TextKeySlots.Contains(StorageNames[index]);
     /// <summary>共同位的每个分支均须绑定同一冻结页和名称，不能借一个好同伴补另一分支的范围。</summary>
     internal bool CoversTarget(string column,string table,string page,string name)
     {
@@ -24,8 +24,18 @@ internal sealed class FileSharedCrossParentScope
     {
         if(GlobalCrossTableTarget.Declared(table))throw new NotSupportedException("共享文件父范围要求普通项目来源。");var branches=new Dictionary<string,FileCrossParentScope>(StringComparer.Ordinal);var scopes=new List<NonRedundantCrossTableScope>();
         var allowExact=AllowsExactSource(catalog,table,page);
-        foreach(var branch in selection.Branches){var source=catalog.ConfigColumns.Single(c=>c.ConfigTableId==table.Id&&c.Id==branch.SourceColumnId);var compiled=FileCrossParentScope.CompileBranch(catalog,table,page,source,selection.BranchSelection(source.Id),0,allowExactSource:allowExact);branches.Add(source.Id,compiled.Scope);scopes.Add(compiled.Binding);}
-        _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],scopes,selection.Slots.Select(s=>s.ColumnName).ToArray());var plan=new FileSharedCrossParentScope(selection,branches);var index=plan.StorageNames.ToList().IndexOf(column.ColumnName);if(index<0)throw new InvalidOperationException("文件父字段不属于固定共享组。");return new FileCrossParentScope(selection.Branches[0].SourceColumnId,index,plan,scopes.AsReadOnly());
+        var textKeys=new HashSet<string>(StringComparer.Ordinal);
+        foreach(var branch in selection.Branches)
+        {
+            var source=catalog.ConfigColumns.Single(c=>c.ConfigTableId==table.Id&&c.Id==branch.SourceColumnId);
+            var compiled=FileCrossParentScope.CompileBranch(catalog,table,page,source,selection.BranchSelection(source.Id),0,
+                allowExactSource:allowExact,allowTextKeys:true);
+            branches.Add(source.Id,compiled.Scope);scopes.Add(compiled.Binding);
+            for(var level=0;level<branch.Slots.Count;level++)
+                if(compiled.Scope.TextKeyAt(level))textKeys.Add(branch.Slots[level].ColumnName);
+        }
+        _=NonRedundantReads.CompileWithCrossTables(catalog,table.Id,["id"],scopes,selection.Slots.Select(s=>s.ColumnName).ToArray());
+        var plan=new FileSharedCrossParentScope(textKeys.Count==0?selection:selection.WithTextKeys(textKeys),branches);var index=plan.StorageNames.ToList().IndexOf(column.ColumnName);if(index<0)throw new InvalidOperationException("文件父字段不属于固定共享组。");return new FileCrossParentScope(selection.Branches[0].SourceColumnId,index,plan,scopes.AsReadOnly());
     }
     /// <summary>逻辑父范围可与同页已证明的物理、联接或级联标量叠加；无发布后台的声明仍拒绝。</summary>
     private static bool AllowsExactSource(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
@@ -57,16 +67,16 @@ internal sealed class FileSharedCrossParentScope
     }
 
     /// <summary>在同一读快照／写事务内检查全部已存末端，拒绝实际祖先冲突；共同物理位只读取一次。</summary>
-    internal async Task<long[]> PathAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,RuntimeActor actor,bool locking,CancellationToken token)
+    internal async Task<string[]> PathKeysAsync(SqlRowStore store,IReadOnlyDictionary<string,object?> record,RuntimeActor actor,bool locking,CancellationToken token)
     {
-        token.ThrowIfCancellationRequested();IReadOnlyDictionary<string,CrossTableSelectedNode?> selected;
-        try{selected=selection.ReadBranchSelections(selection.Slots.ToDictionary(s=>s.ColumnName,s=>record.TryGetValue(s.ColumnName,out var v)?v:throw new InvalidOperationException("缺少实际共享稀疏位。")));}
+        token.ThrowIfCancellationRequested();IReadOnlyDictionary<string,CrossTableSelectedKey?> selected;
+        try{selected=selection.ReadBranchKeys(selection.Slots.ToDictionary(s=>s.ColumnName,s=>record.TryGetValue(s.ColumnName,out var v)?v:throw new InvalidOperationException("缺少实际共享稀疏位。")));}
         catch(Exception invalid)when(invalid is InvalidOperationException or ArgumentException){throw new UnauthorizedAccessException("文件来源共享稀疏选择无效。",invalid);}
-        var values=new long[selection.Slots.Count];var visited=new HashSet<string>(StringComparer.Ordinal);
+        var values=Enumerable.Repeat("",selection.Slots.Count).ToArray();var visited=new HashSet<string>(StringComparer.Ordinal);
         foreach(var branch in selection.Branches)
         {
-            if(selected[branch.SourceColumnId] is not{} node||!visited.Add(branch.Slots[node.Level].ColumnName))continue;var actual=await branches[branch.SourceColumnId].PathAsync(store,record,actor,locking,token);
-            for(var level=0;level<actual.Length;level++){var index=StorageNames.ToList().IndexOf(branch.Slots[level].ColumnName);if(values[index]!=0&&values[index]!=actual[level])throw new UnauthorizedAccessException("文件来源共享末端的实际祖先冲突。");values[index]=actual[level];}
+            if(selected[branch.SourceColumnId] is not{} node||!visited.Add(branch.Slots[node.Level].ColumnName))continue;var actual=await branches[branch.SourceColumnId].PathKeysAsync(store,record,actor,locking,token);
+            for(var level=0;level<actual.Length;level++){var index=StorageNames.ToList().IndexOf(branch.Slots[level].ColumnName);if(values[index].Length>0&&values[index]!=actual[level])throw new UnauthorizedAccessException("文件来源共享末端的实际祖先冲突。");values[index]=actual[level];}
         }
         if(visited.Count==0)throw new UnauthorizedAccessException("文件来源没有真实共享父选择。");return values;
     }

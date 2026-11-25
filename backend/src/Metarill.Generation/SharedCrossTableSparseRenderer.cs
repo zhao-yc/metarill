@@ -26,7 +26,7 @@ internal static class SharedCrossTableSparseRenderer
     /// <summary>每组只编码一次，不能调用成员旧PackCross相互覆盖。</summary>
     internal static string PackCall(GenerationModel model,TableModel table,PageModel page)=>!Enabled(model,table,page)?"":string.Concat(SharedCrossTableCompilation.ForPage(model,table,page).Groups.Select(g=>$"        PackSharedCross{page.Source.Id}_{g.Key}(entity,submitted,sharedCrossMutations[{L(g.Key)}]);\n"));
     /// <summary>复制原始位须为合法的独立末端集合，不能静默丢弃坏历史祖先。</summary>
-    internal static string CopyValidation(GenerationModel model,TableModel table,PageModel page)=>!Enabled(model,table,page)?"":string.Concat(SharedCrossTableCompilation.ForPage(model,table,page).Groups.Select(g=>$"        _=SharedCrossStorage{page.Source.Id}_{g.Key}.ReadStored({D(g.Columns.Where(c=>c.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)),"source")});\n"));
+    internal static string CopyValidation(GenerationModel model,TableModel table,PageModel page)=>!Enabled(model,table,page)?"":string.Concat(SharedCrossTableCompilation.ForPage(model,table,page).Groups.Select(g=>$"        _=SharedCrossStorage{page.Source.Id}_{g.Key}.ReadStored{(g.Plans.Any(plan=>plan.Read.HasTextKeys)?"Keys":"")}({D(g.Columns.Where(c=>c.Source.ColumnName.EndsWith("_id",StringComparison.Ordinal)),"source")});\n"));
     /// <summary>DML与通知之间核验真实ID和实际完整路径，不补写修复。</summary>
     internal static string After(GenerationModel model,TableModel table,PageModel page)=>!Enabled(model,table,page)?"":string.Concat(SharedCrossTableCompilation.ForPage(model,table,page).Groups.Select(g=>$"        await VerifySharedCross{page.Source.Id}_{g.Key}Async(entity,actor,parentId,sharedCrossMutations[{L(g.Key)}],cancellationToken);\n"));
     /// <summary>读原值与最终核验复用原当前锁读；只有本次主动路径才检查候选list动作。</summary>
@@ -41,7 +41,10 @@ internal static class SharedCrossTableSparseRenderer
             .Where(level=>level.Read.Target.Source.Id==table.Source.Id&&level.Read.DerivedName)
             .Select(level=>level.Name.Source.ColumnName).Distinct(StringComparer.Ordinal).ToArray();
         var deferNames=lateNames.Length==0?"":",new string[]{"+string.Join(",",lateNames.Select(L))+"},entity.Id";
-        b.AppendLine($"    private static readonly Metarill.Core.Metadata.SharedCrossTableSparseSelection SharedCrossStorage{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileSharedSelection({L(table.Source.Id)},{L(group.Key)});")
+        var keys=group.Coordinator.Branches.SelectMany(branch=>branch.Levels)
+            .Where(slot=>slot.TextKey).Select(slot=>slot.IdColumn).Distinct(StringComparer.Ordinal).ToArray();
+        var textBinding=keys.Length==0?"":".WithTextKeys(new string[]{"+string.Join(",",keys.Select(L))+"})";
+        b.AppendLine($"    private static readonly Metarill.Core.Metadata.SharedCrossTableSparseSelection SharedCrossStorage{suffix}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileSharedSelection({L(table.Source.Id)},{L(group.Key)}){textBinding};")
             .AppendLine("    /// <summary>固定分支委托只返回真实路径的本组字段，不接收请求目录或SQL。</summary>")
             .AppendLine($"    private async Task<IReadOnlyDictionary<string,object?>> ReadSharedCross{suffix}PathAsync(string control,IReadOnlyDictionary<string,object?> input,RuntimeActor actor,CancellationToken token,bool requireTargetList{sourceParameter})")
             .AppendLine("    {").AppendLine("        switch(control)").AppendLine("        {");

@@ -71,12 +71,14 @@ public sealed class CrossTableExcelSharedGenerationTests
         finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
     }
 
-    /// <summary>文本根和末级与整数层混用，实际原 Excel 入口按共享范围读写。</summary>
+    /// <summary>文本根和末级与整数层混用，原 Excel 入口保留共享父范围。</summary>
     [Theory]
-    [InlineData(null,false)][InlineData("country_id",false)][InlineData("place_id",true)]
-    public async Task Redundant_shared_text_keys_drive_original_write_and_workbook(string? fixedParent,bool global)
+    [InlineData(null,false,false)][InlineData("country_id",false,false)][InlineData("place_id",true,false)]
+    [InlineData(null,false,true)][InlineData("country_id",false,true)][InlineData("place_id",true,true)]
+    public async Task Shared_text_keys_drive_original_write_and_workbook(string? fixedParent,bool global,bool sparse)
     {
         var catalog=Catalog(global?"global-r1":"shared-r1");
+        if(sparse)catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=0;
         var main=catalog.ConfigColumns.Single(column=>column.Id=="25");
         CrossTableExcelLosslessGenerationTests.AddBusinessKeys(catalog,main,primaryLevel:1);
         var warehouse=catalog.ConfigColumns.Single(column=>column.Id=="80");
@@ -104,7 +106,7 @@ public sealed class CrossTableExcelSharedGenerationTests
         var source=model.Tables.Single(table=>table.Source.Id=="2");
         var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,source,Assert.Single(source.Pages)).Groups);
         Assert.All(group.Coordinator.Branches,branch=>Assert.True(branch.Levels[0].TextKey));
-        Assert.Contains(RelationPropagationCompilation.Bindings(model),binding=>binding.TargetKey=="business_key");
+        if(!sparse)Assert.Contains(RelationPropagationCompilation.Bindings(model),binding=>binding.TargetKey=="business_key");
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-shared-cross-text");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -121,22 +123,37 @@ public sealed class CrossTableExcelSharedGenerationTests
             Seed("Place",32,"城乙","SharedExcelAreaId",22,key:"City-B");
             Seed("Warehouse",41,"仓甲","SharedExcelAreaId",21);
             Seed("Warehouse",42,"仓乙","SharedExcelAreaId",22);
-            runtime.Add("SharedExcelSource",new Dictionary<string,object?>{{"Id",101L},{"Name","同名"},
+            if(!sparse)runtime.Add("SharedExcelSource",new Dictionary<string,object?>{{"Id",101L},{"Name","同名"},
                 {"YzProjectId",catalog.YzProjectId},{"CountryId","001"},{"CountryName","国甲"},{"AreaId","21"},
                 {"AreaName","区甲"},{"PlaceId","City-A"},{"PlaceName","城甲"},{"WarehouseId","41"},{"WarehouseName","仓甲"}});
-            if(fixedParent=="country_id")
+            if(!sparse&&fixedParent=="country_id")
                 runtime.Add("SharedExcelSource",new Dictionary<string,object?>{{"Id",102L},{"Name","同名"},
                     {"YzProjectId",catalog.YzProjectId},{"CountryId","1"},{"CountryName","国乙"},{"AreaId","22"},
                     {"AreaName","区乙"},{"PlaceId","City-B"},{"PlaceName","城乙"},{"WarehouseId","42"},{"WarehouseName","仓乙"}});
             var parentId=fixedParent switch{"country_id"=>"001","place_id"=>"City-A",_=>null};
             var input=new Dictionary<string,object?>{{"名称","同名"},{"仓库路径","国甲/区甲/仓甲"}};
             if(fixedParent!="place_id")input["主路径"]="国甲/区甲/城甲";
+            if(sparse&&fixedParent=="country_id")
+            {
+                // 覆盖定位使用固定的 MySQL 稀疏查询，离线传输验证相同生成代码的单元格解析和父键。
+                var parsed=await runtime.Parse(input,parentId);
+                Assert.Equal("City-A",parsed["placeId"].GetString());
+                Assert.Equal("001",parsed["countryId"].GetString());
+                var otherRoot=new Dictionary<string,object?>(input)
+                {
+                    ["主路径"]="国乙/区乙/城乙",
+                    ["仓库路径"]="国乙/区乙/仓乙"
+                };
+                await Assert.ThrowsAsync<PageImportException>(()=>runtime.Parse(otherRoot,parentId));
+                return;
+            }
             var stop=await Assert.ThrowsAsync<BusinessRuleException>(()=>runtime.Import([input],parentId));
             Assert.Same(guard.Stop,stop);
             Assert.Equal(fixedParent=="country_id"?RecordMutationOperation.Update:RecordMutationOperation.Create,guard.Validation!.Operation);
             if(fixedParent=="country_id")Assert.Equal(101L,guard.Validation.RecordId);
             var invalid=new Dictionary<string,object?>(input){["仓库路径"]="国乙/区乙/仓乙"};
             await Assert.ThrowsAsync<PageImportException>(()=>runtime.Import([invalid],parentId));
+            if(sparse)return;
             var exported=await runtime.Export(new PageRequest{ParentId=parentId});
             var row=Assert.Single(exported.Rows);
             Assert.Equal("国甲/区甲/城甲",row[exported.Headers.ToList().IndexOf("主路径")]);
@@ -1144,10 +1161,10 @@ internal sealed class SharedExcelReadTransport:IDisposable
         if(!rows.TryGetValue(type,out var values))rows[type]=values=[];values.Add(row);
     }
     /// <summary>真实私有解析加入原会话事务；不直接调用共享工具伪造生成方法已接线。</summary>
-    internal Task<Dictionary<string,JsonElement>> Parse(Dictionary<string,object?> row)=>Session.InTransactionAsync(async()=>
+    internal Task<Dictionary<string,JsonElement>> Parse(Dictionary<string,object?> row,string? parentId=null)=>Session.InTransactionAsync(async()=>
     {
         var method=serviceType.GetMethod("ParseImport"+pageId+"Async",BindingFlags.Instance|BindingFlags.NonPublic)!;
-        var arguments=method.GetParameters().Select(parameter=>parameter.Name switch{"row"=>(object?)JsonSerializer.SerializeToElement(row),"parentId"=>null,"actor"=>actor,"existing"=>null,"keyOnly"=>false,"cancellationToken"=>CancellationToken.None,_=>throw new InvalidOperationException("未知生成解析参数。")}).ToArray();
+        var arguments=method.GetParameters().Select(parameter=>parameter.Name switch{"row"=>(object?)JsonSerializer.SerializeToElement(row),"parentId"=>parentId,"actor"=>actor,"existing"=>null,"keyOnly"=>false,"cancellationToken"=>CancellationToken.None,_=>throw new InvalidOperationException("未知生成解析参数。")}).ToArray();
         try{return await (Task<Dictionary<string,JsonElement>>)method.Invoke(service,arguments)!;}
         catch(TargetInvocationException error)when(error.InnerException is not null){System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error.InnerException).Throw();throw;}
     });

@@ -40,7 +40,13 @@ public static partial class MySqlNonRedundantReadCompiler
                 var values=group.Branches.Select(b=>crossValues[owner+":"+b.SourceColumnId]).ToArray();var clauses=new List<string>();
                 foreach(var slot in group.Slots)
                 {
-                    var peers=values.Where(v=>v.ContainsKey(slot.ColumnName)).Select(v=>v[slot.ColumnName].Sql).ToArray();for(var i=0;i<peers.Length;i++)for(var j=i+1;j<peers.Length;j++)clauses.Add("(("+peers[i]+") IS NULL OR ("+peers[j]+") IS NULL OR BINARY CAST(("+peers[i]+") AS CHAR)=BINARY CAST(("+peers[j]+") AS CHAR))");
+                    var peers=values.Where(v=>v.ContainsKey(slot.ColumnName)).Select(v=>v[slot.ColumnName].Sql).ToArray();
+                    var text=group.Branches.Select(branch=>projections[owner+":"+branch.SourceColumnId].Selection)
+                        .Any(selection=>selection.Slots.Select((field,index)=>(field,index))
+                            .Any(entry=>entry.field.ColumnName==slot.ColumnName&&selection.TextKeys[entry.index]));
+                    string Bytes(string sql)=>text?"BINARY ("+sql+")":"BINARY CAST(("+sql+") AS CHAR)";
+                    for(var i=0;i<peers.Length;i++)for(var j=i+1;j<peers.Length;j++)
+                        clauses.Add("(("+peers[i]+") IS NULL OR ("+peers[j]+") IS NULL OR "+Bytes(peers[i])+"="+Bytes(peers[j])+")");
                 }
                 var result=new Dictionary<string,(string Sql,string Type)>(StringComparer.OrdinalIgnoreCase);
                 foreach(var field in group.Slots.SelectMany(s=>new[]{s.ColumnName,s.ColumnName[..^3]+"_name"}))
