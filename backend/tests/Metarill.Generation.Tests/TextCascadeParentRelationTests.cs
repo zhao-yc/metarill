@@ -1280,6 +1280,129 @@ public sealed class TextCascadeParentRelationTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
     }
 
+    /// <summary>按文本和全部原标量类型覆盖两种来源，并分别验证普通字典和精确数据字典。</summary>
+    public static IEnumerable<object[]> SingleJoinedTextParentCases()
+    {
+        string[] types=["string","int32","int64","decimal","double","bool","date","datetime","time"];
+        foreach(var (type,index) in types.Select((type,index)=>(type,index)))
+            foreach(var source in new[]{0,1})
+                yield return [type,source,(index+source)%2==0];
+    }
+
+    /// <summary>已发布文本父级的下拉和单选从字典固定联接取名，并保留写入及 Excel 范围。</summary>
+    [Theory]
+    [MemberData(nameof(SingleJoinedTextParentCases))]
+    public async Task Single_text_parent_reads_names_from_fixed_join(string kind,int sourceStorage,bool exact)
+    {
+        var catalog=Catalog(sourceStorage,exact?"OverWriteByFirstColumn":"OnlyNew",exact?"edit":"list");
+        PublishTextParentJoinedLabels(catalog,kind,["81","82"]);
+        catalog.ConfigColumns.Add(new(){Id="8605",ConfigTableId="86",YzProjectId=catalog.YzProjectId,
+            ColumnName="label_enabled",LogicalType="int32"});
+        catalog.ConfigPages.Single(page=>page.Id=="860").WhereSql+=" AND label_enabled=1";
+        foreach(var link in catalog.ConfigColumns.Where(column=>column.Id is "8108" or "8208"))
+        {
+            link.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("860");
+            link.ControlDetail="""{"tableId":"86","pageId":"860","nameField":"name"}""";
+        }
+        foreach(var display in catalog.ConfigColumns.Where(column=>column.Id is "701" or "703"))
+        {
+            display.LogicalType=kind;
+            display.ColumnLength=kind=="decimal"?"24,6":"";
+        }
+        if(exact)
+        {
+            foreach(var id in new[]{"81","82"})
+            {
+                catalog.ConfigColumns.Add(new(){Id=id+"09",ConfigTableId=id,YzProjectId=catalog.YzProjectId,
+                    ColumnName="scope_code",LogicalType="string"});
+                catalog.ConfigPages.Single(page=>page.ConfigTableId==id).Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
+            }
+            foreach(var admin in catalog.YzAdminTypes)
+                admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        }
+        var model=GenerationModel.Create(catalog,"Example.TextParentJoinedSingle");
+        var owner=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(owner.Pages);
+        var relations=RelationCompilation.ForPage(model,page,true,forExcel:true);
+        Assert.Equal(2,relations.Count);
+        Assert.All(relations,relation=>
+        {
+            Assert.Equal("country_id",relation.SharedTextParent?.Source.ColumnName);
+            Assert.True(DerivedRelationNamesCompilation.Declared(model,relation));
+            Assert.Equal(kind,relation.NameColumn.Source.LogicalType);
+            Assert.Equal(exact,DerivedRelationNamesCompilation.CandidateExact(model,owner,relation) is not null);
+        });
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        if(sourceStorage==1)
+        {
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("textrel_name_dictionary",maintenance.MixedTargets);
+            Assert.Contains("listitem_name",maintenance.MixedSourceColumns["textrel_source"]);
+            Assert.Contains("singleitem_name",maintenance.MixedSourceColumns["textrel_source"]);
+        }
+        var compilePackage=kind is "string" or "int64";
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-single-text-parent-joined-names");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=compilePackage?Path.Combine(directory,"backend/generated"):directory;
+            if(compilePackage)new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            else new CSharpGenerator().Generate(catalog,directory,model.Namespace);
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/TextrelSourceService.g.cs"));
+            Assert.Contains("DerivedOptionsPlan201_700",service);
+            Assert.Contains("DerivedOptionsPlan201_702",service);
+            Assert.Contains("ImportRelation201_700Async",service);
+            Assert.Contains("ImportRelation201_702Async",service);
+            Assert.Contains("Export201Async",service);
+            if(exact)
+            {
+                Assert.Contains("ResolveExactDataManage(\"810\", \"list\", \"real_name\")",service);
+                Assert.Contains("ResolveExactDataManage(\"820\", \"list\", \"real_name\")",service);
+            }
+            var metadata=compilePackage?await PublishedReadCatalog(directory):catalog;
+            foreach(var relation in relations)
+            {
+                var targets=DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation);
+                var tableId=relation.Target.Source.Id;
+                var pageId=relation.TargetPage.Source.Id;
+                var plan=exact?Metarill.Data.Queries.NonRedundantReads.CompileExactSingleParentCandidate(metadata,tableId,pageId,["id","name"],["scope_code"],[],targets)
+                    :Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(metadata,tableId,pageId,["id","name"],[],null,targets);
+                AssertTextParentSql(plan);
+                Assert.Equal(kind,plan.OutputTypes["name"]);
+                const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+                var sql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+                var from=Assert.IsType<string>(sql.GetType().GetProperty("From",flags)!.GetValue(sql));
+                var name=Assert.IsType<string>(sql.GetType().GetMethod("Expression",flags)!.Invoke(sql,["name"]));
+                Assert.Contains("`textrel_name_dictionary`",from);
+                Assert.Contains("`label_enabled`=@",from+name);
+                var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",flags)!.GetValue(sql));
+                var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(sql.GetType().GetProperty("Constants",flags)!.GetValue(sql));
+                Assert.Contains(parameters,parameter=>Equals(parameter.Value,"排除地区")&&scope.Contains(parameter.Key,StringComparison.Ordinal));
+            }
+            if(compilePackage)
+                foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>显示列使用普通名称时也要检查联接终点，凭据不得被发布为字典名称。</summary>
+    [Theory]
+    [InlineData("8102")]
+    [InlineData("8202")]
+    public void Single_text_parent_join_rejects_sensitive_terminal(string labelId)
+    {
+        var catalog=Catalog(0,"OnlyNew","list");
+        PublishTextParentJoinedLabels(catalog,"string",["81","82"]);
+        catalog.ConfigColumns.Add(new(){Id="8606",ConfigTableId="86",YzProjectId=catalog.YzProjectId,
+            ColumnName="password",LogicalType="string"});
+        catalog.ConfigColumns.Single(column=>column.Id==labelId).Extra["columnFullName"]=JsonSerializer.SerializeToElement("label_item.password");
+        var model=GenerationModel.Create(catalog,"Example.TextParentProtectedLabel");
+        var owner=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=Assert.Single(owner.Pages);
+        var error=Assert.Throws<NotSupportedException>(()=>RelationCompilation.ForPage(model,page,forService:true,forExcel:true));
+        Assert.Contains("非凭据单值终点",error.Message);
+    }
+
     /// <summary>原多值名称可以沿字典固定联接读取，文本父级与终点名称各自通过实际发布证明。</summary>
     [Theory]
     [InlineData(0,"string","OnlyNew","list",true)]
@@ -1291,30 +1414,7 @@ public sealed class TextCascadeParentRelationTests
     public async Task Multi_text_parent_reads_names_from_fixed_join(int sourceStorage,string kind,string import,string export,bool buildPackage)
     {
         var catalog=Catalog(sourceStorage,import,export);
-        catalog.ConfigTables.Add(new(){Id="86",YzProjectId=catalog.YzProjectId,TableName="textrel_name_dictionary",IsRongyu=1});
-        catalog.ConfigColumns.AddRange([
-            new(){Id="8601",ConfigTableId="86",YzProjectId=catalog.YzProjectId,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
-            new(){Id="8602",ConfigTableId="86",YzProjectId=catalog.YzProjectId,ColumnName="name",LogicalType=kind},
-            new(){Id="8603",ConfigTableId="86",YzProjectId=catalog.YzProjectId,ColumnName="yz_project_id",LogicalType="int64"},
-            new(){Id="8604",ConfigTableId="86",YzProjectId=catalog.YzProjectId,ColumnName="delete_no",LogicalType="datetime"}
-        ]);
-        catalog.ConfigPages.Add(new(){Id="860",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",ConfigTableId="86",
-            Name="名称字典",WhereSql="yz_project_id=@current_yz_project_id"});
-        catalog.ConfigPageColumns.Add(new(){Id="f8602",YzProjectId=catalog.YzProjectId,ConfigPageId="860",ConfigColumnId="8602",IsShow=1});
-        foreach(var id in new[]{"83","84"})
-        {
-            ScopeTarget(catalog,id);
-            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=0;
-            catalog.ConfigPages.Single(page=>page.ConfigTableId==id).WhereSql+=" AND area_name <> '排除地区'";
-            var label=catalog.ConfigColumns.Single(column=>column.Id==id+"02");
-            label.LogicalType=kind;
-            label.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
-            label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("label_item.name");
-            catalog.ConfigColumns.Add(new(){Id=id+"08",ConfigTableId=id,YzProjectId=catalog.YzProjectId,
-                ColumnName="label_item_id",LogicalType="int64",ControlKind="List",LinkConfigTableId="86",
-                ControlDetail="""{"tableId":"86","nameField":"name"}"""});
-            catalog.ConfigPageColumns.Add(new(){Id="f"+id+"08",ConfigPageId=id+"0",ConfigColumnId=id+"08",YzProjectId=catalog.YzProjectId});
-        }
+        PublishTextParentJoinedLabels(catalog,kind,["83","84"]);
         var model=GenerationModel.Create(catalog,"Example.JoinedTextParentLabels");
         var owner=model.Tables.Single(table=>table.Source.Id=="2");
         var page=Assert.Single(owner.Pages);
@@ -1518,6 +1618,36 @@ public sealed class TextCascadeParentRelationTests
         }
         catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="201"&&field.ConfigColumnId=="706").Extra["controlDetail"]=
             JsonSerializer.SerializeToElement("""{"nameField":"short_name"}""");
+    }
+
+    /// <summary>发布两端文本父键及同项目字典名称源，单值和多值用例共用。</summary>
+    private static void PublishTextParentJoinedLabels(MetadataCatalog catalog,string kind,IReadOnlyList<string> dictionaryIds)
+    {
+        catalog.ConfigTables.Add(new(){Id="86",YzProjectId=catalog.YzProjectId,TableName="textrel_name_dictionary",IsRongyu=1});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="8601",ConfigTableId="86",YzProjectId=catalog.YzProjectId,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+            new(){Id="8602",ConfigTableId="86",YzProjectId=catalog.YzProjectId,ColumnName="name",LogicalType=kind,ColumnLength=kind=="decimal"?"24,6":""},
+            new(){Id="8603",ConfigTableId="86",YzProjectId=catalog.YzProjectId,ColumnName="yz_project_id",LogicalType="int64"},
+            new(){Id="8604",ConfigTableId="86",YzProjectId=catalog.YzProjectId,ColumnName="delete_no",LogicalType="datetime"}
+        ]);
+        catalog.ConfigPages.Add(new(){Id="860",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",ConfigTableId="86",
+            Name="名称字典",WhereSql="yz_project_id=@current_yz_project_id"});
+        catalog.ConfigPageColumns.Add(new(){Id="f8602",YzProjectId=catalog.YzProjectId,ConfigPageId="860",ConfigColumnId="8602",IsShow=1});
+        foreach(var id in dictionaryIds)
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=0;
+            catalog.ConfigPages.Single(page=>page.ConfigTableId==id).WhereSql+=" AND area_name <> '排除地区'";
+            var label=catalog.ConfigColumns.Single(column=>column.Id==id+"02");
+            label.LogicalType=kind;
+            label.ColumnLength=kind=="decimal"?"24,6":"";
+            label.Extra["isJoinColumn"]=JsonSerializer.SerializeToElement(1);
+            label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("label_item.name");
+            catalog.ConfigColumns.Add(new(){Id=id+"08",ConfigTableId=id,YzProjectId=catalog.YzProjectId,
+                ColumnName="label_item_id",LogicalType="int64",ControlKind="List",LinkConfigTableId="86",
+                ControlDetail="""{"tableId":"86","nameField":"name"}"""});
+            catalog.ConfigPageColumns.Add(new(){Id="f"+id+"08",ConfigPageId=id+"0",ConfigColumnId=id+"08",YzProjectId=catalog.YzProjectId});
+        }
     }
 
     /// <summary>使用生成应用实际装载的精简目录重放查询，包含页级范围与原控件绑定。</summary>

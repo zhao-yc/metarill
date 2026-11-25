@@ -179,8 +179,11 @@ internal static class RelationCompilation
             {
                 sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowSparseTarget:true)??
                     NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowStoredTarget:true);
+                // 非冗余字典的联接名称交由实际发布页的固定投影证明，父键仍使用两页共同的文本业务键。
+                var nameStorage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source).Kind(name.Source);
                 if(sharedTextParent is null||binding.Declared||scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent)||
-                    !NonRedundantReadCompilation.Physical(model,target,name)||name.Type!="string?"&&!typedName||
+                    nameStorage!=MetadataFieldStorage.Physical&&(target.Source.IsRongyu!=0||nameStorage!=MetadataFieldStorage.Join)||
+                    name.Type!="string?"&&!typedName||
                     target.Source.IsRongyu!=0&&(FixedPageConditionCompilation.HasLogicalFields(targetPage)||
                         ExactDataManageCompilation.Declared(targetPage)&&
                         !ProjectScopedSingleRelationTarget.HasPhysicalSingleExact(model.Catalog,target.Source,targetPage.Source,source.Source.ControlKind))||

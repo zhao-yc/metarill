@@ -273,6 +273,8 @@ internal static class DerivedRelationNamesCompilation
                 : NonRedundantReads.Compile(model.Catalog, target.Source.Id, outputs, dependencies);
         if (plan.OutputTypes["id"] != "int64" || plan.OutputTypes[name.Source.ColumnName] != NameType(name))
             throw new InvalidOperationException("关系名称必须编译为与声明一致的固定标量。");
+        if(relation.SharedTextParent is not null&&Declared(model,relation))
+            plan.RequireScalarLabelOrigin(name.Source.ColumnName);
         return dependencies;
     }
     /// <summary>全局下拉及单选从实际目标页编译精确候选；弹窗仍绑定原单选页。</summary>

@@ -18,6 +18,14 @@ public sealed class NonRedundantReadPlan
     /// <summary>指示读取时是否须绑定服务端账号字段。</summary>
     public bool RequiresAccount=>MySql.RequiresAccount;
     public IReadOnlyDictionary<string,string> OutputTypes=>new System.Collections.ObjectModel.ReadOnlyDictionary<string,string>(MySql.Outputs.ToDictionary(name=>name,name=>MySql.Types[name],StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>按编译后的真实物理终点验证显示字段，联接别名不能将凭据发布为名称。</summary>
+    public void RequireScalarLabelOrigin(string field)
+    {
+        if(!MySql.Origins.TryGetValue(field,out var origin)||ExactDataManageValues.IsSensitiveField(origin.Column)||
+            origin is {Table:"yz_manager",Column:"salt"})
+            throw new NotSupportedException("关系显示名必须落到已证明的非凭据单值终点。");
+    }
 }
 
 /// <summary>业务页发布时固定的单值目标页和可选来源父键，不接受请求指定。</summary>
