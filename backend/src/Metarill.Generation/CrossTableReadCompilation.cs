@@ -7,11 +7,16 @@ internal sealed record CrossTableLevelModel(string Key,string Prefix,TableModel 
 {
     internal string KeyProperty => AlternateKey?.Property ?? "Id";
     internal string KeyColumn => AlternateKey?.Source.ColumnName ?? "id";
+    internal bool TextKey => AlternateKey?.Type=="string?";
 
     /// <summary>业务列在实体上可空，实际发布结构必须有非空约束。</summary>
     internal string KeyValue(string row) => row+"."+KeyProperty+(AlternateKey?.Type=="long?"?"!.Value":"");
 }
-internal sealed record CrossTableReadModel(ColumnModel Source,IReadOnlyList<CrossTableLevelModel> Levels,string Joiner);
+internal sealed record CrossTableReadModel(ColumnModel Source,IReadOnlyList<CrossTableLevelModel> Levels,string Joiner)
+{
+    internal bool HasTextKeys=>Levels.Any(level=>level.TextKey);
+    internal string TextLevels=>"new bool[]{"+string.Join(",",Levels.Select(level=>level.TextKey?"true":"false"))+"}";
+}
 internal sealed record CrossTableReadResult(CrossTableReadModel? Definition,string? Reason);
 
 /// <summary>把原跨表级联编译为有限强类型链；不推断动态SQL或模糊页面，不改变物理列。</summary>
@@ -57,6 +62,7 @@ internal static class CrossTableReadCompilation
                 if(result.Count>0)
                 {
                     parent=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==Text(entry,"parentField",""));if(parent is null||parent.IsSystem||parent.Type is not("string?" or "long?")||!Physical(parent))return Gap("非首层必须有物理字符串/int64父键。");
+                    if(result[^1].TextKey&&parent.Type!="string?")return Gap("文本上级业务键要求真实文本父字段。");
                     if(!string.IsNullOrWhiteSpace(parent.Source.LinkConfigTableId)&&parent.Source.LinkConfigTableId!=result[^1].Target.Source.Id)return Gap("父键未指向上一层。");
                 }
                 if(!target.IsGlobal&&!target.Columns.Any(column=>column.Source.ColumnName=="yz_project_id"))return Gap("目标缺少项目归属或明确全局声明。");
@@ -82,7 +88,14 @@ internal static class CrossTableReadCompilation
             if(result[^1].Prefix+"_id"!=source.Source.ColumnName)return Gap("末级前缀与来源叶子字段不一致。");
             if(!string.IsNullOrWhiteSpace(source.Source.LinkConfigTableId)&&source.Source.LinkConfigTableId!=result[^1].Target.Source.Id)return Gap("叶子关联表与末级不一致。");
             if(result.Select(level=>GenerationModel.Camel(level.Prefix+"_id")).Distinct(StringComparer.Ordinal).Count()!=result.Count)return Gap("层级JSON字段名冲突。");
-            var joiner=Text(root,"displayJoiner","/");var plan=new CrossTableReadModel(source,result.ToArray(),joiner);if(result.Any(level=>level.Target.Source.IsRongyu==0))NonRedundantCrossTargetsCompilation.Require(model,table,plan);return new(plan,null);
+            var joiner=Text(root,"displayJoiner","/");var plan=new CrossTableReadModel(source,result.ToArray(),joiner);
+            if(plan.HasTextKeys&&(model.Catalog.DatabaseProvider!="mysql"||table.Source.IsRongyu!=1||table.Source.IsView!=0||table.Source.IsFunctionTable!=0||table.IsGlobal||
+                result.Any(level=>level.Target.Source.IsRongyu!=1||level.Target.Source.IsView!=0||level.Target.IsGlobal||level.Target.Source.Id==table.Source.Id||FixedPageConditionCompilation.HasAccountVariables(level.Page))||
+                table.Pages.Any(candidate=>candidate.Scopes.Any(scope=>scope.Source=="parent"))))
+                return Gap("文本业务键当前要求 MySQL 独立的普通冗余来源及目标，逻辑父范围、全局或派生目标组合待接通。");
+            if(plan.HasTextKeys&&(!CrossTableFrontendProof.KeepsStorageDefinition(model,page,source)||result[^1].TextKey&&source.Type!="string?"))
+                return Gap("文本业务键要求表级定义及文本叶字段。");
+            if(result.Any(level=>level.Target.Source.IsRongyu==0))NonRedundantCrossTargetsCompilation.Require(model,table,plan);return new(plan,null);
         }
         catch(Exception error)when(error is JsonException or ArgumentException or InvalidOperationException or NotSupportedException){return Gap("定义不能安全编译："+error.Message);}
     }

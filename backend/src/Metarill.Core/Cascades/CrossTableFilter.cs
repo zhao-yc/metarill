@@ -3,7 +3,11 @@ using Metarill.Core.Contracts;
 namespace Metarill.Core.Cascades;
 
 /// <summary>生成期固定的原跨表筛选键，名称只回显而不参与谓词。</summary>
-public sealed record CrossTableFilterLevel(string IdKey,string NameKey);
+public sealed record CrossTableFilterLevel(string IdKey,string NameKey)
+{
+    public CrossTableFilterLevel(string idKey,string nameKey,bool textKey):this(idKey,nameKey)=>TextKey=textKey;
+    public bool TextKey{get;init;}
+}
 /// <summary>最深已选层级与原ID文本；字符串物理列保留前导零比较语义。</summary>
 public sealed record CrossTableFilterSelection(int Level,string Id);
 
@@ -27,7 +31,8 @@ public sealed class CrossTableFilter
         for(var index=levels.Length-1;index>=0;index--)
         {
             if(!value.TryGetProperty(levels[index].IdKey,out var id)||id.ValueKind==JsonValueKind.Null||id.ValueKind==JsonValueKind.String&&string.IsNullOrWhiteSpace(id.GetString()))continue;
-            _=CascadeTreeId.Parse(id,false);return new(index,id.ToString());
+            if(levels[index].TextKey)_=CascadeTreeId.ParseText(id,false);else _=CascadeTreeId.Parse(id,false);
+            return new(index,id.ToString());
         }
         return null;
     }

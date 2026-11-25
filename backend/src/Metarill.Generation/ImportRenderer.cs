@@ -168,7 +168,9 @@ public sealed partial class {{page.Name}}ImportRequest
             .AppendLine("        var seen = new HashSet<string>(StringComparer.Ordinal);");
         if(hasCross)
         {
-            result.AppendLine("        var crossInputs=new Metarill.Core.Cascades.CrossTableExcelRow();");
+            var textKeys=crosses.SelectMany(plan=>plan.Levels).Where(level=>level.Read.TextKey).Select(level=>level.Id.JsonName).Distinct(StringComparer.Ordinal).ToArray();
+            var textArgument=textKeys.Length==0?"":"new HashSet<string>(StringComparer.Ordinal){"+string.Join(",",textKeys.Select(Literal))+"}";
+            result.AppendLine($"        var crossInputs=new Metarill.Core.Cascades.CrossTableExcelRow({textArgument});");
             var slots=crosses.SelectMany(cross=>cross.Levels).Select(level=>level.Id.Source.Id).ToHashSet(StringComparer.Ordinal);
             foreach(var scope in page.Scopes.Where(scope=>slots.Contains(scope.Column.Source.Id)))
                 result.AppendLine($"        values[{Literal(scope.Column.JsonName)}]=JsonSerializer.SerializeToElement({ScopeValue(scope.Column,scope.Source=="parent"?"parentId!":"actor.ProjectId")},JsonOptions);");

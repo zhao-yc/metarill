@@ -162,8 +162,41 @@ public sealed class CrossTableExcelLosslessGenerationTests
         control.ControlDetail=detail.ToJsonString();
     }
 
+    /// <summary>同一链混用原主键和文本业务键，原组件接口与 Excel 都保留前导零和大小写。</summary>
+    [Fact]
+    public async Task Mixed_text_business_keys_use_the_original_page_and_excel()
+    {
+        var catalog=CrossTableExcelImportColumnsTests.Catalog("pathexcel","string");
+        var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        AddBusinessKeys(catalog,control,primaryLevel:1);
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.ColumnName=="business_key"||column.Id=="45"))
+        {
+            column.LogicalType="string";
+            column.ColumnLength="50";
+        }
+        catalog.ConfigPageColumns.Single(field=>field.ConfigColumnId==control.Id).IsShow=1;
+        RedundantMultiNameCacheTests.Published(catalog);
+        catalog.ConfigMenus.Add(new(){Id="2200",YzProjectId=catalog.YzProjectId,YzAdminTypeId="5",Name="来源",Kind="GENERATED_PAGE",ConfigPageId="201"});
+        var model=GenerationModel.Create(catalog,"Example.PathExcel");
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        new FrontendPackager().Validate(catalog);
+        var bindings=RelationPropagationCompilation.Bindings(model);
+        Assert.Equal(2,bindings.Count(binding=>binding.TargetKey=="business_key"));
+        var published=GenerationMetadataPublisher.ForRelations(catalog);
+        _=Metarill.Data.Relations.RelationMutationPlan.Compile(published,RelationPropagationCompilation.Definitions(bindings));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-cross-text-key");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new CSharpGenerator().Generate(catalog,Path.Combine(directory,"generated"),model.Namespace);
+            await ExerciseParser(await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory),textKeys:true);
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>真实私有解析器在原DatabaseSession事务中运行；按父/项目/状态过滤，不返回预设成功ID。</summary>
-    private static async Task ExerciseParser(Assembly assembly,bool businessKeys=false)
+    private static async Task ExerciseParser(Assembly assembly,bool businessKeys=false,bool textKeys=false)
     {
         DatabaseSession? currentSession=null;var transport=new TrustedSecurityMemoryProvider();var rows=new Dictionary<Type,List<object>>();var reads=new List<string>();
         object Select(Type type)
@@ -178,7 +211,20 @@ public sealed class CrossTableExcelLosslessGenerationTests
                     else
                     {
                         // 仅解释本夹具实际发布的单一status等式；未知SQL必须失败，不能静默忽略范围。
-                        var sql=Assert.IsType<string>(args[0]);var match=Regex.Match(sql,@"^\(*\s*\x60status\x60\s*=\s*@([A-Za-z0-9_]+)\s*\)*$");
+                        var sql=Assert.IsType<string>(args[0]);
+                        if(textKeys&&sql.StartsWith("BINARY ",StringComparison.Ordinal))
+                        {
+                            var bound=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(args[1]);
+                            var prefix=Regex.Match(sql,@"^BINARY \x60([a-z_]+)\x60 IN \((BINARY @[A-Za-z0-9_]+)(,BINARY @[A-Za-z0-9_]+)*\)$");
+                            Assert.True(prefix.Success,sql);
+                            var property=string.Concat(prefix.Groups[1].Value.Split('_').Select(part=>char.ToUpperInvariant(part[0])+part[1..]));
+                            var member=type.GetProperty(property)!;
+                            var values=bound.Values.Select(value=>Assert.IsType<string>(value)).ToHashSet(StringComparer.Ordinal);
+                            predicates.Add(row=>member.GetValue(row) is string key&&values.Contains(key));
+                            reads.Add("binary:"+property);
+                            return query;
+                        }
+                        var match=Regex.Match(sql,@"^\(*\s*\x60status\x60\s*=\s*@([A-Za-z0-9_]+)\s*\)*$");
                         Assert.True(match.Success,"离线解析器不支持该固定条件SQL");var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(args[1]);Assert.Single(parameters);
                         var expected=Convert.ToInt32(parameters[match.Groups[1].Value],System.Globalization.CultureInfo.InvariantCulture);Assert.Equal(1,expected);
                         predicates.Add(row=>Convert.ToInt32(type.GetProperty("Status")!.GetValue(row),System.Globalization.CultureInfo.InvariantCulture)==expected);reads.Add("scope:status");
@@ -196,11 +242,12 @@ public sealed class CrossTableExcelLosslessGenerationTests
             });return query;
         }
         var orm=(IFreeSql)Proxy(typeof(IFreeSql),(method,args)=>method.Name=="Select"?Select(method.GetGenericArguments()[0]):throw new InvalidOperationException("解析测试禁止写ORM或联网"));
-        var provider=new ExcelSnapshotTransport(transport,orm);using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline"},orm,provider);currentSession=session;
-        var actor=new RuntimeActor(901,"路径解析",false,"9007199254740993","1");var authorization=new ImportOnly(actor);
+        var provider=new ExcelSnapshotTransport(transport,orm,textKeys);using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline"},orm,provider);currentSession=session;
+        var actor=new RuntimeActor(901,"路径解析",false,"9007199254740993","1");var authorization=new ImportOnly(actor,textKeys);
         var mapper=Activator.CreateInstance(assembly.GetType("Example.PathExcel.Generated.Mappers.PathexcelSourceMapper")!,session)!;
         var type=assembly.GetType("Example.PathExcel.Generated.Services.PathexcelSourceService")!;
         var service=Activator.CreateInstance(type,session,mapper,new SnowflakeIdGenerator(949),Array.Empty<Metarill.Core.Persistence.IRecordMutationObserver>(),Array.Empty<Metarill.Core.Persistence.IRecordMutationGuard>(),authorization)!;
+        if(textKeys){await ExerciseTextPath();return;}
         Add("Country",11,"国甲");Add("Country",12,"国乙");Add("Area",21,"区甲","PathexcelCountryId",11);Add("Area",22,"区乙","PathexcelCountryId",12);Add("Place",31,"城市甲","PathexcelAreaId",21);Add("Place",32,"城市乙","PathexcelAreaId",22);
         Add("Country",14,"国甲",status:0);Add("Country",15,"国甲",project:2);Add("Country",16,"国甲",deleted:true);
         Add("Place",34,"9007199254740993","PathexcelAreaId",21);
@@ -239,19 +286,64 @@ public sealed class CrossTableExcelLosslessGenerationTests
         }
         return;
 
-        void Add(string name,long id,string label,string? parent=null,long parentId=0,int status=1,long project=9007199254740993,bool deleted=false)
+        async Task ExerciseTextPath()
+        {
+            Add("Country",11,"国甲",key:"001");
+            Add("Country",12,"国乙",key:"A-01");
+            Add("Country",13,"外部",project:2,key:"outside");
+            Add("Area",21,"区甲","PathexcelCountryId","001");
+            Add("Area",22,"区乙","PathexcelCountryId","A-01");
+            Add("Place",31,"城甲","PathexcelAreaId",21,key:"Leaf-A");
+            Add("Place",32,"城乙","PathexcelAreaId",22,key:"Leaf-B");
+            var leafRequest=new CascadeTreePathRequest{LeafId=JsonSerializer.SerializeToElement("Leaf-A")};
+            var pathMethod=type.GetMethod("CrossPath201_25Async")!;
+            var path=await (Task<CrossTablePath>)pathMethod.Invoke(service,[leafRequest,actor,CancellationToken.None])!;
+            Assert.Equal(new[]{"001","21","Leaf-A"},path.Path.Select(node=>node.Id));
+            var wrongCase=new CascadeTreePathRequest{LeafId=JsonSerializer.SerializeToElement("leaf-a")};
+            await Assert.ThrowsAsync<InvalidOperationException>(()=>(Task<CrossTablePath>)pathMethod.Invoke(service,[wrongCase,actor,CancellationToken.None])!);
+            var optionsRequest=new CascadeTreeOptionsRequest{LevelKey="地区-二",SelectedPath=JsonSerializer.SerializeToElement(new{countryId="001"})};
+            var options=await (Task<IReadOnlyList<CrossTableOption>>)type.GetMethod("CrossOptions201_25Async")!.Invoke(service,[optionsRequest,actor,CancellationToken.None])!;
+            Assert.Equal("21",Assert.Single(options).Id);
+            var parsed=await Parse(new Dictionary<string,object?>{{"级联","国甲/区甲/城甲"}});
+            Assert.Equal("001",Text(parsed["countryId"]));
+            Assert.Equal("Leaf-A",Text(parsed["placeId"]));
+            await Assert.ThrowsAsync<PageImportException>(()=>Parse(new Dictionary<string,object?>{{"级联","国甲/区乙/城乙"}}));
+            var rootOnly=await Parse(new Dictionary<string,object?>{{"级联","国甲//"}});
+            Assert.Equal("001",Text(rootOnly["countryId"]));
+            Assert.Null(Text(rootOnly["placeId"]));
+            var entity=AddSource(101,"叶记录","A-01",22,"Leaf-A");
+            var normalize=type.GetMethod("NormalizeCross201_25Async",BindingFlags.Instance|BindingFlags.NonPublic)!;
+            await session.InTransactionAsync(async()=>
+            {
+                await (Task)normalize.Invoke(service,[entity,actor,new HashSet<string>{"place_id"},CancellationToken.None,false])!;
+                return true;
+            });
+            Assert.Equal("001",entity.GetType().GetProperty("CountryId")!.GetValue(entity));
+            Assert.Equal("21",Convert.ToString(entity.GetType().GetProperty("AreaId")!.GetValue(entity),System.Globalization.CultureInfo.InvariantCulture));
+            var exported=await (Task<PageExportRequest>)type.GetMethod("Export201Async")!.Invoke(service,[new PageRequest(),actor,100,CancellationToken.None])!;
+            Assert.Equal("国甲/区甲/城甲",Assert.Single(exported.Rows)[exported.Headers.ToList().IndexOf("级联")]);
+            var filter=new PageRequest{Filters=new(){{"placeId",JsonSerializer.SerializeToElement(new{placeId="leaf-a"})}}};
+            var filtered=await (Task<PageExportRequest>)type.GetMethod("Export201Async")!.Invoke(service,[filter,actor,100,CancellationToken.None])!;
+            Assert.Empty(filtered.Rows);
+            Assert.Contains("binary:PlaceId",reads);
+            Assert.Contains("binary:BusinessKey",reads);
+            Assert.Contains("binary:PathexcelCountryId",reads);
+            Assert.Empty(transport.Commands);
+        }
+
+        void Add(string name,long id,string label,string? parent=null,object? parentId=null,int status=1,long project=9007199254740993,bool deleted=false,string? key=null)
         {
             var entityType=assembly.GetType("Example.PathExcel.Generated.Entities.Pathexcel"+name)!;var row=Activator.CreateInstance(entityType)!;
             void Set(string field,object? value){var property=entityType.GetProperty(field)!;var destination=Nullable.GetUnderlyingType(property.PropertyType)??property.PropertyType;property.SetValue(row,value is null?null:Convert.ChangeType(value,destination,System.Globalization.CultureInfo.InvariantCulture));}
-            Set("Id",businessKeys?9_007_199_254_740_990L+id:id);if(businessKeys)Set("BusinessKey",id);Set("Name",label);Set("YzProjectId",project);Set("Status",status);if(deleted)Set("DeleteNo",DateTime.UtcNow);if(parent is not null)Set(parent,parentId);
+            Set("Id",businessKeys?9_007_199_254_740_990L+id:id);if(businessKeys||key is not null)Set("BusinessKey",key is not null?key:id);Set("Name",label);Set("YzProjectId",project);Set("Status",status);if(deleted)Set("DeleteNo",DateTime.UtcNow);if(parent is not null)Set(parent,parentId);
             if(!rows.TryGetValue(entityType,out var data))rows[entityType]=data=[];data.Add(row);
         }
-        void AddSource(long id,string name,long country,long? area,long? place)
+        object AddSource(long id,string name,object country,object? area,object? place)
         {
             var entityType=assembly.GetType("Example.PathExcel.Generated.Entities.PathexcelSource")!;var row=Activator.CreateInstance(entityType)!;
             foreach(var (field,value) in new (string,object?)[]{("Id",id),("Name",name),("YzProjectId",9007199254740993L),("Status",1),("CountryId",country),("AreaId",area),("PlaceId",place)})
             {var property=entityType.GetProperty(field)!;var destination=Nullable.GetUnderlyingType(property.PropertyType)??property.PropertyType;property.SetValue(row,value is null?null:Convert.ChangeType(value,destination,System.Globalization.CultureInfo.InvariantCulture));}
-            if(!rows.TryGetValue(entityType,out var data))rows[entityType]=data=[];data.Add(row);
+            if(!rows.TryGetValue(entityType,out var data))rows[entityType]=data=[];data.Add(row);return row;
         }
         async Task<Dictionary<string,JsonElement>> Parse(Dictionary<string,object?> row,string page="201",string? parent=null)
         {
@@ -275,10 +367,10 @@ public sealed class CrossTableExcelLosslessGenerationTests
         }
     }
     /// <summary>只记录生成导出是否请求适配器快照，内部ADO仍为离线传输，不证明MySQL隔离或锁。</summary>
-    private sealed class ExcelSnapshotTransport(TrustedSecurityMemoryProvider inner,IFreeSql orm):IDatabaseProvider
+    private sealed class ExcelSnapshotTransport(TrustedSecurityMemoryProvider inner,IFreeSql orm,bool mysql):IDatabaseProvider
     {
         internal int Snapshots;
-        public string Name=>"offline";
+        public string Name=>mysql?"mysql":"offline";
         public DatabaseCapabilities Capabilities=>inner.Capabilities;
         public void Validate(DatabaseOptions options)=>inner.Validate(options);
         public IFreeSql CreateOrm(DatabaseOptions options)=>orm;
@@ -297,9 +389,13 @@ public sealed class CrossTableExcelLosslessGenerationTests
     /// <summary>仅代理数据库传输接口；业务与生成表达式仍实际执行。</summary>
     private static object Proxy(Type type,Func<MethodInfo,object?[]?,object?> action){var proxy=DispatchProxy.Create(type,typeof(GeneratedMutationGuardRun.CallProxy));((GeneratedMutationGuardRun.CallProxy)proxy).Action=action;return proxy;}
     /// <summary>导入不借用普通CRUD或目标list权；解析器之外的来源授权由公共入口单独验收。</summary>
-    private sealed class ImportOnly(RuntimeActor actor):IRuntimeAuthorization
+    private sealed class ImportOnly(RuntimeActor actor,bool permitList):IRuntimeAuthorization
     {
         public RuntimeActor RequireActor()=>actor;
-        public void RequirePagePermission(string page,string operation)=>throw new UnauthorizedAccessException("解析不能增加页面list要求");
+        public void RequirePagePermission(string page,string operation)
+        {
+            if(!permitList||operation!="list"||page is not("201" or "301" or "401" or "501"))
+                throw new UnauthorizedAccessException("解析不能增加页面list要求");
+        }
     }
 }

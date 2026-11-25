@@ -53,7 +53,7 @@ internal static class CrossTableCacheProof
             Object(level);if(Extra(level))throw new InvalidOperationException("跨表名称缓存不接受额外查询范围。");var tableName=Text(level,"table","");var prefix=Text(level,"columnPrefix",tableName);var key=Text(level,"key",tableName);var field=Text(level,"nameField","name");MetadataValidation.RequireIdentifier(tableName);MetadataValidation.RequireIdentifier(prefix);MetadataValidation.RequireIdentifier(field);if(!keys.Add(key)||!prefixes.Add(prefix)||prefix is "yz_project" or "insert_manager" or "update_manager" or "insert_user" or "update_user")throw new InvalidOperationException("跨表名称缓存层标识或前缀重复。");
             var node=catalog.ConfigTables.SingleOrDefault(x=>x.TableName==tableName&&(x.YzProjectId.Length==0||x.YzProjectId==catalog.YzProjectId))
                 ??throw new InvalidOperationException("跨表名称缓存目标不属于发布项目。");
-            _=CrossTableStorageColumns.AlternateLevelKey(catalog,node,level);
+            var alternate=CrossTableStorageColumns.AlternateLevelKey(catalog,node,level);
             var storage=MetadataStoragePolicy.ForTable(catalog,node);
             var columns=RelationStorageColumns.Expand(node,catalog.ConfigColumns.Where(x=>x.ConfigTableId==node.Id));
             var name=columns.SingleOrDefault(x=>x.ColumnName==field);
@@ -106,7 +106,7 @@ internal static class CrossTableCacheProof
             }
             else if(key==definition.CrossTableLevelKey&&definition.CrossTablePageId is not null)throw new InvalidOperationException("普通跨表层不能冒用全局目标页证明。");
             if(previous is not null){var parent=columns.SingleOrDefault(x=>x.ColumnName==Text(level,"parentField",""));if(parent is null||parent.ColumnName is "id" or "yz_project_id" or "insert_manager_id" or "update_manager_id" or "insert_user_id" or "update_user_id"||parent.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList"||parent.LogicalType is not("string" or "int64")||!storage.IsPhysical(parent)||Enabled(parent)||parent.LinkConfigTableId.Length>0&&parent.LinkConfigTableId!=previous.Id)throw new InvalidOperationException("跨表名称缓存父键不是已声明物理关系。");}
-            if(key==definition.CrossTableLevelKey){if(foreign.Id!=control.Id&&foreign.ControlKind.Length>0||foreign.ColumnName!=prefix+"_id"||cache.ColumnName!=prefix+"_name"||target.Id!=node.Id||value.Id!=name.Id)throw new InvalidOperationException("跨表名称缓存字段与固定层声明不一致。");found=true;}
+            if(key==definition.CrossTableLevelKey){if(alternate?.LogicalType=="string"&&foreign.LogicalType!="string"||foreign.Id!=control.Id&&foreign.ControlKind.Length>0||foreign.ColumnName!=prefix+"_id"||cache.ColumnName!=prefix+"_name"||target.Id!=node.Id||value.Id!=name.Id)throw new InvalidOperationException("跨表名称缓存字段与固定层声明不一致。");found=true;}
             previous=node;last=prefix;
         }
         if(definition.CrossTableGlobalPages is{} complete&&!globalKeys.SetEquals(complete.Keys))throw new InvalidOperationException("共享全局层页映射必须完整且仅含当前控制列的全局层。");

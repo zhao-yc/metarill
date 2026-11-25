@@ -6,7 +6,7 @@ namespace Metarill.Generation;
 internal static class CrossTableFilterRenderer
 {
     /// <summary>各页键计划只初始化一次，不在每个请求解释元数据或反射字段。</summary>
-    internal static string Service(GenerationModel model,TableModel table,PageModel page)=>string.Concat(CrossTableFilterCompilation.ForPage(model,table,page).Select(plan=>$"    private static readonly Metarill.Core.Cascades.CrossTableFilter CrossFilter{page.Source.Id}_{plan.Read.Source.Source.Id}=new([{string.Join(",",plan.Levels.Select(level=>"new("+Literal(level.Id.JsonName)+","+Literal(level.Name.JsonName)+")"))}]);\n"));
+    internal static string Service(GenerationModel model,TableModel table,PageModel page)=>string.Concat(CrossTableFilterCompilation.ForPage(model,table,page).Select(plan=>$"    private static readonly Metarill.Core.Cascades.CrossTableFilter CrossFilter{page.Source.Id}_{plan.Read.Source.Source.Id}=new([{string.Join(",",plan.Levels.Select(level=>"new("+Literal(level.Id.JsonName)+","+Literal(level.Name.JsonName)+(level.Read.TextKey?",true":"")+")"))}]);\n"));
     /// <summary>最深级只选一个eq，原字符串不归一成别的字符串；int64按精确整数绑定。</summary>
     internal static string Filter(CrossTableWriteModel plan,PageModel page)
     {
@@ -14,7 +14,10 @@ internal static class CrossTableFilterRenderer
         for(var index=0;index<plan.Levels.Count;index++)
         {
             var column=plan.Levels[index].Id;var value=column.Type=="string?"?"selected.Id":"long.Parse(selected.Id,NumberStyles.None,CultureInfo.InvariantCulture)";
-            output.AppendLine($"                        case {index}:{{var value={value};query=query.Where(entity=>entity.{column.Property}==value);break;}}");
+            var filter=plan.Levels[index].Read.TextKey?
+                CrossTableReadRenderer.TextMatch("query",column.Source.ColumnName,"mt_cross_filter_"+page.Source.Id+"_"+plan.Read.Source.Source.Id+"_"+index,"[value]"):
+                $"query.Where(entity=>entity.{column.Property}==value)";
+            output.AppendLine($"                        case {index}:{{var value={value};query={filter};break;}}");
         }
         return output.AppendLine("                        default:throw new InvalidOperationException(\"跨表筛选层级无效。\");").AppendLine("                    }").ToString();
     }

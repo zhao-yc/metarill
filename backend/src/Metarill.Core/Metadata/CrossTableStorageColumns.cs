@@ -41,15 +41,13 @@ public static class CrossTableStorageColumns
         }
         return result.ToArray();
     }
-    /// <summary>逐层解析目标键。数值键沿用原正整数协议，校验唯一索引后才允许绑定。</summary>
+    /// <summary>逐层解析目标键，校验唯一索引后才允许绑定。</summary>
     public static ColumnMetadata? AlternateLevelKey(MetadataCatalog catalog, TableMetadata target, JsonElement level)
     {
         var name = Text(level, "idField", "id");
         if (name == "id")
             return null;
         var (key, _) = CascadeTreeStorageColumns.ResolveNodeKey(catalog, target, name);
-        if (key.LogicalType != "int64")
-            throw new NotSupportedException("跨表级联文本业务键尚未接通。");
         return key;
     }
 

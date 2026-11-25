@@ -29,15 +29,16 @@ internal static class CrossTableWriteRenderer
             var overrideParameter=merged&&shared?$",{table.EntityType}? sourceOverride=null":"";
             output.AppendLine("    /// <summary>最深非空ID决定路径；用户祖先ID与名称不作为可信值，部分选择清空后段。</summary>")
                 .AppendLine($"    private async Task NormalizeCross{suffix}Async({table.EntityType} entity,RuntimeActor actor,ISet<string> submitted,CancellationToken cancellationToken,bool requireTargetList=true{(merged?",bool creating=false":"")}{overrideParameter})")
-                .AppendLine("    {").AppendLine("        if(session.CurrentTransaction is null)throw new InvalidOperationException(\"跨表保存必须加入原事务。\");ValidateActor(actor);if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"跨表保存要求当前真实身份。\");var deepest=-1;long? selected=null;");
+                .AppendLine("    {").AppendLine("        if(session.CurrentTransaction is null)throw new InvalidOperationException(\"跨表保存必须加入原事务。\");ValidateActor(actor);if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException(\"跨表保存要求当前真实身份。\");var deepest=-1;"+(plan.Read.HasTextKeys?"string?":"long?")+" selected=null;");
             // 共享协调器已决定何时读取分支。独立链仍按字段存在性决定是否刷新。
             if(merged&&!shared)output.AppendLine($"        if(!({Trigger(plan)}))return;");
             for(var index=0;index<plan.Levels.Count;index++)
             {
-                var id=plan.Levels[index].Id;output.AppendLine($"        var text{index}=Convert.ToString(entity.{id.Property},CultureInfo.InvariantCulture);if(!string.IsNullOrWhiteSpace(text{index})){{if(!long.TryParse(text{index},NumberStyles.None,CultureInfo.InvariantCulture,out var key{index})||key{index}<=0||text{index}!=key{index}.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"跨表级联ID须为规范正整数。\");deepest={index};selected=key{index};}}");
+                var level=plan.Levels[index];
+                output.AppendLine(Selection(plan,level,index,"entity","text","ArgumentException","跨表级联ID须为规范正整数。"));
             }
             var sourceArgument=!merged?"":shared?",sourceOverride,creating":",entity,creating";
-            output.AppendLine($"        var path=deepest<0?null:await CrossReader{suffix}(actor,true,requireTargetList{sourceArgument}).PathAsync(deepest,selected,cancellationToken);");
+            output.AppendLine($"        var path=deepest<0?null:await CrossReader{suffix}(actor,true,requireTargetList{sourceArgument}).Path{(plan.Read.HasTextKeys?"ByKey":"")}Async(deepest,selected,cancellationToken);");
             for(var index=0;index<plan.Levels.Count;index++)
             {
                 var level=plan.Levels[index];var id=level.Id;var name=level.Name;var clear=id.Type=="string?"?$"entity.{id.Property} is null?null:\"\"":"null";var value=id.Type=="string?"?$"path!.Path[{index}].Id":$"long.Parse(path!.Path[{index}].Id,CultureInfo.InvariantCulture)";
@@ -73,8 +74,9 @@ internal static class CrossTableWriteRenderer
     private static string FinalPath(TableModel table,PageModel page,CrossTableWriteModel plan)
     {
         var suffix=page.Source.Id+"_"+plan.Read.Source.Source.Id;var result=new StringBuilder().AppendLine("        if(session.CurrentTransaction is null)throw new InvalidOperationException(\"跨表最终校验要求原事务。\");")
-            .AppendLine($"        var refresh={Trigger(plan)};var deepest=-1;long? selected=null;");
-        for(var index=0;index<plan.Levels.Count;index++){var level=plan.Levels[index];result.AppendLine($"        var actual{index}=Convert.ToString(stored.{level.Id.Property},CultureInfo.InvariantCulture);if(!string.IsNullOrWhiteSpace(actual{index})){{if(!long.TryParse(actual{index},NumberStyles.None,CultureInfo.InvariantCulture,out var key{index})||key{index}<=0||actual{index}!=key{index}.ToString(CultureInfo.InvariantCulture))throw new InvalidOperationException(\"跨表已存ID无效。\");deepest={index};selected=key{index};}}");}
+            .AppendLine($"        var refresh={Trigger(plan)};var deepest=-1;{(plan.Read.HasTextKeys?"string?":"long?")} selected=null;");
+        for(var index=0;index<plan.Levels.Count;index++)
+            result.AppendLine(Selection(plan,plan.Levels[index],index,"stored","actual","InvalidOperationException","跨表已存ID无效。"));
         result.AppendLine($"        if(deepest<0)return;var path=await CrossReader{suffix}(actor,true,refresh&&requireTargetList).PathAsync(deepest,selected,cancellationToken);");
         for(var index=0;index<plan.Levels.Count;index++)
         {
@@ -84,6 +86,15 @@ internal static class CrossTableWriteRenderer
         }
         return result.ToString();
     }
+    /// <summary>整数保持原规范十进制校验，文本按数据库原值写入和复核。</summary>
+    private static string Selection(CrossTableWriteModel plan,CrossTableWriteLevel level,int index,string row,string prefix,string error,string message)
+    {
+        var variable=prefix+index;
+        var check=level.Read.TextKey?"":$"if(!long.TryParse({variable},NumberStyles.None,CultureInfo.InvariantCulture,out var key{index})||key{index}<=0||{variable}!=key{index}.ToString(CultureInfo.InvariantCulture))throw new {error}(\"{message}\");";
+        var key=plan.Read.HasTextKeys?variable:"key"+index;
+        return $"        var {variable}=Convert.ToString({row}.{level.Id.Property},CultureInfo.InvariantCulture);if(!string.IsNullOrWhiteSpace({variable})){{{check}deepest={index};selected={key};}}";
+    }
+
     /// <summary>元数据只作为C#字符串字面量。</summary>
     private static string Literal(string value)=>JsonSerializer.Serialize(value);
 }

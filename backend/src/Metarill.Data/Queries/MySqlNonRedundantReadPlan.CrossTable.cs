@@ -56,6 +56,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     var page=catalog.ConfigPages.SingleOrDefault(item=>item.Id==binding.Levels[index].PageId&&item.ConfigTableId==target.Id)??throw new InvalidOperationException("跨表目标页与固定目标表不符。");
                     if(page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||CrossText(page,"exactDataManageMatchField").Length>0)throw new NotSupportedException("跨表目标页的项目／精确权限范围尚未接线。");
                     var alternate=CrossTableStorageColumns.AlternateLevelKey(catalog,target,entry);
+                    if(alternate?.LogicalType=="string")throw new NotSupportedException("非冗余跨表暂不支持文本业务键。");
                     var global=GlobalCrossTableTarget.Declared(target);if(!global&&(!columns[target.Id].TryGetValue("yz_project_id",out var project)||!storage[target.Id].IsPhysical(project)))throw new InvalidOperationException("跨表目标缺少真实物理项目范围。");
                     var display=Column(target,Value(entry,"nameField") is {Length:>0} field?field:"name");
                     if(display.ColumnName=="id"||(display.LogicalType!="string"&&!MultiValueLabel.IsTyped(display.LogicalType))||ExactDataManageValues.IsSensitiveField(display.ColumnName))

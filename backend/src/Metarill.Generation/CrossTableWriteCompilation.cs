@@ -21,6 +21,7 @@ internal static class CrossTableWriteCompilation
         {
             var id=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==level.Prefix+"_id");var name=table.Columns.SingleOrDefault(column=>column.Source.ColumnName==level.Prefix+"_name");
             if(id is null||name is null||id.IsSystem||name.IsSystem||id.Type is not("string?" or "long?")||name.Type!="string?"||id.IsJsonArray||name.IsJsonArray||!physical.IsPhysical(id.Source)||(table.Source.IsRongyu==1?!physical.IsPhysical(name.Source):physical.IsPhysical(name.Source))||GenerationModel.Enabled(id.Source.Extra,"isJoinColumn"))return Gap("各级ID/名称必须有可证明的非系统物理标量，显式冲突不能覆盖。");
+            if(level.TextKey&&id.Type!="string?")return Gap("文本业务键需要同层文本来源字段。");
             if(id.Source.Id!=source.Source.Id&&!string.IsNullOrWhiteSpace(id.Source.ControlKind))return Gap("辅助ID的独立控件规则需要协调。");
             if(!string.IsNullOrWhiteSpace(id.Source.LinkConfigTableId)&&id.Source.LinkConfigTableId!=level.Target.Source.Id)return Gap("来源辅助ID关联表不一致。");result.Add(new(level,id,name));
         }
