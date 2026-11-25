@@ -1128,6 +1128,89 @@ public sealed class TextCascadeParentRelationTests
         }
     }
 
+    /// <summary>按显示类型覆盖冗余及非冗余来源和字典，轮流启用原页精确数据管理。</summary>
+    public static IEnumerable<object[]> SingleScalarTextParentCases()
+    {
+        string[] types=["int32","int64","decimal","double","bool","date","datetime","time"];
+        foreach(var (type,index) in types.Select((type,index)=>(type,index)))
+            foreach(var source in new[]{0,1})
+                foreach(var target in new[]{0,1})
+                    yield return [type,source,target,(index+source+target)%2==0];
+    }
+
+    /// <summary>下拉和单选保留各标量显示类型，并按原文本父键限定候选、保存、Excel 及名称副本。</summary>
+    [Theory]
+    [MemberData(nameof(SingleScalarTextParentCases))]
+    public async Task Single_text_parent_preserves_physical_scalar_labels(string kind,int sourceStorage,int targetStorage,bool exact)
+    {
+        var catalog=Catalog(sourceStorage,exact?"OverWriteByFirstColumn":"OnlyNew",exact?"edit":"list");
+        if(targetStorage==1)
+            catalog.ConfigColumns.Single(column=>column.Id=="700").Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("810");
+        foreach(var (id,displayId) in new[]{("81","701"),("82","703")})
+        {
+            ScopeTarget(catalog,id);
+            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=targetStorage;
+            foreach(var column in catalog.ConfigColumns.Where(column=>column.Id==id+"02"||column.Id==displayId))
+            {
+                column.LogicalType=kind;
+                column.ColumnLength=kind=="decimal"?"24,6":"";
+            }
+            var dictionary=catalog.ConfigPages.Single(page=>page.ConfigTableId==id);
+            if(targetStorage==0)dictionary.WhereSql+=" AND area_name <> '排除地区'";
+            if(exact)
+            {
+                catalog.ConfigColumns.Add(new(){Id=id+"09",ConfigTableId=id,YzProjectId=catalog.YzProjectId,
+                    ColumnName="scope_code",LogicalType="string"});
+                dictionary.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
+            }
+        }
+        if(exact)
+            foreach(var admin in catalog.YzAdminTypes)
+                admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        var model=GenerationModel.Create(catalog,"Example.TextParentSingleScalars");
+        var owner=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(owner.Pages);
+        var relations=RelationCompilation.ForPage(model,page,true,forExcel:true);
+        Assert.Equal(2,relations.Count);
+        Assert.All(relations,relation=>
+        {
+            Assert.Equal(kind,relation.NameColumn.Source.LogicalType);
+            Assert.Equal("country_id",relation.SharedTextParent?.Source.ColumnName);
+            Assert.Equal(exact,DerivedRelationNamesCompilation.CandidateExact(model,owner,relation) is not null);
+        });
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        if(sourceStorage==1)
+        {
+            var maintenance=MixedRelationPropagationCompilation.ForModel(model);
+            Assert.Contains("listitem_name",maintenance.MixedSourceColumns["textrel_source"]);
+            Assert.Contains("singleitem_name",maintenance.MixedSourceColumns["textrel_source"]);
+        }
+        var compilePackage=(kind,sourceStorage,targetStorage) is ("time",0,0) or ("double",0,1) or ("decimal",1,0) or ("int64",1,1);
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-single-text-parent-scalars");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=compilePackage?Path.Combine(directory,"backend/generated"):directory;
+            if(compilePackage)new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            else new CSharpGenerator().Generate(catalog,directory,model.Namespace);
+            var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/TextrelSourceService.g.cs"));
+            Assert.Contains("DerivedOptionsPlan201_700",service);
+            Assert.Contains("DerivedOptionsPlan201_702",service);
+            Assert.Contains("ImportRelation201_700Async",service);
+            Assert.Contains("ImportRelation201_702Async",service);
+            Assert.Contains("Export201Async",service);
+            Assert.Contains(kind switch
+            {
+                "int32"=>"int.TryParse(label",
+                "int64"=>"long.TryParse(label",
+                _=>"MultiValueLabel.Parse(\""+kind+"\""
+            },service);
+            if(compilePackage)
+                foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
     /// <summary>字典非字符串显示名沿用已有文本格式，选档与名称读取仍匹配真实祖先。</summary>
     [Theory]
     [InlineData("int32",0,0,false)]

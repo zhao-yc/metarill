@@ -180,7 +180,7 @@ internal static class RelationCompilation
                 sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowSparseTarget:true)??
                     NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowStoredTarget:true);
                 if(sharedTextParent is null||binding.Declared||scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent)||
-                    !NonRedundantReadCompilation.Physical(model,target,name)||name.Type!="string?"||
+                    !NonRedundantReadCompilation.Physical(model,target,name)||name.Type!="string?"&&!typedName||
                     target.Source.IsRongyu!=0&&(FixedPageConditionCompilation.HasLogicalFields(targetPage)||
                         ExactDataManageCompilation.Declared(targetPage)&&
                         !ProjectScopedSingleRelationTarget.HasPhysicalSingleExact(model.Catalog,target.Source,targetPage.Source,source.Source.ControlKind))||
