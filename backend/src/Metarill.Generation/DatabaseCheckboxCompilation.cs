@@ -40,6 +40,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
+    internal bool IndependentTextSource { get; init; }
     internal IReadOnlyList<ColumnModel> SourceScopeColumns { get; init; } = [];
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal PageModel? GlobalParentPage { get; init; }
@@ -307,10 +308,12 @@ internal static class DatabaseCheckboxCompilation
                 NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,column);
             if(scopes.Any(scope=>scope.Column.Type is not("long?" or "int?" or "string?")||!NonRedundantReadCompilation.Physical(model,target,scope.Column)&&!FunctionLogicalParent(scope.Column)||scope.Column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,scope.Column)))return Gap("身份／父范围必须绑定真实物理ID标量。");
             TableModel Parent(ColumnModel column)=>model.Tables.SingleOrDefault(parent=>column.Source.LinkConfigTableId.Length>0?parent.Source.Id==column.Source.LinkConfigTableId:parent.Source.TableName+"_id"==column.Source.ColumnName)??throw new InvalidOperationException("复选父范围缺少明确真实父表。");
-            if(sourceScopeColumns.Any(column=>!NonRedundantReadCompilation.Physical(model,table,column)||column.IsJsonArray||
+            var textSource=CrossTableReadCompilation.TextSourceParent(model,table,page);
+            if(sourceScopeColumns.Any(column=>(column!=textSource&&!NonRedundantReadCompilation.Physical(model,table,column))||column.IsJsonArray||
                 column.Type is not("long?" or "string?")))return Gap("来源父必须为固定标量ID。");
             var sourceBindings=sourceScopeColumns.Select(column=>(Column:column,Path:NonRedundantCrossParentCompilation.Find(model,table,page,column))).ToArray();
-            var parents=sourceBindings.Select(binding=>binding.Path is {} path?path.Read.Levels[path.Index].Target:Parent(binding.Column))
+            var parents=sourceBindings.Select(binding=>binding.Path is {} path?path.Read.Levels[path.Index].Target:
+                    binding.Column==textSource?SharedRedundantParentCompilation.ForColumn(model,table,page,binding.Column).Single().Level.Target:Parent(binding.Column))
                 .DistinctBy(parent=>parent.Source.Id).ToArray();
             if(parents.Length>1)return Gap("多个来源范围必须绑定同一真实父表。");
             // 目标只有一个 parentId；用可还原的逻辑键作为来源代表，其他同父范围仍逐条验证。
@@ -333,7 +336,11 @@ internal static class DatabaseCheckboxCompilation
                 sourceParent=sourceScopeColumns.Single(column=>column.Source.Id==owner.Column.Id);
             }
             var pageHasParent=logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true;
-            if(logicalSource&&physicalParents.Length==0&&!pageHasParent)
+            var independentTextSource=textSource is not null&&physicalParents.Length==0&&!pageHasParent&&
+                namePage?.Scopes.Any(scope=>scope.Source=="parent")!=true;
+            if(textSource is not null&&!independentTextSource)
+                return Gap("复选目标父尚未证明使用与来源相同的文本业务键。");
+            if(logicalSource&&!independentTextSource&&physicalParents.Length==0&&!pageHasParent)
                 return Gap("来源逻辑父键须对应明确的控件或目标页父范围。");
             PageModel? globalParentPage=null;
             if(projectStoredGlobalParent is not null)
@@ -438,7 +445,7 @@ internal static class DatabaseCheckboxCompilation
             // 只有显式关联了实际级联祖先时，原复选可直接沿来源的全局层位校验。
             var explicitGlobalPath=logicalSource&&physicalParents.Length>0&&parents[0].IsGlobal&&
                 physicalParents.All(scope=>scope.Column.Source.LinkConfigTableId==parents[0].Source.Id);
-            if(parents.Any(parent=>Protected(parent)||!(parent.IsGlobal&&(globalParentPage is not null||explicitGlobalPath))&&!HasIdentity(model,parent)))
+            if(parents.Any(parent=>Protected(parent)||!(parent.IsGlobal&&(globalParentPage is not null||explicitGlobalPath||independentTextSource))&&!HasIdentity(model,parent)))
                 return Gap("来源父须具有普通业务项目归属或实际全局层位证明。");
             // 原非冗余候选优先采用控件排序，省略时继承实际目标页排序。
             var orderBy=definition.OrderBy;
@@ -486,6 +493,7 @@ internal static class DatabaseCheckboxCompilation
                 RealtimeLogicalParentScope=realtimeRead&&exactTarget is null&&logicalPage is not null&&
                     logicalPage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column)),
                 ExactTarget=exactTarget,
+                IndependentTextSource=independentTextSource,
                 LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)
                     .DistinctBy(path=>(path.Read.Source.Source.Id,path.Index)).ToArray(),
                 SourceScopeColumns=sourceScopeColumns,

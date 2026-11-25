@@ -110,7 +110,7 @@ internal static class CrossTableReadCompilation
         return definition.RootElement.TryGetProperty("levels",out var levels)&&levels.ValueKind==JsonValueKind.Array&&
             levels.EnumerateArray().Any(level=>Text(level,"idField","id")!="id");
     }
-    /// <summary>文本父范围消费本链唯一逻辑层。普通关系候选仍有独立的整数父协议。</summary>
+    /// <summary>文本父范围消费本链唯一逻辑层；其它控件各自证明其目标父键。</summary>
     private static bool SupportsSourceParent(GenerationModel model,TableModel table,ColumnModel source,IReadOnlyList<CrossTableLevelModel> levels)
     {
         foreach(var page in table.Pages)
@@ -127,10 +127,17 @@ internal static class CrossTableReadCompilation
                     .SingleOrDefault(group=>group.Branches.Any(branch=>branch.SourceColumnId==source.Source.Id));
                 if(group is null||!group.Slots.Any(slot=>slot.ColumnName==parents[0].Source.ColumnName))return false;
             }
-            if(level?.TextKey==true&&table.Columns.Any(column=>column.Source.ControlKind is "List" or "SelectPage"
-                or "MultiSelectPage" or "MultiCheckBoxDatabase"))return false;
         }
         return true;
+    }
+
+    /// <summary>识别页面已发布的文本级联父，普通文本外键仍按各自原有协议处理。</summary>
+    internal static ColumnModel? TextSourceParent(GenerationModel model,TableModel table,PageModel page)
+    {
+        var parents=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).Take(2).ToArray();
+        if(parents is not [var parent]||parent.Type!="string?")return null;
+        return NonRedundantCrossParentCompilation.IsText(model,table,page,parent)||
+            SharedRedundantParentCompilation.IsText(model,table,page,parent)?parent:null;
     }
 
     /// <summary>不接受JSON最后值覆盖，结构与读取采用相同键解释。</summary>

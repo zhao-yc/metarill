@@ -79,7 +79,7 @@ onPopSelect{{{id}}}(row) { this.permissionVersion++;if(this.{{{ro}}} || !this._s
         {
             var sourceKey=relation?.FixedSourceParent?.Source??
                 fixedParent.SingleSource(c.Model.Catalog,c.Table.Source,foreign.Source).Column;
-            if(c.Page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==sourceKey.Id))return "parent_id";
+            if(c.Page.Scopes.Any(scope=>scope.Source=="parent"&&scope.Column.Source.Id==sourceKey.Id))return SameParent();
             var stored=c.Page.Readable.SingleOrDefault(column=>column.Source.Id==sourceKey.Id);
             if(stored is null)
                 throw new InvalidOperationException($"页面 {c.Page.Source.Id} 的原单选缺少可读父字段 {sourceKey.ColumnName}。");
@@ -89,9 +89,17 @@ onPopSelect{{{id}}}(row) { this.permissionVersion++;if(this.{{{ro}}} || !this._s
         if(parents.Length==0)return "''";
         if(parents.Length!=1||string.IsNullOrWhiteSpace(parents[0]))throw new InvalidOperationException("原选择目标父缺少唯一声明关系。");
         var source=c.Page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column.Source.LinkConfigTableId).Distinct(StringComparer.Ordinal).ToArray();
-        if(source.Length==1&&source[0]==parents[0])return "parent_id";
+        if(source.Length==1&&source[0]==parents[0])return SameParent();
         var links=c.Table.Columns.Where(column=>column.Source.LinkConfigTableId==parents[0]&&!column.IsJsonArray&&c.Page.Readable.Any(read=>read.Source.Id==column.Source.Id)).Take(2).ToArray();
         if(links.Length!=1)throw new InvalidOperationException("原选择目标父没有唯一可读来源字段。");
         return "entity."+links[0].JsonName;
+
+        string SameParent()
+        {
+            // 原单选按主键打开目标页，文本级联业务键不可直接用作目标主键。
+            if(CrossTableReadCompilation.TextSourceParent(c.Model,c.Table,c.Page) is not null)
+                throw new NotSupportedException("原单选目标父尚未证明使用与来源相同的文本业务键。");
+            return "parent_id";
+        }
     }
 }

@@ -142,7 +142,7 @@ internal static class MultiSelectCompilation
             TableModel SourceParent(ColumnModel column) =>
                 NonRedundantCrossParentCompilation.Find(model, table, page, column) is { } path
                     ? path.Read.Levels[path.Index].Target
-                    : Parent(column);
+                    : SharedRedundantParentCompilation.ForColumn(model,table,page,column).FirstOrDefault()?.Level.Target ?? Parent(column);
             var sourceScopes=page.Scopes.Where(scope=>scope.Source=="parent").Select(scope=>scope.Column).ToArray();
             var sourceParents=sourceScopes.Select(column=>SourceParent(column).Source.Id).Distinct().Order().ToArray();
             var compoundLogical=!functionForm&&sourceScopes.Length>1&&sourceParents.Length==1&&
@@ -163,6 +163,8 @@ internal static class MultiSelectCompilation
             if (scopedParent?.Global!=true&&targetParents.Any(parent => !parent.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))) return Gap("目标父表未声明项目归属。");
             if(scopedParent?.Global==true)_=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,targetPage.Source.Id);
             var same = targetParents.Length > 0 && sourceParents.SequenceEqual(targetParents.Select(parent => parent.Source.Id).Order());
+            if(same&&CrossTableReadCompilation.TextSourceParent(model,table,page) is not null)
+                return Gap("多选目标父尚未证明使用与来源相同的文本业务键。");
             string? targetField = null;
             if (targetParents.Length > 1) return Gap("多个目标父定义未形成唯一合同。");
             if (targetParents.Length == 1 && !same)

@@ -308,13 +308,15 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var result = new StringBuilder().Append(multiGlobal is null?SharedGlobalParentCompilation.KeyService(model,table,page):MultiGlobalParentCompilation.Declaration(model,multiGlobal,multiPlan)).AppendLine("    /// <summary>绑定父记录前验证真实归属，不能把客户端 parentId 当作授权。</summary>")
             .AppendLine($"    private async Task ValidateParents{page.Source.Id}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken{(NonRedundantCrossParentCompilation.Enabled(model,table,page)?",bool includeManaged=true":"")}{(supportsReadOnlyParent?", bool locking=true":"")})")
             .AppendLine("    {");
-        if(UsesPublishedPhysicalMultiSource(model,table,page))
+        // 文本级联父由下方固定路径验证，普通物理父保留原整数协议。
+        var numericParent=CrossTableReadCompilation.TextSourceParent(model,table,page) is null;
+        if(numericParent&&UsesPublishedPhysicalMultiSource(model,table,page))
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前多选页要求已发布的来源父键使用规范正整数。\");");
-        else if(UsesPublishedPhysicalSingleSource(model,table,page))
+        else if(numericParent&&UsesPublishedPhysicalSingleSource(model,table,page))
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前单值关联来源页要求规范正整数父键。\");");
-        else if(UsesPublishedPhysicalCheckboxSource(model,table,page))
+        else if(numericParent&&UsesPublishedPhysicalCheckboxSource(model,table,page))
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var fixedSourceParentKey)||fixedSourceParentKey<=0||parentId!=fixedSourceParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前数据库复选来源页要求规范正整数父键。\");");
-        else if(buttonParent&&UsesFixedTextParent(model,table,page))
+        else if(numericParent&&buttonParent&&UsesFixedTextParent(model,table,page))
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var buttonParentKey)||buttonParentKey<=0||parentId!=buttonParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前业务按钮页要求规范正整数父键。\");");
         if(sharedRedundant)result.AppendLine("        ValidateActor(actor);").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);");
         else if(multiGlobal is not null)result.AppendLine("        ValidateActor(actor);");
@@ -997,13 +999,15 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         if (relations.Length == 0) return "";
         // 来源父验证单独复用，使空导出也不会跳过真实父记录校验。
         var sourceParents = relations[0].SourceParents;
+        var textSourceParent=CrossTableReadCompilation.TextSourceParent(model,owner,page) is not null;
         result.AppendLine("    /// <summary>候选及导出共同核对来源父真实归属，空结果也不能绕过父范围。</summary>")
             .AppendLine($"    private async Task ValidateOptionsSourceParents{page.Source.Id}Async(string? parentId, RuntimeActor actor, CancellationToken cancellationToken)")
             .AppendLine("    {").AppendLine("        ValidateActor(actor);");
-        if (sourceParents.Count > 0) result.AppendLine("        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException(\"关联来源页要求有效 parentId。\");");
+        if (sourceParents.Count > 0&&!textSourceParent) AppendNumericSourceParent();
         for (var index = 0; index < sourceParents.Count; index++) Parent(sourceParents[index], "sourceParentKey", "sourceParent" + index,sourceContext:true);
         if (sourceParents.Count == 0) result.AppendLine("        await Task.CompletedTask;");
         result.AppendLine("    }");
+        void AppendNumericSourceParent()=>result.AppendLine("        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException(\"关联来源页要求有效 parentId。\");");
         /// <summary>候选按固定父定义无锁验证；常量关系写入使用同事务当前读锁。</summary>
         void Parent(TableModel parent, string key, string variable, bool current = false,bool sourceContext=false)
         {
@@ -1027,6 +1031,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var globalParents=sourceContext?SharedGlobalParentCompilation.ForTable(model,owner,page,parent):[];if(globalParents.Count>0){foreach(var globalParent in globalParents)result.Append(SharedGlobalParentCompilation.Call(globalParent,page,"parentId",current?"locking":"false"));return;}
             var redundantParents=sourceContext?SharedRedundantParentCompilation.ForTable(model,owner,page,parent):[];if(redundantParents.Count>0){foreach(var redundantParent in redundantParents)result.Append(SharedRedundantParentCompilation.Call(redundantParent,page,current?"locking":"false"));return;}
             var directGlobalParents=sourceContext?GlobalCachedParentCompilation.ForTable(model,owner,page,parent):[];if(directGlobalParents.Count>0){foreach(var direct in directGlobalParents)result.Append(GlobalCachedParentCompilation.Call(direct,page,"parentId",current?"locking":"false"));return;}
+            if(sourceContext&&textSourceParent)
+                throw new InvalidOperationException("关联来源缺少匹配文本父业务键的固定路径。");
             var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
             result.AppendLine($"        var {variable} = session.Select<{parent.EntityType}>().Where(entity => entity.Id == {key} && entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
             if (parent.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine($"        {variable} = {variable}.Where(entity => entity.DeleteNo == null);");
@@ -1061,7 +1067,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             var fixedWriteExact = !relation.FunctionForm && DerivedRelationNamesCompilation.UsesFixedRead(model,relation) &&
                 ExactDataManageCompilation.Declared(relation.TargetPage) &&
                 (logicalPlan is not null || DerivedRelationNamesCompilation.UsesExactSingle(relation));
-            var lockScope=fixedWriteExact||relation.ScopedStoredSingle||relation.FixedGlobalSelection||relation.CompoundProjectSource||relation.CompoundProjectTarget||
+            var lockScope=fixedWriteExact||textSourceParent||relation.ScopedStoredSingle||relation.FixedGlobalSelection||relation.CompoundProjectSource||relation.CompoundProjectTarget||
                 relation.CanonicalProjectParent||relation.LogicalSourceParent||
                 relation.Conditions is not null||logicalPlan is not null||
                 relation.Target.Source.IsRongyu==0&&FixedPageConditionCompilation.HasAccountVariables(relation.TargetPage);
@@ -1084,8 +1090,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             {
                 // 常量关系的写入必须读取真实父当前值；普通候选仍复用无锁验证，不改变旧项目产物。
                 result.AppendLine($"        if (!locking) await ValidateOptionsSourceParents{page.Source.Id}Async(parentId, actor, cancellationToken);")
-                    .AppendLine("        else").AppendLine("        {").AppendLine("        ValidateActor(actor);")
-                    .AppendLine("        if (!long.TryParse(parentId, NumberStyles.None, CultureInfo.InvariantCulture, out var sourceParentKey) || sourceParentKey <= 0) throw new ArgumentException(\"关联来源页要求有效 parentId。\");");
+                    .AppendLine("        else").AppendLine("        {").AppendLine("        ValidateActor(actor);");
+                if(!textSourceParent)AppendNumericSourceParent();
                 for (var index = 0; index < relation.SourceParents.Count; index++) Parent(relation.SourceParents[index], "sourceParentKey", "sourceParent" + index, true,true);
                 result.AppendLine("        }");
             }

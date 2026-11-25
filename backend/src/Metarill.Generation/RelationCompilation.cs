@@ -170,6 +170,10 @@ internal static class RelationCompilation
                     :accountParent?Parent(model,scope.Column,target,targetPage):Parent(model,scope.Column))
                 .DistinctBy(parent => parent.Source.Id).ToArray();
             var binding = FixedParentRelationCompilation.Resolve(model, page, source, sourceParents, targetParents, targetPage.Scopes.Concat(scopes).ToArray());
+            // 即使实体相同，文本业务键也不能隐式代入关系目标的主键父范围。
+            if(targetParents.Any(parent=>sourceParents.Any(sourceParent=>sourceParent.Source.Id==parent.Source.Id))&&
+                CrossTableReadCompilation.TextSourceParent(model,owner,page) is not null)
+                throw new NotSupportedException("关联目标与来源共用实体时，必须证明其父键也使用同一文本业务键。");
             IReadOnlyList<(ColumnModel Column, bool Descending)>? ordering = null;
             ColumnModel[] independentOrder = [];
             var usesFixedListOrder = fixedCandidateQuery && source.Source.ControlKind == "List";

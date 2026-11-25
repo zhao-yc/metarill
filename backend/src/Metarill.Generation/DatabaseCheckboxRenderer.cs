@@ -54,6 +54,11 @@ internal static class DatabaseCheckboxRenderer
                     result.AppendLine($"        await CrossReader{page.Source.Id}_{path.Read.Source.Source.Id}(actor,locking,false){NonRedundantCrossParentCompilation.PathSuffix(path.Read,path.Index,"parentKey")};");
                 if(def.GlobalParent)result.AppendLine(MultiGlobalParentCompilation.Check("CheckboxGlobalParent"+suffix,"parentKey","locking"));
             }
+            else if(def.IndependentTextSource)
+            {
+                foreach(var path in SharedRedundantParentCompilation.ForColumn(model,table,page,def.SourceParent))
+                    result.Append(SharedRedundantParentCompilation.Call(path,page,"locking"));
+            }
             else
             {
                 result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0||parentId!=parentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"来源父ID必须为规范正整数字符串。\");");

@@ -56,11 +56,14 @@ internal static class DatabaseCheckboxExcelRenderer
     internal static string Export(TableModel table,PageModel page,DatabaseCheckboxModel def)
     {
         var suffix=DatabaseCheckboxRenderer.Suffix(page,def);
+        // 逻辑父来自本次导出的已验证范围，稀疏行自身未必存有该层业务键。
+        var textParent=def.IndependentTextSource&&def.LogicalSourceParent;
+        var parent=textParent?"parentId":DatabaseCheckboxRenderer.ParentValue(def,"entity");
         // 未设置表单父且没有选项时，只保留原 null 或空数组，无需候选查询。
         var emptyParent=def.FormParentField is null?"":$"            if(selected.Length==0&&string.IsNullOrWhiteSpace({DatabaseCheckboxRenderer.ParentValue(def,"entity")})){{values[entity.Id]=entity.{def.Source.Property} is null?null:\"[]\";continue;}}\n";
         return $$"""
     /// <summary>源行及候选共用读取快照，名字按数据库真实比较规则唯一性核验。</summary>
-    private async Task<IReadOnlyDictionary<long,string?>> ExportCheckbox{{suffix}}Async(IReadOnlyList<{{table.EntityType}}> entities,RuntimeActor actor,CancellationToken cancellationToken)
+    private async Task<IReadOnlyDictionary<long,string?>> ExportCheckbox{{suffix}}Async(IReadOnlyList<{{table.EntityType}}> entities,RuntimeActor actor,{{(textParent?"string? parentId,":"")}}CancellationToken cancellationToken)
     {
         if(relationAuthorization is null||relationAuthorization.RequireActor()!=actor)throw new UnauthorizedAccessException("复选导出要求真实身份。");
         relationAuthorization.RequirePagePermission("{{page.Source.Id}}","export");
@@ -69,14 +72,14 @@ internal static class DatabaseCheckboxExcelRenderer
         foreach(var entity in entities)
         {
             var selected=DatabaseCheckboxValue.Parse(entity.{{def.Source.Property}});
-{{DatabaseCheckboxRenderer.RequireMatchingParents(def,"entity","            ")}}{{emptyParent}}            var scope=await CheckboxScope{{suffix}}Async({{DatabaseCheckboxRenderer.ParentValue(def,"entity")}},actor,{{DatabaseCheckboxRenderer.EntityForm(def,"entity")}},false,cancellationToken);
-            {{(def.DerivedName?"var rows=await DerivedCheckboxRows"+suffix+"Async("+DatabaseCheckboxRenderer.ParentValue(def,"entity")+",actor,"+DatabaseCheckboxRenderer.EntityForm(def,"entity")+",selected,null,false,DatabaseCheckboxValue.MaximumItems,false,cancellationToken);":"var rows=await scope.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>new{row.Id,Name=row."+def.Name.Property+"},cancellationToken);")}}
+{{DatabaseCheckboxRenderer.RequireMatchingParents(def,"entity","            ")}}{{emptyParent}}            var scope=await CheckboxScope{{suffix}}Async({{parent}},actor,{{DatabaseCheckboxRenderer.EntityForm(def,"entity")}},false,cancellationToken);
+            {{(def.DerivedName?"var rows=await DerivedCheckboxRows"+suffix+"Async("+parent+",actor,"+DatabaseCheckboxRenderer.EntityForm(def,"entity")+",selected,null,false,DatabaseCheckboxValue.MaximumItems,false,cancellationToken);":"var rows=await scope.Where(row=>selected.Contains(row.Id)).Limit(DatabaseCheckboxValue.MaximumItems).ToListAsync(row=>new{row.Id,Name=row."+def.Name.Property+"},cancellationToken);")}}
             if(rows.Count!=selected.Length{{(def.Name.IsId?"":"||rows.Any(row=>row.Name is null)")}})throw new InvalidOperationException("复选名称导出存在缺失、删除或离开候选范围的目标，不能生成会重映射的名称数组。");
             var names=rows.ToDictionary(row=>row.Id,row=>row.Name);
             foreach(var id in selected)
             {
-                var name=names[id];var nameScope=await CheckboxScope{{suffix}}Async({{DatabaseCheckboxRenderer.ParentValue(def,"entity")}},actor,{{DatabaseCheckboxRenderer.EntityForm(def,"entity")}},false,cancellationToken);
-                {{(def.DerivedName?"var matches=await DerivedCheckboxRows"+suffix+"Async("+DatabaseCheckboxRenderer.ParentValue(def,"entity")+",actor,"+DatabaseCheckboxRenderer.EntityForm(def,"entity")+",null,name,true,2,false,cancellationToken);":"var matches=await nameScope.Where(row=>row."+def.Name.Property+"==name).Limit(2).ToListAsync(row=>new{row.Id},cancellationToken);")}}
+                var name=names[id];var nameScope=await CheckboxScope{{suffix}}Async({{parent}},actor,{{DatabaseCheckboxRenderer.EntityForm(def,"entity")}},false,cancellationToken);
+                {{(def.DerivedName?"var matches=await DerivedCheckboxRows"+suffix+"Async("+parent+",actor,"+DatabaseCheckboxRenderer.EntityForm(def,"entity")+",null,name,true,2,false,cancellationToken);":"var matches=await nameScope.Where(row=>row."+def.Name.Property+"==name).Limit(2).ToListAsync(row=>new{row.Id},cancellationToken);")}}
                 if(matches.Count!=1||matches[0].Id!=id)throw new InvalidOperationException("复选名称导出存在歧义，名称数组不能唯一还原原ID。");
             }
             values[entity.Id]=entity.{{def.Source.Property}} is null?null:JsonSerializer.Serialize(selected.Select(id=>{{DatabaseCheckboxRenderer.LabelText(def,"names[id]")}}).ToArray());
