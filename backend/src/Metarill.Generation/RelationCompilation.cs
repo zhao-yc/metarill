@@ -160,7 +160,13 @@ internal static class RelationCompilation
                 : selection is not null && (excelOnly || selection.ImportCondition is not null ||
                     fixedParent is { Logical:true } or { AdditionalTargets.Count:>0 } ||
                     FixedPageConditionCompilation.HasLogicalFields(targetPage)) ? "" : Mapped("whereSql");
-            var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,allowLogicalList:selection is null);
+            // 附加联接只能沿来源与候选双方共同发布的文本业务键执行。
+            var textParent=source.Source.ControlKind=="List"&&target.Source.IsRongyu==0&&!string.IsNullOrWhiteSpace(where)
+                ?SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowSparseTarget:true)??
+                    NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage)
+                :null;
+            var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,
+                allowLogicalList:selection is null,allowLogicalListJoin:textParent is not null);
             if ((conditions is not null||FixedPageConditionCompilation.HasLogicalFields(targetPage))&&
                 !functionForm && ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
                 throw new InvalidOperationException("固定条件的候选必须与外键及显示来源的目标一致。");
@@ -177,7 +183,7 @@ internal static class RelationCompilation
             if(targetParents.Any(parent=>sourceParents.Any(sourceParent=>sourceParent.Source.Id==parent.Source.Id))&&
                 CrossTableReadCompilation.TextSourceParent(model,owner,page) is not null)
             {
-                sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowSparseTarget:true)??
+                sharedTextParent=textParent??SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowSparseTarget:true)??
                     NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowStoredTarget:true);
                 // 非冗余字典的联接名称交由实际发布页的固定投影证明，父键仍使用两页共同的文本业务键。
                 var nameStorage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source).Kind(name.Source);

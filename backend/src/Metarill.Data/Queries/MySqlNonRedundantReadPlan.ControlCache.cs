@@ -50,7 +50,7 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>控件条件附加到物理联接后的可见性，记录变为不可见时仍可反查并清空副本。</summary>
         private string SingleControlCacheCondition(TableMetadata table,string owner,TableMetadata target,string alias,
-            PageMetadata page,FixedConditionPlan condition,CascadeCacheOwner cacheOwner,bool storedPhysicalExact)
+            PageMetadata page,FixedConditionPlan condition,CascadeCacheOwner cacheOwner,bool storedPhysicalExact,bool allowJoinedCondition)
         {
             var members=columns[target.Id];
             var tree=SelfTreeConditionFields(catalog,target,page,members.Values.ToArray(),condition.Fields);
@@ -58,7 +58,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 .ToHashSet(StringComparer.Ordinal);
             var bindings=(cross.Count==0?[]:CrossMembershipBindings(catalog,target,page,cross))
                 .ToDictionary(binding=>binding.SourceColumnId,StringComparer.Ordinal);
-            bool Logical(string field)=>tree.Contains(field)||cross.Contains(field);
+            bool Joined(ColumnMetadata column)=>allowJoinedCondition&&storage[target.Id].Kind(column)==MetadataFieldStorage.Join;
+            bool Logical(string field)=>tree.Contains(field)||cross.Contains(field)||Joined(Column(target,field));
             if(condition.Fields.Any(field=>!Logical(field)&&!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,field))))
                 throw new InvalidOperationException("名称副本控件条件缺少非凭据物理字段或固定逻辑层位。");
             var prefix=ConditionParameterPrefix("mt_single_control_"+alias);
@@ -102,6 +103,14 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(tree.Contains(field))
                     return SelfTreeLabelExpression(target,alias,Column(target,field[..^5]+"_id"),column,conditionOwner:cacheOwner);
                 if(cross.Contains(field))return ScopedCrossField(target,alias,bindings,field,cacheOwner);
+                if(Joined(column))
+                {
+                    // 与候选读取同样保留字典页可见性，联接终点同时进入反向传播依赖。
+                    var value=Resolve(target,alias,field,cacheOwner);
+                    if(value.Type!=column.LogicalType)
+                        throw new NotSupportedException("名称副本控件联接条件必须与终点逻辑类型一致。");
+                    return value.Sql;
+                }
                 Use(target,column);Touch(alias,field);
                 return alias+"."+Q(field);
             }

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
 using Metarill.Data.Relations;
@@ -68,12 +69,18 @@ public static partial class MySqlNonRedundantReadCompiler
         // 复选独立使用已发布的稀疏父字段，普通业务和多选页沿用各自页面类型。
         var projectParent=exactCheckboxParent?MultiTargetParentScope.Compile(catalog,table,syntax):
             !global?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null;
+        var storage=MetadataStoragePolicy.ForTable(catalog,table);
+        var listJoins=!global&&projectParent is {Logical:true,Global:false,Target.LogicalType:"string"}&&
+            !exactCheckboxParent&&listFields is not null
+            ?columns.Where(column=>listFields.Contains(column.ColumnName)&&
+                storage.Kind(column)==MetadataFieldStorage.Join).ToArray()
+            :[];
         if(exactParent&&projectParent is not ({Logical:true} or {AdditionalTargets.Count:>0})&&
             !(exactSingleParent&&projectParent is {Global:true}))
             throw new NotSupportedException("精确候选缺少已发布的父范围。");
         if(listFields is not null&&!globalExactSingle&&!projectSingle&&
-            (!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0))
-            throw new NotSupportedException("固定下拉附加条件必须引用已发布的逻辑级联字段。");
+            (!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0&&listJoins.Length==0))
+            throw new NotSupportedException("固定下拉附加条件必须引用已发布的逻辑级联或联接字段。");
         // 全局单值候选从自身发布页证明物理父键；旧多选仍满足原独立页合同。
         var physicalParent=globalExactSingle?globalExactParent:
             global&&page.Extra.GetValueOrDefault("type").ToString()!="2"?GlobalCrossTableTarget.SingleParent(catalog,table,page):null;
@@ -103,7 +110,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 :physicalParent is null)))
             throw new NotSupportedException("全局候选必须使用实际发布的条件和物理父键。");
         var additional=parent?.AdditionalTargets.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal);
-        var condition=CascadeScopeCondition(table,MetadataStoragePolicy.ForTable(catalog,table),columns,syntax,parent?.Target,treeNames,additional);
+        var condition=CascadeScopeCondition(table,storage,columns,syntax,parent?.Target,treeNames,additional);
         // 私有匹配和 Excel 条件只扩充投影；不把路径有效性强加给有无限定范围的账号。
         var match=exactParent||globalExactSingle?Metarill.Core.Security.ExactDataManageValues.Field(exactField):"";
         var exactCross=globalExactSingle&&CrossTableStorageColumns.IsLogicalPathField(table,columns,match);
@@ -124,6 +131,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var builder=new Builder(catalog,tableId,deferCascadeNames:projectionTrees.Count>0||accountParentPage||physicalParent is not null,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
         {
             CrossCandidateCondition=condition,
+            ControlConditionJoins=listJoins.Select(column=>column.ColumnName).ToFrozenSet(StringComparer.OrdinalIgnoreCase),
             SelfTreeCandidateFields=projectionTrees,
             ActiveSelfTreeScopes=activeSelfTreeScopes??new(),
             MultiCandidateParent=projectSingle&&parent?.AdditionalTargets.Count is not >0?null:parent,
@@ -140,9 +148,17 @@ public static partial class MySqlNonRedundantReadCompiler
             CrossAliasPrefix=rootAlias=="b"?"cross":aliasPrefix+"c"
         };
         // 精确范围与父级条件都留在计划中。授权集合由真实读取入口单独绑定。
-        return builder.Compile(outputs,dependencies.Concat(syntax.Fields).Concat(listFields??[])
+        var plan=builder.Compile(outputs,dependencies.Concat(syntax.Fields).Concat(listFields??[])
             .Concat(exactParent||globalExactSingle ? new[] { match } : [])
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+        // 联接别名必须解析到同类型的实际非凭据标量，运行时只能应用已证明的联接条件。
+        foreach(var column in listJoins)
+        {
+            plan.RequireScalarLabelOrigin(column.ColumnName);
+            if(plan.Types[column.ColumnName]!=column.LogicalType)
+                throw new NotSupportedException("控件联接条件必须与终点逻辑类型一致。");
+        }
+        return plan;
     }
 
     /// <summary>写入锁只读取匹配字段的实际联接或级联，目标根的父级和页面范围由外层查询校验。</summary>
@@ -294,6 +310,7 @@ public static partial class MySqlNonRedundantReadCompiler
     private sealed partial class Builder
     {
         internal FixedConditionSqlPlan? CrossCandidateCondition{get;init;}
+        internal IReadOnlySet<string> ControlConditionJoins{get;init;}=FrozenSet<string>.Empty;
         internal PageMetadata? SelectedMultiPage{get;init;}
         internal bool AllowLiteralMultiScope{get;init;}
         internal bool MultiCandidateProjectScoped{get;set;}
@@ -1021,9 +1038,10 @@ public static partial class MySqlNonRedundantReadCompiler
             if(parent is {Global:true}&&binding is {AdditionalColumns.Count:>0})
                 RequireCompoundGlobalSourceParent(catalog,target.Id,page.Id,binding);
             // 同一缓存供所有已发布来源页使用，每个入口都要能证明物理父键与目标逻辑父键等价。
+            var sharedTextParent=false;
             if(table.IsRongyu==1&&target.IsRongyu==0&&parent is {Logical:true,Global:false}&&binding is not null&&
                 !GlobalCrossTableTarget.Declared(table)&&!GlobalCrossTableTarget.Declared(target))
-                _=UsesSharedStoredTextParent(target,new(parent.Target,[page]),table,
+                sharedTextParent=UsesSharedStoredTextParent(target,new(parent.Target,[page]),table,
                     catalog.ConfigPages.Where(candidate=>candidate.ConfigTableId==table.Id).ToArray(),binding.Column,
                     parent.AdditionalTargets.Count>0||binding.AdditionalColumns.Count>0,storedToSparse:true);
             var sourceParent=binding is not null&&(parent?.Logical==true||binding.LogicalPages.Count>0||binding.AdditionalColumns.Count>0)
@@ -1046,7 +1064,8 @@ public static partial class MySqlNonRedundantReadCompiler
             {
                 // 控件谓词留在可见性中以保留失效反查，直接目标路径不能简化该计划。
                 scalarCacheTarget=null;
-                var extra=SingleControlCacheCondition(table,owner,target,alias,page,control,cacheOwner,physicalExact);
+                var extra=SingleControlCacheCondition(table,owner,target,alias,page,control,cacheOwner,physicalExact,
+                    allowJoinedCondition:sharedTextParent&&foreign.ControlKind=="List");
                 if(extra.Length>0)visible+=(visible.Length==0?"":" AND ")+extra;
             }
             return (alias,alias+".`id` IS NOT NULL"+(visible.Length==0?"":" AND ("+visible+")"));

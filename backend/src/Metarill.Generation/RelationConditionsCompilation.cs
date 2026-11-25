@@ -22,21 +22,20 @@ internal static class RelationConditionsCompilation
     /// <summary>生成前验证整个条件及字面量类型，不把未支持的变量或派生字段降级为宽查询。</summary>
     internal static (IReadOnlyList<(ColumnModel Column, string Source)> Scopes, RelationConditionModel? Conditions) Compile(
         GenerationModel model, TableModel owner, PageModel page, TableModel target, string definition,bool allowLogicalList=false,
-        bool allowLogicalSelectionImport=false)
+        bool allowLogicalSelectionImport=false,bool allowLogicalListJoin=false)
     {
-        try { return CompileCore(model,owner,page,target,definition,allowLogicalList,allowLogicalSelectionImport); }
+        try { return CompileCore(model,owner,page,target,definition,allowLogicalList,allowLogicalSelectionImport,allowLogicalListJoin); }
         catch(ArgumentException error) { throw new InvalidOperationException("关系固定条件不能按已发布物理类型安全编译。",error); }
     }
 
     /// <summary>完整分析后才签发关系条件，语法和类型错误统一保留生成失败合同。</summary>
-    private static (IReadOnlyList<(ColumnModel Column, string Source)> Scopes, RelationConditionModel? Conditions) CompileCore(GenerationModel model,TableModel owner,PageModel page,TableModel target,string definition,bool allowLogicalList,bool allowLogicalSelectionImport)
+    private static (IReadOnlyList<(ColumnModel Column, string Source)> Scopes, RelationConditionModel? Conditions) CompileCore(GenerationModel model,TableModel owner,PageModel page,TableModel target,string definition,bool allowLogicalList,bool allowLogicalSelectionImport,bool allowLogicalListJoin)
     {
         var syntax=FixedConditionPlan.Compile(definition,target.Columns.Select(column=>column.Source.ColumnName));
         var (crossFields,selfTreeFields)=LogicalFields(target,syntax,allowLogicalList||allowLogicalSelectionImport);
-        var joinedFields=allowLogicalSelectionImport&&target.Source.IsRongyu==0?target.Columns.Where(column=>
-            syntax.Fields.Contains(column.Source.ColumnName)&&column.Source.IsVirtualColumn==0&&
-            GenerationModel.Enabled(column.Source.Extra,"isJoinColumn")&&
-            !NonRedundantReadCompilation.Physical(model,target,column))
+        var targetStorage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
+        var joinedFields=(allowLogicalSelectionImport||allowLogicalListJoin)&&target.Source.IsRongyu==0?target.Columns.Where(column=>
+            syntax.Fields.Contains(column.Source.ColumnName)&&targetStorage.Kind(column.Source)==MetadataFieldStorage.Join)
             .Select(column=>column.Source.ColumnName).ToHashSet(StringComparer.Ordinal):new HashSet<string>(StringComparer.Ordinal);
         bool Logical(string field)=>crossFields.Contains(field)||selfTreeFields.Contains(field)||joinedFields.Contains(field);
         var scopes=new List<(ColumnModel Column,string Source)>();
@@ -76,11 +75,10 @@ internal static class RelationConditionsCompilation
         // 原简单范围继续走既有编译器，避免无配置项目的再生成和兼容边界发生变化。
         if(forms.Count==0&&!syntax.Variables.Any(Metarill.Core.Security.AccountConditionVariables.IsSupported)&&syntax.Terms.All(term=>term.Values.Any(value=>value.Kind==FixedConditionValueKind.Variable)))
             return (GenerationModel.CompileScopes(definition,target.Columns),null);
-        var physical=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
         foreach(var field in syntax.Fields)
         {
             var column=target.Columns.Single(column=>column.Source.ColumnName==field);
-            if(!physical.IsPhysical(column.Source)&&!Logical(field)||column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,column))
+            if(!targetStorage.IsPhysical(column.Source)&&!Logical(field)||column.IsJsonArray||ManagerCredentialCompilation.IsCredential(target,column))
                 throw new InvalidOperationException("关系固定条件必须使用非凭据物理字段或已声明的逻辑级联字段。");
         }
         var types=syntax.Fields.ToDictionary(field=>field,field=>target.Columns.Single(column=>column.Source.ColumnName==field).Source.LogicalType,StringComparer.Ordinal);

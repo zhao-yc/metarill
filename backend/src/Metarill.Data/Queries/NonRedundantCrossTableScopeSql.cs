@@ -44,7 +44,8 @@ public static class NonRedundantCrossTableScopeSql
         if(compiled.RequiresPublishedProjectIdentity&&compiled.ProjectId!=projectId)
             throw new UnauthorizedAccessException("固定候选不属于当前发布项目。");
         var logicalFields=compiled.Crosses.SelectMany(cross=>cross.Selection.Slots)
-            .SelectMany(slot=>new[]{slot.ColumnName,slot.ColumnName[..^3]+"_name"}).Concat(compiled.CascadeLabelOutputs).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            .SelectMany(slot=>new[]{slot.ColumnName,slot.ColumnName[..^3]+"_name"})
+            .Concat(compiled.CascadeLabelOutputs).Concat(compiled.ControlConditionJoins).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var usesLogicalField=false;
         var clause=condition.RenderConstants(session.Provider,parameterPrefix+"_condition",field=>
         {

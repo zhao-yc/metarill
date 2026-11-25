@@ -49,6 +49,7 @@ public sealed class MySqlNonRedundantReadPlan
     private MySqlNonRedundantReadPlan(MySqlNonRedundantReadPlan plan,string[] outputs,IReadOnlyList<MySqlPhysicalReference>? physicalReferences=null,IReadOnlyDictionary<string,object?>? boundConstants=null)
     {
         HasPublishedCandidateCondition=plan.HasPublishedCandidateCondition;
+        ControlConditionJoins=plan.ControlConditionJoins;
         RequiredMultiParent=plan.RequiredMultiParent;CandidateParents=plan.CandidateParents;CandidateActor=plan.CandidateActor;AggregateFrom=plan.AggregateFrom;CascadeLabelOutputs=plan.CascadeLabelOutputs;CascadeLabelPages=plan.CascadeLabelPages;CascadeCacheOwnerFields=plan.CascadeCacheOwnerFields;ImportMatchLock=plan.ImportMatchLock;RuleOutputAliases=plan.RuleOutputAliases;StorageOutputs=plan.StorageOutputs;RequiresPublishedProjectIdentity=plan.RequiresPublishedProjectIdentity;MaintenanceFrom=plan.MaintenanceFrom;From=plan.From;ProjectId=plan.ProjectId;Scope=plan.Scope;Expressions=plan.Expressions;Types=plan.Types;Outputs=Array.AsReadOnly(outputs);ArrayNamePredicates=plan.ArrayNamePredicates;MultiProjections=plan.MultiProjections;ArrayIdSources=plan.ArrayIdSources;PhysicalReferences=physicalReferences??plan.PhysicalReferences;SourceDependencies=plan.SourceDependencies;Origins=plan.Origins;Reverse=plan.Reverse;Crosses=plan.Crosses; constants=boundConstants??plan.constants; hasAccountParameters=boundConstants is null&&plan.hasAccountParameters; ScalarCacheTarget=plan.ScalarCacheTarget;
     }
     /// <summary>缓存传播只读取稳定主键和本次允许的输出，未知字段不能变成新的读取权限。</summary>
@@ -110,6 +111,15 @@ public sealed class MySqlNonRedundantReadPlan
     /// <summary>覆盖匹配和整表标量维护锁定待写来源行，其余已编译联接保持共享锁。</summary>
     internal string? ImportMatchLock { get; init; }
     internal IReadOnlySet<string> CascadeLabelOutputs { get; init; }=FrozenSet<string>.Empty;
+    internal IReadOnlySet<string> ControlConditionJoins { get; init; }=FrozenSet<string>.Empty;
+
+    /// <summary>按实际物理终点校验标量，联接的可读别名不能隐藏凭据。</summary>
+    internal void RequireScalarLabelOrigin(string field)
+    {
+        if(!Origins.TryGetValue(field,out var origin)||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(origin.Column)||
+            origin is {Table:"yz_manager",Column:"salt"})
+            throw new NotSupportedException("关系显示名必须落到已证明的非凭据单值终点。");
+    }
     internal IReadOnlySet<string> CascadeLabelPages { get; init; }=FrozenSet<string>.Empty;
     internal IReadOnlySet<string> CascadeCacheOwnerFields { get; init; }=FrozenSet<string>.Empty;
     internal string Scope { get; }
@@ -574,7 +584,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     aggregateJoins.Select(join => (join.Sql, (IEnumerable<string>)aggregateFields[join.Alias])))
                 : null;
             return new(" FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),catalog.YzProjectId,scope,expressions,types,outputs.ToArray(),expressions.Where(item=>multiPredicates.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiPredicates[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>multiProjections.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>multiProjections[item.Value],StringComparer.OrdinalIgnoreCase),expressions.Where(item=>idSources.ContainsKey(item.Value)).ToDictionary(item=>item.Key,item=>idSources[item.Value],StringComparer.OrdinalIgnoreCase),System.Array.AsReadOnly(references.Values.ToArray()),new ReadOnlyDictionary<string,MySqlValueOrigin>(origins),System.Array.AsReadOnly(reversePlans),System.Array.AsReadOnly(crossProjections.Values.ToArray()),new ReadOnlyDictionary<string,object?>(crossConstants),System.Array.AsReadOnly(sourceDependencies.Order(StringComparer.Ordinal).ToArray()),refreshFields is null?null:new MySqlMaintenanceReadFrom(" FROM "+Q(root.TableName)+" "+rootAlias,maintenanceJoins.Select(join=>(join.Sql,(IEnumerable<string>)aliasFields[join.Alias].Keys)))){HasPublishedCandidateCondition=CrossCandidateCondition is not null||
-                MultiCandidateParent is {Logical:true}&&ScopedRootControls.Count>0,RequiredMultiParent=MultiParentOwner is null?MultiCandidateParent?.Target.ColumnName:null,CandidateParents=candidateParents,AggregateFrom=aggregateFrom,CascadeLabelOutputs=cascadeLabelOutputs.ToFrozenSet(StringComparer.OrdinalIgnoreCase),CascadeLabelPages=cascadeLabelPages.ToFrozenSet(StringComparer.Ordinal),CascadeCacheOwnerFields=cascadeCacheOwnerFields.ToFrozenSet(StringComparer.Ordinal),ImportMatchLock=importLock,ScalarCacheTarget=maintenanceJoins.Count==1?scalarCacheTarget:null,RequiresPublishedProjectIdentity=globalSource||globalDerivedSource||physicalCandidate||storedMultiParentCandidate||trackReverse&&globalDerivedAliases.Count>0||publishedArrayIdentity||scopedGlobalCrossTarget};
+                MultiCandidateParent is {Logical:true}&&ScopedRootControls.Count>0,RequiredMultiParent=MultiParentOwner is null?MultiCandidateParent?.Target.ColumnName:null,CandidateParents=candidateParents,AggregateFrom=aggregateFrom,ControlConditionJoins=ControlConditionJoins,CascadeLabelOutputs=cascadeLabelOutputs.ToFrozenSet(StringComparer.OrdinalIgnoreCase),CascadeLabelPages=cascadeLabelPages.ToFrozenSet(StringComparer.Ordinal),CascadeCacheOwnerFields=cascadeCacheOwnerFields.ToFrozenSet(StringComparer.Ordinal),ImportMatchLock=importLock,ScalarCacheTarget=maintenanceJoins.Count==1?scalarCacheTarget:null,RequiresPublishedProjectIdentity=globalSource||globalDerivedSource||physicalCandidate||storedMultiParentCandidate||trackReverse&&globalDerivedAliases.Count>0||publishedArrayIdentity||scopedGlobalCrossTarget};
         }
         /// <summary>仅遍历真正的字段依赖，允许自关联但拒绝递归字段循环。</summary>
         private (string Sql,string Type) Resolve(TableMetadata table,string alias,string name,CascadeCacheOwner? singleCacheOwner=null)

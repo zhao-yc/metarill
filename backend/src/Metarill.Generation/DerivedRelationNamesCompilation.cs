@@ -105,6 +105,7 @@ internal static class DerivedRelationNamesCompilation
     internal static bool UsesFixedRead(GenerationModel model, RelationModel relation) =>
         relation.FixedParent is {AdditionalTargets.Count:>0} || UsesExactSingle(relation) || UsesSelfTreeExact(relation) || Declared(model, relation) ||
         IsPhysicalTypedName(model, relation.Target, relation.NameColumn) || relation.NameColumn.IsId ||
+        relation.Conditions is {JoinedFields.Count:>0} ||
         relation.FunctionForm && (relation.Target.IsGlobal || relation.TargetParents.Count > 0 ||
             ExactDataManageCompilation.Declared(relation.TargetPage) ||
             RelationCompilation.HasFixedTargetScope(relation.Target, relation.TargetPage) || UsesLogicalPage(relation));
@@ -316,7 +317,8 @@ internal static class DerivedRelationNamesCompilation
         var nameTargets = NonRedundantReadCompilation.ProjectPathTargets(model, relation.Target, relation.TargetPage,
             [relation.NameColumn.Source.ColumnName]);
         var fields=UsesExactSingle(relation)?relation.ImportCondition?.Syntax.Fields??[]:[];
-        var conditionTargets=NonRedundantReadCompilation.ProjectPathTargets(model,relation.Target,relation.TargetPage,fields);
+        var conditionTargets=NonRedundantReadCompilation.ProjectPathTargets(model,relation.Target,relation.TargetPage,
+            fields.Concat(relation.Conditions?.JoinedFields??Enumerable.Empty<string>()));
         return NonRedundantReadCompilation.MergeProjectTargets(nameTargets.Concat(conditionTargets).Concat(exact?.SingleTargets??[]));
     }
 
