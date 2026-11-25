@@ -222,18 +222,34 @@ public sealed class TextCascadeParentRelationTests
     [InlineData(0,"OverWriteByFirstColumn","edit")]
     [InlineData(1,"OnlyNew","list")]
     [InlineData(1,"OverWriteByFirstColumn","edit")]
-    public async Task Single_text_parent_keeps_exact_dictionary_permission(int sourceStorage,string import,string export)
+    public Task Single_text_parent_keeps_exact_dictionary_permission(int sourceStorage,string import,string export)=>
+        VerifySingleExactDictionary(sourceStorage,0,import,export);
+
+    /// <summary>原下拉和单选在冗余字典上将角色权限与文本父键同时绑定到候选及写入。</summary>
+    [Theory]
+    [InlineData(0,"OnlyNew","list")]
+    [InlineData(0,"OverWriteByFirstColumn","edit")]
+    [InlineData(1,"OnlyNew","list")]
+    [InlineData(1,"OverWriteByFirstColumn","edit")]
+    public Task Stored_single_dictionary_text_parent_keeps_exact_permission(int sourceStorage,string import,string export)=>
+        VerifySingleExactDictionary(sourceStorage,1,import,export);
+
+    private static async Task VerifySingleExactDictionary(int sourceStorage,int targetStorage,string import,string export)
     {
         var catalog=Catalog(sourceStorage,import,export);
+        if(targetStorage==1)
+            catalog.ConfigColumns.Single(column=>column.Id=="700").Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("810");
         foreach(var id in new[]{"81","82"})
         {
             ScopeTarget(catalog,id);
-            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=0;
+            catalog.ConfigTables.Single(table=>table.Id==id).IsRongyu=targetStorage;
             catalog.ConfigColumns.Add(new(){Id=id+"09",ConfigTableId=id,YzProjectId=catalog.YzProjectId,
                 ColumnName="scope_code",LogicalType="string"});
             var dictionary=catalog.ConfigPages.Single(item=>item.ConfigTableId==id);
             dictionary.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
-            dictionary.WhereSql+=id=="81"?" AND area_name <> '下拉隐藏地区'":" AND area_name <> '单选隐藏地区'";
+            var conditionField=targetStorage==0?"area_name":"scope_code";
+            var exclusion=id=="81"?"下拉隐藏地区":"单选隐藏地区";
+            dictionary.WhereSql+=$" AND {conditionField} <> '{exclusion}'";
         }
         foreach(var admin in catalog.YzAdminTypes)
             admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
@@ -262,16 +278,43 @@ public sealed class TextCascadeParentRelationTests
             Assert.Contains("ImportRelation201_700Async",service);
             Assert.Contains("ImportRelation201_702Async",service);
             Assert.Contains("Export201Async",service);
+            if(targetStorage==1)
+                Assert.Equal(2,System.Text.RegularExpressions.Regex.Matches(service,
+                    System.Text.RegularExpressions.Regex.Escape("ForTextParent(\"country_id\",targetParentId!,businessKey:true)")).Count);
             var published=await PublishedReadCatalog(directory);
             const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
             foreach(var relation in relations)
             {
-                var plan=Metarill.Data.Queries.NonRedundantReads.CompileExactSingleParentCandidate(published,
-                    relation.Target.Source.Id,relation.TargetPage.Source.Id,["id","name"],["scope_code"],[],[]);
-                AssertTextParentSql(plan);
-                var sql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
-                var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",flags)!.GetValue(sql));
-                AssertExclusion(sql,scope,relation.SourceColumn.Source.ControlKind=="List"?"下拉隐藏地区":"单选隐藏地区");
+                if(targetStorage==0)
+                {
+                    var plan=Metarill.Data.Queries.NonRedundantReads.CompileExactSingleParentCandidate(published,
+                        relation.Target.Source.Id,relation.TargetPage.Source.Id,["id","name"],["scope_code"],[],[]);
+                    AssertTextParentSql(plan);
+                    var sql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+                    var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",flags)!.GetValue(sql));
+                    AssertExclusion(sql,scope,relation.SourceColumn.Source.ControlKind=="List"?"下拉隐藏地区":"单选隐藏地区");
+                }
+                else
+                {
+                    var suffix=relation.SourceColumn.Source.Id;
+                    Assert.Contains($"DerivedOptionsPlan201_{suffix}",service);
+                    Assert.Contains("ApplyTextParent(query,session,\"country_id\",targetParentId!,businessKey:true)",service);
+                    Assert.Contains($"OptionsPageCondition201_{suffix}",service);
+                    var plan=Metarill.Data.Queries.NonRedundantReads.CompilePhysicalRelation(published,relation.Target.Source.Id,
+                        ["id","name"],["country_id","scope_code"],[]);
+                    var sql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+                    var filterSql=typeof(Metarill.Data.Queries.MySqlNonRedundantReader).GetMethod("Filter",
+                        System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic)!;
+                    foreach(var key in new[]{"001","1","Country-A","country-a"})
+                    {
+                        var filter=Metarill.Data.Queries.FixedReadFilter.ForTextParent("country_id",key,businessKey:true);
+                        Assert.Equal(key,filter.Value);
+                        Assert.Contains("BINARY (b.`country_id`)=BINARY @filter_0",
+                            Assert.IsType<string>(filterSql.Invoke(null,[sql,filter,0])));
+                    }
+                    Assert.Throws<ArgumentException>(()=>Metarill.Data.Queries.FixedReadFilter.ForTextParent("country_id"," ",businessKey:true));
+                    Assert.Throws<ArgumentException>(()=>Metarill.Data.Queries.FixedReadFilter.ForTextParent("country_id","001"));
+                }
             }
             if(sourceStorage==1)
             {
@@ -281,24 +324,47 @@ public sealed class TextCascadeParentRelationTests
                 var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",flags)!.GetValue(maintenance));
                 var source=plans["2"]!;
                 Assert.Null(source.GetType().GetProperty("Error")!.GetValue(source));
-                var sql=source.GetType().GetProperty("Read")!.GetValue(source)!;
+                AssertNameExclusions(source.GetType().GetProperty("Read")!.GetValue(source)!,"BINARY CAST(b.`country_id` AS CHAR)");
+            }
+            else if(targetStorage==1)
+            {
+                string[] names=["listitem_name","singleitem_name"];
+                var plan=Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(published,"2",names,[],
+                    NonRedundantCrossTableCompilation.Bindings(model,owner,page),NonRedundantReadCompilation.ProjectSingleTargets(model,owner,page,names));
+                var sql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+                var joins=Assert.IsType<string>(sql.GetType().GetProperty("From",flags)!.GetValue(sql));
                 foreach(var (field,exclusion) in new[]{("listitem_name","下拉隐藏地区"),("singleitem_name","单选隐藏地区")})
                 {
                     var expression=Assert.IsType<string>(sql.GetType().GetMethod("Expression",flags)!.Invoke(sql,[field]));
-                    Assert.Contains("BINARY CAST(b.`country_id` AS CHAR)",expression);
-                    AssertExclusion(sql,expression,exclusion);
+                    var alias=System.Text.RegularExpressions.Regex.Match(expression,@"^(\w+)\.`name`$");
+                    Assert.True(alias.Success,expression);
+                    var dictionaryAlias=alias.Groups[1].Value;
+                    Assert.Contains($"BINARY CAST({dictionaryAlias}.`country_id` AS CHAR)=BINARY CAST(CASE WHEN",joins);
+                    AssertExclusion(sql,joins,exclusion,$"{dictionaryAlias}.`scope_code`<>@");
                 }
             }
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
 
+        // 冗余来源回填的名称表达式应保留两个字典各自的固定筛选。
+        static void AssertNameExclusions(object plan,string parentExpression)
+        {
+            const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+            foreach(var (field,exclusion) in new[]{("listitem_name","下拉隐藏地区"),("singleitem_name","单选隐藏地区")})
+            {
+                var expression=Assert.IsType<string>(plan.GetType().GetMethod("Expression",flags)!.Invoke(plan,[field]));
+                Assert.Contains(parentExpression,expression);
+                AssertExclusion(plan,expression,exclusion);
+            }
+        }
+
         // 比较发布页真正绑定的常量，防止下拉和单选错误复用对方的过滤条件。
-        static void AssertExclusion(object plan,string sql,string value)
+        static void AssertExclusion(object plan,string sql,string value,string prefix="")
         {
             const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
             var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(plan.GetType().GetProperty("Constants",flags)!.GetValue(plan));
-            Assert.Contains(parameters,parameter=>Equals(parameter.Value,value)&&sql.Contains(parameter.Key,StringComparison.Ordinal));
+            Assert.Contains(parameters,parameter=>Equals(parameter.Value,value)&&sql.Contains(prefix+parameter.Key,StringComparison.Ordinal));
         }
     }
 

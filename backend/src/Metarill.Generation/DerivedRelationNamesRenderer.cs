@@ -80,9 +80,12 @@ internal static class DerivedRelationNamesRenderer
                 ?await reader.OrderedRowsAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},{{sortArgument}}filters,[{{order}}],200,cancellationToken,actor.ProjectId,scope.Condition)
                 :await reader.RowsAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},filters,[{{originalOrder}}],200,cancellationToken,actor.ProjectId,scope.Condition);
 """ : $"            var rows=await new NonRedundantReader(session).RowsAsync(DerivedOptionsPlan{suffix}{bindParent},filters,[{originalOrder}],200,cancellationToken,actor.ProjectId,scope.Condition);";
-        // 固定名称查询另外执行自己的筛选，文本父字段要沿用普通候选的规范字节比较。
+        // 固定名称查询单独执行，冗余字典的文本业务键与普通候选使用同一字节比较规则。
+        var storedBusinessParent=relation.Target.Source.IsRongyu==1?relation.SharedTextParent:null;
         var filters=string.Join("\n",relation.TargetPage.Scopes.Concat(relation.Scopes).DistinctBy(scope=>scope.Column.Source.Id)
-            .Select(scope=>(relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent||
+            .Select(scope=>scope.Source=="parent"&&scope.Column==storedBusinessParent
+                ?$"        filters.Add(FixedReadFilter.ForTextParent({Literal(scope.Column.Source.ColumnName)},targetParentId!,businessKey:true));"
+                :(relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent||
                 relation.FixedGlobalSelection)&&
                 scope.Source=="parent"&&scope.Column.Type=="string?"&&
                 relation.FixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true

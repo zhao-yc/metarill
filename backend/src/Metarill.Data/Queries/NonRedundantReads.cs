@@ -360,9 +360,7 @@ public static class NonRedundantReads
         where T:class
     {
         if(session.Provider.Name!="mysql")throw new NotSupportedException("文本父键比较尚未完成该数据库适配。");
-        var parent=businessKey
-            ?!string.IsNullOrWhiteSpace(parentId)?parentId:throw new ArgumentException("当前页面要求非空文本父键。")
-            :FixedReadFilter.RequireTextParent(parentId);
+        var parent=FixedReadFilter.RequireTextParent(parentId,businessKey);
         var column=session.Provider.QuoteIdentifier("a")+"."+session.Provider.QuoteIdentifier(field);
         var parameter="mt_parent_"+field;
         return query.As("a").Where("BINARY ("+column+")=BINARY "+session.Provider.ParameterPlaceholder(parameter),

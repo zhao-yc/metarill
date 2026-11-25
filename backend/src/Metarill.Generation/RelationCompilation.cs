@@ -181,7 +181,9 @@ internal static class RelationCompilation
                     NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowStoredTarget:true);
                 if(sharedTextParent is null||binding.Declared||scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent)||
                     !NonRedundantReadCompilation.Physical(model,target,name)||name.Type!="string?"||
-                    target.Source.IsRongyu!=0&&(ExactDataManageCompilation.Declared(targetPage)||FixedPageConditionCompilation.HasLogicalFields(targetPage))||
+                    target.Source.IsRongyu!=0&&(FixedPageConditionCompilation.HasLogicalFields(targetPage)||
+                        ExactDataManageCompilation.Declared(targetPage)&&
+                        !ProjectScopedSingleRelationTarget.HasPhysicalSingleExact(model.Catalog,target.Source,targetPage.Source,source.Source.ControlKind))||
                     conditions?.HasLogicalFields==true)
                     throw new NotSupportedException("关联目标与来源共用实体时，必须证明其父键也使用同一文本业务键。");
                 if(target.Source.IsRongyu==1)fixedParent=null;

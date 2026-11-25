@@ -19,12 +19,21 @@ public sealed record FixedReadFilter(string Field,FixedReadComparison Comparison
 
     /// <summary>已发布的文本父键比较规范十进制字节，数据库排序规则不能改变父记录身份。</summary>
     public static FixedReadFilter ForTextParent(string field,string parentId)=>
-        new(field,FixedReadComparison.Equal,RequireTextParent(parentId)){ExactParentText=true};
+        ForTextParent(field,parentId,businessKey:false);
 
-    internal static string RequireTextParent(string value)=>
-        long.TryParse(value,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var id)&&
-        id>0&&value==id.ToString(System.Globalization.CultureInfo.InvariantCulture)
+    /// <summary>发布页确认使用文本业务键时，保留原字节和前导零。</summary>
+    public static FixedReadFilter ForTextParent(string field,string parentId,bool businessKey)=>
+        new(field,FixedReadComparison.Equal,RequireTextParent(parentId,businessKey)){ExactParentText=true};
+
+    /// <summary>固定读取和 ORM 共用已发布的文本父键协议。</summary>
+    internal static string RequireTextParent(string value,bool businessKey)
+    {
+        if(businessKey)
+            return !string.IsNullOrWhiteSpace(value)?value:throw new ArgumentException("当前页面要求非空文本父键。");
+        return long.TryParse(value,System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out var id)&&
+            id>0&&value==id.ToString(System.Globalization.CultureInfo.InvariantCulture)
             ?value:throw new ArgumentException("当前多选页要求规范正整数父ID。");
+    }
     /// <summary>服务端共享精确范围必须验证实际完整路径；普通请求筛选继续原逻辑。</summary>
     public static FixedReadFilter ForSharedExact(string field,IReadOnlyList<object?> values)=>
         ForCrossExact(field,values);
