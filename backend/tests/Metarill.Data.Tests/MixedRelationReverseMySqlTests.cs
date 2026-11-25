@@ -182,7 +182,7 @@ public sealed class MixedRelationReverseMySqlTests
 
     /// <summary>反射仅访问现有私有执行方法，不为测试新增公共SQL或事务入口。</summary>
     private static Task<List<long>> Lookup(DatabaseSession session,MySqlNonRedundantReadPlan plan,MySqlReverseProjection reverse,long target,long after,string project="54")
-        =>(Task<List<long>>)typeof(MySqlMixedRelationMutationExecutor).GetMethod("ReverseIds",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(new MySqlMixedRelationMutationExecutor(session),[plan,reverse,target,project,after,session.CurrentTransaction!,CancellationToken.None])!;
+        =>(Task<List<long>>)typeof(MySqlMixedRelationMutationExecutor).GetMethod("ReverseIds",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(new MySqlMixedRelationMutationExecutor(session),[plan,reverse,target,project,after,session.CurrentTransaction!,CancellationToken.None,null])!;
     /// <summary>所有值通过驱动参数；只有已验证的本轮标识符进入SQL结构。</summary>
     private static void Add(DbCommand command,string name,object? value){var parameter=command.CreateParameter();parameter.ParameterName=name;parameter.Value=value??DBNull.Value;command.Parameters.Add(parameter);}
 }

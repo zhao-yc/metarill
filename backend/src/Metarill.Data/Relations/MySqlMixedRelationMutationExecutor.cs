@@ -7,20 +7,51 @@ namespace Metarill.Data.Relations;
 internal sealed class MySqlMixedRelationMutationExecutor(DatabaseSession session)
 {
     /// <summary>仅重算本次目标事件涉及的输出，原始保存额外刷新其直接物理引用。</summary>
-    internal async Task PropagateAsync(MixedRelationMutationPlan plan,string table,long id,string project,IReadOnlySet<string> changed,bool allFields,bool targetSaved,HashSet<string> validated,Action<string,long,IReadOnlyDictionary<string,object?>> onChanged,CancellationToken token)
+    internal async Task PropagateAsync(MixedRelationMutationPlan plan,string table,long id,string project,IReadOnlySet<string> changed,bool allFields,bool targetSaved,HashSet<string> validated,Action<string,long,IReadOnlyDictionary<string,object?>> onChanged,CancellationToken token,IReadOnlyDictionary<string,object?>? previous)
     {
         var transaction=session.CurrentTransaction??throw new InvalidOperationException("混合传播要求当前业务事务。");var materializer=new RelationMaintenanceExecutor(session);
+        var eventKeys=new Dictionary<MySqlReverseNodeKey,EventKeys>();
         foreach(var consumer in plan.Consumers)
         foreach(var reverse in consumer.Read.Reverse.Where(reverse=>reverse.TargetTable==table))
         {
             var allowed=reverse.Outputs.Where(item=>consumer.Table.Fields.Any(field=>field.Name==item.Key)&&reverse.Affects(item.Key,changed,allFields,targetSaved)).Select(item=>item.Key).ToHashSet(StringComparer.Ordinal);if(allowed.Count==0)continue;
             await ValidateAsync(consumer,validated,token);long after=0;
+            EventKeys? keys=null;
+            if(reverse.NodeKey is {} nodeKey&&!eventKeys.TryGetValue(nodeKey,out keys))
+            {
+                keys=await ReadEventKeys(table,id,project,nodeKey,previous,transaction,token);
+                eventKeys.Add(nodeKey,keys);
+            }
             while(true)
             {
-                var ids=await ReverseIds(consumer.Read,reverse,id,project,after,transaction,token);if(ids.Count==0)break;after=ids[^1];var rows=await materializer.Sources(consumer.Table,project,0,transaction,token,ids,allowed);if(rows.Count!=ids.Count)throw new InvalidOperationException("混合传播反查与来源活动范围不一致，整笔拒绝提交。");
+                var ids=await ReverseIds(consumer.Read,reverse,id,project,after,transaction,token,keys);if(ids.Count==0)break;after=ids[^1];var rows=await materializer.Sources(consumer.Table,project,0,transaction,token,ids,allowed);if(rows.Count!=ids.Count)throw new InvalidOperationException("混合传播反查与来源活动范围不一致，整笔拒绝提交。");
                 foreach(var patch in await materializer.RefreshLockedAsync(consumer.Table,rows,project,allowed,token))onChanged(consumer.Table.Option.TableName,patch.Id,patch.Values);
             }
         }
+    }
+    private sealed record EventKeys(string? Current,string? Previous);
+
+    /// <summary>按真实主键及归属读现值。物理删除后仍以写前捕获的业务键定位断链来源。</summary>
+    private async Task<EventKeys> ReadEventKeys(string table,long id,string project,MySqlReverseNodeKey key,
+        IReadOnlyDictionary<string,object?>? previous,DbTransaction transaction,CancellationToken token)
+    {
+        var quote=session.Provider.QuoteIdentifier;
+        await using var command=MySqlFloatingCommand.Wrap(transaction.Connection!.CreateCommand());
+        command.Transaction=transaction;
+        command.CommandText="SELECT "+quote(key.Column)+" FROM "+quote(table)+" WHERE `id`=@id AND `yz_project_id`=@project FOR SHARE";
+        Add(command,"id",id);
+        Add(command,"project",key.ProjectType=="string"?project:long.Parse(project,CultureInfo.InvariantCulture));
+        var current=await command.ExecuteScalarAsync(token);
+        return new(KeyText(current,key.LogicalType),KeyText(previous?.GetValueOrDefault(key.Column),key.LogicalType));
+    }
+
+    /// <summary>整数按规范十进制，文本业务键仅排除空根。</summary>
+    private static string? KeyText(object? raw,string type)
+    {
+        if(type=="string")return raw is string text&&!string.IsNullOrWhiteSpace(text)?text:null;
+        var value=Convert.ToString(raw,CultureInfo.InvariantCulture);
+        return long.TryParse(value,NumberStyles.None,CultureInfo.InvariantCulture,out var key)&&key>0&&key.ToString(CultureInfo.InvariantCulture)==value
+            ?value:null;
     }
     /// <summary>来源自身保存后只对真实输入变化刷新；缓存输入不能成为客户端写入通道。</summary>
     internal async Task RefreshSourceAsync(MixedRelationConsumer consumer,long id,string project,HashSet<string> validated,Action<string,long,IReadOnlyDictionary<string,object?>> onChanged,CancellationToken token)
@@ -37,9 +68,15 @@ internal sealed class MySqlMixedRelationMutationExecutor(DatabaseSession session
                 reusePinnedStructure:true,batchReverseLayouts:true);
     }
     /// <summary>前缀联接只定位真实来源外键，不依赖已删除目标；稳定主键分批当前锁读，不做OFFSET。</summary>
-    private async Task<List<long>> ReverseIds(MySqlNonRedundantReadPlan plan,MySqlReverseProjection reverse,long target,string project,long after,DbTransaction transaction,CancellationToken token)
+    private async Task<List<long>> ReverseIds(MySqlNonRedundantReadPlan plan,MySqlReverseProjection reverse,long target,string project,long after,DbTransaction transaction,CancellationToken token,EventKeys? keys)
     {
-        await using var command=MySqlFloatingCommand.Wrap(transaction.Connection!.CreateCommand());command.Transaction=transaction;var match=reverse.TargetPredicate;command.CommandText="SELECT b.`id`"+reverse.From+" WHERE "+plan.Scope+" AND b.`id`>@after AND "+match+" ORDER BY b.`id` LIMIT 128 FOR UPDATE";Add(command,"target_id",target);Add(command,"target_text",target.ToString(CultureInfo.InvariantCulture));Add(command,"after",after);Add(command,"project_scope_number",long.Parse(project,CultureInfo.InvariantCulture));Add(command,"project_scope_text",project);foreach(var parameter in plan.Constants)Add(command,parameter.Key,parameter.Value??DBNull.Value);var ids=new List<long>();await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))ids.Add(reader.GetInt64(0));return ids;
+        await using var command=MySqlFloatingCommand.Wrap(transaction.Connection!.CreateCommand());command.Transaction=transaction;var match=reverse.TargetPredicate;command.CommandText="SELECT b.`id`"+reverse.From+" WHERE "+plan.Scope+" AND b.`id`>@after AND "+match+" ORDER BY b.`id` LIMIT 128 FOR UPDATE";Add(command,"target_id",target);Add(command,"target_text",target.ToString(CultureInfo.InvariantCulture));Add(command,"after",after);Add(command,"project_scope_number",long.Parse(project,CultureInfo.InvariantCulture));Add(command,"project_scope_text",project);
+        if(keys is not null)
+        {
+            Add(command,"target_node_current",(object?)keys.Current??DBNull.Value);
+            Add(command,"target_node_previous",(object?)keys.Previous??DBNull.Value);
+        }
+        foreach(var parameter in plan.Constants)Add(command,parameter.Key,parameter.Value??DBNull.Value);var ids=new List<long>();await using var reader=await command.ExecuteReaderAsync(token);while(await reader.ReadAsync(token))ids.Add(reader.GetInt64(0));return ids;
     }
     /// <summary>业务ID和项目值仅通过驱动参数绑定。</summary>
     private static void Add(DbCommand command,string name,object value){var parameter=command.CreateParameter();parameter.ParameterName=name;parameter.Value=value;command.Parameters.Add(parameter);}

@@ -122,13 +122,20 @@ public sealed class DerivedSelfTreeTests
 
     /// <summary>固定联接名称与节点业务键共用实际生成计划，原查询、Excel 及叶名筛选均保留原协议。</summary>
     [Theory]
-    [InlineData("int64","string")]
-    [InlineData("string","string")]
-    public async Task Derived_tree_names_keep_the_business_key(string keyType,string parentType)
+    [InlineData("int64","string",false)]
+    [InlineData("string","string",false)]
+    [InlineData("int64","int64",true)]
+    [InlineData("string","string",true)]
+    public async Task Derived_tree_names_keep_the_business_key(string keyType,string parentType,bool redundant)
     {
         const string ns="Example.DerivedTreeBusinessKey";
         var catalog=Catalog("derived_key","string",parentType,automatic:false);
         NonRedundantSelfTreeTests.AddBusinessTreeKey(catalog,"3","25",keyType);
+        if(redundant)catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=1;
+        var target=catalog.ConfigPages.Single(page=>page.Id=="301");
+        target.IsSave=1;
+        target.IsDelete=1;
+        catalog.ConfigPageColumns.Add(new(){Id="301business",ConfigPageId="301",ConfigColumnId="alternate_tree_key",IsEdit=1});
         var source=catalog.ConfigPages.Single(page=>page.Id=="201");
         source.IsExport=1;
         source.IsImport=1;
@@ -146,8 +153,19 @@ public sealed class DerivedSelfTreeTests
             const BindingFlags hidden=BindingFlags.Static|BindingFlags.NonPublic;
             var candidate=Assert.IsType<NonRedundantReadPlan>(service.GetField("DerivedCascadePlan201_25",hidden)!.GetValue(null));
             Assert.Equal(keyType,candidate.OutputTypes["node_business_key"]);
-            var read=Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan201",hidden)!.GetValue(null));
-            var mysql=read.GetType().GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(read)!;
+            object mysql;
+            if(redundant)
+            {
+                mysql=AssertBusinessKeyMaintenance(assembly,ns,"2","derived_key_tree","derived_key_company");
+                var targetSource=await File.ReadAllTextAsync(Path.Combine(generated,"Services/DerivedKeyTreeService.g.cs"));
+                Assert.Contains("[\"node_business_key\"] = entity.NodeBusinessKey",targetSource);
+                Assert.Contains("previousRelationKeys: previousRelationKeys",targetSource);
+            }
+            else
+            {
+                var read=Assert.IsType<NonRedundantReadPlan>(service.GetField("ReadPlan201",hidden)!.GetValue(null));
+                mysql=read.GetType().GetProperty("MySql",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(read)!;
+            }
             var leaf=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.NonPublic)!.Invoke(mysql,["tree_name"]));
             Assert.Contains("`node_business_key`",leaf);
             Assert.Contains("`derived_key_company`",leaf);
@@ -160,6 +178,30 @@ public sealed class DerivedSelfTreeTests
                 Assert.Contains("new(\"node_business_key\",FixedReadComparison.Equal,id)",generatedSource);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>验证生成包初始化的回填及反查计划，旧键、现键和真实记录游标各自使用独立参数。</summary>
+    internal static object AssertBusinessKeyMaintenance(Assembly assembly,string ns,string owner,string tree,string? nameTable)
+    {
+        const BindingFlags hidden=BindingFlags.Instance|BindingFlags.NonPublic;
+        var declaration=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
+        var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(declaration.GetProperty("Catalog")!.GetValue(null));
+        Assert.Equal(new[]{"node_business_key"},maintenance.MixedTargetKeys(tree));
+        if(nameTable is not null)Assert.Contains(nameTable,maintenance.MixedTargets);
+        var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType().GetProperty("Plans",hidden)!.GetValue(maintenance));
+        var plan=plans[owner]!;
+        Assert.Null(plan.GetType().GetProperty("Error")!.GetValue(plan));
+        var mysql=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+        var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(mysql.GetType().GetProperty("Reverse",hidden)!.GetValue(mysql));
+        var entry=Assert.Single(reverse.Cast<object>(),item=>
+            item.GetType().GetProperty("TargetTable")!.GetValue(item) is string table&&table==tree&&
+            item.GetType().GetProperty("NodeKey",hidden)!.GetValue(item) is not null);
+        var predicate=Assert.IsType<string>(entry.GetType().GetProperty("TargetPredicate",hidden)!.GetValue(entry));
+        Assert.Contains("BINARY @target_node_current,BINARY @target_node_previous",predicate);
+        Assert.Contains(".node_id=@target_id",predicate);
+        Assert.Contains("SELECT",predicate);
+        Assert.Contains(".`id`,",predicate);
+        return mysql;
     }
 
     /// <summary>同表书签的显示联接和真实拓扑不互相覆盖，写后跟进业务键而非物理主键。</summary>

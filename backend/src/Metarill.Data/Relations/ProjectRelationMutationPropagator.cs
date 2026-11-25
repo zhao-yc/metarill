@@ -93,7 +93,7 @@ public sealed class ProjectRelationMutationPropagator(DatabaseSession session)
             while(queue.TryDequeue(out var change))
             {
                 token.ThrowIfCancellationRequested();var origin=await new MySqlRelationMutationExecutor(session).AfterMutationAsync(catalog.Propagation,change.Table,change.Id,projectId,change.Fields,change.All,token,Changed,change.Previous);if(change.Table==table&&change.Id==id)foreach(var pair in origin)patches[pair.Key]=pair.Value;
-                await mixed.PropagateAsync(catalog.Mixed,change.Table,change.Id,projectId,change.Fields,change.All,change.TargetSaved,validated,Changed,token);
+                await mixed.PropagateAsync(catalog.Mixed,change.Table,change.Id,projectId,change.Fields,change.All,change.TargetSaved,validated,Changed,token,change.Previous);
             }
         }
         catch(MySqlConnector.MySqlException error)when(error.Number is 1213 or 1205){throw new InvalidOperationException("混合关系传播遇到并发冲突，当前操作不提交，请重试。",error);}

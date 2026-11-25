@@ -12,6 +12,8 @@ namespace Metarill.Data.Queries;
 internal sealed record MySqlPhysicalReference(string Table,Metarill.Data.Schema.ColumnSchema Column);
 internal sealed record MySqlValueOrigin(string Table,string Column);
 internal sealed record MySqlScalarCacheTarget(string Table,string Alias,string Predicate,string ForeignColumn);
+/// <summary>已发布的非主键事件需要按当前物理记录和写前值反查，查询只能使用固定列。</summary>
+internal sealed record MySqlReverseNodeKey(string Column,string LogicalType,string ProjectType);
 internal sealed record MySqlReverseProjection(string TargetTable,string From,string ForeignExpression,string ForeignType,IReadOnlyDictionary<string,IReadOnlySet<string>> Outputs)
 {
     /// <summary>普通等值供字符串索引预筛选，二进制条件仍决定精确ID；数组谓词和整数键保持原义。</summary>
@@ -24,6 +26,7 @@ internal sealed record MySqlReverseProjection(string TargetTable,string From,str
 
     /// <summary>原保存钩子可直接从目标物理行取值的单级缓存。</summary>
     internal IReadOnlySet<string> DirectSaveOutputs {get;init;}=FrozenSet<string>.Empty;
+    internal MySqlReverseNodeKey? NodeKey {get;init;}
 
     /// <summary>只有原始更新事件可补刷新直接缓存，下游事件仍按实际变更字段传播。</summary>
     internal bool Affects(string output,IReadOnlySet<string> changed,bool allFields,bool targetSaved)
@@ -582,7 +585,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     var foreign=columns[table.Id].Values.Single(item=>item.Id==refresh.ForeignColumnId);var target=tables[refresh.TargetTableId];var value=columns[target.Id].Values.Single(item=>item.Id==refresh.ValueColumnId);
                     if(refresh.Multiple)return MultiDisplay(table,alias,foreign,value.ColumnName,refresh.CheckboxTargetPageId,refresh.CheckboxSourceParentId);
                     if(refresh.ScopedSinglePageId is not null)return ScopedSingleCacheValue(table,alias,foreign,target,value,refresh);
-                    if(SelfTreeCache.UsesWholePath(catalog,table,refresh.SelfTreePageId))
+                    if(SelfTreeCache.UsesWholePath(catalog,table,refresh.SelfTreePageId)||
+                        refresh.SelfTreePageId is not null&&CascadeTreeStorageColumns.DeclaresAlternateNodeKey(foreign)&&
+                        !storage[target.Id].IsPhysical(value))
                         return (SelfTreeLabelExpression(table,alias,foreign,column!,refresh.SelfTreePageId),"string");
                     if(refresh.CrossTableRecursivePageId is not null)return RecursiveCacheValue(table,alias,foreign,target,value,refresh);
                     // 标量级联缓存的精确目标由已验证定义确定，叶子无需伪装成普通List关系。

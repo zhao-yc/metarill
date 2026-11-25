@@ -472,7 +472,12 @@ public sealed class NonRedundantSelfTreeTests
     [InlineData(false,true,false,false,"string",true,false,"string")]
     [InlineData(false,true,false,false,"decimal",false,false,"int64")]
     [InlineData(false,false,false,false,"string",false,false,"string")]
-    public async Task Fixed_cascade_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false,string nameKind="string",bool selfTreeCondition=false,bool globalSelection=false,string? businessKey=null)
+    [InlineData(false,false,true,false,"string",true,false,"int64")]
+    [InlineData(false,true,true,false,"string",true,false,"string")]
+    [InlineData(false,true,true,false,"decimal",false,false,"int64")]
+    [InlineData(false,false,true,false,"string",false,false,"string")]
+    [InlineData(false,true,true,false,"string",true,false,"string","int64")]
+    public async Task Fixed_cascade_condition_checks_every_self_tree_node(bool global,bool derivedName,bool cache=false,bool globalSource=false,string nameKind="string",bool selfTreeCondition=false,bool globalSelection=false,string? businessKey=null,string? innerKey=null)
     {
         const string ns="Example.FixedSelfTreeNode";
         var catalog=selfTreeCondition?Catalog("scoped_tree",automatic:true):
@@ -533,6 +538,20 @@ public sealed class NonRedundantSelfTreeTests
         {
             AddBusinessTreeKey(catalog,target.Id,"94",businessKey);
             catalog.ConfigColumns.Single(column=>column.Id=="27").LogicalType=businessKey;
+            if(cache)
+            {
+                targetPage.IsSave=1;
+                targetPage.IsDelete=1;
+                catalog.ConfigPageColumns.Add(new(){Id="201business",ConfigPageId="201",ConfigColumnId="alternate_tree_key",IsEdit=1});
+            }
+        }
+        if(innerKey is not null)
+        {
+            AddBusinessTreeKey(catalog,"3","25",innerKey,"_inner");
+            var innerPage=catalog.ConfigPages.Single(page=>page.Id=="301");
+            innerPage.IsSave=1;
+            innerPage.IsDelete=1;
+            catalog.ConfigPageColumns.Add(new(){Id="301business",ConfigPageId="301",ConfigColumnId="alternate_tree_key_inner",IsEdit=1});
         }
         foreach(var id in new[]{"93","94","95"})
             catalog.ConfigPageColumns.Add(new(){Id="901"+id,ConfigPageId="901",ConfigColumnId=id,IsShow=1,IsEdit=id=="95"?0:1,
@@ -596,6 +615,24 @@ public sealed class NonRedundantSelfTreeTests
             Assert.NotNull(service.GetMethod("CascadePath901_94Async"));
             Assert.NotNull(service.GetMethod("Import901Async"));
             Assert.NotNull(service.GetMethod("Export901Async"));
+            if(cache&&businessKey is not null)
+            {
+                var stored=DerivedSelfTreeTests.AssertBusinessKeyMaintenance(assembly,ns,"9","scoped_tree_source",
+                    selfTreeCondition?"scoped_tree_tree":"scoped_tree_country");
+                var label=Assert.IsType<string>(stored.GetType().GetMethod("Expression",BindingFlags.Instance|BindingFlags.NonPublic)!
+                    .Invoke(stored,["node_name"]));
+                Assert.Contains("WITH RECURSIVE",label);
+                Assert.Contains("`node_business_key`",label);
+                Assert.Contains("b.`store_id`",label);
+                var targetService=await File.ReadAllTextAsync(Path.Combine(generated,"Services/ScopedTreeSourceService.g.cs"));
+                Assert.Contains("[\"node_business_key\"] = entity.NodeBusinessKey",targetService);
+                if(innerKey is not null)
+                {
+                    DerivedSelfTreeTests.AssertBusinessKeyMaintenance(assembly,ns,"9","scoped_tree_tree",nameTable:null);
+                    var innerService=await File.ReadAllTextAsync(Path.Combine(generated,"Services/ScopedTreeTreeService.g.cs"));
+                    Assert.Contains("[\"node_business_key\"] = entity.NodeBusinessKey",innerService);
+                }
+            }
             if(selfTreeCondition&&!cache)
             {
                 const BindingFlags flags=BindingFlags.Static|BindingFlags.NonPublic;
@@ -645,18 +682,18 @@ public sealed class NonRedundantSelfTreeTests
     }
 
     /// <summary>在生成夹具中开启唯一业务键，保留来源项目与目标物理主键。</summary>
-    internal static void AddBusinessTreeKey(MetadataCatalog catalog,string targetId,string controlId,string keyType)
+    internal static void AddBusinessTreeKey(MetadataCatalog catalog,string targetId,string controlId,string keyType,string suffix="")
     {
         var control=catalog.ConfigColumns.Single(column=>column.Id==controlId);
         var settings=System.Text.Json.Nodes.JsonNode.Parse(control.ControlDetail)!;
         settings["selfTree"]!["idField"]="node_business_key";
         control.ControlDetail=settings.ToJsonString();
-        catalog.ConfigColumns.Add(new(){Id="alternate_tree_key",ConfigTableId=targetId,YzProjectId=catalog.YzProjectId,
+        catalog.ConfigColumns.Add(new(){Id="alternate_tree_key"+suffix,ConfigTableId=targetId,YzProjectId=catalog.YzProjectId,
             ColumnName="node_business_key",LogicalType=keyType,ColumnLength="48",IsDbNotNull=1});
-        catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="alternate_tree_index",configTableId=targetId,
+        catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="alternate_tree_index"+suffix,configTableId=targetId,
             indexName="uq_node_business_key",isUnique=1,isEnabled=1,yzProjectId=catalog.YzProjectId}));
-        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="alternate_tree_index_column",
-            configIndexId="alternate_tree_index",configColumnId="alternate_tree_key",sortNo=10,yzProjectId=catalog.YzProjectId}));
+        catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="alternate_tree_index_column"+suffix,
+            configIndexId="alternate_tree_index"+suffix,configColumnId="alternate_tree_key"+suffix,sortNo=10,yzProjectId=catalog.YzProjectId}));
     }
 
     /// <summary>全局候选可能读取其它行项目，内层树必须显式全局才能用于该范围。</summary>

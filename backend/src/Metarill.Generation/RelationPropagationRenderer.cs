@@ -34,8 +34,10 @@ internal static class GeneratedRelationMutation
     internal static IReadOnlyList<ColumnModel> PreviousKeys(GenerationModel model,TableModel table)=>
         RelationPropagationCompilation.Bindings(model)
             .Where(binding=>binding.Target.Source.Id==table.Source.Id&&binding.TargetKey is not null)
-            .Select(binding=>table.Columns.Single(column=>column.Source.ColumnName==binding.TargetKey))
-            .DistinctBy(column=>column.Source.Id).ToArray();
+            .Select(binding=>binding.TargetKey!)
+            .Concat(MixedRelationPropagationCompilation.ForModel(model).MixedTargetKeys(table.Source.TableName))
+            .Distinct(StringComparer.Ordinal)
+            .Select(key=>table.Columns.Single(column=>column.Source.ColumnName==key)).ToArray();
 
     /// <summary>通知观察者前传播，异常由同一外层事务回滚；自身被刷新字段补回实体以保证VO一致。</summary>
     internal static string Notify(GenerationModel model,TableModel table,string project,bool batchInsert)

@@ -108,8 +108,8 @@ internal static class CascadeTreeReadCompilation
             if(!ordering.Any(item=>item.Column.IsId))ordering.Add((target.Columns.Single(column=>column.IsId),false));
             var joiner=Text(root,"displayJoiner","/");if(joiner.Length>32)return Gap("路径分隔符过长。");
             var plan=new CascadeTreeReadModel(source,target,candidates[0],key,name,parent,joiner,ordering,Text(tree,"filterMatchMode","selfAndDescendants")=="exact",derived,joinedOrder.Length>0);
-            if(!key.IsId&&(key==name||key==parent||plan.UsesFixedRead&&table.Source.IsRongyu!=0))
-                return Gap("带固定派生名称或逻辑条件的业务节点键当前要求非冗余来源。");
+            if(!key.IsId&&(key==name||key==parent))
+                return Gap("业务节点键必须与名称、父字段分别声明。");
             if(plan.TextKey&&(source.Type!="string?"||parent.Type!="string?"))return Gap("文本业务节点键要求文本来源列和真实文本父键。");
             if(plan.UsesFixedRead)DerivedCascadeNamesCompilation.Require(model,table,plan);return new(plan,null);
         }

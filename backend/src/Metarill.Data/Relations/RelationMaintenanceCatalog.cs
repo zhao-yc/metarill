@@ -35,6 +35,11 @@ public sealed class RelationMaintenanceCatalog
     /// <summary>生成器据此只挂载已证明的目标和来源实体补丁，公开投影不包含SQL。</summary>
     public IReadOnlyList<string> MixedTargets=>Mixed.Targets;
     public IReadOnlyDictionary<string,IReadOnlyList<string>> MixedSourceColumns=>Mixed.SourceColumns;
+    /// <summary>生成写入口只记录实际反查所需的旧业务键，包含逻辑范围引用的内层树。</summary>
+    public IReadOnlyList<string> MixedTargetKeys(string table)=>Mixed.Consumers
+        .SelectMany(consumer=>consumer.Read.Reverse)
+        .Where(reverse=>reverse.TargetTable==table)
+        .Select(reverse=>reverse.NodeKey?.Column).OfType<string>().Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
     private RelationMaintenanceCatalog(MetadataCatalog catalog,RelationCacheDefinition[] definitions,IReadOnlySet<string> excluded,RelationCacheDefinition[] derived)
     {
         MetadataValidation.Validate(catalog);if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("维护回填尚未完成该方言验收。");ProjectId=catalog.YzProjectId;

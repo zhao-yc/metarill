@@ -63,7 +63,7 @@ public static partial class MySqlNonRedundantReadCompiler
         if(keyName!="id")
         {
             var source=catalog.ConfigTables.Single(table=>table.Id==control.ConfigTableId);
-            if(source.IsRongyu!=0||GlobalCrossTableTarget.Declared(source)||
+            if(source.IsRongyu is not(0 or 1)||GlobalCrossTableTarget.Declared(source)||
                 GlobalCrossTableTarget.Declared(target)||key.Id==parent.Id||key.Id==name.Id)
                 throw new NotSupportedException("业务节点键要求项目内树，节点键与名称、父字段分别声明。");
             if(key.LogicalType=="string"&&(control.LogicalType!="string"||parent.LogicalType!="string"))
@@ -132,9 +132,10 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!storage[table.Id].IsPhysical(control)||control.LogicalType is not("int64" or "string"))
                 throw new NotSupportedException("自树多值名称要求物理选择位。");
             var proof=SelfTreeLabel(catalog,control);
-            if(trackReverse&&proof.Key.ColumnName!="id")
-                throw new NotSupportedException("业务节点键的下游名称传播需要独立反查证明。");
-            if(publishedPageId is not null&&(publishedPageId!=proof.Page.Id||!SelfTreeCache.UsesWholePath(catalog,table,publishedPageId)))
+            var alternate=proof.Key.ColumnName!="id";
+            var derivedBusinessKey=alternate&&!storage[proof.Target.Id].IsPhysical(proof.Name);
+            if(publishedPageId is not null&&(publishedPageId!=proof.Page.Id||
+                !SelfTreeCache.UsesWholePath(catalog,table,publishedPageId)&&!derivedBusinessKey))
                 throw new InvalidOperationException("自树缓存与实际固定目标页不一致。");
             ValidateTarget(proof.Target);
             cascadeLabelPages.Add(proof.Page.Id);
@@ -228,9 +229,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     foreach(var reference in nested.PhysicalReferences)references.TryAdd((reference.Table,reference.Column.Name),reference);
                     foreach(var entry in nested.Reverse)
                     {
-                        var predicate="((SELECT 1"+entry.From+" WHERE BINARY CAST("+display+".`id` AS CHAR)=BINARY "+leafKey+
+                        var predicate="((SELECT 1"+entry.From+" WHERE BINARY CAST("+display+"."+nodeKey+" AS CHAR)=BINARY "+leafKey+
                             WithScope(nested.Scope)+" AND "+entry.TargetPredicate+" LIMIT 1) IS NOT NULL)";
-                        AddReverse(entry.TargetTable,predicate,entry.Outputs.Values.SelectMany(fields=>fields));
+                        AddReverse(entry.TargetTable,predicate,entry.Outputs.Values.SelectMany(fields=>fields),entry.NodeKey);
                     }
                 }
             }
@@ -239,10 +240,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 Use(table,control);
                 Touch(owner,control.ColumnName);
                 Use(proof.Target,Column(proof.Target,"id"));
+                if(alternate)Use(proof.Target,proof.Key);
                 Use(proof.Target,proof.Parent);
                 if(storage[proof.Target.Id].IsPhysical(proof.Name))Use(proof.Target,proof.Name);
                 // 失效节点不能截断反向路径；名称重算再执行各层实际可见性。
-                var reverseCte=fixedTarget is null&&publishedPageId is null&&conditionOwner is null?cte:WalkCte(
+                var reverseCte=!alternate&&fixedTarget is null&&publishedPageId is null&&conditionOwner is null?cte:WalkCte(
                     Scope(proof.Target,seed,projectScoped:!global,includeDeleted:true),
                     Scope(proof.Target,ancestor,projectScoped:!global,includeDeleted:true));
                 if(fixedTarget is not null)
@@ -250,14 +252,15 @@ public static partial class MySqlNonRedundantReadCompiler
                     {
                         var probe="EXISTS (SELECT 1"+reverse.From+" WHERE "+display+".`id`="+walk+".node_id AND "+reverse.TargetPredicate+")";
                         AddReverse(reverse.TargetTable,"("+reverseCte+"SELECT 1 FROM "+walk+" WHERE "+probe+" LIMIT 1) IS NOT NULL",
-                            reverse.Outputs.Values.SelectMany(fields=>fields));
+                            reverse.Outputs.Values.SelectMany(fields=>fields),reverse.NodeKey);
                     }
-                var predicate="(BINARY "+leafKey+"=BINARY @target_text OR ("+reverseCte+"SELECT 1 FROM "+walk+
-                    " WHERE "+walk+".node_id=@target_id OR BINARY "+PositiveText("CAST("+walk+".parent_key AS CHAR)")+
-                    "=BINARY @target_text LIMIT 1) IS NOT NULL)";
-                var fields=new[]{proof.Parent.ColumnName,proof.Name.ColumnName,"id","yz_project_id","delete_no"};
+                var predicate="("+MatchesEventKey(leafKey)+" OR ("+reverseCte+"SELECT 1 FROM "+walk+
+                    " WHERE "+walk+".node_id=@target_id OR "+MatchesEventKey(ComparableKey(walk+".parent_key"))+" LIMIT 1) IS NOT NULL)";
+                var fields=new[]{proof.Parent.ColumnName,proof.Name.ColumnName,proof.Key.ColumnName,"id","yz_project_id","delete_no"};
+                var eventKey=alternate?new MySqlReverseNodeKey(proof.Key.ColumnName,proof.Key.LogicalType,
+                    Column(proof.Target,"yz_project_id").LogicalType):null;
                 // 逻辑叶名的选择键不在页面条件文本内，也必须在换选时触发传播。
-                AddReverse(proof.Target.TableName,predicate,fields.Concat(ConditionFields()).Concat(fixedTarget?.SourceDependencies??[]));
+                AddReverse(proof.Target.TableName,predicate,fields.Concat(ConditionFields()).Concat(fixedTarget?.SourceDependencies??[]),eventKey);
                 if(global)publishedArrayIdentity=true;
             }
             var label=MySqlMultiValueLabel.Text(nodeName,proof.Name.LogicalType);
@@ -267,10 +270,10 @@ public static partial class MySqlNonRedundantReadCompiler
 
             // 同一拓扑用于实际可见读取和失效后的反向定位。
             string WalkCte(string seedScope,string ancestorScope)=>
-                "WITH RECURSIVE "+walk+"(node_id,parent_key,depth,seen) AS ((SELECT "+seed+"."+nodeKey+","+
+                "WITH RECURSIVE "+walk+"(node_id,parent_key,depth,seen) AS ((SELECT "+seed+".`id`,"+
                 seed+"."+Q(proof.Parent.ColumnName)+",1,JSON_ARRAY(CAST("+seed+"."+nodeKey+" AS CHAR)) FROM "+targetTable+" "+seed+
                 " WHERE BINARY CAST("+seed+"."+nodeKey+" AS CHAR)=BINARY "+leafKey+WithScope(seedScope)+NestedReadLockMarker+
-                ") UNION ALL (SELECT "+ancestor+"."+nodeKey+","+ancestor+"."+Q(proof.Parent.ColumnName)+","+walk+".depth+1,"+
+                ") UNION ALL (SELECT "+ancestor+".`id`,"+ancestor+"."+Q(proof.Parent.ColumnName)+","+walk+".depth+1,"+
                 "JSON_ARRAY_APPEND("+walk+".seen,'$',CAST("+ancestor+"."+nodeKey+" AS CHAR)) FROM "+walk+" JOIN "+targetTable+" "+ancestor+
                 " ON BINARY CAST("+ancestor+"."+nodeKey+" AS CHAR)=BINARY "+ComparableKey(walk+".parent_key")+
                 " WHERE "+walk+".depth<"+max+" AND NOT JSON_CONTAINS("+walk+".seen,JSON_QUOTE(CAST("+ancestor+"."+nodeKey+" AS CHAR)))"+
@@ -280,6 +283,11 @@ public static partial class MySqlNonRedundantReadCompiler
             string ComparableKey(string expression)=>proof.Key.LogicalType=="string"
                 ?"(CASE WHEN NOT ("+expression+" REGEXP '^[[:space:]]*$') THEN "+expression+" END)"
                 :PositiveText("CAST("+expression+" AS CHAR)");
+
+            // 删除和改键后，旧父键可能已经断链，按事件新旧业务键同时定位。
+            string MatchesEventKey(string expression)=>alternate
+                ?"BINARY "+expression+" IN (BINARY @target_node_current,BINARY @target_node_previous)"
+                :"BINARY "+expression+"=BINARY @target_text";
 
             string NodeScope(string alias)
             {
@@ -307,11 +315,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 cascadeCacheOwnerFields.UnionWith(plan.CascadeCacheOwnerFields);
             }
 
-            void AddReverse(string target,string predicate,IEnumerable<string> fields)
+            void AddReverse(string target,string predicate,IEnumerable<string> fields,MySqlReverseNodeKey? eventKey=null)
             {
                 var dependencies=new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal)
                     {{output,fields.ToHashSet(StringComparer.Ordinal)}};
-                customReverse.Add(new(target," FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),predicate,"predicate",dependencies));
+                customReverse.Add(new(target," FROM "+Q(root.TableName)+" "+rootAlias+string.Concat(joins),predicate,"predicate",dependencies){NodeKey=eventKey});
             }
 
             static string WithScope(string scope)=>scope.Length==0?"":" AND "+scope;
