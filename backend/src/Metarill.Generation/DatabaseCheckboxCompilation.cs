@@ -27,6 +27,8 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool SharedLogicalParentScope { get; init; }
     internal bool HasStoredIdentityScope { get; init; }
     internal bool HasStoredExactScope { get; init; }
+    // 非冗余精确字典的物理父范围已经按实际发布字段和来源父键证明。
+    internal bool HasExactPhysicalParentScope { get; init; }
     /// <summary>全称和简称使用实际发布的冗余字典项目及物理父范围。</summary>
     internal bool HasStoredGlobalParentScope => LogicalTargetPage is {} page&&
         FixedPageConditionCompilation.HasStoredGlobalMultiParentScope(Target,page);
@@ -38,7 +40,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     /// <summary>原列表勾选的加载和冗余数组匹配共用同一候选范围证明。</summary>
     internal bool SupportsRedundantArrayFilter =>
         FormParentField is not null || SharedLogicalParentScope || HasStoredIdentityScope || HasStoredStaticScope ||
-        HasProjectStoredAccountScope || HasStoredGlobalParentScope || ProjectFormScope || SharedTextParent is not null;
+        HasProjectStoredAccountScope || HasStoredGlobalParentScope || HasExactPhysicalParentScope || ProjectFormScope || SharedTextParent is not null;
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
@@ -270,7 +272,7 @@ internal static class DatabaseCheckboxCompilation
                 return Gap("复选不能用页覆盖替换表级固定范围。");
             var whereSql=definition.WhereSql;
             if((storedProjectPage||storedStaticPage||storedExactPage||scopedGlobalAccountPage||
-                scopedGlobalParentPage&&target.Source.IsRongyu==1)&&table.Source.IsRongyu==1)
+                scopedGlobalParentPage&&(target.Source.IsRongyu==1||scopedGlobalExactPage))&&table.Source.IsRongyu==1)
             {
                 var fields=target.Columns.Select(column=>column.Source.ColumnName).ToArray();
                 var publishedCondition=FixedConditionPlan.Compile(publishedGlobalPage!.Source.WhereSql,fields);
@@ -519,6 +521,7 @@ internal static class DatabaseCheckboxCompilation
                 SharedLogicalParentScope=sharedLogicalParentScope,
                 HasStoredIdentityScope=storedIdentityPage,
                 HasStoredExactScope=storedExactPage||table.Source.IsRongyu==1&&scopedGlobalExactPage,
+                HasExactPhysicalParentScope=scopedGlobalParentPage&&exactTarget is not null&&target.Source.IsRongyu==0,
                 HasStoredStaticScope=storedStaticPage,
                 HasProjectStoredAccountScope=projectStoredAccount,
                 CompoundPhysicalSource=ordinaryCompoundSource||projectStoredAccount&&sourceScopeColumns.Length>1,
@@ -569,7 +572,7 @@ internal static class DatabaseCheckboxCompilation
             !definition.HasStoredGlobalParentScope&&!definition.HasStoredExactScope||
             definition.Conditions is not null&&!definition.HasStoredIdentityScope&&!definition.HasProjectStoredAccountScope&&!definition.ProjectFormScope)
             return false;
-        if(definition.HasStoredGlobalParentScope)
+        if(definition.HasStoredGlobalParentScope||definition.HasExactPhysicalParentScope)
             return !definition.LogicalSourceParent&&definition.SourceParent is not null&&definition.SourceParents.Count==1;
         if(definition.SharedLogicalParentScope)
             return !definition.LogicalSourceParent&&definition.SourceParent is not null&&

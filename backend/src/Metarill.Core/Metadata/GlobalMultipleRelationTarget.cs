@@ -259,7 +259,7 @@ public static class GlobalMultipleRelationTarget
         // 实时多值关系的字典权限由实际发布页证明，来源仍须具有物理行项目列。
         var exactRealtime=exactPage&&!cached&&(target.IsRongyu==0||!checkbox&&target.IsRongyu==1);
         // 普通与全局业务来源共用真实同父证明；固定字典可以只声明父范围和字面条件。
-        var projectParentPage=IsProjectParentPage(target,page,condition,checkbox);
+        var projectParentPage=IsProjectParentPage(target,page,condition,checkbox,allowExact:exactPage);
         var staticParentPage=GlobalCrossTableTarget.UsesOnlyParentVariables(condition);
         var physicalParentPage=false;
         var storedParent=(checkbox||pageId.Length>0)
@@ -274,7 +274,7 @@ public static class GlobalMultipleRelationTarget
                 throw new NotSupportedException("冗余全局字典要求已发布来源的实际物理父键。");
         }
         if((GlobalCrossTableTarget.Declared(owner)||projectParentPage||staticParentPage)&&
-            (checkbox||pageId.Length>0)&&target.IsRongyu==0&&!scoped&&IsPublishedMultiPage(target,page,checkbox)&&
+            (checkbox||pageId.Length>0)&&target.IsRongyu==0&&!scoped&&IsPublishedMultiPage(target,page,checkbox,allowExact:exactPage)&&
             (projectParentPage||staticParentPage||condition.Variables.Any(AccountConditionVariables.IsSupported))&&
             MultiTargetParentScope.CompileGlobalPage(catalog,target,condition,checkbox) is {Logical:false} parent&&
             parent.AdditionalTargets.All(scope=>!scope.Logical))
@@ -293,7 +293,7 @@ public static class GlobalMultipleRelationTarget
                 throw new NotSupportedException("全局多值来源必须绑定受支持的已发布字典页。");
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
         }
-        if(cached&&checkbox&&(projectPage||storedParent is not null||storedExact&&(storedStatic||storedAccount)||
+        if(cached&&checkbox&&(projectPage||physicalParentPage&&exactPage||storedParent is not null||storedExact&&(storedStatic||storedAccount)||
             cachedNonRedundantExact&&(storedStatic||nonRedundantAccountPage)||
             GlobalCrossTableTarget.Declared(owner)&&(storedStatic||nonRedundantAccountPage))&&
             !checkboxDefinition!.IsCoveredByStaticPage(condition,expanded.Select(column=>column.ColumnName)))
@@ -341,7 +341,7 @@ public static class GlobalMultipleRelationTarget
             throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");
         return new(page,name){UsesStoredStaticPage=storedStatic,UsesProjectPage=projectPage,UsesNonRedundantAccountPage=nonRedundantAccountPage,
             UsesNonRedundantExactCheckboxPage=checkbox&&(exactRealtime||
-                cachedNonRedundantExact&&(storedStatic||projectPage||nonRedundantAccountPage)),
+                cachedNonRedundantExact&&(storedStatic||projectPage||nonRedundantAccountPage||physicalParentPage)),
             UsesStoredExactCheckboxPage=checkbox&&storedExact&&(storedStatic||storedAccount||projectPage),
             UsesStoredAccountPage=storedAccount,UsesNonRedundantPhysicalParentPage=physicalParentPage,
             UsesStoredPhysicalParentPage=storedParent is not null};

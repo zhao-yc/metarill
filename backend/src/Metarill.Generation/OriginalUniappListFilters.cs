@@ -83,7 +83,8 @@ internal static partial class OriginalUniappListRenderer
                     // 原下拉仍提交单个 ID，候选和已选值随实际门店或父范围失效。
                     if(kind=="MultiCheckBoxDatabase"&&DatabaseCheckboxCompilation.Resolve(model,table,page,column).Definition is {} checkbox&&
                         (checkbox.FormParentField is not null||checkbox.HasStoredIdentityScope||checkbox.HasStoredStaticScope||
-                            checkbox.HasProjectStoredAccountScope||checkbox.HasStoredGlobalParentScope||checkbox.ProjectFormScope||checkbox.SharedTextParent is not null))
+                            checkbox.HasProjectStoredAccountScope||checkbox.HasStoredGlobalParentScope||checkbox.HasExactPhysicalParentScope||
+                            checkbox.ProjectFormScope||checkbox.SharedTextParent is not null))
                     {
                         optionFields.Add(name+"_list");
                         var scope=AppendArrayCheckboxFilterOptions(model,table,page,column,checkbox.Endpoint,

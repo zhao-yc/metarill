@@ -368,6 +368,21 @@ public sealed class CascadeMultiLabelGenerationTests
             projectParentScope:compound,storedDictionary:true,compoundTargetParent:compound?"physical":null,
             exact:true,alternateMultiName:true);
 
+    /// <summary>全局非冗余精确字典按实际物理父键提供两个已发布名称。</summary>
+    [Theory]
+    [InlineData("MultiCheckBoxDatabase",0,true,false)]
+    [InlineData("MultiCheckBoxDatabase",1,true,false)]
+    [InlineData("MultiCheckBoxDatabase",1,true,true)]
+    [InlineData("MultiCheckBoxDatabase",1,false,true)]
+    [InlineData("MultiSelectPage",0,false,true)]
+    [InlineData("MultiSelectPage",1,true,false)]
+    public Task Exact_global_nonredundant_parent_dictionary_uses_both_names(string kind,int mode,bool ordinary,bool compound)=>
+        CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:true,
+            globalRowProject:true,parent:true,globalParent:compound,parentWithoutProject:compound,parentAccount:compound,
+            globalBusinessSource:true,ordinaryBusinessSource:ordinary,onlyParent:true,literalParent:true,
+            projectParentScope:true,compoundTargetParent:compound?"physical":null,exact:true,
+            alternateCheckboxName:kind=="MultiCheckBoxDatabase",alternateMultiName:kind=="MultiSelectPage");
+
     /// <summary>无父路由时，原控件沿详情中明确选择的实际父记录使用全局字典。</summary>
     [Theory]
     [InlineData("MultiSelectPage",0,false,false)]
@@ -711,6 +726,8 @@ public sealed class CascadeMultiLabelGenerationTests
         bool alternateCheckboxName=false,bool alternateMultiName=false)
     {
         const string ns="Example.CascadeLabels";
+        var exactGlobalPhysicalCheckbox=kind=="MultiCheckBoxDatabase"&&exact&&globalRowProject is not null&&
+            physical&&parent&&!storedDictionary&&!logicalParent;
         var catalog=selfTree?NonRedundantSelfTreeTests.Catalog("label_cross"):
             NonRedundantCrossTableGenerationTests.Catalog("label_cross","string","int64");
         var display=selfTree?"tree_name":"country_name";
@@ -773,6 +790,8 @@ public sealed class CascadeMultiLabelGenerationTests
         }
         catalog.ConfigPageColumns.Add(new(){Id="90192",ConfigPageId="901",ConfigColumnId="92"});
         catalog.ConfigPageColumns.Add(new(){Id="90195",ConfigPageId="901",ConfigColumnId="95",Extra=new(){["isSearch"]=JsonSerializer.SerializeToElement(1)}});
+        if(exactGlobalPhysicalCheckbox&&compoundTargetParent=="physical")
+            catalog.ConfigColumns.Single(column=>column.Id=="95").Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
         if(account)
         {
             var page=catalog.ConfigPages.Single(item=>item.Id=="301");
@@ -1190,7 +1209,8 @@ public sealed class CascadeMultiLabelGenerationTests
                     Assert.Contains("var targetParentId = logicalRelationParentId;",code);
                 else if(kind=="MultiCheckBoxDatabase"&&(exact||compoundTargetParent is not null))
                 {
-                    Assert.Contains(compoundTargetParent is not null?"CompileScopedCheckboxLabel":
+                    Assert.Contains(exactGlobalPhysicalCheckbox?"CompileGlobalExactSingleCandidate":
+                        compoundTargetParent is not null?"CompileScopedCheckboxLabel":
                         globalRowProject is not null?"CompileGlobalExactSingleCandidate":
                         logicalParent?"CompileExactCheckboxParentCandidate":
                         projectTargetGlobalParent?"CompileScopedCheckboxLabel":"CompileRelationMembership",code);
@@ -1209,6 +1229,33 @@ public sealed class CascadeMultiLabelGenerationTests
                         Assert.Contains("""multiExactAuthorization.ResolveExactDataManage("201", "list", "real_name")""",code);
                         Assert.Contains("""multiImportExactAuthorization.ResolveExactDataManage("201", "list", "real_name")""",code);
                     }
+                }
+                if(exactGlobalPhysicalCheckbox)
+                {
+                    var source=model.Tables.Single(table=>table.Source.Id=="9");
+                    var list=source.Pages.Single(page=>page.Source.Id=="901");
+                    var relation=source.Columns.Single(column=>column.Source.Id=="95");
+                    var resolution=DatabaseCheckboxCompilation.Resolve(model,source,list,relation);
+                    Assert.True(resolution.Definition is {ExactTarget:not null,SourceParent:not null},resolution.Reason);
+                    var vue=OriginalUniappListRenderer.Render(model,source,list);
+                    Assert.Contains("loadOriginalArrayCheckboxOptions(",vue);
+                    Assert.Contains("/901/findNameIdSelected95",vue);
+                    if(compoundTargetParent is not null)
+                    {
+                        var target=catalog.ConfigTables.Single(table=>table.Id=="2");
+                        var published=catalog.ConfigPages.Single(page=>page.Id=="201");
+                        var binding=GlobalCrossTableTarget.ExactPageParent(catalog,target,published);
+                        Assert.Equal("other_country_id",Assert.Single(binding!.AdditionalTargets).Target.ColumnName);
+                        var second=catalog.ConfigColumns.Single(column=>column.Id=="217");
+                        var original=second.LinkConfigTableId;
+                        try
+                        {
+                            second.LinkConfigTableId="4";
+                            Assert.Throws<InvalidOperationException>(()=>GlobalCrossTableTarget.ExactPageParent(catalog,target,published));
+                        }
+                        finally{second.LinkConfigTableId=original;}
+                    }
+                    Assert.Contains("\"requiresParent\":true",vue);
                 }
                 if(!physicalProjectCheckbox&&(compoundSourceParent is null||!onlyParent))Assert.Contains(".BindAccount(actor)",code);
                 Assert.DoesNotContain("MultiPageCondition901_95.ApplyConstants",code);
@@ -1453,7 +1500,8 @@ public sealed class CascadeMultiLabelGenerationTests
                 compoundTargetParent=="independent"&&globalRowProject==false&&kind=="MultiSelectPage"||
                 globalCompoundSource&&compoundSourceParent=="independent"&&kind=="MultiCheckBoxDatabase"||
                 projectTargetGlobalParent&&compoundTargetParent=="independent"&&kind=="MultiCheckBoxDatabase"||
-                customCheckboxParentType=="int32"&&projectParentScope&&globalParent||alternateMultiName)
+                customCheckboxParentType=="int32"&&projectParentScope&&globalParent||alternateMultiName||
+                exactGlobalPhysicalCheckbox&&compoundTargetParent is not null&&!ordinaryBusinessSource)
             {
                 // 独立包编译使用实际发布目录，原页面继续带原控件及候选参数。
                 foreach(var configPage in catalog.ConfigPages)

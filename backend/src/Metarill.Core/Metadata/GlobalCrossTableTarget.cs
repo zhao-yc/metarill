@@ -72,8 +72,13 @@ public static class GlobalCrossTableTarget
             var checkboxPage=!DeclaresExactMulti(table,page);
             var projectMulti=GlobalMultipleRelationTarget.IsProjectPage(table,page,condition,checkboxPage,allowExact:true);
             var storedMultiAccount=GlobalMultipleRelationTarget.IsStoredExactMultiAccountPage(table,page,condition,checkboxPage);
+            // 普通精确字典页也可作为复选页发布。显式父列必须解析为同一实际记录。
+            if(table.IsRongyu==0&&!logical&&MultiTargetParentScope.CompileGlobalPage(catalog,table,condition,checkbox:true)
+                is {Logical:false} physicalParent&&physicalParent.AdditionalTargets.All(scope=>!scope.Logical))
+                parent=physicalParent;
             RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0||storedMultiAccount,allowLogical:logical,
-                allowSelfTree:tree,allowExactSingle:true,allowStoredProject:projectMulti,joinedFields:joinedFields);
+                allowSelfTree:tree,allowExactSingle:true,allowStoredProject:projectMulti,
+                allowPhysicalMultiParent:parent is not null,checkboxParent:true,publishedPhysicalParent:parent,joinedFields:joinedFields);
         }
         var value=page.Extra["exactDataManageMatchField"];
         var field=value.ValueKind==JsonValueKind.String?ExactDataManageValues.Field(value.GetString()):"";

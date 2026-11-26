@@ -141,8 +141,9 @@ public static partial class MySqlNonRedundantReadCompiler
         var multiProject=parent is null
             ?(globalExactSingle||joinedMultiPage)&&GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,
                 checkbox:globalExactSingle&&!exactMulti,allowExact:globalExactSingle)
-            :(exactMulti||joinedMultiPage)&&parent is {Logical:false}&&
-                GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,allowExact:exactMulti);
+            :(globalExactSingle||joinedMultiPage)&&parent is {Logical:false}&&
+                GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,
+                    checkbox:globalExactSingle&&!exactMulti,allowExact:globalExactSingle);
         var condition=CascadeScopeCondition(table,storage,columns,syntax,parent?.Target,treeNames,additional,pageJoins);
         // 私有匹配和 Excel 条件只扩充投影；不把路径有效性强加给有无限定范围的账号。
         var projectExactMatch=exactParent||globalExactSingle&&!projectSingle;
