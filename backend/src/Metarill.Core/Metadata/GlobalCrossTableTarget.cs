@@ -58,7 +58,8 @@ public static class GlobalCrossTableTarget
             throw new NotSupportedException("全局精确范围必须属于当前项目实际发布的业务页或选择页及后台。");
         // 页面固定联接与精确字段分别验证，二者共用发布目录和循环检测。
         var joinedFields=PageJoinedConditionFields(catalog,table,page,resolving);
-        var parent=DeclaresExactMulti(table,page)?StoredMultiParent(catalog,table,page,allowExact:true):null;
+        // 页面校验兼容复选的显式物理父键，各关系入口仍按自己的控件角色核对来源。
+        var parent=StoredMultiParent(catalog,table,page,checkbox:true,allowExact:true);
         parent??=SingleParent(catalog,table,page,allowLogical:true,allowExactSingle:true,joinedFields:joinedFields);
         if(parent is null)
         {
@@ -209,7 +210,7 @@ public static class GlobalCrossTableTarget
             throw new NotSupportedException("冗余全局多值候选必须绑定实际物理父记录。");
         RequireTarget(catalog,table,page,false,allowAccount:true,allowMultiParent:true,
             allowStoredSingleParent:true,allowPhysicalMultiParent:true,checkboxParent:checkbox,publishedPhysicalParent:parent,
-            allowExactSingle:allowExact&&DeclaresExactMulti(table,page));
+            allowExactSingle:allowExact&&DeclaresExactPage(table,page));
         return parent;
     }
 

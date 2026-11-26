@@ -69,7 +69,8 @@ public static class GlobalMultipleRelationTarget
     public static bool IsStoredParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,
         bool checkbox=false,bool allowExact=false)=>
         table.IsRongyu==1&&page.ConfigTableId==table.Id&&
-        (IsPublishedMultiPage(table,page,checkbox)||allowExact&&!checkbox&&GlobalCrossTableTarget.DeclaresExactMulti(table,page))&&
+        (IsPublishedMultiPage(table,page,checkbox)||allowExact&&(checkbox
+            ?GlobalCrossTableTarget.DeclaresExactPage(table,page):GlobalCrossTableTarget.DeclaresExactMulti(table,page)))&&
         condition.Terms.Any(IsParentScope)&&
         condition.Terms.All(term=>IsFixedOrProject(term)||IsParentScope(term)||IsAccountScope(term));
 
@@ -208,8 +209,8 @@ public static class GlobalMultipleRelationTarget
         var projectParentPage=IsProjectParentPage(target,page,condition,checkbox);
         var staticParentPage=GlobalCrossTableTarget.UsesOnlyParentVariables(condition);
         var physicalParentPage=false;
-        var storedParent=(checkbox||pageId.Length>0)?GlobalCrossTableTarget.StoredMultiParent(catalog,target,page,checkbox,
-            allowExact:foreign.ControlKind=="MultiSelectPage"):null;
+        var storedParent=(checkbox||pageId.Length>0)
+            ?GlobalCrossTableTarget.StoredMultiParent(catalog,target,page,checkbox,allowExact:true):null;
         if(storedParent is not null)
         {
             // 写入和按来源行回填必须从真实字段得到同一个父键。

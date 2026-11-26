@@ -26,9 +26,9 @@ internal static class DatabaseCheckboxExcelRenderer
             result.AppendLine("        if(cell.ValueKind==JsonValueKind.String){try{cell=JsonSerializer.Deserialize<JsonElement>(cell.GetString()!);}catch(JsonException error){throw PageImportException.Input(PageImportError.Array,inner:error);}}")
                 .AppendLine("        if(cell.ValueKind!=JsonValueKind.Array||cell.GetArrayLength()>DatabaseCheckboxValue.MaximumItems)throw PageImportException.Input(PageImportError.Array);");
             // 原名称数组使用文本；整数反查绑定强类型值，拒绝溢出、前导零和浮点写法。
-            var parseLabel=def.TypedLabel
-                ?MultiSelectExcelRenderer.ParseLabel(def.Name,"item.ToString()","name")
-                :"var name=item.GetString();";
+            var parseLabel=def.Name.IsId
+                ?"long name;try{name=DatabaseCheckboxValue.ReadId(item);}catch(ArgumentException error){throw PageImportException.Input(PageImportError.Relation,inner:error);}"
+                :def.TypedLabel?MultiSelectExcelRenderer.ParseLabel(def.Name,"item.ToString()","name"):"var name=item.GetString();";
             var form="new Dictionary<string,object?>{"+string.Join(",",(def.Conditions?.Forms??[]).Select(binding=>"["+Literal(binding.Variable)+"]="+RelationConditionsCompilation.BindFormValue(binding.Column,"relationContext["+Literal(binding.Column.JsonName)+"]",",")))+"}";
             var targetParent="parentId";
             if(dependency.Parents.TryGetValue(def.Source.Source.Id,out var parent))

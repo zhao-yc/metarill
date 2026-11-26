@@ -37,7 +37,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     /// <summary>原列表勾选的加载和冗余数组匹配共用同一候选范围证明。</summary>
     internal bool SupportsRedundantArrayFilter =>
         FormParentField is not null || SharedLogicalParentScope || HasStoredIdentityScope || HasStoredStaticScope ||
-        HasProjectStoredAccountScope || ProjectFormScope || SharedTextParent is not null;
+        HasProjectStoredAccountScope || HasStoredGlobalParentScope || ProjectFormScope || SharedTextParent is not null;
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
@@ -433,7 +433,8 @@ internal static class DatabaseCheckboxCompilation
             if(!functionForm&&pageHasParent&&logicalPage is {} scopedPage)
             {
                 var syntax=FixedConditionPlan.Compile(scopedPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName));
-                var storedGlobalParent=GlobalCrossTableTarget.StoredMultiParent(model.Catalog,target.Source,scopedPage.Source,checkbox:true);
+                var storedGlobalParent=GlobalCrossTableTarget.StoredMultiParent(model.Catalog,target.Source,scopedPage.Source,
+                    checkbox:true,allowExact:exactTarget is not null);
                 var binding=(storedGlobalParent??(target.IsGlobal
                     ?MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax,checkbox:true)
                     :MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax,allowGlobalParent:true)))!;

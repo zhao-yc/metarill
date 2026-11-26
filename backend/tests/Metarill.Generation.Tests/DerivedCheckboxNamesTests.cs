@@ -965,6 +965,120 @@ public sealed class DerivedCheckboxNamesTests
     }
 
 
+    /// <summary>原数据库复选按实际发布页合并物理父范围、账号角色范围和静态条件。</summary>
+    [Theory]
+    [InlineData(0,0,false)]
+    [InlineData(0,2,true)]
+    [InlineData(1,0,true)]
+    [InlineData(1,2,false)]
+    [InlineData(0,0,true,true)]
+    [InlineData(1,2,true,true)]
+    public async Task Global_exact_stored_checkbox_keeps_the_actual_parent(int sourceStorage,int pageType,bool dictionaryProject,
+        bool idLabel=false)
+    {
+        const string ns="Example.ExactStoredCheckbox";
+        var catalog=Catalog("exact_stored_checkbox",false);
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=sourceStorage;
+        var target=catalog.ConfigTables.Single(table=>table.Id=="3");
+        target.IsRongyu=1;
+        target.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+        var name=catalog.ConfigColumns.Single(column=>column.Id=="32");
+        name.Extra.Remove("isJoinColumn");
+        name.Extra.Remove("columnFullName");
+        // 物理字典只保留用例所需的标签、范围和父键。
+        catalog.ConfigColumns.RemoveAll(column=>column.Id=="37"||!dictionaryProject&&
+            column.ConfigTableId==target.Id&&column.ColumnName=="yz_project_id");
+        catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="37"||!dictionaryProject&&field.ConfigColumnId=="33");
+        var dictionary=catalog.ConfigPages.Single(page=>page.Id=="301");
+        dictionary.WhereSql=(dictionaryProject?"yz_project_id=@current_yz_project_id AND ":"")+"parent_id=@parentId AND status=38";
+        dictionary.Extra["type"]=JsonSerializer.SerializeToElement(pageType);
+        dictionary.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
+        catalog.ConfigColumns.Add(new(){Id="3080",YzProjectId=catalog.YzProjectId,ConfigTableId="3",ColumnName="scope_code",LogicalType="string"});
+        catalog.YzAdminTypes.Single().Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        var control=catalog.ConfigColumns.Single(column=>column.Id=="25");
+        control.ControlDetail=JsonSerializer.Serialize(new{tableId="3",pageId="301",nameField=idLabel?"id":"name"});
+        if(pageType==2)control.Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
+        var field=catalog.ConfigPageColumns.Single(item=>item.ConfigPageId=="201"&&item.ConfigColumnId=="25");
+        field.IsShow=field.IsEdit=1;
+        field.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+        if(idLabel)
+        {
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="27");
+            catalog.ConfigPageColumns.RemoveAll(item=>item.ConfigColumnId=="27");
+        }
+
+        var model=GenerationModel.Create(catalog,ns);
+        var source=model.Tables.Single(table=>table.Source.Id=="2");
+        var page=source.Pages.Single(page=>page.Source.Id=="201");
+        var resolution=DatabaseCheckboxCompilation.Resolve(model,source,page,source.Columns.Single(column=>column.Source.Id=="25"));
+        Assert.True(resolution.Definition is not null,resolution.Reason);
+        var checkbox=resolution.Definition;
+        Assert.Equal("scope_code",Assert.IsType<ExactDataManageModel>(checkbox.ExactTarget).Column.Source.ColumnName);
+        Assert.Equal("301",checkbox.LogicalTargetPage?.Source.Id);
+        Assert.Contains(checkbox.Scopes,scope=>scope.Source=="parent"&&scope.Column.Source.ColumnName=="parent_id");
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-exact-stored-checkbox");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var generated=Path.Combine(directory,"generated");
+            new CSharpGenerator().Generate(catalog,generated,ns);
+            var code=await File.ReadAllTextAsync(Path.Combine(generated,"Services/ExactStoredCheckboxSourceService.g.cs"));
+            Assert.Contains("""ResolveExactDataManage("301", "list", "real_name")""",code);
+            Assert.Contains("DerivedCheckboxRows201_25Async(request.ParentId,actor,form,request.Selected",code);
+            Assert.Contains("DerivedCheckboxRows201_25Async(entity.ParentId",code);
+            Assert.Contains(sourceStorage==0?"var matches=await DerivedCheckboxRows201_25Async(parentId,actor,":
+                "DatabaseCheckboxValue.ProjectIds(DatabaseCheckboxValue.ReadWrite(cell))",code);
+            if(sourceStorage==1)
+                Assert.Contains(pageType==2?"ApplyJsonArrayHasAnyId":"ApplyJsonArrayHasId",code);
+            else if(idLabel)Assert.Contains("name=DatabaseCheckboxValue.ReadId(item)",code);
+            var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
+            var service=assembly.GetType(ns+".Generated.Services.ExactStoredCheckboxSourceService",true)!;
+            const System.Reflection.BindingFlags staticFields=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+            const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+            var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                service.GetField("DerivedCheckboxPlan201_25",staticFields)!.GetValue(null));
+            var sql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+            var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql));
+            Assert.Equal("parent_id",sql.GetType().GetProperty("RequiredMultiParent",hidden)!.GetValue(sql));
+            Assert.Contains("exact_stored_checkbox_parent",scope);
+            Assert.Equal(dictionaryProject,scope.Contains("b.`yz_project_id`",StringComparison.Ordinal));
+            Assert.Contains(38,Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                sql.GetType().GetField("constants",hidden)!.GetValue(sql)).Values);
+            Assert.Contains("scope_code",plan.OutputTypes.Keys.Concat(Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                sql.GetType().GetProperty("Expressions",hidden)!.GetValue(sql)).Keys));
+            Assert.NotNull(service.GetMethod("Import201Async"));
+            Assert.NotNull(service.GetMethod("Export201Async"));
+            if(sourceStorage==1&&!idLabel)
+            {
+                // 回填只从已存来源父键和发布条件计算，不依赖执行人的角色集合。
+                var maintenance=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
+                var published=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                    maintenance.GetProperty("Catalog")!.GetValue(null));
+                Assert.Contains("exact_stored_checkbox_target",published.MixedTargets);
+                var consumers=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                    published.GetType().GetProperty("Plans",hidden)!.GetValue(published));
+                var read=consumers["2"]!.GetType().GetProperty("Read")!.GetValue(consumers["2"])!;
+                var labels=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["target_names"]));
+                Assert.Contains("b.`parent_id`",labels);
+                Assert.Contains("exact_stored_checkbox_parent",labels);
+                Assert.Equal(dictionaryProject,labels.Contains("multi_value.`yz_project_id`",StringComparison.Ordinal));
+                Assert.DoesNotContain("`scope_code`",labels);
+            }
+            if(!idLabel&&((sourceStorage==0)==(pageType==0)))
+            {
+                var full=Path.Combine(directory,"app");
+                Assert.True(new ApplicationPackager().Create(catalog,full,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+                var list=await File.ReadAllTextAsync(Path.Combine(full,"frontend/pages/yzp/exact_stored_checkbox_source-list-201.vue"));
+                Assert.Contains("loadOriginalArrayCheckboxOptions",list);
+                Assert.Contains("findNameIdTarget25",list);
+                Assert.Contains("\"requiresParent\":true",list);
+                foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(full,operation);
+            }
+        }
+        finally{await TestDirectoryCleanup.DeleteAsync(directory,boundary);}
+    }
+
     /// <summary>实际生成服务与维护目录均保留无行项目列的全局字典条件，原 ID 导入仍走写入校验。</summary>
     [Theory]
     [InlineData(1,false)]
@@ -1010,7 +1124,7 @@ public sealed class DerivedCheckboxNamesTests
         Assert.Equal("301",checkbox.GlobalPage?.Source.Id);
         var renderer=DatabaseCheckboxRenderer.Service(model,source,page);
         Assert.Contains(derivedName
-            ?exact?"CompileGlobalExactSingleCandidate":"var publishedCondition=CheckboxTargetCondition201_25"
+            ?exact?"CompileGlobalExactSingleCandidate":"CompileScopedCheckboxLabel"
             :"query=CheckboxGlobalCondition201_25.ApplyConstants",renderer);
         if(exact)Assert.Contains("""ResolveExactDataManage("301", "list", "real_name")""",renderer);
         Assert.Contains("CheckboxCondition201_25",renderer);
@@ -1030,6 +1144,21 @@ public sealed class DerivedCheckboxNamesTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service=assembly.GetType(ns+".Generated.Services.ReleasedCheckboxCacheSourceService",true)!;
             System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(service.TypeHandle);
+            if(derivedName&&!exact)
+            {
+                // 固定字典条件由静态读计划持有，核对生成后的快照和实际查询。
+                const System.Reflection.BindingFlags staticFields=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static;
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
+                var executionCatalog=assembly.GetType(ns+".Generated.GeneratedNonRedundantReadCatalog",true)!;
+                var snapshot=Assert.IsType<MetadataCatalog>(executionCatalog.GetField("Snapshot",staticFields)!.GetValue(null));
+                Assert.Equal("status=38",snapshot.ConfigPages.Single(item=>item.Id=="301").WhereSql);
+                var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                    service.GetField("DerivedCheckboxPlan201_25",staticFields)!.GetValue(null));
+                var sql=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan)!;
+                Assert.Contains("b.`status`",Assert.IsType<string>(sql.GetType().GetProperty("Scope",hidden)!.GetValue(sql)));
+                Assert.Contains(38,Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    sql.GetType().GetField("constants",hidden)!.GetValue(sql)).Values);
+            }
             Assert.NotNull(service.GetMethod("Import201Async"));
             Assert.NotNull(service.GetMethod("Export201Async"));
         }

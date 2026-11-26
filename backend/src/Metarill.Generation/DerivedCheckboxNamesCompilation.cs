@@ -10,7 +10,9 @@ internal static class DerivedCheckboxNamesCompilation
     internal static IReadOnlyList<string> Require(GenerationModel model,TableModel owner,DatabaseCheckboxModel def,
         IReadOnlyList<ColumnModel>? cachedLabels=null)
     {
-        if(def.Names is null)throw new InvalidOperationException("按主键显示的复选不需要派生名称计划。");
+        // 精确父字典按主键显示时仍需要当前读核对父键及角色范围，无需生成名称副本。
+        if(def.Names is null&&!(def.Name.IsId&&def.HasStoredGlobalParentScope&&def.ExactTarget is not null))
+            throw new InvalidOperationException("按主键显示的复选不需要派生名称计划。");
         if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0&&!def.HasStoredGlobalParentScope||
             def.Target.Source.IsView!=0||def.Target.Source.IsFunctionTable!=0||
             def.Name.Type!="string?"&&!Metarill.Core.Contracts.MultiValueLabel.IsTyped(def.Name.Source.LogicalType)||def.Name.IsJsonArray)
@@ -31,10 +33,10 @@ internal static class DerivedCheckboxNamesCompilation
             cachedLabels?.Any(label=>plan.OutputTypes[label.Source.ColumnName]!=label.Source.LogicalType)==true)
             throw new InvalidOperationException("复选名称与固定物理终点类型不一致。");
         // 冗余来源的每份名称数组都须进入原维护及反向传播。
-        if(owner.Source.IsRongyu==1&&owner.Source.IsFunctionTable==0)
+        if(owner.Source.IsRongyu==1&&owner.Source.IsFunctionTable==0&&def.Names is {} nameCache)
         {
             var cache=new Metarill.Data.Relations.RelationCacheDefinition(owner.Source.Id,def.Source.Source.Id,
-                def.Target.Source.Id,def.Name.Source.Id,def.Names.Source.Id,true)
+                def.Target.Source.Id,def.Name.Source.Id,nameCache.Source.Id,true)
             {
                 CheckboxTargetPageId=def.SharedLogicalParentScope||def.SharedDerivedPageScope||def.ProjectFormScope||
                     def.HasStoredGlobalParentScope&&def.UsesNameOverride?ScopedCheckboxPage(def).Source.Id:null,
@@ -143,7 +145,8 @@ internal static class DerivedCheckboxNamesCompilation
 
     /// <summary>文本父键与精确权限共用目标候选计划，由同一查询核对父键与当前角色匹配值。</summary>
     internal static bool UsesScopedCheckboxLabel(GenerationModel model,DatabaseCheckboxModel def)=>
-        !UsesGlobalExactPage(def)&&(def.HasStoredGlobalParentScope||UsesPublishedGlobalScope(def)||def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
+        def.HasStoredGlobalParentScope||
+        !UsesGlobalExactPage(def)&&(UsesPublishedGlobalScope(def)||def.GlobalRealtimeNameOverride||def.SharedDerivedPageScope||def.SharedLogicalParentScope||def.ProjectFormScope||
             def.RealtimeLogicalParentScope||def.CompoundTargetParents||
             def is {SharedTextParent:not null,LogicalTargetPage:not null,ExactTarget:not null}||
             def.LogicalTargetPage?.Scopes.Any(scope=>scope.Source=="parent"&&

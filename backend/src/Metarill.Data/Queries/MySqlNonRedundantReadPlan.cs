@@ -327,7 +327,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var checkbox=relation?.ControlKind=="MultiCheckBoxDatabase";
         var projectFixedScope=selectedPage is not null&&relation is {ControlKind:"MultiSelectPage" or "MultiCheckBoxDatabase"}&&
             IsProjectFixedMultiPage(catalog,target,selectedPage,checkboxAccount:checkbox,allowStoredTextParent:true);
-        var storedParent=selectedPage is null?null:GlobalCrossTableTarget.StoredMultiParent(catalog,target,selectedPage,checkbox,allowExact:!checkbox);
+        var storedParent=selectedPage is null?null:GlobalCrossTableTarget.StoredMultiParent(catalog,target,selectedPage,checkbox,allowExact:true);
         var parent=cacheOwner is null||selectedPage is null?null:MultiParent(catalog,selectedPage,checkbox);
         MultiSourceParent? source=null;
         if(parent is not null)

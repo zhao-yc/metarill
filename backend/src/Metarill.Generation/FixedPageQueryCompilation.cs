@@ -168,7 +168,7 @@ internal static class FixedPageQueryCompilation
             return GlobalCrossTableTarget.PhysicalSingleParent(catalog,table.Source,page.Source) is not null;
         var checkbox=page.Source.Extra.GetValueOrDefault("type").ToString()!="2";
         if(FixedPageConditionCompilation.HasStoredGlobalMultiParentScope(table,page))
-            return GlobalCrossTableTarget.StoredProjectMultiParent(catalog,table.Source,page.Source,checkbox,allowExact:!checkbox) is not null;
+            return GlobalCrossTableTarget.StoredProjectMultiParent(catalog,table.Source,page.Source,checkbox,allowExact:true) is not null;
         if(!NonRedundantReadCompilation.GlobalAccountMultiPage(table,page)||
             !GlobalMultipleRelationTarget.IsProjectParentPage(table.Source,page.Source,syntax))return false;
         // 同一发布证明会核对真实项目列及全部物理父字段。

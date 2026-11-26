@@ -45,8 +45,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     !MultiNameStorageColumns.IsDerivedScalarLabel(target,column,storage)))continue;
                 var plan=selected is null?CompileMultiLabel(catalog,target.Id,field,[field],[],cacheOwner:null,relation:relation):
                     CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[],
-                        exactMultiSelection:!checkbox&&selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0&&
-                            (target.IsRongyu==0||GlobalCrossTableTarget.StoredMultiParent(catalog,target,selected,allowExact:true) is not null),
+                        exactMultiSelection:selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0&&
+                            (!checkbox&&target.IsRongyu==0||
+                             GlobalCrossTableTarget.StoredMultiParent(catalog,target,selected,checkbox,allowExact:true) is not null),
                         storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase",
                         allowLiteralMultiScope:compoundPhysical||globalOverride||storedStatic);
                 pages.UnionWith(plan.CascadeLabelPages);
@@ -182,7 +183,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var page=candidates[0];
         return table.IsRongyu==0||
             stored&&(checkbox||pageId.Length>0)&&(StoredIdentityMultiPage(catalog,table,page,checkbox)||
-                GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,checkbox,allowExact:!checkbox) is not null)||
+                GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,checkbox,allowExact:true) is not null)||
             checkbox&&IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true,allowStoredTextParent:true)||
             relation.ControlKind=="MultiSelectPage"&&IsProjectFixedMultiPage(catalog,table,page)?page:null;
     }
@@ -307,7 +308,7 @@ public static partial class MySqlNonRedundantReadCompiler
             GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,checkbox,allowExact:true)||
             GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,checkbox,allowExact:true)||
             (GlobalCrossTableTarget.Declared(table)
-                ?GlobalMultipleRelationTarget.IsStoredParentPage(table,page,syntax,checkbox,allowExact:!checkbox)
+                ?GlobalMultipleRelationTarget.IsStoredParentPage(table,page,syntax,checkbox,allowExact:true)
                 :GlobalMultipleRelationTarget.IsStoredProjectParentPage(table,page,syntax,checkbox))||
             checkbox&&table.IsRongyu==0&&syntax.Terms.Any(term=>term.Values.Any(value=>
                 value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text))&&
@@ -457,7 +458,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         if(GlobalCrossTableTarget.Declared(table))
-            return GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,checkbox,allowExact:!checkbox)??
+            return GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,checkbox,allowExact:true)??
                 MultiTargetParentScope.CompileGlobalPage(catalog,table,syntax,checkbox);
         if(checkbox)return IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true,allowStoredTextParent:true)
             ?MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)

@@ -143,9 +143,11 @@ internal static partial class BackendRenderer
         scopedPages=scopedPages.Concat(model.Tables.SelectMany(table=>table.Pages.Where(page=>multiNamePages.Contains(page.Source.Id))
             .Select(page=>(table,page))));
         var publishedCheckboxes=functionCheckboxes.Concat(scopedCheckboxes).Concat(realtimeCheckboxes);
+        // 固定发布页的派生复选由实际生成计划读取，发布快照须保留它的条件。
         var checkboxScopes=publishedCheckboxes.Where(checkbox=>checkbox.DerivedName&&
             (checkbox.GlobalRealtimeNameOverride||checkbox.SharedDerivedPageScope||checkbox.LogicalTargetPage is not null||
-                checkbox.ExactTarget is not null)).ToArray();
+                checkbox.ExactTarget is not null||
+                DerivedCheckboxNamesCompilation.UsesPublishedGlobalScope(checkbox)&&checkbox.GlobalPage?.Condition is not null)).ToArray();
         // 复选的物理目标页也可能绑定全局父，冻结实际目标及父页条件。
         foreach(var checkbox in publishedCheckboxes.Where(checkbox=>checkbox.GlobalParentPage is not null))
         {

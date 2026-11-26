@@ -145,7 +145,7 @@ public static partial class MySqlNonRedundantReadCompiler
             var fixedPage=globalPageId??(baseline.PageId.Length>0?baseline.PageId:Text(relation,"linkConfigPageId"));
             var storedGlobal=target.IsRongyu==1&&(storedGlobalStatic||globalPageId is not null&&selected is not null&&
                 (StoredIdentityMultiPage(catalog,target,selected,checkbox:true)||
-                 GlobalCrossTableTarget.StoredMultiParent(catalog,target,selected,checkbox:true) is not null));
+                 GlobalCrossTableTarget.StoredMultiParent(catalog,target,selected,checkbox:true,allowExact:true) is not null));
             bool TextLabel(ColumnMetadata column)=>storedGlobal
                 ?PhysicalTextMultiLabel(target,column)
                 :globalPageId is not null
@@ -188,7 +188,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 (proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage||proof.UsesNonRedundantPhysicalParentPage);
             var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,
                 checkboxAccount:checkbox,allowStoredTextParent:true);
-            var storedParent=selectedScope is null?null:GlobalCrossTableTarget.StoredMultiParent(catalog,target,selectedScope,checkbox,allowExact:!checkbox);
+            var storedParent=selectedScope is null?null:GlobalCrossTableTarget.StoredMultiParent(catalog,target,selectedScope,checkbox,allowExact:true);
             var ordinaryForm=checkbox&&refreshFields is not null&&selectedScope is not null&&(sharedCheckbox||fixedParent is not null)
                 ?DatabaseCheckboxDefinition.Parse(relation.ControlDetail).AdditionalPhysicalFormConditions(catalog,target,selectedScope)
                 :null;

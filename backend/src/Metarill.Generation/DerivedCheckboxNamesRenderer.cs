@@ -21,6 +21,8 @@ internal static class DerivedCheckboxNamesRenderer
             "        var publishedCondition="+FixedPageConditionCompilation.Bound(filterPage,"CheckboxTargetCondition"+suffix)+
             "; condition=condition is null?publishedCondition:condition.And(publishedCondition);":"";
         var call=DerivedCheckboxNamesCompilation.PlanCall(model,def,dependencies,cachedLabels);
+        // 按 ID 选档时结果为非空主键，但普通候选没有按名称匹配的输入值。
+        var matchType=def.Name.IsId?"long?":def.Name.Type;
         // 排序专用联接不能进入原名称、导入匹配及当前写入读。
         var order = def.CandidateOrderTargets is null ? DatabaseCheckboxRenderer.FixedOrder(def) : "[new(\"id\")]";
         var exact=def.ExactTarget is {} scope?ExactDataManageCompilation.ReadFilter(def.NameTargetPage!,scope,
@@ -30,7 +32,7 @@ internal static class DerivedCheckboxNamesRenderer
     private static readonly NonRedundantReadPlan DerivedCheckboxPlan{{suffix}}=global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{call}};
     private sealed record DerivedCheckboxRow{{suffix}}(long Id,{{def.Name.Type}} Name{{labelMembers}});
     /// <summary>父存在性和来源身份沿原入口验证；名称条件不读取IsIgnore实体属性。</summary>
-    private async Task<IReadOnlyList<DerivedCheckboxRow{{suffix}}>> DerivedCheckboxRows{{suffix}}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,long[]? ids,{{def.Name.Type}} name,bool matchName,int limit,bool locking,CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<DerivedCheckboxRow{{suffix}}>> DerivedCheckboxRows{{suffix}}Async(string? parentId,RuntimeActor actor,IReadOnlyDictionary<string,object?> formValues,long[]? ids,{{matchType}} name,bool matchName,int limit,bool locking,CancellationToken cancellationToken)
     {
         _=await CheckboxScope{{suffix}}Async(parentId,actor,formValues,locking,cancellationToken);
 
