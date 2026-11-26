@@ -79,8 +79,10 @@ internal static partial class BackendRenderer
                 .Where(tree=>CascadeTreeViewRenderer.Name(item.Target,tree.Source) is {} leaf&&item.Condition.SelfTreeFields.Contains(leaf.Source.ColumnName))
                 .Select(tree=>(tree.Target,tree.TargetPage))));
         // 功能表的独立父字段只在表单中存在，目标页的固定范围仍需完整下发。
-        var functionCheckboxes=model.Tables.Where(table=>table.Source.IsFunctionTable==1)
-            .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page))).ToArray();
+        var functionCheckboxBindings=model.Tables.Where(table=>table.Source.IsFunctionTable==1)
+            .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)
+                .Select(checkbox=>(Page:page,Checkbox:checkbox)))).ToArray();
+        var functionCheckboxes=functionCheckboxBindings.Select(binding=>binding.Checkbox).ToArray();
         var scopedCheckboxes=model.Tables.Where(table=>table.Source.IsFunctionTable==0)
             .SelectMany(table=>table.Pages.SelectMany(page=>DatabaseCheckboxCompilation.ForService(model,table,page)))
             .Where(checkbox=>checkbox.ExactTarget is not null||checkbox.SharedLogicalParentScope||checkbox.SharedDerivedPageScope||
@@ -194,8 +196,13 @@ internal static partial class BackendRenderer
             .Concat(model.Tables.Where(table=>table.IsGlobal&&table.Source.IsRongyu==0)
                 .SelectMany(table=>table.Pages.SelectMany(page=>CascadeTreeReadCompilation.ForService(model,table,page))))
             .Select(tree=>tree.TargetPage.Source.Id).ToHashSet(StringComparer.Ordinal);
+        // 精确复选的实际目标可能仅由来源页覆盖声明，宿主重建父计划时须保留该契约。
+        var functionCheckboxProofFields=functionCheckboxBindings.Where(binding=>binding.Checkbox.GlobalParentPage is {} targetPage&&
+            Metarill.Data.Queries.NonRedundantReads.IsProjectExactCheckboxGlobalParent(
+                model.Catalog,binding.Checkbox.Target.Source,targetPage.Source))
+            .Select(binding=>(binding.Page.Source.Id,binding.Checkbox.Source.Source.Id)).ToHashSet();
         var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog,accountPages,selfTreeNamePages,nestedTables,
-            staticMultiPages:staticMultiPages),new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            multiCacheProofFields:functionCheckboxProofFields,staticMultiPages:staticMultiPages),new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var cross=model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>CrossTableWriteCompilation.ForService(model,table,page).Count>0));
         var helpers=cross?"    /// <summary>目标条件与页面一起冻结，静态初始化不读取后声明字段。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileCross(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantCrossTableScope[] bindings)=>Metarill.Data.Queries.NonRedundantReads.CompileWithCrossTables(Snapshot,tableId,outputs,bindings,dependencies,deferCascadeNames:true);\n    /// <summary>与统一物理结构共用稀疏选择编码器。</summary>\n    internal static Metarill.Core.Metadata.CrossTableSparseSelection CompileSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.CrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n":"";
         if(model.Tables.Any(table=>table.Source.IsRongyu==0&&table.Pages.Any(page=>SharedCrossTableCompilation.ForPage(model,table,page).Groups.Count>0)))helpers+="    /// <summary>共享R0由整组编译，成员不能分别打包覆盖。</summary>\n    internal static Metarill.Core.Metadata.SharedCrossTableSparseSelection CompileSharedSelection(string tableId,string sourceId)=>Metarill.Core.Metadata.SharedCrossTableSparseSelection.Compile(Snapshot.ConfigTables.Single(table=>table.Id==tableId),sourceId,Snapshot.ConfigColumns.Where(column=>column.ConfigTableId==tableId));\n";

@@ -189,7 +189,9 @@ public static partial class MySqlNonRedundantReadCompiler
             stored&&(checkbox||pageId.Length>0)&&(StoredIdentityMultiPage(catalog,table,page,checkbox)||
                 checkbox&&GlobalCrossTableTarget.DeclaresExactPage(table,page)&&IsStoredStaticMultiPage(catalog,table,page,checkbox:true)||
                 GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,checkbox,allowExact:true) is not null)||
-            checkbox&&IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true,allowStoredTextParent:true)||
+            checkbox&&(IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true,allowStoredTextParent:true)||
+                catalog.ConfigTables.Any(source=>source.Id==relation.ConfigTableId&&source.IsFunctionTable==1)&&
+                IsProjectExactCheckboxGlobalParent(catalog,table,page))||
             relation.ControlKind=="MultiSelectPage"&&IsProjectFixedMultiPage(catalog,table,page)?page:null;
     }
 
@@ -248,9 +250,12 @@ public static partial class MySqlNonRedundantReadCompiler
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
         if(GlobalCrossTableTarget.Declared(table)||table.IsRongyu is not(0 or 1)||table.IsView!=0||table.IsFunctionTable!=0||
             page.ConfigTableId!=table.Id||page.WhereSql.Length==0||
-            (checkboxAccount?table.IsRongyu!=1||pageType is not("" or "0" or "1" or "2"):pageType!="2"))return false;
-        var storage=MetadataStoragePolicy.ForTable(catalog,table);
+            (checkboxAccount?!exactCompoundGlobalParent&&table.IsRongyu!=1||
+                pageType is not("" or "0" or "1" or "2"):pageType!="2"))return false;
         var exact=page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString();
+        if(exactCompoundGlobalParent&&(exact.Length==0||!checkboxAccount&&table.IsRongyu!=1))
+            return false;
+        var storage=MetadataStoragePolicy.ForTable(catalog,table);
         // 发布页的物理条件用于名称投影和回填，当前角色的精确匹配值仍由请求入口处理。
         if(exact.Length>0)
         {
@@ -273,7 +278,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field)))
             return false;
         var usesDictionaryAccount=syntax.Terms.Any(IsStoredAccount);
-        if(exactCompoundGlobalParent&&(exact.Length==0||table.IsRongyu!=1||parents.Length<2))
+        if(exactCompoundGlobalParent&&parents.Length<2)
             return false;
         if(parents.Length==0)return (exact.Length==0||table.IsRongyu==0)&&(!checkboxAccount||usesDictionaryAccount);
         var binding=checkboxAccount
@@ -290,7 +295,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 allowStoredTextParent&&CrossTableStorageColumns.DeclaresStoredTextKey(catalog,table,parent.Target));
 
         // 请求通过认证快照绑定，冗余名称回填则由现有归属计划逐页证明来源物理字段。
-        bool IsStoredAccount(FixedConditionTerm term)=>table.IsRongyu==1&&term.Field!="yz_project_id"&&
+        bool IsStoredAccount(FixedConditionTerm term)=>(table.IsRongyu==1||checkboxAccount&&exactCompoundGlobalParent)&&
+            term.Field!="yz_project_id"&&
             term is {Comparison:FixedConditionComparison.Equal,Values:[{Kind:FixedConditionValueKind.Variable} value]}&&
             AccountConditionVariables.IsPageField(value.Text,term.Field)&&storage.PhysicalColumns.Any(column=>
                 column.ColumnName==term.Field&&column.LogicalType is "int32" or "int64" or "string");
@@ -299,6 +305,10 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>项目内冗余多选页从已声明的物理精确字段及复合全局父键读取候选。</summary>
     internal static bool IsProjectStoredExactMultiGlobalParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
         IsProjectFixedMultiPage(catalog,table,page,exactCompoundGlobalParent:true);
+
+    /// <summary>功能表复选复用项目内字典的精确范围，支持多个真实的全局父字段。</summary>
+    internal static bool IsProjectExactCheckboxGlobalParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page)=>
+        IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true,exactCompoundGlobalParent:true);
 
     /// <summary>按实际目标页，将原逻辑、账号或已证明的固定范围嵌入多值计划。</summary>
     internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
@@ -491,7 +501,8 @@ public static partial class MySqlNonRedundantReadCompiler
         if(GlobalCrossTableTarget.Declared(table))
             return GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,checkbox,allowExact:true)??
                 MultiTargetParentScope.CompileGlobalPage(catalog,table,syntax,checkbox);
-        if(checkbox)return IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true,allowStoredTextParent:true)
+        if(checkbox)return IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true,allowStoredTextParent:true)||
+            IsProjectExactCheckboxGlobalParent(catalog,table,page)
             ?MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)
             :MultiTargetParentScope.CompileProjectCheckboxPhysicalPage(catalog,table,page)??
                 MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true);
@@ -560,7 +571,9 @@ public static partial class MySqlNonRedundantReadCompiler
                         // 静态精确字典需要随名称副本保留真实发布页，但仍沿物理传播编译。
                         resolvedDefaultPage=proof.Page;
                     }
-                    else if(!(relation.ControlKind=="MultiSelectPage"&&source is {IsRongyu:0}&&!GlobalCrossTableTarget.Declared(source)&&
+                    else if(!(relation.ControlKind=="MultiCheckBoxDatabase"&&source is {IsFunctionTable:1}&&
+                        !GlobalCrossTableTarget.Declared(target))&&
+                        !(relation.ControlKind=="MultiSelectPage"&&source is {IsRongyu:0}&&!GlobalCrossTableTarget.Declared(source)&&
                         catalog.ConfigPages.SingleOrDefault(page=>page.Id==pageId&&page.ConfigTableId==target.Id) is {} original&&
                         IsProjectOnlyStoredMultiSelectPage(catalog,target,original)))continue;
                 }
@@ -573,16 +586,21 @@ public static partial class MySqlNonRedundantReadCompiler
             if(result is not {} candidate)continue;
             var (owner,table,name,column,defaultPage)=candidate;
             yield return (owner,table,name,column,null,defaultPage);
+            if(owner is null)continue;
 
             var global=GlobalCrossTableTarget.Declared(table);
             var globalSelection=global&&table.IsRongyu is 0 or 1;
-            if(owner is not {IsRongyu:0}||!globalSelection&&(GlobalCrossTableTarget.Declared(owner)||global))
+            var functionCheckbox=column.ControlKind=="MultiCheckBoxDatabase"&&owner is {IsFunctionTable:1}&&!global;
+            if(!functionCheckbox&&(owner is not {IsRongyu:0}||
+                !globalSelection&&(GlobalCrossTableTarget.Declared(owner)||global)))
                 continue;
             foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id&&
                 (page.YzProjectId.Length==0||page.YzProjectId==catalog.YzProjectId)))
             {
                 var actual=DeclaredMultiPageOverride(catalog,table,name,column,sourcePage);
                 var selected=actual?.Page??defaultPage;
+                if(functionCheckbox&&table.IsRongyu==1&&defaultPage is null&&
+                    (selected is null||!IsProjectExactCheckboxGlobalParent(catalog,table,selected)))continue;
                 var display=actual?.Name??name;
                 if(selected is not null&&(selected.Id!=defaultPage?.Id||display!=name||
                     HasCompoundMultiSelectSource(catalog,owner,sourcePage,column,selected)))

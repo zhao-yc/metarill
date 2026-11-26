@@ -91,7 +91,8 @@ internal static class MultiGlobalParentCompilation
         var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
         return table.IsGlobal?GlobalCrossTableTarget.StoredMultiParent(model.Catalog,table.Source,page.Source,checkbox:true,allowExact:true)??
             MultiTargetParentScope.CompileGlobalPage(model.Catalog,table.Source,syntax,checkbox:true):
-            MultiTargetParentScope.CompileCheckboxPage(model.Catalog,table.Source,syntax,allowGlobalParent:true);
+            MultiTargetParentScope.CompileCheckboxPage(model.Catalog,table.Source,syntax,allowGlobalParent:true,
+                allowStoredPhysicalParents:NonRedundantReads.IsProjectExactCheckboxGlobalParent(model.Catalog,table.Source,page.Source));
     }
 
     /// <summary>多个父字段含逻辑级联时，逐个证明同一实际全局父页，再开放该页的父范围。</summary>
@@ -110,6 +111,9 @@ internal static class MultiGlobalParentCompilation
     /// <summary>项目内多值目标仍使用实际项目归属，只开放明确发布的父范围。</summary>
     private static MultiTargetParentScope? PublishedMultiParent(GenerationModel model,TableModel table,PageModel page)
     {
+        if(!table.IsGlobal&&NonRedundantReads.IsProjectExactCheckboxGlobalParent(model.Catalog,table.Source,page.Source)&&
+            CheckboxPageParent(model,table,page) is {} exactCheckbox)
+            return exactCheckbox;
         var checkbox=!SelectionPageRenderer.Enabled(page);
         if(table.Source.IsRongyu!=0)
         {

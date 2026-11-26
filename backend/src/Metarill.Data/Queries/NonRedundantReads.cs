@@ -387,6 +387,10 @@ public static class NonRedundantReads
     public static bool IsProjectStoredExactMultiGlobalParent(MetadataCatalog metadata,TableMetadata target,PageMetadata page)=>
         MySqlNonRedundantReadCompiler.IsProjectStoredExactMultiGlobalParent(metadata,target,page);
 
+    /// <summary>精确复选的物理全局父字段由项目内的实际字典页声明。</summary>
+    public static bool IsProjectExactCheckboxGlobalParent(MetadataCatalog metadata,TableMetadata target,PageMetadata page)=>
+        MySqlNonRedundantReadCompiler.IsProjectExactCheckboxGlobalParent(metadata,target,page);
+
     public static bool HasScopedMultiPage(MetadataCatalog metadata,TableMetadata target,ColumnMetadata relation)=>
         MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(metadata,target,relation) is not null;
 

@@ -394,6 +394,9 @@ internal static class DatabaseCheckboxCompilation
                     targetBinding=GlobalCrossTableTarget.DeclaresExactPage(target.Source,parentPage.Source)
                         ?GlobalCrossTableTarget.ExactPageParent(model.Catalog,target.Source,parentPage.Source)
                         :GlobalCrossTableTarget.StoredMultiParent(model.Catalog,target.Source,parentPage.Source,checkbox:true);
+                    if(targetBinding is null&&physicalParents.Length>1&&!target.IsGlobal&&
+                        Metarill.Data.Queries.NonRedundantReads.IsProjectExactCheckboxGlobalParent(model.Catalog,target.Source,parentPage.Source))
+                        targetBinding=MultiGlobalParentCompilation.CheckboxPageParent(model,target,parentPage);
                     if(targetBinding is null&&physicalParents.Length==1)
                         targetBinding=MultiTargetParentScope.Compile(model.Catalog,target.Source,
                             FixedConditionPlan.Compile(parentPage.Source.WhereSql,target.Columns.Select(column=>column.Source.ColumnName)));

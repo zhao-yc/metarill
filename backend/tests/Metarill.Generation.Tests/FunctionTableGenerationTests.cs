@@ -469,15 +469,31 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("globalExactCompound")]
     [InlineData("globalRowProjectExactCompound")]
     [InlineData("globalStoredExactCompound")]
+    [InlineData("projectExactCompound")]
+    [InlineData("projectExactCompoundOrdinary")]
+    [InlineData("projectStoredExactCompound")]
+    [InlineData("projectStoredExactCompoundOrdinary")]
+    [InlineData("projectExactCompoundOverride")]
+    [InlineData("projectStoredExactCompoundOverride")]
     public async Task Function_checkbox_uses_the_published_global_parent(string scenario)
     {
-        var catalog=WithGlobalParent(Catalog(),scenario=="ordinary"?"redundant":scenario);
+        var ordinary=scenario.EndsWith("Ordinary",StringComparison.Ordinal);
+        var overridden=scenario.EndsWith("Override",StringComparison.Ordinal);
+        var variant=ordinary||overridden?scenario[..^8]:scenario;
+        var catalog=WithGlobalParent(Catalog(),variant=="ordinary"?"redundant":variant);
         var targetPage=catalog.ConfigPages.Single(page=>page.Id=="103");
-        if(scenario is "ordinary" or "globalExactCompound")targetPage.Extra.Remove("type");
-        var compound=scenario.EndsWith("Compound",StringComparison.Ordinal);
+        if(scenario is "ordinary" or "globalExactCompound"||ordinary)targetPage.Extra.Remove("type");
+        var compound=scenario.Contains("Compound",StringComparison.Ordinal);
         var exactGlobal=scenario.EndsWith("ExactCompound",StringComparison.Ordinal);
         var field=catalog.ConfigColumns.Single(column=>column.Id=="39");
         field.ControlKind="MultiCheckBoxDatabase";
+        if(overridden)
+        {
+            // 只由实际功能表页发布候选，完整包重启后仍应识别同一个复选父范围。
+            catalog.ConfigPageColumns.Single(setting=>setting.ConfigPageId=="102"&&setting.ConfigColumnId=="39")
+                .Extra["controlDetail"]=JsonSerializer.SerializeToElement(field.ControlDetail);
+            field.ControlDetail="{}";
+        }
         Assert.Equal("802",Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
         if(compound)
         {
