@@ -134,8 +134,8 @@ internal static class CrossTableReadCompilation
                 var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
                 var scope=MultiTargetParentScope.CompileSelectionPage(model.Catalog,table.Source,syntax,allowGlobalParent:true);
                 if(scope?.HasCompoundLogicalTextKey(model.Catalog,table.Source,allowGlobalParent:true)==true)continue;
-                // 独立文本链不消费页面父参数。混合逻辑与物理范围可继续使用同一项目父表的真实 ID。
-                if(!table.IsGlobal&&scope is {Logical:true,Global:false,AdditionalTargets.Count:>0}&&
+                // 独立文本链不消费页面父参数。多个已验证的物理或逻辑父字段可匹配同一项目父表主键。
+                if(!table.IsGlobal&&scope is {Global:false,AdditionalTargets.Count:>0}&&
                     parents.All(parent=>!levels.Any(level=>level.Prefix+"_id"==parent.Source.ColumnName))&&
                     scope.LogicalAlternateKey(model.Catalog,table.Source) is null&&
                     scope.AdditionalTargets.All(target=>!target.Logical||target.LogicalAlternateKey(model.Catalog,table.Source) is null))continue;
@@ -152,10 +152,11 @@ internal static class CrossTableReadCompilation
                 var group=SharedCrossTableSparseSelection.CompileAll(table.Source,columns)
                     .SingleOrDefault(group=>group.Branches.Any(branch=>branch.SourceColumnId==source.Source.Id));
                 if(group?.Slots.Any(slot=>slot.ColumnName==parents[0].Source.ColumnName)==true)continue;
-                // 另一条发布级联可独立证明页级父键。完整生成仍分别校验各自的读取与写入路径。
+                // 另一个发布级联或普通项目外键可独立证明父键，读写计划仍按实际路径校验。
                 if(table.IsGlobal)return false;
                 var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
-                if(MultiTargetParentScope.CompileSelectionPage(model.Catalog,table.Source,syntax,allowGlobalParent:true) is not {Logical:true})return false;
+                var scope=MultiTargetParentScope.CompileSelectionPage(model.Catalog,table.Source,syntax,allowGlobalParent:true);
+                if(scope is not ({Logical:true} or {Global:false}))return false;
             }
         }
         return true;

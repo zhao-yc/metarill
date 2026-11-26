@@ -21,10 +21,22 @@ public sealed class SharedCrossFilesGenerationTests
     [InlineData(false)]
     [InlineData(true)]
     [InlineData(false,true)]
-    public async Task Full_shared_file_independent_exact_path_builds(bool selfTree,bool textKey=false)
+    [InlineData(false,true,1)]
+    [InlineData(false,true,2)]
+    public async Task Full_shared_file_independent_exact_path_builds(bool selfTree,bool textKey=false,int physicalParents=0)
     {
         var catalog=Catalog("shared_parent",textKey?"string":"int64",textKey?"string":"int64");
         var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="202");
+        if(physicalParents>0)
+        {
+            sourcePage.WhereSql="yz_project_id=@current_yz_project_id AND owner_country_id=@parent_id";
+            if(physicalParents==2)
+            {
+                catalog.ConfigColumns.Add(new(){Id="9506",YzProjectId=catalog.YzProjectId,ConfigTableId="2",
+                    ColumnName="billing_country_id",LogicalType="int64",LinkConfigTableId="3"});
+                sourcePage.WhereSql+=" AND billing_country_id=@parent_id";
+            }
+        }
         var cascade=catalog.ConfigColumns.Single(column=>column.Id=="25");
         var definition=JsonNode.Parse(cascade.ControlDetail)!;
         var targetId=cascade.LinkConfigTableId;
@@ -77,9 +89,14 @@ public sealed class SharedCrossFilesGenerationTests
             }
         }
 
-
+        string[] storage=physicalParents switch
+        {
+            1=>["owner_country_id"],
+            2=>["owner_country_id","billing_country_id"],
+            _=>["country_id"]
+        };
         await AssertFullSharedFileExactPlan(catalog,sourcePage.Id,
-            selfTree?"tree_name":textKey?"isolated_country_id":"isolated_country_name",false,"country_id");
+            selfTree?"tree_name":textKey?"isolated_country_id":"isolated_country_name",false,storage);
     }
 
     /// <summary>普通、物理父键及逻辑父级的完整应用均按当前发布页编译附件范围。</summary>
@@ -209,6 +226,18 @@ public sealed class SharedCrossFilesGenerationTests
             var compiled=typeof(FileMetadataContext).GetMethod("DerivedExactPlan",BindingFlags.Instance|BindingFlags.NonPublic);
             Assert.NotNull(compiled);
             var plan=Assert.IsType<NonRedundantReadPlan>(compiled.Invoke(context,[frozen,page,attachment]));
+            if(matchColumn=="isolated_country_id"&&additionalStorage.Contains("owner_country_id"))
+            {
+                var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/SharedParentSourceService.g.cs"));
+                foreach(var parent in additionalStorage)
+                {
+                    Assert.Contains("result.Add(new(\""+parent+"\",FixedReadComparison.Equal,long.Parse(request.ParentId!",service);
+                    Assert.Contains("query=query.Where(entity=>entity."+GenerationModel.Pascal(parent)+"==long.Parse(parentId!",service);
+                }
+                Assert.Contains("FixedReadFilter.ForCrossExact(\"isolated_country_id\"",service);
+                Assert.Contains("ValidateParents"+sourcePageId+"Async",service);
+                Assert.DoesNotContain("country_id",plan.OutputTypes.Keys);
+            }
             Assert.All(additionalStorage,column=>Assert.Contains(column,plan.OutputTypes.Keys));
             Assert.Contains("attachments",plan.OutputTypes.Keys);
             Assert.DoesNotContain(matchColumn,plan.OutputTypes.Keys);
