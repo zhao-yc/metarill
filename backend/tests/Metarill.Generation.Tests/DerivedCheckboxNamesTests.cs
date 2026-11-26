@@ -977,8 +977,10 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(0,2,false,false,true)]
     [InlineData(1,0,false,false,true)]
     [InlineData(1,2,true,false,true)]
+    [InlineData(0,0,true,false,true,true)]
+    [InlineData(0,2,false,false,true,true)]
     public async Task Global_exact_stored_checkbox_keeps_the_actual_parent(int sourceStorage,int pageType,bool dictionaryProject,
-        bool idLabel=false,bool alternateName=false)
+        bool idLabel=false,bool alternateName=false,bool differentTarget=false)
     {
         const string ns="Example.ExactStoredCheckbox";
         var catalog=Catalog("exact_stored_checkbox",false);
@@ -1011,12 +1013,29 @@ public sealed class DerivedCheckboxNamesTests
             catalog.ConfigPageColumns.RemoveAll(item=>item.ConfigColumnId=="27");
         }
 
+        var alternateTargetId=differentTarget?"302":"301";
+        var alternateParent=differentTarget?"dictionary_parent_id":"parent_id";
+        var alternateScope=differentTarget?"alternate_scope_code":"scope_code";
+        if(differentTarget)
+        {
+            // 两个发布页使用不同的父字段、常量和值匹配字段，不能借用表级声明。
+            var other=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(dictionary))!;
+            other.Id=alternateTargetId;
+            other.WhereSql=dictionary.WhereSql.Replace("parent_id",alternateParent,StringComparison.Ordinal)
+                .Replace("38","39",StringComparison.Ordinal);
+            other.Extra["type"]=JsonSerializer.SerializeToElement(pageType==0?2:0);
+            other.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(alternateScope);
+            catalog.ConfigPages.Add(other);
+            catalog.ConfigColumns.AddRange([
+                new(){Id="3082",YzProjectId=catalog.YzProjectId,ConfigTableId="3",ColumnName=alternateScope,LogicalType="string"},
+                new(){Id="3083",YzProjectId=catalog.YzProjectId,ConfigTableId="3",ColumnName=alternateParent,LogicalType="int64",LinkConfigTableId="1"}]);
+        }
         if(alternateName)
         {
             // 两个原来源页共用实际父键及目标页，第二页只替换名称投影。
             catalog.ConfigColumns.Add(new(){Id="3081",YzProjectId=catalog.YzProjectId,ConfigTableId="3",
                 ColumnName="short_name",LogicalType="string"});
-            catalog.ConfigPageColumns.Add(new(){Id="3013081",YzProjectId=catalog.YzProjectId,ConfigPageId="301",
+            catalog.ConfigPageColumns.Add(new(){Id=alternateTargetId+"3081",YzProjectId=catalog.YzProjectId,ConfigPageId=alternateTargetId,
                 ConfigColumnId="3081",IsShow=1,IsEdit=1});
             if(sourceStorage==1)
             {
@@ -1029,7 +1048,8 @@ public sealed class DerivedCheckboxNamesTests
             catalog.ConfigPageColumns.Add(new(){Id="20225",YzProjectId=catalog.YzProjectId,ConfigPageId="202",
                 ConfigColumnId="25",IsShow=1,IsEdit=1,Extra=new(){
                     ["isSearch"]=JsonSerializer.SerializeToElement(1),
-                    ["controlDetail"]=JsonSerializer.SerializeToElement(new{nameField="short_name"})}});
+                    ["controlDetail"]=differentTarget?JsonSerializer.SerializeToElement(new{pageId=alternateTargetId,nameField="short_name"}):
+                        JsonSerializer.SerializeToElement(new{nameField="short_name"})}});
             var alternatePage=catalog.ConfigPages.Single(item=>item.Id=="202");
             alternatePage.IsExport=alternatePage.IsImport=1;
         }
@@ -1045,8 +1065,12 @@ public sealed class DerivedCheckboxNamesTests
                 source.Columns.Single(column=>column.Source.Id=="25"));
             Assert.True(alternate.Definition is not null,alternate.Reason);
             Assert.Equal("short_name",alternate.Definition.Name.Source.ColumnName);
-            Assert.Equal("301",alternate.Definition.LogicalTargetPage?.Source.Id);
-            Assert.Equal("scope_code",Assert.IsType<ExactDataManageModel>(alternate.Definition.ExactTarget).Column.Source.ColumnName);
+            Assert.Equal(alternateTargetId,alternate.Definition.LogicalTargetPage?.Source.Id);
+            Assert.Equal(alternateScope,Assert.IsType<ExactDataManageModel>(alternate.Definition.ExactTarget).Column.Source.ColumnName);
+            Assert.Contains(alternate.Definition.Scopes,scope=>scope.Source=="parent"&&scope.Column.Source.ColumnName==alternateParent);
+            if(differentTarget)
+                Assert.Throws<InvalidOperationException>(()=>NonRedundantReads.CompileProjectPage(catalog,"2",["target_names"],
+                    [],[],[],[new("25","202","301",true)]));
         }
         var checkbox=resolution.Definition;
         Assert.Equal("scope_code",Assert.IsType<ExactDataManageModel>(checkbox.ExactTarget).Column.Source.ColumnName);
@@ -1091,7 +1115,19 @@ public sealed class DerivedCheckboxNamesTests
                     service.GetField("DerivedCheckboxPlan202_25",staticFields)!.GetValue(null));
                 Assert.Equal("string",alternatePlan.OutputTypes["short_name"]);
                 var readPlan=alternatePlan.GetType().GetProperty("MySql",hidden)!.GetValue(alternatePlan)!;
-                Assert.Equal(scope,readPlan.GetType().GetProperty("Scope",hidden)!.GetValue(readPlan));
+                if(differentTarget)
+                {
+                    Assert.Equal(alternateParent,readPlan.GetType().GetProperty("RequiredMultiParent",hidden)!.GetValue(readPlan));
+                    var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                        readPlan.GetType().GetField("constants",hidden)!.GetValue(readPlan)).Values;
+                    Assert.Contains(39,constants);
+                    Assert.DoesNotContain(38,constants);
+                    var fields=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                        readPlan.GetType().GetProperty("Expressions",hidden)!.GetValue(readPlan));
+                    Assert.Contains(alternateScope,fields.Keys);
+                    Assert.DoesNotContain("scope_code",fields.Keys);
+                }
+                else Assert.Equal(scope,readPlan.GetType().GetProperty("Scope",hidden)!.GetValue(readPlan));
                 Assert.NotNull(service.GetMethod("Import202Async"));
                 Assert.NotNull(service.GetMethod("Export202Async"));
                 Assert.Contains("DerivedCheckboxRows202_25Async(entity.ParentId",code);
@@ -1103,7 +1139,14 @@ public sealed class DerivedCheckboxNamesTests
                     var projection=Assert.IsType<string>(sourceSql.GetType().GetMethod("Expression",hidden)!
                         .Invoke(sourceSql,["target_names"]));
                     Assert.Contains("multi_value.`short_name`",projection);
-                    Assert.Contains("multi_value.`parent_id`",projection);
+                    Assert.Contains("multi_value.`"+alternateParent+"`",projection);
+                    if(differentTarget)
+                    {
+                        var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                            sourceSql.GetType().GetField("constants",hidden)!.GetValue(sourceSql)).Values;
+                        Assert.Contains(39,constants);
+                        Assert.DoesNotContain(38,constants);
+                    }
                 }
                 else
                 {
@@ -1111,7 +1154,7 @@ public sealed class DerivedCheckboxNamesTests
                     Assert.Equal("string",alternatePlan.OutputTypes["name"]);
                     Assert.Contains("CacheShortName",code);
                 }
-                Assert.Contains("ResolveExactDataManage(\"301\", \"list\", \"real_name\")",
+                Assert.Contains($"ResolveExactDataManage(\"{alternateTargetId}\", \"list\", \"real_name\")",
                     code[(code.IndexOf("DerivedCheckboxPlan202_25=",StringComparison.Ordinal))..]);
             }
             if(sourceStorage==1&&!idLabel)
@@ -1138,7 +1181,7 @@ public sealed class DerivedCheckboxNamesTests
                     Assert.DoesNotContain("`scope_code`",alternateLabels);
                 }
             }
-            if(!idLabel&&((sourceStorage==0)==(pageType==0)))
+            if(!idLabel&&(((sourceStorage==0)==(pageType==0))||differentTarget))
             {
                 var full=Path.Combine(directory,"app");
                 Assert.True(new ApplicationPackager().Create(catalog,full,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
@@ -1146,12 +1189,18 @@ public sealed class DerivedCheckboxNamesTests
                 Assert.Contains("loadOriginalArrayCheckboxOptions",list);
                 Assert.Contains("findNameIdTarget25",list);
                 Assert.Contains("\"requiresParent\":true",list);
+                if(differentTarget)
+                {
+                    var alternateList=await File.ReadAllTextAsync(Path.Combine(full,"frontend/pages/yzp/exact_stored_checkbox_source-list-202.vue"));
+                    Assert.Contains("findNameIdTarget25",alternateList);
+                    Assert.Contains("\"requiresParent\":true",alternateList);
+                }
                 foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(full,operation);
             }
             if(alternateName)
             {
                 // 备用名称从真实发布页撤下后，不能继续通过原来源页选择它。
-                var published=catalog.ConfigPageColumns.Single(item=>item.Id=="3013081");
+                var published=catalog.ConfigPageColumns.Single(item=>item.Id==alternateTargetId+"3081");
                 published.IsShow=published.IsEdit=0;
                 var hiddenModel=GenerationModel.Create(catalog,ns);
                 var hiddenSource=hiddenModel.Tables.Single(table=>table.Source.Id=="2");
