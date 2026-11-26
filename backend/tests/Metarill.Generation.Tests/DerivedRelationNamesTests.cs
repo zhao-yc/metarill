@@ -740,7 +740,9 @@ public sealed class DerivedRelationNamesTests
                 if(selection)
                 {
                     var detail=File.ReadAllText(Path.Combine(directory,"generated/frontend/pages/yzp/dr_names_order-detail-101.vue"));
-                    Assert.Contains(independentScope?":parent_id=\"entity.groupId\"":":parent_id=\"parent_id\"",detail);
+                    Assert.Contains(independentScope ? ":parent_id=\"originalSelectionParent15\"" : ":parent_id=\"parent_id\"", detail);
+                    if (independentScope)
+                        Assert.Contains("const parent=String(this.entity.groupId??'');", detail);
                 }
                 if(!redundant)Assert.Contains("ReadPlan101=global::Example.ScopedSingleRelation.Generated.GeneratedNonRedundantReadCatalog.CompileProjectPage(",service);
                 if(globalParent&&!logicalSource)
@@ -1061,7 +1063,9 @@ public sealed class DerivedRelationNamesTests
                 if(globalParent)
                 {
                     var detail=File.ReadAllText(Path.Combine(directory,"generated/frontend/pages/yzp/dr_names_order-detail-101.vue"));
-                    Assert.Contains(independentParent?":parent_id=\"entity.groupId\"":":parent_id=\"parent_id\"",detail);
+                    Assert.Contains(independentParent ? ":parent_id=\"originalSelectionParent15\"" : ":parent_id=\"parent_id\"", detail);
+                    if (independentParent)
+                        Assert.Contains("const parent=String(this.entity.groupId??'');", detail);
                 }
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);

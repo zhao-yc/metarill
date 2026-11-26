@@ -40,20 +40,26 @@ internal static class OriginalUniappDetailSelection
         else
         {
             var targetParent=functionSelection is null?TargetParent(c,f.Column,target.Table,target.Page):"''";
+            var parentField = functionSelection?.Parent?.JsonName;
+            if (targetParent.StartsWith("entity.", StringComparison.Ordinal))
+                parentField = targetParent["entity.".Length..];
             var capture=$"this._selection{id}=this.originalContext();";
             var release="";
             var popupReadOnly=ro;
             c.Data.Append("originalSelection").Append(id).Append(":false,");
-            if(functionSelection?.Parent is {} parent)
+            if (parentField is not null)
             {
-                // 弹层只在本次有效父范围打开；程序联动修改父值时拒绝旧范围回执。
+                // 功能表和业务详情都以本次打开时的表单父值作为弹层范围，父值变化后拒绝旧回执。
                 targetParent="originalSelectionParent"+id;
                 c.Data.Append(targetParent).Append(":'',");
                 c.Methods.AppendLine($"selectionCurrent{id}() {{ return this._selection{id}?.()===true; }},");
                 popupReadOnly+=$" || !selectionCurrent{id}()";
-                capture=$"const parent=String(this.entity.{parent.JsonName}??'');"+
-                    "if(!/^[1-9][0-9]{0,18}$/.test(parent)||parent.length===19&&parent>'9223372036854775807'){uni.showModal({showCancel:false,content:'目标父范围尚未明确，请先选择或保存父记录。'});return;}"+
-                    $"const current=this.originalContext();this.{targetParent}=parent;this._selection{id}=()=>current()&&parent===String(this.entity.{parent.JsonName}??'');";
+                // 功能表仍要求规范主键，业务页的父值还可能是已发布的文本业务键。
+                var validateParent = functionSelection is null ? "" :
+                    "if(!/^[1-9][0-9]{0,18}$/.test(parent)||parent.length===19&&parent>'9223372036854775807'){uni.showModal({showCancel:false,content:'目标父范围尚未明确，请先选择或保存父记录。'});return;}";
+                var parentValue = $"String(this.entity.{parentField}??'')";
+                capture = $"const parent={parentValue};" + validateParent +
+                    $"const current=this.originalContext();this.{targetParent}=parent;this._selection{id}=()=>current()&&parent==={parentValue};";
                 release=$"this.{targetParent}='';";
             }
             c.Methods.AppendLine($$$"""

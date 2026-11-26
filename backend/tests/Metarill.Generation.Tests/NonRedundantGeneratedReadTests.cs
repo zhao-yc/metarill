@@ -1389,7 +1389,8 @@ public sealed class NonRedundantGeneratedReadTests
             Assert.Contains("Export104Async",service);
             if(globalParent)Assert.Contains("OptionsGlobalParent104_15.BindAccount(actor)",service);
             var detail=await File.ReadAllTextAsync(Path.Combine(generated,"frontend/pages/yzp/mt_parent_only_order-detail-104.vue"));
-            Assert.Contains(":parent_id=\"entity.groupId\"",detail);
+            Assert.Contains(":parent_id=\"originalSelectionParent15\"", detail);
+            Assert.Contains("const parent=String(this.entity.groupId??'');", detail);
             Assert.Contains(idLabel?"selected-name-field=\"id\"":"selected-name-field=\"name\"",detail);
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
             var candidateType=assembly.GetType(ns+".Generated.Services.MtParentOnlyPartyService",true)!;

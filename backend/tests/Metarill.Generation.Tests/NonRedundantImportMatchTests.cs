@@ -442,7 +442,9 @@ public sealed class NonRedundantImportMatchTests
             {
                 var detail=await File.ReadAllTextAsync(Path.Combine(directory,"generated/frontend/pages/yzp/compound_picker_owner-detail-701.vue"));
                 Assert.Contains("OriginalSelection7016",detail);
-                Assert.Contains(parentMode==2?":parent_id=\"entity.reviewCountryId\"":":parent_id=\"parent_id\"",detail);
+                Assert.Contains(parentMode == 2 ? ":parent_id=\"originalSelectionParent7016\"" : ":parent_id=\"parent_id\"", detail);
+                if (parentMode == 2)
+                    Assert.Contains("const parent=String(this.entity.reviewCountryId??'');", detail);
                 Assert.Contains("onPopSelect7016",detail);
                 if(compoundTarget||textTarget)
                 {
