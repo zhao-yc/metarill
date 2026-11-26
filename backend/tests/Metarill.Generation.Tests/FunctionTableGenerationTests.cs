@@ -640,9 +640,32 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("global")]
     [InlineData("projectExactCompound")]
     [InlineData("projectStoredExactCompound")]
+    [InlineData("globalExactCompound")]
+    [InlineData("globalRowProjectExactCompound")]
+    [InlineData("globalStoredExactCompound")]
+    [InlineData("globalStoredTextExactCompound")]
+    [InlineData("globalStoredNoProjectExactCompound")]
     public async Task Function_single_selection_uses_the_actual_target_page(string scenario)
     {
         var catalog=WithSingleSelection(Catalog(),scenario);
+        if(scenario=="globalStoredTextExactCompound")
+            catalog.ConfigColumns.Single(column=>column.Id=="708").LogicalType="string";
+        if(scenario=="globalStoredNoProjectExactCompound")
+        {
+            catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="7"&&column.ColumnName=="yz_project_id");
+            var page=catalog.ConfigPages.Single(item=>item.Id=="103");
+            page.WhereSql=page.WhereSql.Replace("yz_project_id=@current_yz_project_id AND ","",StringComparison.Ordinal);
+        }
+        if(scenario.StartsWith("globalStored",StringComparison.Ordinal))
+        {
+            // 同一父表的另一个发布页不能替换实际父页。
+            var secondParent=catalog.ConfigColumns.Single(column=>column.Id=="708");
+            secondParent.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("801");
+            var error=Assert.Throws<InvalidOperationException>(()=>
+                Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
+            Assert.Contains("同一个实际发布父页",error.Message);
+            secondParent.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("802");
+        }
         new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot());
 
         var generated=Path.Combine(output,"backend/generated");
