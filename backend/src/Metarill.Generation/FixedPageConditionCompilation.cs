@@ -10,13 +10,14 @@ internal sealed record FixedPageCondition(string Definition,FixedConditionPlan S
 {
     internal IReadOnlySet<string> CrossFields { get; init; } = new HashSet<string>(StringComparer.Ordinal);
     internal IReadOnlySet<string> SelfTreeFields { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+    internal IReadOnlySet<string> JoinedFields { get; init; } = new HashSet<string>(StringComparer.Ordinal);
 }
 
 /// <summary>将原页面AND条件拆成项目／父范围与类型化条件；账号变量始终从已认证身份绑定。</summary>
 internal static class FixedPageConditionCompilation
 {
     /// <summary>先校验每项类型，跨表层位还须通过生成器的固定逻辑路径证明。</summary>
-    internal static (IReadOnlyList<(ColumnModel Column,string Source)> Scopes,FixedPageCondition? Condition) Compile(MetadataCatalog catalog,TableMetadata table,IReadOnlyList<ColumnModel> columns,string definition)
+    internal static (IReadOnlyList<(ColumnModel Column,string Source)> Scopes,FixedPageCondition? Condition) Compile(MetadataCatalog catalog,TableMetadata table,IReadOnlyList<ColumnModel> columns,string definition,PageMetadata? page=null)
     {
         try
         {
@@ -45,16 +46,20 @@ internal static class FixedPageConditionCompilation
             var fields=conditions.Select(term=>term.Field).Distinct(StringComparer.Ordinal).ToArray();
             var crossFields=fields.Where(field=>CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field)).ToHashSet(StringComparer.Ordinal);
             var selfTreeFields=fields.Where(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,columns.Select(column=>column.Source),field)).ToHashSet(StringComparer.Ordinal);
+            var joinedFields=page is not null&&table.IsRongyu==0&&columns.Any(column=>
+                fields.Contains(column.Source.ColumnName)&&physical.Kind(column.Source)==MetadataFieldStorage.Join)
+                ?ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page):new HashSet<string>(StringComparer.Ordinal);
             foreach(var field in fields)
             {
                 var column=columns.Single(column=>column.Source.ColumnName==field);
-                if((!physical.IsPhysical(column.Source)&&!crossFields.Contains(field)&&!selfTreeFields.Contains(field))||column.IsJsonArray||column.Source.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)||ManagerCredentialCompilation.IsCredential(identity,column))throw Rejected();
+                if((!physical.IsPhysical(column.Source)&&!crossFields.Contains(field)&&!selfTreeFields.Contains(field)&&!joinedFields.Contains(field))||column.IsJsonArray||column.Source.LogicalType.Equals("json",StringComparison.OrdinalIgnoreCase)||ManagerCredentialCompilation.IsCredential(identity,column))throw Rejected();
             }
             var conditionDefinition=string.Join(" AND ",conditions.Select(Term));
             var plan=FixedConditionPlan.Compile(conditionDefinition,fields);
             var types=fields.ToDictionary(field=>field,field=>columns.Single(column=>column.Source.ColumnName==field).Source.LogicalType,StringComparer.Ordinal);
             _=FixedConditionSqlPlan.Compile(plan,types);
-            return(scopes.AsReadOnly(),new(conditionDefinition,plan,new ReadOnlyDictionary<string,string>(types)){CrossFields=crossFields,SelfTreeFields=selfTreeFields});
+            return(scopes.AsReadOnly(),new(conditionDefinition,plan,new ReadOnlyDictionary<string,string>(types))
+            {CrossFields=crossFields,SelfTreeFields=selfTreeFields,JoinedFields=joinedFields});
         }
         catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException)
         {throw new InvalidOperationException("页面WhereSql缺少已证明的固定标量条件。",error);}
@@ -116,7 +121,8 @@ internal static class FixedPageConditionCompilation
     }
     internal static bool HasCrossFields(PageModel page)=>page.Condition?.CrossFields.Count>0;
     internal static bool HasSelfTreeFields(PageModel page)=>page.Condition?.SelfTreeFields.Count>0;
-    internal static bool HasLogicalFields(PageModel page)=>HasCrossFields(page)||HasSelfTreeFields(page);
+    internal static bool HasJoinedFields(PageModel page)=>page.Condition?.JoinedFields.Count>0;
+    internal static bool HasLogicalFields(PageModel page)=>HasCrossFields(page)||HasSelfTreeFields(page)||HasJoinedFields(page);
     /// <summary>原多选引用物理全局字典，独立项目条件与账号条件均沿实际发布页绑定。</summary>
     internal static bool HasStoredGlobalMultiScope(TableModel table,PageModel page)=>
         (table.Source.IsRongyu==1&&(HasGlobalProjectMultiScope(table,page)||HasStoredGlobalMultiParentScope(table,page)))||

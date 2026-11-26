@@ -48,6 +48,28 @@ public static class ProjectScopedSingleRelationTarget
     public static MultiTargetParentScope? LogicalParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
         PageParent(catalog,target,page) is {Logical:true} parent?parent:null;
 
+    /// <summary>仅项目内单值字典的已发布文本祖先可叠加联接常量；账号和父变量沿物理或级联证明。</summary>
+    public static IReadOnlySet<string> JoinedTextPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
+    {
+        var fields=new HashSet<string>(StringComparer.Ordinal);
+        if(target is not {IsRongyu:0,IsView:0,IsFunctionTable:0}||
+            target.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||
+            page.ConfigTableId!=target.Id||GlobalCrossTableTarget.Declared(target)||
+            page.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1")||
+            !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
+            return fields;
+        var storage=MetadataStoragePolicy.ForTable(catalog,target);
+        var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
+        var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
+        foreach(var column in columns.Where(column=>storage.Kind(column)==MetadataFieldStorage.Join))
+            if(syntax.Fields.Contains(column.ColumnName)&&syntax.Terms.Where(term=>term.Field==column.ColumnName)
+                .All(term=>term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)))
+                fields.Add(column.ColumnName);
+        if(fields.Count>0&&PageParent(catalog,target,page) is not {Logical:true,Global:false,Target.LogicalType:"string",AdditionalTargets.Count:0})
+            fields.Clear();
+        return fields;
+    }
+
     /// <summary>单值目标读取实际逻辑父或显式全局父，普通项目内单物理父仍走原绑定。</summary>
     public static MultiTargetParentScope? PageParent(MetadataCatalog catalog,TableMetadata target,PageMetadata page)
     {

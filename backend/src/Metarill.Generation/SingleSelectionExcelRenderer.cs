@@ -6,6 +6,11 @@ namespace Metarill.Generation;
 /// <summary>原单选弹窗范围由目标页决定，Excel 名称反查在原导入事务中叠加控件条件。</summary>
 internal static class SingleSelectionExcelRenderer
 {
+    /// <summary>单选反查必须沿逻辑页面条件，原控件附加条件仍只用于导入。</summary>
+    internal static bool RequiresFixedRead(RelationModel relation)=>
+        relation.SourceColumn.Source.ControlKind=="SelectPage"&&relation.Target.Source.IsRongyu==0&&
+        (relation.ImportCondition is not null||FixedPageConditionCompilation.HasJoinedFields(relation.TargetPage));
+
     /// <summary>先复用发布页的真实父校验，再用类型化值唯一匹配目标记录。</summary>
     internal static string Import(GenerationModel model,RelationModel relation,PageModel page,ImportDependencyPlan dependency)
     {
@@ -14,13 +19,15 @@ internal static class SingleSelectionExcelRenderer
         var conditionName="SingleImportCondition"+suffix;
         var readName="SingleImportReadPlan"+suffix;
         var declaration=condition is null?"":RelationConditionsCompilation.Declaration(condition,conditionName);
-        var fixedRead=condition is not null&&relation.Target.Source.IsRongyu==0;
-        if(condition is not null&&fixedRead)
+        var fixedRead=RequiresFixedRead(relation);
+        if(fixedRead)
         {
             var target=relation.Target;var targetPage=relation.TargetPage;var field=relation.NameColumn.Source.ColumnName;
-            var targets=NonRedundantReadCompilation.ProjectPathTargets(model,target,targetPage,condition.Syntax.Fields.Append(field));
-            _=NonRedundantReads.CompileSingleImportLabel(model.Catalog,target.Source.Id,targetPage.Source.Id,field,condition.Syntax.Fields,targets);
-            var fields="new string[]{"+string.Join(",",condition.Syntax.Fields.Select(Literal))+"}";
+            var importFields=condition?.Syntax.Fields??[];
+            var targets=NonRedundantReadCompilation.ProjectPathTargets(model,target,targetPage,
+                importFields.Append(field).Concat(targetPage.Condition?.JoinedFields??Enumerable.Empty<string>()));
+            _=NonRedundantReads.CompileSingleImportLabel(model.Catalog,target.Source.Id,targetPage.Source.Id,field,importFields,targets);
+            var fields="new string[]{"+string.Join(",",importFields.Select(Literal))+"}";
             var args=string.Join(",",new[]{target.Source.Id,targetPage.Source.Id,field}.Select(Literal));
             declaration+=$"    private static readonly NonRedundantReadPlan {readName}=global::{model.Namespace}.Generated.GeneratedNonRedundantReadCatalog.CompileSingleImportLabel({args},{fields}{NonRedundantReadCompilation.SingleTargetArgument(targets)});\n";
         }
@@ -54,7 +61,7 @@ internal static class SingleSelectionExcelRenderer
 """;
         var read=fixedRead?$$"""
         var rows=await new NonRedundantReader(session).PageAsync({{readName}}.BindAccount(actor),filters,[new("id")],
-            1,2,cancellationToken,projectId:actor.ProjectId,condition:importCondition,currentRead:true);
+            1,2,cancellationToken,projectId:actor.ProjectId,condition:{{(condition is null?"null":"importCondition")}},currentRead:true);
         if(rows.Records.Count!=1)throw PageImportException.Input(PageImportError.Relation);
         var idValue=NonRedundantReads.Value<long>(rows.Records[0],"id");
 """:$$"""

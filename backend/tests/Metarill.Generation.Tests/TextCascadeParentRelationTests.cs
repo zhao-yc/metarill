@@ -425,6 +425,19 @@ public sealed class TextCascadeParentRelationTests
     public Task Stored_text_parent_uses_cached_page_conditions(int sourceStorage,bool exact,bool form)=>
         VerifySingleTextParentControlConditions(sourceStorage,exact,form,joined:true,stored:true,pageCondition:true);
 
+    /// <summary>非冗余字典自身的联接常量与实际页面及控件条件共用固定字典路径。</summary>
+    [Theory]
+    [InlineData(0,false,false)]
+    [InlineData(0,false,true)]
+    [InlineData(0,true,false)]
+    [InlineData(0,true,true)]
+    [InlineData(1,false,false)]
+    [InlineData(1,false,true)]
+    [InlineData(1,true,false)]
+    [InlineData(1,true,true)]
+    public Task Single_text_parent_uses_joined_page_conditions(int sourceStorage,bool exact,bool form)=>
+        VerifySingleTextParentControlConditions(sourceStorage,exact,form,joined:true,pageCondition:true);
+
     /// <summary>条件使用公开别名时仍检查联接终点，避免通过候选结果推断凭据。</summary>
     [Fact]
     public void Single_text_parent_joined_control_condition_rejects_sensitive_terminal()
@@ -585,21 +598,26 @@ public sealed class TextCascadeParentRelationTests
             }
             var listTargets=DerivedRelationNamesCompilation.ProjectCandidateTargets(model,list);
             var selectTargets=NonRedundantReadCompilation.ProjectPathTargets(model,single.Target,single.TargetPage,[conditionField]);
-            var listPlan=exact?Metarill.Data.Queries.NonRedundantReads.CompileExactSingleParentCandidate(metadata,"81","810",["id"],["scope_code"],[],listTargets,[conditionField])
-                :Metarill.Data.Queries.NonRedundantReads.CompileGlobalListCandidate(metadata,"81","810",[conditionField],["id"],[],listTargets);
-            var selectPlan=exact?Metarill.Data.Queries.NonRedundantReads.CompileExactSingleParentCandidate(metadata,"82","820",["id","name"],["scope_code"],[],selectTargets,[conditionField])
-                :Metarill.Data.Queries.NonRedundantReads.CompileSingleImportLabel(metadata,"82","820","name",[conditionField],singleTargets:selectTargets);
+            var listPlan=exact?Metarill.Data.Queries.NonRedundantReads.CompileExactSingleParentCandidate(metadata,"81","810",["id"],["scope_code"],[],listTargets,hasControlCondition?[conditionField]:null)
+                :hasControlCondition?Metarill.Data.Queries.NonRedundantReads.CompileGlobalListCandidate(metadata,"81","810",[conditionField],["id"],[],listTargets)
+                :Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(metadata,"81","810",["id"],[],null,listTargets);
+            var selectPlan=exact?Metarill.Data.Queries.NonRedundantReads.CompileExactSingleParentCandidate(metadata,"82","820",["id","name"],["scope_code"],[],selectTargets,hasControlCondition?[conditionField]:null)
+                :hasControlCondition?Metarill.Data.Queries.NonRedundantReads.CompileSingleImportLabel(metadata,"82","820","name",[conditionField],singleTargets:selectTargets)
+                :Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(metadata,"82","820",["id","name"],[],null,selectTargets);
             AssertTextParentSql(listPlan);
             AssertTextParentSql(selectPlan);
             using var session=new Metarill.Data.DatabaseSession(new(){ExpectedDatabase="offline",
                 ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
             var variables=new Dictionary<string,object?>();
             if(form)variables.Add("formParameters.matchRegion","实际选择地区");
-            var predicate=Metarill.Data.Queries.FixedConditionSqlPlan.Compile(list.Conditions!.Syntax,list.Conditions.Types).BindVariables(variables);
-            var sql=Metarill.Data.Queries.NonRedundantCrossTableScopeSql.ApplyCondition(session.Select<ScopeRow>(),session,
-                listPlan,predicate,"single_relation",catalog.YzProjectId,parentId:"001").ToSql();
+            var sql=hasControlCondition
+                ?Metarill.Data.Queries.NonRedundantCrossTableScopeSql.ApplyCondition(session.Select<ScopeRow>(),session,listPlan,
+                    Metarill.Data.Queries.FixedConditionSqlPlan.Compile(list.Conditions!.Syntax,list.Conditions.Types).BindVariables(variables),
+                    "single_relation",catalog.YzProjectId,parentId:"001").ToSql()
+                :Metarill.Data.Queries.NonRedundantCrossTableScopeSql.ApplyCandidate(session.Select<ScopeRow>(),session,
+                    listPlan,"single_relation",catalog.YzProjectId,locking:false,parentId:"001").ToSql();
             Assert.Contains("BINARY @single_relation_parent",sql);
-            Assert.Contains("@single_relation_condition_",sql);
+            if(hasControlCondition)Assert.Contains("@single_relation_condition_",sql);
             if(joined)
             {
                 Assert.Contains("`textrel_name_dictionary`",sql);
@@ -611,10 +629,37 @@ public sealed class TextCascadeParentRelationTests
                 Assert.Contains("`textrel_name_dictionary`",from);
                 Assert.Contains("`label_enabled`",from+expression);
             }
+            if(pageCondition)
+            {
+                AssertJoinedPageCondition(listPlan);
+                AssertJoinedPageCondition(selectPlan);
+                var condition=list.TargetPage.Condition!;
+                var target=metadata.ConfigTables.Single(item=>item.Id=="81");
+                var targetPage=metadata.ConfigPages.Single(item=>item.Id=="810");
+                var membership=Metarill.Data.Queries.NonRedundantReads.CompilePageMembership(metadata,target,targetPage,
+                    condition.Syntax.Fields,condition.CrossFields,condition.SelfTreeFields,["id"],[],listTargets);
+                var current=Metarill.Data.Queries.NonRedundantCrossTableScopeSql.ApplyCondition(session.Select<ScopeRow>(),session,membership,
+                    Metarill.Data.Queries.FixedConditionSqlPlan.Compile(condition.Syntax,condition.Types),
+                    "dictionary_page",catalog.YzProjectId).ToSql();
+                Assert.Contains("`textrel_name_dictionary`",current);
+                Assert.Contains("@dictionary_page_condition_",current);
+                Assert.Contains("CrossConditionPlan810",await File.ReadAllTextAsync(Path.Combine(generated,"Services/TextrelListitemService.g.cs")));
+            }
             if(compilePackage)
                 foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>确认字典页常量通过参数进入候选及 Excel 查询条件。</summary>
+    private static void AssertJoinedPageCondition(Metarill.Data.Queries.NonRedundantReadPlan plan)
+    {
+        const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+        var mysql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
+        var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",flags)!.GetValue(mysql));
+        var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+            mysql.GetType().GetProperty("Constants",flags)!.GetValue(mysql));
+        Assert.Contains(parameters,pair=>Equals(pair.Value,"字典排除地区")&&scope.Contains("@"+pair.Key,StringComparison.Ordinal));
     }
 
     /// <summary>候选和实时名称读取实际物理副本，冗余来源维护保留筛选列的反向依赖。</summary>

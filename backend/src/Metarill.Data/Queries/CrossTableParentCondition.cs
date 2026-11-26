@@ -34,7 +34,8 @@ public static class CrossTableParentCondition
     /// <summary>自树副本维护传入已经过控件和页面核对的逻辑叶名，其余用途维持原跨表范围。</summary>
     internal static (bool Allowed,FixedConditionSqlPlan? Plan,bool HasLogical) Compile(MetadataCatalog catalog,TableMetadata table,
         PageMetadata page,MetadataStoragePlan storage,bool allowLogical,ColumnMetadata? multiParent,
-        IReadOnlySet<string>? selfTreeFields,bool separateExactScope=false,IReadOnlySet<string>? additionalParents=null)
+        IReadOnlySet<string>? selfTreeFields,bool separateExactScope=false,IReadOnlySet<string>? additionalParents=null,
+        IReadOnlySet<string>? joinedFields=null)
     {
         // 调用方须证明固定页面条件与请求精确权限分别在各自入口执行。
         if(!separateExactScope&&page.Extra.TryGetValue("exactDataManageMatchField",out var exact)&&
@@ -47,7 +48,7 @@ public static class CrossTableParentCondition
         if(allowLogical&&table.IsRongyu==0)
             foreach(var column in RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id))
                 .Where(column=>CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,column.ColumnName)||
-                    selfTreeFields?.Contains(column.ColumnName)==true))
+                    selfTreeFields?.Contains(column.ColumnName)==true||joinedFields?.Contains(column.ColumnName)==true))
                 types.TryAdd(column.ColumnName,column.LogicalType);
         var syntax=FixedConditionPlan.Compile(page.WhereSql,types.Keys);
         var logical=syntax.Fields.Any(field=>!physical.ContainsKey(field));

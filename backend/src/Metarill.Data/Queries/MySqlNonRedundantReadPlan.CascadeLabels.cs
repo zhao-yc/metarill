@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
@@ -79,8 +80,10 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields,IReadOnlySet<string> selfTreeFields,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
     {
+        var joinedFields=ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page)
+            .Where(conditionFields.Contains).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         if(!catalog.ConfigPages.Contains(page)||page.ConfigTableId!=table.Id||
-            table.IsRongyu!=0||(crossFields.Count==0&&selfTreeFields.Count==0)||
+            table.IsRongyu!=0||(crossFields.Count==0&&selfTreeFields.Count==0&&joinedFields.Count==0)||
             !crossFields.IsSubsetOf(conditionFields)||!selfTreeFields.IsSubsetOf(conditionFields))
             throw new NotSupportedException("固定逻辑页面范围必须属于普通非冗余来源。");
 
@@ -89,9 +92,16 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new NotSupportedException("固定自树范围缺少已声明的叶名。");
 
         var bindings=crossFields.Count==0?[]:CrossMembershipBindings(catalog,table,page,crossFields);
-        return CompileRelationScope(catalog,table.Id,outputs,bindings,
+        var plan=CompileRelationScope(catalog,table.Id,outputs,bindings,
             conditionFields.Concat(dependencies).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
-            deferCascadeNames:selfTreeFields.Count>0,singleTargets:singleTargets);
+            deferCascadeNames:selfTreeFields.Count>0,singleTargets:singleTargets,conditionJoins:joinedFields);
+        foreach(var field in joinedFields)
+        {
+            plan.RequireScalarLabelOrigin(field);
+            if(plan.Types[field]!=declared.Single(column=>column.ColumnName==field).LogicalType)
+                throw new NotSupportedException("页面联接条件必须与终点逻辑类型一致。");
+        }
+        return plan;
     }
 
     /// <summary>从实际发布页发现逻辑叶名，然后校验其实际控件定义。</summary>
@@ -351,6 +361,8 @@ public static partial class MySqlNonRedundantReadCompiler
         }
         var projectFixedScope=IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:storedExactCheckbox,allowStoredTextParent:true);
         var storedParent=GlobalCrossTableTarget.StoredProjectMultiParent(catalog,table,page,storedExactCheckbox);
+        var pageJoins=importPageType=="1"?ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page):
+            FrozenSet<string>.Empty;
         var plan=new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field,crossTables:crossBindings,
             scopedPhysicalCandidate:table.IsRongyu==1&&projectFixedScope,storedMultiParent:storedParent)
         {
@@ -367,12 +379,13 @@ public static partial class MySqlNonRedundantReadCompiler
             ScopedRootControls=crossBindings.Select(binding=>binding.SourceColumnId).ToHashSet(StringComparer.Ordinal),
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             GlobalCrossCandidate=GlobalCrossTableTarget.Declared(table)
-        }.Compile(outputs,dependencies.Concat(extraFields).Concat(parent is null?[]:
+        }.Compile(outputs,dependencies.Concat(extraFields).Concat(pageJoins).Concat(parent is null?[]:
                 parent.AdditionalTargets.Select(item=>item.Target.ColumnName).Prepend(parent.Target.ColumnName))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
         if(importColumns.Count!=extraFields.Count||importColumns.Any(column=>
             !plan.Types.TryGetValue(column.ColumnName,out var type)||type!=column.LogicalType))
             throw new NotSupportedException("Excel 逻辑条件必须落到与声明类型一致的固定字段。");
+        foreach(var joined in pageJoins)plan.RequireScalarLabelOrigin(joined);
         return plan;
     }
 
@@ -599,7 +612,7 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>固定页条件保留实际类型与原账号等值，只有已声明逻辑路径可以引用非物理层位。</summary>
     private static FixedConditionSqlPlan? CascadeScopeCondition(TableMetadata target,MetadataStoragePlan storage,
         IReadOnlyList<ColumnMetadata> columns,FixedConditionPlan syntax,ColumnMetadata? multiParent=null,
-        IReadOnlySet<string>? selfTreeFields=null,IReadOnlySet<string>? additionalParents=null)
+        IReadOnlySet<string>? selfTreeFields=null,IReadOnlySet<string>? additionalParents=null,IReadOnlySet<string>? joinedFields=null)
     {
         var terms=syntax.Terms.Where(term=>!IsProjectScope(term)&&!((multiParent?.ColumnName==term.Field||additionalParents?.Contains(term.Field)==true)&&
             term.Values.Count==1&&term.Values[0].Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(term.Values[0].Text))).ToArray();
@@ -613,7 +626,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new NotSupportedException("级联多值名称只允许原账号字段的物理等值范围。");
         var types=new Dictionary<string,string>(physical,StringComparer.OrdinalIgnoreCase);
         foreach(var column in columns.Where(column=>CrossTableStorageColumns.IsLogicalPathField(target,columns,column.ColumnName)||
-            selfTreeFields?.Contains(column.ColumnName)==true))
+            selfTreeFields?.Contains(column.ColumnName)==true||joinedFields?.Contains(column.ColumnName)==true))
             types.TryAdd(column.ColumnName,column.LogicalType);
         var condition=FixedConditionPlan.Compile(string.Join(" AND ",terms.Select(term=>term.ToDefinition())),types.Keys);
         return FixedConditionSqlPlan.Compile(condition,types);

@@ -247,6 +247,13 @@ internal static partial class NonRedundantReadCompilation
         var crossBindings=NonRedundantCrossTableCompilation.Bindings(crossPlans);
         var multiTargets=ProjectMultiTargets(model,table,page);
         var compiled=CompilePage(model,table,readOutputs,dependencies,crossBindings,singleTargets,multiTargets);
+        if(FixedPageConditionCompilation.HasJoinedFields(page))
+        {
+            var condition=page.Condition!;
+            _=NonRedundantReads.CompilePageMembership(model.Catalog,table.Source,page.Source,condition.Syntax.Fields,
+                condition.CrossFields,condition.SelfTreeFields,["id"],[],
+                ProjectPathTargets(model,table,page,condition.JoinedFields));
+        }
         var account=compiled.RequiresAccount;
         if(GlobalSelectionPage(table,page))
         {

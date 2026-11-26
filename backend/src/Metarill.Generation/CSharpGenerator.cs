@@ -244,7 +244,7 @@ internal sealed record GenerationModel(MetadataCatalog Catalog, string Namespace
                     (!string.IsNullOrWhiteSpace(page.WhereSql) && page.WhereSql.Trim() != "yz_project_id=@current_yz_project_id") ||
                     !string.IsNullOrWhiteSpace(page.OrderBy)))
                     throw new InvalidOperationException($"功能表页面必须使用原独立详情入口：{table.TableName}/{page.Id}");
-                var (scopes,condition) = FixedPageConditionCompilation.Compile(catalog,table,columns,isFunction ? "" : page.WhereSql);
+                var (scopes,condition) = FixedPageConditionCompilation.Compile(catalog,table,columns,isFunction ? "" : page.WhereSql,page);
                 // 默认页可能早于项目列的登记。普通视图确有该投影时，实际查询始终使用当前登录项目。
                 if (table.IsView == 1 && !GlobalCrossTableTarget.Declared(table) &&
                     scopes.All(scope => scope.Source != "project") &&

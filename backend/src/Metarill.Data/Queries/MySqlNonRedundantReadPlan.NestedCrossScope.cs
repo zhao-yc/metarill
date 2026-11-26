@@ -70,6 +70,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var projectParent=exactCheckboxParent?MultiTargetParentScope.Compile(catalog,table,syntax):
             !global?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null;
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
+        var pageJoins=ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page);
         var listJoins=!global&&projectParent is {Logical:true,Global:false,Target.LogicalType:"string"}&&
             !exactCheckboxParent&&listFields is not null
             ?columns.Where(column=>listFields.Contains(column.ColumnName)&&
@@ -110,7 +111,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 :physicalParent is null)))
             throw new NotSupportedException("全局候选必须使用实际发布的条件和物理父键。");
         var additional=parent?.AdditionalTargets.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal);
-        var condition=CascadeScopeCondition(table,storage,columns,syntax,parent?.Target,treeNames,additional);
+        var condition=CascadeScopeCondition(table,storage,columns,syntax,parent?.Target,treeNames,additional,pageJoins);
         // 私有匹配和 Excel 条件只扩充投影；不把路径有效性强加给有无限定范围的账号。
         var match=exactParent||globalExactSingle?Metarill.Core.Security.ExactDataManageValues.Field(exactField):"";
         var exactCross=globalExactSingle&&CrossTableStorageColumns.IsLogicalPathField(table,columns,match);
@@ -131,7 +132,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var builder=new Builder(catalog,tableId,deferCascadeNames:projectionTrees.Count>0||accountParentPage||physicalParent is not null,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
         {
             CrossCandidateCondition=condition,
-            ControlConditionJoins=listJoins.Select(column=>column.ColumnName).ToFrozenSet(StringComparer.OrdinalIgnoreCase),
+            ControlConditionJoins=listJoins.Select(column=>column.ColumnName).Concat(pageJoins).ToFrozenSet(StringComparer.OrdinalIgnoreCase),
             SelfTreeCandidateFields=projectionTrees,
             ActiveSelfTreeScopes=activeSelfTreeScopes??new(),
             MultiCandidateParent=projectSingle&&parent?.AdditionalTargets.Count is not >0?null:parent,
@@ -152,7 +153,7 @@ public static partial class MySqlNonRedundantReadCompiler
             .Concat(exactParent||globalExactSingle ? new[] { match } : [])
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
         // 联接别名必须解析到同类型的实际非凭据标量，运行时只能应用已证明的联接条件。
-        foreach(var column in listJoins)
+        foreach(var column in columns.Where(column=>builder.ControlConditionJoins.Contains(column.ColumnName)))
         {
             plan.RequireScalarLabelOrigin(column.ColumnName);
             if(plan.Types[column.ColumnName]!=column.LogicalType)
@@ -490,8 +491,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 ?compound.AdditionalTargets.Select(parent=>parent.Target.ColumnName).ToHashSet(StringComparer.Ordinal):null;
             if(additional is not null)cascadeLabelPages.Add(page.Id);
             var separateExactScope=exact||storedExact;
+            var pageJoins=ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,root,page);
             var condition=CrossTableParentCondition.Compile(catalog,root,page,storage[root.Id],allowLogical:true,
-                multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,separateExactScope:separateExactScope,additionalParents:additional);
+                multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,separateExactScope:separateExactScope,
+                additionalParents:additional,joinedFields:pageJoins);
             if(!condition.Allowed)
                 throw new NotSupportedException("多值目标页包含未接通的范围。");
             if(!condition.HasLogical)
@@ -515,11 +518,11 @@ public static partial class MySqlNonRedundantReadCompiler
                 return scope.Length==0?clause.Sql:scope+" AND "+clause.Sql;
             }
             var plan=condition.Plan;
-            var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target,treeNames,additional);
+            var fields=RequireCrossCondition(root,page,plan,MultiCandidateParent?.Target,treeNames,additional,pageJoins);
             output=cascadeLabelField!;
             var level=new CrossLevel(root,Column(root,cascadeLabelField!),null,new(page.Id,plan),page,fields);
             var selected=NestedCrossCondition(level,rootAlias,multiParent:MultiCandidateParent?.Target,selfTreeFields:treeNames,
-                additionalParents:additional);
+                additionalParents:additional,joinedFields:pageJoins);
             return scope.Length==0?selected:scope+" AND "+selected;
         }
         internal bool GlobalCrossCandidate{get;init;}
@@ -785,8 +788,9 @@ public static partial class MySqlNonRedundantReadCompiler
             // 读取和缓存都按同一个实际父页计算，全局父的各外键或逻辑层位不得各自选择发布页。
             if(additional is not null&&additionalScopes![0].Global)
                 _=PublishedMultiGlobalParent(catalog,table.Id,page.Id);
-            var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields,additional);
-            var logical=RequireCrossCondition(table,page,condition,parentField,fields,additional);
+            var pageJoins=ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page);
+            var condition=CascadeScopeCondition(table,storage[table.Id],members,syntax,parentField,fields,additional,pageJoins);
+            var logical=RequireCrossCondition(table,page,condition,parentField,fields,additional,pageJoins);
             if(GlobalCrossTableTarget.Declared(table))scopedGlobalCrossTarget=true;
             // 已保存副本沿来源行归属重算。候选及写入使用当前身份的实际精确匹配值。
             var globalExact=GlobalCrossTableTarget.DeclaresExactSingle(table,page);
@@ -819,7 +823,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 return condition is null?"":CascadeLabelCondition(table,page,condition,alias,"mt_stored_single_"+alias);
             return NestedCrossCondition(new(table,Column(table,"id"),null,new(page.Id,condition),page,logical),
                 alias,cacheOwner,parentField,fields,sourceParent,storedSingleExact:storedExact,
-                additionalParents:additional,compareAdditionalParents:true);
+                additionalParents:additional,compareAdditionalParents:true,joinedFields:pageJoins);
         }
 
         /// <summary>物理账号条件按来源行归属计算，并记录源字段和目标筛选列的反向依赖。</summary>
@@ -1236,7 +1240,7 @@ public static partial class MySqlNonRedundantReadCompiler
         /// <summary>同一条查询展开所需祖先，写入沿同一事务锁定全部联接。候选内部的存储校验不进入外层 VO。</summary>
         private string NestedCrossCondition(CrossLevel level,string owner,CascadeCacheOwner? cacheOwner=null,ColumnMetadata? multiParent=null,
             IReadOnlySet<string>? selfTreeFields=null,string? sourceParent=null,bool storedSingleExact=false,
-            IReadOnlySet<string>? additionalParents=null,bool compareAdditionalParents=false)
+            IReadOnlySet<string>? additionalParents=null,bool compareAdditionalParents=false,IReadOnlySet<string>? joinedFields=null)
         {
             var table=level.Table;
             cacheOwner??=cascadeCacheOwner;
@@ -1259,6 +1263,14 @@ public static partial class MySqlNonRedundantReadCompiler
                 string Projection(string field)
                 {
                     var column=Column(table,field);
+                    if(joinedFields?.Contains(field)==true)
+                    {
+                        // 使用实际字典页的固定单值联接，并在名称回填时登记物理终点的反向依赖。
+                        var value=Resolve(table,owner,field,cacheOwner);
+                        if(value.Type!=column.LogicalType)
+                            throw new NotSupportedException("页面联接条件必须与终点逻辑类型一致。");
+                        return value.Sql;
+                    }
                     if(!level.LogicalFields.Contains(field))
                     {
                         Use(table,column);
@@ -1292,7 +1304,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     var proof=AccountScopedCrossCache.CompileRecursive(catalog,row.Table,table,level.Page,multiParent,
                         row.GlobalTreeSource,selfTreeFields,row.GlobalSingleSource,storedSingleExact||UsesExactMultiSelection(level.Page,owner),
-                        additionalParents:additionalParents);
+                        additionalParents:additionalParents,joinedFields:joinedFields);
                     cascadeCacheOwnerFields.UnionWith(proof.Ownership.Select(binding=>binding.Source.ColumnName));
                     predicate=AccountCacheScope(proof,table,owner,row.Alias,render:true,row.Table,parameterPrefix,Projection);
                 }

@@ -222,7 +222,8 @@ public static partial class MySqlNonRedundantReadCompiler
         private bool CrossPhysical(TableMetadata table,ColumnMetadata column)=>storage[table.Id].IsPhysical(column)&&column.IsVirtualColumn==0&&!CrossEnabled(column,"isJoinColumn")&&!ExactDataManageValues.IsSensitiveField(column.ColumnName)&&column.ControlKind is not("FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase" or "CheckBoxList" or "MultiList")&&column.LogicalType.ToLowerInvariant() is not("json" or "binary");
         /// <summary>完整元数据中的目标固定条件必须与绑定相符；精简发布目录也必须提供冻结的常量绑定。</summary>
         private IReadOnlySet<string> RequireCrossCondition(TableMetadata table,PageMetadata page,FixedConditionSqlPlan? binding,
-            ColumnMetadata? multiParent=null,IReadOnlySet<string>? selfTreeFields=null,IReadOnlySet<string>? additionalParents=null)
+            ColumnMetadata? multiParent=null,IReadOnlySet<string>? selfTreeFields=null,IReadOnlySet<string>? additionalParents=null,
+            IReadOnlySet<string>? joinedFields=null)
         {
             var physical=columns[table.Id].Values.Where(column=>CrossPhysical(table,column))
                 .ToDictionary(column=>column.ColumnName,column=>column.LogicalType,StringComparer.OrdinalIgnoreCase);
@@ -232,6 +233,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 .ToHashSet(StringComparer.Ordinal);
             var types=new Dictionary<string,string>(physical,StringComparer.OrdinalIgnoreCase);
             foreach(var field in logical)types[field]=Column(table,field).LogicalType;
+            foreach(var field in joinedFields??Enumerable.Empty<string>())types[field]=Column(table,field).LogicalType;
             binding?.RequirePhysicalTypes(types);
             var conditions=new List<FixedConditionTerm>();
             foreach(var term in syntax.Terms)

@@ -40,15 +40,17 @@ public sealed class AccountScopedCrossCache
     /// <summary>递归候选允许逻辑字段的常量条件，账号等值仍须对应来源行真实物理归属。</summary>
     internal static AccountScopedCrossCache CompileRecursive(MetadataCatalog catalog,TableMetadata source,TableMetadata target,PageMetadata targetPage,
         ColumnMetadata? multiParent=null,bool globalTreeSource=false,IReadOnlySet<string>? selfTreeFields=null,
-        bool globalSingleSource=false,bool separateExactScope=false,IReadOnlySet<string>? additionalParents=null)=>
+        bool globalSingleSource=false,bool separateExactScope=false,IReadOnlySet<string>? additionalParents=null,
+        IReadOnlySet<string>? joinedFields=null)=>
         Compile(catalog,source,target,targetPage,recursive:true,multiParent:multiParent,globalTreeSource:globalTreeSource,
             selfTreeFields:selfTreeFields,globalSingleSource:globalSingleSource,separateExactScope:separateExactScope,
-            additionalParents:additionalParents);
+            additionalParents:additionalParents,joinedFields:joinedFields);
 
     private static AccountScopedCrossCache Compile(MetadataCatalog catalog, TableMetadata source, TableMetadata target,
         PageMetadata targetPage,bool recursive,ColumnMetadata? multiParent=null,bool globalTreeSource=false,
         IReadOnlySet<string>? selfTreeFields=null,bool globalSingleSource=false,bool allowFixedOnly=false,bool separateExactScope=false,
-        IReadOnlySet<string>? additionalParents=null,bool globalMulti=false,bool allowStoredPageCaches=false)
+        IReadOnlySet<string>? additionalParents=null,bool globalMulti=false,bool allowStoredPageCaches=false,
+        IReadOnlySet<string>? joinedFields=null)
     {
         if(globalTreeSource)GlobalCachedRelationSource.RequireSelfTree(catalog,source);
         // 仅经发布证明的全局单值或物理账号多选缓存可绑定来源行；根查询另行约束行项目。
@@ -63,11 +65,11 @@ public sealed class AccountScopedCrossCache
         if(recursive)
         {
             var storage=MetadataStoragePolicy.ForTable(catalog,target);
-            if(CrossTableParentCondition.Compile(catalog,target,targetPage,storage,allowLogical:true,multiParent:multiParent,selfTreeFields:selfTreeFields,separateExactScope:separateExactScope,additionalParents:additionalParents) is not {Allowed:true,HasLogical:true})
+            if(CrossTableParentCondition.Compile(catalog,target,targetPage,storage,allowLogical:true,multiParent:multiParent,selfTreeFields:selfTreeFields,separateExactScope:separateExactScope,additionalParents:additionalParents,joinedFields:joinedFields) is not {Allowed:true,HasLogical:true})
                 throw Invalid();
             var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
             foreach(var column in columns.Where(column=>CrossTableStorageColumns.IsLogicalPathField(target,columns,column.ColumnName)||
-                selfTreeFields?.Contains(column.ColumnName)==true))
+                selfTreeFields?.Contains(column.ColumnName)==true||joinedFields?.Contains(column.ColumnName)==true))
                 types.TryAdd(column.ColumnName,column.LogicalType);
         }
         var storedColumns=allowStoredPageCaches
