@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Metarill.Api.Controllers;
 
-public sealed record FilePlanRequest(string OriginalName,string? MimeType,long SizeBytes,string? ConfigColumnId=null,string? FolderId=null,string? Sha256=null);
+public sealed record FilePlanRequest(string? OriginalName,string? MimeType,long? SizeBytes,string? ConfigColumnId=null,string? FolderId=null,string? Sha256=null);
 public sealed record FileListRequest(string? ConfigColumnId,string? Keyword,string? FolderId);
 public sealed record ResolveFilesRequest(IReadOnlyList<string> FileIds,string? PageId=null,string? RecordId=null);
 public sealed record CompleteFileRequest(long FileId);
@@ -26,7 +26,7 @@ public sealed class FileLibraryController(IFileLibraryResolver resolver):Control
     {
         return R<object>.Success(await Files.ListAccessibleAsync(request.ConfigColumnId,request.Keyword,Id(request.FolderId),token));
     }
-    [HttpPost("upload-plan")]public async Task<R<FileUploadPlan>> Plan(FilePlanRequest request,CancellationToken token)=>R<FileUploadPlan>.Success(await Files.PlanUploadAsync(new FileUploadRequest(request.OriginalName,request.MimeType,request.SizeBytes,request.ConfigColumnId,Id(request.FolderId),request.Sha256),token));
+    [HttpPost("upload-plan")]public async Task<R<FileUploadPlan>> Plan(FilePlanRequest request,CancellationToken token)=>R<FileUploadPlan>.Success(await Files.PlanUploadAsync(new FileUploadRequest(request.OriginalName,request.MimeType,request.SizeBytes??0,request.ConfigColumnId,Id(request.FolderId),request.Sha256),token));
     /// <summary>仅接受单个名为 file 的 multipart 文件，不把上传者的路径或 MIME 当作可信信息。</summary>
     [HttpPost("local-upload/{id:long}"),RequestSizeLimit(105_906_176)]
     public async Task<R<FileDescriptor>> Upload(long id,CancellationToken token)

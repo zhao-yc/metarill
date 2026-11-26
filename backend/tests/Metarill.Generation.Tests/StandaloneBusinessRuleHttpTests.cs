@@ -33,6 +33,9 @@ public sealed class BusinessRuleProbeController:ControllerBase
         "business"=>throw new BusinessRuleException("合同金额不能小于零"),
         "argument"=>throw new ArgumentException("参数正文标记不得回显"),
         "required"=>throw BusinessRuleException.RequiredField("合同名称"),
+        "upload-name"=>R<string>.Success(FileValidation.RequireName(null)),
+        "upload-expired"=>UploadDeadline(DateTimeOffset.UnixEpoch.UtcDateTime),
+        "upload-deadline-invalid"=>UploadDeadline("损坏期限标记不得回显"),
         "import-required"=>throw PageImportException.Input(PageImportError.Required,2,"合同名称"),
         "import-input"=>throw PageImportException.Input(PageImportError.Number,2,"数量"),
         "import-execution"=>throw PageImportException.Execution(2,new InvalidOperationException("导入内部错误不得回显")),
@@ -43,6 +46,14 @@ public sealed class BusinessRuleProbeController:ControllerBase
         "unsupported"=>throw new NotSupportedException("内部路径标记不得回显"),
         _=>R<string>.Error("原控制器业务失败")
     };
+
+    // 使用真实上传期限判定验证过期与坏数据不会落在同一种业务协议。
+    private static R<string> UploadDeadline(object deadline)
+    {
+        FileUploadLifetime.RequireActive(new Dictionary<string, object?> { [FileUploadLifetime.DeadlineColumn] = deadline },
+            DateTimeOffset.UnixEpoch.AddHours(1));
+        return R<string>.Success("允许上传");
+    }
 }
 """);
             foreach(var operation in new[]{"restore","build"})
@@ -83,6 +94,9 @@ public sealed class BusinessRuleProbeController:ControllerBase
                 ("business",200,500,"合同金额不能小于零"),
                 ("argument",400,400,"请求参数不符合页面定义。"),
                 ("required",200,500,"合同名称不能为空。"),
+                ("upload-name",200,500,"文件信息不能为空"),
+                ("upload-expired",200,500,"上传计划已过期。"),
+                ("upload-deadline-invalid",500,500,internalError),
                 ("import-required",400,400,"第2行，列「合同名称」：不能为空。"),
                 ("import-input",400,400,"第2行，列「数量」：应填写有效数字。"),
                 ("import-execution",500,500,internalError),

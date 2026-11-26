@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Runtime.Files;
 using Xunit;
 
@@ -12,7 +13,7 @@ public sealed class FileValidationTests
     [InlineData("C:outside.txt")]
     [InlineData("x\r\nContent-Type: text/html")]
     [InlineData(" name.txt")]
-    public void File_names_cannot_supply_paths_or_headers(string name) => Assert.Throws<InvalidOperationException>(() => FileValidation.RequireName(name));
+    public void File_names_cannot_supply_paths_or_headers(string name) => Assert.Throws<BusinessRuleException>(() => FileValidation.RequireName(name));
 
     [Theory]
     [InlineData("../../secret")]

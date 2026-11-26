@@ -89,6 +89,105 @@ public sealed class FileCommandFactoryTests
         }
     }
 
+    /// <summary>上传计划的可纠正输入错误必须返回固定提示，并且不写入草稿。</summary>
+    [Theory]
+    [InlineData(null, 1, null, "文件信息不能为空")]
+    [InlineData(" ", 1, null, "文件信息不能为空")]
+    [InlineData("../invalid.txt", 1, null, "文件名无效，不允许路径或控制字符。")]
+    [InlineData("document.txt", -1, null, "文件大小超过字段限制")]
+    [InlineData("document.txt", 1_048_577, null, "文件大小超过字段限制")]
+    [InlineData("document.html", 1, null, "文件后缀不在字段允许范围内")]
+    [InlineData("document.txt", 1, "bad", "SHA-256 摘要格式无效。")]
+    public async Task Original_upload_plan_exposes_caller_errors_without_creating_a_draft(
+        string? name, long size, string? digest, string message)
+    {
+        var catalog = new MetadataCatalog { YzProjectId = "1" };
+        var provider = new Provider();
+        using var session = new DatabaseSession(
+            new() { ExpectedDatabase = "offline", ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused" },
+            null, provider);
+        var files = new FileLibraryService(new SqlRowStore(session, catalog), new FileMetadataContext([catalog]),
+            new SnowflakeIdGenerator(29), new Authorization(), new FileLibraryOptions { MaxFileBytes = 1_048_576 });
+
+        var failure = await Assert.ThrowsAsync<BusinessRuleException>(() => files.PlanUploadAsync(new(name, null, size, Sha256: digest)));
+        Assert.Equal(message, failure.Message);
+        Assert.Equal(0, provider.Commands);
+        Assert.Equal(0, provider.Last!.Commits);
+        Assert.Equal(1, provider.Last.Rollbacks);
+    }
+
+    /// <summary>使用真实本地流和文件事务，检查可重试上传的原提示、失败清理及权限错误分类。</summary>
+    [Theory]
+    [InlineData("expired", "上传计划已过期。")]
+    [InlineData("expired-direct", "上传计划已过期。")]
+    [InlineData("short", "实际文件大小与上传计划不一致")]
+    [InlineData("long", "实际文件大小与上传计划不一致")]
+    [InlineData("hash", "上传内容摘要与计划不一致。")]
+    [InlineData("complete-before-upload", "文件尚未上传完成")]
+    [InlineData("wrong-channel", "当前文件须通过已签发的直传表单上传。")]
+    [InlineData("already-uploaded", "文件状态不允许重新上传。")]
+    [InlineData("invalid-deadline", "上传计划期限无效。")]
+    [InlineData("other-owner", "文件或目录不存在或不可访问。")]
+    public async Task Original_upload_retries_preserve_actionable_messages_and_rollback(string scenario, string message)
+    {
+        var key = Guid.NewGuid().ToString("N") + ".blob";
+        var root = Path.Combine(Path.GetTempPath(), "metarill-file-upload-" + Guid.NewGuid().ToString("N"));
+        var catalog = new MetadataCatalog { YzProjectId = "1" };
+        var infrastructurePath = Path.Combine(Path.GetDirectoryName(SourcePath())!, "../../metadata/files.json");
+        var infrastructure = System.Text.Json.JsonSerializer.Deserialize<MetadataCatalog>(
+            File.ReadAllText(infrastructurePath), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+        var writes = new List<string>();
+        var provider = new Provider
+        {
+            Write = command => { writes.Add(command.CommandText); return 1; },
+            Read = _ =>
+            {
+                var row = new DataTable();
+                row.Columns.Add("id", typeof(long));
+                row.Columns.Add("owner_id", typeof(long));
+                row.Columns.Add("yz_project_id", typeof(long));
+                row.Columns.Add("status", typeof(string));
+                row.Columns.Add("storage_key", typeof(string));
+                row.Columns.Add("size", typeof(long));
+                row.Columns.Add("sha256", typeof(string));
+                row.Columns.Add(FileUploadLifetime.DeadlineColumn, typeof(object));
+                row.Rows.Add(41L, scenario == "other-owner" ? 3L : 2L, 1L, scenario == "already-uploaded" ? "uploaded" : "planned",
+                    scenario is "wrong-channel" or "expired-direct" ? "s3:profile:object:direct" : key, 2L, scenario == "hash" ? new string('0', 64) : "",
+                    scenario == "invalid-deadline" ? "invalid" : DateTime.UtcNow.AddMinutes(scenario is "expired" or "expired-direct" ? -5 : 5));
+                return row.CreateDataReader();
+            }
+        };
+
+        using var session = new DatabaseSession(
+            new() { ExpectedDatabase = "offline", ConnectionString = "Server=127.0.0.1;Port=1;Database=offline;User ID=unused" },
+            null, provider);
+        var files = new FileLibraryService(new SqlRowStore(session, MetadataCatalogComposition.MergePhysical(catalog, infrastructure)),
+            new FileMetadataContext([catalog]), new SnowflakeIdGenerator(29), new Authorization(),
+            new FileLibraryOptions { RootDirectory = root });
+        var writeAttempt = scenario is "short" or "long" or "hash";
+        try
+        {
+            using var stream = new MemoryStream(scenario switch { "short" => [1], "long" => [1, 2, 3], _ => [1, 2] });
+            Func<Task> action = scenario is "complete-before-upload" or "expired-direct" ? () => files.CompleteAsync(41) : () => files.UploadAsync(41, stream);
+            var failure = scenario switch
+            {
+                "invalid-deadline" => (Exception)await Assert.ThrowsAsync<InvalidOperationException>(action),
+                "other-owner" => await Assert.ThrowsAsync<UnauthorizedAccessException>(action),
+                _ => await Assert.ThrowsAsync<BusinessRuleException>(action)
+            };
+            Assert.Equal(message, failure.Message);
+            Assert.Equal(0, provider.Last!.Commits);
+            Assert.Equal(1, provider.Last.Rollbacks);
+            if (writeAttempt) Assert.Contains("UPDATE `yz_file_library`", Assert.Single(writes));
+            else Assert.Empty(writes);
+            if (Directory.Exists(root)) Assert.Empty(Directory.EnumerateFileSystemEntries(root));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root);
+        }
+    }
+
     /// <summary>无事务自管连接、有事务复用连接；成功、驱动异常和取消均只执行一次原查询。</summary>
     [Theory]
     [InlineData(false,0)][InlineData(true,0)][InlineData(false,1)][InlineData(true,1)][InlineData(false,2)][InlineData(true,2)]

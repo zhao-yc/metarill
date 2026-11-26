@@ -19,7 +19,7 @@ public static class FileUploadLifetime
         {
             var explicitDeadline=row.GetValueOrDefault(DeadlineColumn);
             var deadline=explicitDeadline is not null and not DBNull?UtcValue(explicitDeadline):UtcValue(row.GetValueOrDefault("insert_time")).AddMinutes(30);
-            if(now.UtcDateTime>deadline)throw new InvalidOperationException("上传计划已过期。");
+            if(now.UtcDateTime>deadline)throw new BusinessRuleException("上传计划已过期。");
         }
         catch(Exception error)when(error is FormatException or InvalidCastException or ArgumentException or OverflowException)
         {throw new InvalidOperationException("上传计划期限无效。",error);}

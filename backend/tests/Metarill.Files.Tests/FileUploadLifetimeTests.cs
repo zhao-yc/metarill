@@ -16,7 +16,7 @@ public sealed class FileUploadLifetimeTests
         var now=new DateTimeOffset(2026,10,29,12,0,0,TimeSpan.FromHours(offsetHours)).AddTicks(7);var expires=FileUploadLifetime.NewDeadline(now);
         Assert.Equal(DateTimeKind.Utc,expires.Kind);Assert.Equal(0,expires.Ticks%10);Assert.InRange((now.UtcDateTime.AddMinutes(30)-expires).Ticks,0L,9L);
         var row=new Dictionary<string,object?>{{"insert_time",new DateTime(2000,1,1)},{FileUploadLifetime.DeadlineColumn,DateTime.SpecifyKind(expires,DateTimeKind.Unspecified)}};
-        FileUploadLifetime.RequireActive(row,now);FileUploadLifetime.RequireActive(row,new DateTimeOffset(expires));Assert.Throws<InvalidOperationException>(()=>FileUploadLifetime.RequireActive(row,new DateTimeOffset(expires).AddTicks(1)));
+        FileUploadLifetime.RequireActive(row,now);FileUploadLifetime.RequireActive(row,new DateTimeOffset(expires));Assert.Throws<BusinessRuleException>(()=>FileUploadLifetime.RequireActive(row,new DateTimeOffset(expires).AddTicks(1)));
     }
     /// <summary>新增字段为空的旧计划沿用UTC创建时间；不把原UTC值当成新的宿主日历。</summary>
     [Theory][InlineData(false)][InlineData(true)]
@@ -26,7 +26,7 @@ public sealed class FileUploadLifetimeTests
         foreach(var created in new object[]{DateTime.SpecifyKind(now.UtcDateTime.AddMinutes(-29),DateTimeKind.Unspecified),now.AddMinutes(-29),"2026-10-29 11:31:00",now.AddMinutes(-29).LocalDateTime})
         {
             var row=new Dictionary<string,object?>{{"insert_time",created}};if(includeNull)row[FileUploadLifetime.DeadlineColumn]=null;
-            FileUploadLifetime.RequireActive(row,now);Assert.Throws<InvalidOperationException>(()=>FileUploadLifetime.RequireActive(row,now.AddMinutes(2)));
+            FileUploadLifetime.RequireActive(row,now);Assert.Throws<BusinessRuleException>(()=>FileUploadLifetime.RequireActive(row,now.AddMinutes(2)));
         }
     }
     /// <summary>坏的显式期限不能降级使用合法旧创建值，未知类型也不能变成不限期。</summary>

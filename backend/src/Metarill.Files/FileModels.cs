@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 
 namespace Metarill.Runtime.Files;
@@ -20,7 +21,7 @@ public sealed record FileLibraryOptions
 /// <summary>已建立真实文件访问身份后的读取拒绝；保留UnauthorizedAccessException继承以兼容现有拒权处理，宿主须映射403。</summary>
 public sealed class AuthenticatedFileReadDeniedException(string message) : UnauthorizedAccessException(message) { }
 
-public sealed record FileUploadRequest(string OriginalName, string? MimeType, long SizeBytes, string? ConfigColumnId = null, long? FolderId = null, string? Sha256 = null);
+public sealed record FileUploadRequest(string? OriginalName, string? MimeType, long SizeBytes, string? ConfigColumnId = null, long? FolderId = null, string? Sha256 = null);
 public sealed record LocalUploadPlan(string ProviderCode, string UploadMode, string UploadUrl, IReadOnlyDictionary<string, string> Headers, IReadOnlyDictionary<string, string> FormData, DateTimeOffset ExpireAt);
 public sealed record FileUploadPlan(long FileId, LocalUploadPlan Plan);
 /// <summary>原引用同步协议，项目和操作人始终由已认证上下文决定。</summary>
@@ -48,11 +49,12 @@ public static partial class FileValidation
     [GeneratedRegex("^[a-fA-F0-9]{64}$", RegexOptions.CultureInvariant)] private static partial Regex DigestPattern();
 
     /// <summary>文件名仅用于显示；拒绝路径、控制字符和平台保留符号。</summary>
-    public static string RequireName(string name)
+    public static string RequireName(string? name)
     {
-        if (string.IsNullOrWhiteSpace(name) || name.Length > 255 || name != name.Trim() || name is "." or ".." ||
+        if (string.IsNullOrWhiteSpace(name)) throw new BusinessRuleException("文件信息不能为空");
+        if (name.Length > 255 || name != name.Trim() || name is "." or ".." ||
             name.IndexOfAny(['/', '\\', ':', '<', '>', '|', '?', '*']) >= 0 || name.Any(char.IsControl))
-            throw new InvalidOperationException("文件名无效，不允许路径或控制字符。");
+            throw new BusinessRuleException("文件名无效，不允许路径或控制字符。");
         return name;
     }
 
@@ -80,9 +82,20 @@ public static partial class FileValidation
     /// <summary>摘要只允许完整 SHA-256 十六进制，不接受客户端摘要作为已核验结果。</summary>
     public static string? Digest(string? digest)
     {
-        if (string.IsNullOrWhiteSpace(digest)) return null;
-        if (!DigestPattern().IsMatch(digest)) throw new InvalidOperationException("SHA-256 摘要格式无效。");
-        return digest.ToLowerInvariant();
+        return TryNormalizeDigest(digest, out var normalized) ? normalized : throw new InvalidOperationException("SHA-256 摘要格式无效。");
+    }
+
+    /// <summary>计划表单可提示摘要输入错误，存储中的无效摘要继续按内部错误处理。</summary>
+    internal static string? RequestDigest(string? digest) =>
+        TryNormalizeDigest(digest, out var normalized) ? normalized : throw new BusinessRuleException("SHA-256 摘要格式无效。");
+
+    private static bool TryNormalizeDigest(string? digest, out string? normalized)
+    {
+        normalized = null;
+        if (string.IsNullOrWhiteSpace(digest)) return true;
+        if (!DigestPattern().IsMatch(digest)) return false;
+        normalized = digest.ToLowerInvariant();
+        return true;
     }
 
     /// <summary>响应 MIME 来自服务端扩展名映射，上传者不能把普通文件声明成 HTML。</summary>

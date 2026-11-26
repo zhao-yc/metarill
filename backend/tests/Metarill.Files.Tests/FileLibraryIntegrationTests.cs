@@ -51,7 +51,7 @@ public sealed class FileLibraryIntegrationTests
         var plan = await fixture.PlanAsync("测试资料.txt", bytes, folder: folder.Id);
         Assert.StartsWith("/admin/sys/file-library/local-upload/", plan.Plan.UploadUrl);
         Assert.Equal("local", plan.Plan.ProviderCode);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CompleteAsync(plan.FileId));
+        await Assert.ThrowsAsync<BusinessRuleException>(() => service.CompleteAsync(plan.FileId));
         await Assert.ThrowsAnyAsync<UnauthorizedAccessException>(() => service.ResolveAsync(plan.FileId));
         var uploaded = await service.UploadAsync(plan.FileId, new MemoryStream(bytes));
         Assert.Equal("uploaded", uploaded.Status); Assert.Null(uploaded.Url);
@@ -93,11 +93,11 @@ public sealed class FileLibraryIntegrationTests
     {
         await using var fixture = await FilesFixture.CreateAsync(); var service = fixture.Service();
         var bytes = Encoding.UTF8.GetBytes("abc");
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.PlanUploadAsync(new("../outside.txt", null, 1)));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.PlanUploadAsync(new("active.html", "text/plain", 1)));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.PlanUploadAsync(new("huge.txt", null, fixture.Options.MaxFileBytes + 1)));
+        await Assert.ThrowsAsync<BusinessRuleException>(() => service.PlanUploadAsync(new("../outside.txt", null, 1)));
+        await Assert.ThrowsAsync<BusinessRuleException>(() => service.PlanUploadAsync(new("active.html", "text/plain", 1)));
+        await Assert.ThrowsAsync<BusinessRuleException>(() => service.PlanUploadAsync(new("huge.txt", null, fixture.Options.MaxFileBytes + 1)));
         var plan = await fixture.PlanAsync("size.txt", bytes);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.UploadAsync(plan.FileId, new MemoryStream(Encoding.UTF8.GetBytes("abcd"))));
+        await Assert.ThrowsAsync<BusinessRuleException>(() => service.UploadAsync(plan.FileId, new MemoryStream(Encoding.UTF8.GetBytes("abcd"))));
         var row = (await fixture.Store.ReadAsync("yz_file_library", new Dictionary<string, object?> { ["id"] = plan.FileId })).Single();
         Assert.Equal("planned", SqlRowStore.Text(row, "status"));
         Assert.Empty(Directory.GetFiles(fixture.Options.RootDirectory));
@@ -108,7 +108,7 @@ public sealed class FileLibraryIntegrationTests
         await File.WriteAllBytesAsync(path, bytes);
         Assert.Equal("ready", (await service.CompleteAsync(plan.FileId)).Status);
         var wrong = await fixture.PlanAsync("digest.txt", bytes, sha256: new string('0', 64));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.UploadAsync(wrong.FileId, new MemoryStream(bytes)));
+        await Assert.ThrowsAsync<BusinessRuleException>(() => service.UploadAsync(wrong.FileId, new MemoryStream(bytes)));
         await Assert.ThrowsAsync<UnauthorizedAccessException>(() => fixture.Service(fixture.Actor(8002)).UploadAsync(wrong.FileId, new MemoryStream(bytes)));
     }
 

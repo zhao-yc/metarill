@@ -80,8 +80,8 @@ public sealed class FileCalendarNativeMySqlTests
         }
         async Task Upload(long id,string name,bool allowed)
         {
-            var count=Directory.Exists(filesRoot)?Directory.GetFiles(filesRoot,"*",SearchOption.AllDirectories).Length:0;using var form=new MultipartFormDataContent();form.Add(new ByteArrayContent(content),"file",name);var result=await Send(HttpMethod.Post,Files+"local-upload/"+id,form,allowed?HttpStatusCode.OK:HttpStatusCode.InternalServerError);
-            if(!allowed){Assert.Equal("操作失败，请由应用管理员核查服务端状态。",result.GetProperty("msg").GetString());Assert.Equal(count,Directory.Exists(filesRoot)?Directory.GetFiles(filesRoot,"*",SearchOption.AllDirectories).Length:0);return;}
+            var count=Directory.Exists(filesRoot)?Directory.GetFiles(filesRoot,"*",SearchOption.AllDirectories).Length:0;using var form=new MultipartFormDataContent();form.Add(new ByteArrayContent(content),"file",name);var result=await FreshWebHttp.SendAsync(host!.Client,HttpMethod.Post,Files+"local-upload/"+id,form,expectedCode:allowed?200:500);
+            if(!allowed){Assert.Equal("上传计划已过期。",result.GetProperty("msg").GetString());Assert.Equal(count,Directory.Exists(filesRoot)?Directory.GetFiles(filesRoot,"*",SearchOption.AllDirectories).Length:0);return;}
             Assert.Equal("uploaded",result.GetProperty("data").GetProperty("status").GetString());var descriptor=(await Send(HttpMethod.Post,Files+"complete",new{fileId=id.ToString(CultureInfo.InvariantCulture)})).GetProperty("data");Assert.Equal("ready",descriptor.GetProperty("status").GetString());Assert.Equal("text/plain",descriptor.GetProperty("mimeType").GetString());using var read=await host!.Client.GetAsync(Files+"protected-content/"+id);Assert.Equal(HttpStatusCode.OK,read.StatusCode);Assert.Equal(content,await read.Content.ReadAsByteArrayAsync());
         }
     }
