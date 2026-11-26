@@ -135,8 +135,8 @@ public static class GlobalMultipleRelationTarget
         (checkbox?page.Extra.GetValueOrDefault("type").ToString() is "" or "0" or "1" or "2":
             page.Extra.GetValueOrDefault("type").ToString()=="2")&&
         (string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString())||
-            allowExact&&table.IsRongyu==0&&(checkbox
-                ?GlobalCrossTableTarget.DeclaresExactPage(table,page)
+            allowExact&&(checkbox
+                ?table.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactPage(table,page)
                 :GlobalCrossTableTarget.DeclaresExactMulti(table,page)));
 
     /// <summary>全局字典的显式项目范围仅接受真实项目列与当前认证项目的等值。</summary>
@@ -230,7 +230,7 @@ public static class GlobalMultipleRelationTarget
         var exactPage=checkbox?GlobalCrossTableTarget.DeclaresExactPage(target,page):
             GlobalCrossTableTarget.DeclaresExactMulti(target,page);
         // 实时多值关系的字典权限由实际发布页证明，来源仍须具有物理行项目列。
-        var exactRealtime=exactPage&&!cached&&target.IsRongyu==0;
+        var exactRealtime=exactPage&&!cached&&(target.IsRongyu==0||!checkbox&&target.IsRongyu==1);
         // 普通与全局业务来源共用真实同父证明；固定字典可以只声明父范围和字面条件。
         var projectParentPage=IsProjectParentPage(target,page,condition,checkbox);
         var staticParentPage=GlobalCrossTableTarget.UsesOnlyParentVariables(condition);

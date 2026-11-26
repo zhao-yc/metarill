@@ -117,7 +117,7 @@ internal static class MultiSelectCompilation
             var baselineName=Scalar(root,"nameField");
             if(string.IsNullOrWhiteSpace(baselineName))baselineName="name";
             var changedName=baselineName!=name.Source.ColumnName;
-            var globalExactRead=(table.IsGlobal||changedName)&&table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&
+            var globalExactRead=(table.IsGlobal||changedName)&&table.Source.IsRongyu==0&&
                 GlobalCrossTableTarget.DeclaresExactMulti(target.Source,targetPage.Source);
             var scoped=(sharedTextParent is null||target.Source.IsRongyu==0)&&
                 (globalExactRead||FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage));

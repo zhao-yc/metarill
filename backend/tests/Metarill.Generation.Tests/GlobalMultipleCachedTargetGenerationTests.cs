@@ -238,6 +238,19 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         VerifyPublishedGlobalMultiselect(0,0,alternateDictionary,projectType,unfiltered:unfiltered,globalSource:true,
             projectScoped:projectScoped,accountField:accountField,exact:true,alternateDictionary:alternateDictionary);
 
+    /// <summary>无父参数的冗余精确多选沿实际字典页查询，业务页仍按记录项目隔离。</summary>
+    [Theory]
+    [InlineData("int64",false,false,false)]
+    [InlineData("string",true,false,false)]
+    [InlineData("int64",false,true,false)]
+    [InlineData("string",false,false,true)]
+    [InlineData("int64",false,false,false,false)]
+    public Task Global_business_multiselect_uses_exact_stored_dictionary(
+        string projectType,bool projectScoped,bool unfiltered,bool alternateDictionary,bool dictionaryProjectColumn=true)=>
+        VerifyPublishedGlobalMultiselect(0,1,false,projectType,unfiltered:unfiltered,globalSource:true,
+            projectScoped:projectScoped,exact:true,alternateDictionary:alternateDictionary,
+            shortName:alternateDictionary?"short_caption":null,dictionaryProjectColumn:dictionaryProjectColumn);
+
     /// <summary>实际来源页可独立选择已发布的简称，原名称数组及精确选择范围保持。</summary>
     [Theory]
     [InlineData(false,false,false)]
@@ -270,7 +283,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     /// <summary>从实际生成程序集核对名称、关联选档、项目隔离和数据维护计划。</summary>
     private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType,
         bool unfiltered=false,bool globalSource=false,bool projectScoped=false,string? accountField=null,
-        bool exact=false,bool alternateDictionary=false,string? shortName=null)
+        bool exact=false,bool alternateDictionary=false,string? shortName=null,bool dictionaryProjectColumn=true)
     {
         const string application="Example.GlobalTextDictionary";
         var names=derivedName?"global_source_global_target_names":"global_source_captions";
@@ -285,6 +298,17 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         var hasDerivedLabel=derivedName||shortName=="global_target_name";
         if(projectType is not null)ConfigureStoredGlobalDictionary(catalog,projectType,hasDerivedLabel);
         if(targetStorage==0&&globalSource&&!hasDerivedLabel)MakeProjectDictionaryNonRedundant(catalog);
+        if(exact&&targetStorage==1)
+        {
+            // 精确字典的样本只保留物理标量，不借旧夹具的全局单值名称副本证明来源。
+            catalog.ConfigColumns.RemoveAll(column=>column.Id is "13" or "14");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "13" or "14");
+        }
+        if(!dictionaryProjectColumn)
+        {
+            catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="1"&&column.ColumnName=="yz_project_id");
+            catalog.ConfigPages.Single(page=>page.Id=="12").WhereSql="status=17";
+        }
         if(exact)
         {
             dictionary.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
@@ -297,6 +321,12 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var alternate=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(dictionary))!;
                 alternate.Id="14";
                 alternate.WhereSql="status=18";
+                if(targetStorage==1)
+                {
+                    alternate.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("alternate_scope_code");
+                    catalog.ConfigColumns.Add(new(){Id="110",ConfigTableId="1",YzProjectId="100",
+                        ColumnName="alternate_scope_code",LogicalType="string"});
+                }
                 catalog.ConfigPages.Add(alternate);
                 foreach(var field in catalog.ConfigPageColumns.Where(field=>field.ConfigPageId=="10").ToArray())
                 {
@@ -375,9 +405,9 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             {
                 var model=GenerationModel.Create(catalog,application);
                 var target=model.Tables.Single(table=>table.Source.Id=="1");
-                if(targetStorage==1)
+                if(targetStorage==1&&!exact)
                     Assert.NotNull(FixedPageQueryCompilation.ManagedGlobalProject(target));
-                else
+                else if(targetStorage==0)
                     Assert.True(NonRedundantReadCompilation.HasGlobalRowProject(target));
                 Assert.Empty(GenerationCapabilityAudit.Collect(model));
                 Assert.Contains("ImportMulti31_34Async",serviceCode);
@@ -398,8 +428,9 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     Provider="mysql",ExpectedDatabase="offline",
                     ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused;Connection Timeout=1"
                 });
-                var sql=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,application,"GlobalSource",session);
                 var actor=DictionaryActor(catalog,accountField);
+                var auth=exact&&targetStorage==1?new StoredExactDictionaryAuthorization(actor):null;
+                var sql=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,application,"GlobalSource",session,auth);
                 if(globalSource&&mode==1)
                 {
                     var business=NonRedundantGeneratedReadTests.CreateDictionarySql(assembly,application,"CachedConsumer",session);
@@ -435,16 +466,36 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     Assert.Contains("`id`",selected);
                     Assert.Equal(!unfiltered,selected.Contains("status",StringComparison.Ordinal));
                     Assert.Equal(projectScoped,selected.Contains("yz_project_id",StringComparison.Ordinal));
-                    Assert.Contains("yz_project_id",sql("Scope10",[actor,null]));
-                    if(!projectScoped)
-                        Assert.Contains("yz_project_id",sql("Query10",[new PageRequest(),actor,false]));
-                    Assert.Contains("yz_project_id",sql("Query11",[new PageRequest(),actor]));
-                    Assert.Contains("yz_project_id",sql("Query12",[new PageRequest(),actor]));
-                    Assert.Contains("yz_project_id",sql("Query13",[new PageRequest(),actor]));
-                    if(!projectScoped)
-                        Assert.Contains("Query10(request, actor, candidateRows: false)",targetCode);
+                    if(!exact)
+                    {
+                        Assert.Contains("yz_project_id",sql("Scope10",[actor,null]));
+                        if(!projectScoped)
+                        {
+                            Assert.Contains("yz_project_id",sql("Query10",[new PageRequest(),actor,false]));
+                            Assert.Contains("Query10(request, actor, candidateRows: false)",targetCode);
+                        }
+                        foreach(var page in new[]{"11","12","13"})
+                            Assert.Contains("yz_project_id",sql("Query"+page,[new PageRequest(),actor]));
+                    }
                     Assert.Contains("Query10(request, actor).CountAsync",targetCode);
                     Assert.Contains("Query10(new PageRequest { ParentId = request.ParentId, SelectedIds",targetCode);
+                    if(exact)
+                    {
+                        Assert.Contains("scope_code",list);
+                        Assert.Contains("scope_code",selected);
+                        Assert.Equal(projectScoped,sql("Scope10",[actor,null]).Contains("yz_project_id",StringComparison.Ordinal));
+                        Assert.NotNull(auth);
+                        Assert.Contains(("10","list"),auth.Resolutions);
+                        Assert.Contains(("10","detail"),auth.Resolutions);
+                        if(alternateDictionary)
+                        {
+                            var alternate=sql("Query14",[new PageRequest{SelectedIds=["9007199254740993"]},actor]);
+                            Assert.Contains("`alternate_scope_code`",alternate);
+                            Assert.DoesNotContain("`scope_code`",alternate);
+                            Assert.Contains("""new("alternate_scope_code", FixedReadComparison.In,""",serviceCode);
+                            Assert.Contains(("14","list"),auth.Resolutions);
+                        }
+                    }
                 }
                 var plan=FixedPageQueryCompilation.For(target,target.Pages.Single(page=>page.Source.Id=="10"));
                 Assert.True(FixedPageQueryCompilation.TryProveSelection(model.Catalog,plan,new("10","caption","选择",dictionary.WhereSql,""),out _));
@@ -1278,6 +1329,21 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             StoreId=accountField=="store_id"?9007199254740993L:null,
             MerchantId=accountField=="merchant_id"?9007199254740995L:null
         };
+
+    /// <summary>只供生成 SQL 的本机测试绑定实际目标页和动作。</summary>
+    private sealed class StoredExactDictionaryAuthorization(RuntimeActor actor):IRuntimeAuthorization
+    {
+        internal List<(string Page,string Operation)> Resolutions { get; }=[];
+        public RuntimeActor RequireActor()=>actor;
+        public void RequirePagePermission(string pageId,string operation)=>Assert.Contains(pageId,new[]{"10","14"});
+        public ExactDataManageValues ResolveExactDataManage(string pageId,string operation,string managerField)
+        {
+            RequirePagePermission(pageId,operation);
+            Assert.Equal("real_name",managerField);
+            Resolutions.Add((pageId,operation));
+            return new(true,JsonSerializer.SerializeToElement("[\"允许甲\"]"));
+        }
+    }
 
     /// <summary>读取时要求身份提供实际归属，缺少该归属的账号必须被拒绝。</summary>
     private static Metarill.Data.Queries.NonRedundantReadPlan BindDictionaryAccount(

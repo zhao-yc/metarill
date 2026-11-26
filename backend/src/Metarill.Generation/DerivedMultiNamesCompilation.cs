@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Metarill.Core.Metadata;
 using Metarill.Data.Queries;
 
 namespace Metarill.Generation;
@@ -20,8 +21,10 @@ internal static class DerivedMultiNamesCompilation
     {
         var scopedPhysicalTarget=target.Source.IsRongyu==1&&!target.IsGlobal&&
             NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,target.Source,page.Source);
+        var storedExactDictionary=owner.Source.IsRongyu==0&&target.Source.IsRongyu==1&&exact is not null&&
+            GlobalCrossTableTarget.DeclaresExactMulti(target.Source,page.Source)&&NonRedundantReadCompilation.Physical(model,target,name);
         if(owner.Source.IsRongyu is not(0 or 1)||target.Source.IsRongyu!=0&&!scopedPhysicalTarget&&
-            !FixedPageConditionCompilation.HasStoredGlobalMultiScope(target,page)||
+            !storedExactDictionary&&!FixedPageConditionCompilation.HasStoredGlobalMultiScope(target,page)||
             target.Source.IsView!=0||target.Source.IsFunctionTable!=0||name.Type!="string?"&&
             !Metarill.Core.Contracts.MultiValueLabel.IsTyped(name.Source.LogicalType)||name.IsJsonArray)
             throw new InvalidOperationException("多选名称要求已证明的来源、目标页面及固定单值名称。");

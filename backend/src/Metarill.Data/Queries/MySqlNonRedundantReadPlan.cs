@@ -426,7 +426,17 @@ public static partial class MySqlNonRedundantReadCompiler
                 throw new InvalidOperationException("固定读取要求非冗余实体表或明确发布的物理候选。");
             if (candidatePage is not null)
             {
-                if (exactSingleCandidate) _=GlobalCrossTableTarget.ExactPageParent(catalog,root,candidatePage);
+                if (exactSingleCandidate)
+                {
+                    _=GlobalCrossTableTarget.ExactPageParent(catalog,root,candidatePage);
+                    // 无父级的冗余精确字典仍须执行页面显式发布的项目条件。
+                    if(physicalCandidate&&GlobalCrossTableTarget.DeclaresExactMulti(root,candidatePage))
+                    {
+                        var syntax=FixedConditionPlan.Compile(candidatePage.WhereSql,
+                            catalog.ConfigColumns.Where(column=>column.ConfigTableId==root.Id).Select(column=>column.ColumnName));
+                        explicitProjectCandidate=GlobalMultipleRelationTarget.IsProjectPage(root,candidatePage,syntax,allowExact:true);
+                    }
+                }
                 else if(publishedGlobalCandidate&&IsNonRedundantProjectMultiPage(catalog,root,candidatePage,checkbox:multiLabel))
                 {
                     GlobalCrossTableTarget.RequireProjectMultiCandidate(catalog,root,candidatePage,checkbox:multiLabel);
@@ -828,6 +838,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 return DerivedMultiDisplay(table,owner,relation,target,value,null,formPage,formPage,null,null,sharedCheckbox:true);
             }
             var typedCache=GlobalPhysicalRelationValue.IsPublishedTypedCache(catalog,storage[target.Id],target,value);
+            var storedExactMulti=table.IsRongyu==0&&target.IsRongyu==1&&relation.ControlKind=="MultiSelectPage";
             PageMetadata? publishedPage=null;
             PageMetadata? sharedCheckboxPage=null;
             if(global)
@@ -844,15 +855,19 @@ public static partial class MySqlNonRedundantReadCompiler
                     if(proof.Name.ColumnName!=display)
                         throw new NotSupportedException("全局多值显示必须与固定名称声明一致。");
                     // 名称副本的读取、筛选及回填使用同一发布候选范围。
-                    if(HasGlobalRowProject(target)||typedCache||!string.IsNullOrWhiteSpace(proof.Page.WhereSql))
+                    if(HasGlobalRowProject(target)||typedCache||!string.IsNullOrWhiteSpace(proof.Page.WhereSql)||
+                        storedExactMulti&&GlobalCrossTableTarget.DeclaresExactMulti(target,proof.Page))
                         publishedPage=proof.Page;
                 }
                 if(trackReverse&&target.IsRongyu==0||typedCache)publishedArrayIdentity=true;
             }
             if(value.ControlKind is "FileLibrary" or "MultiSelectPage" or "MultiCheckBoxDatabase"||Metarill.Core.Security.ExactDataManageValues.IsSensitiveField(value.ColumnName))throw new NotSupportedException("多值名称必须为非凭据的受支持标量。");
-            var namePage=overridden??MultiTargetNamePage(catalog,target,relation);
+            var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
+            var exactNamePage=storedExactMulti&&publishedPage is not null&&
+                GlobalCrossTableTarget.DeclaresExactMulti(target,publishedPage)?publishedPage:null;
+            var namePage=overridden??MultiTargetNamePage(catalog,target,relation)??exactNamePage;
             // 页级只换显示名称时，仍使用实际多选页的固定条件及来源父级。
-            var selectedScope=overridden is null?MultiTargetLogicalPage(catalog,target,relation):
+            var selectedScope=overridden is null?ScopedMultiTargetPage(catalog,target,namePage,checkbox):
                 applyPageScope||relation.ControlKind=="MultiSelectPage"&&IsProjectFixedMultiPage(catalog,target,overridden)?overridden:null;
             var derivedLabel=!storage[target.Id].IsPhysical(value);
             if(!global&&checkboxPageId is {} scopedCheckboxPage&&(selectedScope is not null||derivedLabel))

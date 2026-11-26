@@ -46,7 +46,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 var plan=selected is null?CompileMultiLabel(catalog,target.Id,field,[field],[],cacheOwner:null,relation:relation):
                     CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[],
                         exactMultiSelection:selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0&&
-                            (!checkbox&&target.IsRongyu==0||
+                            (!checkbox&&(target.IsRongyu==0||source is {IsRongyu:0})||
                              GlobalCrossTableTarget.StoredMultiParent(catalog,target,selected,checkbox,allowExact:true) is not null),
                         storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase",
                         allowLiteralMultiScope:compoundPhysical||globalOverride||storedStatic);
@@ -301,7 +301,7 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         if(page is null)return null;
         // 精确多选即使没有附加字面条件，也按实际发布页重证已存名称的读取。
-        if(!checkbox&&table.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactMulti(table,page))return page;
+        if(!checkbox&&GlobalCrossTableTarget.DeclaresExactMulti(table,page))return page;
         if(page.WhereSql.Length==0)return null;
         var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         var declared=RelationStorageColumns.Expand(table,members);
@@ -373,6 +373,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
             }.Compile(outputs,dependencies);
         var storedParent=GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,storedExactCheckbox,allowExact:exactMultiSelection);
+        if(exactMultiSelection&&!storedExactCheckbox&&storedParent is null&&table.IsRongyu==1&&
+            GlobalCrossTableTarget.DeclaresExactMulti(table,page))
+            return CompileGlobalCandidate(catalog,tableId,pageId,outputs,dependencies,
+                deferCascadeNames:false,singleTargets:singleTargets,exactSingleCandidate:true);
         var parent=(importPageType=="1"?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null)
             ??storedParent??MultiParent(catalog,page,storedExactCheckbox);
         var extraFields=(importFields??[]).ToHashSet(StringComparer.Ordinal);

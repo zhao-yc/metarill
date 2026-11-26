@@ -219,7 +219,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(syntax.Terms.Count>0)control=syntax;
             }
             var physicalScope=storedIdentity||storedParent is not null||target.IsRongyu==1&&(projectFixedScope||
-                selectedScope is not null&&IsStoredStaticMultiPage(catalog,target,selectedScope,checkbox))||
+                selectedScope is not null&&(IsStoredStaticMultiPage(catalog,target,selectedScope,checkbox)||
+                    !checkbox&&table.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactMulti(target,selectedScope)&&
+                    storage[target.Id].IsPhysical(value)))||
                 checkbox&&target.IsRongyu==1&&(fixedParent is not null||ordinaryForm is not null||
                 table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
