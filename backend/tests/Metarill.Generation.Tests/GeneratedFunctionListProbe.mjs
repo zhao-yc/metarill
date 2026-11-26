@@ -5,8 +5,8 @@ import { mountGenerated, plain } from './GeneratedOriginalVueHarness.mjs'
 
 const frontend = join(process.argv[2], 'frontend')
 const global = process.argv[3] === 'global'
-const businessText = process.argv[3] === 'logicalText'
-const businessParent = businessText || process.argv[3] === 'logicalIntegerBusiness'
+const businessText = ['logicalText', 'logicalGlobalText'].includes(process.argv[3])
+const businessParent = businessText || ['logicalIntegerBusiness', 'logicalGlobalIntegerBusiness'].includes(process.argv[3])
 const label = process.argv[3] === 'derived' ? 'reviewCountryLabel' : 'reviewName'
 const source = await readFile(join(frontend, 'pages/yzp/summary_form-detail-102.vue'), 'utf8')
 assert.match(source, /<zxz-uni-data-select v-model='entity.reviewId'/)

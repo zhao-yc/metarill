@@ -4,7 +4,7 @@ using Metarill.Data.Queries;
 
 namespace Metarill.Generation;
 
-/// <summary>物理全局父校验共用实际发布页，并加入调用端的读快照或写事务。</summary>
+/// <summary>全局父校验共用实际发布页，并加入调用端的读快照或写事务。</summary>
 internal static class MultiGlobalParentCompilation
 {
     /// <summary>生成前校验父页和条件，宿主从冻结目录复用同一计划。</summary>
@@ -25,6 +25,16 @@ internal static class MultiGlobalParentCompilation
 
     internal static string Check(string plan,string key,string currentRead)=>
         $"        if((await new Metarill.Data.Queries.NonRedundantReader(session).KeyRowsAsync({plan}.BindAccount(actor),[],[{key}],cancellationToken,actor.ProjectId,currentRead:{currentRead})).Count!=1)throw new InvalidOperationException(\"全局父记录不存在、已删除或不在固定父范围。\");";
+
+    /// <summary>发布层位已证明唯一业务列时，按同一父页和实际业务键读取。</summary>
+    internal static string CheckBusinessKey(string plan,ColumnModel key,string currentRead)
+    {
+        var field=Literal(key.Source.ColumnName);
+        var filter=key.Type=="string?"
+            ?$"FixedReadFilter.ForTextParent({field},targetParentId!,businessKey:true)"
+            :$"new FixedReadFilter({field},FixedReadComparison.Equal,targetParentKey)";
+        return $"        if((await new NonRedundantReader(session).BusinessKeyRowsAsync({plan}.BindAccount(actor),{filter},cancellationToken,actor.ProjectId,currentRead:{currentRead})).Count!=1)throw new InvalidOperationException(\"全局父记录不存在、已删除或不在固定父范围。\");";
+    }
 
     /// <summary>全局候选的父级按其实际发布页验证，普通项目页沿用自身的项目和父级范围。</summary>
     internal static MultiTargetParentScope? SingleTarget(GenerationModel model,TableModel table,PageModel page)

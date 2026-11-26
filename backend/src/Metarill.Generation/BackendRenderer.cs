@@ -1157,8 +1157,11 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                         var parent=relation.TargetParents[index];
                         if(fixedGlobalParent?.Parent.Id==parent.Source.Id)
                         {
-                            result.AppendLine("        if (targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture)) throw new ArgumentException(\"关联目标范围要求规范正整数 targetParentId。\");")
-                                .AppendLine(MultiGlobalParentCompilation.Check(targetParentPlan,"targetParentKey","locking"));
+                            if (relation.FunctionParentBusinessKey is {} businessKey)
+                                result.AppendLine(MultiGlobalParentCompilation.CheckBusinessKey(targetParentPlan,businessKey,"locking"));
+                            else
+                                result.AppendLine("        if (targetParentId!=targetParentKey.ToString(CultureInfo.InvariantCulture)) throw new ArgumentException(\"关联目标范围要求规范正整数 targetParentId。\");")
+                                    .AppendLine(MultiGlobalParentCompilation.Check(targetParentPlan,"targetParentKey","locking"));
                         }
                         else if(!accountParents.Any(path=>path.Levels[^1].TableId==parent.Source.Id))
                             Parent(parent,relation.UsesFunctionTextParent?"targetParentId!":"targetParentKey",

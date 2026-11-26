@@ -340,7 +340,7 @@ internal static class RelationCompilation
                 : sourceBinding is null ? null : owner.Columns.Single(column => column.Source.Id == sourceBinding.Column.Id);
             ColumnModel? functionParentBusinessKey = null;
             if (functionForm && source.Source.ControlKind == "List" && targetParents is [var functionParent] &&
-                fixedParent is { Global: false, Logical: true } &&
+                fixedParent is { Logical: true } &&
                 fixedParent.LogicalAlternateKey(model.Catalog, target.Source) is {} publishedKey)
             {
                 // 单个表单值只能绑定同一个发布键，不能同时代入主键和业务键的范围。

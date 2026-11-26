@@ -592,6 +592,11 @@ public sealed class NonRedundantReader(DatabaseSession session)
         string? projectId=null, FixedConditionSqlPlan? condition=null, bool currentRead=false)
         => mysql.ReadKeyRowsAsync(plan.MySql, filters, keys, token, projectId, condition, currentRead);
 
+    /// <summary>在已发布范围内按已编译业务键验证唯一记录，不扩大响应字段。</summary>
+    public Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> BusinessKeyRowsAsync(NonRedundantReadPlan plan,
+        FixedReadFilter key,CancellationToken token,string projectId,bool currentRead=false) =>
+        mysql.ReadBusinessKeyRowsAsync(plan.MySql,key,token,projectId,currentRead);
+
     /// <summary>有界导出按固定顺序读取原列投影，不发出不需要的COUNT。</summary>
     public Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> RowsAsync(NonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken token=default,string? projectId=null,FixedConditionSqlPlan? condition=null)=>mysql.ReadRowsAsync(plan.MySql,filters,order,limit,token,projectId,condition);
     /// <summary>写校验沿真实事务锁定固定投影及联接名称，不执行COUNT；旧RowsAsync合同保持。</summary>

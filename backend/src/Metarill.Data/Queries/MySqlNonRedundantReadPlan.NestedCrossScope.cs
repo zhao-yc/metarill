@@ -251,8 +251,10 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         MetadataValidation.Validate(catalog);
         if(catalog.DatabaseProvider!="mysql")throw new NotSupportedException("固定全局父页要求已发布的MySQL读取计划。");
-        var (parent,published)=PublishedMultiGlobalParent(catalog,tableId,pageId);
-        return CompileMultiParentPage(catalog,parent,published,"b","r",null,false);
+        var (parent,published)=ResolveMultiGlobalParent(catalog,tableId,pageId);
+        var target=catalog.ConfigTables.Single(table=>table.Id==tableId);
+        var businessKey=parent.LogicalAlternateKey(catalog,target);
+        return CompileMultiParentPage(catalog,parent.Parent,published,"b","r",null,false,businessKey?.ColumnName);
     }
 
     /// <summary>无父参数的字典页按原权限读取，控件单独从固定物理字段证明实际全局父页。</summary>
@@ -297,21 +299,30 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>同一父页供请求点查和关联范围使用，维护从实际来源行读取账号归属。</summary>
     private static MySqlNonRedundantReadPlan CompileMultiParentPage(MetadataCatalog catalog,TableMetadata parent,
-        PageMetadata published,string alias,string prefix,CascadeCacheOwner? owner,bool trackReverse)
+        PageMetadata published,string alias,string prefix,CascadeCacheOwner? owner,bool trackReverse,string? businessKey=null)
     {
         var columns=RelationStorageColumns.Expand(parent,catalog.ConfigColumns.Where(column=>column.ConfigTableId==parent.Id));
         var syntax=FixedConditionPlan.Compile(published.WhereSql,columns.Select(column=>column.ColumnName));
+        // 业务键仅用于过滤，父页查询仍只输出原记录 ID。
+        var dependencies=businessKey is null?Array.Empty<string>():new[]{businessKey};
         return syntax.Fields.Any(member=>CrossTableStorageColumns.IsLogicalPathField(parent,columns,member)||
             CascadeTreeStorageColumns.IsLogicalNameField(parent,columns,member))
             ?new Builder(catalog,parent.Id,rootAlias:alias,aliasPrefix:prefix,trackReverse:trackReverse,multiLabel:true,cascadeLabelField:"id",cascadeCacheOwner:owner)
-                {SelectedMultiPage=published,GlobalCrossCandidate=true,CrossAliasPrefix=prefix+"cross"}.Compile(["id"],[])
+                {SelectedMultiPage=published,GlobalCrossCandidate=true,CrossAliasPrefix=prefix+"cross"}.Compile(["id"],dependencies)
             :new Builder(catalog,parent.Id,rootAlias:alias,aliasPrefix:prefix,trackReverse:trackReverse,candidatePage:published,
                 cascadeCacheOwner:owner,accountPhysicalCandidate:true,
-                globalCandidate:parent.IsRongyu==0&&GlobalCrossTableTarget.Declared(parent)).Compile(["id"],[]);
+                globalCandidate:parent.IsRongyu==0&&GlobalCrossTableTarget.Declared(parent)).Compile(["id"],dependencies);
     }
 
     /// <summary>多个目标页可共享同一个实际全局父页面，独立来源父校验只绑定该发布页。</summary>
     internal static (TableMetadata Table,PageMetadata Page) PublishedMultiGlobalParent(MetadataCatalog catalog,string tableId,string pageId)
+    {
+        var (scope,published)=ResolveMultiGlobalParent(catalog,tableId,pageId);
+        return (scope.Parent,published);
+    }
+
+    /// <summary>保留实际逻辑层位，父页和唯一业务键由同一次发布证明确定。</summary>
+    private static (MultiTargetParentScope Scope,PageMetadata Page) ResolveMultiGlobalParent(MetadataCatalog catalog,string tableId,string pageId)
     {
         var page=catalog.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
         var table=catalog.ConfigTables.Single(item=>item.Id==tableId);
@@ -328,7 +339,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 PublishedPhysicalMultiParent(catalog,scope)).DistinctBy(item=>item.Id).ToArray();
         if(pages.Length!=1)
             throw new InvalidOperationException("同一全局父记录的各物理外键和级联层位必须绑定同一个实际发布父页。");
-        return(parent.Parent,pages[0]);
+        return(parent,pages[0]);
     }
 
     /// <summary>List 的附加物理父字段必须与实际字典页使用同一个全局父页。</summary>

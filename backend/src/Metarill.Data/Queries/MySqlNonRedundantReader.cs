@@ -75,6 +75,18 @@ public sealed class MySqlNonRedundantReader(DatabaseSession session)
         return rows.Records;
     }
 
+    /// <summary>业务键来自已发布的唯一列，沿用主键回读的跨表校验并检查重复匹配。</summary>
+    internal async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ReadBusinessKeyRowsAsync(
+        MySqlNonRedundantReadPlan plan,FixedReadFilter key,CancellationToken cancellationToken,
+        string projectId,bool currentRead)
+    {
+        if (key.Comparison!=FixedReadComparison.Equal||key.Value is null)
+            throw new ArgumentException("业务键读取要求非空等值条件。",nameof(key));
+        var rows=await ReadAsync(plan,[key],[],1,2,cancellationToken,false,projectId,false,condition:null,
+            currentRead:currentRead,validateAllCrosses:true);
+        return rows.Records;
+    }
+
     /// <summary>有界导出只读明细，不额外执行分页总数；限制与查询验证仍共用固定读取入口。</summary>
     public async Task<IReadOnlyList<IReadOnlyDictionary<string,object?>>> ReadRowsAsync(MySqlNonRedundantReadPlan plan,IReadOnlyList<FixedReadFilter> filters,
         IReadOnlyList<FixedReadOrder> order,int limit,CancellationToken cancellationToken=default,string? projectId=null,FixedConditionSqlPlan? condition=null)
