@@ -48,6 +48,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         exactMultiSelection:selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0&&
                             (!checkbox&&(target.IsRongyu==0||source is {IsRongyu:0}||
                                 GlobalCrossTableTarget.DeclaresExactMulti(target,selected))||
+                             checkbox&&target.IsRongyu==1&&GlobalCrossTableTarget.DeclaresExactPage(target,selected)||
                              GlobalCrossTableTarget.StoredMultiParent(catalog,target,selected,checkbox,allowExact:true) is not null),
                         storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase",
                         allowLiteralMultiScope:compoundPhysical||globalOverride||storedStatic);
@@ -196,15 +197,15 @@ public static partial class MySqlNonRedundantReadCompiler
         var condition=FixedConditionPlan.Compile(page.WhereSql,
             catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).Select(column=>column.ColumnName));
         return GlobalMultipleRelationTarget.IsStoredAccountPage(table,page,condition,checkbox)||
-            !checkbox&&GlobalMultipleRelationTarget.IsStoredExactMultiAccountPage(table,page,condition)||
-            GlobalMultipleRelationTarget.IsProjectPage(table,page,condition,checkbox,allowExact:!checkbox);
+            GlobalMultipleRelationTarget.IsStoredExactMultiAccountPage(table,page,condition,checkbox)||
+            GlobalMultipleRelationTarget.IsProjectPage(table,page,condition,checkbox,allowExact:true);
     }
 
     /// <summary>物理全局字典可用发布页的常量筛选限定候选和实时名称。</summary>
     private static bool IsStoredStaticMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)=>
         table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&
         GlobalMultipleRelationTarget.IsStoredStaticPage(table,page,FixedConditionPlan.Compile(page.WhereSql,
-            catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).Select(column=>column.ColumnName)),checkbox);
+            catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).Select(column=>column.ColumnName)),checkbox,allowExact:checkbox);
 
     /// <summary>非冗余全局字典的项目声明只在固定多值候选及名称计划生效。</summary>
     private static bool IsNonRedundantProjectMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)
@@ -375,8 +376,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
             }.Compile(outputs,dependencies);
         var storedParent=GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,storedExactCheckbox,allowExact:exactMultiSelection);
-        if(exactMultiSelection&&!storedExactCheckbox&&storedParent is null&&table.IsRongyu==1&&
-            GlobalCrossTableTarget.DeclaresExactMulti(table,page))
+        if(exactMultiSelection&&storedParent is null&&table.IsRongyu==1&&
+            (storedExactCheckbox?GlobalCrossTableTarget.DeclaresExactPage(table,page):GlobalCrossTableTarget.DeclaresExactMulti(table,page)))
             return CompileGlobalCandidate(catalog,tableId,pageId,outputs,dependencies,
                 deferCascadeNames:false,singleTargets:singleTargets,exactSingleCandidate:true);
         var parent=(importPageType=="1"?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null)

@@ -39,20 +39,21 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
             (GlobalPhysicalRelationValue.IsScalar(storage,target,label)||
              MultiNameStorageColumns.IsDerivedCheckboxText(target,storage,label));
         var fields=storage.PhysicalColumns.Select(column=>column.ColumnName).ToArray();
-        var storedAccount=global is not null&&sourceParentId is null&&target.IsRongyu==1&&
-            GlobalMultipleRelationTarget.IsStoredAccountPage(target,page,FixedConditionPlan.Compile(page.WhereSql,fields),checkbox:true);
+        var storedAccount=global is {UsesStoredAccountPage:true,UsesStoredExactCheckboxPage:false}&&sourceParentId is null;
         var storedStatic=global is {UsesProjectPage:true} or {UsesStoredPhysicalParentPage:true}||
+            global is {UsesStoredExactCheckboxPage:true,UsesStoredAccountPage:true}||
             GlobalCrossTableTarget.Declared(source)&&global is {UsesStoredStaticPage:true} or {UsesNonRedundantAccountPage:true};
         var staticCondition=storedStatic?FixedConditionPlan.Compile(page.WhereSql,fields):null;
         var projectAccount=global is null&&MySqlNonRedundantReadCompiler.IsProjectFixedMultiPage(catalog,target,page,checkboxAccount:true);
         var baselineExtra=projectAccount?baseline.AdditionalProjectConditions(page.WhereSql,fields):"";
         var ordinaryForm=global is null?baseline.AdditionalPhysicalFormConditions(catalog,target,page):null;
-        // 仅允许已重证物理父键的全局字典复用精确页。维护读取只绑定来源行，不引入操作人角色。
-        var exactPhysicalParent=global is {UsesStoredPhysicalParentPage:true}&&storage.IsPhysical(original)&&storage.IsPhysical(value);
+        // 复用精确字典的两份副本都必须有已证明的物理终点，维护按来源行绑定。
+        var exactPhysical=global is {UsesStoredPhysicalParentPage:true} or {UsesStoredExactCheckboxPage:true}&&
+            storage.IsPhysical(original)&&storage.IsPhysical(value);
         if(relation.ControlKind!="MultiCheckBoxDatabase"||page.Id!=pageId||
             !storedAccount&&!projectAccount&&ordinaryForm is null&&
                 (staticCondition is null?!string.IsNullOrWhiteSpace(baseline.WhereSql):!baseline.IsCoveredByStaticPage(staticCondition,fields))||
-            page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0&&!exactPhysicalParent||
+            page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0&&!exactPhysical||
             !PublishedText(original)||!PublishedText(value))
             throw new InvalidOperationException("复选多名称必须使用固定目标页的已证明文本。");
         if(sourceParentId is null&&(!storage.IsPhysical(original)||!storage.IsPhysical(value)))

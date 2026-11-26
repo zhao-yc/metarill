@@ -114,7 +114,8 @@ internal static class DerivedMultipleCacheProof
             GlobalCrossTableTarget.StoredMultiParent(catalog,target,scoped,checkbox,allowExact:true) is null&&
             (sharedPage is null||MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign)?.Id==scoped.Id))
         {
-            var exactMulti=!checkbox&&GlobalCrossTableTarget.DeclaresExactMulti(target,scoped);
+            var exactMulti=checkbox?GlobalCrossTableTarget.DeclaresExactPage(target,scoped):
+                GlobalCrossTableTarget.DeclaresExactMulti(target,scoped);
             _=AccountScopedCrossCache.CompileGlobalMulti(catalog,source,target,scoped,separateExactScope:exactMulti);
             var scopedRead=MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(catalog,target.Id,scoped.Id,
                 value.ColumnName,[value.ColumnName],[],exactMultiSelection:exactMulti,storedExactCheckbox:checkbox);

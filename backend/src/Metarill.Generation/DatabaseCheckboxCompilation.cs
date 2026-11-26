@@ -26,6 +26,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool SharedDerivedPageScope { get; init; }
     internal bool SharedLogicalParentScope { get; init; }
     internal bool HasStoredIdentityScope { get; init; }
+    internal bool HasStoredExactScope { get; init; }
     /// <summary>全称和简称使用实际发布的冗余字典项目及物理父范围。</summary>
     internal bool HasStoredGlobalParentScope => LogicalTargetPage is {} page&&
         FixedPageConditionCompilation.HasStoredGlobalMultiParentScope(Target,page);
@@ -125,6 +126,7 @@ internal static class DatabaseCheckboxCompilation
             var scopedGlobalAccountPage=false;
             var scopedGlobalParentPage=false;
             var scopedGlobalExactPage=false;
+            var storedExactPage=false;
             var globalPageOverride=false;
             if(target.IsGlobal&&!functionForm)
             {
@@ -142,13 +144,12 @@ internal static class DatabaseCheckboxCompilation
                 // 复选的搜索、回读与 Excel 必须沿已发布缓存目标页的同一固定范围。
                 publishedGlobalPage=target.Pages.Single(page=>page.Source.Id==proof.Page.Id);
                 // 物理字典的账号条件直接进入复选查询，名称副本仍沿同一发布页重算。
-                storedAccountPage=publishedGlobalPage.Condition is {} publishedCondition&&
-                    publishedGlobalPage.Scopes.All(scope=>scope.Source=="project")&&
-                    GlobalMultipleRelationTarget.IsStoredAccountPage(target.Source,publishedGlobalPage.Source,publishedCondition.Syntax,checkbox:true);
+                storedAccountPage=proof.UsesStoredAccountPage;
                 storedProjectPage=proof.UsesProjectPage;
                 scopedGlobalAccountPage=table.IsGlobal&&proof.UsesNonRedundantAccountPage;
                 scopedGlobalParentPage=proof.UsesPhysicalParentPage;
                 scopedGlobalExactPage=table.IsGlobal&&proof.UsesNonRedundantExactCheckboxPage;
+                storedExactPage=proof.UsesStoredExactCheckboxPage;
                 storedStaticPage=table.IsGlobal&&proof.UsesStoredStaticPage;
                 if(globalPageOverride||storedAccountPage||storedProjectPage||storedStaticPage||scopedGlobalParentPage||scopedGlobalExactPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
                     GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name)||
@@ -235,7 +236,7 @@ internal static class DatabaseCheckboxCompilation
             if(usesNameOverride)
             {
                 // 非冗余精确复选沿实际发布页投影已开放的物理或固定联接文本。
-                var globalExactName=target.IsGlobal&&target.Source.IsRongyu==0&&exactTarget is not null;
+                var globalExactName=target.IsGlobal&&(target.Source.IsRongyu==0||storedExactPage)&&exactTarget is not null;
                 var realtimeFixedName=table.Source.IsRongyu==0&&
                     (target.Source.IsRongyu==0||storedIdentityPage||storedStaticPage||scopedGlobalParentPage)&&
                     (exactTarget is null||globalExactName||scopedGlobalParentPage&&target.Source.IsRongyu==1)&&
@@ -267,7 +268,8 @@ internal static class DatabaseCheckboxCompilation
             if(explicitPage!=fixedPage&&!pageRead&&(logicalPage is not null||target.Pages.Any(candidate=>candidate.Source.Id==fixedPage&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,candidate,includeProjectFixedScope:false))))
                 return Gap("复选不能用页覆盖替换表级固定范围。");
             var whereSql=definition.WhereSql;
-            if((storedProjectPage||storedStaticPage||scopedGlobalAccountPage||scopedGlobalParentPage&&target.Source.IsRongyu==1)&&table.Source.IsRongyu==1)
+            if((storedProjectPage||storedStaticPage||storedExactPage||scopedGlobalAccountPage||
+                scopedGlobalParentPage&&target.Source.IsRongyu==1)&&table.Source.IsRongyu==1)
             {
                 var fields=target.Columns.Select(column=>column.Source.ColumnName).ToArray();
                 var publishedCondition=FixedConditionPlan.Compile(publishedGlobalPage!.Source.WhereSql,fields);
@@ -515,6 +517,7 @@ internal static class DatabaseCheckboxCompilation
                 SharedDerivedPageScope=sharedDerivedPageScope,
                 SharedLogicalParentScope=sharedLogicalParentScope,
                 HasStoredIdentityScope=storedIdentityPage,
+                HasStoredExactScope=storedExactPage,
                 HasStoredStaticScope=storedStaticPage,
                 HasProjectStoredAccountScope=projectStoredAccount,
                 CompoundPhysicalSource=ordinaryCompoundSource||projectStoredAccount&&sourceScopeColumns.Length>1,
@@ -560,8 +563,9 @@ internal static class DatabaseCheckboxCompilation
     /// <summary>多份物理名称必须共用同一个保存及维护范围；全局范围直接由实际发布页提供。</summary>
     private static bool CanSharePhysicalNames(DatabaseCheckboxModel definition)
     {
-        // 精确权限由每次请求绑定。物理父字典的名称副本只记录完整固定范围内的名称。
-        if(definition.Name.Type!="string?"||definition.ExactTarget is not null&&!definition.HasStoredGlobalParentScope||
+        // 精确权限由每次请求绑定。副本范围必须能用实际来源行重算。
+        if(definition.Name.Type!="string?"||definition.ExactTarget is not null&&
+            !definition.HasStoredGlobalParentScope&&!definition.HasStoredExactScope||
             definition.Conditions is not null&&!definition.HasStoredIdentityScope&&!definition.HasProjectStoredAccountScope&&!definition.ProjectFormScope)
             return false;
         if(definition.HasStoredGlobalParentScope)

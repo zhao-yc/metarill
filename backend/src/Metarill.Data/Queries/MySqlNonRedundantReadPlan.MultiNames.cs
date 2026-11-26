@@ -89,7 +89,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     pageId=globalPageId=published.Page.Id;
                     storedGlobalStatic=GlobalCrossTableTarget.Declared(table)&&published.UsesStoredStaticPage;
                     globalAccountPage=published.UsesNonRedundantAccountPage||published.UsesPhysicalParentPage;
-                    globalExactCheckboxPage=published.UsesNonRedundantExactCheckboxPage;
+                    globalExactCheckboxPage=published.UsesNonRedundantExactCheckboxPage||published.UsesStoredExactCheckboxPage;
                 }
                 name=CheckboxPageNameOverride(table,relation,target,selected,baseline,definition,globalPageId,defaultGlobalPage,storedGlobalStatic);
             }
@@ -150,14 +150,14 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!GlobalCrossTableTarget.Declared(target)&&PhysicalTextMultiLabel(target,original)&&PhysicalTextMultiLabel(target,label))
                 return label.ColumnName;
             var fixedPage=globalPageId??(baseline.PageId.Length>0?baseline.PageId:Text(relation,"linkConfigPageId"));
-            // 全局页已按来源配置重证。非冗余精确字典可沿该页固定联接，冗余字典继续使用物理父键。
+            // 全局页已按来源配置重证，冗余字典的实际范围须由物理列提供。
             var storedParent=globalPageId is not null&&selected is not null&&
                 GlobalCrossTableTarget.StoredMultiParent(catalog,target,selected,checkbox:true,allowExact:true) is not null;
             var exactPage=selected?.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0;
-            var globalExact=globalPageId is not null&&selected is not null&&target.IsRongyu==0&&
-                GlobalCrossTableTarget.DeclaresExactPage(target,selected);
             var storedGlobal=target.IsRongyu==1&&(storedGlobalStatic||globalPageId is not null&&selected is not null&&
                 (StoredIdentityMultiPage(catalog,target,selected,checkbox:true)||storedParent));
+            var globalExact=globalPageId is not null&&selected is not null&&(target.IsRongyu==0||storedGlobal)&&
+                GlobalCrossTableTarget.DeclaresExactPage(target,selected);
             bool TextLabel(ColumnMetadata column,PageMetadata? labelPage)=>storedGlobal
                 ?PhysicalTextMultiLabel(target,column)
                 :globalPageId is not null

@@ -8,6 +8,8 @@ public sealed record GlobalMultipleRelationPlan(PageMetadata Page,ColumnMetadata
     public bool UsesProjectPage { get; init; }
     public bool UsesNonRedundantAccountPage { get; init; }
     public bool UsesNonRedundantExactCheckboxPage { get; init; }
+    public bool UsesStoredExactCheckboxPage { get; init; }
+    public bool UsesStoredAccountPage { get; init; }
     public bool UsesNonRedundantPhysicalParentPage { get; init; }
     public bool UsesStoredPhysicalParentPage { get; init; }
     public bool UsesPhysicalParentPage=>UsesNonRedundantPhysicalParentPage||UsesStoredPhysicalParentPage;
@@ -69,9 +71,14 @@ public static class GlobalMultipleRelationTarget
             IsProjectScope(term)||term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable)
                 .All(value=>AccountConditionVariables.IsSupported(value.Text)));
 
-    /// <summary>无父级的冗余精确多选只接受固定条件、当前项目和已发布账号等值。</summary>
+    /// <summary>无父级冗余精确字典只接受固定条件、当前项目和已发布账号等值。</summary>
     public static bool IsStoredExactMultiAccountPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition)=>
-        table.IsRongyu==1&&page.ConfigTableId==table.Id&&GlobalCrossTableTarget.DeclaresExactMulti(table,page)&&
+        IsStoredExactMultiAccountPage(table,page,condition,checkbox:false);
+
+    /// <summary>复选允许普通字典页，多选继续要求实际 type=2 页。</summary>
+    public static bool IsStoredExactMultiAccountPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox)=>
+        table.IsRongyu==1&&page.ConfigTableId==table.Id&&
+        (checkbox?GlobalCrossTableTarget.DeclaresExactPage(table,page):GlobalCrossTableTarget.DeclaresExactMulti(table,page))&&
         condition.Terms.Any(IsAccountScope)&&condition.Terms.All(term=>IsFixedOrProject(term)||IsAccountScope(term));
 
     /// <summary>全局业务数组可使用实际发布的冗余或非冗余字典页，候选范围为固定物理常量或无条件。</summary>
@@ -82,7 +89,7 @@ public static class GlobalMultipleRelationTarget
     public static bool IsProjectPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false,bool allowExact=false)=>
         table.IsRongyu is 0 or 1&&IsPublishedMultiPage(table,page,checkbox,allowExact)&&condition.Terms.Any(IsProjectScope)&&
         (condition.Terms.All(term=>IsFixedOrProject(term)||table.IsRongyu==0&&IsAccountScope(term))||
-            allowExact&&!checkbox&&IsStoredExactMultiAccountPage(table,page,condition));
+            allowExact&&IsStoredExactMultiAccountPage(table,page,condition,checkbox));
 
     /// <summary>已发布的非冗余多值页可同时声明真实项目和父键，物理字段和父归属由调用方证明。</summary>
     public static bool IsProjectParentPage(TableMetadata table,PageMetadata page,FixedConditionPlan condition,bool checkbox=false,bool allowExact=false)=>
@@ -142,7 +149,7 @@ public static class GlobalMultipleRelationTarget
             page.Extra.GetValueOrDefault("type").ToString()=="2")&&
         (string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString())||
             allowExact&&(checkbox
-                ?table.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactPage(table,page)
+                ?GlobalCrossTableTarget.DeclaresExactPage(table,page)
                 :GlobalCrossTableTarget.DeclaresExactMulti(table,page)));
 
     /// <summary>全局字典的显式项目范围仅接受真实项目列与当前认证项目的等值。</summary>
@@ -228,9 +235,11 @@ public static class GlobalMultipleRelationTarget
             throw new NotSupportedException("全局多值必须引用对应控件实际发布的字典页。");
         var joinedFields=GlobalCrossTableTarget.PageJoinedConditionFields(catalog,target,page);
         // 原多选按请求角色校验选值；无父级的冗余名称只使用发布页中可按来源行重现的条件。
-        var storedExact=cached&&!checkbox&&target.IsRongyu==1&&GlobalCrossTableTarget.DeclaresExactMulti(target,page);
+        var storedExact=target.IsRongyu==1&&(checkbox
+            ?GlobalCrossTableTarget.DeclaresExactPage(target,page)
+            :cached&&GlobalCrossTableTarget.DeclaresExactMulti(target,page));
         var storedAccount=(checkbox||pageId.Length>0)&&(IsStoredAccountPage(target,page,condition,checkbox)||
-            storedExact&&IsStoredExactMultiAccountPage(target,page,condition));
+            storedExact&&IsStoredExactMultiAccountPage(target,page,condition,checkbox));
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
         var scoped=selfTreeScope||target.IsRongyu==0&&condition.Fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(target,columns,field));
         var storedStatic=(checkbox||pageId.Length>0)&&(target.IsRongyu==1||!scoped)&&IsStoredStaticPage(target,page,condition,checkbox,allowExact:storedExact);
@@ -275,7 +284,8 @@ public static class GlobalMultipleRelationTarget
                 throw new NotSupportedException("全局多值来源必须绑定受支持的已发布字典页。");
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
         }
-        if(cached&&checkbox&&(projectPage||storedParent is not null||GlobalCrossTableTarget.Declared(owner)&&(storedStatic||nonRedundantAccountPage))&&
+        if(cached&&checkbox&&(projectPage||storedParent is not null||storedExact&&storedAccount||
+            GlobalCrossTableTarget.Declared(owner)&&(storedStatic||nonRedundantAccountPage))&&
             !checkboxDefinition!.IsCoveredByStaticPage(condition,expanded.Select(column=>column.ColumnName)))
             throw new NotSupportedException("全局复选的冗余名称要求控件条件由实际发布字典页覆盖。");
         if(exactPage)
@@ -320,7 +330,9 @@ public static class GlobalMultipleRelationTarget
         if(!scoped&&condition.Fields.Any(field=>!joinedFields.Contains(field)&&!Scalar(columns.Single(column=>column.ColumnName==field))))
             throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");
         return new(page,name){UsesStoredStaticPage=storedStatic,UsesProjectPage=projectPage,UsesNonRedundantAccountPage=nonRedundantAccountPage,
-            UsesNonRedundantExactCheckboxPage=checkbox&&exactRealtime,UsesNonRedundantPhysicalParentPage=physicalParentPage,
+            UsesNonRedundantExactCheckboxPage=checkbox&&exactRealtime,
+            UsesStoredExactCheckboxPage=checkbox&&storedExact&&(storedStatic||storedAccount||projectPage),
+            UsesStoredAccountPage=storedAccount,UsesNonRedundantPhysicalParentPage=physicalParentPage,
             UsesStoredPhysicalParentPage=storedParent is not null};
     }
 

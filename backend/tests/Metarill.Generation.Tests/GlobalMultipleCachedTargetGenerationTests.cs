@@ -1142,6 +1142,18 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         bool projectScoped,string? accountField,bool derivedName,bool idLabel=false)=>
         VerifyGlobalBusinessCheckboxDictionary(0,projectType,false,projectScoped,targetStorage:0,accountField,derivedName,exactType,idLabel);
 
+    /// <summary>无父级冗余精确字典用实际发布条件与角色校验复选，并沿原名称路径读写。</summary>
+    [Theory]
+    [InlineData(0,"int64",0,false,null)]
+    [InlineData(0,"string",2,true,null)]
+    [InlineData(0,"int64",0,false,"store_id")]
+    [InlineData(1,"int64",2,false,null)]
+    [InlineData(1,"string",0,true,null)]
+    [InlineData(1,"string",2,true,"merchant_id")]
+    public Task Global_business_checkbox_uses_exact_stored_dictionary(int mode,string projectType,int exactType,
+        bool projectScoped,string? accountField)=>
+        VerifyGlobalBusinessCheckboxDictionary(mode,projectType,false,projectScoped,accountField:accountField,exactType:exactType);
+
     /// <summary>从同一实际生成代码验证字典候选、原筛选及非冗余和冗余名称。</summary>
     private static async Task VerifyGlobalBusinessCheckboxDictionary(int mode,string projectType,bool unfiltered,
         bool projectScoped=false,int targetStorage=1,string? accountField=null,bool derivedName=false,int exactType=-1,bool idLabel=false)
@@ -1166,6 +1178,12 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         if(projectScoped)dictionary.WhereSql=WithCurrentProject(dictionary.WhereSql);
         if(exactType>=0)
         {
+            if(targetStorage==1)
+            {
+                // 字典不同时兼任不相关的单值缓存来源。
+                catalog.ConfigColumns.RemoveAll(column=>column.Id is "13" or "14");
+                catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId is "13" or "14");
+            }
             dictionary.Extra["type"]=JsonSerializer.SerializeToElement(exactType);
             dictionary.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
             catalog.ConfigColumns.Add(new(){Id="109",ConfigTableId="1",YzProjectId="100",ColumnName="scope_code",LogicalType="string"});
@@ -1253,9 +1271,12 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             {
                 Assert.Contains("""ResolveExactDataManage("10", "list", "real_name")""",code);
                 Assert.Contains("scope_code",code);
-                Assert.Contains("DerivedCheckboxRows30_38Async",code);
-                Assert.Contains("DerivedCheckboxRows31_38Async",code);
-                if(idLabel)Assert.Contains("name=DatabaseCheckboxValue.ReadId(item)",code);
+                if(targetStorage==0)
+                {
+                    Assert.Contains("DerivedCheckboxRows30_38Async",code);
+                    Assert.Contains("DerivedCheckboxRows31_38Async",code);
+                    if(idLabel)Assert.Contains("name=DatabaseCheckboxValue.ReadId(item)",code);
+                }
             }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service=assembly.GetType(app+".Generated.Services.CachedConsumerService",true)!;
@@ -1278,8 +1299,10 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Provider="mysql",ExpectedDatabase="offline",ConnectionString="Server=127.0.0.1;Database=offline;User ID=unused"
             },orm);
             var mapper=Activator.CreateInstance(assembly.GetType(app+".Generated.Mappers.CachedConsumerMapper",true)!,session);
+            IRuntimeAuthorization auth=targetStorage==1&&exactType>=0?new StoredExactDictionaryAuthorization(actor):
+                new CascadeTreeReadTests.TreeListOnly(actor);
             var instance=Activator.CreateInstance(service,session,mapper,new SnowflakeIdGenerator(),
-                Array.Empty<Metarill.Core.Persistence.IRecordMutationObserver>(),null,new CascadeTreeReadTests.TreeListOnly(actor))!;
+                Array.Empty<Metarill.Core.Persistence.IRecordMutationObserver>(),null,auth)!;
             var candidate=service.GetMethod("CheckboxScope30_38Async",BindingFlags.Instance|hidden)!;
             var task=Assert.IsAssignableFrom<Task>(candidate.Invoke(instance,[null,actor,new Dictionary<string,object?>(),false,CancellationToken.None]));
             await task;
@@ -1288,9 +1311,14 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 .MakeGenericMethod(assembly.GetType(app+".Generated.Entities.GlobalSource",true)!).Invoke(null,[query]));
             Assert.Contains("`global_source`",sql);
             Assert.Contains("`delete_no`",sql);
+            if(auth is StoredExactDictionaryAuthorization exact)
+            {
+                Assert.Contains("`scope_code`",sql);
+                Assert.Contains(("10","list"),exact.Resolutions);
+            }
             // 派生候选的实际查询由固定读取计划执行；前面的 FreeSql 入口负责认证和当前事务检查。
             var scope=sql;
-            if(derivedName||exactType>=0)
+            if(derivedName||exactType>=0&&targetStorage==0)
             {
                 var plan=MySql("DerivedCheckboxPlan30_38");
                 scope=Assert.IsType<string>(plan.GetType().GetProperty("Scope",BindingFlags.Instance|hidden)!.GetValue(plan));
@@ -1310,6 +1338,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var projectPredicate="multi_value.`yz_project_id`=@project_scope_"+(projectType=="string"?"text":"number");
                 Assert.Equal(projectScoped,expression.Contains(projectPredicate,StringComparison.Ordinal));
                 AssertDictionaryNameAccountScope(expression,mode,accountField);
+                if(exactType>=0)Assert.DoesNotContain("`scope_code`",expression);
             }
             if(mode==0)
             {
@@ -1325,12 +1354,6 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 {
                     CheckName(MySql("ReadPlan30"),fullNames,fullField);
                     CheckName(MySql("ReadPlan31"),fullNames,"short_caption");
-                }
-                if(exactType>=0)
-                {
-                    var full=Path.Combine(directory,"app");
-                    Assert.True(new ApplicationPackager().Create(catalog,full,app,NonRedundantApplicationFixture.Root()).FrontendIncluded);
-                    foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(full,operation);
                 }
             }
             else
@@ -1361,6 +1384,12 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 CheckName(read,fullNames,fullField);
                 CheckName(read,shortNames,"short_caption");
                 if(accountField is not null)AssertDictionaryCacheWithoutOwnershipIsRejected(catalog,app,"38");
+            }
+            if(exactType>=0)
+            {
+                var full=Path.Combine(directory,"app");
+                Assert.True(new ApplicationPackager().Create(catalog,full,app,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+                foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(full,operation);
             }
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }

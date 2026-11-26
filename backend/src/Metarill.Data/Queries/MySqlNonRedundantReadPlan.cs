@@ -430,12 +430,13 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     var exactParent=GlobalCrossTableTarget.ExactPageParent(catalog,root,candidatePage);
                     // 原多选的项目和账号条件在候选、联接名称及当前锁读中共用实际字典页。
-                    if(physicalCandidate&&exactParent is null&&GlobalCrossTableTarget.DeclaresExactMulti(root,candidatePage))
+                    if(physicalCandidate&&exactParent is null)
                     {
                         var syntax=FixedConditionPlan.Compile(candidatePage.WhereSql,
                             catalog.ConfigColumns.Where(column=>column.ConfigTableId==root.Id).Select(column=>column.ColumnName));
-                        explicitProjectCandidate=GlobalMultipleRelationTarget.IsProjectPage(root,candidatePage,syntax,allowExact:true);
-                        this.accountPhysicalCandidate|=GlobalMultipleRelationTarget.IsStoredExactMultiAccountPage(root,candidatePage,syntax);
+                        var checkboxPage=!GlobalCrossTableTarget.DeclaresExactMulti(root,candidatePage);
+                        explicitProjectCandidate=GlobalMultipleRelationTarget.IsProjectPage(root,candidatePage,syntax,checkboxPage,allowExact:true);
+                        this.accountPhysicalCandidate|=GlobalMultipleRelationTarget.IsStoredExactMultiAccountPage(root,candidatePage,syntax,checkboxPage);
                     }
                 }
                 else if(publishedGlobalCandidate&&IsNonRedundantProjectMultiPage(catalog,root,candidatePage,checkbox:multiLabel))
@@ -1090,7 +1091,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 table.Id==root.Id&&alias==rootAlias&&cascadeCacheOwner is {} owner&&condition.Variables.Count>0)
             {
                 // 维护只能按每条来源记录的物理归属重算，当前请求的账号仅用于实时读取。
-                var exactMulti=multiLabel&&!storedMultiParentCandidate&&table.IsRongyu==1&&GlobalCrossTableTarget.DeclaresExactMulti(table,page);
+                var exactMulti=multiLabel&&!storedMultiParentCandidate&&table.IsRongyu==1&&GlobalCrossTableTarget.DeclaresExactPage(table,page);
                 var proof=publishedProject?AccountScopedCrossCache.CompileGlobalMulti(catalog,owner.Table,table,page,separateExactScope:exactMulti):
                     AccountScopedCrossCache.Compile(catalog,owner.Table,table,page,owner.GlobalTreeSource,
                         globalSingleSource:owner.GlobalSingleSource,separateExactScope:exactMulti);
