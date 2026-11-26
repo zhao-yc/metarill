@@ -60,6 +60,8 @@ public sealed class TextCascadeParentRelationTests
     [InlineData(true,"OverWriteByFirstColumn","edit",0,false,false,true,true)]
     [InlineData(true,"OnlyNew","list",1,false,true,true,false,true)]
     [InlineData(true,"OverWriteByFirstColumn","edit",1,true,true,true,false,true)]
+    [InlineData(true,"OnlyNew","list",0,true,true,true,false,true)]
+    [InlineData(true,"OverWriteByFirstColumn","edit",0,true,true,true,false,true)]
     public async Task Published_parent_with_independent_checkbox_compiles_original_pages(bool businessKey,string import,string export,
         int redundant=0,bool globalCountry=false,bool storedAsText=false,bool compound=false,bool numericCascade=false,bool textParent=false)
     {
@@ -117,6 +119,14 @@ public sealed class TextCascadeParentRelationTests
         var path=CrossTableWriteCompilation.Resolve(model,table,page,cascade);
         Assert.True(path.Definition is not null,path.Reason);
         if(textParent)Assert.NotNull(CrossTableReadCompilation.TextSourceParent(model,table,page));
+        if(redundant==0&&globalCountry&&textParent)
+        {
+            var condition=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
+            var parent=MultiTargetParentScope.CompileSelectionPage(catalog,table.Source,condition,allowGlobalParent:true);
+            Assert.NotNull(parent);
+            Assert.False(parent.HasCompoundLogicalTextKey(catalog,table.Source));
+            Assert.True(parent.HasCompoundLogicalTextKey(catalog,table.Source,allowGlobalParent:true));
+        }
         var resolved=DatabaseCheckboxCompilation.Resolve(model,table,page,field);
         Assert.True(resolved.Definition is not null,resolved.Reason);
         Assert.DoesNotContain(resolved.Definition.Scopes,scope=>scope.Source=="parent");
@@ -189,8 +199,13 @@ public sealed class TextCascadeParentRelationTests
             if(textParent)
             {
                 Assert.Contains($"PathByKeyAsync(0,{key},cancellationToken)",scope);
-                Assert.Contains("private static string SharedR1ParentKey201",service);
-                Assert.Contains("string.Equals(entity.CountryId,entity.OtherCountryId,StringComparison.Ordinal)",service);
+                Assert.Contains(redundant==0?"private static string LogicalParentId201":"private static string SharedR1ParentKey201",service);
+                if(redundant==0)
+                {
+                    Assert.Contains("\"country_id\",\"mt_parent_0\",parentId!,actor.ProjectId,locking",service);
+                    Assert.Contains("\"other_country_id\",\"mt_parent_1\",parentId!,actor.ProjectId,locking",service);
+                }
+                else Assert.Contains("string.Equals(entity.CountryId,entity.OtherCountryId,StringComparison.Ordinal)",service);
                 Assert.DoesNotContain("out var fixedSourceParentKey",service);
             }
             else Assert.Contains(numericCascade?$"PathAsync(0,{key},cancellationToken)":

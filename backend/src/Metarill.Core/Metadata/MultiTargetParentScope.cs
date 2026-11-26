@@ -49,9 +49,9 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
             scope.LogicalAlternateKey(catalog,table)?.Id==key?.Id);
     }
 
-    /// <summary>多个稀疏层位只在实际使用同一个唯一文本业务键时共用文本父参数。</summary>
-    public bool HasCompoundLogicalTextKey(MetadataCatalog catalog,TableMetadata table)=>
-        Logical&&!Global&&AdditionalTargets.Count>0&&table.IsRongyu==0&&
+    /// <summary>多个稀疏层位只在实际使用同一个唯一文本业务键时共用父参数；全局父须由用途显式开放。</summary>
+    public bool HasCompoundLogicalTextKey(MetadataCatalog catalog,TableMetadata table,bool allowGlobalParent=false)=>
+        Logical&&(!Global||allowGlobalParent)&&AdditionalTargets.Count>0&&table.IsRongyu==0&&
         table.YzProjectId==catalog.YzProjectId&&Parent.YzProjectId==catalog.YzProjectId&&
         Target.LogicalType=="string"&&AdditionalTargets.All(scope=>scope.Target.LogicalType=="string")&&
         LogicalAlternateKey(catalog,table) is {LogicalType:"string"}&&HasSameLogicalKey(catalog,table);

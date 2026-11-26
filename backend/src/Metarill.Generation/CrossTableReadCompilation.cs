@@ -130,10 +130,10 @@ internal static class CrossTableReadCompilation
                         actual.Select(level=>(level!.TableId,level.KeyColumn,level.TextKey)).Distinct().Count()!=1)return false;
                     continue;
                 }
-                // 多条稀疏级联可以共享已发布的整数父键，下级仍可使用文本键。
+                // 多条稀疏级联可在实际发布的项目内或全局父表上共用同一个父键。
                 var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
                 var scope=MultiTargetParentScope.CompileSelectionPage(model.Catalog,table.Source,syntax,allowGlobalParent:true);
-                if(scope?.HasCompoundLogicalTextKey(model.Catalog,table.Source)==true)continue;
+                if(scope?.HasCompoundLogicalTextKey(model.Catalog,table.Source,allowGlobalParent:true)==true)continue;
                 if(scope is not {Logical:true,AdditionalTargets.Count:>0}||
                     scope.LogicalAlternateKey(model.Catalog,table.Source) is {LogicalType:not "int64"}||
                     !scope.HasSameLogicalKey(model.Catalog,table.Source))return false;
