@@ -320,7 +320,8 @@ public static partial class MySqlNonRedundantReadCompiler
         // 精确单选沿自己已发布的父级证明。冗余页的多个物理父键不属于普通多值范围。
         var parent=checkbox?MultiParent(catalog,page,checkbox:true):
             GlobalCrossTableTarget.DeclaresExactSingle(table,page)?GlobalCrossTableTarget.ExactSingleParent(catalog,table,page):
-            ProjectScopedSingleRelationTarget.PageParent(catalog,table,page)??MultiParent(catalog,page);
+            ProjectScopedSingleRelationTarget.PageParent(catalog,table,page)??
+            (table.IsRongyu==1?GlobalCrossTableTarget.PhysicalSingleParent(catalog,table,page):null)??MultiParent(catalog,page);
         if(parent is not{Global:true})throw new NotSupportedException("多值全局父须显式声明全局表关系。");
         var pages=parent.AdditionalTargets.Prepend(parent)
             .Select(scope=>scope.Logical?PublishedLogicalMultiParent(catalog,table,page,scope):

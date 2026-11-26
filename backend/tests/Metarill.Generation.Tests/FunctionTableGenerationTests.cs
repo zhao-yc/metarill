@@ -645,9 +645,17 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("globalStoredExactCompound")]
     [InlineData("globalStoredTextExactCompound")]
     [InlineData("globalStoredNoProjectExactCompound")]
+    [InlineData("globalExactCompoundOrdinary")]
+    [InlineData("globalRowProjectExactCompoundOrdinary")]
+    [InlineData("globalStoredExactCompoundOrdinary")]
+    [InlineData("globalStoredTextExactCompoundOrdinary")]
+    [InlineData("globalStoredNoProjectExactCompoundOrdinary")]
     public async Task Function_single_selection_uses_the_actual_target_page(string scenario)
     {
+        var ordinary=scenario.EndsWith("Ordinary",StringComparison.Ordinal);
+        if(ordinary)scenario=scenario[..^8];
         var catalog=WithSingleSelection(Catalog(),scenario);
+        if(ordinary)catalog.ConfigPages.Single(page=>page.Id=="103").Extra.Remove("exactDataManageMatchField");
         if(scenario=="globalStoredTextExactCompound")
             catalog.ConfigColumns.Single(column=>column.Id=="708").LogicalType="string";
         if(scenario=="globalStoredNoProjectExactCompound")
@@ -674,12 +682,12 @@ public sealed class FunctionTableGenerationTests : IDisposable
         var controller=await File.ReadAllTextAsync(Path.Combine(generated,$"Controllers/{table}Page103Controller.g.cs"));
         Assert.Contains("Actor(\"list\")",controller);
         var service=await File.ReadAllTextAsync(Path.Combine(generated,$"Services/{table}Service.g.cs"));
-        if(scenario!="global")
+        if(!ordinary&&scenario!="global")
         {
             Assert.Contains("ResolveExactDataManage(\"103\", authorizationOperation, \"real_name\")",service);
             if(scenario=="logical")Assert.Contains("FixedReadFilter.ForCrossExact(\"assigned_area_name\"",service);
         }
-        else Assert.Contains("CandidateReadPlan103.BindAccount(actor)",service);
+        else if(scenario=="global")Assert.Contains("CandidateReadPlan103.BindAccount(actor)",service);
         if(compound)
         {
             Assert.Contains("CompileMultiGlobalParent",service);

@@ -370,12 +370,15 @@ public static class GlobalCrossTableTarget
         }
         else if(!selectionParentOnly&&!(allowExactSingle&&DeclaresExactMulti(table,page))&&
             !condition.Variables.Any(AccountConditionVariables.IsSupported))return null;
-        var parent=MultiTargetParentScope.CompileGlobalPage(catalog,table,condition);
+        // 实际发布的冗余单值候选可以用多个物理父键约束同一父记录。
+        var parent=storedSelection
+            ?MultiTargetParentScope.CompileStoredGlobalPage(catalog,table,condition,checkbox:false)
+            :MultiTargetParentScope.CompileGlobalPage(catalog,table,condition);
         if(parent is null||parent.Logical&&(!allowLogical||page.Extra.GetValueOrDefault("type").ToString()=="2"&&!allowExactSingle))return null;
-        if(listParent)RequirePublishedSinglePage(catalog,table,page);
+        if(listParent||storedSelection&&parent.AdditionalTargets.Count>0)RequirePublishedSinglePage(catalog,table,page);
         RequireTarget(catalog,table,page,true,allowAccount:true,allowLogical:cross||tree,allowMultiParent:true,
             allowSelfTree:tree,allowExactSingle:allowExactSingle,allowStoredSingleParent:storedSelection,
-            allowPhysicalMultiParent:fixedParentPage||exactMulti&&projectMultiParent,
+            allowPhysicalMultiParent:fixedParentPage||exactMulti&&projectMultiParent,publishedPhysicalParent:storedSelection?parent:null,
             joinedFields:joinedFields??(allowLogical?PageJoinedConditionFields(catalog,table,page):null));
         return parent;
     }
