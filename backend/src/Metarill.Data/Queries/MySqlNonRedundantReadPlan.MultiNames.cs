@@ -293,7 +293,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 MultiParentOwner=sourceParent is null?null:(new(table,parentAlias),sourceParent,[]),
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
                 MultiNamePathPage=namePage,
-                AllowLiteralMultiScope=sourcePage is not null||fixedParent is not null||sharedCheckbox||projectFixedScope,
+                AllowLiteralMultiScope=sourcePage is not null||fixedParent is not null||sharedCheckbox||projectFixedScope||
+                    !checkbox&&selectedPage is not null&&GlobalCrossTableTarget.DeclaresExactMulti(target,selectedPage),
                 GlobalCrossCandidate=global&&(selectedPage is not null||candidatePage is not null)
             };
             var parents=new List<string>();

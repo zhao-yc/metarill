@@ -299,7 +299,10 @@ public static partial class MySqlNonRedundantReadCompiler
     /// <summary>比较当前绑定页的逻辑、账号及实际全局父范围，表级和页面覆盖共用同一证明。</summary>
     private static PageMetadata? ScopedMultiTargetPage(MetadataCatalog catalog,TableMetadata table,PageMetadata? page,bool checkbox)
     {
-        if(page is null||page.WhereSql.Length==0)return null;
+        if(page is null)return null;
+        // 精确多选即使没有附加字面条件，也按实际发布页重证已存名称的读取。
+        if(!checkbox&&table.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactMulti(table,page))return page;
+        if(page.WhereSql.Length==0)return null;
         var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         var declared=RelationStorageColumns.Expand(table,members);
         var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));

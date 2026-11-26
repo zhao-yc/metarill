@@ -212,8 +212,8 @@ public static class GlobalMultipleRelationTarget
         var nonRedundantAccountPage=(checkbox||pageId.Length>0)&&IsNonRedundantAccountPage(target,page,condition,checkbox);
         var exactPage=checkbox?GlobalCrossTableTarget.DeclaresExactPage(target,page):
             GlobalCrossTableTarget.DeclaresExactMulti(target,page);
-        // 实时复选的字典权限由实际发布页证明，来源仍须具有物理行项目列。
-        var exactRealtimeCheckbox=checkbox&&exactPage&&!cached&&target.IsRongyu==0;
+        // 实时多值关系的字典权限由实际发布页证明，来源仍须具有物理行项目列。
+        var exactRealtime=exactPage&&!cached&&target.IsRongyu==0;
         // 普通与全局业务来源共用真实同父证明；固定字典可以只声明父范围和字面条件。
         var projectParentPage=IsProjectParentPage(target,page,condition,checkbox);
         var staticParentPage=GlobalCrossTableTarget.UsesOnlyParentVariables(condition);
@@ -245,7 +245,7 @@ public static class GlobalMultipleRelationTarget
         {
             // 业务来源仍按行项目隔离。物理副本只能使用维护时也能重现的固定字典范围。
             if(!storedAccount&&!storedStatic&&!projectPage&&!nonRedundantAccountPage&&!physicalParentPage&&
-                storedParent is null&&!exactRealtimeCheckbox)
+                storedParent is null&&!exactRealtime)
                 throw new NotSupportedException("全局多值来源必须绑定受支持的已发布字典页。");
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
         }
@@ -289,7 +289,7 @@ public static class GlobalMultipleRelationTarget
         if(!scoped&&condition.Fields.Any(field=>!joinedFields.Contains(field)&&!Scalar(columns.Single(column=>column.ColumnName==field))))
             throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");
         return new(page,name){UsesStoredStaticPage=storedStatic,UsesProjectPage=projectPage,UsesNonRedundantAccountPage=nonRedundantAccountPage,
-            UsesNonRedundantExactCheckboxPage=exactRealtimeCheckbox,UsesNonRedundantPhysicalParentPage=physicalParentPage,
+            UsesNonRedundantExactCheckboxPage=checkbox&&exactRealtime,UsesNonRedundantPhysicalParentPage=physicalParentPage,
             UsesStoredPhysicalParentPage=storedParent is not null};
     }
 }

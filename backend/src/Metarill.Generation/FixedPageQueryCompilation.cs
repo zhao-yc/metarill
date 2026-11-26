@@ -164,6 +164,14 @@ internal static class FixedPageQueryCompilation
             return true;
         }
         var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
+        // 精确非冗余多选的项目过滤由实际发布字典查询执行，可覆盖控件的同一条件。
+        if(table.Source.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactMulti(table.Source,page.Source)&&
+            (GlobalMultipleRelationTarget.IsProjectPage(table.Source,page.Source,syntax,allowExact:true)||
+             GlobalMultipleRelationTarget.IsProjectParentPage(table.Source,page.Source,syntax,allowExact:true)))
+        {
+            _=GlobalCrossTableTarget.ExactPageParent(catalog,table.Source,page.Source);
+            return true;
+        }
         if(GlobalCrossTableTarget.IsSingleProjectParentPage(page.Source,syntax))
             return GlobalCrossTableTarget.PhysicalSingleParent(catalog,table.Source,page.Source) is not null;
         var checkbox=page.Source.Extra.GetValueOrDefault("type").ToString()!="2";

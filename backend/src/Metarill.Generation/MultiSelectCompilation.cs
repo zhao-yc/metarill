@@ -18,6 +18,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
     internal bool GlobalParent { get; init; }
     internal RelationConditionModel? ImportCondition { get; init; }
     internal ExactDataManageModel? ExactTarget { get; init; }
+    internal bool UsesGlobalBusinessExactRead { get; init; }
     internal bool IntegerLabel => !Name.IsId&&Name.Type is ("int?" or "long?");
     internal bool TypedLabel => !Name.IsId&&Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
 }
@@ -113,7 +114,10 @@ internal static class MultiSelectCompilation
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
             var sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,targetPage,allowSparseTarget:true)??
                 NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,targetPage,allowStoredTarget:true);
-            var scoped=(sharedTextParent is null||target.Source.IsRongyu==0)&&FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage);
+            var globalBusinessExactRead=table.IsGlobal&&table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&
+                GlobalCrossTableTarget.DeclaresExactMulti(target.Source,targetPage.Source);
+            var scoped=(sharedTextParent is null||target.Source.IsRongyu==0)&&
+                (globalBusinessExactRead||FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage));
             var derived=DerivedMultiNamesCompilation.Declared(model,target,name);
             // 功能表确认直接使用目标页的查询范围；业务表的写入和导入也需要同一精确范围。
             var exactTarget=functionForm?null:ExactDataManageCompilation.Resolve(model,target,targetPage);
@@ -287,7 +291,8 @@ internal static class MultiSelectCompilation
                     UsesTargetPageScope=usesTargetPageScope,
                     UsesNameOverride=usesNameOverride,
                     ImportCondition=importCondition,
-                    ExactTarget=exactTarget
+                    ExactTarget=exactTarget,
+                    UsesGlobalBusinessExactRead=globalBusinessExactRead
                 }, null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }

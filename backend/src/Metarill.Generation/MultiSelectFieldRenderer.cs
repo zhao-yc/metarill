@@ -17,7 +17,8 @@ internal static class MultiSelectFieldRenderer
         {
             var suffix = page.Source.Id + "_" + def.Source.Source.Id;
             var caches=MultiNameWriteCompilation.ForSource(model,table,def);
-            var scoped=(def.SharedTextParent is null||def.Target.Source.IsRongyu==0)&&FixedPageConditionCompilation.HasMultiTargetScope(model,def.Target,def.TargetPage);
+            var scoped=(def.SharedTextParent is null||def.Target.Source.IsRongyu==0)&&
+                (def.UsesGlobalBusinessExactRead||FixedPageConditionCompilation.HasMultiTargetScope(model,def.Target,def.TargetPage));
             result.Append(scoped?"":FixedPageConditionCompilation.Declaration(def.TargetPage,"MultiPageCondition"+suffix))
                 .Append(SharedRedundantParentCompilation.AccountDeclaration(model,def.Target,def.TargetPage,"MultiAccountParentScope"+suffix))
                 .Append(DerivedMultiNamesCompilation.Declaration(model,page,def));
