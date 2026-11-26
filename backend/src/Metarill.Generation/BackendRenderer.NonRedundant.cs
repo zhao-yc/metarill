@@ -130,7 +130,7 @@ internal static partial class BackendRenderer
                 .SelectMany(plan=>plan.Levels).Where(level=>level.DerivedOrder).SelectMany(level=>NamePages(
                     CascadeTargetOrderCompilation.OrderTargets(model,level.Target,level.Page,level.Name,level.Order,level.DerivedOrder))))
             .Concat(checkboxOrders.SelectMany(NamePages))
-            .Concat(fixedSingleImports.Where(DerivedRelationNamesCompilation.UsesSeparateGlobalExactImportPlan)
+            .Concat(fixedSingleImports.Where(DerivedRelationNamesCompilation.UsesSeparateExactImportPlan)
                 .SelectMany(relation=>NamePages(DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation,forImport:true))))
             .Concat(relations.Where(relation => relation.IndependentOrder.Count > 0)
                 .SelectMany(relation => NamePages(DerivedRelationNamesCompilation.CandidateOrderTargets(model, relation))))
@@ -209,7 +209,8 @@ internal static partial class BackendRenderer
         if(relations.Any(relation=>!DerivedRelationNamesCompilation.UsesLogicalPage(relation)&&
             DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation).Count>0))
             helpers+="    /// <summary>派生候选沿实际中间页范围编译完整名称。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileProjectRelation(string tableId,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[] single)=>Metarill.Data.Queries.NonRedundantReads.CompileProjectRelation(Snapshot,tableId,outputs,dependencies,single);\n";
-        if(scopedRelations.Any(relation=>!relation.Target.IsGlobal&&DerivedRelationNamesCompilation.UsesLogicalPage(relation))||
+        if(scopedRelations.Any(relation=>!relation.Target.IsGlobal&&(DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
+                DerivedRelationNamesCompilation.UsesSeparateExactImportPlan(relation)))||
             model.Tables.Any(table=>table.Pages.Any(FixedPageConditionCompilation.HasJoinedFields))||
             hasExactCheckboxMembership)helpers+="    /// <summary>单值候选、回读及保存共享发布页的逻辑条件。</summary>\n    internal static Metarill.Data.Queries.NonRedundantReadPlan CompileRelationMembership(string tableId,string pageId,string[] fields,string[] cross,string[] tree,string[] outputs,string[] dependencies,Metarill.Data.Queries.NonRedundantSingleTargetScope[]? singleTargets=null)=>Metarill.Data.Queries.NonRedundantReads.CompilePageMembership(Snapshot,Snapshot.ConfigTables.Single(table=>table.Id==tableId),Snapshot.ConfigPages.Single(page=>page.Id==pageId),fields,cross.ToHashSet(StringComparer.Ordinal),tree.ToHashSet(StringComparer.Ordinal),outputs,dependencies,singleTargets);\n";
         if(scopedRelations.Any(relation=>(relation.Target.IsGlobal||DerivedRelationNamesCompilation.EmbedsParentScope(relation.Target,relation.FixedParent))&&relation.Conditions?.HasLogicalFields==true))

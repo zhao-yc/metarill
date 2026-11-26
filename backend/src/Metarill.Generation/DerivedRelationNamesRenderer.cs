@@ -180,7 +180,7 @@ internal static class DerivedRelationNamesRenderer
     }
 
     /// <summary>把 Excel 独有的逻辑字段编入单独计划，避免它们的账号依赖影响普通候选。</summary>
-    private static string GlobalExactImportDeclaration(GenerationModel model, RelationModel relation,
+    private static string ExactImportDeclaration(GenerationModel model, RelationModel relation,
         ExactDataManageModel exact, RelationConditionModel condition, string planName)
     {
         var targetId = relation.Target.Source.Id;
@@ -190,15 +190,32 @@ internal static class DerivedRelationNamesRenderer
             .Concat(relation.Conditions?.Syntax.Fields ?? []).Distinct(StringComparer.Ordinal).ToArray();
         var fields = condition.Syntax.Fields.Concat(relation.Conditions?.Syntax.Fields ?? []).Distinct(StringComparer.Ordinal).ToArray();
         var targets = DerivedRelationNamesCompilation.ProjectCandidateTargets(model, relation, exact, forImport: true);
-        _ = NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog, targetId, pageId,
-            outputs, dependencies, targets, null, fields);
+        var globalExact = DerivedRelationNamesCompilation.IsGlobalExactSingle(relation);
         var targetArgument = NonRedundantReadCompilation.SingleTargetArgument(targets, "singleTargets");
         static string Columns(IReadOnlyList<string> columns) => "new string[]{" + string.Join(",", columns.Select(Literal)) + "}";
+        string planStart;
+        var additional = "";
+        if (globalExact)
+        {
+            _ = NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog, targetId, pageId,
+                outputs, dependencies, targets, null, fields);
+            planStart = $"CompileGlobalExactSingleCandidate({Literal(targetId)},{Literal(pageId)}";
+            additional = ",listFields:" + Columns(fields);
+        }
+        else
+        {
+            _ = DerivedRelationNamesCompilation.CompileLogicalPage(model, relation.Target, relation.TargetPage,
+                outputs, dependencies, condition, targets, exact);
+            planStart = DerivedRelationNamesCompilation.LogicalPagePlanStart(model, relation.Target, relation.TargetPage, condition, exact);
+            if (DerivedRelationNamesCompilation.EmbedsParentScope(relation.Target, relation.FixedParent))
+                additional = NonRedundantCrossTableCompilation.BindingArgument(exact.CrossPlans ?? [], "bindings") +
+                    ",listFields:" + Columns(fields);
+        }
         return $$"""
     /// <summary>Excel 当前读使用实际发布页的精确范围及导入专用投影。</summary>
     private static readonly NonRedundantReadPlan {{planName}}=
-        global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.CompileGlobalExactSingleCandidate(
-            {{Literal(targetId)}},{{Literal(pageId)}},{{Columns(outputs)}},{{Columns(dependencies)}}{{targetArgument}},listFields:{{Columns(fields)}});
+        global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.{{planStart}},
+            {{Columns(outputs)}},{{Columns(dependencies)}}{{targetArgument}}{{additional}});
 
 """;
     }
@@ -219,10 +236,10 @@ internal static class DerivedRelationNamesRenderer
         var conditionName="SingleImportCondition"+suffix;
         var importDeclaration=importCondition is null?"":RelationConditionsCompilation.Declaration(importCondition,conditionName);
         var readPlan="DerivedOptionsPlan"+suffix;
-        if(DerivedRelationNamesCompilation.UsesSeparateGlobalExactImportPlan(relation))
+        if(DerivedRelationNamesCompilation.UsesSeparateExactImportPlan(relation))
         {
             readPlan="DerivedImportPlan"+suffix;
-            importDeclaration+=GlobalExactImportDeclaration(model,relation,exact!,importCondition!,readPlan);
+            importDeclaration+=ExactImportDeclaration(model,relation,exact!,importCondition!,readPlan);
         }
         var sameParent=ControlRenderer.RelationContext(page,relation,false).SameParent;
         var targetParent=mapped is not null?"targetParent.ToString()":sameParent?"parentId":"null";

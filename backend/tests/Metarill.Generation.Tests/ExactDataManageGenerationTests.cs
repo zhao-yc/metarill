@@ -922,6 +922,8 @@ public sealed class ExactDataManageGenerationTests
     [InlineData(1,0,true,true,false,false,true,4,true,true)]
     [InlineData(0,0,false,false,false,true,true,1,false,false,true)]
     [InlineData(1,0,false,false,false,true,true,1,false,false,true)]
+    [InlineData(0,0,false,false,false,true,true,0,false,false,true)]
+    [InlineData(1,0,false,false,false,true,true,0,false,false,true)]
     public async Task Single_exact_scope_uses_physical_or_joined_match(int sourceMode,int targetMode,bool joined,bool parent,bool hidden,
         bool selection=false,bool importCondition=false,int globalTarget=0,bool joinedPage=false,bool joinedControl=false,
         bool joinedImport=false)
@@ -1059,7 +1061,7 @@ public sealed class ExactDataManageGenerationTests
                 Assert.Contains(".`name`",expression);
                 var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
                     importSql.GetType().GetProperty("Constants",internals)!.GetValue(importSql));
-                Assert.Contains("源页限定",parameters.Values);
+                if(globalTarget!=0)Assert.Contains("源页限定",parameters.Values);
                 Assert.Contains(actor.StoreId,parameters.Values);
                 Assert.Contains("PageAsync(DerivedImportPlan201_25.BindAccount(actor),scope.Filters",serviceText);
                 Assert.Contains("scope.Condition.And(importCondition),currentRead:true",serviceText);

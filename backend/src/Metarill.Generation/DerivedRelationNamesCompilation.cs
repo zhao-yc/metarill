@@ -23,24 +23,22 @@ internal static class DerivedRelationNamesCompilation
     internal static bool UsesExactSingleTarget(TableModel target,PageModel page)=>
         !target.IsGlobal&&ExactDataManageCompilation.Declared(page);
 
-    /// <summary>全局精确单选的 Excel 逻辑条件可以引入额外账号范围，仅由导入计划绑定。</summary>
-    internal static bool UsesSeparateGlobalExactImportPlan(RelationModel relation)=>
-        IsGlobalExactSingle(relation)&&relation.ImportCondition is {HasLogicalFields:true};
+    /// <summary>精确单选的 Excel 逻辑条件可以引入额外账号范围，仅由导入计划绑定。</summary>
+    internal static bool UsesSeparateExactImportPlan(RelationModel relation)=>
+        UsesExactSingle(relation)&&relation.ImportCondition is {HasLogicalFields:true};
 
     /// <summary>交互候选只纳入自己需要的逻辑投影。</summary>
     internal static RelationConditionModel? ProjectionCondition(RelationModel relation)=>
-        relation.Conditions??(UsesExactSingle(relation)&&!UsesSeparateGlobalExactImportPlan(relation)?relation.ImportCondition:null);
+        relation.Conditions??(UsesExactSingle(relation)&&!UsesSeparateExactImportPlan(relation)?relation.ImportCondition:null);
 
     /// <summary>固定读取直接核对逻辑父、同父多范围及项目内目标引用的全局父页。</summary>
     internal static bool EmbedsParentScope(TableModel target,MultiTargetParentScope? parent)=>
         parent is {Logical:true} or {AdditionalTargets.Count:>0}||!target.IsGlobal&&parent is {Global:true};
 
-    /// <summary>普通目标页的级联条件在原候选和当前读中重用同一发布范围。</summary>
+    /// <summary>普通候选的逻辑条件来自发布页、父级或原控件查询。</summary>
     internal static bool UsesLogicalPage(RelationModel relation)=>
         EmbedsParentScope(relation.Target,relation.FixedParent)||FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||
-        relation.Conditions?.HasLogicalFields==true||UsesSelfTreeExact(relation)||
-        UsesExactSingle(relation)&&!UsesSeparateGlobalExactImportPlan(relation)&&
-        relation.ImportCondition is ({CrossFields.Count:>0} or {SelfTreeFields.Count:>0});
+        relation.Conditions?.HasLogicalFields==true||UsesSelfTreeExact(relation);
 
     /// <summary>全局非冗余目标及冗余单选的账号范围来自实际发布页，生成目录须保留该页范围。</summary>
     internal static bool HasGlobalAccountScope(TableModel target,PageModel page)=>
@@ -268,7 +266,7 @@ internal static class DerivedRelationNamesCompilation
         var orderFields = relation.OptionsOrder?.Where(item => !relation.IndependentOrder.Contains(item.Column))
             .Select(item => item.Column.Source.ColumnName) ?? [];
         var dependencies = fields.Select(column => column.Source.ColumnName).Concat(orderFields)
-            .Concat(UsesExactSingle(relation)&&!UsesSeparateGlobalExactImportPlan(relation)?relation.ImportCondition?.Syntax.Fields??[]:[])
+            .Concat(UsesExactSingle(relation)&&!UsesSeparateExactImportPlan(relation)?relation.ImportCondition?.Syntax.Fields??[]:[])
             .Concat(["id", name.Source.ColumnName]).Concat(exact is null ? [] : new[] { exact.Column.Source.ColumnName })
             .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var outputs = name.IsId?new[]{"id"}:new[]{"id",name.Source.ColumnName};
@@ -338,7 +336,7 @@ internal static class DerivedRelationNamesCompilation
     {
         var nameTargets = NonRedundantReadCompilation.ProjectPathTargets(model, relation.Target, relation.TargetPage,
             [relation.NameColumn.Source.ColumnName]);
-        var fields=UsesExactSingle(relation)&&(forImport||!UsesSeparateGlobalExactImportPlan(relation))
+        var fields=UsesExactSingle(relation)&&(forImport||!UsesSeparateExactImportPlan(relation))
             ?relation.ImportCondition?.Syntax.Fields??[]:[];
         var conditionTargets=NonRedundantReadCompilation.ProjectPathTargets(model,relation.Target,relation.TargetPage,
             fields.Concat(relation.Conditions?.JoinedFields??Enumerable.Empty<string>())
