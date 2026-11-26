@@ -235,10 +235,10 @@ public static partial class MySqlNonRedundantReadCompiler
             (checkboxAccount?table.IsRongyu!=1||pageType is not("" or "0" or "1" or "2"):pageType!="2"))return false;
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
         var exact=page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString();
-        // 只有同项目的冗余文本父字典能将精确权限留给请求入口，投影及副本只重放固定范围。
+        // 发布页的物理条件用于名称投影和回填，当前角色的精确匹配值仍由请求入口处理。
         if(exact.Length>0)
         {
-            if(table.IsRongyu!=1||table.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||
+            if(table.YzProjectId!=catalog.YzProjectId||page.YzProjectId!=catalog.YzProjectId||
                 !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))return false;
             var match=ExactDataManageValues.Field(exact);
             if(!storage.PhysicalColumns.Any(column=>column.ColumnName==match&&GlobalPhysicalRelationValue.IsScalar(storage,table,column)&&
@@ -257,13 +257,14 @@ public static partial class MySqlNonRedundantReadCompiler
                 CrossTableStorageColumns.IsLogicalPathField(table,catalog.ConfigColumns,field)))
             return false;
         var usesDictionaryAccount=syntax.Terms.Any(IsStoredAccount);
-        if(parents.Length==0)return exact.Length==0&&(!checkboxAccount||usesDictionaryAccount);
+        if(parents.Length==0)return (exact.Length==0||table.IsRongyu==0)&&(!checkboxAccount||usesDictionaryAccount);
         var binding=checkboxAccount
             ?MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)
             :MultiTargetParentScope.CompileSelectionPage(catalog,table,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true);
         // 冗余字典可由全局父页限定账号，实际父页在候选、读取和维护编译时重新验证。
         return binding is {Logical:false} parent&&
-            (exact.Length==0||!parent.Global&&parents.Length==1&&CrossTableStorageColumns.DeclaresStoredTextKey(catalog,table,parent.Target))&&
+            (exact.Length==0||table.IsRongyu==0||
+                !parent.Global&&parents.Length==1&&CrossTableStorageColumns.DeclaresStoredTextKey(catalog,table,parent.Target))&&
             (parent.Global?table.IsRongyu==1:!checkboxAccount||usesDictionaryAccount||
                 allowStoredTextParent&&CrossTableStorageColumns.DeclaresStoredTextKey(catalog,table,parent.Target));
 

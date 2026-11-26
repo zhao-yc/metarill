@@ -9,7 +9,11 @@ internal static class ImportRenderer
     /// <summary>普通导入由页面开关启用，定制导入必须另行实现明确业务入口。</summary>
     public static bool Enabled(PageModel page) => page.Source.IsImport == 1 || !string.IsNullOrWhiteSpace(Mode(page));
     /// <summary>只有私有生成导入调用携带真实动作，客户端不能绕过多选或级联的目标权限。</summary>
-    internal static bool RelationOperationAware(GenerationModel model,TableModel table,PageModel page)=>Enabled(page)&&DatabaseCheckboxCompilation.ForService(model,table,page).Count>0||CascadeTreeExcelRenderer.OperationAware(model,table,page)||Enabled(page)&&table.Source.IsRongyu==0&&MultiSelectCompilation.ForService(model,table,page).Count>0;
+    internal static bool RelationOperationAware(GenerationModel model,TableModel table,PageModel page)=>
+        Enabled(page)&&DatabaseCheckboxCompilation.ForService(model,table,page).Count>0||
+        CascadeTreeExcelRenderer.OperationAware(model,table,page)||
+        Enabled(page)&&MultiSelectCompilation.ForService(model,table,page).Any(multi=>
+            table.Source.IsRongyu==0||multi.ImportCondition is not null&&Columns(page).Contains(multi.Source));
     /// <summary>读取已声明导入策略，默认追加。</summary>
     public static string Mode(PageModel page) => page.Source.Extra.TryGetValue("importMethod", out var value) ? value.ToString() : "";
     /// <summary>Excel只取原显式编辑列；父键由页面上下文绑定，不接受覆盖。</summary>

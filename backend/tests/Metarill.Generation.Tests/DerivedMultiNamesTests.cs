@@ -430,11 +430,16 @@ public sealed class DerivedMultiNamesTests
     [InlineData(true,true)]
     [InlineData(false,true,true)]
     [InlineData(false,false,false,true)]
-    public async Task R0_multi_excel_applies_control_conditions_in_addition_to_the_target_page(bool derived,bool overlay,
-        bool targetAccount=false,bool joinedCondition=false)
+    [InlineData(false,false,false,false,1,1)]
+    [InlineData(false,true,false,true,1,0)]
+    [InlineData(true,true,false,true,1,0,true)]
+    public async Task Multi_excel_applies_control_conditions_in_addition_to_the_target_page(bool derived,bool overlay,
+        bool targetAccount=false,bool joinedCondition=false,int sourceMode=0,int targetMode=0,bool exactTarget=false)
     {
         const string ns="Example.MultiImportScope";
         var catalog=Catalog("multi_import_scope",false);
+        catalog.ConfigTables.Single(table=>table.Id=="2").IsRongyu=sourceMode;
+        catalog.ConfigTables.Single(table=>table.Id=="3").IsRongyu=targetMode;
         var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
         source.ControlDetail=JsonSerializer.Serialize(new{pageId="301",nameField="name",whereSql=Where(31)});
         var field=catalog.ConfigPageColumns.Single(column=>column.ConfigPageId=="201"&&column.ConfigColumnId==source.Id);
@@ -462,7 +467,20 @@ public sealed class DerivedMultiNamesTests
         var target=catalog.ConfigPages.Single(page=>page.Id=="301");
         target.WhereSql+=" AND sheet_status<>99";
         if(targetAccount)target.WhereSql+=" AND store_id=@current_store_id";
-        RedundantMultiNameCacheTests.Published(catalog);
+        if(sourceMode==1)
+        {
+            var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="201");
+            sourcePage.Extra["importMethod"]=JsonSerializer.SerializeToElement(overlay?"OverWriteByFirstColumn":"OnlyNew");
+            sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(overlay?"edit":"list");
+        }
+        if(exactTarget)
+        {
+            target.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("sheet_status");
+            foreach(var admin in catalog.YzAdminTypes)
+                admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        }
+        foreach(var member in catalog.ConfigColumns.Cast<MetadataRecord>().Concat(catalog.ConfigPageColumns))
+            member.YzProjectId=catalog.YzProjectId;
         var model=GenerationModel.Create(catalog,ns);
         var table=model.Tables.Single(item=>item.Source.Id=="2");
         var page201=table.Pages.Single(item=>item.Source.Id=="201");
@@ -481,11 +499,28 @@ public sealed class DerivedMultiNamesTests
             Assert.Contains("MultiImportCondition201_25.BindVariables",importCode);
             Assert.Contains("relationContext[\"segment\"]",importCode);
             Assert.Contains("AccountConditionVariables.Require(actor, \"current_store_id\")",importCode);
-            Assert.Contains(targetAccount||joinedCondition?"condition:importCondition,currentRead:true":
+            var targetModel=model.Tables.Single(item=>item.Source.Id=="3");
+            var targetPage=targetModel.Pages.Single(item=>item.Source.Id=="301");
+            var scopedRead=FixedPageConditionCompilation.HasMultiTargetScope(model,targetModel,targetPage);
+            Assert.Contains(targetAccount||joinedCondition||scopedRead?"condition:importCondition,currentRead:true":
                 derived?"condition:importCondition.And(MultiPageCondition201_25)":
                 "importCondition.ApplyConstants(query,session,\"multi_control_import_201_25\")",importCode);
             var untilImport=generated[..importAt];
             Assert.DoesNotContain("MultiImportCondition201_25.BindVariables",untilImport);
+            if(sourceMode==1)
+            {
+                Assert.Contains("""RequirePagePermission("201","import")""",importCode);
+                Assert.Contains("""if(authorizationOperation==RecordMutationOperation.Import)relationAuthorization.RequirePagePermission("201", "import");else relationAuthorization.RequirePagePermission("301", "list");""",untilImport);
+                Assert.Contains("actor, RecordMutationOperation.Import, cancellationToken",untilImport);
+                if(overlay)Assert.Contains("update, request.ParentId, actor, RecordMutationOperation.Import, cancellationToken",untilImport);
+                if(joinedCondition)
+                    Assert.Contains("PageAsync(MultiImportReadPlan201_25.BindAccount(actor)",importCode);
+                if(exactTarget)
+                {
+                    Assert.Contains("""multiImportExactAuthorization.ResolveExactDataManage("301", "list", "real_name")""",importCode);
+                    Assert.Contains("""filters.Add(new("sheet_status", FixedReadComparison.In""",importCode);
+                }
+            }
             Assert.Equal("segment",Assert.Single(ImportDependencyCompilation.ForPage(model,table,page201).Dependencies[source.Id]).Source.ColumnName);
 
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
@@ -501,7 +536,7 @@ public sealed class DerivedMultiNamesTests
                 .Invoke(bound,[new Metarill.Data.MySqlDatabaseProvider(),"excel",new Func<string,string>(name=>name)])!;
             var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(clause.GetType().GetProperty("Parameters")!.GetValue(clause));
             Assert.Equal(new object?[]{overlay?32:31,9007199254741197L,23L,"A"},parameters.Values);
-            if(derived||targetAccount||joinedCondition)
+            if(derived||targetAccount||joinedCondition||scopedRead)
             {
                 var readField=joinedCondition?"MultiImportReadPlan201_25":"MultiDerivedPlan201_25";
                 var read=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service
@@ -514,6 +549,31 @@ public sealed class DerivedMultiNamesTests
                 if(joinedCondition)
                     Assert.Contains("LEFT JOIN `multi_import_scope_company`",Assert.IsType<string>(mysql.GetType()
                         .GetProperty("From",HiddenInstance)!.GetValue(mysql)));
+            }
+
+            if(sourceMode==1)
+            {
+                var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(assembly
+                    .GetType(ns+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
+                var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(maintenance.GetType()
+                    .GetProperty("Plans",HiddenInstance)!.GetValue(maintenance));
+                var sourcePlan=plans["2"]!;
+                var read=sourcePlan.GetType().GetProperty("Read")!.GetValue(sourcePlan)!;
+                var expression=Assert.IsType<string>(read.GetType().GetMethod("Expression",HiddenInstance)!
+                    .Invoke(read,["target_names"]));
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    read.GetType().GetProperty("Constants",HiddenInstance)!.GetValue(read));
+                Assert.Contains(".`sheet_status`",expression);
+                Assert.Contains(99,constants.Values);
+                Assert.DoesNotContain(overlay?32:31,constants.Values);
+                Assert.DoesNotContain(".`segment`",expression);
+                Assert.DoesNotContain(".`store_id`",expression);
+
+                // 先装载精简生成程序集，再建立独立完整包，避免 SDK 将嵌套项目的源码编进探针。
+                new FrontendPackager().Validate(catalog);
+                var app=Path.Combine(directory,"app");
+                Assert.True(new ApplicationPackager().Create(catalog,app,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+                foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(app,operation);
             }
 
             field.Extra["controlDetail"]=JsonSerializer.SerializeToElement(JsonSerializer.Serialize(new

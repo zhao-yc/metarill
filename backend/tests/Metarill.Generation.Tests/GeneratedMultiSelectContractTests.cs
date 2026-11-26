@@ -132,14 +132,15 @@ public sealed class GeneratedMultiSelectContractTests
     private static string SourceRoot([CallerFilePath] string source = "") => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!, "../../.."));
 
     [Theory]
-    [InlineData("scope", "额外控件范围需要固定来源字段读取协议", "额外控件范围需要固定来源字段读取协议")]
+    [InlineData("scope", "父键必须沿用目标页已证明的范围", "父键必须沿用目标页已证明的范围")]
     [InlineData("name", "名称列未开放读取", "名称字段不在目标页可读投影")]
     [InlineData("parent", "来源页未开放目标父字段", "来源页未开放目标父字段")]
     [InlineData("names", "冗余名称辅助列尚未明确声明", "冗余名称辅助列尚未明确声明")]
     public async Task Incomplete_field_proofs_stay_explicitly_unsupported(string kind, string generatedReason, string capabilityReason)
     {
         var catalog = Catalog();
-        if (kind == "scope") catalog.ConfigColumns.Single(column => column.Id == "25").ControlDetail = "{\"pageId\":\"301\",\"whereSql\":\"name='unproved'\"}";
+        if (kind == "scope") catalog.ConfigColumns.Single(column => column.Id == "25").ControlDetail =
+            """{"pageId":"301","whereSql":"name=@parentId"}""";
         if (kind == "name") catalog.ConfigPageColumns.RemoveAll(field => field.ConfigPageId == "301" && field.ConfigColumnId == "32");
         if (kind == "parent") catalog.ConfigPages.Single(page => page.Id == "201").WhereSql = "yz_project_id=@current_yz_project_id";
         if (kind == "names") catalog.ConfigColumns.Single(column => column.Id == "27").IsVirtualColumn=1;

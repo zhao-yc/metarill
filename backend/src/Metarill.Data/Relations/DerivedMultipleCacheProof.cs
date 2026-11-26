@@ -60,27 +60,15 @@ internal static class DerivedMultipleCacheProof
             Text("table") is {Length:>0} tableName&&tableName!=target.TableName)throw Invalid();
         if(!catalog.ConfigPageColumns.Any(f=>f.ConfigPageId==page.Id&&f.ConfigColumnId==value.Id)||page.YzProjectId.Length>0&&page.YzProjectId!=catalog.YzProjectId||foreign.Extra.GetValueOrDefault("linkConfigPageId").ToString() is{Length:>0} link&&link!=page.Id)throw Invalid();
         var stem=foreign.ColumnName[..^4];if(cache.ColumnName!=stem+"_"+(value.ColumnName.EndsWith('s')?value.ColumnName:value.ColumnName+"s"))throw Invalid();
-        RequireCoveredMultiCondition(catalog,foreign,target,page,Text("whereSql"));
+        // 控件条件属于 Excel 名称反查。重算按已存 ID 和实际发布页读取，不绑定导入本行或操作人。
+        var importFilter=Text("whereSql");
+        if(importFilter.Length>0)
+        {
+            var fields=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id))
+                .Select(column=>column.ColumnName);
+            _=FixedConditionPlan.Compile(importFilter,fields);
+        }
         RequireValue(catalog,source,foreign,target,value);
-    }
-
-    /// <summary>控件可以重复已执行的固定条件。普通目标自带项目隔离，其他条件须来自名称重算实际使用的目标页。</summary>
-    private static void RequireCoveredMultiCondition(MetadataCatalog catalog,ColumnMetadata foreign,TableMetadata target,
-        PageMetadata page,string definition)
-    {
-        if(string.IsNullOrWhiteSpace(definition))return;
-        var fields=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id))
-            .Select(column=>column.ColumnName).ToArray();
-        var requested=FixedConditionPlan.Compile(definition,fields);
-        var pageScoped=GlobalCrossTableTarget.Declared(target)||
-            MySqlNonRedundantReadCompiler.MultiTargetLogicalPage(catalog,target,foreign)?.Id==page.Id;
-        var pageConditions=pageScoped
-            ?FixedConditionPlan.Compile(page.WhereSql,fields).Terms.Select(term=>term.ToDefinition()).ToHashSet(StringComparer.Ordinal)
-            :[];
-        var projectScoped=!GlobalCrossTableTarget.Declared(target);
-        if(requested.Terms.Any(term=>!pageConditions.Contains(term.ToDefinition())&&
-            !(projectScoped&&GlobalMultipleRelationTarget.IsProjectScope(term))))
-            throw new NotSupportedException("多选控件附加条件未被名称回填的固定目标范围覆盖。");
     }
     /// <summary>原复选按来源动作授权，目标页只用于关系归属，不借用type=2或目标列表权限。</summary>
     private static void RequireCheckbox(MetadataCatalog catalog,ColumnMetadata foreign,TableMetadata target,ColumnMetadata value,ColumnMetadata cache,

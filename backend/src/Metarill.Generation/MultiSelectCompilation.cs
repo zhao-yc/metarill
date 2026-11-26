@@ -141,8 +141,10 @@ internal static class MultiSelectCompilation
             RelationConditionModel? importCondition=null;
             if(!FixedPageQueryCompilation.TryProveSelection(model.Catalog,query,definition,out _))
             {
-                if(table.Source.IsRongyu!=0)return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
-                // 原非冗余 Excel 反查叠加控件条件；弹窗继续使用已有的目标页查询合同。
+                if(functionForm)return Gap("额外控件范围需要固定来源字段读取协议，不能使用宽范围目标页代替。");
+                if(ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
+                    return Gap("导入附加条件的目标页必须与实际存储外键一致。");
+                // 原 Excel 反查叠加控件条件；普通候选和名称缓存只使用已发布的目标页范围。
                 var condition=RelationConditionsCompilation.SelectionImport(model,table,page,query,definition.WhereSql);
                 if(condition.HasLogicalFields)DerivedMultiNamesCompilation.ValidateLogicalImport(model,target,targetPage,name,condition,exactTarget);
                 importCondition=condition;
