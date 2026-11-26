@@ -18,9 +18,11 @@ public sealed partial class MaintenanceReadProjectionTests
     }
     /// <summary>附件联接的条件子查询只在业务事务当前读加锁，匹配列始终不对外投影。</summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Published_join_exact_matches_lock_target_scope_in_current_reads(bool locking)
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    [InlineData(true,true)]
+    public async Task Published_join_exact_matches_lock_target_scope_in_current_reads(bool locking,bool generatedPlan)
     {
         var catalog=RelationMaintenanceCatalogTests.Catalog();
         var project=catalog.YzProjectId;
@@ -40,8 +42,11 @@ public sealed partial class MaintenanceReadProjectionTests
             new(){Id="1011",YzProjectId=project,ConfigPageId="101",ConfigColumnId="foreign",IsShow=1},
             new(){Id="2011",YzProjectId=project,ConfigPageId="201",ConfigColumnId="target_name",IsShow=1}
         ]);
-        var plan=MySqlNonRedundantReadCompiler.CompilePublishedJoinRecord(catalog,source.Id,from.Id,
-            ["id"],["id"],[],["target_name"]);
+        var plan=generatedPlan
+            ?MySqlNonRedundantReadCompiler.CompileProjectPage(catalog,source.Id,["id"],["target_name"],[],
+                [new(target.Id,"201"){ControlSourcePageId=from.Id}])
+            :MySqlNonRedundantReadCompiler.CompilePublishedJoinRecord(catalog,source.Id,from.Id,
+                ["id"],["id"],[],["target_name"]);
         var actor=new Metarill.Core.Security.RuntimeActor(12,"测试",false,project,"900") with{StoreId=5};
         var provider=new RecordingProvider(false,lockSuffix:locking?" FOR SHARE":"",idOnly:true);
         using var session=new DatabaseSession(Options,null,provider);
@@ -59,6 +64,25 @@ public sealed partial class MaintenanceReadProjectionTests
         Assert.DoesNotContain(" AS `target_name`",sql);
         Assert.Equal(locking,sql.Contains(" FOR SHARE)",StringComparison.Ordinal));
         Assert.Equal(locking,sql.EndsWith(" FOR SHARE",StringComparison.Ordinal));
+        if(generatedPlan)
+        {
+            string Render()=>ExactDataManageSql.ApplyDerived(session.Select<ScopeLockRow>(),session,
+                new NonRedundantReadPlan(bound),"target_name","generated_exact",["业务名"],project,locking).ToSql();
+            var ormSql=locking
+                ?await session.InTransactionAsync(()=>Task.FromResult(Render()))
+                :Render();
+            Assert.Contains(".`store_id`",ormSql);
+            Assert.Equal(locking,ormSql.Contains(" FOR SHARE)",StringComparison.Ordinal));
+            Assert.Equal(locking,ormSql.Contains(" FOR UPDATE)",StringComparison.Ordinal));
+            Assert.DoesNotContain("业务名",ormSql);
+        }
+    }
+
+    [FreeSql.DataAnnotations.Table(Name="maintenance_source",DisableSyncStructure=true)]
+    private sealed class ScopeLockRow
+    {
+        [FreeSql.DataAnnotations.Column(Name="id",IsPrimary=true)]
+        public long Id { get;set; }
     }
 
     /// <summary>非响应字段用于筛选、排序或固定条件时仍保留其联接；大小写沿现有表达式合同。</summary>

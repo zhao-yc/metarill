@@ -603,6 +603,65 @@ public sealed class FileCommandFactoryTests
         Assert.Equal(1,provider.Last?.Command?.Executions);
     }
 
+    /// <summary>业务关联的目标页条件由该页实际绑定求值，字典中间层和末级范围进入同一当前读。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(false,true)]
+    [InlineData(true,true)]
+    public async Task Business_lookup_locks_the_pages_used_by_dictionary_conditions(bool stored,bool explicitTarget)
+    {
+        var catalog=JoinedConditionFileCatalog(stored);
+        catalog.ConfigTables.Add(new(){Id="7",TableName="file_joined_scope_order",IsRongyu=0,YzProjectId="1"});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="71",ConfigTableId="7",ColumnName="id",LogicalType="int64",IsDbNotNull=1,YzProjectId="1"},
+            new(){Id="72",ConfigTableId="7",ColumnName="yz_project_id",LogicalType="int64",YzProjectId="1"},
+            new(){Id="73",ConfigTableId="7",ColumnName="country_id",LogicalType="string",LinkConfigTableId="2",YzProjectId="1"},
+            new(){Id="74",ConfigTableId="7",ColumnName="document_id",LogicalType="int64",LinkConfigTableId="1",YzProjectId="1",
+                ControlKind="List",ControlDetail="""{"tableId":"1","pageId":"101","nameField":"name"}""",
+                Extra={["linkConfigPageId"]=System.Text.Json.JsonSerializer.SerializeToElement("101")}},
+            new(){Id="75",ConfigTableId="7",ColumnName="document_name",LogicalType="string",YzProjectId="1",
+                Extra={["isJoinColumn"]=System.Text.Json.JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=System.Text.Json.JsonSerializer.SerializeToElement("document.name")}}
+        ]);
+        catalog.ConfigPages.Add(new(){Id="701",ConfigTableId="7",YzAdminTypeId="3",YzProjectId="1",
+            WhereSql="yz_project_id=@current_yz_project_id AND country_id=@parent_id"});
+        var binding=new Metarill.Data.Queries.NonRedundantSingleTargetScope("74","101","73")
+        {
+            SourcePageId="701",
+            NestedTargets=explicitTarget?[new("18","501"){SourcePageId="101"}]:[]
+        };
+        var plan=Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(catalog,"7",["id"],["document_name"],[],[binding]);
+        var actor=new RuntimeActor(12,"测试",false,"1","3");
+        Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor));
+        var bound=plan.BindAccount(actor with{StoreId=29});
+
+        var provider=new Provider();
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline"},null,provider);
+        provider.Read=command=>
+        {
+            var sql=command.CommandText;
+            Assert.Same(session.CurrentTransaction,command.Transaction);
+            Assert.Contains("`file_joined_scope_label`",sql);
+            Assert.Contains(".`store_id`",sql);
+            Assert.DoesNotContain(" AS `document_name`",sql);
+            Assert.EndsWith("FOR SHARE",sql,StringComparison.Ordinal);
+            Assert.Equal(stored?1:2,System.Text.RegularExpressions.Regex.Matches(sql,@" FOR SHARE\)").Count);
+            foreach(var expected in new object[]{29L,"停用","可下载"})
+                Assert.Contains(command.Parameters.Cast<DbParameter>(),parameter=>Equals(parameter.Value,expected)&&
+                    sql.Contains(parameter.ParameterName,StringComparison.Ordinal));
+            return new DataTable().CreateDataReader();
+        };
+        var reader=new Metarill.Data.Queries.NonRedundantReader(session);
+        await session.InTransactionAsync(async()=>
+        {
+            var rows=await reader.CurrentRowsAsync(bound,[],[],1,projectId:actor.ProjectId);
+            Assert.Empty(rows);
+            return true;
+        });
+        Assert.Equal(1,provider.Last?.Command?.Executions);
+    }
+
     /// <summary>精确匹配的冗余字典独立于附件页面常量，仍须按实际目标页限制账号和状态。</summary>
     [Theory]
     [InlineData(false,false,false)]

@@ -31,7 +31,7 @@ public static partial class MySqlNonRedundantReadCompiler
         HashSet<(string TableId,string ControlId)>? activeSelfTreeScopes=null,IReadOnlyList<string>? listFields=null,
         bool projectSingle=false,string? accountParentPageType=null,
         IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,bool exactSingleParent=false,
-        bool exactCheckboxParent=false,string? projectSingleControlKind=null,bool globalExactSingle=false)
+        bool exactCheckboxParent=false,string? projectSingleControlKind=null,bool globalExactSingle=false, bool lockPublishedJoinScopes=false)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(outputs);
@@ -132,6 +132,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var builder=new Builder(catalog,tableId,deferCascadeNames:projectionTrees.Count>0||accountParentPage||physicalParent is not null,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
         {
             CrossCandidateCondition=condition,
+            LockPublishedJoinScopes=lockPublishedJoinScopes||singleTargets is {Count:>0}||pageJoins.Count>0||listJoins.Length>0,
             ControlConditionJoins=listJoins.Select(column=>column.ColumnName).Concat(pageJoins).ToFrozenSet(StringComparer.OrdinalIgnoreCase),
             SelfTreeCandidateFields=projectionTrees,
             ActiveSelfTreeScopes=activeSelfTreeScopes??new(),
@@ -187,6 +188,7 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             GlobalCrossCandidate=true,
             MultiNamePathPage=page,
+            LockPublishedJoinScopes=joined,
             SelfTreeCandidateFields=tree,
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
         }.Compile([field],[]);
@@ -416,7 +418,8 @@ public static partial class MySqlNonRedundantReadCompiler
             var key=alias+".`id`";
             var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY ("+target+")":key+"="+target;
             TrackGlobalParentDependencies(plan," FROM "+Q(root.TableName)+" "+rootAlias,same);
-            return "EXISTS (SELECT 1"+plan.From+" WHERE "+same+" AND "+key+">0"+(plan.Scope.Length==0?"":" AND "+plan.Scope)+")";
+            return "EXISTS (SELECT 1"+plan.From+" WHERE "+same+" AND "+key+">0"+
+                (plan.Scope.Length==0?"":" AND "+plan.Scope)+PublishedJoinLock+")";
         }
 
         /// <summary>单值和多值共用全局父页编译，保留条件参数、物理字段及实际归属依赖。</summary>
@@ -567,7 +570,8 @@ public static partial class MySqlNonRedundantReadCompiler
             // 只更换显示列时没有新的目标页范围，沿既有项目联接处理。
             if(explicitBinding is {ApplyPageCondition:false,DisplayNameColumnId:not null,NestedTargets.Count:0})
                 return null;
-            var conditionJoin=ConditionSourcePage is not null&&ControlConditionJoins.Contains(output);
+            var conditionJoin=ControlConditionJoins.Contains(output)&&
+                (ConditionSourcePage is not null||CrossNameSourcePage is not null);
             var crossPage=CrossNamePage(ownerAlias);
             if(explicitBinding is not null||cascadeCacheOwner is not null||
                 (MultiNameSourcePage(ownerAlias)??crossPage) is not {} sourcePage)
@@ -735,7 +739,8 @@ public static partial class MySqlNonRedundantReadCompiler
             var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_page");
             var plan=CompileCrossPageCandidate(catalog,target.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
                 activeSelfTreeScopes:ActiveSelfTreeScopes,listFields:control?.Fields.ToArray(),projectSingle:true,
-                projectSingleControlKind:relation.ControlKind);
+                projectSingleControlKind:relation.ControlKind,singleTargets:binding.NestedTargets,
+                lockPublishedJoinScopes:LockPublishedJoinScopes);
             plan.CopyParametersTo(crossConstants);
             foreach(var reference in plan.PhysicalReferences)
                 references.TryAdd((reference.Table,reference.Column.Name),reference);
@@ -775,7 +780,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 (pageParent?.Target.Id!=parent.Target.Id||parent.AdditionalTargets.Any(item=>pageParent?.HasTarget(item.Target.Id)!=true)))
                 foreach(var scope in parent.AdditionalTargets)
                     predicate+=" AND "+SameSingleParent(prefix+"."+Q(scope.Target.ColumnName),prefix+"."+Q(parent.Target.ColumnName));
-            // 根记录锁不会传递到目标页的条件子查询，附件在事务里也要核对当前目标范围。
+            // 根记录锁不会传递给条件子查询，写入时目标页及其联接也须读取当前范围。
             return "EXISTS (SELECT 1"+plan.From+" WHERE "+predicate+PublishedJoinLock+")";
         }
 
@@ -784,14 +789,16 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             var prefix=ConditionParameterPrefix("mt_"+aliasPrefix+alias+"_single");
             var plan=CompileCrossPageCandidate(catalog,table.Id,page.Id,["id"],[],rootAlias:prefix,aliasPrefix:prefix+"_",
-                activeSelfTreeScopes:ActiveSelfTreeScopes,globalExactSingle:GlobalCrossTableTarget.DeclaresExactSingle(table,page));
+                activeSelfTreeScopes:ActiveSelfTreeScopes,globalExactSingle:GlobalCrossTableTarget.DeclaresExactSingle(table,page),
+                lockPublishedJoinScopes:LockPublishedJoinScopes);
             plan.CopyParametersTo(crossConstants);
             foreach(var reference in plan.PhysicalReferences)
                 references.TryAdd((reference.Table,reference.Column.Name),reference);
             scopedGlobalCrossTarget=true;
             var parentScope=sourceParent is null?"":" AND "+SameSingleParent(
                 plan.Expression(plan.RequiredMultiParent??throw new InvalidOperationException("固定单值目标缺少逻辑父表达式。")),sourceParent);
-            return "EXISTS (SELECT 1"+plan.From+" WHERE "+plan.Expression("id")+"="+alias+".`id` AND "+plan.Scope+parentScope+")";
+            return "EXISTS (SELECT 1"+plan.From+" WHERE "+plan.Expression("id")+"="+alias+".`id` AND "+plan.Scope+
+                parentScope+PublishedJoinLock+")";
         }
 
         /// <summary>单值副本按来源行归属重算，逻辑条件沿目标页的实际级联路径读取。</summary>

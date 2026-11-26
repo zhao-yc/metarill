@@ -264,7 +264,7 @@ public static partial class MySqlNonRedundantReadCompiler
             StoredConditionCaches=(storedConditionCaches??[]).ToFrozenSet(StringComparer.Ordinal),
             ControlConditionJoins=conditionJoins??FrozenSet<string>.Empty,
             ConditionSourcePage=conditionSourcePage,
-            LockPublishedJoinScopes=conditionJoins is {Count:>0}
+            LockPublishedJoinScopes=conditionJoins is {Count:>0}||singleTargets is {Count:>0}
         };
         return builder.Compile(outputNames,dependencies??[]);
     }
