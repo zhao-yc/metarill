@@ -777,9 +777,19 @@ public sealed class NonRedundantGeneratedReadTests
         int sourceStorage,int targetStorage,bool globalParent,bool textProject)=>
         VerifyGlobalListBusinessParent(sourceStorage,targetStorage,globalParent,projectScope:true,textProject,literal:true);
 
+    /// <summary>原下拉按实际物理父级限定全局字典，也可叠加发布的联接条件。</summary>
+    [Theory]
+    [InlineData(0,false,false)]
+    [InlineData(0,true,true)]
+    [InlineData(1,false,true)]
+    [InlineData(1,true,false)]
+    public Task Global_list_joined_condition_keeps_physical_parent(int sourceStorage,bool globalParent,bool projectScope)=>
+        VerifyGlobalListBusinessParent(sourceStorage,0,globalParent,projectScope,textProject:projectScope,
+            literal:true,accountScope:!projectScope,joinedControl:true);
+
     /// <summary>校验原下拉、生成的字典读写和名称维护是否共用实际父记录。</summary>
     private static async Task VerifyGlobalListBusinessParent(int sourceStorage,int targetStorage,
-        bool globalParent,bool projectScope,bool textProject,bool literal,bool accountScope=false)
+        bool globalParent,bool projectScope,bool textProject,bool literal,bool accountScope=false,bool joinedControl=false)
     {
         const string ns="Example.GlobalListProjectParent";
         var catalog=NonRedundantApplicationFixture.Catalog("mt_list_project_parent");
@@ -825,6 +835,31 @@ public sealed class NonRedundantGeneratedReadTests
         foreign.ControlKind="List";
         if(extraControl)
             foreign.ControlDetail="""{"pageId":"201","tableId":"2","nameField":"name","whereSql":"amount<=500"}""";
+        if(joinedControl)
+        {
+            var project=catalog.YzProjectId;
+            catalog.ConfigTables.Add(new(){Id="5",YzProjectId=project,TableName="mt_list_project_parent_area",
+                IsRongyu=1,Extra={["scopeKind"]=JsonSerializer.SerializeToElement("global")}});
+            catalog.ConfigColumns.AddRange([
+                new(){Id="51",ConfigTableId="5",YzProjectId=project,ColumnName="id",LogicalType="int64",IsDbNotNull=1},
+                new(){Id="52",ConfigTableId="5",YzProjectId=project,ColumnName="name",LogicalType="string"},
+                new(){Id="53",ConfigTableId="5",YzProjectId=project,ColumnName="active",LogicalType="int32"},
+                new(){Id="290",ConfigTableId="2",YzProjectId=project,ColumnName="area_id",LogicalType="int64",
+                    ControlKind="List",LinkConfigTableId="5",ControlDetail="""{"pageId":"501","tableId":"5","nameField":"name"}"""},
+                new(){Id="291",ConfigTableId="2",YzProjectId=project,ColumnName="area_name",LogicalType="string",
+                    Extra={["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                        ["columnFullName"]=JsonSerializer.SerializeToElement("area.name")}}
+            ]);
+            catalog.ConfigPages.Add(new(){Id="501",ConfigTableId="5",YzProjectId=project,YzAdminTypeId="5",
+                WhereSql="active=1",Extra={["type"]=JsonSerializer.SerializeToElement(1)}});
+            catalog.ConfigPageColumns.AddRange([
+                new(){Id="50152",ConfigPageId="501",ConfigColumnId="52",YzProjectId=project,IsShow=1},
+                new(){Id="201290",ConfigPageId="201",ConfigColumnId="290",YzProjectId=project,IsShow=1}
+            ]);
+            catalog.ConfigMenus.Add(new(){Id="8501",ConfigPageId="501",YzProjectId=project,YzAdminTypeId="5",
+                Kind="GENERATED_PAGE",Name="地区"});
+            foreign.ControlDetail="""{"pageId":"201","tableId":"2","nameField":"name","whereSql":"area_name <> '隐藏地区'"}""";
+        }
         foreign.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("201");
         var sourcePage=catalog.ConfigPages.Single(item=>item.Id=="101");
         var proof=sourceStorage==0?GlobalSingleRelationTarget.Require(catalog,owner,foreign,target,sourcePage):

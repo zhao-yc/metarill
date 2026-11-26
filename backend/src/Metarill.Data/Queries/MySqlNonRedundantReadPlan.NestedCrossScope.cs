@@ -93,9 +93,13 @@ public static partial class MySqlNonRedundantReadCompiler
         var checkbox=accountParentPageType=="2"&&IsPublishedCheckboxTarget(catalog,table,pageId);
         var hasParentScope=physicalParent is not null||accountParentPage||displayBindings is not null||
             listFields is null&&treeNames.Count>0&&IsScopedMultiTarget(catalog,table,pageId);
+        // 控件联接只能增加过滤。字典显式声明项目列时，仍由实际发布页固定项目范围。
+        var projectListScope=global&&listJoins.Count>0&&physicalParent is null&&
+            GlobalCrossTableTarget.IsProjectSinglePage(table,page,syntax,allowListPage:true);
         if(global&&!globalExactSingle)
         {
-            if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,table,page,allowMultiParent:hasParentScope,checkbox:checkbox);
+            if(projectListScope)GlobalCrossTableTarget.RequireProjectSingleCandidate(catalog,table,page,allowListPage:true);
+            else if(treeNames.Count>0)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,table,page,allowMultiParent:hasParentScope,checkbox:checkbox);
             else if(displayBindings is null&&!accountParentPage&&physicalParent is null)GlobalCrossTableTarget.RequireCrossTableCandidate(catalog,table,page);
             else GlobalCrossTableTarget.RequireMultiCandidate(catalog,table,page,checkbox);
         }
@@ -144,7 +148,7 @@ public static partial class MySqlNonRedundantReadCompiler
             ActiveSinglePages=activePages,
             MultiCandidateParent=projectSingle&&parent?.AdditionalTargets.Count is not >0?null:parent,
             MultiCandidatePage=page,
-            MultiCandidateProjectScoped=parent is {Logical:false}&&
+            MultiCandidateProjectScoped=projectListScope||parent is {Logical:false}&&
                 (accountParentPageType=="2"&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax)||
                  physicalParent is not null&&(GlobalCrossTableTarget.IsSingleProjectParentPage(page,syntax)||
                     GlobalCrossTableTarget.IsProjectListParentPage(table,page,syntax))),

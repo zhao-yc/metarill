@@ -32,9 +32,11 @@ public sealed class GlobalDerivedTargetGenerationTests
     }
     /// <summary>全局字典的已发布联接字段也可用于原下拉附加条件。</summary>
     [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public async Task Global_list_condition_uses_a_published_joined_field(int sourceStorage)
+    [InlineData(0,false)]
+    [InlineData(1,false)]
+    [InlineData(0,true)]
+    [InlineData(1,true)]
+    public async Task Global_list_condition_uses_a_published_joined_field(int sourceStorage,bool projectScope)
     {
         const string ns="Example.GlobalJoinedListCondition";
         var catalog=Catalog(sourceStorage,"int64","int64");
@@ -44,6 +46,12 @@ public sealed class GlobalDerivedTargetGenerationTests
                 ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
                 ["columnFullName"]=JsonSerializer.SerializeToElement("global_target.segment")}}
         ]);
+        if(projectScope)
+        {
+            catalog.ConfigColumns.Add(new(){Id="17",ConfigTableId="1",YzProjectId="100",
+                ColumnName="yz_project_id",LogicalType=sourceStorage==0?"int64":"string"});
+            catalog.ConfigPages.Single(page=>page.Id=="10").WhereSql+=" AND yz_project_id=@current_yz_project_id";
+        }
         var selector=catalog.ConfigColumns.Single(column=>column.Id=="34");
         selector.ControlDetail=JsonSerializer.Serialize(new{tableId="1",pageId="10",
             nameField="global_target_name",whereSql="terminal_segment <> 17"});
@@ -83,6 +91,10 @@ public sealed class GlobalDerivedTargetGenerationTests
             var options=Plan("DerivedOptionsPlan30_34");
             Assert.Contains("`global_target`",From(options));
             Assert.Contains(".`segment`",Expression(options,"terminal_segment"));
+            var scope=Assert.IsType<string>(options.GetType()
+                .GetProperty("Scope",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(options));
+            var projectMarker=sourceStorage==0?"@project_scope_number":"@project_scope_text";
+            Assert.Equal(projectScope,scope.Contains("b.`yz_project_id`="+projectMarker,StringComparison.Ordinal));
 
             var code=await File.ReadAllTextAsync(Path.Combine(generated,"Services/CachedConsumerService.g.cs"));
             Assert.Contains("OptionsCondition30_34.BindVariables",code);
@@ -98,6 +110,7 @@ public sealed class GlobalDerivedTargetGenerationTests
                     var sql=From(read)+Expression(read,cacheName);
                     Assert.Contains(".`segment`",sql);
                     Assert.Contains(Constants(read),pair=>Equals(pair.Value,17)&&sql.Contains(pair.Key,StringComparison.Ordinal));
+                    if(projectScope)Assert.Contains(".`yz_project_id`="+projectMarker,sql);
                 }
             }
             else
@@ -111,6 +124,7 @@ public sealed class GlobalDerivedTargetGenerationTests
                 var sql=Expression(read,cacheName);
                 Assert.Contains(".`segment`",sql);
                 Assert.Contains(Constants(read),pair=>Equals(pair.Value,17)&&sql.Contains(pair.Key,StringComparison.Ordinal));
+                if(projectScope)Assert.Contains(".`yz_project_id`="+projectMarker,sql);
                 var reverse=Assert.IsAssignableFrom<System.Collections.IEnumerable>(read.GetType()
                     .GetProperty("Reverse",hidden|System.Reflection.BindingFlags.Instance)!.GetValue(read));
                 Assert.Contains(reverse.Cast<object>(),item=>
