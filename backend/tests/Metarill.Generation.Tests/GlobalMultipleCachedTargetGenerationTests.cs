@@ -238,10 +238,20 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         VerifyPublishedGlobalMultiselect(0,0,alternateDictionary,projectType,unfiltered:unfiltered,globalSource:true,
             projectScoped:projectScoped,accountField:accountField,exact:true,alternateDictionary:alternateDictionary);
 
+    /// <summary>实际来源页可独立选择已发布的简称，原名称数组及精确选择范围保持。</summary>
+    [Theory]
+    [InlineData(false,false,false)]
+    [InlineData(true,false,false)]
+    [InlineData(true,true,false)]
+    [InlineData(true,true,true)]
+    public Task Global_exact_multiselect_uses_each_source_page_display(bool globalSource,bool alternateDictionary,bool derivedShortName)=>
+        VerifyPublishedGlobalMultiselect(0,0,false,"string",globalSource:globalSource,exact:true,
+            alternateDictionary:alternateDictionary,shortName:derivedShortName?"global_target_name":"short_caption");
+
     /// <summary>从实际生成程序集核对名称、关联选档、项目隔离和数据维护计划。</summary>
     private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType,
         bool unfiltered=false,bool globalSource=false,bool projectScoped=false,string? accountField=null,
-        bool exact=false,bool alternateDictionary=false)
+        bool exact=false,bool alternateDictionary=false,string? shortName=null)
     {
         const string application="Example.GlobalTextDictionary";
         var names=derivedName?"global_source_global_target_names":"global_source_captions";
@@ -253,8 +263,9 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         var dictionary=catalog.ConfigPages.Single(page=>page.Id=="10");
         dictionary.WhereSql=unfiltered?"":"status=17";
         if(projectScoped)dictionary.WhereSql=WithCurrentProject(dictionary.WhereSql);
-        if(projectType is not null)ConfigureStoredGlobalDictionary(catalog,projectType,derivedName);
-        if(targetStorage==0&&globalSource&&!derivedName)MakeProjectDictionaryNonRedundant(catalog);
+        var hasDerivedLabel=derivedName||shortName=="global_target_name";
+        if(projectType is not null)ConfigureStoredGlobalDictionary(catalog,projectType,hasDerivedLabel);
+        if(targetStorage==0&&globalSource&&!hasDerivedLabel)MakeProjectDictionaryNonRedundant(catalog);
         if(exact)
         {
             dictionary.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
@@ -278,6 +289,25 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="31"&&field.ConfigColumnId=="34")
                     .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"pageId":"14"}""");
             }
+        }
+        if(shortName is not null)
+        {
+            if(shortName=="short_caption")
+                catalog.ConfigColumns.Add(new(){Id="19",ConfigTableId="1",YzProjectId="100",ColumnName=shortName,LogicalType="string"});
+            var label=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="1"&&column.ColumnName==shortName);
+            if(alternateDictionary)catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="10"&&field.ConfigColumnId==label.Id);
+            var labelPage=alternateDictionary?"14":"10";
+            if(!catalog.ConfigPageColumns.Any(field=>field.ConfigPageId==labelPage&&field.ConfigColumnId==label.Id))
+                catalog.ConfigPageColumns.Add(new(){Id="14019",ConfigPageId=labelPage,ConfigColumnId=label.Id,
+                    YzProjectId="100",IsShow=1});
+            var control=catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="31"&&field.ConfigColumnId=="34");
+            control.Extra["controlDetail"]=JsonSerializer.SerializeToElement(new{pageId=labelPage,nameField=shortName});
+            // 原多选名称筛选与直接筛选同一联接列使用同一个请求键。
+            catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="31"&&field.ConfigColumnId=="35")
+                .Extra.Remove("isSearch");
+            control.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+            var generatedModel=GenerationModel.Create(catalog,application);
+            Assert.Empty(GenerationCapabilityAudit.Collect(generatedModel));
         }
         if(globalSource)
         {
@@ -303,8 +333,10 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             new CSharpGenerator().Generate(catalog,output,application);
             var serviceCode=await File.ReadAllTextAsync(Path.Combine(output,"Services/CachedConsumerService.g.cs"));
             Assert.Contains("ImportMulti30_34Async",serviceCode);
-            if(projectScoped||accountField is not null||exact)
+            if(projectScoped||accountField is not null||exact&&(shortName is null||globalSource))
                 Assert.Contains("MultiDerivedPlan30_34",serviceCode);
+            else if(exact)
+                Assert.Contains("""ResolveExactDataManage("10", "list", "real_name")""",serviceCode);
             else
                 Assert.Equal(!unfiltered,serviceCode.Contains("MultiPageCondition30_34",StringComparison.Ordinal));
             Assert.Contains("Export30Async",serviceCode);
@@ -455,7 +487,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.IsType<UnauthorizedAccessException>(
                     Assert.Throws<TargetInvocationException>(()=>validate.Invoke(null,[otherProject])).InnerException);
             }
-            if(projectScoped||accountField is not null||exact)
+            if(projectScoped||accountField is not null||exact&&(shortName is null||globalSource))
             {
                 var service=assembly.GetType(application+".Generated.Services.CachedConsumerService",true)!;
                 var lookup=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("MultiDerivedPlan30_34",
@@ -479,6 +511,38 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                         Assert.DoesNotContain(17,parameters.Values);
                     }
                 }
+            }
+            if(shortName is not null)
+            {
+                var service=assembly.GetType(application+".Generated.Services.CachedConsumerService",true)!;
+                var defaultRead=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("ReadPlan30",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                var alternateRead=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("ReadPlan31",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                var original=defaultRead.GetType().GetProperty("MySql",hidden)!.GetValue(defaultRead)!;
+                var alternate=alternateRead.GetType().GetProperty("MySql",hidden)!.GetValue(alternateRead)!;
+                Assert.Contains("multi_value.`caption`",CheckboxNameExpression(original,names));
+                var labelSql=shortName=="short_caption"?"multi_value.`short_caption`":"`global_target`";
+                Assert.Contains(labelSql,CheckboxNameExpression(alternate,names));
+                Assert.DoesNotContain("multi_value.`caption`",CheckboxNameExpression(alternate,names));
+                var predicates=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(
+                    alternate.GetType().GetProperty("ArrayNamePredicates",hidden)!.GetValue(alternate));
+                Assert.Contains(labelSql,predicates[names]);
+                var lookup=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("MultiDerivedPlan31_34",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
+                Assert.Contains(shortName,lookup.OutputTypes.Keys);
+                Assert.Contains("new(\""+shortName+"\",FixedReadComparison.Equal",serviceCode);
+                var detail=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/cached_consumer-detail-31.vue"));
+                Assert.Contains(shortName=="short_caption"?"selected-name-field=\"shortCaption\"":"selected-name-field=\"globalTargetName\"",detail);
+                Assert.Contains("selectedNames=\"entity.globalSourceCaptions\"",detail);
+                // 移除实际页的投影，即使其它发布页可见也必须拒绝。
+                var label=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="1"&&column.ColumnName==shortName);
+                var dictionaryPage=alternateDictionary?"14":"10";
+                catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId==dictionaryPage&&field.ConfigColumnId==label.Id);
+                var owner=catalog.ConfigTables.Single(table=>table.Id=="3");
+                var relation=catalog.ConfigColumns.Single(column=>column.Id=="34");
+                var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="31");
+                var rejected=Assert.Throws<NotSupportedException>(()=>
+                    GlobalMultipleRelationTarget.RequirePage(catalog,owner,relation,
+                        catalog.ConfigTables.Single(table=>table.Id=="1"),sourcePage));
+                Assert.Contains("未在实际字典页发布",rejected.Message);
             }
             var expression=CheckboxNameExpression(read,names);
             Assert.Equal(!unfiltered,expression.Contains("multi_value.`status`",StringComparison.Ordinal));

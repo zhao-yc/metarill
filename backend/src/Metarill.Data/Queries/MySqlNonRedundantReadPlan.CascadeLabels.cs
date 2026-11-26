@@ -570,7 +570,7 @@ public static partial class MySqlNonRedundantReadCompiler
         }
     }
 
-    /// <summary>冻结实际候选页和该页选择的全局复选名称。</summary>
+    /// <summary>冻结实际候选页和该页选择的多值关系名称。</summary>
     private static (PageMetadata Page,string Name)? DeclaredMultiPageOverride(MetadataCatalog catalog,TableMetadata target,string name,
         ColumnMetadata relation,PageMetadata sourcePage)
     {

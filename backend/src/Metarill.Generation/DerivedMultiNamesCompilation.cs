@@ -8,10 +8,10 @@ internal static class DerivedMultiNamesCompilation
 {
     /// <summary>实际物理名称继续走原实现，不因联接标记猜测存储模式。</summary>
     internal static bool Declared(GenerationModel model,TableModel target,ColumnModel name)=>!NonRedundantReadCompilation.Physical(model,target,name);
-    /// <summary>全局业务精确多选的 Excel 与保存使用同一实际字典计划。</summary>
+    /// <summary>全局精确多选的页级名称与保存复用实际字典计划。</summary>
     internal static bool UsesFixedRead(GenerationModel model,MultiSelectModel multi)=>
         (multi.SharedTextParent is null||multi.Target.Source.IsRongyu==0)&&
-        (multi.UsesGlobalBusinessExactRead||Declared(model,multi.Target,multi.Name)||
+        (multi.UsesGlobalExactRead||Declared(model,multi.Target,multi.Name)||
             FixedPageConditionCompilation.HasMultiTargetScope(model,multi.Target,multi.TargetPage));
 
     /// <summary>发布时编译目标名称和范围，不能退化为查询IsIgnore实体属性。</summary>

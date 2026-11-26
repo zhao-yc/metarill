@@ -179,12 +179,13 @@ public static class GlobalMultipleRelationTarget
                     var text=value.ToString();
                     return string.IsNullOrWhiteSpace(text)?"":text;
                 }
-                var label=Value("nameField");
                 if(Pick("tableId") is {Length:>0} overrideId&&overrideId!=target.Id||
                     Pick("table") is {Length:>0} overrideTable&&overrideTable!=target.TableName||
-                    Pick("nameField") is {Length:>0} overrideName&&overrideName!=(label.Length==0?"name":label)||
                     field!.Extra.GetValueOrDefault("controlKind").ToString() is {Length:>0} kind&&kind!=foreign.ControlKind)
-                    throw new InvalidOperationException("全局多选页面覆盖必须沿用表级目标和名称合同。");
+                    throw new InvalidOperationException("全局多选页面覆盖必须沿用表级目标和控件。");
+                var label=Value("nameField");
+                if(Pick("nameField") is {Length:>0} overrideName&&overrideName!=(label.Length==0?"name":label))
+                    pageName=overrideName;
                 if(Pick("pageId") is {Length:>0} overridePage)
                 {
                     if(pageId.Length==0||!catalog.ConfigPages.Any(item=>item.Id==pageId&&item.ConfigTableId==target.Id))
@@ -285,6 +286,11 @@ public static class GlobalMultipleRelationTarget
                 CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,name.ColumnName));
         if(name is null||!idLabel&&name.LogicalType!="string"&&!scalarLabel||!idLabel&&!pathLabel&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name,page))
             throw new NotSupportedException("全局多值名称必须为已证明的非凭据标量。");
+        // 非冗余多选按实际字典页开放的字段投影，另一字典页的字段可见性不能替代本页证明。
+        if(!checkbox&&pageName is not null&&!idLabel&&!catalog.ConfigPageColumns.Any(field=>
+            field.ConfigPageId==page.Id&&field.ConfigColumnId==name.Id&&
+            (Published(field,"isInGrid",field.IsShow)||Published(field,"isInEdit",field.IsEdit))))
+            throw new NotSupportedException("全局多选页级名称未在实际字典页发布。");
         var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");
         if(!scoped&&condition.Fields.Any(field=>!joinedFields.Contains(field)&&!Scalar(columns.Single(column=>column.ColumnName==field))))
             throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");
@@ -292,4 +298,8 @@ public static class GlobalMultipleRelationTarget
             UsesNonRedundantExactCheckboxPage=checkbox&&exactRealtime,UsesNonRedundantPhysicalParentPage=physicalParentPage,
             UsesStoredPhysicalParentPage=storedParent is not null};
     }
+
+    /// <summary>按原表格和详情配置读取字段发布标记，保留旧数值字段的回退。</summary>
+    private static bool Published(PageColumnMetadata field,string key,int fallback)=>
+        field.Extra.TryGetValue(key,out var value)?value.ValueKind==JsonValueKind.True||value.ToString()=="1":fallback==1;
 }

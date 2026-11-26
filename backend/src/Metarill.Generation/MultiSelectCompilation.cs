@@ -18,7 +18,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
     internal bool GlobalParent { get; init; }
     internal RelationConditionModel? ImportCondition { get; init; }
     internal ExactDataManageModel? ExactTarget { get; init; }
-    internal bool UsesGlobalBusinessExactRead { get; init; }
+    internal bool UsesGlobalExactRead { get; init; }
     internal bool IntegerLabel => !Name.IsId&&Name.Type is ("int?" or "long?");
     internal bool TypedLabel => !Name.IsId&&Metarill.Core.Contracts.MultiValueLabel.IsTyped(Name.Source.LogicalType);
 }
@@ -114,10 +114,13 @@ internal static class MultiSelectCompilation
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
             var sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,targetPage,allowSparseTarget:true)??
                 NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,targetPage,allowStoredTarget:true);
-            var globalBusinessExactRead=table.IsGlobal&&table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&
+            var baselineName=Scalar(root,"nameField");
+            if(string.IsNullOrWhiteSpace(baselineName))baselineName="name";
+            var changedName=baselineName!=name.Source.ColumnName;
+            var globalExactRead=(table.IsGlobal||changedName)&&table.Source.IsRongyu==0&&target.Source.IsRongyu==0&&
                 GlobalCrossTableTarget.DeclaresExactMulti(target.Source,targetPage.Source);
             var scoped=(sharedTextParent is null||target.Source.IsRongyu==0)&&
-                (globalBusinessExactRead||FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage));
+                (globalExactRead||FixedPageConditionCompilation.HasMultiTargetScope(model,target,targetPage));
             var derived=DerivedMultiNamesCompilation.Declared(model,target,name);
             // 功能表确认直接使用目标页的查询范围；业务表的写入和导入也需要同一精确范围。
             var exactTarget=functionForm?null:ExactDataManageCompilation.Resolve(model,target,targetPage);
@@ -242,15 +245,13 @@ internal static class MultiSelectCompilation
             }
             if(table.Source.IsRongyu==0)
             {
-                var baselineName=Scalar(root,"nameField");if(string.IsNullOrWhiteSpace(baselineName))baselineName="name";
                 if(ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
                     return Gap("页级目标与实际存储外键不一致。");
-                var changedName=baselineName!=name.Source.ColumnName;
-                if(changedName&&(table.IsGlobal||target.IsGlobal))
-                    return Gap("全局多选页级名称必须沿用发布的读取合同。");
+                if(changedName&&table.IsGlobal&&!target.IsGlobal)
+                    return Gap("全局来源的页级多选名称需要已发布的全局字典。");
                 // 以 ID 显示时使用原 ID 数组，不要求页面另有名称列，也不登记名称覆盖。
                 usesNameOverride=changedName&&!name.IsId;
-                if(usesNameOverride)
+                if(usesNameOverride&&!target.IsGlobal)
                 {
                     var baseline=target.Columns.SingleOrDefault(column=>column.Source.ColumnName==baselineName);
                     if(names is null||baseline is null||
@@ -260,11 +261,13 @@ internal static class MultiSelectCompilation
                 if(!NonRedundantReadCompilation.Physical(model,table,source))return Gap("非冗余多选要求物理ID和标量名称。");
                 if(target.IsGlobal)
                 {
-                    var proof=globalPageRead
+                    var proof=globalPageRead||changedName
                         ?GlobalMultipleRelationTarget.RequirePage(model.Catalog,table.Source,source.Source,target.Source,page.Source)
                         :GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);
                     if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)
                         return Gap("全局多选页级目标和名称声明不一致。");
+                    // 只换显示字段时仍冻结实际字典页的权限及候选范围。
+                    usesTargetPageScope|=usesNameOverride;
                 }
                 if(targetField is not null&&!NonRedundantReadCompilation.Physical(model,table,table.Columns.Single(column=>column.JsonName==targetField)))return Gap("非冗余目标父必须为物理外键。");
                 if(names is not null)
@@ -292,7 +295,7 @@ internal static class MultiSelectCompilation
                     UsesNameOverride=usesNameOverride,
                     ImportCondition=importCondition,
                     ExactTarget=exactTarget,
-                    UsesGlobalBusinessExactRead=globalBusinessExactRead
+                    UsesGlobalExactRead=globalExactRead
                 }, null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or ArgumentException or NotSupportedException) { return Gap("配置或范围无法安全编译：" + error.Message); }

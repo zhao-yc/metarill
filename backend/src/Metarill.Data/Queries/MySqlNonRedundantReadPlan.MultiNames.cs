@@ -101,7 +101,9 @@ public static partial class MySqlNonRedundantReadCompiler
                     var proof=GlobalMultipleRelationTarget.RequirePage(catalog,table,relation,target,source);
                     if(!binding.ApplyPageScope||binding.ApplyControlScope||selected?.Id!=proof.Page.Id)
                         throw new InvalidOperationException("全局多选名称与当前页的实际候选配置不一致。");
-                    return(source,selected,true,null,null);
+                    var baseline=Value(Definition(relation),"nameField");
+                    if(baseline.Length==0)baseline="name";
+                    return(source,selected,true,null,proof.Name.ColumnName==baseline?null:proof.Name.ColumnName);
                 }
                 pageId="";
                 if(!string.IsNullOrWhiteSpace(overlay))
