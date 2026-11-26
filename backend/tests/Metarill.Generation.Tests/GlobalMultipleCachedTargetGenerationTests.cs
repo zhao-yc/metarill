@@ -1210,10 +1210,21 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         VerifyGlobalBusinessCheckboxDictionary(1,projectType,false,projectScoped,targetStorage:0,
             accountField:accountField,derivedName:derivedName,exactType:exactType,globalSource:globalSource);
 
+    /// <summary>普通业务字典页和多选发布页的固定联接条件进入原复选及名称维护。</summary>
+    [Theory]
+    [InlineData(0,"int64",0,false,null,false)]
+    [InlineData(0,"string",2,true,"store_id",true)]
+    [InlineData(1,"int64",0,true,null,false)]
+    [InlineData(1,"string",2,true,"merchant_id",true)]
+    public Task Checkbox_uses_joined_global_exact_dictionary_condition(int mode,string projectType,int exactType,
+        bool projectScoped,string? accountField,bool globalSource)=>
+        VerifyGlobalBusinessCheckboxDictionary(mode,projectType,false,projectScoped,targetStorage:0,accountField:accountField,
+            derivedName:true,exactType:exactType,globalSource:globalSource,joinedCondition:true);
+
     /// <summary>从同一实际生成代码验证字典候选、原筛选及非冗余和冗余名称。</summary>
     private static async Task VerifyGlobalBusinessCheckboxDictionary(int mode,string projectType,bool unfiltered,
         bool projectScoped=false,int targetStorage=1,string? accountField=null,bool derivedName=false,int exactType=-1,bool idLabel=false,
-        bool globalSource=true)
+        bool globalSource=true,bool joinedCondition=false)
     {
         const string app="Example.StaticGlobalCheckbox";
         var catalog=derivedName?GlobalMultipleDerivedTargetGenerationTests.Catalog(mode,false,"string"):PhysicalLabelCatalog(mode,false);
@@ -1233,6 +1244,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         var dictionary=catalog.ConfigPages.Single(page=>page.Id=="10");
         dictionary.Extra.Remove("type");
         dictionary.WhereSql=unfiltered?"":"status=17";
+        if(joinedCondition)dictionary.WhereSql+=" AND global_target_name='字典甲'";
         if(projectScoped)dictionary.WhereSql=WithCurrentProject(dictionary.WhereSql);
         if(exactType>=0)
         {
@@ -1383,6 +1395,13 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             {
                 var plan=MySql("DerivedCheckboxPlan30_38");
                 scope=Assert.IsType<string>(plan.GetType().GetProperty("Scope",BindingFlags.Instance|hidden)!.GetValue(plan));
+                if(joinedCondition)
+                {
+                    Assert.Contains("`name`",scope);
+                    var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                        plan.GetType().GetProperty("Constants",BindingFlags.Instance|hidden)!.GetValue(plan));
+                    Assert.Contains("字典甲",parameters.Values);
+                }
             }
             Assert.Equal(!unfiltered,scope.Contains("`status`",StringComparison.Ordinal));
             Assert.Equal(projectScoped,scope.Contains("`yz_project_id`",StringComparison.Ordinal));
@@ -1400,6 +1419,13 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.Equal(projectScoped,expression.Contains(projectPredicate,StringComparison.Ordinal));
                 AssertDictionaryNameAccountScope(expression,mode,accountField);
                 if(exactType>=0)Assert.DoesNotContain("`scope_code`",expression);
+                if(joinedCondition)
+                {
+                    Assert.Contains("`name`",expression);
+                    var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                        read.GetType().GetProperty("Constants",BindingFlags.Instance|hidden)!.GetValue(read));
+                    Assert.Contains("字典甲",parameters.Values);
+                }
             }
             if(mode==0)
             {
@@ -1433,6 +1459,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 {
                     Assert.Contains(fullNames,maintenance.MixedSourceColumns["cached_consumer"]);
                     Assert.Contains("global_source",maintenance.MixedTargets);
+                    if(joinedCondition)Assert.Contains("global_target",maintenance.MixedTargets);
                     if(!derivedName||exactNonRedundant)Assert.Contains(shortNames,maintenance.MixedSourceColumns["cached_consumer"]);
                 }
                 if(!exactNonRedundant&&(derivedName||!projectScoped&&accountField is null))

@@ -40,7 +40,10 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
             ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(catalog,target,label,page)
             :label.LogicalType=="string"&&(GlobalPhysicalRelationValue.IsScalar(storage,target,label)||
                 MultiNameStorageColumns.IsDerivedCheckboxText(target,storage,label));
-        var fields=storage.PhysicalColumns.Select(column=>column.ColumnName).ToArray();
+        // 固定页的联接条件已由实际字典页证明，可参与控件条件覆盖核对。
+        var fields=storage.PhysicalColumns.Select(column=>column.ColumnName)
+            .Concat(exactNonRedundant?GlobalCrossTableTarget.PageJoinedConditionFields(catalog,target,page):[])
+            .ToArray();
         var storedAccount=global is {UsesStoredAccountPage:true,UsesStoredExactCheckboxPage:false}&&sourceParentId is null;
         var storedStatic=exactNonRedundant||global is {UsesProjectPage:true} or {UsesStoredPhysicalParentPage:true}||
             global is {UsesStoredExactCheckboxPage:true}&&(global.UsesStoredAccountPage||global.UsesStoredStaticPage)||
