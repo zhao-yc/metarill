@@ -21,7 +21,8 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal bool UsesControlRead { get; init; }
     internal bool UsesNameOverride { get; init; }
     internal ColumnModel? FunctionParentField { get; init; }
-    internal ColumnModel? FunctionTextParentKey { get; init; }
+    internal ColumnModel? FunctionParentBusinessKey { get; init; }
+    internal bool UsesFunctionTextParent => FunctionParentBusinessKey is { Type: "string?" };
     internal ColumnModel? FormParentField { get; init; }
     internal bool SharedAccountScope { get; init; }
     internal bool SharedDerivedPageScope { get; init; }
@@ -384,7 +385,7 @@ internal static class DatabaseCheckboxCompilation
                 globalParentPage=namePage;
             }
             var compoundGlobalSource=false;
-            ColumnModel? functionTextParentKey = null;
+            ColumnModel? functionParentBusinessKey = null;
             if(functionForm&&physicalParents.Length>0)
             {
                 var targetParent=physicalParents[0].Column;
@@ -416,15 +417,15 @@ internal static class DatabaseCheckboxCompilation
                 if(fields.Length!=1)return Gap("功能表页面须开启唯一的目标父表单字段。");
                 sourceParent=fields[0];
                 parents=[parent];
-                // 文本父值只在目标逻辑层已证明实际业务键时启用，普通物理字符串父字段仍绑定主键。
-                if (!parent.IsGlobal && logicalPage is { } textPage &&
-                    NonRedundantCrossParentCompilation.IsText(model, target, textPage, targetParent))
+                // 逻辑父层以发布的唯一业务键为准，物理父字段和未指定业务键的层位沿用主键。
+                if (!parent.IsGlobal && logicalPage is { } parentScope &&
+                    NonRedundantCrossParentCompilation.Managed(model, target, parentScope, targetParent))
                 {
-                    var path = NonRedundantCrossParentCompilation.Find(model, target, textPage, targetParent)!.Value;
+                    var path = NonRedundantCrossParentCompilation.Find(model, target, parentScope, targetParent)!.Value;
                     var level = path.Read.Levels[path.Index];
-                    if (level.Target != parent || level.AlternateKey is not { Type: "string?" } key)
-                        return Gap("功能表复选未证明目标父层对应的文本业务键。");
-                    functionTextParentKey = key;
+                    if (level.Target.Source.Id != parent.Source.Id)
+                        return Gap("功能表复选未证明目标父层对应的业务键。");
+                    functionParentBusinessKey = level.AlternateKey;
                 }
                 if(parent.IsGlobal)
                 {
@@ -537,7 +538,7 @@ internal static class DatabaseCheckboxCompilation
                 UsesControlRead=controlRead,
                 UsesNameOverride=usesNameOverride,
                 FunctionParentField=functionForm?sourceParent:null,
-                FunctionTextParentKey = functionTextParentKey,
+                FunctionParentBusinessKey = functionParentBusinessKey,
                 FormParentField=formParent,
                 SharedAccountScope=sharedAccountScope,
                 SharedDerivedPageScope=sharedDerivedPageScope,

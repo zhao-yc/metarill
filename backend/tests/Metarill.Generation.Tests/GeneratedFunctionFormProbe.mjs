@@ -25,7 +25,9 @@ const app = mountGenerated(source, {}, {}, {
 const ids = ['9007199254740993', '9007199254740994']
 const names = ['客户甲', '客户乙']
 const textParent = process.argv[3] === 'text-parent'
-const parents = textParent ? ['0007-Ab', '0008-aB'] : ids
+const businessParent = textParent || process.argv[3] === 'business-parent'
+const parents = textParent ? ['0007-Ab', '0008-aB'] :
+ businessParent ? ['9007199254742000', '9007199254742001'] : ids
 
 let failure
 try {
@@ -106,7 +108,7 @@ try {
  assert.deepEqual(plain(app.targets.at(-1).selectedNames), names)
  app.targets.at(-1).cancel()
 
- if (textParent) {
+ if (businessParent) {
   app.state.entity.reviewCountryId = parents[1]
   await app.flush()
  }
@@ -119,7 +121,7 @@ try {
  assert.deepEqual(plain(request.options.data.entity.customerNames), names)
  assert.deepEqual(plain(request.options.data.entity.approvedIds), [ids[1]])
  assert.deepEqual(plain(request.options.data.entity.approvedNames), [names[1]])
- if (textParent) {
+ if (businessParent) {
   assert.equal(request.options.data.entity.reviewCountryId, parents[1])
   assert.deepEqual(plain(request.options.data.entity.scopedIds), [ids[1]])
   assert.deepEqual(plain(request.options.data.entity[label]), [names[1]])

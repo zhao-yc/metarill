@@ -63,8 +63,9 @@ internal static class DatabaseCheckboxRenderer
             }
             else
             {
-                var textParentKey = def.FunctionTextParentKey;
-                if (textParentKey is null)
+                var parentBusinessKey = def.FunctionParentBusinessKey;
+                var textParent = def.UsesFunctionTextParent;
+                if (!textParent)
                     result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0||parentId!=parentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"来源父ID必须为规范正整数字符串。\");");
                 if(def.GlobalParent)result.AppendLine(MultiGlobalParentCompilation.Check("CheckboxGlobalParent"+suffix,"parentKey","locking"));
                 // 冗余来源持久保存的是级联业务键时，继续沿实际发布父路径验证及锁定。
@@ -76,10 +77,11 @@ internal static class DatabaseCheckboxRenderer
                     businessPaths.All(path=>path.Level.Target.Source.Id!=parent.Source.Id)))
                 {
                     var parentProject=parent.Columns.Single(column=>column.Source.ColumnName=="yz_project_id");
-                    var idFilter = textParentKey is null ? "row.Id==parentKey&&" : "";
+                    var keyProperty = parentBusinessKey?.Property ?? "Id";
+                    var idFilter = textParent ? "" : $"row.{keyProperty}==parentKey&&";
                     result.AppendLine($"        var parentQuery=session.Select<{parent.EntityType}>().Where(row=>{idFilter}row.{parentProject.Property}=={Scope(parentProject,"actor.ProjectId")});");
-                    if (textParentKey is not null)
-                        result.AppendLine($"        parentQuery=global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(parentQuery,session,{Literal(textParentKey.Source.ColumnName)},parentId!,businessKey:true);");
+                    if (textParent)
+                        result.AppendLine($"        parentQuery=global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(parentQuery,session,{Literal(parentBusinessKey!.Source.ColumnName)},parentId!,businessKey:true);");
                     if(parent.Columns.Any(column=>column.Source.ColumnName=="delete_no"))result.AppendLine("        parentQuery=parentQuery.Where(row=>row.DeleteNo==null);");
                     result.AppendLine("        if(locking)parentQuery=parentQuery.ForUpdate();")
                         .AppendLine("        if(!await parentQuery.AnyAsync(cancellationToken))throw new InvalidOperationException(\"复选来源父不存在、已删除或不属于当前项目。\");");

@@ -14,7 +14,7 @@ internal static class DerivedCheckboxNamesRenderer
         var labelValues=string.Concat(cachedLabels.Select(label=>",NonRedundantReads.Value<"+label.Type+">(row,"+
             Literal(label.Source.ColumnName)+")"));
         // 功能表的文本父值按原字节匹配已发布层位，不依赖数据库的文本排序规则。
-        var scopes = def.Scopes.Select(scope => scope.Source == "parent" && def.FunctionTextParentKey is not null
+        var scopes = def.Scopes.Select(scope => scope.Source == "parent" && def.UsesFunctionTextParent
             ? $"        filters.Add(FixedReadFilter.ForTextParent({Literal(scope.Column.Source.ColumnName)},parentId!,businessKey:true));"
             : "        filters.Add(new(" + Literal(scope.Column.Source.ColumnName) + ",FixedReadComparison.Equal," +
                 Value(scope.Column, scope.Source == "project" ? "actor.ProjectId" : "parentId!") + "));");
