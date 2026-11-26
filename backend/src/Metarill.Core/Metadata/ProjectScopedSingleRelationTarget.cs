@@ -52,7 +52,7 @@ public static class ProjectScopedSingleRelationTarget
     public static IReadOnlySet<string> JoinedTextPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
         PublishedJoinedFields(catalog,target,page,allowPhysicalPage:false);
 
-    /// <summary>普通业务页、已发布的物理父级单选页及文本逻辑父页可设置固定单值联接条件。</summary>
+    /// <summary>普通业务页和原单选页可设置固定单值联接条件；有父范围时沿发布元数据核对父键。</summary>
     public static IReadOnlySet<string> JoinedPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
         PublishedJoinedFields(catalog,target,page,allowPhysicalPage:true);
 
@@ -74,17 +74,12 @@ public static class ProjectScopedSingleRelationTarget
                 .All(term=>term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)))
                 fields.Add(column.ColumnName);
         if(fields.Count==0)return fields;
-        var pageType=page.Extra.GetValueOrDefault("type").ToString();
-        var ordinaryPage=pageType is "" or "0";
-        var localPage=allowPhysicalPage&&(ordinaryPage||pageType=="1")&&
-            columns.Any(column=>column.ColumnName=="yz_project_id"&&column.LogicalType is ("int64" or "string")&&
-                GlobalPhysicalRelationValue.IsScalar(storage,target,column));
-        // 原单选页须实际声明父键；父参数只绑定同项目真实父表的物理键。
-        var hasParent=syntax.Variables.Any(MultiTargetParentScope.IsParameter);
-        if(localPage&&(hasParent
-            ?MultiTargetParentScope.CompileListPage(catalog,target,syntax.Terms) is
-                {Logical:false,Global:false} parent&&parent.Parent.YzProjectId==catalog.YzProjectId
-            :ordinaryPage))
+        var localPage=allowPhysicalPage&&columns.Any(column=>column.ColumnName=="yz_project_id"&&
+            column.LogicalType is ("int64" or "string")&&GlobalPhysicalRelationValue.IsScalar(storage,target,column));
+        // 无父页按实际项目范围执行；声明父参数时仍须证明同项目的真实物理父键。
+        if(localPage&&(!syntax.Variables.Any(MultiTargetParentScope.IsParameter)||
+            MultiTargetParentScope.CompileListPage(catalog,target,syntax.Terms) is
+                {Logical:false,Global:false} parent&&parent.Parent.YzProjectId==catalog.YzProjectId))
             return fields;
         if(PageParent(catalog,target,page) is not {Logical:true,Global:false,Target.LogicalType:"string",AdditionalTargets.Count:0})
             fields.Clear();

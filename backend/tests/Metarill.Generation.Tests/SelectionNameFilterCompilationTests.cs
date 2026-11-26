@@ -262,8 +262,19 @@ public sealed class SelectionNameFilterCompilationTests
         VerifyLiveProjectSelectionScope(accountScope:true,sourceHasParent:true,exactTarget:false,
             joinedPhysical:true,selection,textParent,storedSource:true);
 
+    /// <summary>无父单选页的字典范围与来源页面是否有父键无关，四种来源和控件组合均使用已发布联接。</summary>
+    [Theory]
+    [InlineData(true,false,false,false)]
+    [InlineData(false,false,true,true)]
+    [InlineData(true,true,true,false)]
+    [InlineData(false,true,false,true)]
+    public Task Project_single_without_target_parent_keeps_joined_dictionary_scope(
+        bool selection,bool storedSource,bool sourceHasParent,bool exact) =>
+        VerifyLiveProjectSelectionScope(accountScope:true,sourceHasParent,exact,joinedPhysical:true,selection,
+            storedSource:storedSource,targetHasParent:false);
+
     private static async Task VerifyLiveProjectSelectionScope(bool accountScope,bool sourceHasParent,bool exactTarget,
-        bool joinedPhysical=false,bool selection=true,bool textParent=false,bool storedSource=false)
+        bool joinedPhysical=false,bool selection=true,bool textParent=false,bool storedSource=false,bool targetHasParent=true)
     {
         const string ns="Example.LiveStoredSelection";
         var catalog=RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
@@ -283,7 +294,8 @@ public sealed class SelectionNameFilterCompilationTests
         catalog.ConfigColumns.Add(new(){Id="37",ConfigTableId="3",ColumnName="status",LogicalType="int32",YzProjectId=catalog.YzProjectId});
         if(joinedPhysical)
         {
-            targetPage.WhereSql+=" AND parent_id=@parentId AND region_name <> '隐藏地区'";
+            if(targetHasParent)targetPage.WhereSql+=" AND parent_id=@parentId";
+            targetPage.WhereSql+=" AND region_name <> '隐藏地区'";
             if(textParent)
                 foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "26" or "36"))
                     column.LogicalType="string";
@@ -355,7 +367,7 @@ public sealed class SelectionNameFilterCompilationTests
         {
             var published=Assert.Single(NonRedundantReadCompilation.ProjectSingleTargets(model,table,page,["target_name"]));
             Assert.Equal("301",published.PageId);
-            if(joinedPhysical)Assert.Equal("26",published.SourceParentId);
+            if(joinedPhysical)Assert.Equal(targetHasParent?"26":null,published.SourceParentId);
             else
             {
                 Assert.Equal("201",published.SourcePageId);
@@ -391,7 +403,8 @@ public sealed class SelectionNameFilterCompilationTests
                 Assert.Contains("`status`",from+name);
                 if(joinedPhysical)
                 {
-                    Assert.Contains("`parent_id`",from+name);
+                    if(targetHasParent)Assert.Contains("`parent_id`",from+name);
+                    else Assert.DoesNotContain("`parent_id`",from+name);
                     Assert.Contains("`relation_region`",from+name);
                     Assert.Contains("`store_id`",from+name);
                 }
@@ -440,7 +453,7 @@ public sealed class SelectionNameFilterCompilationTests
                 var code=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/RelationSourceService.g.cs"));
                 Assert.Contains("""targetExactAuthorization.ResolveExactDataManage("301", "list", "")""",code);
                 Assert.Contains("""new("grant_code", FixedReadComparison.In, targetExactScope.ReadLogical("string"))""",code);
-                Assert.Matches(joinedPhysical
+                Assert.Matches(joinedPhysical&&targetHasParent
                     ?@"await DerivedOptionsScope201_25Async\(parentId,\s*parentId,\s*actor,cancellationToken,locking:true\)"
                     :@"await DerivedOptionsScope201_25Async\(parentId,\s*null,\s*actor,cancellationToken,locking:true\)",code);
                 if(!joinedPhysical)Assert.Contains("await DerivedOptionsRows201_25Async(request.ParentId,",code);
