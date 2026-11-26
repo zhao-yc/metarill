@@ -11,7 +11,8 @@ const targetImport=detail.match(/import OriginalSelection39 from ['"]@\/pages\/y
 assert.ok(targetImport)
 const listing=await load(targetImport[1])
 const form=mountGenerated(detail,{},{},{runtimeDirectory})
-const parentA='9007199254742000',parentB='9007199254742001'
+const textParent=process.argv[3]==='text-parent'
+const parentA=textParent?'0007-Ab':'9007199254742000',parentB=textParent?'0008-aB':'9007199254742001'
 const value='9007199254740997'
 let target
 try {
@@ -20,10 +21,16 @@ try {
  await form.flush()
  assert.equal(form.targets.length,0)
  assert.match(form.dialogs.at(-1).content,/先选择或保存父记录/)
+ form.state.entity.reviewCountryId=textParent?'   ':'0007'
+ form.state.openSelect39()
+ await form.flush()
+ assert.equal(form.targets.length,0)
+ assert.match(form.dialogs.at(-1).content,/先选择或保存父记录/)
  form.state.entity.reviewCountryId=parentA
  form.state.openSelect39()
  await form.flush()
  const earlier=form.targets.at(-1)
+ assert.ok(earlier,'有效父键应打开原单选列表')
  assert.equal(earlier.parent_id,parentA)
  form.state.entity.reviewCountryId=parentB
  await form.flush()
@@ -58,6 +65,7 @@ try {
  const values=plain(command.options.data.entity)
  assert.equal(values.reviewId,value)
  assert.equal(values[label],'当前候选')
+ assert.equal(values.reviewCountryId,parentB)
  assert.equal(form.writes().length,0)
 } finally {
  target?.app.unmount()

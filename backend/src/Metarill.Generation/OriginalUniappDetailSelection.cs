@@ -54,9 +54,11 @@ internal static class OriginalUniappDetailSelection
                 c.Data.Append(targetParent).Append(":'',");
                 c.Methods.AppendLine($"selectionCurrent{id}() {{ return this._selection{id}?.()===true; }},");
                 popupReadOnly+=$" || !selectionCurrent{id}()";
-                // 功能表仍要求规范主键，业务页的父值还可能是已发布的文本业务键。
+                // 功能表用实际发布页的父键协议。文本只检查判空，保留原值给目标页。
+                var invalidParent = functionSelection?.TextParent == true ? "!parent.trim()" :
+                    "!/^[1-9][0-9]{0,18}$/.test(parent)||parent.length===19&&parent>'9223372036854775807'";
                 var validateParent = functionSelection is null ? "" :
-                    "if(!/^[1-9][0-9]{0,18}$/.test(parent)||parent.length===19&&parent>'9223372036854775807'){uni.showModal({showCancel:false,content:'目标父范围尚未明确，请先选择或保存父记录。'});return;}";
+                    $"if({invalidParent}){{uni.showModal({{showCancel:false,content:'目标父范围尚未明确，请先选择或保存父记录。'}});return;}}";
                 var parentValue = $"String(this.entity.{parentField}??'')";
                 capture = $"const parent={parentValue};" + validateParent +
                     $"const current=this.originalContext();this.{targetParent}=parent;this._selection{id}=()=>current()&&parent==={parentValue};";

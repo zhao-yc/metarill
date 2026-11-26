@@ -637,6 +637,8 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("physical")]
     [InlineData("derived")]
     [InlineData("logical")]
+    [InlineData("logicalText")]
+    [InlineData("logicalTextOrdinary")]
     [InlineData("global")]
     [InlineData("projectExactCompound")]
     [InlineData("projectStoredExactCompound")]
@@ -660,7 +662,35 @@ public sealed class FunctionTableGenerationTests : IDisposable
         if(localParent)scenario=scenario[6..];
         var ordinary=scenario.EndsWith("Ordinary",StringComparison.Ordinal);
         if(ordinary)scenario=scenario[..^8];
+        var textParent = scenario == "logicalText";
+        if (textParent) scenario = "logical";
         var catalog=WithSingleSelection(Catalog(),scenario);
+        if (textParent)
+        {
+            // 本轮样本使用已发布的文本层位作为单选父级，复选配置由原有单独场景覆盖。
+            catalog.ConfigColumns.RemoveAll(field => field.Id == "38");
+            catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == "38");
+            catalog.ConfigColumns.Add(new()
+            {
+                Id = "16", ConfigTableId = "1", ColumnName = "country_id", LogicalType = "string",
+                ColumnLength = "50", LinkConfigTableId = "4"
+            });
+            var targetPath = catalog.ConfigColumns.Single(column => column.Id == "120");
+            CrossTableExcelLosslessGenerationTests.AddBusinessKeys(catalog, targetPath, primaryLevel: 1);
+            foreach (var id in new[] { "28", "29" })
+            {
+                var relation = catalog.ConfigColumns.Single(column => column.Id == id);
+                var definition = System.Text.Json.Nodes.JsonNode.Parse(relation.ControlDetail)!;
+                definition["levels"]![0]!["idField"] = "business_key";
+                relation.ControlDetail = definition.ToJsonString();
+            }
+            foreach (var id in new[] { "business_4", "506", "94" })
+            {
+                var column = catalog.ConfigColumns.Single(field => field.Id == id);
+                column.LogicalType = "string";
+                column.ColumnLength = "50";
+            }
+        }
         if(localParent)
         {
             // 让两个物理字段共享项目内主键，并开启实际用到同一数据范围的统计和导出。
@@ -727,7 +757,12 @@ public sealed class FunctionTableGenerationTests : IDisposable
         var sourceService=await File.ReadAllTextAsync(Path.Combine(generated,"Services/SummaryFormService.g.cs"));
         Assert.DoesNotContain("findNameIdReview39",sourceService);
         Assert.False(File.Exists(Path.Combine(generated,"Entities/SummaryForm.g.cs")));
-        await VerifyVueAsync(output,"GeneratedFunctionSingleProbe.mjs");
+        if (textParent)
+        {
+            Assert.Contains("private static string LogicalParentId103", service);
+            Assert.Contains("""FixedReadFilter.ForTextTree("country_id",[request.ParentId!])""", service);
+        }
+        await VerifyVueAsync(output,"GeneratedFunctionSingleProbe.mjs",textParent ? "text-parent" : null);
         await BuildFullAsync(output);
         var context=new AssemblyLoadContext("FunctionSingleSelection."+Guid.NewGuid().ToString("N"),isCollectible:true);
         try

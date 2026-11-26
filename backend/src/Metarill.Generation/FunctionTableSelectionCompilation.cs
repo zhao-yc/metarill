@@ -4,7 +4,7 @@ using Metarill.Data.Queries;
 namespace Metarill.Generation;
 
 internal sealed record FunctionTableSelectionModel(TableModel Target,PageModel Page,ColumnModel Name,
-    SelectionControlDefinition Definition,ColumnModel? Parent);
+    SelectionControlDefinition Definition,ColumnModel? Parent,bool TextParent);
 
 /// <summary>无记录功能表的单选复用实际目标页，表单外键只承接原确认和业务参数。</summary>
 internal static class FunctionTableSelectionCompilation
@@ -34,7 +34,9 @@ internal static class FunctionTableSelectionCompilation
         if(!FixedPageQueryCompilation.TryProveSelection(model.Catalog,FixedPageQueryCompilation.For(target,targetPage),definition,out var reason))
             throw new InvalidOperationException(reason);
         var parent = PublishedParent(model, target, targetPage);
-        return new(target, targetPage, name, definition, parent is null ? null : ResolveParentField(page, source, parent.Parent));
+        // 与目标页的查询计划共用文本业务键证明，普通物理字符串外键仍使用父记录主键。
+        var textParent = CrossTableReadCompilation.TextSourceParent(model, target, targetPage) is not null;
+        return new(target, targetPage, name, definition, parent is null ? null : ResolveParentField(page, source, parent.Parent), textParent);
     }
 
     /// <summary>功能表候选从实际目标页恢复物理或逻辑父键。</summary>
