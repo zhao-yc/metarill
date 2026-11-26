@@ -1253,7 +1253,19 @@ public partial class {{table.Name}}Service
 
 """;
     /// <summary>构造签名与生成DI工厂共享授权依赖判定，固定父关系不能只在手工构造时得到真实授权。</summary>
-    private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) => table.Pages.Any(page=>BusinessRecordButtons(model,page).Count>0) || table.Pages.Any(page=>RelationCompilation.ForPage(model,page,true,forExcel:true).Any(relation=>relation.ExcelOnly||relation.ExcelTargetExact||relation.Target.IsGlobal||DerivedRelationNamesCompilation.UsesFixedRead(model,relation)||relation.ImportCondition is not null||relation.IndependentOrder.Count>0)) || table.Pages.Any(ExactDataManageCompilation.Declared) || table.Pages.Any(page=>CascadeTreeReadCompilation.ForService(model,table,page).Count>0 || CrossTableReadCompilation.ForService(model,table,page).Count>0) || table.Pages.Any(page => DatabaseCheckboxCompilation.ForService(model,table,page).Count>0 || MultiSelectCompilation.ForService(model, table, page).Count > 0 || FixedRoleCheckboxCompilation.ForService(model,table,page) is not null || FixedRoleAdminNameCompilation.ForPage(model,table,page) is not null) || ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table) || TrustedSecurityProjectOptionsCompilation.RequiresAuthorization(model,table);
+    private static bool RequiresRelationAuthorization(GenerationModel model, TableModel table) =>
+        table.Pages.Any(page => BusinessRecordButtons(model, page).Count > 0) ||
+        table.Pages.Any(page => RelationCompilation.ForPage(model, page, true, forExcel: true).Any(relation =>
+            relation.ExcelOnly || relation.ExcelTargetExact || relation.Target.IsGlobal || DerivedRelationNamesCompilation.UsesFixedRead(model, relation) ||
+            relation.ImportCondition is not null || relation.IndependentOrder.Count > 0 ||
+            ImportRenderer.Enabled(page) && SingleSelectionExcelRenderer.RequiresStoredCurrentRead(table, relation) &&
+                ImportRenderer.Columns(page).Contains(relation.SourceColumn))) ||
+        table.Pages.Any(ExactDataManageCompilation.Declared) ||
+        table.Pages.Any(page => CascadeTreeReadCompilation.ForService(model, table, page).Count > 0 || CrossTableReadCompilation.ForService(model, table, page).Count > 0) ||
+        table.Pages.Any(page => DatabaseCheckboxCompilation.ForService(model, table, page).Count > 0 || MultiSelectCompilation.ForService(model, table, page).Count > 0 ||
+            FixedRoleCheckboxCompilation.ForService(model, table, page) is not null || FixedRoleAdminNameCompilation.ForPage(model, table, page) is not null) ||
+        ExportRenderer.RequiresAuthorization(model, table) || BoundRelationValidationRenderer.RequiresAuthorization(table) ||
+        TrustedSecurityProjectOptionsCompilation.RequiresAuthorization(model, table);
     /// <summary>固定角色名称只在受限读取后进入VO，不新增实体写入字段。</summary>
     private static string RoleResult(GenerationModel model, TableModel table, PageModel page,string operation)
     {

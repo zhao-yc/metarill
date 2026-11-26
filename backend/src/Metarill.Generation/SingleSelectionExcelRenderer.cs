@@ -11,6 +11,11 @@ internal static class SingleSelectionExcelRenderer
         relation.SourceColumn.Source.ControlKind=="SelectPage"&&relation.Target.Source.IsRongyu==0&&
         (relation.ImportCondition is not null||FixedPageConditionCompilation.HasJoinedFields(relation.TargetPage));
 
+    /// <summary>项目内冗余单选有发布父范围时，即使控件条件已被目标页覆盖，名称导入仍须当前读。</summary>
+    internal static bool RequiresStoredCurrentRead(TableModel owner, RelationModel relation) =>
+        owner.Source.IsRongyu == 1 && !owner.IsGlobal && !relation.Target.IsGlobal &&
+        relation.SourceColumn.Source.ControlKind == "SelectPage" && relation.ScopedStoredSingle;
+
     /// <summary>先复用发布页的真实父校验，再用类型化值唯一匹配目标记录。</summary>
     internal static string Import(GenerationModel model,RelationModel relation,PageModel page,ImportDependencyPlan dependency)
     {

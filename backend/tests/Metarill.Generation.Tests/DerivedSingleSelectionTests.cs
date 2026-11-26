@@ -233,9 +233,10 @@ public sealed class DerivedSingleSelectionTests
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
 
-    /// <summary>普通冗余单选沿用原目标页，Excel 可按名称往返且不会发布新的候选路由。</summary>
+    /// <summary>冗余单选沿用原弹窗，Excel 与已发布物理父范围的候选入口各自验证权限。</summary>
     [Theory]
     [InlineData(false, "list", "OnlyNew")]
+    [InlineData(false, "", "OnlyNew")]
     [InlineData(true, "edit", "OverWriteByFirstColumn", true)]
     public async Task Redundant_physical_selection_uses_the_published_scope_for_excel(bool independentParent, string exportMode,
         string importMode, bool exactTarget = false)
@@ -243,9 +244,11 @@ public sealed class DerivedSingleSelectionTests
         const string generatedNamespace = "Example.RedundantSingleExcel";
         var catalog = RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
         var sourcePage = catalog.ConfigPages.Single(page => page.Id == "201");
-        sourcePage.IsImport = sourcePage.IsExport = 1;
+        sourcePage.IsImport = 1;
+        var exports = exportMode.Length > 0;
+        sourcePage.IsExport = exports ? 1 : 0;
         sourcePage.Extra["importMethod"] = JsonSerializer.SerializeToElement(importMode);
-        sourcePage.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
+        if (exports) sourcePage.Extra["exportMethod"] = JsonSerializer.SerializeToElement(exportMode);
         var foreign = catalog.ConfigColumns.Single(column => column.Id == "25");
         foreign.ControlKind = "SelectPage";
         foreign.ControlDetail = """{"pageId":"301","tableId":"3","nameField":"name","whereSql":"status=1"}""";
@@ -274,10 +277,14 @@ public sealed class DerivedSingleSelectionTests
             new CSharpGenerator().Generate(catalog, output, generatedNamespace);
             var service = await File.ReadAllTextAsync(Path.Combine(output, "Services/RelationSourceService.g.cs"));
             var controller = await File.ReadAllTextAsync(Path.Combine(output, "Controllers/RelationSourcePage201Controller.g.cs"));
+            var registration = await File.ReadAllTextAsync(Path.Combine(output, "GeneratedRegistration.g.cs"));
             Assert.Contains("await ImportRelation201_25Async(cell.Value", service);
+            var sourceRegistration = Assert.Single(registration.Split('\n'), line => line.Contains("AddScoped<Services.RelationSourceService>"));
+            Assert.Contains("provider.GetRequiredService<IRuntimeAuthorization>()", sourceRegistration);
             if (exactTarget)
             {
                 // 精确数据管理沿固定 SQL 的当前读查找唯一名称，普通页继续使用实体查询。
+                Assert.Contains("relationAuthorization.RequireActor() != actor || session.CurrentTransaction is null", service);
                 Assert.Contains("""scope.Filters.Add(new("name",FixedReadComparison.Equal,cell.ToString().Trim()));""", service);
                 Assert.Contains("DerivedOptionsScope201_25Async(parentId,targetParent.ToString(),actor,cancellationToken,locking:true)", service);
                 Assert.Contains("""DerivedOptionsPlan201_25.BindAccount(actor),scope.Filters,[new("id")],1,2""", service);
@@ -286,7 +293,9 @@ public sealed class DerivedSingleSelectionTests
             }
             else
             {
+                Assert.Contains("relationAuthorization.RequireActor()!=actor||session.CurrentTransaction is null", service);
                 Assert.Contains("query=query.Where(row=>row.Name==label);", service);
+                Assert.Contains("OptionsScope201_25Async(parentId,targetParentId,actor,cancellationToken,true,false)", service);
                 Assert.Contains("query.ForUpdate().Limit(2)", service);
             }
             Assert.Contains("OptionsScope201_25Async", service);
@@ -295,15 +304,25 @@ public sealed class DerivedSingleSelectionTests
             if (exactTarget)
                 Assert.Contains("targetExactAuthorization.ResolveExactDataManage(\"301\", \"list\",", service);
             if (!exactTarget) Assert.Contains(independentParent ? "string? targetParentId=parentValue.ToString();" : "string? targetParentId=parentId;", service);
-            Assert.Contains("importDatas201", controller);
-            Assert.Contains("initExport", controller);
-            Assert.DoesNotContain("findNameId", controller);
-            Assert.Contains("""authorization.RequirePagePermission("301", "list")""", controller);
+            Assert.Contains("""[HttpPost("importDatas201")]""", controller);
+            Assert.Contains("""service.Import201Async(request, Actor("import"), cancellationToken)""", controller);
+            Assert.Equal(exports, controller.Contains("""[HttpPost("initExport")]""", StringComparison.Ordinal));
+            Assert.Equal(exports, service.Contains("""exportAuthorization.RequirePagePermission("301", "list");""", StringComparison.Ordinal));
+            Assert.Contains("""[HttpPost("findNameIdTarget25/page")]""", controller);
+            Assert.Contains("""[HttpPost("findNameIdTarget25/selected")]""", controller);
+            Assert.Contains("""Actor("list"); authorization.RequirePagePermission("301", "list");""", controller);
+            var model = GenerationModel.Create(catalog, generatedNamespace);
+            var source = model.Tables.Single(table => table.Source.Id == "2");
+            var detail = OriginalUniappDetailRenderer.Render(model, source, source.Pages.Single(page => page.Source.Id == "201"), []);
+            Assert.Contains("@/pages/yzp/relation_target-list-301.vue", detail);
+            Assert.Contains(independentParent ? ":parent_id=\"entity.parentId\"" : ":parent_id=\"parent_id\"", detail);
+            Assert.Contains("@onPopSelect=\"onPopSelect25\"", detail);
+            Assert.DoesNotContain("findNameIdTarget25", detail);
             new FrontendPackager().Validate(catalog);
             var assembly = await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var serviceType = assembly.GetType(generatedNamespace + ".Generated.Services.RelationSourceService", true)!;
             Assert.NotNull(serviceType.GetMethod("Import201Async"));
-            Assert.NotNull(serviceType.GetMethod("Export201Async"));
+            Assert.Equal(exports, serviceType.GetMethod("Export201Async") is not null);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory, boundary); }
     }
