@@ -139,12 +139,21 @@ public static class GlobalSingleRelationTarget
     /// <summary>独立字典页必须真的被原 List 指定；普通业务子页的物理父参数不产生候选入口。</summary>
     public static bool HasExplicitListReference(MetadataCatalog catalog,TableMetadata table,PageMetadata page)
     {
-        foreach(var foreign in catalog.ConfigColumns.Where(column=>column.ControlKind=="List"&&column.IsVirtualColumn==0&&
+        var forms=catalog.ConfigTables.Where(owner=>owner.IsFunctionTable==1).Select(owner=>owner.Id).ToHashSet(StringComparer.Ordinal);
+        foreach(var foreign in catalog.ConfigColumns.Where(column=>column.ControlKind=="List"&&
+            (column.IsVirtualColumn==0||forms.Contains(column.ConfigTableId))&&
             column.ColumnName.EndsWith("_id",StringComparison.Ordinal)&&
             (column.LinkConfigTableId.Length==0||column.LinkConfigTableId==table.Id)))
         {
             try
             {
+                if(forms.Contains(foreign.ConfigTableId))
+                {
+                    if(catalog.ConfigPages.Any(source=>source.ConfigTableId==foreign.ConfigTableId&&
+                        ProjectScopedSingleRelationTarget.ReferencesFunctionListPage(catalog,source,foreign,table,page)))
+                        return true;
+                    continue;
+                }
                 if(ResolveTarget(catalog,foreign).Id!=table.Id)continue;
                 if(ProjectScopedSingleRelationTarget.UsesFixedListCandidates(catalog))
                 {

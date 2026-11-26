@@ -19,6 +19,30 @@ public static class ProjectScopedSingleRelationTarget
         return FixedListPageId(foreign,root.RootElement,overlay?.RootElement);
     }
 
+    /// <summary>无实体功能表按实际开放的详情字段识别固定字典页，页级覆盖沿用原表单绑定。</summary>
+    internal static bool ReferencesFunctionListPage(MetadataCatalog catalog,PageMetadata sourcePage,ColumnMetadata foreign,
+        TableMetadata target,PageMetadata targetPage)
+    {
+        var field=catalog.ConfigPageColumns.SingleOrDefault(item=>item.ConfigPageId==sourcePage.Id&&item.ConfigColumnId==foreign.Id);
+        if(field is null||foreign.LogicalType is not ("int64" or "string"))return false;
+        var visible=field.Extra.TryGetValue("isInEdit",out var enabled)
+            ?enabled.ValueKind==JsonValueKind.True||enabled.ToString()=="1":field.IsEdit==1;
+        if(!visible)return false;
+        using var root=Definition(foreign);
+        using var overlay=PageDetail(catalog,sourcePage,foreign);
+        string Mapped(string key)
+        {
+            var value=overlay is null?"":Value(overlay.RootElement,key);
+            return value.Length==0?Value(root.RootElement,key):value;
+        }
+        var linked=Text(foreign,"linkConfigPageId");
+        var selected=Mapped("pageId");
+        if((selected.Length==0?linked:selected)!=targetPage.Id||linked.Length>0&&linked!=targetPage.Id)return false;
+        var tableId=Mapped("tableId");
+        var tableName=Mapped("table");
+        return (tableId.Length==0||tableId==target.Id)&&(tableName.Length==0||tableName==target.TableName);
+    }
+
     private static string FixedListPageId(ColumnMetadata foreign,JsonElement definition,JsonElement? overlay)
     {
         var settings = overlay is {} detail && detail.TryGetProperty("pageId",out _) ? detail : definition;

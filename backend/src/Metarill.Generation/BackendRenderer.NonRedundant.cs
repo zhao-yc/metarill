@@ -44,6 +44,7 @@ internal static partial class BackendRenderer
         }));
         var scopedRelations=relations.Where(relation=>relation.FunctionForm&&relation.Target.IsGlobal||
                 DerivedRelationNamesCompilation.UsesLogicalPage(relation)||
+                DerivedRelationNamesCompilation.UsesStoredGlobalParentPlan(relation)||
                 DerivedRelationNamesCompilation.UsesExactSingle(relation)||
                 DerivedRelationNamesCompilation.HasGlobalAccountScope(relation.Target,relation.TargetPage)||
                 NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage)||
@@ -55,6 +56,7 @@ internal static partial class BackendRenderer
         // 固定单值读取在宿主重新装载时，从实际来源页重新验证物理或逻辑父键。
         var scopedOwners=scopedRelations.Where(relation=>relation.ScopedStoredSingle||relation.CompoundProjectSource||
             relation.ListPageOverride||relation.LogicalSourceParent||relation.CompoundGlobalSource||
+            DerivedRelationNamesCompilation.UsesStoredGlobalParentPlan(relation)||
             NonRedundantReadCompilation.UsesProjectControlRead(relation)||
             !relation.Target.IsGlobal&&relation.FixedParent is not null)
             .Select(relation=>relation.SourceColumn.Source.ConfigTableId).ToHashSet(StringComparer.Ordinal);
@@ -254,6 +256,7 @@ internal static partial class BackendRenderer
                 FixedPageConditionCompilation.HasGlobalProjectSingleScope(relation.Target,relation.TargetPage)||
                 FixedPageConditionCompilation.HasGlobalListParentScope(relation.Target,relation.TargetPage)) ||
             functionRelations.Any(relation => DerivedRelationNamesCompilation.UsesGlobalPlan(model, relation)) ||
+            scopedRelations.Any(DerivedRelationNamesCompilation.UsesStoredGlobalParentPlan) ||
             scopedRelations.Any(DerivedRelationNamesCompilation.UsesGlobalPrimaryKeyDisplay) ||
             model.Tables.SelectMany(table => table.Pages).SelectMany(page => RelationCompilation.ForPage(model, page, true))
                 .Any(relation => relation.Target.IsGlobal && DerivedRelationNamesCompilation.IsPhysicalTypedName(model, relation.Target, relation.NameColumn)))

@@ -39,9 +39,14 @@ internal static class DerivedRelationNamesCompilation
     internal static bool EmbedsParentScope(RelationModel relation)=>
         relation.ControlParentPageId is null&&EmbedsParentScope(relation.Target,relation.FixedParent);
 
+    /// <summary>冗余全局字典的物理父范围由普通全局候选编译，保留实际发布页约束。</summary>
+    internal static bool UsesStoredGlobalParentPlan(RelationModel relation)=>
+        relation.Target.IsGlobal&&relation.Target.Source.IsRongyu==1&&
+        relation.FixedParent is {Global:true,Logical:false}&&relation.ControlParentPageId is null&&!IsGlobalExactSingle(relation);
+
     /// <summary>普通候选的逻辑条件来自发布页、父级或原控件查询。</summary>
     internal static bool UsesLogicalPage(RelationModel relation)=>
-        EmbedsParentScope(relation)||FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||
+        EmbedsParentScope(relation)&&!UsesStoredGlobalParentPlan(relation)||FixedPageConditionCompilation.HasLogicalFields(relation.TargetPage)||
         relation.Conditions?.HasLogicalFields==true||UsesSelfTreeExact(relation);
 
     /// <summary>全局非冗余目标及冗余单选的账号范围来自实际发布页，生成目录须保留该页范围。</summary>
@@ -123,7 +128,7 @@ internal static class DerivedRelationNamesCompilation
 
     /// <summary>读取用途与下发产物共用实际全局发布页。</summary>
     internal static bool UsesGlobalPlan(GenerationModel model, RelationModel relation) =>
-        UsesGlobalPrimaryKeyDisplay(relation) ||
+        UsesGlobalPrimaryKeyDisplay(relation) || UsesStoredGlobalParentPlan(relation) ||
         relation.Target.IsGlobal && (relation.FunctionForm || IsPhysicalTypedName(model, relation.Target, relation.NameColumn)) ||
         NonRedundantReadCompilation.HasGlobalRowProject(relation.Target) || HasGlobalAccountScope(relation.Target, relation.TargetPage) ||
         NonRedundantReadCompilation.GlobalSingleParentPage(relation.Target,relation.TargetPage)||

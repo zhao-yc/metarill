@@ -792,8 +792,20 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("globalStoredExactCompoundSplit")]
     [InlineData("globalStoredExactCompoundSplitText")]
     [InlineData("globalStoredExactCompoundSplitWithoutProject")]
+    [InlineData("globalExactCompoundSplitPlain")]
+    [InlineData("globalRowProjectExactCompoundSplitPlain")]
+    [InlineData("globalStoredExactCompoundSplitPlain")]
+    [InlineData("globalStoredExactCompoundSplitTextPlain")]
+    [InlineData("globalStoredExactCompoundSplitWithoutProjectPlain")]
+    [InlineData("globalStoredExactCompoundPlain")]
+    [InlineData("globalStoredExactCompoundSplitTextPlainBusiness")]
+    [InlineData("globalStoredExactCompoundSplitPlainParentAccount")]
     public async Task Function_original_list_uses_one_candidate_scope(string scenario)
     {
+        var plainBusiness=scenario.EndsWith("PlainBusiness",StringComparison.Ordinal);
+        var plainParentAccount=scenario.EndsWith("PlainParentAccount",StringComparison.Ordinal);
+        var plain=plainBusiness||plainParentAccount||scenario.EndsWith("Plain",StringComparison.Ordinal);
+        if(plain)scenario=plainBusiness?scenario[..^13]:plainParentAccount?scenario[..^18]:scenario[..^5];
         var ordinary=scenario.EndsWith("Ordinary",StringComparison.Ordinal);
         var textParent=scenario.EndsWith("SplitText",StringComparison.Ordinal);
         var splitWithoutProject=scenario.EndsWith("SplitWithoutProject",StringComparison.Ordinal);
@@ -847,6 +859,21 @@ public sealed class FunctionTableGenerationTests : IDisposable
             targetField.ControlDetail=JsonSerializer.Serialize(new {pageId="103",nameField="name",whereSql=singleControl
                 ?"status=1 AND scope_id=@parent_id":"status=1 AND scope_id=@parent_id AND other_scope_id=@parentId"});
         }
+        if(plain)
+        {
+            var targetPage=catalog.ConfigPages.Single(page=>page.Id=="103");
+            targetPage.Extra.Remove("exactDataManageMatchField");
+            if(plainParentAccount)targetPage.WhereSql=targetPage.WhereSql.Replace(" AND store_id=@current_store_id","",StringComparison.Ordinal);
+            if(plainBusiness)
+            {
+                // 普通字典页由功能表的页面字段显式引用。
+                targetPage.Extra["type"]=JsonSerializer.SerializeToElement(0);
+                var field=catalog.ConfigColumns.Single(column=>column.Id=="39");
+                catalog.ConfigPageColumns.Single(setting=>setting.Id=="10239").Extra["controlDetail"]=
+                    JsonSerializer.SerializeToElement(field.ControlDetail);
+                field.ControlDetail="{}";
+            }
+        }
         if(compound&&!singleControl)
         {
             var secondParent=catalog.ConfigColumns.Single(column=>column.Id=="708");
@@ -878,7 +905,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
             Assert.Contains("CompileMultiGlobalParent(\"7\",\"103\")", service);
             Assert.Contains("DerivedOptionsPlan102_39.BindAccount(actor)", service);
         }
-        else
+        else if(!plain)
         {
             Assert.Contains("""ResolveExactDataManage("103", "list", "real_name")""", service);
             if(!compound)Assert.Contains("ReadOptionsForm102_39", service);
@@ -899,6 +926,11 @@ public sealed class FunctionTableGenerationTests : IDisposable
             var dictionary=await File.ReadAllTextAsync(Path.Combine(generated,"Services/FunctionOptionService.g.cs"));
             Assert.DoesNotContain("PageMultiGlobalParent103",dictionary);
         }
+        if(plain&&variant.Contains("Stored",StringComparison.Ordinal))
+        {
+            Assert.Contains("CompileGlobalCandidate",service);
+            Assert.Contains("DerivedOptionsPlan102_39.BindAccount(actor)",service);
+        }
         await VerifyVueAsync(output, "GeneratedFunctionListProbe.mjs", compound?"global":scenario);
         await BuildFullAsync(output);
         var context = new AssemblyLoadContext("FunctionList." + Guid.NewGuid().ToString("N"), isCollectible: true);
@@ -907,7 +939,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
             using var binary = File.OpenRead(Path.Combine(output, "backend/Application.Host/bin/Debug/net10.0/Application.Host.dll"));
             var runtime = context.LoadFromStream(binary).GetType("Example.FunctionForm.Generated.Services.SummaryFormService", true)!;
             RuntimeHelpers.RunClassConstructor(runtime.TypeHandle);
-            if(globalControl||split&&variant.StartsWith("global",StringComparison.Ordinal))
+            if(plain||globalControl||split&&variant.StartsWith("global",StringComparison.Ordinal))
             {
                 // 冻结候选同时保留字典账号约束和实际声明的行项目范围。
                 var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(runtime.GetField("DerivedOptionsPlan102_39",
@@ -915,7 +947,9 @@ public sealed class FunctionTableGenerationTests : IDisposable
                 const System.Reflection.BindingFlags instance=System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Instance;
                 var mysql=plan.GetType().GetProperty("MySql",instance)!.GetValue(plan)!;
                 var scope=Assert.IsType<string>(mysql.GetType().GetProperty("Scope",instance)!.GetValue(mysql));
-                Assert.Contains("b.`store_id`",scope);
+                // 字典条件和父记录条件各从实际发布页获取认证账号。
+                Assert.Equal(!plainParentAccount,scope.Contains("b.`store_id`",StringComparison.Ordinal));
+                if(plainParentAccount)Assert.Contains("global_parent.`store_id`",scope);
                 Assert.Equal(variant!="globalExactCompound"&&!withoutProject&&!splitWithoutProject,scope.Contains("b.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
                 if(split)
                 {
