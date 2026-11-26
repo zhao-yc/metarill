@@ -78,7 +78,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 {
                     // 非冗余备用页从实际来源字段重证，旧配置仍沿唯一默认页。
                     var published=GlobalMultipleRelationTarget.Require(catalog,table,relation,target);
-                    if(target.IsRongyu==0&&pageId.Length>0&&pageId!=published.Page.Id)
+                    if(pageId.Length>0&&pageId!=published.Page.Id)
                         published=GlobalMultipleRelationTarget.RequirePage(catalog,table,relation,target,source);
                     if(pageId.Length>0&&pageId!=published.Page.Id||selected?.Id!=published.Page.Id||!binding.ApplyPageScope)
                         throw new InvalidOperationException("全局复选名称与已发布目标页不一致。");
@@ -203,7 +203,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 var syntax=FixedConditionPlan.Compile(where,fields);
                 if(syntax.Terms.Count>0)control=syntax;
             }
-            var physicalScope=storedIdentity||storedParent is not null||target.IsRongyu==1&&projectFixedScope||
+            var physicalScope=storedIdentity||storedParent is not null||target.IsRongyu==1&&(projectFixedScope||
+                selectedScope is not null&&IsStoredStaticMultiPage(catalog,target,selectedScope,checkbox))||
                 checkbox&&target.IsRongyu==1&&(fixedParent is not null||ordinaryForm is not null||
                 table.IsRongyu==0&&sourcePage is not null&&(selectedScope is not null||control is not null));
             if(table.IsRongyu is not(0 or 1)||target.IsRongyu!=0&&!physicalScope||relation.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase"))
@@ -235,11 +236,11 @@ public static partial class MySqlNonRedundantReadCompiler
             var allowFormParent=projectCheckbox||formPageParent is not null&&
                 controlParents.All(range=>formPageParent.HasTarget(range.Target.Id));
             var sourceBinding=fixedParent is {} paired?paired.Source:
-                sharedCheckbox||(checkbox&&storedParent is not null)||(projectCheckbox&&sourcePage is null)
+                sharedCheckbox||(checkbox&&storedParent is not null&&sourcePage is null)||(projectCheckbox&&sourcePage is null)
                 ?parent?.CheckboxSource(catalog,table,relation,
                     allowProjectPhysicalColumns:projectCheckbox):
                 sourcePage is null?parent?.Source(catalog,table,relation):
-                allowFormParent||controlParents.Length>0?parent?.CheckboxSource(catalog,table,relation,sourcePage,
+                allowFormParent||controlParents.Length>0||checkbox&&storedParent is not null?parent?.CheckboxSource(catalog,table,relation,sourcePage,
                     allowFormParent:allowFormParent,allowProjectPhysicalColumns:allowFormParent):
                 parent?.Source(catalog,table,relation,sourcePage);
             var sourceParent=sourceBinding?.Column;

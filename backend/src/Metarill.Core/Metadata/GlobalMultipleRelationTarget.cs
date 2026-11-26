@@ -21,10 +21,10 @@ public static class GlobalMultipleRelationTarget
     public static GlobalMultipleRelationPlan RequirePage(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,
         TableMetadata target,PageMetadata sourcePage)
     {
-        if(foreign.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase")||target.IsRongyu!=0||
+        if(foreign.ControlKind is not("MultiSelectPage" or "MultiCheckBoxDatabase")||target.IsRongyu is not(0 or 1)||
             sourcePage.ConfigTableId!=owner.Id||sourcePage.YzProjectId!=catalog.YzProjectId||
             !ReferenceEquals(catalog.ConfigPages.SingleOrDefault(page=>page.Id==sourcePage.Id),sourcePage))
-            throw new NotSupportedException("全局多值页面覆盖要求当前项目实际发布的非冗余来源和字典页。");
+            throw new NotSupportedException("全局多值页面覆盖要求当前项目的非冗余来源和实际字典发布页。");
         return RequireSource(catalog,owner,foreign,target,cached:false,sourcePage:sourcePage);
     }
 
@@ -184,8 +184,10 @@ public static class GlobalMultipleRelationTarget
         var columns=catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id).ToArray();
         var expanded=RelationStorageColumns.Expand(target,columns);
         var condition=FixedConditionPlan.Compile(page.WhereSql,expanded.Select(column=>column.ColumnName));
-        if(sourcePage is not null&&checkbox&&page.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1" or "2"))
-            throw new NotSupportedException("全局复选必须引用实际发布的字典业务或选择页。");
+        if(sourcePage is not null&&(checkbox
+            ?page.Extra.GetValueOrDefault("type").ToString() is not ("" or "0" or "1" or "2")
+            :page.Extra.GetValueOrDefault("type").ToString()!="2"))
+            throw new NotSupportedException("全局多值必须引用对应控件实际发布的字典页。");
         var joinedFields=GlobalCrossTableTarget.PageJoinedConditionFields(catalog,target,page);
         var storedAccount=(checkbox||pageId.Length>0)&&IsStoredAccountPage(target,page,condition,checkbox);
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
@@ -201,7 +203,9 @@ public static class GlobalMultipleRelationTarget
         if(storedParent is not null)
         {
             // 写入和按来源行回填必须从真实字段得到同一个父键。
-            var sourceParent=checkbox?storedParent.CheckboxSource(catalog,owner,foreign):storedParent.Source(catalog,owner,foreign);
+            var sourceParent=checkbox
+                ?sourcePage is null?storedParent.CheckboxSource(catalog,owner,foreign):storedParent.CheckboxSource(catalog,owner,foreign,sourcePage)
+                :sourcePage is null?storedParent.Source(catalog,owner,foreign):storedParent.Source(catalog,owner,foreign,sourcePage);
             if(sourceParent.LogicalPages.Count>0)
                 throw new NotSupportedException("冗余全局字典要求已发布来源的实际物理父键。");
         }

@@ -129,8 +129,8 @@ internal static class DatabaseCheckboxCompilation
                 var proof=table.Source.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source):GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,source.Source,target.Source);
                 if(definition.PageId.Length>0&&definition.PageId!=proof.Page.Id)
                 {
-                    if(table.Source.IsRongyu!=0||target.Source.IsRongyu!=0)
-                        return Gap("全局复选的冗余字典或物理名称副本必须沿用固定关系。");
+                    if(table.Source.IsRongyu!=0)
+                        return Gap("全局复选的物理名称副本必须沿用固定关系。");
                     proof=GlobalMultipleRelationTarget.RequirePage(model.Catalog,table.Source,source.Source,target.Source,page.Source);
                     if(definition.PageId!=proof.Page.Id)return Gap("全局复选的目标页与实际来源配置不一致。");
                     globalPageOverride=true;
@@ -438,9 +438,9 @@ internal static class DatabaseCheckboxCompilation
                     ?MultiTargetParentScope.CompileGlobalPage(model.Catalog,target.Source,syntax,checkbox:true)
                     :MultiTargetParentScope.CompileCheckboxPage(model.Catalog,target.Source,syntax,allowGlobalParent:true)))!;
                 // 冗余全局字典按所有来源页证明同一持久父键，无父路由时取各详情实际开放的表单外键。
-                var owner=sharedLogicalParentScope||storedGlobalParent is not null
+                var owner=globalPageOverride?binding.CheckboxSource(model.Catalog,table.Source,source.Source,page.Source):
+                    sharedLogicalParentScope||storedGlobalParent is not null
                     ?binding.CheckboxSource(model.Catalog,table.Source,source.Source):
-                    globalPageOverride?binding.CheckboxSource(model.Catalog,table.Source,source.Source,page.Source):
                     pageRead?binding.Source(model.Catalog,table.Source,source.Source,page.Source):
                     binding.Source(model.Catalog,table.Source,source.Source);
                 if(sourceScopeColumns.Length==0&&(sharedLogicalParentScope||storedGlobalParent is not null))

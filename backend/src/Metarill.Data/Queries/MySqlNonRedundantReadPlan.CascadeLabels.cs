@@ -30,9 +30,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 // 普通物理父页如果被同父多路径引用，精简目录也必须保留实际目标和来源页。
                 var compoundPhysical=selected is null&&namePage is not null&&source is not null&&sourcePage is not null&&
                     HasCompoundMultiSelectSource(catalog,source,sourcePage,relation,namePage);
-                var globalOverride=sourcePage is not null&&namePage is not null&&target.IsRongyu==0&&
-                    GlobalCrossTableTarget.Declared(target);
-                if(compoundPhysical||globalOverride)selected=namePage;
+                var globalOverride=sourcePage is not null&&namePage is not null&&GlobalCrossTableTarget.Declared(target);
+                var storedStatic=source is {IsRongyu:0}&&namePage is not null&&IsStoredStaticMultiPage(catalog,target,namePage,checkbox);
+                if(compoundPhysical||globalOverride||storedStatic)selected=namePage;
                 // 普通备用页没有附加 SQL 条件，但宿主仍需用实际覆盖核对候选页。
                 if(selected is null&&sourcePage is not null&&namePage is not null&&!checkbox&&
                     IsProjectOnlyStoredMultiSelectPage(catalog,target,namePage))
@@ -47,7 +47,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[],
                         exactMultiSelection:target.IsRongyu==0&&relation.ControlKind=="MultiSelectPage"&&
                             selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0,
-                        storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase",allowLiteralMultiScope:compoundPhysical||globalOverride);
+                        storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase",
+                        allowLiteralMultiScope:compoundPhysical||globalOverride||storedStatic);
                 pages.UnionWith(plan.CascadeLabelPages);
                 if(selected is not null)
                 {
@@ -195,6 +196,12 @@ public static partial class MySqlNonRedundantReadCompiler
         return GlobalMultipleRelationTarget.IsStoredAccountPage(table,page,condition,checkbox)||
             GlobalMultipleRelationTarget.IsProjectPage(table,page,condition,checkbox);
     }
+
+    /// <summary>物理全局字典可用发布页的常量筛选限定候选和实时名称。</summary>
+    private static bool IsStoredStaticMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)=>
+        table.IsRongyu==1&&GlobalCrossTableTarget.Declared(table)&&
+        GlobalMultipleRelationTarget.IsStoredStaticPage(table,page,FixedConditionPlan.Compile(page.WhereSql,
+            catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).Select(column=>column.ColumnName)),checkbox);
 
     /// <summary>非冗余全局字典的项目声明只在固定多值候选及名称计划生效。</summary>
     private static bool IsNonRedundantProjectMultiPage(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)
@@ -350,10 +357,11 @@ public static partial class MySqlNonRedundantReadCompiler
             single.RequireScalarLabelOrigin(field);
             return single;
         }
+        var storedIdentity=StoredIdentityMultiPage(catalog,table,page,storedExactCheckbox);
         if(importPageType=="2"&&!exactMultiSelection&&(importFields?.Count??0)==0&&
-            StoredIdentityMultiPage(catalog,table,page,storedExactCheckbox))
+            (storedIdentity||allowLiteralMultiScope&&IsStoredStaticMultiPage(catalog,table,page,storedExactCheckbox)))
             return new Builder(catalog,tableId,candidatePage:page,multiLabel:true,cascadeLabelField:field,
-                accountPhysicalCandidate:true)
+                accountPhysicalCandidate:storedIdentity)
             {
                 MultiNamePathPage=page,
                 ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
@@ -477,7 +485,7 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         foreach(var relation in catalog.ConfigColumns.Where(column=>column.ControlKind is "MultiSelectPage" or "MultiCheckBoxDatabase"))
         {
-            (TableMetadata? Source,TableMetadata Table,string Field,ColumnMetadata Relation)? result=null;
+            (TableMetadata? Source,TableMetadata Table,string Field,ColumnMetadata Relation,PageMetadata? DefaultPage)? result=null;
             try
             {
                 var definition=Definition(relation);
@@ -494,24 +502,28 @@ public static partial class MySqlNonRedundantReadCompiler
                 var target=catalog.ConfigTables.SingleOrDefault(table=>tableId.Length>0?table.Id==tableId:table.TableName==tableName);
                 if(target is null)continue;
                 var source=catalog.ConfigTables.SingleOrDefault(table=>table.Id==relation.ConfigTableId);
-                // 普通默认页没有固定名称计划，也应继续发现各个来源页明确配置的固定候选。
-                if(target.IsRongyu!=0&&MultiTargetNamePage(catalog,target,relation) is null&&
-                    !(relation.ControlKind=="MultiSelectPage"&&source is {IsRongyu:0}&&!GlobalCrossTableTarget.Declared(source)&&
+                var resolvedDefaultPage=MultiTargetNamePage(catalog,target,relation);
+                if(target.IsRongyu!=0&&resolvedDefaultPage is null)
+                {
+                    // 物理字典的实时名称需要保留实际默认页和备用页，持久副本仍沿原编译入口。
+                    if(source is {IsRongyu:0}&&GlobalCrossTableTarget.Declared(target))
+                        resolvedDefaultPage=GlobalMultipleRelationTarget.Require(catalog,source,relation,target).Page;
+                    else if(!(relation.ControlKind=="MultiSelectPage"&&source is {IsRongyu:0}&&!GlobalCrossTableTarget.Declared(source)&&
                         catalog.ConfigPages.SingleOrDefault(page=>page.Id==pageId&&page.ConfigTableId==target.Id) is {} original&&
                         IsProjectOnlyStoredMultiSelectPage(catalog,target,original)))continue;
-                result=(source,target,field,relation);
+                }
+                result=(source,target,field,relation,resolvedDefaultPage);
             }
             catch(Exception error)when(error is ArgumentException or InvalidOperationException or NotSupportedException or System.Text.Json.JsonException)
             {
                 // 无效控件不改变无关页面的读取权限。
             }
             if(result is not {} candidate)continue;
-            var (owner,table,name,column)=candidate;
-            var defaultPage=MultiTargetNamePage(catalog,table,column);
+            var (owner,table,name,column,defaultPage)=candidate;
             yield return (owner,table,name,column,null,defaultPage);
 
             var global=GlobalCrossTableTarget.Declared(table);
-            var globalSelection=global&&table.IsRongyu==0;
+            var globalSelection=global&&table.IsRongyu is 0 or 1;
             if(owner is not {IsRongyu:0}||!globalSelection&&(GlobalCrossTableTarget.Declared(owner)||global))
                 continue;
             foreach(var sourcePage in catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id&&

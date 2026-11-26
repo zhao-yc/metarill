@@ -132,7 +132,7 @@ internal static class MultiSelectCompilation
             var projectOnlyOverride=pageOverride&&table.Source.IsRongyu==0&&!table.IsGlobal&&
                 Metarill.Data.Queries.NonRedundantReads.IsProjectOnlyStoredMultiSelectPage(model.Catalog,target.Source,targetPage.Source);
             // 非冗余来源的备用全局字典页使用自己的查询和范围，持久名称副本仍使用表级页。
-            var globalPageRead=pageOverride&&table.Source.IsRongyu==0&&target.IsGlobal&&target.Source.IsRongyu==0;
+            var globalPageRead=pageOverride&&table.Source.IsRongyu==0&&target.IsGlobal;
             var pageRead=globalPageRead||table.Source.IsRongyu==0&&!table.IsGlobal&&!target.IsGlobal&&
                 (target.Source.IsRongyu==0||projectOnlyOverride||
                     Metarill.Data.Queries.NonRedundantReads.IsProjectFixedMultiSelectTarget(model.Catalog,target.Source,targetPage.Source));

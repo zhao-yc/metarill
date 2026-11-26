@@ -672,6 +672,14 @@ public sealed class DerivedMultiNamesTests
     [InlineData(true,false,false,false,"global-owner")]
     [InlineData(true,true,true,false,"global-business-page")]
     [InlineData(false,false,false,false,"global-owner")]
+    [InlineData(false,false,false,false,"global-stored-dictionary")]
+    [InlineData(true,false,false,false,"global-stored-dictionary")]
+    [InlineData(false,false,false,false,"global-stored-project")]
+    [InlineData(true,false,false,false,"global-stored-project")]
+    [InlineData(false,true,true,false,"global-stored-account")]
+    [InlineData(true,true,true,false,"global-stored-account")]
+    [InlineData(false,false,false,false,"global-stored-static")]
+    [InlineData(true,false,false,false,"global-stored-static")]
     public async Task R0_array_page_override_uses_the_actual_target(bool checkbox,bool account,bool overlayOnlyAccount=false,
         bool differentSourceParents=false,string dictionaryMode="")
     {
@@ -679,8 +687,18 @@ public sealed class DerivedMultiNamesTests
         var catalog=Catalog("array_page_override",false);
         catalog.ConfigTables.Single(table=>table.Id=="4").IsRongyu=dictionaryMode=="stored-dictionary"?1:0;
         if(dictionaryMode=="stored-dictionary")catalog.ConfigPages.Single(page=>page.Id=="401").WhereSql+=" AND status>=18";
-        var globalDictionary=dictionaryMode is "global-dictionary" or "global-owner" or "global-business-page";
-        if(globalDictionary)
+        var storedGlobalDictionary=dictionaryMode.StartsWith("global-stored-",StringComparison.Ordinal);
+        var globalDictionary=storedGlobalDictionary||dictionaryMode is "global-dictionary" or "global-owner" or "global-business-page";
+        if(storedGlobalDictionary)
+        {
+            var stored=catalog.ConfigTables.Single(table=>table.Id=="3");
+            stored.IsRongyu=1;
+            stored.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            var label=catalog.ConfigColumns.Single(column=>column.Id=="32");
+            label.Extra.Remove("isJoinColumn");
+            label.Extra.Remove("columnFullName");
+        }
+        else if(globalDictionary)
         {
             foreach(var table in catalog.ConfigTables.Where(table=>table.Id is "3" or "4"||dictionaryMode=="global-owner"&&table.Id=="2"))
                 table.Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
@@ -698,8 +716,12 @@ public sealed class DerivedMultiNamesTests
         catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",ColumnName="status",LogicalType="int32"});
         if(account)catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="3",ColumnName="store_id",LogicalType="int64"});
         var original=catalog.ConfigPages.Single(page=>page.Id=="301");
-        original.WhereSql=dictionaryMode=="global-owner"?"status>=31":
-            original.WhereSql+" AND status>=31"+(account&&!overlayOnlyAccount?" AND store_id=@current_store_id":"");
+        original.WhereSql=dictionaryMode switch
+        {
+            "global-owner" or "global-stored-static"=>"status>=31",
+            "global-stored-project" or "global-stored-account"=>"yz_project_id=@current_yz_project_id AND status>=31",
+            _=>original.WhereSql+" AND status>=31"+(account&&!overlayOnlyAccount?" AND store_id=@current_store_id":"")
+        };
         var alternative=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(original))!;
         alternative.Id="302";
         if(dictionaryMode=="global-business-page")alternative.Extra["type"]=JsonSerializer.SerializeToElement(0);
@@ -807,12 +829,16 @@ public sealed class DerivedMultiNamesTests
             {
                 var read=Read("ReadPlan"+page);
                 var values=Parameters(read);
-                Assert.Contains(condition,values);
-                Assert.DoesNotContain(otherCondition,values);
-                Assert.DoesNotContain(17,values);
+                if(!storedGlobalDictionary)
+                {
+                    Assert.Contains(condition,values);
+                    Assert.DoesNotContain(otherCondition,values);
+                    Assert.DoesNotContain(17,values);
+                }
+                else Assert.DoesNotContain(page=="201"?32:31,values);
                 var usesAccount=account&&(!overlayOnlyAccount||page=="202");
                 Assert.Equal(usesAccount,values.Contains(23L));
-                if(usesAccount||!checkbox)Assert.Contains(root,values);
+                if(usesAccount||!checkbox||storedGlobalDictionary)Assert.Contains(root,values);
                 var predicates=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(read.GetType()
                     .GetProperty("ArrayNamePredicates",HiddenInstance)!.GetValue(read));
                 Assert.Contains(".`status`",predicates["target_names"]);
@@ -835,25 +861,53 @@ public sealed class DerivedMultiNamesTests
                     }
                 }
 
-                var match=Read((checkbox?"DerivedCheckboxPlan":"MultiDerivedPlan")+page+"_25");
-                Assert.Contains(condition,Parameters(match));
-                Assert.DoesNotContain(otherCondition,Parameters(match));
-                if(!checkbox)Assert.Contains(condition,Parameters(Read("ExportReadPlan"+page)));
+                var nameField=(checkbox?"DerivedCheckboxPlan":"MultiDerivedPlan")+page+"_25";
+                var storedPhysical=storedGlobalDictionary&&
+                    service.GetField(nameField,System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static) is null;
+                var match=storedPhysical?null:Read(nameField);
+                if(!storedGlobalDictionary)
+                {
+                    Assert.Contains(condition,Parameters(match!));
+                    Assert.DoesNotContain(otherCondition,Parameters(match!));
+                    if(!checkbox)Assert.Contains(condition,Parameters(Read("ExportReadPlan"+page)));
+                }
+                else if(!checkbox)Assert.Contains(root,Parameters(Read("ExportReadPlan"+page)));
                 if(globalDictionary)
                 {
-                    Assert.Contains(root,Parameters(match));
                     Assert.Contains("b.`yz_project_id`",Assert.IsType<string>(read.GetType().GetProperty("Scope",HiddenInstance)!.GetValue(read)));
-                    if(checkbox)
+                    if(storedPhysical)
                     {
-                        var targetScope=Assert.IsType<string>(match.GetType().GetProperty("Scope",HiddenInstance)!.GetValue(match));
-                        Assert.Equal(dictionaryMode!="global-owner",targetScope.Contains("b.`yz_project_id`",StringComparison.Ordinal));
-                        Assert.Equal(usesAccount,Parameters(match).Contains(23L));
+                        const System.Reflection.BindingFlags privateStatic=System.Reflection.BindingFlags.NonPublic|
+                            System.Reflection.BindingFlags.Static;
+                        var suffix=page+"_25";
+                        var conditionField=checkbox?service.GetField("CheckboxGlobalCondition"+suffix,privateStatic)??
+                            service.GetField("CheckboxTargetCondition"+suffix,privateStatic):
+                            service.GetField("MultiPageCondition"+suffix,privateStatic);
+                        var fixedCondition=Assert.IsType<FixedConditionSqlPlan>(conditionField?.GetValue(null));
+                        Assert.Equal(usesAccount,fixedCondition.Variables.Contains("current_store_id"));
+                        var bound=fixedCondition.BindVariables(new Dictionary<string,object?>{{"current_store_id",23L}});
+                        using var command=new MySqlConnector.MySqlCommand();
+                        using var session=new Metarill.Data.DatabaseSession(new(){Provider="mysql",ExpectedDatabase="offline",
+                            ConnectionString="Server=localhost;Database=offline;User ID=unused"});
+                        Assert.Contains("status",bound.BindConstants(command,session,"scope"));
+                        Assert.Contains(root,command.Parameters.Cast<MySqlConnector.MySqlParameter>().Select(parameter=>parameter.Value));
+                    }
+                    else
+                    {
+                        Assert.Contains(root,Parameters(match!));
+                        if(checkbox||storedGlobalDictionary)
+                        {
+                            var targetScope=Assert.IsType<string>(match!.GetType().GetProperty("Scope",HiddenInstance)!.GetValue(match));
+                            Assert.Equal(dictionaryMode is not ("global-owner" or "global-stored-static"),
+                                targetScope.Contains("b.`yz_project_id`",StringComparison.Ordinal));
+                            Assert.Equal(usesAccount,Parameters(match).Contains(23L));
+                        }
                     }
                 }
                 if(dictionaryMode=="stored-dictionary")
                 {
                     Assert.Contains(18,values);
-                    Assert.Contains(18,Parameters(match));
+                    Assert.Contains(18,Parameters(match!));
                     Assert.Contains(18,Parameters(Read("ExportReadPlan"+page)));
                 }
                 Assert.NotNull(service.GetMethod("Import"+page+"Async"));
