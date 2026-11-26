@@ -90,7 +90,9 @@ internal static class CrossTableReadCompilation
             if(result.Select(level=>GenerationModel.Camel(level.Prefix+"_id")).Distinct(StringComparer.Ordinal).Count()!=result.Count)return Gap("层级JSON字段名冲突。");
             var joiner=Text(root,"displayJoiner","/");var plan=new CrossTableReadModel(source,result.ToArray(),joiner);
             var functionForm=table.Source.IsFunctionTable==1;
-            if(plan.HasTextKeys&&(model.Catalog.DatabaseProvider!="mysql"||table.Source.IsView!=0||table.IsGlobal||
+            // 全局非冗余多选字典沿实际发布链校验父键，冗余全局来源仍走原发布限制。
+            var globalTextDictionary=table.Source.IsRongyu==0&&SelectionPageRenderer.Enabled(page);
+            if(plan.HasTextKeys&&(model.Catalog.DatabaseProvider!="mysql"||table.Source.IsView!=0||table.IsGlobal&&!globalTextDictionary||
                 result.Any(level=>level.Target.Source.IsView!=0)||
                 !functionForm&&!SupportsSourceParent(model,table,source,result)))
                 return Gap("文本业务键要求已发布的 MySQL 候选链，实体来源父范围须证明同一实际文本键。");

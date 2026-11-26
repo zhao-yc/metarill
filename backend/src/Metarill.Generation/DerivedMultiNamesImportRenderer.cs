@@ -17,7 +17,8 @@ internal static class DerivedMultiNamesImportRenderer
             ?null:FixedPageConditionCompilation.Bound(multi.TargetPage,"MultiPageCondition"+suffix);
         var condition=multi.ImportCondition is null?targetCondition:
             targetCondition is null?"importCondition":"importCondition.And("+targetCondition+")";
-        var scopes=multi.TargetPage.Scopes.Select(scope=>"            filters.Add(new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+Value(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+"));");
+        var scopes=multi.TargetPage.Scopes.Select(scope=>
+            $"            filters.Add({MultiSelectFieldRenderer.FixedScopeFilter(multi,scope.Column,scope.Source)});");
         var exact=multi.ExactTarget is {} proof
             ?ExactDataManageCompilation.ReadFilter(multi.TargetPage,proof,Literal("list"),"multiImportExact","filters"):"";
         var validateParent=multi.SharedTextParent is not null
@@ -52,8 +53,6 @@ internal static class DerivedMultiNamesImportRenderer
 
 """;
     }
-    /// <summary>只绑定物理列已发布的逻辑类型，长ID不经浮点。</summary>
-    private static string Value(ColumnModel column,string value)=>column.Type switch{"string?"=>value,"int?"=>$"int.Parse({value},CultureInfo.InvariantCulture)",_=>$"long.Parse({value},CultureInfo.InvariantCulture)"};
     /// <summary>固定配置只生成转义字面量。</summary>
     private static string Literal(string value)=>JsonSerializer.Serialize(value);
 }

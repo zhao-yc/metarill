@@ -91,8 +91,7 @@ internal static class MultiSelectFieldRenderer
             }
             var filters=new List<string>{"new(\"id\",FixedReadComparison.In,selected.Select(id=>(object?)id).ToArray())"};
             foreach(var scope in def.TargetPage.Scopes)
-                filters.Add("new("+Literal(scope.Column.Source.ColumnName)+",FixedReadComparison.Equal,"+
-                    Scope(scope.Column,scope.Source=="project"?"actor.ProjectId":"targetParentId!")+")");
+                filters.Add(FixedScopeFilter(def,scope.Column,scope.Source));
             var filterArgument="new FixedReadFilter[]{"+string.Join(",",filters)+"}";
             if(scoped)
             {
@@ -158,6 +157,13 @@ internal static class MultiSelectFieldRenderer
     internal static string ParentFilter(MultiSelectModel def,ColumnModel column,string indent)=>def.SharedTextParent==column
         ?$"{indent}query=global::Metarill.Data.Queries.NonRedundantReads.ApplyTextParent(query,session,{Literal(column.Source.ColumnName)},targetParentId!,businessKey:true);"
         :$"{indent}query = query.Where(row => row.{column.Property} == {Scope(column,"targetParentId!")});";
+
+    /// <summary>保存和名称导入按同一个发布范围比较全局文本父键，保留原字节。</summary>
+    internal static string FixedScopeFilter(MultiSelectModel def,ColumnModel column,string source)=>
+        source=="parent"&&def.GlobalParent&&def.SharedTextParent is not null
+            ?$"FixedReadFilter.ForTextParent({Literal(column.Source.ColumnName)},targetParentId!,businessKey:true)"
+            :"new("+Literal(column.Source.ColumnName)+",FixedReadComparison.Equal,"+
+                Scope(column,source=="project"?"actor.ProjectId":"targetParentId!")+")";
     /// <summary>已选保存和导入复用目标列表授权，派生匹配沿该目标页的同事务当前读。</summary>
     internal static string ExactQuery(GenerationModel model,MultiSelectModel multi,string prefix)
     {

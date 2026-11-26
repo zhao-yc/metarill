@@ -115,7 +115,8 @@ internal static class MultiSelectCompilation
             if (name is null || GenerationModel.Enabled(name.Source.Extra,"isJoinColumn")&&!DerivedMultiNamesCompilation.Declared(model,target,name)&&!globalCachedName || name.IsJsonArray || name.Type != "string?" && !name.IsId&&!scalarLabel || !targetPage.Readable.Any(column => column.Source.Id == name.Source.Id)) return Gap("名称字段不在目标页可读投影或类型未支持。");
             if (ManagerCredentialCompilation.IsCredential(target,name)) return Gap("账号凭据不能作为多选名称读取列。");
             var sharedTextParent=SharedRedundantParentCompilation.CommonTextParent(model,table,page,target,targetPage,allowSparseTarget:true)??
-                NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,targetPage,allowStoredTarget:true);
+                NonRedundantCrossParentCompilation.CommonTextParent(model,table,page,target,targetPage,
+                    allowStoredTarget:true,allowGlobalSparseTarget:true);
             var baselineName=Scalar(root,"nameField");
             if(string.IsNullOrWhiteSpace(baselineName))baselineName="name";
             var changedName=baselineName!=name.Source.ColumnName;
@@ -200,6 +201,8 @@ internal static class MultiSelectCompilation
             var logicalParentBusinessKey=targetAlternateKey is {LogicalType:"int64"} key
                 ?targetParents.Single().Columns.Single(column=>column.Source.Id==key.Id):null;
             var same = targetParents.Length > 0 && sourceParents.SequenceEqual(targetParents.Select(parent => parent.Source.Id).Order());
+            if(!functionForm&&scopedParent is {Global:true,Logical:true}&&targetAlternateKey?.LogicalType=="string"&&sharedTextParent is null)
+                return Gap("全局多选的来源与目标父范围必须使用同一个已发布文本业务键。");
             if(same&&sharedTextParent is null&&CrossTableReadCompilation.TextSourceParent(model,table,page) is not null)
                 return Gap("多选目标父尚未证明使用与来源相同的文本业务键。");
             string? targetField = null;

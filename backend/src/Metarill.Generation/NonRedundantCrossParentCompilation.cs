@@ -29,9 +29,10 @@ internal static class NonRedundantCrossParentCompilation
 
     /// <summary>验证稀疏来源与目标共用同一发布祖先路径及文本键，目标可以物理保存父键。</summary>
     internal static ColumnModel? CommonTextParent(GenerationModel model,TableModel source,PageModel sourcePage,
-        TableModel target,PageModel targetPage,bool allowStoredTarget=false)
+        TableModel target,PageModel targetPage,bool allowStoredTarget=false,bool allowGlobalSparseTarget=false)
     {
-        if(source.Source.IsRongyu!=0||target.Source.IsRongyu!=0&&(!allowStoredTarget||target.Source.IsRongyu!=1)||source.IsGlobal||target.IsGlobal||
+        if(source.Source.IsRongyu!=0||target.Source.IsRongyu!=0&&(!allowStoredTarget||target.Source.IsRongyu!=1)||source.IsGlobal||
+            target.IsGlobal&&(!allowGlobalSparseTarget||target.Source.IsRongyu!=0||!SelectionPageRenderer.Enabled(targetPage))||
             source.Source.YzProjectId!=model.Catalog.YzProjectId||target.Source.YzProjectId!=model.Catalog.YzProjectId||
             sourcePage.Source.YzProjectId!=model.Catalog.YzProjectId||targetPage.Source.YzProjectId!=model.Catalog.YzProjectId)
             return null;

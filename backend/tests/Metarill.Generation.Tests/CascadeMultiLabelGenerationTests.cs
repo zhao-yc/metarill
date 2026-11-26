@@ -586,16 +586,22 @@ public sealed class CascadeMultiLabelGenerationTests
         CompileCascadeLabel(kind,mode,selfTree:false,indirect:false,selectedPage:true,physical:mode==1,globalRowProject:rowProject,
             parent:true,logicalParent:true,sourceLogicalParent:sourceLogical,globalParent:true,parentWithoutProject:noParentProject,parentAccount:parentAccount);
 
-    /// <summary>持久化多选保存使用两侧已发布的全局整数业务父键。</summary>
+    /// <summary>持久化多选保存使用两侧已发布的全局业务父键。</summary>
     [Theory]
-    [InlineData(false,false)]
-    [InlineData(true,false)]
-    [InlineData(false,true)]
-    [InlineData(true,true)]
-    public Task Selected_page_global_business_key_is_used_during_multiselect_save(bool exact,bool globalDictionary)=>
+    [InlineData(false,null,false)]
+    [InlineData(true,null,false)]
+    [InlineData(false,true,false)]
+    [InlineData(true,true,false)]
+    [InlineData(false,null,true)]
+    [InlineData(true,null,true)]
+    [InlineData(false,false,true)]
+    [InlineData(true,false,true)]
+    [InlineData(false,true,true)]
+    [InlineData(true,true,true)]
+    public Task Selected_page_global_business_key_is_used_during_multiselect_save(bool exact,bool? dictionaryRowProject,bool textBusinessParent)=>
         CompileCascadeLabel("MultiSelectPage",0,selfTree:false,indirect:false,selectedPage:true,
-            globalRowProject:globalDictionary?true:null,parent:true,logicalParent:true,sourceLogicalParent:true,
-            globalParent:true,parentWithoutProject:true,parentAccount:true,exact:exact,businessParent:true);
+            globalRowProject:dictionaryRowProject,parent:true,logicalParent:true,sourceLogicalParent:true,
+            globalParent:true,parentWithoutProject:true,parentAccount:true,exact:exact,businessParent:true,textBusinessParent:textBusinessParent);
 
     [Theory]
     [InlineData("MultiSelectPage",0,null,true,false)]
@@ -770,7 +776,7 @@ public sealed class CascadeMultiLabelGenerationTests
         bool globalCompoundSource=false,bool projectTargetGlobalParent=false,bool globalBusinessSource=false,bool literalParent=false,
         bool projectParentScope=false,bool ordinaryBusinessSource=false,bool textDictionaryProject=false,
         string? customCheckboxParentType=null,bool customCheckboxTypeTwo=false,string? repeatDictionaryWhere=null,bool storedDictionary=false,
-        bool alternateCheckboxName=false,bool alternateMultiName=false,bool businessParent=false)
+        bool alternateCheckboxName=false,bool alternateMultiName=false,bool businessParent=false,bool textBusinessParent=false)
     {
         const string ns="Example.CascadeLabels";
         var exactGlobalPhysicalDictionary=exact&&globalRowProject is not null&&physical&&parent&&!storedDictionary&&!logicalParent;
@@ -1049,7 +1055,13 @@ public sealed class CascadeMultiLabelGenerationTests
         {
             // 两个逻辑位置保存的是同一业务键，全球唯一索引不含项目列。
             catalog.ConfigColumns.Add(new(){Id="business_3",ConfigTableId="3",ColumnName="business_key",
-                LogicalType="int64",IsDbNotNull=1});
+                LogicalType=textBusinessParent?"string":"int64",ColumnLength=textBusinessParent?"50":"",IsDbNotNull=1});
+            if(textBusinessParent)
+                foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "45" or "914"))
+                {
+                    column.LogicalType="string";
+                    column.ColumnLength="50";
+                }
             catalog.ConfigIndexes.Add(JsonSerializer.SerializeToElement(new{id="business_index_3",configTableId="3",
                 isUnique=1,indexName="uniq_country_business"}));
             catalog.ConfigIndexColumns.Add(JsonSerializer.SerializeToElement(new{id="business_index_3_key",
@@ -1090,7 +1102,7 @@ public sealed class CascadeMultiLabelGenerationTests
                     var field=owner.Columns.Single(column=>column.Source.Id=="95");
                     var result=MultiSelectCompilation.Resolve(mismatched,owner,page,field);
                     Assert.Null(result.Definition);
-                    Assert.Contains("同一个已发布业务键",result.Reason);
+                    Assert.Contains(textBusinessParent?"文本业务键":"同一个已发布业务键",result.Reason);
                 }
                 finally { control.ControlDetail=original; }
             }
@@ -1355,7 +1367,14 @@ public sealed class CascadeMultiLabelGenerationTests
                 if(globalParent)
                 {
                     Assert.Contains("CompileMultiGlobalParent(\"2\",\"201\")",code);
-                    if(businessParent)
+                    if(textBusinessParent)
+                    {
+                        Assert.DoesNotContain(".KeyRowsAsync(MultiGlobalParent901_95",code);
+                        Assert.Contains("var targetParentId=LogicalParentId901(logicalRelationParentId);",code);
+                        Assert.Contains(".PathByKeyAsync(0,targetParentId,cancellationToken)",code);
+                        Assert.Contains("""filters.Add(FixedReadFilter.ForTextParent("country_id",targetParentId!,businessKey:true));""",code);
+                    }
+                    else if(businessParent)
                     {
                         Assert.DoesNotContain(".KeyRowsAsync(MultiGlobalParent901_95",code);
                         Assert.Contains(".BusinessKeyRowsAsync(MultiGlobalParent901_95.BindAccount(actor),"+
@@ -1383,6 +1402,7 @@ public sealed class CascadeMultiLabelGenerationTests
                 {
                     if(compoundSourceParent is not null&&onlyParent&&!projectStoredGlobalParent)
                         Assert.Contains("row.TargetScopeId == targetParentId!",code);
+                    else if(textBusinessParent)Assert.Contains("""FixedReadFilter.ForTextParent("country_id",targetParentId!,businessKey:true)""",code);
                     else if(!physicalProjectCheckbox)Assert.Contains("new(\""+parentField+"\",FixedReadComparison.Equal,",code);
                     if(sourceLogicalParent)
                     {
@@ -1409,16 +1429,43 @@ public sealed class CascadeMultiLabelGenerationTests
                 Assert.Contains("b.`status`",scope);
                 Assert.Contains("b.`store_id`",scope);
                 Assert.Contains("b.`delete_no` IS NULL",scope);
-                var filter=new FixedReadFilter("business_key",FixedReadComparison.Equal,9007199254741197L);
+                var filter=textBusinessParent?FixedReadFilter.ForTextParent("business_key","0007-Ab",businessKey:true):
+                    new FixedReadFilter("business_key",FixedReadComparison.Equal,9007199254741197L);
                 var predicate=Assert.IsType<string>(typeof(MySqlNonRedundantReader).GetMethod("Filter",staticPrivate)!.Invoke(null,[sql,filter,0]));
                 Assert.Contains("b.`business_key`",predicate);
-                Assert.Contains("@filter_0",predicate);
-                Assert.DoesNotContain("9007199254741197",predicate);
+                Assert.Contains(textBusinessParent?"=BINARY @filter_0":"@filter_0",predicate);
+                Assert.DoesNotContain(textBusinessParent?"0007-Ab":"9007199254741197",predicate);
                 var dictionaryPlan=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("MultiDerivedPlan901_95",staticPrivate)!.GetValue(null));
                 var dictionarySql=dictionaryPlan.GetType().GetProperty("MySql",hidden)!.GetValue(dictionaryPlan)!;
                 Assert.Equal("country_id",dictionarySql.GetType().GetProperty("RequiredMultiParent",hidden)!.GetValue(dictionarySql));
                 var targetCode=await File.ReadAllTextAsync(Path.Combine(directory,"generated/Services/LabelCrossSourceService.g.cs"));
                 Assert.Contains("SelectionSelected201Async",targetCode);
+                if(textBusinessParent)
+                {
+                    var owner=model.Tables.Single(table=>table.Source.Id=="9");
+                    var page=owner.Pages.Single(item=>item.Source.Id=="901");
+                    var multi=Assert.Single(MultiSelectCompilation.ForPage(model,owner,page));
+                    Assert.NotNull(multi.SharedTextParent);
+                    var detail=OriginalUniappDetailRenderer.Render(model,owner,page,[]);
+                    Assert.Contains(":parent_id=\"multiTargetParent('selectedIds')\"",detail);
+                    Assert.Contains(",[\"selectedIds\"])",detail);
+                    var sourcePlan=Assert.IsType<NonRedundantReadPlan>(consumer.GetField("ReadPlan901",staticPrivate)!.GetValue(null));
+                    var sourceSql=sourcePlan.GetType().GetProperty("MySql",hidden)!.GetValue(sourcePlan)!;
+                    var nameSql=Assert.IsType<string>(sourceSql.GetType().GetMethod("Expression",hidden)!.Invoke(sourceSql,[multi.Names!.Source.ColumnName]));
+                    Assert.Contains("BINARY CAST(",nameSql);
+                    Assert.Contains("`business_key`",nameSql);
+                    if(exact&&globalRowProject==false)
+                    {
+                        // 全局字典无行项目列时也须在完整包保留业务键和已发布权限。
+                        foreach(var published in catalog.ConfigPages)
+                            catalog.ConfigMenus.Add(new(){Id="700"+published.Id,YzProjectId=catalog.YzProjectId,
+                                YzAdminTypeId=published.YzAdminTypeId,Name="页面"+published.Id,Kind="GENERATED_PAGE",ConfigPageId=published.Id});
+                        var full=Path.Combine(directory,"full");
+                        new ApplicationPackager().Create(catalog,full,ns,NonRedundantApplicationFixture.Root());
+                        foreach(var operation in new[]{"restore","build"})
+                            await NonRedundantApplicationFixture.BuildAsync(full,operation);
+                    }
+                }
             }
             if(projectTargetGlobalParent&&compoundTargetParent is null&&!physicalProjectCheckbox)
             {
