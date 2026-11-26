@@ -70,8 +70,7 @@ public static class GlobalCrossTableTarget
             var logical=tree||fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field));
             // 普通字典页也可被原复选实际绑定，项目与账号条件仍须来自发布页的物理列。
             var checkboxPage=!DeclaresExactMulti(table,page);
-            var projectMulti=(table.IsRongyu==1||!checkboxPage)&&
-                GlobalMultipleRelationTarget.IsProjectPage(table,page,condition,checkboxPage,allowExact:true);
+            var projectMulti=GlobalMultipleRelationTarget.IsProjectPage(table,page,condition,checkboxPage,allowExact:true);
             var storedMultiAccount=GlobalMultipleRelationTarget.IsStoredExactMultiAccountPage(table,page,condition,checkboxPage);
             RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0||storedMultiAccount,allowLogical:logical,
                 allowSelfTree:tree,allowExactSingle:true,allowStoredProject:projectMulti,joinedFields:joinedFields);

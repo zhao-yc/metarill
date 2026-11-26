@@ -242,7 +242,9 @@ public static class GlobalMultipleRelationTarget
         var storedExact=target.IsRongyu==1&&(checkbox
             ?GlobalCrossTableTarget.DeclaresExactPage(target,page)
             :cached&&GlobalCrossTableTarget.DeclaresExactMulti(target,page));
-        var cachedNonRedundantExact=cached&&!checkbox&&target.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactMulti(target,page);
+        var cachedNonRedundantExact=cached&&target.IsRongyu==0&&(checkbox
+            ?GlobalCrossTableTarget.DeclaresExactPage(target,page)
+            :GlobalCrossTableTarget.DeclaresExactMulti(target,page));
         var storedAccount=(checkbox||pageId.Length>0)&&(IsStoredAccountPage(target,page,condition,checkbox)||
             storedExact&&IsStoredExactMultiAccountPage(target,page,condition,checkbox));
         var selfTreeScope=condition.Fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,field));
@@ -292,6 +294,7 @@ public static class GlobalMultipleRelationTarget
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
         }
         if(cached&&checkbox&&(projectPage||storedParent is not null||storedExact&&(storedStatic||storedAccount)||
+            cachedNonRedundantExact&&(storedStatic||nonRedundantAccountPage)||
             GlobalCrossTableTarget.Declared(owner)&&(storedStatic||nonRedundantAccountPage))&&
             !checkboxDefinition!.IsCoveredByStaticPage(condition,expanded.Select(column=>column.ColumnName)))
             throw new NotSupportedException("全局复选的冗余名称要求控件条件由实际发布字典页覆盖。");
@@ -337,7 +340,8 @@ public static class GlobalMultipleRelationTarget
         if(!scoped&&condition.Fields.Any(field=>!joinedFields.Contains(field)&&!Scalar(columns.Single(column=>column.ColumnName==field))))
             throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");
         return new(page,name){UsesStoredStaticPage=storedStatic,UsesProjectPage=projectPage,UsesNonRedundantAccountPage=nonRedundantAccountPage,
-            UsesNonRedundantExactCheckboxPage=checkbox&&exactRealtime,
+            UsesNonRedundantExactCheckboxPage=checkbox&&(exactRealtime||
+                cachedNonRedundantExact&&(storedStatic||projectPage||nonRedundantAccountPage)),
             UsesStoredExactCheckboxPage=checkbox&&storedExact&&(storedStatic||storedAccount||projectPage),
             UsesStoredAccountPage=storedAccount,UsesNonRedundantPhysicalParentPage=physicalParentPage,
             UsesStoredPhysicalParentPage=storedParent is not null};

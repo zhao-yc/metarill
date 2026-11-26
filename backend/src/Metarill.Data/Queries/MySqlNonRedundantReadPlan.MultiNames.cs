@@ -300,7 +300,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 CrossAliasPrefix=logicalSource?prefixForNames+"cross":"cross",
                 MultiNamePathPage=namePage,
                 AllowLiteralMultiScope=sourcePage is not null||fixedParent is not null||sharedCheckbox||projectFixedScope||
-                    !checkbox&&selectedPage is not null&&GlobalCrossTableTarget.DeclaresExactMulti(target,selectedPage),
+                    selectedPage is not null&&(checkbox
+                        ?target.IsRongyu==0&&table.IsRongyu==1&&GlobalCrossTableTarget.DeclaresExactPage(target,selectedPage)
+                        :GlobalCrossTableTarget.DeclaresExactMulti(target,selectedPage)),
                 GlobalCrossCandidate=global&&(selectedPage is not null||candidatePage is not null)
             };
             var parents=new List<string>();

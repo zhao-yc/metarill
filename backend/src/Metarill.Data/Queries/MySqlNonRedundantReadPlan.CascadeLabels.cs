@@ -26,7 +26,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     .SingleOrDefault(item=>item.ColumnName==field);
                 if(column is null)continue;
                 var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
-                var selected=ScopedMultiTargetPage(catalog,target,namePage,checkbox);
+                var selected=ScopedMultiTargetPage(catalog,target,namePage,checkbox,cachedCheckbox:checkbox&&source is {IsRongyu:1});
                 // 普通物理父页如果被同父多路径引用，精简目录也必须保留实际目标和来源页。
                 var compoundPhysical=selected is null&&namePage is not null&&source is not null&&sourcePage is not null&&
                     HasCompoundMultiSelectSource(catalog,source,sourcePage,relation,namePage);
@@ -50,7 +50,7 @@ public static partial class MySqlNonRedundantReadCompiler
                         exactMultiSelection:selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0&&
                             (!checkbox&&(target.IsRongyu==0||source is {IsRongyu:0}||
                                 GlobalCrossTableTarget.DeclaresExactMulti(target,selected))||
-                             checkbox&&target.IsRongyu==1&&GlobalCrossTableTarget.DeclaresExactPage(target,selected)||
+                             checkbox&&(target.IsRongyu==1||source is {IsRongyu:1})&&GlobalCrossTableTarget.DeclaresExactPage(target,selected)||
                              GlobalCrossTableTarget.StoredMultiParent(catalog,target,selected,checkbox,allowExact:true) is not null),
                         storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase",
                         allowLiteralMultiScope:compoundPhysical||globalOverride||storedStatic);
@@ -293,7 +293,9 @@ public static partial class MySqlNonRedundantReadCompiler
 
     /// <summary>按实际目标页，将原逻辑、账号或已证明的固定范围嵌入多值计划。</summary>
     internal static PageMetadata? MultiTargetLogicalPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
-        =>ScopedMultiTargetPage(catalog,table,MultiTargetNamePage(catalog,table,relation),relation.ControlKind=="MultiCheckBoxDatabase");
+        =>ScopedMultiTargetPage(catalog,table,MultiTargetNamePage(catalog,table,relation),relation.ControlKind=="MultiCheckBoxDatabase",
+            cachedCheckbox:relation.ControlKind=="MultiCheckBoxDatabase"&&
+                catalog.ConfigTables.Any(source=>source.Id==relation.ConfigTableId&&source.IsRongyu==1));
 
     /// <summary>精简维护目录须保留该多值目标页及两端完整级联，宿主重建时仍能验证父路径。</summary>
     public static PageMetadata? StoredTextMultiTargetPage(MetadataCatalog catalog,TableMetadata table,ColumnMetadata relation)
@@ -303,11 +305,12 @@ public static partial class MySqlNonRedundantReadCompiler
             CrossTableStorageColumns.DeclaresStoredTextParent(catalog,table,page)?page:null;
 
     /// <summary>比较当前绑定页的逻辑、账号及实际全局父范围，表级和页面覆盖共用同一证明。</summary>
-    private static PageMetadata? ScopedMultiTargetPage(MetadataCatalog catalog,TableMetadata table,PageMetadata? page,bool checkbox)
+    private static PageMetadata? ScopedMultiTargetPage(MetadataCatalog catalog,TableMetadata table,PageMetadata? page,bool checkbox,bool cachedCheckbox=false)
     {
         if(page is null)return null;
         // 精确多选即使没有附加字面条件，也按实际发布页重证已存名称的读取。
         if(!checkbox&&GlobalCrossTableTarget.DeclaresExactMulti(table,page))return page;
+        if(cachedCheckbox&&table.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactPage(table,page))return page;
         if(page.WhereSql.Length==0)return null;
         var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id).ToArray();
         var declared=RelationStorageColumns.Expand(table,members);

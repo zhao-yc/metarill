@@ -352,7 +352,9 @@ public static partial class MySqlNonRedundantReadCompiler
             AllowsExactMultiSelection=relation?.ControlKind=="MultiSelectPage",
             AllowsStoredExactCheckbox=relation?.ControlKind=="MultiCheckBoxDatabase",
             AllowLiteralMultiScope=sharedCheckbox||projectFixedScope||
-                !checkbox&&selectedPage is not null&&GlobalCrossTableTarget.DeclaresExactMulti(target,selectedPage),
+                selectedPage is not null&&(checkbox
+                    ?target.IsRongyu==0&&cacheOwner is not null&&GlobalCrossTableTarget.DeclaresExactPage(target,selectedPage)
+                    :GlobalCrossTableTarget.DeclaresExactMulti(target,selectedPage)),
             MultiNamePathPage=relation is null?null:MultiTargetNamePage(catalog,target,relation),
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             MultiParentOwner=source is null?null:(cacheOwner!,source.Column,source.AdditionalColumns),
@@ -870,7 +872,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 GlobalCrossTableTarget.DeclaresExactMulti(target,publishedPage)?publishedPage:null;
             var namePage=overridden??MultiTargetNamePage(catalog,target,relation)??exactNamePage;
             // 页级只换显示名称时，仍使用实际多选页的固定条件及来源父级。
-            var selectedScope=overridden is null?ScopedMultiTargetPage(catalog,target,namePage,checkbox):
+            var selectedScope=overridden is null?ScopedMultiTargetPage(catalog,target,namePage,checkbox,cachedCheckbox:checkbox&&table.IsRongyu==1):
                 applyPageScope||relation.ControlKind=="MultiSelectPage"&&IsProjectFixedMultiPage(catalog,target,overridden)?overridden:null;
             var derivedLabel=!storage[target.Id].IsPhysical(value);
             if(!global&&checkboxPageId is {} scopedCheckboxPage&&(selectedScope is not null||derivedLabel))

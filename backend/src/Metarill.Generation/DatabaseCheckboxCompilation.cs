@@ -146,11 +146,11 @@ internal static class DatabaseCheckboxCompilation
                 // 物理字典的账号条件直接进入复选查询，名称副本仍沿同一发布页重算。
                 storedAccountPage=proof.UsesStoredAccountPage;
                 storedProjectPage=proof.UsesProjectPage;
-                scopedGlobalAccountPage=table.IsGlobal&&proof.UsesNonRedundantAccountPage;
+                scopedGlobalExactPage=(table.IsGlobal||table.Source.IsRongyu==1)&&proof.UsesNonRedundantExactCheckboxPage;
+                scopedGlobalAccountPage=(table.IsGlobal||scopedGlobalExactPage)&&proof.UsesNonRedundantAccountPage;
                 scopedGlobalParentPage=proof.UsesPhysicalParentPage;
-                scopedGlobalExactPage=table.IsGlobal&&proof.UsesNonRedundantExactCheckboxPage;
                 storedExactPage=proof.UsesStoredExactCheckboxPage;
-                storedStaticPage=(table.IsGlobal||storedExactPage)&&proof.UsesStoredStaticPage;
+                storedStaticPage=(table.IsGlobal||storedExactPage||scopedGlobalExactPage)&&proof.UsesStoredStaticPage;
                 if(globalPageOverride||storedAccountPage||storedProjectPage||storedStaticPage||scopedGlobalParentPage||scopedGlobalExactPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
                     GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name)||
                     table.Source.IsRongyu==1&&publishedGlobalPage.Condition is not null)
@@ -242,7 +242,8 @@ internal static class DatabaseCheckboxCompilation
                     (exactTarget is null||globalExactName||scopedGlobalParentPage&&target.Source.IsRongyu==1)&&
                     namePage is not null&&(namePage.Source.Id==fixedPage||globalPageOverride);
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
-                bool TextLabel(ColumnModel label,PageModel? labelPage)=>target.IsGlobal&&realtimeFixedName&&target.Source.IsRongyu==0
+                bool TextLabel(ColumnModel label,PageModel? labelPage)=>target.IsGlobal&&
+                    (realtimeFixedName||scopedGlobalExactPage&&table.Source.IsRongyu==1)&&target.Source.IsRongyu==0
                     ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(model.Catalog,target.Source,label.Source,labelPage?.Source)
                     :MultiSelectCompilation.PhysicalTextLabel(model,target,label)||
                         (sharedLogicalParentScope||sharedDerivedPageScope||realtimeFixedName)&&
@@ -517,7 +518,7 @@ internal static class DatabaseCheckboxCompilation
                 SharedDerivedPageScope=sharedDerivedPageScope,
                 SharedLogicalParentScope=sharedLogicalParentScope,
                 HasStoredIdentityScope=storedIdentityPage,
-                HasStoredExactScope=storedExactPage,
+                HasStoredExactScope=storedExactPage||table.Source.IsRongyu==1&&scopedGlobalExactPage,
                 HasStoredStaticScope=storedStaticPage,
                 HasProjectStoredAccountScope=projectStoredAccount,
                 CompoundPhysicalSource=ordinaryCompoundSource||projectStoredAccount&&sourceScopeColumns.Length>1,
@@ -573,7 +574,7 @@ internal static class DatabaseCheckboxCompilation
         if(definition.SharedLogicalParentScope)
             return !definition.LogicalSourceParent&&definition.SourceParent is not null&&
                 (definition.SourceScopeColumns.Count==1||definition.FormParentField is not null);
-        if(definition.DerivedName&&!definition.SharedDerivedPageScope)return false;
+        if(definition.DerivedName&&!definition.SharedDerivedPageScope&&!definition.HasStoredExactScope)return false;
         // 账号字典的全称和简称可共享控件显式声明的项目等值；各页的完整条件已与表级核对。
         return definition.Target.IsGlobal
             ? definition.NameTargetPage is {} globalPage&&

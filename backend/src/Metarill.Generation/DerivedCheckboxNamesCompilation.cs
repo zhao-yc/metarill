@@ -40,7 +40,7 @@ internal static class DerivedCheckboxNamesCompilation
                 def.Target.Source.Id,def.Name.Source.Id,nameCache.Source.Id,true)
             {
                 CheckboxTargetPageId=def.SharedLogicalParentScope||def.SharedDerivedPageScope||def.ProjectFormScope||
-                    def.HasStoredGlobalParentScope&&def.UsesNameOverride?ScopedCheckboxPage(def).Source.Id:null,
+                    (def.HasStoredGlobalParentScope||def.HasStoredExactScope)&&def.UsesNameOverride?ScopedCheckboxPage(def).Source.Id:null,
                 CheckboxSourceParentId=def.SharedDerivedPageScope||def.ProjectFormScope?DatabaseCheckboxCompilation.FixedCacheParent(def):null
             };
             // 无父级的固定常量页沿用原物理传播，具有持久父级的副本统一验证实际父范围。

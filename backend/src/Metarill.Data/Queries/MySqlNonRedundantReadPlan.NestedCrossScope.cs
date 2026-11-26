@@ -136,11 +136,13 @@ public static partial class MySqlNonRedundantReadCompiler
                 :physicalParent is null)))
             throw new NotSupportedException("全局候选必须使用实际发布的条件和物理父键。");
         var additional=parent?.AdditionalTargets.Select(scope=>scope.Target.ColumnName).ToHashSet(StringComparer.Ordinal);
-        // 精确多选的项目值来自认证请求，父范围采用已经核对的同一发布页。
+        // 精确字典的项目值来自认证请求，普通复选字典页和多选页均保留其显式项目条件。
         var exactMulti=globalExactSingle&&GlobalCrossTableTarget.DeclaresExactMulti(table,page);
-        var multiProject=(exactMulti||joinedMultiPage)&&
-            (parent is null?GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,allowExact:exactMulti):
-                parent is {Logical:false}&&GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,allowExact:exactMulti));
+        var multiProject=parent is null
+            ?(globalExactSingle||joinedMultiPage)&&GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,
+                checkbox:globalExactSingle&&!exactMulti,allowExact:globalExactSingle)
+            :(exactMulti||joinedMultiPage)&&parent is {Logical:false}&&
+                GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,allowExact:exactMulti);
         var condition=CascadeScopeCondition(table,storage,columns,syntax,parent?.Target,treeNames,additional,pageJoins);
         // 私有匹配和 Excel 条件只扩充投影；不把路径有效性强加给有无限定范围的账号。
         var projectExactMatch=exactParent||globalExactSingle&&!projectSingle;

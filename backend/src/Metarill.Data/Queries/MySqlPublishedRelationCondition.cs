@@ -35,12 +35,14 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
             RequireProjectCheckboxParent(catalog,source,relation,target,pageId,sourceParentId).Page;
         var original=global?.Name??catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.ColumnName==baseline.NameField);
         var storage=MetadataStoragePolicy.ForTable(catalog,target);
-        bool PublishedText(ColumnMetadata label)=>label.LogicalType=="string"&&
-            (GlobalPhysicalRelationValue.IsScalar(storage,target,label)||
-             MultiNameStorageColumns.IsDerivedCheckboxText(target,storage,label));
+        var exactNonRedundant=global is {UsesNonRedundantExactCheckboxPage:true};
+        bool PublishedText(ColumnMetadata label)=>exactNonRedundant
+            ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(catalog,target,label,page)
+            :label.LogicalType=="string"&&(GlobalPhysicalRelationValue.IsScalar(storage,target,label)||
+                MultiNameStorageColumns.IsDerivedCheckboxText(target,storage,label));
         var fields=storage.PhysicalColumns.Select(column=>column.ColumnName).ToArray();
         var storedAccount=global is {UsesStoredAccountPage:true,UsesStoredExactCheckboxPage:false}&&sourceParentId is null;
-        var storedStatic=global is {UsesProjectPage:true} or {UsesStoredPhysicalParentPage:true}||
+        var storedStatic=exactNonRedundant||global is {UsesProjectPage:true} or {UsesStoredPhysicalParentPage:true}||
             global is {UsesStoredExactCheckboxPage:true}&&(global.UsesStoredAccountPage||global.UsesStoredStaticPage)||
             GlobalCrossTableTarget.Declared(source)&&global is {UsesStoredStaticPage:true} or {UsesNonRedundantAccountPage:true};
         var staticCondition=storedStatic?FixedConditionPlan.Compile(page.WhereSql,fields):null;
@@ -53,7 +55,7 @@ internal sealed record MySqlPublishedRelationCondition(string Definition,IReadOn
         if(relation.ControlKind!="MultiCheckBoxDatabase"||page.Id!=pageId||
             !storedAccount&&!projectAccount&&ordinaryForm is null&&
                 (staticCondition is null?!string.IsNullOrWhiteSpace(baseline.WhereSql):!baseline.IsCoveredByStaticPage(staticCondition,fields))||
-            page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0&&!exactPhysical||
+            page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0&&!exactPhysical&&!exactNonRedundant||
             !PublishedText(original)||!PublishedText(value))
             throw new InvalidOperationException("复选多名称必须使用固定目标页的已证明文本。");
         if(sourceParentId is null&&(!storage.IsPhysical(original)||!storage.IsPhysical(value)))

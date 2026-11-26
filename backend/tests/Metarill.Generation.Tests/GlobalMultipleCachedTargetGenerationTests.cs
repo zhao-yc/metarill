@@ -1197,6 +1197,19 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         bool projectScoped,string? accountField)=>
         VerifyGlobalBusinessCheckboxDictionary(mode,projectType,false,projectScoped,accountField:accountField,exactType:exactType,globalSource:false);
 
+    /// <summary>非冗余精确字典的复选权限与冗余业务的两份名称副本共用实际发布页。</summary>
+    [Theory]
+    [InlineData("int64",0,false,null,false,true)]
+    [InlineData("string",0,true,null,false,true)]
+    [InlineData("int64",2,false,"store_id",false,true)]
+    [InlineData("string",2,true,"merchant_id",true,true)]
+    [InlineData("int64",2,false,null,false,false)]
+    [InlineData("string",0,true,"merchant_id",false,false)]
+    public Task Stored_business_checkbox_uses_exact_nonredundant_dictionary(string projectType,int exactType,
+        bool projectScoped,string? accountField,bool derivedName,bool globalSource)=>
+        VerifyGlobalBusinessCheckboxDictionary(1,projectType,false,projectScoped,targetStorage:0,
+            accountField:accountField,derivedName:derivedName,exactType:exactType,globalSource:globalSource);
+
     /// <summary>从同一实际生成代码验证字典候选、原筛选及非冗余和冗余名称。</summary>
     private static async Task VerifyGlobalBusinessCheckboxDictionary(int mode,string projectType,bool unfiltered,
         bool projectScoped=false,int targetStorage=1,string? accountField=null,bool derivedName=false,int exactType=-1,bool idLabel=false,
@@ -1406,6 +1419,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             }
             else
             {
+                var exactNonRedundant=targetStorage==0&&exactType>=0;
                 if(globalSource)
                     Assert.Contains("不能修改来源记录项目归属",code);
                 else
@@ -1415,13 +1429,13 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 }
                 var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
                     assembly.GetType(app+".Generated.GeneratedRelationMaintenance",true)!.GetProperty("Catalog")!.GetValue(null));
-                if(derivedName||projectScoped||accountField is not null)
+                if(derivedName||projectScoped||accountField is not null||exactNonRedundant)
                 {
                     Assert.Contains(fullNames,maintenance.MixedSourceColumns["cached_consumer"]);
                     Assert.Contains("global_source",maintenance.MixedTargets);
-                    if(!derivedName)Assert.Contains(shortNames,maintenance.MixedSourceColumns["cached_consumer"]);
+                    if(!derivedName||exactNonRedundant)Assert.Contains(shortNames,maintenance.MixedSourceColumns["cached_consumer"]);
                 }
-                if(derivedName||!projectScoped&&accountField is null)
+                if(!exactNonRedundant&&(derivedName||!projectScoped&&accountField is null))
                 {
                     var propagation=maintenance.GetType().GetProperty("Propagation",BindingFlags.Instance|hidden)!.GetValue(maintenance)!;
                     var bindings=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
