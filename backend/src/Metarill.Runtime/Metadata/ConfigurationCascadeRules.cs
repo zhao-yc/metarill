@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Metarill.Core.Contracts;
 using Metarill.Core.Metadata;
 
@@ -162,9 +161,7 @@ internal static class ConfigurationCascadeRules
         if (parentRequired || Text(definition, "parentField").Length > 0)
             Identifier(definition, "parentField");
 
-        var order = Text(definition, "orderBy");
-        if (order.Length > 0 && order.Split(',').Any(segment => !Regex.IsMatch(segment.Trim(),
-            @"\A(?:[A-Za-z_][A-Za-z0-9_]*|`[A-Za-z_][A-Za-z0-9_]*`)(?:\s+(?i:asc|desc))?\z")))
+        if (!MetadataValidation.IsSortExpression(Text(definition, "orderBy")))
             throw Error("orderBy 只能填写字段名及可选的 ASC 或 DESC。");
         return table;
     }

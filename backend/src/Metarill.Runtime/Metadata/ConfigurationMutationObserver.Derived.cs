@@ -23,10 +23,16 @@ public sealed partial class ConfigurationMutationObserver
         if(context.IsCreate||context.SubmittedFields.ContainsKey("config_column_id"))
             ConfigurationMaterializedValues.RequirePageColumn(row,column);
         // 只验证实际编辑的覆盖，未触及明细继续沿用原保存值。
-        if (SqlRowStore.Text(column, "control_kind") == "CascadeTree" &&
-            (context.IsCreate || context.SubmittedFields.ContainsKey("config_column_id") || context.SubmittedFields.ContainsKey("control_detail")))
-            ConfigurationCascadeRules.ValidatePageOverride(SqlRowStore.Text(row, "control_detail"),
-                SqlRowStore.Text(column, "column_name"), SqlRowStore.Text(column, "logical_type"));
+        if (!context.IsCreate && !context.SubmittedFields.ContainsKey("config_column_id") &&
+            !context.SubmittedFields.ContainsKey("control_detail")) return;
+
+        var kind = SqlRowStore.Text(column, "control_kind");
+        var detail = SqlRowStore.Text(row, "control_detail");
+        if (kind == "CascadeTree")
+            ConfigurationCascadeRules.ValidatePageOverride(detail, SqlRowStore.Text(column, "column_name"), SqlRowStore.Text(column, "logical_type"));
+        else if (!string.IsNullOrWhiteSpace(detail) && ConfigurationSelectionRules.Applies(kind))
+            await ConfigurationSelectionRules.ValidateAsync(store, project, SqlRowStore.Text(column, "control_detail"),
+                detail, SqlRowStore.Text(column, "link_config_page_id"), token);
     }
 
     /// <summary>明细保存检查本字段的级联定义，类型或存储属性变化也须复核已有级联对本字段的占用。</summary>

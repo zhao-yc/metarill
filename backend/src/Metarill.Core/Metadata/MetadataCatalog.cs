@@ -132,6 +132,11 @@ public static class MetadataValidation
     public static bool IsIdentifier(string? identifier) =>
         identifier is not null && System.Text.RegularExpressions.Regex.IsMatch(identifier, @"\A[a-zA-Z_][a-zA-Z0-9_]{0,63}\z");
 
+    /// <summary>校验配置排序的字段和方向格式。实际列由项目目录解析。</summary>
+    public static bool IsSortExpression(string order) => string.IsNullOrWhiteSpace(order) ||
+        order.Split(',').All(segment => System.Text.RegularExpressions.Regex.IsMatch(segment.Trim(),
+            @"\A(?:[A-Za-z_][A-Za-z0-9_]*|`[A-Za-z_][A-Za-z0-9_]*`)(?:\s+(?i:asc|desc))?\z"));
+
     public static void RequireIdentifier(string identifier)
     {
         if (!IsIdentifier(identifier)) throw new InvalidOperationException("数据库标识符无效。");

@@ -77,6 +77,29 @@ public sealed partial class MetadataWorkbenchBusiness
         foreach(var row in rows)
         {
             if(names.Contains(row.ColumnName))BatchColumnParser.Error(row,"columnName","ALREADY_EXISTS","数据库字段名已存在于当前表");
+            if (ConfigurationSelectionRules.Applies(row.ControlKind))
+            {
+                if (row.Errors.Count == 0)
+                {
+                    try
+                    {
+                        var selectionTarget = await ConfigurationSelectionRules.ValidateAsync(store, long.Parse(actor.ProjectId, CultureInfo.InvariantCulture),
+                            row.ControlDetail, null, "", cancellationToken);
+                        if (row.JoinTable.Length > 0)
+                        {
+                            if (row.JoinTable != selectionTarget.TableName)
+                                throw new BusinessRuleException("关联表必须与选择页的目标表一致。");
+                            row.LinkTableId = long.Parse(selectionTarget.Id, CultureInfo.InvariantCulture);
+                        }
+                    }
+                    catch (BusinessRuleException error)
+                    {
+                        BatchColumnParser.Error(row, "controlDetail", "INVALID_RELATION", error.Message);
+                    }
+                }
+                continue;
+            }
+
             if(row.ControlKind!="List"&&row.JoinTable.Length==0)continue;
             JsonElement? detail=null;
             if(row.ControlDetail.Length>0)

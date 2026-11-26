@@ -292,6 +292,104 @@ public sealed partial class ConfigurationMaterializedValueTests
     }
 
 
+    [Theory]
+    [InlineData("SelectPage", """{"pageId":"999"}""", "目标页面")]
+    [InlineData("MultiSelectPage", """{"pageId":"33"}""", "目标页面")]
+    [InlineData("SelectPage", """{"pageId":"34"}""", "目标页面")]
+    [InlineData("MultiSelectPage", """{"nameField":"missing"}""", "显示字段")]
+    [InlineData("SelectPage", """{"orderBy":"name sideways"}""", "排序")]
+    public async Task Page_selection_override_rejects_unusable_target_or_options(string kind,string detail,string message)
+    {
+        using var f=new Fixture();
+        AddSelectionTargets(f);
+        var source=f.Get("config_column",20);
+        source["control_kind"]=kind;
+        source["control_detail"]="""{"pageId":"32","nameField":"name"}""";
+        var before=f.Snapshot();
+        var patch=new Dictionary<string,object?>{{"control_detail",detail}};
+        var failure=await Assert.ThrowsAsync<BusinessRuleException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_page_column",40,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_page_column",40,patch));
+            return true;
+        }));
+        Assert.Contains(message,failure.Message);
+        Assert.Equal(before,f.Snapshot());
+    }
+
+    [Theory]
+    [InlineData("id")]
+    [InlineData("unit_name")]
+    public async Task Page_selection_override_keeps_inherited_page_and_supported_display(string nameField)
+    {
+        using var f=new Fixture();
+        AddSelectionTargets(f);
+        var source=f.Get("config_column",20);
+        source["control_kind"]="SelectPage";
+        source["link_config_page_id"]=32L;
+        source["control_detail"]="""{"nameField":"name"}""";
+        // 目标页也可显示由原级联叶子生成的名称列。
+        f.Add("config_column",Row(("id",63L),("yz_project_id",1L),("config_table_id",11L),("column_name","unit_id"),
+            ("logical_type","int64"),("control_kind","CascadeTree"),
+            ("control_detail","""{"sourceMode":"selfTree","selfTree":{"table":"department","parentField":"parent_id"}}""")));
+        var detail=JsonSerializer.Serialize(new { pageId=(string?)null,nameField,buttonText="选部门",orderBy="id DESC" });
+        var patch=new Dictionary<string,object?>{{"control_detail",detail}};
+        await f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_page_column",40,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_page_column",40,patch));
+            return true;
+        });
+        Assert.Equal(detail,f.Get("config_page_column",40)["control_detail"]);
+    }
+
+    [Fact]
+    public async Task Table_selection_edit_and_batch_validate_the_same_target_page()
+    {
+        using var f=new Fixture();
+        AddSelectionTargets(f);
+        var source=f.Get("config_column",20);
+        source["control_kind"]="MultiSelectPage";
+        source["control_detail"]="""{"pageId":"32"}""";
+        var before=f.Snapshot();
+        var invalidPatch=new Dictionary<string,object?>{{"control_detail","""{"nameField":"name"}"""}};
+        await Assert.ThrowsAsync<BusinessRuleException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_column",20,invalidPatch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",20,invalidPatch));
+            return true;
+        }));
+        Assert.Equal(before,f.Snapshot());
+
+        var workbench=new MetadataWorkbenchBusiness(f.Store,f.Authorization,f.Registry,f.Ids,f.Observer);
+        JsonElement Request(int pageId)=>JsonSerializer.SerializeToElement(new { config_table_id="10",content=
+            JsonSerializer.Serialize(new[]{new{name="部门",columnName="department_id",columnType="bigint",
+                controlKind="SelectPage",controlDetail=new { pageId,nameField="name" }}}) });
+        var invalid=Request(33);
+        var preview=await workbench.PreviewBatchColumnsAsync(invalid);
+        Assert.False(preview.Valid);
+        Assert.Equal("controlDetail",Assert.Single(preview.Rows[0].Errors).Field);
+        await Assert.ThrowsAsync<BatchColumnValidationException>(()=>workbench.SaveBatchColumnsAsync(invalid));
+        Assert.Equal(before,f.Snapshot());
+
+        var valid=Request(32);
+        Assert.True((await workbench.PreviewBatchColumnsAsync(valid)).Valid);
+        await workbench.SaveBatchColumnsAsync(valid);
+        Assert.Single(f.Provider.Rows["config_column"],row=>SqlRowStore.Text(row,"column_name")=="department_id");
+    }
+
+    /// <summary>同项目目标、跨项目目标及软删目标分别保留独立记录，测试只使用本机内存事务。</summary>
+    private static void AddSelectionTargets(Fixture fixture)
+    {
+        fixture.Add("config_table",Row(("id",11L),("yz_project_id",1L),("table_name","department")));
+        fixture.Add("config_page",Row(("id",32L),("yz_project_id",1L),("config_table_id",11L)));
+        fixture.Add("config_page",Row(("id",33L),("yz_project_id",2L),("config_table_id",11L)));
+        fixture.Add("config_page",Row(("id",34L),("yz_project_id",1L),("config_table_id",11L),("delete_no",DateTime.UtcNow)));
+        fixture.Add("config_column",Row(("id",61L),("yz_project_id",1L),("config_table_id",11L),("column_name","id"),("logical_type","int64")));
+        fixture.Add("config_column",Row(("id",62L),("yz_project_id",1L),("config_table_id",11L),("column_name","name"),("logical_type","string")));
+    }
+
+
     [Fact]
     public async Task Real_sort_workbench_and_copy_page_use_current_target_values()
     {
