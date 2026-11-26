@@ -556,7 +556,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 : CascadeTreeQueryCompilation.Async(page)?$"    public async Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => await {CascadeTreeQueryCompilation.Call(page)}.CountAsync(cancellationToken);":$"    public Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query{suffix}(request, actor).CountAsync(cancellationToken);")
             .AppendLine("    /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>")
             .AppendLine($"    public {(snapshot?"Task":"async Task")}<{page.Name}Vo?> Detail{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken){(snapshot?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<{page.Name}Vo?>(async () =>":"")}").AppendLine("    {")
-            .AppendLine(physicalParent?"        "+ParentCheck("parentId"):"")
+            .AppendLine(physicalParent||SelectionPageRenderer.HasParentScope(page)?"        "+ParentCheck("parentId"):"")
             .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).ToOneAsync({PublishedReadProjectionCompilation.Expression(model, table, page)}, cancellationToken);")
             .AppendLine($"        return entity is null ? null : {RoleResult(model,table,page,"detail")};").AppendLine(snapshot?"    }, cancellationToken);":"    }");
         return result.ToString();

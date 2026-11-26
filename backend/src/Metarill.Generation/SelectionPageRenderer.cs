@@ -9,6 +9,10 @@ internal static class SelectionPageRenderer
     /// <summary>页面类型来自已保存元数据，客户端参数不能启用新回读端点。</summary>
     internal static bool Enabled(PageModel page) => page.Source.Extra.TryGetValue("type", out var value) && value.ToString() == "2";
 
+    /// <summary>原多选页有实际父范围时，各读取入口都要核对同一父记录。</summary>
+    internal static bool HasParentScope(PageModel page) =>
+        Enabled(page) && page.Scopes.Any(scope => scope.Source == "parent");
+
     /// <summary>已选回读必须逐项完整命中同一真实页范围，不能静默丢弃越权项。</summary>
     internal static string Service(GenerationModel model, PageModel page)
     {

@@ -50,12 +50,13 @@ internal static class OriginalListStatisticsCompilation
         if(NonRedundantReadCompilation.Requires(model,table))return BackendRenderer.NonRedundantStatistics(model,table,page);
         var definitions=ForPage(model,table,page);if(definitions is null)return "";
         var suffix=page.Source.Id;
-        var physicalParent=definitions.Count>0&&BackendRenderer.HasPublishedPhysicalReadParent(model,table,page);
-        var snapshot=physicalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
+        var checkParent=definitions.Count>0&&(SelectionPageRenderer.HasParentScope(page)||
+            BackendRenderer.HasPublishedPhysicalReadParent(model,table,page));
+        var snapshot=checkParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
         var source=new StringBuilder().AppendLine("    /// <summary>沿原列表统计口径复用页范围和筛选，聚合不继承分页或排序。</summary>")
             .AppendLine($"    internal {(snapshot?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(snapshot?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async () =>":"")}")
             .AppendLine("    {").AppendLine("        var statistics=new Dictionary<string,object?>(StringComparer.Ordinal);");
-        if(physicalParent)source.AppendLine("        "+BackendRenderer.RedundantReadParentCheck(page,true,"request.ParentId"));
+        if(checkParent)source.AppendLine("        "+BackendRenderer.RedundantReadParentCheck(page,true,"request.ParentId"));
         if(definitions.Count==0)source.AppendLine("        await Task.CompletedTask;");
         foreach(var definition in definitions)
         {

@@ -44,6 +44,68 @@ public sealed class GeneratedSelectionPageTests
         finally { await TestDirectoryCleanup.DeleteAsync(output, boundary); }
     }
 
+    /// <summary>选择页的独立读取沿同一个父记录检查；导出仍由自己的页面动作授权。</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task Parented_selection_reads_validate_the_parent_inside_the_business_snapshot(int storage)
+    {
+        const string nameSpace="Example.ParentedSelection";
+        var catalog=NonRedundantGeneratedFixture.Catalog("mt_parent_selection");
+        catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=storage;
+        NonRedundantGeneratedFixture.AddSelectionPage(catalog);
+        catalog.ConfigPages.Single(page=>page.Id=="102").IsExport=1;
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-parented-selection");
+        var root=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            var output=Path.Combine(root,"generated");
+            new CSharpGenerator().Generate(catalog,output,nameSpace);
+            var service=await File.ReadAllTextAsync(Path.Combine(output,"Services/MtParentSelectionOrderService.g.cs"));
+            var controller=await File.ReadAllTextAsync(Path.Combine(output,"Controllers/MtParentSelectionOrderPage102Controller.g.cs"));
+
+            string Body(string name)
+            {
+                var start=System.Text.RegularExpressions.Regex.Match(service,
+                    @"(?m)^    (?:public|private|internal) [^(\r\n]+?\b"+name+@"\(");
+                Assert.True(start.Success,"未生成方法："+name);
+                var end=service.IndexOf("\n    ///",start.Index,StringComparison.Ordinal);
+                return end<0?service[start.Index..]:service[start.Index..end];
+            }
+
+            foreach(var (method,storedQuery,sparseQuery) in new[]
+            {
+                ("Page","var total",".PageAsync("),("Count",".CountAsync(",".StatisticsAsync("),
+                ("Statistics",".SumAsync(",".StatisticsAsync("),("SelectionSelected","selected.Length","selected.Length"),
+                ("Export","var entities",".RowsAsync(")
+            })
+            {
+                var body=Body(method+"102Async");
+                var snapshot=body.IndexOf("InReadSnapshotAsync",StringComparison.Ordinal);
+                var parent=body.IndexOf("await ValidateSelectionParents102Async(",StringComparison.Ordinal);
+                var queryIndex=body.IndexOf(storage==0?sparseQuery:storedQuery,StringComparison.Ordinal);
+                Assert.True(snapshot>=0&&parent>snapshot&&queryIndex>parent,"校验必须在读取前加入业务读快照："+method);
+            }
+
+            var detail=Body("Detail102Async");
+            Assert.Contains("InReadSnapshotAsync",detail);
+            var detailRead=storage==0?Body("ReadDetail102Async"):detail;
+            var detailParent=detailRead.IndexOf("await ValidateSelectionParents102Async(",StringComparison.Ordinal);
+            var detailQuery=detailRead.IndexOf(storage==0?".KeyRowsAsync(":".ToOneAsync(",StringComparison.Ordinal);
+            Assert.True(detailParent>=0&&detailQuery>detailParent);
+            var parentBody=Body("ValidateSelectionParents102Async");
+            Assert.Contains("row.YzProjectId",parentBody);
+            Assert.Contains("row.DeleteNo == null",parentBody);
+            Assert.Contains("AnyAsync(cancellationToken)",parentBody);
+            Assert.Contains("service.InPageReadSnapshot102Async(actor",controller);
+            Assert.Contains("var actor = Actor(\"export\")",controller);
+            Assert.Contains("Actor(\"list\")",controller);
+            await GeneratedRelationOptionsMySqlTests.BuildGenerated(root);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(root,boundary); }
+    }
+
     /// <summary>固定源码位置，避免测试复制一份实现自行变绿。</summary>
     private static string RuntimeFile(string name, [CallerFilePath] string source = "") => Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!, "../../../frontend/metarill_uni_admin/common/yzp_runtime", name));
     /// <summary>Node执行真实生成Vue脚本，仅替换网络和宿主事件。</summary>

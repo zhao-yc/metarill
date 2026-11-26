@@ -68,7 +68,9 @@ internal static class ExportRenderer
             if (relations.Length > 0) result.AppendLine($"        await ValidateOptionsSourceParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken);");
         }
         // 即使来源没有匹配行，也必须在同一快照内核对固定父归属。导出采用普通读。
-        if(physicalParent||crossDependencies.Count>0&&(SharedRedundantParentCompilation.Enabled(model,table,page)||
+        if(SelectionPageRenderer.HasParentScope(page))
+            result.AppendLine($"        await ValidateSelectionParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken);");
+        else if(physicalParent||crossDependencies.Count>0&&(SharedRedundantParentCompilation.Enabled(model,table,page)||
             NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page)))
             result.AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken, locking: false);");
         var logicalReads=NonRedundantReadCompilation.Requires(model,table);

@@ -569,10 +569,11 @@ internal static class GeneratedNonRedundantReadCatalog
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);
         var listPlan=NonRedundantListReadPlan(model,table,page,plan);
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
-        var physicalParent=definitions.Count>0&&HasPublishedPhysicalReadParent(model,table,page);
-        var snapshot=physicalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
+        var checkParent=definitions.Count>0&&(SelectionPageRenderer.HasParentScope(page)||
+            HasPublishedPhysicalReadParent(model,table,page));
+        var snapshot=checkParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
         var result=new StringBuilder().AppendLine("    /// <summary>派生值在SQL完整范围内聚合，当前页统计仍折叠原VO。</summary>").AppendLine($"    internal {(snapshot?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(snapshot?$"=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async()=>":"")}").AppendLine("    {").AppendLine("        var statistics=new Dictionary<string,object?>(StringComparer.Ordinal);");
-        if(physicalParent)result.AppendLine("        "+NonRedundantReadParentCheck(page,true,"request.ParentId"));
+        if(checkParent)result.AppendLine("        "+NonRedundantReadParentCheck(page,true,"request.ParentId"));
         if(definitions.Count==0)result.AppendLine("        await Task.CompletedTask;");
         var sums=definitions.Where(definition=>definition.Kind==1).ToArray();
         var batchSums=sums.Any(definition=>definition.Column.Type.TrimEnd('?')!="double");
