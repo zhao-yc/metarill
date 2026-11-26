@@ -80,8 +80,8 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<string> conditionFields,IReadOnlySet<string> crossFields,IReadOnlySet<string> selfTreeFields,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null)
     {
-        var joinedFields=ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page)
-            .Where(conditionFields.Contains).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        var joinedFields=ProjectScopedSingleRelationTarget.JoinedConditionFields(catalog,table,page,conditionFields)
+            .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
         if(!catalog.ConfigPages.Contains(page)||page.ConfigTableId!=table.Id||
             table.IsRongyu!=0||(crossFields.Count==0&&selfTreeFields.Count==0&&joinedFields.Count==0)||
             !crossFields.IsSubsetOf(conditionFields)||!selfTreeFields.IsSubsetOf(conditionFields))

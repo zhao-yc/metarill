@@ -166,7 +166,8 @@ internal static class RelationCompilation
                     NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage)
                 :null;
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,
-                allowLogicalList:selection is null,allowLogicalListJoin:textParent is not null);
+                allowLogicalList:selection is null,allowLogicalListJoin:textParent is not null||
+                    projectListPage&&target.Source.IsRongyu==0);
             if ((conditions is not null||FixedPageConditionCompilation.HasLogicalFields(targetPage))&&
                 !functionForm && ForeignValidationRenderer.Target(model,source)?.Source.Id!=target.Source.Id)
                 throw new InvalidOperationException("固定条件的候选必须与外键及显示来源的目标一致。");
@@ -392,7 +393,9 @@ internal static class RelationCompilation
             target.Source.IsRongyu==1 && UsesProjectListPage(model,target,page,source) &&
                 ProjectScopedSingleRelationTarget.ListPageId(model.Catalog,page.Source,source.Source)==targetPage.Source.Id &&
                 (HasStoredListRange(targetPage) || !string.IsNullOrWhiteSpace(effective)) ||
-            RelationConditionsCompilation.HasLogicalListFields(target,effective);
+            RelationConditionsCompilation.HasLogicalListFields(target,effective)||
+            target.Source.IsRongyu==0&&ProjectScopedSingleRelationTarget.JoinedConditionFields(model.Catalog,target.Source,
+                targetPage.Source,FixedConditionPlan.Compile(effective,target.Columns.Select(column=>column.Source.ColumnName)).Fields).Count>0;
     }
 
     /// <summary>隐藏的单选必须沿实际固定目标页复核默认和提交值。</summary>

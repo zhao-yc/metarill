@@ -72,16 +72,15 @@ public static partial class MySqlNonRedundantReadCompiler
             !global?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null;
         var storage=MetadataStoragePolicy.ForTable(catalog,table);
         var pageJoins=ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page);
-        var listJoins=!global&&projectParent is {Logical:true,Global:false,Target.LogicalType:"string"}&&
-            !exactCheckboxParent&&listFields is not null
-            ?columns.Where(column=>listFields.Contains(column.ColumnName)&&
-                storage.Kind(column)==MetadataFieldStorage.Join).ToArray()
-            :[];
+        var listJoins=!global&&!exactCheckboxParent&&listFields is not null&&
+            (projectSingle&&projectSingleControlKind=="List"||projectParent is {Logical:true,Global:false})
+            ?ProjectScopedSingleRelationTarget.JoinedConditionFields(catalog,table,page,listFields)
+            :new HashSet<string>(StringComparer.Ordinal);
         if(exactParent&&projectParent is not ({Logical:true} or {AdditionalTargets.Count:>0})&&
             !(exactSingleParent&&projectParent is {Global:true}))
             throw new NotSupportedException("精确候选缺少已发布的父范围。");
         if(listFields is not null&&!globalExactSingle&&!projectSingle&&
-            (!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0&&listJoins.Length==0))
+            (!global&&projectParent is null||listTrees.Count==0&&listCrosses.Length==0&&listJoins.Count==0))
             throw new NotSupportedException("固定下拉附加条件必须引用已发布的逻辑级联或联接字段。");
         // 全局单值候选从自身发布页证明物理父键；旧多选仍满足原独立页合同。
         var physicalParent=globalExactSingle?globalExactParent:
@@ -134,8 +133,8 @@ public static partial class MySqlNonRedundantReadCompiler
         var builder=new Builder(catalog,tableId,deferCascadeNames:projectionTrees.Count>0||accountParentPage||physicalParent is not null,crossTables:bindings,rootAlias:rootAlias,aliasPrefix:aliasPrefix)
         {
             CrossCandidateCondition=condition,
-            LockPublishedJoinScopes=lockPublishedJoinScopes||singleTargets is {Count:>0}||pageJoins.Count>0||listJoins.Length>0,
-            ControlConditionJoins=listJoins.Select(column=>column.ColumnName).Concat(pageJoins).ToFrozenSet(StringComparer.OrdinalIgnoreCase),
+            LockPublishedJoinScopes=lockPublishedJoinScopes||singleTargets is {Count:>0}||pageJoins.Count>0||listJoins.Count>0,
+            ControlConditionJoins=listJoins.Concat(pageJoins).ToFrozenSet(StringComparer.OrdinalIgnoreCase),
             SelfTreeCandidateFields=projectionTrees,
             ActiveSelfTreeScopes=activeSelfTreeScopes??new(),
             ActiveSinglePages=activePages,
@@ -992,7 +991,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     // 名称缓存条件引用物理字典时，也从实际发布页保留失效范围和反向依赖。
                     allowStoredTarget:multiLabel&&(CrossNamePage(owner) is null||MultiNameSourcePage(owner) is not null)||
                         target.IsRongyu==1&&IsSingleDictionaryPage(sourcePage)&&
-                        ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,sourcePage).Count>0) is {} projectNested)
+                        (singleControlJoinAliases.Contains(owner)||
+                            ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,sourcePage).Count>0)) is {} projectNested)
             {
                 if(projectNested.Scoped&&target.IsRongyu==1)
                 {
@@ -1125,7 +1125,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 // 控件谓词留在可见性中以保留失效反查，直接目标路径不能简化该计划。
                 scalarCacheTarget=null;
                 var extra=SingleControlCacheCondition(table,owner,target,alias,page,control,cacheOwner,physicalExact,
-                    sharedTextParent:sharedTextParent&&foreign.ControlKind=="List");
+                    listControl:foreign.ControlKind=="List",sharedTextParent:sharedTextParent&&foreign.ControlKind=="List");
                 if(extra.Length>0)visible+=(visible.Length==0?"":" AND ")+extra;
             }
             return (alias,alias+".`id` IS NOT NULL"+(visible.Length==0?"":" AND ("+visible+")"));

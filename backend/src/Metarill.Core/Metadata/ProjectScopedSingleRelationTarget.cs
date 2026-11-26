@@ -56,8 +56,15 @@ public static class ProjectScopedSingleRelationTarget
     public static IReadOnlySet<string> JoinedPageFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page)=>
         PublishedJoinedFields(catalog,target,page,allowProjectPage:true);
 
-    /// <summary>仅接受发布身份、实际项目列和固定常量，变量沿真实账号或父键验证。</summary>
-    private static IReadOnlySet<string> PublishedJoinedFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page,bool allowProjectPage)
+    /// <summary>控件条件的联接使用同一实际发布页。字段值的绑定由控件条件编译器负责。</summary>
+    public static IReadOnlySet<string> JoinedConditionFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page,
+        IReadOnlyCollection<string> conditionFields)=>
+        PublishedJoinedFields(catalog,target,page,allowProjectPage:true,conditionFields)
+            .Where(conditionFields.Contains).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>仅接受发布身份、实际项目列和固定条件，页面变量沿真实账号或父键验证。</summary>
+    private static IReadOnlySet<string> PublishedJoinedFields(MetadataCatalog catalog,TableMetadata target,PageMetadata page,
+        bool allowProjectPage,IReadOnlyCollection<string>? conditionFields=null)
     {
         var fields=new HashSet<string>(StringComparer.Ordinal);
         var pageType=page.Extra.GetValueOrDefault("type").ToString();
@@ -71,8 +78,9 @@ public static class ProjectScopedSingleRelationTarget
         var columns=RelationStorageColumns.Expand(target,catalog.ConfigColumns.Where(column=>column.ConfigTableId==target.Id));
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         foreach(var column in columns.Where(column=>storage.Kind(column)==MetadataFieldStorage.Join))
-            if(syntax.Fields.Contains(column.ColumnName)&&syntax.Terms.Where(term=>term.Field==column.ColumnName)
-                .All(term=>term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)))
+            if((syntax.Fields.Contains(column.ColumnName)||conditionFields?.Contains(column.ColumnName)==true)&&
+                syntax.Terms.Where(term=>term.Field==column.ColumnName)
+                    .All(term=>term.Values.All(value=>value.Kind!=FixedConditionValueKind.Variable)))
                 fields.Add(column.ColumnName);
         if(fields.Count==0)return fields;
         var localPage=allowProjectPage&&columns.Any(column=>column.ColumnName=="yz_project_id"&&

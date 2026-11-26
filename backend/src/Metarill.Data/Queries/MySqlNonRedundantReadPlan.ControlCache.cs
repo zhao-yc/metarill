@@ -48,9 +48,12 @@ public static partial class MySqlNonRedundantReadCompiler
             return pageParent??controlParent;
         }
 
+        private readonly HashSet<string> singleControlJoinAliases=new(StringComparer.Ordinal);
+
         /// <summary>控件条件附加到物理联接后的可见性，记录变为不可见时仍可反查并清空副本。</summary>
         private string SingleControlCacheCondition(TableMetadata table,string owner,TableMetadata target,string alias,
-            PageMetadata page,FixedConditionPlan condition,CascadeCacheOwner cacheOwner,bool storedPhysicalExact,bool sharedTextParent)
+            PageMetadata page,FixedConditionPlan condition,CascadeCacheOwner cacheOwner,bool storedPhysicalExact,
+            bool listControl,bool sharedTextParent)
         {
             var members=columns[target.Id];
             var tree=SelfTreeConditionFields(catalog,target,page,members.Values.ToArray(),condition.Fields);
@@ -58,7 +61,10 @@ public static partial class MySqlNonRedundantReadCompiler
                 .ToHashSet(StringComparer.Ordinal);
             var bindings=(cross.Count==0?[]:CrossMembershipBindings(catalog,target,page,cross))
                 .ToDictionary(binding=>binding.SourceColumnId,StringComparer.Ordinal);
-            bool Joined(ColumnMetadata column)=>sharedTextParent&&storage[target.Id].Kind(column)==MetadataFieldStorage.Join;
+            var joined=listControl?ProjectScopedSingleRelationTarget.JoinedConditionFields(catalog,target,page,condition.Fields):
+                new HashSet<string>(StringComparer.Ordinal);
+            if(joined.Count>0)singleControlJoinAliases.Add(alias);
+            bool Joined(ColumnMetadata column)=>joined.Contains(column.ColumnName);
             bool Logical(string field)=>tree.Contains(field)||cross.Contains(field)||Joined(Column(target,field));
             if(condition.Fields.Any(field=>!Logical(field)&&!GlobalPhysicalRelationValue.IsScalar(storage[target.Id],target,Column(target,field))&&
                 !(sharedTextParent&&ProjectScopedSingleRelationTarget.IsStoredConditionCache(catalog,target,Column(target,field)))))

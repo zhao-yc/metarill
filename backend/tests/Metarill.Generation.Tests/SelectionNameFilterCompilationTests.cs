@@ -283,9 +283,20 @@ public sealed class SelectionNameFilterCompilationTests
         VerifyLiveProjectSelectionScope(accountScope:true,sourceHasParent:targetHasParent,exactTarget:false,
             joinedPhysical:true,selection:false,storedSource:storedSource,targetHasParent:targetHasParent,ordinaryTarget:true);
 
+    /// <summary>原下拉自身的固定联接条件在有无物理父级时使用同一个发布字典。</summary>
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(false,true)]
+    [InlineData(true,false)]
+    [InlineData(true,true)]
+    public Task List_joined_control_condition_uses_ordinary_dictionary_page(bool storedSource,bool targetHasParent)=>
+        VerifyLiveProjectSelectionScope(accountScope:true,sourceHasParent:targetHasParent,exactTarget:false,
+            joinedPhysical:true,selection:false,storedSource:storedSource,targetHasParent:targetHasParent,
+            ordinaryTarget:true,controlJoin:true);
+
     private static async Task VerifyLiveProjectSelectionScope(bool accountScope,bool sourceHasParent,bool exactTarget,
         bool joinedPhysical=false,bool selection=true,bool textParent=false,bool storedSource=false,bool targetHasParent=true,
-        bool ordinaryTarget=false)
+        bool ordinaryTarget=false,bool controlJoin=false)
     {
         const string ns="Example.LiveStoredSelection";
         var catalog=RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
@@ -306,7 +317,9 @@ public sealed class SelectionNameFilterCompilationTests
         if(joinedPhysical)
         {
             if(targetHasParent)targetPage.WhereSql+=" AND parent_id=@parentId";
-            targetPage.WhereSql+=" AND region_name <> '隐藏地区'";
+            if(controlJoin)
+                foreign.ControlDetail="""{"pageId":"301","tableId":"3","nameField":"name","whereSql":"region_name <> '隐藏地区'"}""";
+            else targetPage.WhereSql+=" AND region_name <> '隐藏地区'";
             if(textParent)
                 foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "26" or "36"))
                     column.LogicalType="string";
@@ -385,6 +398,22 @@ public sealed class SelectionNameFilterCompilationTests
                 Assert.Equal("201",published.ControlSourcePageId);
             }
             Assert.True(published.ApplyPageCondition);
+            if(controlJoin)
+            {
+                var plan=Metarill.Data.Queries.NonRedundantReads.CompileProjectPage(catalog,"2",["target_name"],[],[],[published]);
+                var actor=new RuntimeActor(8,"下拉名称范围",false,catalog.YzProjectId,"5"){StoreId=9007199254742011L};
+                Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with{StoreId=null}));
+                const BindingFlags hidden=BindingFlags.Instance|BindingFlags.NonPublic;
+                var read=plan.GetType().GetProperty("MySql",hidden)!.GetValue(plan.BindAccount(actor))!;
+                var name=Assert.IsType<string>(read.GetType().GetMethod("Expression",hidden)!.Invoke(read,["target_name"]));
+                var constants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    read.GetType().GetProperty("Constants",hidden)!.GetValue(read));
+                var from=Assert.IsType<string>(read.GetType().GetProperty("From",hidden)!.GetValue(read));
+                var query=from+name;
+                Assert.Contains("`relation_region`",query);
+                Assert.Contains(constants,pair=>Equals(pair.Value,"隐藏地区")&&query.Contains(pair.Key,StringComparison.Ordinal));
+                Assert.Contains(constants,pair=>Equals(pair.Value,"字典停用")&&query.Contains(pair.Key,StringComparison.Ordinal));
+            }
         }
         var filter=SelectionNameFilterCompilation.ForPage(model,table,page);
         Assert.Empty(filter.Gaps);
@@ -455,6 +484,7 @@ public sealed class SelectionNameFilterCompilationTests
                 var pageCondition=table.Pages.Single().Source.Id+"_25";
                 Assert.Contains("OptionsPageCondition"+pageCondition,code);
                 Assert.Contains("ImportRelation"+pageCondition+"Async",code);
+                if(controlJoin)Assert.Contains("OptionsCondition"+pageCondition+".BindVariables",code);
                 Assert.Contains("currentRead:true",code);
                 if(selection&&textParent)
                     Assert.Contains("""FixedReadFilter.ForTextParent("parent_id",targetParentId!)""",code);
