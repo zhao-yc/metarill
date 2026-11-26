@@ -36,9 +36,12 @@ public static partial class MySqlNonRedundantReadCompiler
             throw new NotSupportedException("附件精确联接必须使用已发布的项目内单值字段。");
 
         // 精确终点按匹配模式验证。根记录另用普通模式读取共享槽，其逻辑值依旧由已发布路径解析。
-        var match=new Builder(catalog,tableId,matching:true){MultiNamePathPage=page}.Compile([field],[]);
+        var match=new Builder(catalog,tableId,matching:true){MultiNamePathPage=page,PublishedExactJoinField=field}.Compile([field],[]);
         if(match.Types[field]!=column.LogicalType)throw new NotSupportedException("附件精确联接的实际类型不一致。");
-        var builder=new Builder(catalog,tableId,crossTables:crossTables){MultiNamePathPage=page,LockPublishedJoinScopes=true};
+        var builder=new Builder(catalog,tableId,crossTables:crossTables)
+        {
+            MultiNamePathPage=page,PublishedExactJoinField=field,LockPublishedJoinScopes=true
+        };
         var plan=builder.Compile(outputs,dependencies);
         return storageOutputs.Count==0?plan:builder.RecordStorage(plan,storageOutputs,[]);
     }

@@ -559,6 +559,7 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>按实际来源别名继续读取下一段范围。多值内层沿实际名称页逐段证明。</summary>
         internal PageMetadata? ConditionSourcePage { get; init; }
+        internal string? PublishedExactJoinField { get; init; }
 
         private NonRedundantSingleTargetScope? ProjectSingleBinding(string ownerAlias,ColumnMetadata relation,TableMetadata target)
         {
@@ -567,25 +568,25 @@ public static partial class MySqlNonRedundantReadCompiler
             if(explicitBinding is {ApplyPageCondition:false,DisplayNameColumnId:not null,NestedTargets.Count:0})
                 return null;
             var conditionJoin=ConditionSourcePage is not null&&ControlConditionJoins.Contains(output);
-            var crossPage=CrossNamePage(ownerAlias)??(conditionJoin&&ownerAlias==rootAlias?ConditionSourcePage:null);
+            var crossPage=CrossNamePage(ownerAlias);
             if(explicitBinding is not null||cascadeCacheOwner is not null||
                 (MultiNameSourcePage(ownerAlias)??crossPage) is not {} sourcePage)
                 return explicitBinding;
             var owner=tables[relation.ConfigTableId];
-            // 文件范围没有生成器传入的字典绑定时，从当前发布页恢复实际控件和目标页。
-            if(conditionJoin&&target.IsRongyu==1&&owner.IsRongyu==0&&!GlobalCrossTableTarget.Declared(target)&&
+            // 附件权限只有发布目录，从实际来源页恢复已配置的项目内冗余字典范围。
+            if((conditionJoin||PublishedExactJoinField==output)&&target.IsRongyu==1&&owner.IsRongyu==0&&!GlobalCrossTableTarget.Declared(target)&&
                 relation.ControlKind is ("List" or "SelectPage"))
             {
-                var local=ProjectScopedSingleRelationTarget.NestedPage(catalog,owner,sourcePage,relation,target,allowStoredTarget:true)
-                    ??throw new NotSupportedException("附件联接条件缺少实际冗余字典页。");
-                if(!local.Scoped)return null;
+                var local=ProjectScopedSingleRelationTarget.NestedPage(catalog,owner,sourcePage,relation,target,allowStoredTarget:true);
+                if(local is null&&conditionJoin)throw new NotSupportedException("附件联接条件缺少实际冗余字典页。");
+                if(local is not {Scoped:true} storedPage)return null;
                 var localControl=ProjectScopedSingleRelationTarget.ControlScope(catalog,owner,relation,target,sourcePage);
                 var localParent=relation.ControlKind=="SelectPage"
-                    ?ProjectScopedSingleRelationTarget.PhysicalSelectionParent(catalog,target,local.Page)
+                    ?ProjectScopedSingleRelationTarget.PhysicalSelectionParent(catalog,target,storedPage.Page)
                     :MultiTargetParentScope.CompileListPage(catalog,target,
-                        FixedConditionPlan.Compile(local.Page.WhereSql,columns[target.Id].Keys).Terms.Concat(localControl.Terms));
+                        FixedConditionPlan.Compile(storedPage.Page.WhereSql,columns[target.Id].Keys).Terms.Concat(localControl.Terms));
                 var localSource=localParent?.SingleSource(catalog,owner,relation,sourcePage,allowLogicalListForm:true);
-                return new(relation.Id,local.Page.Id,localSource?.Column.Id){SourcePageId=sourcePage.Id};
+                return new(relation.Id,storedPage.Page.Id,localSource?.Column.Id){SourcePageId=sourcePage.Id};
             }
             if(crossPage is not null&&target.IsRongyu==1&&owner.IsRongyu==0&&GlobalCrossTableTarget.Declared(target))
             {

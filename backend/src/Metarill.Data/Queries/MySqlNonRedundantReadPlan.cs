@@ -263,7 +263,8 @@ public static partial class MySqlNonRedundantReadCompiler
             ProjectMultiTargets=(multiTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             StoredConditionCaches=(storedConditionCaches??[]).ToFrozenSet(StringComparer.Ordinal),
             ControlConditionJoins=conditionJoins??FrozenSet<string>.Empty,
-            ConditionSourcePage=conditionSourcePage
+            ConditionSourcePage=conditionSourcePage,
+            LockPublishedJoinScopes=conditionJoins is {Count:>0}
         };
         return builder.Compile(outputNames,dependencies??[]);
     }

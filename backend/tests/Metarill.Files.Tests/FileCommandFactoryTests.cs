@@ -527,6 +527,7 @@ public sealed class FileCommandFactoryTests
             Assert.Contains(".`name`",command.CommandText);
             Assert.DoesNotContain("b.`display_region`",command.CommandText);
             Assert.Equal(locking,command.CommandText.Contains("FOR SHARE",StringComparison.Ordinal));
+            if(!stored)Assert.Equal(locking,command.CommandText.Contains(" FOR SHARE)",StringComparison.Ordinal));
             foreach(var expected in new object[]{recordId,29L,"停用","可下载"})
                 Assert.Contains(command.Parameters.Cast<DbParameter>(),parameter=>Equals(parameter.Value,expected)&&
                     command.CommandText.Contains(parameter.ParameterName,StringComparison.Ordinal));
@@ -538,6 +539,109 @@ public sealed class FileCommandFactoryTests
         Task<bool> Read()=>FilePageScope.MatchesAsync(session,plan.BindAccount(actor),scope.Condition!.BindAccount(actor),
             recordId,actor.ProjectId,locking,default);
         Assert.Equal(visible,locking?await session.InTransactionAsync(Read):await session.InReadSnapshotAsync(Read));
+        Assert.Equal(1,provider.Last?.Command?.Executions);
+    }
+
+    /// <summary>通过中间字典解析名称时，末级字典继续按中间字典的实际页面取范围。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task File_page_uses_each_published_scope_of_chained_dictionary_conditions(bool terminalStored)
+    {
+        var catalog=JoinedConditionFileCatalog(stored:false);
+        var label=catalog.ConfigColumns.Single(column=>column.Id=="19");
+        label.Extra["columnFullName"]=System.Text.Json.JsonSerializer.SerializeToElement("label_item.terminal_caption");
+        catalog.ConfigTables.Add(new(){Id="6",TableName="file_joined_scope_terminal",IsRongyu=terminalStored?1:0,YzProjectId="1"});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="505",ConfigTableId="5",ColumnName="terminal_id",LogicalType="int64",YzProjectId="1",
+                ControlKind="List",LinkConfigTableId="6",ControlDetail="""{"tableId":"6","pageId":"601","nameField":"name"}""",
+                Extra={["linkConfigPageId"]=System.Text.Json.JsonSerializer.SerializeToElement("601")}},
+            new(){Id="506",ConfigTableId="5",ColumnName="terminal_caption",LogicalType="string",YzProjectId="1",
+                Extra={["isJoinColumn"]=System.Text.Json.JsonSerializer.SerializeToElement(1),
+                    ["columnFullName"]=System.Text.Json.JsonSerializer.SerializeToElement("terminal.name")}},
+            new(){Id="601",ConfigTableId="6",ColumnName="id",LogicalType="int64",YzProjectId="1",IsDbNotNull=1},
+            new(){Id="602",ConfigTableId="6",ColumnName="name",LogicalType="string",YzProjectId="1"},
+            new(){Id="603",ConfigTableId="6",ColumnName="yz_project_id",LogicalType="int64",YzProjectId="1"}
+        ]);
+        catalog.ConfigPages.Add(new(){Id="601",ConfigTableId="6",YzProjectId="1",YzAdminTypeId="3",
+            WhereSql="yz_project_id=@current_yz_project_id AND name <> '末级停用'"});
+        catalog.ConfigPageColumns.Add(new(){Id="f601602",ConfigPageId="601",ConfigColumnId="602",YzProjectId="1",IsShow=1});
+        var registry=new FileMetadataContext([catalog]);
+        var frozen=Assert.Single(registry.Catalogs);
+        var page=frozen.ConfigPages.Single(item=>item.Id=="101");
+        var scope=registry.PageScope(frozen,page);
+        var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(scope.LogicalConditionPlan);
+        var actor=new RuntimeActor(12,"测试",false,"1","3"){StoreId=29};
+
+        var provider=new Provider();
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline"},null,provider);
+        provider.Read=command=>
+        {
+            var sql=command.CommandText;
+            Assert.Contains("`file_joined_scope_label`",sql);
+            Assert.Contains("`file_joined_scope_terminal`",sql);
+            foreach(var expected in new[]{"停用","末级停用","可下载"})
+                Assert.Contains(command.Parameters.Cast<DbParameter>(),parameter=>Equals(parameter.Value,expected)&&
+                    sql.Contains(parameter.ParameterName,StringComparison.Ordinal));
+            var expectedNestedLocks=terminalStored?1:2;
+            Assert.Equal(expectedNestedLocks,System.Text.RegularExpressions.Regex.Matches(sql,@" FOR SHARE\)").Count);
+            return new DataTable().CreateDataReader();
+        };
+        Assert.False(await session.InTransactionAsync(()=>FilePageScope.MatchesAsync(
+            session,plan.BindAccount(actor),scope.Condition!.BindAccount(actor),97,actor.ProjectId,true,default)));
+        Assert.Equal(1,provider.Last?.Command?.Executions);
+    }
+
+    /// <summary>精确匹配的冗余字典独立于附件页面常量，仍须按实际目标页限制账号和状态。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task File_exact_match_uses_published_stored_dictionary_scope(bool locking)
+    {
+        const long recordId=9007199254740993L;
+        var catalog=JoinedConditionFileCatalog(stored:true);
+        var source=catalog.ConfigPages.Single(item=>item.Id=="101");
+        source.WhereSql=source.WhereSql.Replace(" AND display_region='可下载'","",StringComparison.Ordinal);
+        source.Extra["exactDataManageMatchField"]=System.Text.Json.JsonSerializer.SerializeToElement("display_region");
+        var registry=new FileMetadataContext([catalog]);
+        var frozen=Assert.Single(registry.Catalogs);
+        var page=frozen.ConfigPages.Single(item=>item.Id==source.Id);
+        var file=frozen.ConfigColumns.Single(item=>item.ConfigTableId==page.ConfigTableId&&item.ColumnName=="attachments");
+        var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(registry.DerivedExactPlan(frozen,page,file));
+        var actor=new RuntimeActor(12,"测试",false,"1","3");
+        Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor));
+        actor=actor with{StoreId=29};
+
+        var provider=new Provider();
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline"},null,provider);
+        provider.Read=command=>
+        {
+            Assert.Same(session.CurrentTransaction,command.Transaction);
+            Assert.NotNull(command.Transaction);
+            var sql=command.CommandText;
+            Assert.Contains("JOIN `file_joined_scope_label`",sql);
+            Assert.Contains(".`store_id`",sql);
+            Assert.DoesNotContain("AS `display_region`",sql);
+            Assert.Equal(locking,sql.EndsWith(" FOR SHARE",StringComparison.Ordinal));
+            foreach(var expected in new object[]{recordId,29L,"停用","授权名"})
+                Assert.Contains(command.Parameters.Cast<DbParameter>(),parameter=>Equals(parameter.Value,expected)&&
+                    sql.Contains(parameter.ParameterName,StringComparison.Ordinal));
+            return new DataTable().CreateDataReader();
+        };
+        var bound=plan.BindAccount(actor);
+        var reader=new Metarill.Data.Queries.NonRedundantReader(session);
+        var filters=new Metarill.Data.Queries.FixedReadFilter[]{
+            new("id",Metarill.Data.Queries.FixedReadComparison.Equal,recordId),
+            new("display_region",Metarill.Data.Queries.FixedReadComparison.In,new object?[]{"授权名"})};
+        async Task<bool> Verify()
+        {
+            var rows=locking?await reader.CurrentRowsAsync(bound,filters,[],1,projectId:actor.ProjectId):
+                await reader.RowsAsync(bound,filters,[],1,projectId:actor.ProjectId);
+            Assert.Empty(rows);
+            return true;
+        }
+        if(locking)await session.InTransactionAsync(Verify);
+        else await session.InReadSnapshotAsync(Verify);
         Assert.Equal(1,provider.Last?.Command?.Executions);
     }
 

@@ -23,7 +23,8 @@ public static partial class MySqlNonRedundantReadCompiler
 
         /// <summary>层位别名逐段带上已发布页面，重复目标表也各自使用自己的页面。</summary>
         private PageMetadata? CrossNamePage(string alias)=>
-            alias==rootAlias?CrossNameSourcePage:crossNameSourcePages.GetValueOrDefault(alias);
+            alias==rootAlias?CrossNameSourcePage??(ControlConditionJoins.Contains(output)?ConditionSourcePage:null):
+                crossNameSourcePages.GetValueOrDefault(alias);
         private sealed record CrossLevel(TableMetadata Table,ColumnMetadata Name,ColumnMetadata? Parent,NonRedundantCrossTableTargetScope Scope,PageMetadata Page,IReadOnlySet<string> LogicalFields,IReadOnlySet<string>? SelfTreeFields=null,ColumnMetadata? AlternateKey=null)
         {
             internal string KeyColumn=>AlternateKey?.ColumnName??"id";
