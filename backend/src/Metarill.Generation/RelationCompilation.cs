@@ -15,6 +15,7 @@ internal sealed record RelationModel(ColumnModel SourceColumn, TableModel Target
     // 全局固定页要求当前读锁，但不进入项目内冗余下拉的名称投影路径。
     internal bool FixedGlobalSelection { get; init; }
     internal bool CompoundProjectSource { get; init; }
+    internal bool CompoundStoredTextSource { get; init; }
     internal bool CompoundProjectTarget { get; init; }
     internal bool CanonicalProjectParent { get; init; }
     internal IReadOnlyList<ColumnModel> IndependentOrder { get; init; } = [];
@@ -168,7 +169,8 @@ internal static class RelationCompilation
                     FixedPageConditionCompilation.HasLogicalFields(targetPage)) ? "" : Mapped("whereSql");
             // 附加联接沿实际字典页解析；共用文本父键时仍需证明来源和目标的业务键。
             var textParent=source.Source.ControlKind=="List"&&target.Source.IsRongyu==0&&!string.IsNullOrWhiteSpace(where)
-                ?SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowSparseTarget:true)??
+                ?SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,
+                    allowSparseTarget:true,allowCompoundSource:true)??
                     NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowCompoundSource:true)
                 :null;
             var globalList=source.Source.ControlKind=="List"&&!functionForm&&target.IsGlobal&&target.Source.IsRongyu==0;
@@ -212,7 +214,8 @@ internal static class RelationCompilation
             if(targetParents.Any(parent=>sourceParents.Any(sourceParent=>sourceParent.Source.Id==parent.Source.Id))&&
                 CrossTableReadCompilation.TextSourceParent(model,owner,page) is not null)
             {
-                sharedTextParent=textParent??SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowSparseTarget:true)??
+                sharedTextParent=textParent??SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,
+                    allowSparseTarget:true,allowCompoundSource:true)??
                     NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,
                         allowStoredTarget:true,allowCompoundSource:true);
                 // 非冗余字典的联接名称交由实际发布页的固定投影证明，父键仍使用两页共同的文本业务键。
@@ -359,6 +362,8 @@ internal static class RelationCompilation
                 SharedTextParent = sharedTextParent,
                 FixedGlobalSelection = globalFixedSelection,
                 CompoundProjectSource = compoundProjectSource is not null,
+                CompoundStoredTextSource = owner.Source.IsRongyu==1&&sharedTextParent is not null&&
+                    sourceBinding is {AdditionalColumns.Count:>0},
                 CompoundProjectTarget = compoundTarget&&publishedParent is {Logical:false,Global:false,AdditionalTargets.Count:>0},
                 CanonicalProjectParent = canonicalProjectParent,
                 IndependentOrder = independentOrder,

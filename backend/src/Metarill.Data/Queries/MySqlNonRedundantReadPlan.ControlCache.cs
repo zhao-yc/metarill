@@ -240,12 +240,14 @@ public static partial class MySqlNonRedundantReadCompiler
             TableMetadata stored,MultiSourceParent storedParent)
         {
             var storedPages=catalog.ConfigPages.Where(page=>page.ConfigTableId==stored.Id).ToArray();
-            if(scope.HasCompoundLogicalTextKey(catalog,sparse))
-                return scope.AdditionalTargets.Prepend(scope).All(child=>UsesSharedStoredTextParent(
-                    sparse,new(child.Target,[sparsePage]),stored,storedPages,storedParent.Column,
-                    storedParent.AdditionalColumns.Count>0,storedToSparse:true));
-            return UsesSharedStoredTextParent(sparse,new(scope.Target,[sparsePage]),stored,storedPages,storedParent.Column,
-                scope.AdditionalTargets.Count>0||storedParent.AdditionalColumns.Count>0,storedToSparse:true);
+            var compoundTarget=scope.HasCompoundLogicalTextKey(catalog,sparse,allowGlobalParent:true);
+            IEnumerable<MultiTargetParentScope> targets=compoundTarget?scope.AdditionalTargets.Prepend(scope):[scope];
+            var storedFields=storedParent.AdditionalColumns.Prepend(storedParent.Column);
+            // 逐对证明发布路径。先检查全部字段，前一字段无文本路径时仍要拒绝后续混用业务键。
+            var matches=targets.SelectMany(child=>storedFields.Select(field=>UsesSharedStoredTextParent(
+                sparse,new(child.Target,[sparsePage]),stored,storedPages,field,
+                !compoundTarget&&scope.AdditionalTargets.Count>0,storedToSparse:true))).ToArray();
+            return matches.All(match=>match);
         }
 
         /// <summary>保存、传播和回填也从实际发布的各来源页复核物理文本键，不能按存储类型猜测。</summary>

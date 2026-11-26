@@ -1222,7 +1222,8 @@ public static partial class MySqlNonRedundantReadCompiler
                 RequireCompoundGlobalSourceParent(catalog,target.Id,page.Id,binding);
             // 同一缓存供所有已发布来源页使用，每个入口都要能证明物理父键与目标逻辑父键等价。
             var sharedTextParent=false;
-            if(table.IsRongyu==1&&target.IsRongyu==0&&parent is {Logical:true,Global:false}&&binding is not null&&
+            if(table.IsRongyu==1&&target.IsRongyu==0&&parent is {Logical:true}&&binding is not null&&
+                (!parent.Global||binding.AdditionalColumns.Count>0&&parent.Target.LogicalType=="string")&&
                 !GlobalCrossTableTarget.Declared(table)&&!GlobalCrossTableTarget.Declared(target))
                 sharedTextParent=UsesSharedSparseTextParent(target,page,parent,table,binding);
             var sourceParent=binding is not null&&(parent?.Logical==true||binding.LogicalPages.Count>0||binding.AdditionalColumns.Count>0)

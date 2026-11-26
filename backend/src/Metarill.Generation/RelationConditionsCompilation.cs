@@ -180,7 +180,7 @@ internal static class RelationConditionsCompilation
     /// <summary>原单选和下拉按钩子处理后的实际来源字段校验，稀疏逻辑父使用已授权的页范围。</summary>
     internal static (string Check,string Parent) WriteSourceScope(GenerationModel model,TableModel table,PageModel page,RelationModel relation)
     {
-        if(!relation.CompoundProjectSource)
+        if(!relation.CompoundProjectSource&&!relation.CompoundStoredTextSource)
             return ("",NonRedundantCrossParentCompilation.Enabled(model,table,page)?"logicalRelationParentId":
                 Value(page.Scopes.FirstOrDefault(scope=>scope.Source=="parent").Column));
         var sourceParent=Value(relation.FixedSourceParent);

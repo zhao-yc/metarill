@@ -1063,9 +1063,14 @@ public sealed class TextCascadeParentRelationTests
     [Theory]
     [InlineData("OnlyNew","list")]
     [InlineData("OverWriteByFirstColumn","edit")]
-    public async Task Stored_source_sparse_target_share_text_parent(string import,string export)
+    [InlineData("OnlyNew","list",true,false)]
+    [InlineData("OnlyNew","list",true,true)]
+    [InlineData("OverWriteByFirstColumn","edit",true,true)]
+    public async Task Stored_source_sparse_target_share_text_parent(string import,string export,bool compound=false,bool globalCountry=false)
     {
         var catalog=Catalog(1,import,export);
+        if(globalCountry)ConfigureGlobalTextAncestor(catalog);
+        if(compound)AddSecondTextAncestor(catalog);
         foreach(var id in new[]{"81","82"})
         {
             ScopeTarget(catalog,id);
@@ -1082,6 +1087,7 @@ public sealed class TextCascadeParentRelationTests
             Assert.Equal("282",relation.FixedSourceParent?.Source.Id);
             Assert.True(ControlRenderer.RelationContext(page,relation,false).SameParent);
             Assert.True(relation.FixedParent?.Logical);
+            Assert.Equal(compound,relation.CompoundStoredTextSource);
         });
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var caches=RelationPropagationCompilation.DerivedBindings(model)
@@ -1090,6 +1096,7 @@ public sealed class TextCascadeParentRelationTests
         var maintenance=MixedRelationPropagationCompilation.ForModel(model);
         Assert.Contains("textrel_listitem",maintenance.MixedTargets);
         Assert.Contains("textrel_singleitem",maintenance.MixedTargets);
+        if(compound)Assert.Contains("business_key",maintenance.MixedTargetKeys("textrel_country"));
         Assert.Contains("listitem_name",maintenance.MixedSourceColumns["textrel_source"]);
         Assert.Contains("singleitem_name",maintenance.MixedSourceColumns["textrel_source"]);
         const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
@@ -1102,6 +1109,12 @@ public sealed class TextCascadeParentRelationTests
             var label=Assert.IsType<string>(read.GetType().GetMethod("Expression",flags)!.Invoke(read,[column]));
             Assert.Contains("BINARY CAST(b.`country_id` AS CHAR)",label);
             Assert.Contains("business_key",label);
+            if(compound)
+            {
+                Assert.Contains("b.`other_country_id`",label);
+                Assert.Contains("CASE WHEN",label);
+                if(globalCountry)Assert.Contains("b.`store_id`",label);
+            }
         }
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-stored-sparse-text-parent");
@@ -1117,6 +1130,21 @@ public sealed class TextCascadeParentRelationTests
             Assert.Contains("ImportRelation201_700Async",service);
             Assert.Contains("ImportRelation201_702Async",service);
             Assert.DoesNotContain("out var targetParentKey",service);
+            Assert.Contains("Export201Async",service);
+            if(compound)
+            {
+                Assert.Contains("entity.OtherCountryId!=entity.CountryId",service);
+                Assert.Contains("submitted.Contains(\"country_id\") || submitted.Contains(\"other_country_id\")",service);
+                Assert.Contains("await VerifySharedR1Parent201Async(",service);
+                Assert.DoesNotContain("out var sourceParentKey",service);
+                foreach(var branch in new[]{"25","291"})
+                    Assert.Contains($"CrossReader201_{branch}(actor,locking,false).PathByKeyAsync(0,SharedR1ParentKey201(parentId)",service);
+                var probe=NonRedundantApplicationFixture.Start("node",directory);
+                probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"CrossTableTextParentVueProbe.mjs"));
+                probe.ArgumentList.Add(Path.Combine(directory,"frontend/pages/yzp/textrel_source-detail-201.vue"));
+                probe.ArgumentList.Add("0007-Ab+字段&值#北% ");
+                await NonRedundantApplicationFixture.RunAsync(probe);
+            }
             var detail=await File.ReadAllTextAsync(Path.Combine(directory,"frontend/pages/yzp/textrel_source-detail-201.vue"));
             Assert.Contains(":parent_id=\"parent_id\"",detail);
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
@@ -1125,13 +1153,18 @@ public sealed class TextCascadeParentRelationTests
     }
 
     /// <summary>缓存重算入口独立拒绝通过字符串父列借用整数主键路径。</summary>
-    [Fact]
-    public void Stored_source_text_parent_rejects_sparse_target_primary_key()
+    [Theory]
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    [InlineData(true,true)]
+    public void Stored_source_text_parent_rejects_sparse_target_primary_key(bool compound,bool globalCountry)
     {
         var catalog=Catalog(1,"OnlyNew","list");
+        if(globalCountry)ConfigureGlobalTextAncestor(catalog);
+        if(compound)AddSecondTextAncestor(catalog);
         ScopeTarget(catalog,"81");
         catalog.ConfigTables.Single(item=>item.Id=="81").IsRongyu=0;
-        var column=catalog.ConfigColumns.Single(item=>item.Id=="8106");
+        var column=catalog.ConfigColumns.Single(item=>item.Id==(compound?"291":"8106"));
         var definition=System.Text.Json.Nodes.JsonNode.Parse(column.ControlDetail)!;
         definition["levels"]![0]!["idField"]="id";
         column.ControlDetail=definition.ToJsonString();

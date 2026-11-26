@@ -106,7 +106,8 @@ onPopSelect{{{id}}}(row) { this.permissionVersion++;if(this.{{{ro}}} || !this._s
         {
             // 原弹层沿用关系已证明的父值，文本业务键不能作为目标主键验证。
             if(relation?.SharedTextParent is null&&CrossTableReadCompilation.TextSourceParent(c.Model,c.Table,c.Page) is not null&&
-                SharedRedundantParentCompilation.CommonTextParent(c.Model,c.Table,c.Page,targetTable,target,allowSparseTarget:true) is null&&
+                SharedRedundantParentCompilation.CommonTextParent(c.Model,c.Table,c.Page,targetTable,target,
+                    allowSparseTarget:true,allowCompoundSource:true) is null&&
                 NonRedundantCrossParentCompilation.CommonTextParent(c.Model,c.Table,c.Page,targetTable,target,allowStoredTarget:true) is null)
                 throw new NotSupportedException("原单选目标父尚未证明使用与来源相同的文本业务键。");
             return "parent_id";

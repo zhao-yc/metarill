@@ -177,6 +177,10 @@ internal static class ForeignValidationRenderer
             var constantDependency = constantRelation is null ? null : ControlRenderer.RelationContext(page,constantRelation,false).TargetParentField;
             var constantDependencyColumn = constantDependency is null ? null : table.Columns.Single(field=>field.JsonName==constantDependency);
             var constantTrigger = "creating || submitted.Contains("+Literal(column.Source.ColumnName)+")"+(constantDependencyColumn is null?"":" || submitted.Contains("+Literal(constantDependencyColumn.Source.ColumnName)+")");
+            // 两个真实文本父字段中任一字段变化都要重验仍保留的关系。
+            if(constantRelation?.CompoundStoredTextSource==true)
+                foreach(var scope in page.Scopes.Where(scope=>scope.Source=="parent"))
+                    constantTrigger+=" || submitted.Contains("+Literal(scope.Column.Source.ColumnName)+")";
             foreach(var dependent in (constantRelation?.Conditions?.Forms.Select(binding=>binding.Column)??[]).DistinctBy(field=>field.Source.Id))
                 if(dependent.Source.Id!=column.Source.Id&&dependent.Source.Id!=constantDependencyColumn?.Source.Id)constantTrigger+=" || submitted.Contains("+Literal(dependent.Source.ColumnName)+")";
             result.AppendLine($"        if (({constantTrigger}) && entity.{column.Property} is not null)").AppendLine("        {");
