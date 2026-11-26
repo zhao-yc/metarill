@@ -210,7 +210,8 @@ internal static partial class NonRedundantReadCompilation
                 continue;
             }
             if(target.IsGlobal&&relation.Source.ControlKind is not("List" or "SelectPage")&&
-                MultiGlobalParentCompilation.SingleParentBinding(model,table,page,relation) is not null)
+                (MultiGlobalParentCompilation.SingleParentBinding(model,table,page,relation) is not null||
+                 MultiGlobalParentCompilation.IsFunctionListParentField(model,table,page,relation)))
                 continue;
             if(target.IsGlobal){if(relation.Source.ControlKind=="MultiSelectPage")_=GlobalMultipleRelationTarget.Require(model.Catalog,table.Source,relation.Source,target.Source);else _=RelationCompilation.GlobalTargetForPage(model,table,page,relation,target);}
         }

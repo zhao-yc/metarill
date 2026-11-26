@@ -744,10 +744,16 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("projectStoredExactCompound")]
     [InlineData("projectExactCompoundOrdinary")]
     [InlineData("projectStoredExactCompoundOrdinary")]
+    [InlineData("projectExactCompoundSplit")]
+    [InlineData("projectStoredExactCompoundSplit")]
+    [InlineData("projectExactCompoundSplitText")]
+    [InlineData("projectStoredExactCompoundSplitText")]
     public async Task Function_original_list_uses_one_candidate_scope(string scenario)
     {
         var ordinary=scenario.EndsWith("Ordinary",StringComparison.Ordinal);
-        var variant=ordinary?scenario[..^8]:scenario;
+        var textParent=scenario.EndsWith("SplitText",StringComparison.Ordinal);
+        var split=textParent||scenario.EndsWith("Split",StringComparison.Ordinal);
+        var variant=ordinary?scenario[..^8]:textParent?scenario[..^9]:split?scenario[..^5]:scenario;
         var catalog = WithFunctionList(Catalog(), variant=="treeExact"?"logical":variant);
         var compound=variant.EndsWith("ExactCompound",StringComparison.Ordinal);
         if(ordinary)
@@ -759,6 +765,15 @@ public sealed class FunctionTableGenerationTests : IDisposable
                 JsonSerializer.SerializeToElement(field.ControlDetail);
             field.ControlDetail="{}";
         }
+        if(split)
+        {
+            // 两个父键都来自发布配置，其中一个属于控件而非页面。
+            var targetPage=catalog.ConfigPages.Single(page=>page.Id=="103");
+            targetPage.WhereSql=targetPage.WhereSql.Replace(" AND other_scope_id=@parentId","",StringComparison.Ordinal);
+            if(textParent)catalog.ConfigColumns.Single(column=>column.Id=="708").LogicalType="string";
+            var field=catalog.ConfigColumns.Single(column=>column.Id=="39");
+            field.ControlDetail="""{"pageId":"103","nameField":"name","whereSql":"status=1 AND other_scope_id=@parentId"}""";
+        }
         if(compound)
         {
             var secondParent=catalog.ConfigColumns.Single(column=>column.Id=="708");
@@ -766,8 +781,11 @@ public sealed class FunctionTableGenerationTests : IDisposable
             try
             {
                 secondParent.Extra["linkConfigPageId"]=JsonSerializer.SerializeToElement("801");
-                var error=Assert.Throws<InvalidOperationException>(()=>
-                    Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
+                var error=split
+                    ?Assert.Throws<InvalidOperationException>(()=>
+                        new ApplicationPackager().Create(catalog,output,"Example.FunctionForm",SourceRoot()))
+                    :Assert.Throws<InvalidOperationException>(()=>
+                        Metarill.Data.Queries.NonRedundantReads.MultiGlobalParentPageId(catalog,"7","103"));
                 Assert.Contains("同一个实际发布父页",error.Message);
             }
             finally { secondParent.Extra["linkConfigPageId"]=original; }
@@ -799,7 +817,8 @@ public sealed class FunctionTableGenerationTests : IDisposable
         {
             Assert.Contains("CompileMultiGlobalParent",service);
             Assert.Contains("""new("scope_id",FixedReadComparison.Equal,""",service);
-            Assert.Contains("""new("other_scope_id",FixedReadComparison.Equal,""",service);
+            Assert.Contains(textParent?"""FixedReadFilter.ForTextParent("other_scope_id",targetParentId!)""":
+                """new("other_scope_id",FixedReadComparison.Equal,""",service);
         }
         await VerifyVueAsync(output, "GeneratedFunctionListProbe.mjs", compound?"global":scenario);
         await BuildFullAsync(output);

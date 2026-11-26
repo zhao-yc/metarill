@@ -96,6 +96,14 @@ internal static class ForeignValidationRenderer
                 continue;
             }
             if(column.Source.ControlKind is not("List" or "SelectPage")&&
+                MultiGlobalParentCompilation.IsFunctionListParentField(model,table,page,column))
+            {
+                // 字段虽未暴露给表单写入，默认值和手写钩子提交时仍须验证实际父页。
+                var key=column.Type=="string?"?$"entity.{column.Property}":$"entity.{column.Property}?.ToString(CultureInfo.InvariantCulture)";
+                result.AppendLine($"        if ((creating || submitted.Contains({Literal(column.Source.ColumnName)})) && entity.{column.Property} is not null) await ValidateParents{page.Source.Id}Async({key},actor,cancellationToken);");
+                continue;
+            }
+            if(column.Source.ControlKind is not("List" or "SelectPage")&&
                 MultiGlobalParentCompilation.SingleParentBinding(model,table,page,column) is {} fixedParent)
             {
                 var key=IdExpression(column);

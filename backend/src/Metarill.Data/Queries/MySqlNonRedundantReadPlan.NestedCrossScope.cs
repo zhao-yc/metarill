@@ -288,6 +288,19 @@ public static partial class MySqlNonRedundantReadCompiler
         return(parent.Parent,pages[0]);
     }
 
+    /// <summary>List 的附加物理父字段必须与实际字典页使用同一个全局父页。</summary>
+    internal static void RequireAdditionalGlobalParentTargets(MetadataCatalog catalog,string tableId,string pageId,
+        IReadOnlyList<MultiTargetParentScope> additional)
+    {
+        var (parent,published)=PublishedMultiGlobalParent(catalog,tableId,pageId);
+        foreach(var scope in additional)
+        {
+            if(scope.Logical||scope.Parent.Id!=parent.Id||scope.Target.ConfigTableId!=tableId||
+                scope.Target.LinkConfigTableId!=parent.Id||PublishedPhysicalMultiParent(catalog,scope).Id!=published.Id)
+                throw new InvalidOperationException("List 的父字段与目标页必须绑定同一个实际发布父页。");
+        }
+    }
+
     /// <summary>每条来源路径及物理外键复用目标的实际发布父页；等值字段不能借另一页权限。</summary>
     internal static void RequireCompoundGlobalSourceParent(MetadataCatalog catalog,string tableId,string pageId,MultiSourceParent source)
     {

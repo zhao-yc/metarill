@@ -118,7 +118,7 @@ public static class ProjectScopedSingleRelationTarget
         if(target.IsRongyu==1)
         {
             // 冗余精确字典仅用已声明的物理字段匹配同一全局父记录，实际父页另行逐列验证。
-            if(terms.Length<2||terms.Any(term=>!columns.Any(column=>column.ColumnName==term.Field&&
+            if(terms.Any(term=>!columns.Any(column=>column.ColumnName==term.Field&&
                 catalog.ConfigTables.Any(parent=>parent.Id==column.LinkConfigTableId&&GlobalCrossTableTarget.Declared(parent)))))
                 return null;
             var storage=MetadataStoragePolicy.ForTable(catalog,target);

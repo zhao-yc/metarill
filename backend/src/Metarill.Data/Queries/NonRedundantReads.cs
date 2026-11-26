@@ -403,6 +403,11 @@ public static class NonRedundantReads
     public static string MultiGlobalParentPageId(MetadataCatalog metadata,string tableId,string pageId)=>
         MySqlNonRedundantReadCompiler.PublishedMultiGlobalParent(metadata,tableId,pageId).Page.Id;
 
+    /// <summary>原 List 附加父字段沿目标页真实全局父范围验证发布身份。</summary>
+    public static void RequireAdditionalGlobalParentTargets(MetadataCatalog metadata,string tableId,string pageId,
+        IReadOnlyList<MultiTargetParentScope> additional)=>
+        MySqlNonRedundantReadCompiler.RequireAdditionalGlobalParentTargets(metadata,tableId,pageId,additional);
+
     /// <summary>同一全局父记录的来源字段和目标字段必须使用同一个实际发布父页。</summary>
     public static void RequireCompoundGlobalSourceParent(MetadataCatalog metadata,string tableId,string pageId,MultiSourceParent source)=>
         MySqlNonRedundantReadCompiler.RequireCompoundGlobalSourceParent(metadata,tableId,pageId,source);

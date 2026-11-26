@@ -1103,6 +1103,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 .DistinctBy(scope=>scope.Column.Source.Id).ToArray();
             // 目标复合父键本身就要求规范 ID，独立表单和仅单列的来源也使用相同的比较。
             var canonicalParent=relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent||
+                relation.FunctionCompoundGlobalParent||
                 relation.ScopedStoredSingle&&!relation.Target.IsGlobal&&targetParentScopes.Length>1||
                 relation.FixedGlobalSelection&&targetParentScopes.Any(scope=>scope.Column.Type=="string?");
             if(relation.SharedTextParent is not null)

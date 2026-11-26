@@ -92,7 +92,7 @@ internal static class DerivedRelationNamesRenderer
             .Select(scope=>scope.Source=="parent"&&scope.Column==storedBusinessParent
                 ?$"        filters.Add(FixedReadFilter.ForTextParent({Literal(scope.Column.Source.ColumnName)},targetParentId!,businessKey:true));"
                 :(relation.CompoundProjectSource||relation.CompoundProjectTarget||relation.CanonicalProjectParent||
-                relation.FixedGlobalSelection)&&
+                relation.FixedGlobalSelection||relation.FunctionCompoundGlobalParent)&&
                 scope.Source=="parent"&&scope.Column.Type=="string?"&&
                 relation.FixedParent?.HasTarget(scope.Column.Source.Id,logicalOnly:true)!=true
                 ?$"        filters.Add(FixedReadFilter.ForTextParent({Literal(scope.Column.Source.ColumnName)},targetParentId!));"

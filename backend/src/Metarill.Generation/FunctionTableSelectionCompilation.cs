@@ -50,6 +50,22 @@ internal static class FunctionTableSelectionCompilation
         return parent;
     }
 
+    /// <summary>功能表的 List 可在字段上补充物理父键，页面和控件仍只接收一个实际父值。</summary>
+    internal static MultiTargetParentScope ApplyListParentScopes(GenerationModel model,TableModel target,PageModel targetPage,
+        MultiTargetParentScope parent,IReadOnlyList<(ColumnModel Column,string Source)> scopes)
+    {
+        var fields=scopes.Where(scope=>scope.Source=="parent"&&!parent.HasTarget(scope.Column.Source.Id))
+            .Select(scope=>scope.Column.Source).DistinctBy(column=>column.Id).ToArray();
+        if(fields.Length==0)return parent;
+
+        var declared=target.Columns.Select(column=>column.Source.ColumnName);
+        var additional=fields.Select(column=>MultiTargetParentScope.Compile(model.Catalog,target.Source,
+                FixedConditionPlan.Compile(column.ColumnName+"=@parentId",declared))??
+            throw new InvalidOperationException("List 的附加父字段缺少固定发布关系。")).ToArray();
+        NonRedundantReads.RequireAdditionalGlobalParentTargets(model.Catalog,target.Source.Id,targetPage.Source.Id,additional);
+        return parent with{AdditionalTargets=[..parent.AdditionalTargets,..additional]};
+    }
+
     /// <summary>功能表没有来源记录，父值只能来自原页面已开放且关联同一父表的字段。</summary>
     internal static ColumnModel ResolveParentField(PageModel page, ColumnModel source, TableMetadata parent)
     {

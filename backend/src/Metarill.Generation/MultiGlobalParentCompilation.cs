@@ -140,6 +140,21 @@ internal static class MultiGlobalParentCompilation
             MultiTargetParentScope.CompileSelectionPage(model.Catalog,table.Source,condition,allowGlobalParent:true);
     }
 
+    /// <summary>功能表 List 的附加只读父键也属于当前字典页范围，不能替代普通写入关联校验。</summary>
+    internal static bool IsFunctionListParentField(GenerationModel model,TableModel table,PageModel page,ColumnModel field)
+    {
+        if(page.Writable.Any(column=>column.Source.Id==field.Source.Id)||PhysicalSingleTarget(model,table,page) is null)
+            return false;
+
+        return model.Tables.Where(owner=>owner.Source.IsFunctionTable==1).SelectMany(owner=>owner.Pages)
+            .Any(form=>form.Readable.Concat(form.Writable).DistinctBy(column=>column.Source.Id)
+                .Where(column=>column.Source.ControlKind=="List"&&
+                    ProjectSinglePage(model,form,column,table)?.Source.Id==page.Source.Id)
+                .Any(column=>RelationCompilation.ForPage(model,form,scopeSourceId:column.Source.Id)
+                    .Any(option=>option.TargetPage.Source.Id==page.Source.Id&&option.FixedParent is {Global:true} parent&&
+                        parent.HasTarget(field.Source.Id))));
+    }
+
     /// <summary>按目标页证明的实际全局父键，原多值引用保持已有同页校验。</summary>
     internal static PageModel? PhysicalTarget(GenerationModel model,TableModel table,PageModel page)
     {
