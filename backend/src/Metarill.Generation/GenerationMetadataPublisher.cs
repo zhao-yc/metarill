@@ -34,7 +34,7 @@ public static class GenerationMetadataPublisher
     /// <summary>关系执行目录先脱敏，再去掉品牌、菜单及布局；纯配置更新不因此强制更新后端生成代码。</summary>
     internal static MetadataCatalog ForRelations(MetadataCatalog catalog,IReadOnlySet<string>? cascadePages=null,
         IEnumerable<string>? selfTreeNamePages=null,IReadOnlySet<string>? nestedTables=null,
-        IReadOnlySet<(string Page,string Column)>? checkboxProofFields=null,IReadOnlySet<string>? staticMultiPages=null)
+        IReadOnlySet<(string Page,string Column)>? multiCacheProofFields=null,IReadOnlySet<string>? staticMultiPages=null)
     {
         // 关系编译维持生成器的定义错误合同；直接发布保留原ArgumentException及原门禁边界。
         MetadataCatalog published;
@@ -69,9 +69,9 @@ public static class GenerationMetadataPublisher
         var businessTables=businessKeys.Select(entry=>entry.TableId).ToHashSet(StringComparer.Ordinal);
         var businessPages=published.ConfigPages.Where(page=>businessTables.Contains(page.ConfigTableId)).Select(page=>page.Id).ToHashSet(StringComparer.Ordinal);
         // 业务键传播需要在宿主重启后重新证明实际名称页与固定范围。
-        // 全局复选多缓存只保留证明所需的来源覆盖及目标列，不携带额外页面配置。
-        bool KeepsCheckboxProof(PageColumnMetadata field)=>checkboxProofFields?.Contains((field.ConfigPageId,field.ConfigColumnId))==true;
-        bool KeepsVisibility(PageColumnMetadata field)=>labelPages.Contains(field.ConfigPageId)||nestedPages.Contains(field.ConfigPageId)||businessPages.Contains(field.ConfigPageId)||KeepsCheckboxProof(field);
+        // 多值缓存保留证明所需的来源覆盖及目标字段。
+        bool KeepsMultiProof(PageColumnMetadata field)=>multiCacheProofFields?.Contains((field.ConfigPageId,field.ConfigColumnId))==true;
+        bool KeepsVisibility(PageColumnMetadata field)=>labelPages.Contains(field.ConfigPageId)||nestedPages.Contains(field.ConfigPageId)||businessPages.Contains(field.ConfigPageId)||KeepsMultiProof(field);
         published.ConfigMenus=[];published.ConfigCustomPages=[];
         published.ConfigPageColumns=published.ConfigPageColumns.Where(f=>KeepsVisibility(f)||
             multiProof.TryGetValue(f.ConfigPageId,out var names)&&names.Contains(f.ConfigColumnId)).Select(f=>new PageColumnMetadata
@@ -80,7 +80,7 @@ public static class GenerationMetadataPublisher
                 IsShow=KeepsVisibility(f)?f.IsShow:1,
                 IsEdit=KeepsVisibility(f)?f.IsEdit:1,
                 Extra=KeepsVisibility(f)?f.Extra.Where(pair=>pair.Key is "isInGrid" or "isInEdit"||
-                    (pair.Key is "controlDetail" or "controlKind")&&(nestedPages.Contains(f.ConfigPageId)||labelPages.Contains(f.ConfigPageId)||KeepsCheckboxProof(f))).ToDictionary():new()
+                    (pair.Key is "controlDetail" or "controlKind")&&(nestedPages.Contains(f.ConfigPageId)||labelPages.Contains(f.ConfigPageId)||KeepsMultiProof(f))).ToDictionary():new()
             }).OrderBy(f=>f.Id,StringComparer.Ordinal).ToList();
         var treeIndexes=CascadeTreeStorageColumns.RequiredNodeIndexes(published).Union(businessKeys.Select(entry=>entry.IndexId)).ToHashSet(StringComparer.Ordinal);
         published.ConfigChildren=[];

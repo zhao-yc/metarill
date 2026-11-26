@@ -305,11 +305,12 @@ public static partial class MySqlNonRedundantReadCompiler
     internal static MySqlNonRedundantReadPlan CompileMultiLabelForCache(MetadataCatalog catalog,TableMetadata source,TableMetadata target,
         string field,PageMetadata? selectedPage,ColumnMetadata relation,bool sharedCheckbox)
     {
-        // 按实际发布页证明可用的字典范围，来源项目仍由维护根计划隔离。
-        var globalDictionarySource=selectedPage is not null&&
+        // 纯常量字典可能无需独立范围计划，其内层联接仍须按实际字典页证明来源项目。
+        var namePage=selectedPage??MultiTargetNamePage(catalog,target,relation);
+        var globalDictionarySource=namePage is not null&&
             GlobalCrossTableTarget.Declared(source)&&GlobalCrossTableTarget.Declared(target)&&
             GlobalMultipleRelationTarget.RequireCached(catalog,source,relation,target) is {Page.Id:var publishedId} proof&&
-            publishedId==selectedPage.Id&&
+            publishedId==namePage.Id&&
             (proof.UsesNonRedundantAccountPage||target.IsRongyu==0&&proof.UsesStoredStaticPage||proof.UsesPhysicalParentPage);
         return CompileMultiLabel(catalog,target.Id,field,[field],[],new(source,"cache_owner",GlobalSingleSource:globalDictionarySource),
             selectedPage,relation,sharedCheckbox:sharedCheckbox);
@@ -835,7 +836,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     publishedPage=sharedCheckboxPage=MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,table,relation,target,value,sharedPage);
                 else
                 {
-                    var proof=table.IsRongyu==1?GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target):
+                    var proof=table.IsRongyu==1?GlobalMultipleRelationTarget.RequireCachedName(catalog,table,relation,target,value):
                         sourcePage is not null&&overridden is not null
                             ?GlobalMultipleRelationTarget.RequirePage(catalog,table,relation,target,sourcePage)
                             :GlobalMultipleRelationTarget.Require(catalog,table,relation,target);

@@ -141,8 +141,7 @@ public sealed class RelationMutationPlan
                     PageMetadata page;
                     if(definition.Multiple)
                     {
-                        var proof=GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target);
-                        if(proof.Name.Id!=value.Id)throw new InvalidOperationException("全局多值缓存名称与固定关系声明不一致。");
+                        var proof=GlobalMultipleRelationTarget.RequireCachedName(catalog,source,foreign,target,value);
                         page=proof.Page;
                         // 字典可按已发布条件跨项目读取，名称传播仍仅锁定并更新当前业务项目的来源行。
                         rowProjectSource=proof.UsesStoredStaticPage;

@@ -168,8 +168,8 @@ internal static class RelationPropagationCompilation
         }
         return pages;
     }
-    /// <summary>冻结复选名称回填所需的目标、备用名称及详情开放的物理父字段。</summary>
-    internal static IReadOnlySet<(string Page,string Column)> PublishedCheckboxProofFields(GenerationModel model,
+    /// <summary>冻结多值名称回填所需的备用字段、来源配置及详情开放的物理父字段。</summary>
+    internal static IReadOnlySet<(string Page,string Column)> PublishedMultiCacheProofFields(GenerationModel model,
         IEnumerable<RelationCacheDefinition> definitions)
     {
         var fields=new HashSet<(string,string)>();
@@ -178,6 +178,19 @@ internal static class RelationPropagationCompilation
             if(!definition.Multiple)continue;
             var source=model.Tables.Single(table=>table.Source.Id==definition.SourceTableId);
             var relation=source.Columns.Single(column=>column.Source.Id==definition.ForeignColumnId);
+            if(relation.Source.ControlKind=="MultiSelectPage")
+            {
+                var target=model.Tables.Single(table=>table.Source.Id==definition.TargetTableId);
+                if(!target.IsGlobal)continue;
+                var root=GlobalMultipleRelationTarget.RequireCached(model.Catalog,source.Source,relation.Source,target.Source);
+                if(root.Name.Id==definition.ValueColumnId)continue;
+                fields.Add((root.Page.Id,definition.ValueColumnId));
+                foreach(var page in source.Pages.Where(page=>model.Catalog.ConfigPageColumns.Any(field=>
+                    field.ConfigPageId==page.Source.Id&&field.ConfigColumnId==relation.Source.Id&&
+                    field.Extra.ContainsKey("controlDetail"))))
+                    fields.Add((page.Source.Id,relation.Source.Id));
+                continue;
+            }
             if(relation.Source.ControlKind!="MultiCheckBoxDatabase")continue;
             var shared=definition.CheckboxTargetPageId is not null;
             if(definition.CheckboxTargetPageId is {} targetPage)fields.Add((targetPage,definition.ValueColumnId));
@@ -256,7 +269,7 @@ internal static class RelationPropagationCompilation
             .Select(definition=>definition.SourceTableId));
         var pages=PublishedCascadePages(model,definitions,out var staticMultiPages);
         return GenerationMetadataPublisher.ForRelations(model.Catalog,pages,
-            selfTreeNamePages:treePages,nestedTables:scopedTables,checkboxProofFields:PublishedCheckboxProofFields(model,definitions),
+            selfTreeNamePages:treePages,nestedTables:scopedTables,multiCacheProofFields:PublishedMultiCacheProofFields(model,definitions),
             staticMultiPages:staticMultiPages);
     }
 

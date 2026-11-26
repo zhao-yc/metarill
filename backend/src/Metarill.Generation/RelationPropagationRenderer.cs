@@ -10,7 +10,7 @@ internal static class RelationPropagationRenderer
         var bindings=RelationPropagationCompilation.Bindings(model);if(bindings.Count==0)return "";var options=new JsonSerializerOptions(JsonSerializerDefaults.Web);var published=RelationPropagationCompilation.Definitions(bindings);
         var pages=RelationPropagationCompilation.PublishedCascadePages(model,published,out var staticMultiPages);
         var metadata=JsonSerializer.Serialize(GenerationMetadataPublisher.ForRelations(model.Catalog,pages,
-            checkboxProofFields:RelationPropagationCompilation.PublishedCheckboxProofFields(model,published),staticMultiPages:staticMultiPages),options);
+            multiCacheProofFields:RelationPropagationCompilation.PublishedMultiCacheProofFields(model,published),staticMultiPages:staticMultiPages),options);
         var definitions=JsonSerializer.Serialize(published,options);
         return $$"""
 

@@ -21,6 +21,11 @@ internal static class DerivedMultipleCacheProof
             page is null&&!published.UsesStoredStaticPage)return false;
         page??=published.Page;
         if(published.Name.Id==binding.ValueColumnId)return true;
+        if(foreign.ControlKind=="MultiSelectPage")
+        {
+            var label=catalog.ConfigColumns.Single(column=>column.ConfigTableId==target.Id&&column.Id==binding.ValueColumnId);
+            return GlobalMultipleRelationTarget.RequireCachedName(catalog,source,foreign,target,label).Page.Id==page.Id;
+        }
         if(foreign.ControlKind!="MultiCheckBoxDatabase"||binding.CheckboxTargetPageId!=page.Id||binding.CheckboxSourceParentId is not null)
             return false;
 
@@ -37,8 +42,8 @@ internal static class DerivedMultipleCacheProof
         var global=GlobalCrossTableTarget.Declared(target);
         var sharedPage=checkboxTargetPageId is null?null:
             MySqlPublishedRelationCondition.RequireSharedCheckboxCachePage(catalog,source,foreign,target,value,checkboxTargetPageId,checkboxSourceParentId);
-        if(sharedPage is null&&global&&GlobalMultipleRelationTarget.RequireCached(catalog,source,foreign,target).Name.Id!=value.Id)
-            throw Invalid();
+        var globalPage=sharedPage is null&&global
+            ?GlobalMultipleRelationTarget.RequireCachedName(catalog,source,foreign,target,value).Page:null;
         if(foreign.ControlKind=="MultiCheckBoxDatabase")
         {
             RequireCheckbox(catalog,foreign,target,value,cache,sharedPage is not null);
@@ -54,7 +59,8 @@ internal static class DerivedMultipleCacheProof
                 ?id.ToString(System.Globalization.CultureInfo.InvariantCulture):throw Invalid();
         var pageId=Text("pageId",foreign.Extra.GetValueOrDefault("linkConfigPageId").ToString());
         var page=catalog.ConfigPages.SingleOrDefault(p=>p.Id==pageId&&p.ConfigTableId==target.Id);
-        if(page is null||page.Extra.GetValueOrDefault("type").ToString()!="2"||Text("nameField","name")!=value.ColumnName||
+        if(page is null||page.Extra.GetValueOrDefault("type").ToString()!="2"||
+            (globalPage is null?Text("nameField","name")!=value.ColumnName:globalPage.Id!=page.Id)||
             new[]{"sql","where"}.Any(k=>root.TryGetProperty(k,out _))||
             Text("tableId") is {Length:>0} tableId&&tableId!=target.Id||
             Text("table") is {Length:>0} tableName&&tableName!=target.TableName)throw Invalid();

@@ -279,7 +279,12 @@ internal static class MultiSelectCompilation
                         Metarill.Data.Queries.NonRedundantReads.Compile(model.Catalog,table.Source.Id,[names.Source.ColumnName]);
                 }
             }
-            if(table.Source.IsRongyu==1&&target.IsGlobal){var proof=Metarill.Core.Metadata.GlobalMultipleRelationTarget.RequireCached(model.Catalog,table.Source,source.Source,target.Source);if(proof.Page.Id!=targetPage.Source.Id||proof.Name.Id!=name.Source.Id)return Gap("全局多选缓存与固定目标页／名称声明不一致。");}
+            if(table.Source.IsRongyu==1&&target.IsGlobal)
+            {
+                var proof=GlobalMultipleRelationTarget.RequireCachedName(model.Catalog,table.Source,source.Source,target.Source,
+                    name.Source,rootDefinition?null:page.Source);
+                if(proof.Page.Id!=targetPage.Source.Id)return Gap("全局多选缓存必须使用同一固定字典页。");
+            }
             // R1派生数组不能只证明候选：同一根定义还须取得数据层缓存证明，Full报告与实际发布保持一致。
             if(table.Source.IsRongyu==1&&names is not null&&(scoped||derived))Metarill.Data.Relations.DerivedCrossTableCaches.Validate(model.Catalog,[new(table.Source.Id,source.Source.Id,target.Source.Id,name.Source.Id,names.Source.Id,true)],[]);
             return new(new(source, target, targetPage, name, names, same, targetField, targetParents, Value("buttonText", "选择"))

@@ -248,6 +248,16 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         VerifyPublishedGlobalMultiselect(0,0,false,"string",globalSource:globalSource,exact:true,
             alternateDictionary:alternateDictionary,shortName:derivedShortName?"global_target_name":"short_caption");
 
+    /// <summary>持久化全称及简称共用原 ID 和字典范围，保存、改名传播与回填维护两列。</summary>
+    [Theory]
+    [InlineData(1,false,false)]
+    [InlineData(1,true,false)]
+    [InlineData(1,true,false,true)]
+    [InlineData(0,true,true)]
+    public Task Stored_multiselect_keeps_each_published_name_cache(int targetStorage,bool globalSource,bool derivedShortName,bool projectScoped=false)=>
+        VerifyPublishedGlobalMultiselect(1,targetStorage,false,"string",globalSource:globalSource,
+            projectScoped:projectScoped,shortName:derivedShortName?"global_target_name":"short_caption");
+
     /// <summary>从实际生成程序集核对名称、关联选档、项目隔离和数据维护计划。</summary>
     private static async Task VerifyPublishedGlobalMultiselect(int mode,int targetStorage,bool derivedName,string? projectType,
         bool unfiltered=false,bool globalSource=false,bool projectScoped=false,string? accountField=null,
@@ -306,6 +316,17 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             catalog.ConfigPageColumns.Single(field=>field.ConfigPageId=="31"&&field.ConfigColumnId=="35")
                 .Extra.Remove("isSearch");
             control.Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
+            if(mode==1)
+            {
+                var cacheName="global_source_"+shortName+"s";
+                catalog.ConfigColumns.Add(new(){Id="41",ConfigTableId="3",YzProjectId="100",ColumnName=cacheName,
+                    LogicalType="string",ColumnLength="max",Extra=new()
+                    {
+                        ["isJoinColumn"]=JsonSerializer.SerializeToElement(1),
+                        ["columnFullName"]=JsonSerializer.SerializeToElement("global_source."+shortName)
+                    }});
+                catalog.ConfigPageColumns.Add(new(){Id="3141",ConfigPageId="31",ConfigColumnId="41",YzProjectId="100",IsShow=1});
+            }
             var generatedModel=GenerationModel.Create(catalog,application);
             Assert.Empty(GenerationCapabilityAudit.Collect(generatedModel));
         }
@@ -423,7 +444,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 var full=Path.Combine(directory,"application");
                 var package=new ApplicationPackager().Create(catalog,full,application,NonRedundantApplicationFixture.Root());
                 Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
-                if(exact)
+                if(exact||shortName is not null)
                     foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(full,operation);
             }
             const BindingFlags hidden=BindingFlags.NonPublic|BindingFlags.Instance;
@@ -512,7 +533,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     }
                 }
             }
-            if(shortName is not null)
+            if(shortName is not null&&mode==0)
             {
                 var service=assembly.GetType(application+".Generated.Services.CachedConsumerService",true)!;
                 var defaultRead=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service.GetField("ReadPlan30",BindingFlags.Static|BindingFlags.NonPublic)!.GetValue(null));
@@ -543,6 +564,39 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                     GlobalMultipleRelationTarget.RequirePage(catalog,owner,relation,
                         catalog.ConfigTables.Single(table=>table.Id=="1"),sourcePage));
                 Assert.Contains("未在实际字典页发布",rejected.Message);
+            }
+            if(shortName is not null&&mode==1)
+            {
+                var cacheName="global_source_"+shortName+"s";
+                var cacheProperty=GenerationModel.Pascal(cacheName);
+                var labelSql=shortName=="short_caption"?"multi_value.`short_caption`":"`global_target`";
+                Assert.Contains(labelSql,CheckboxNameExpression(read,cacheName));
+                Assert.Contains("entity."+cacheProperty+" = JsonSerializer.Serialize",serviceCode);
+                Assert.Contains("entity.GlobalSourceCaptions = JsonSerializer.Serialize",serviceCode);
+                Assert.Contains("ImportMulti31_34Async",serviceCode);
+                Assert.Contains("Export31Async",serviceCode);
+                var declaration=assembly.GetType(application+".Generated.GeneratedRelationMaintenance",true)!;
+                var maintenance=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(declaration.GetProperty("Catalog")!.GetValue(null));
+                if(shortName=="global_target_name"||projectScoped)
+                    Assert.Contains(cacheName,maintenance.MixedSourceColumns["cached_consumer"]);
+                else
+                {
+                    var propagation=maintenance.GetType().GetProperty("Propagation",hidden)!.GetValue(maintenance)!;
+                    var bindings=Assert.IsAssignableFrom<System.Collections.IEnumerable>(
+                        propagation.GetType().GetProperty("Bindings",hidden)!.GetValue(propagation)).Cast<object>();
+                    Assert.Contains(bindings,binding=>Equals(cacheName,binding.GetType().GetProperty("Cache")!.GetValue(binding)));
+                }
+                var detail=await File.ReadAllTextAsync(Path.Combine(output,"frontend/pages/yzp/cached_consumer-detail-31.vue"));
+                Assert.Contains("selectedNames=\"entity."+GenerationModel.Camel(cacheName)+"\"",detail);
+                var label=catalog.ConfigColumns.Single(column=>column.ConfigTableId=="1"&&column.ColumnName==shortName);
+                var owner=catalog.ConfigTables.Single(table=>table.Id=="3");
+                var target=catalog.ConfigTables.Single(table=>table.Id=="1");
+                var relation=catalog.ConfigColumns.Single(column=>column.Id=="34");
+                var sourcePage=catalog.ConfigPages.Single(page=>page.Id=="31");
+                // 目标简称须在缓存实际字典页发布，不能借其它字典页的同名字段。
+                catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigPageId=="10"&&field.ConfigColumnId==label.Id);
+                Assert.Contains("未在实际字典页发布",Assert.Throws<NotSupportedException>(()=>
+                    GlobalMultipleRelationTarget.RequireCachedName(catalog,owner,relation,target,label,sourcePage)).Message);
             }
             var expression=CheckboxNameExpression(read,names);
             Assert.Equal(!unfiltered,expression.Contains("multi_value.`status`",StringComparison.Ordinal));

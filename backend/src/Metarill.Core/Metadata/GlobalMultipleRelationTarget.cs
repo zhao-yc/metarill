@@ -31,6 +31,22 @@ public static class GlobalMultipleRelationTarget
 
     /// <summary>冻结物理 R1 名称计划。来源必须有真实项目范围，全局来源另核对实际发布页。</summary>
     public static GlobalMultipleRelationPlan RequireCached(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,TableMetadata target)=>RequireSource(catalog,owner,foreign,target,true);
+
+    /// <summary>原多选的名称副本只从同一表级字典页读值，备用字段必须由实际来源页和目标投影共同证明。</summary>
+    public static GlobalMultipleRelationPlan RequireCachedName(MetadataCatalog catalog,TableMetadata owner,ColumnMetadata foreign,
+        TableMetadata target,ColumnMetadata value,PageMetadata? sourcePage=null)
+    {
+        var baseline=RequireCached(catalog,owner,foreign,target);
+        if(baseline.Name.Id==value.Id)return baseline;
+        if(foreign.ControlKind=="MultiSelectPage")
+            foreach(var page in catalog.ConfigPages.Where(page=>page.ConfigTableId==owner.Id&&page.YzProjectId==catalog.YzProjectId&&
+                (sourcePage is null||ReferenceEquals(page,sourcePage))))
+            {
+                var actual=RequireSource(catalog,owner,foreign,target,true,page);
+                if(actual.Page.Id==baseline.Page.Id&&actual.Name.Id==value.Id)return actual;
+            }
+        throw new InvalidOperationException("全局多值缓存名称与同一字典页的发布字段不一致。");
+    }
     /// <summary>没有明确候选页时，保留全局复选名称的唯一发布要求。</summary>
     public static bool IsPublishedCheckboxText(MetadataCatalog catalog,TableMetadata target,ColumnMetadata value)
         =>IsPublishedCheckboxText(catalog,target,value,null);
@@ -286,7 +302,7 @@ public static class GlobalMultipleRelationTarget
                 CascadeTreeStorageColumns.IsLogicalNameField(target,expanded,name.ColumnName));
         if(name is null||!idLabel&&name.LogicalType!="string"&&!scalarLabel||!idLabel&&!pathLabel&&!GlobalPhysicalRelationValue.IsPublishedScalar(catalog,physical,target,name,page))
             throw new NotSupportedException("全局多值名称必须为已证明的非凭据标量。");
-        // 非冗余多选按实际字典页开放的字段投影，另一字典页的字段可见性不能替代本页证明。
+        // 多选按实际字典页开放的字段投影，另一字典页的字段可见性不能替代本页证明。
         if(!checkbox&&pageName is not null&&!idLabel&&!catalog.ConfigPageColumns.Any(field=>
             field.ConfigPageId==page.Id&&field.ConfigColumnId==name.Id&&
             (Published(field,"isInGrid",field.IsShow)||Published(field,"isInEdit",field.IsEdit))))

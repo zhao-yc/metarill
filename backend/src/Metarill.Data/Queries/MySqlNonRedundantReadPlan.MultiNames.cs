@@ -194,10 +194,12 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             var checkbox=relation.ControlKind=="MultiCheckBoxDatabase";
             var storedIdentity=selectedScope is not null&&StoredIdentityMultiPage(catalog,target,selectedScope,checkbox);
-            var globalDictionarySource=refreshFields is not null&&selectedScope is not null&&target.IsRongyu==0&&
+            // 固定常量页也能包含内层联接，回填按该实际页验证全局来源及原项目范围。
+            var dictionaryPage=selectedScope??publishedPage??namePage;
+            var globalDictionarySource=refreshFields is not null&&dictionaryPage is not null&&target.IsRongyu==0&&
                 GlobalCrossTableTarget.Declared(table)&&GlobalCrossTableTarget.Declared(target)&&
                 GlobalMultipleRelationTarget.RequireCached(catalog,table,relation,target) is {Page.Id:var publishedId} proof&&
-                publishedId==selectedScope.Id&&
+                publishedId==dictionaryPage.Id&&
                 (proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage||proof.UsesNonRedundantPhysicalParentPage);
             var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,
                 checkboxAccount:checkbox,allowStoredTextParent:true);
