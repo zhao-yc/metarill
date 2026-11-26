@@ -58,7 +58,8 @@ public static class GlobalCrossTableTarget
             throw new NotSupportedException("全局精确范围必须属于当前项目实际发布的业务页或选择页及后台。");
         // 页面固定联接与精确字段分别验证，二者共用发布目录和循环检测。
         var joinedFields=PageJoinedConditionFields(catalog,table,page,resolving);
-        var parent=SingleParent(catalog,table,page,allowLogical:true,allowExactSingle:true,joinedFields:joinedFields);
+        var parent=DeclaresExactMulti(table,page)?StoredMultiParent(catalog,table,page,allowExact:true):null;
+        parent??=SingleParent(catalog,table,page,allowLogical:true,allowExactSingle:true,joinedFields:joinedFields);
         if(parent is null)
         {
             var columns=ConditionColumns(catalog,table,allowLogical:true);
@@ -185,27 +186,30 @@ public static class GlobalCrossTableTarget
     }
 
     /// <summary>冗余全局多值候选必须证明发布后台及实际物理父键；字典只执行页面显式声明的项目范围。</summary>
-    public static MultiTargetParentScope? StoredMultiParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)=>
-        CompileStoredMultiParent(catalog,table,page,checkbox,requireProject:false);
+    public static MultiTargetParentScope? StoredMultiParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        bool checkbox=false,bool allowExact=false)=>
+        CompileStoredMultiParent(catalog,table,page,checkbox,requireProject:false,allowExact:allowExact);
 
     /// <summary>项目条件须由字典页显式声明，父记录的项目归属不能替代字典项目列。</summary>
-    public static MultiTargetParentScope? StoredProjectMultiParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,bool checkbox=false)=>
-        CompileStoredMultiParent(catalog,table,page,checkbox,requireProject:true);
+    public static MultiTargetParentScope? StoredProjectMultiParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
+        bool checkbox=false,bool allowExact=false)=>
+        CompileStoredMultiParent(catalog,table,page,checkbox,requireProject:true,allowExact:allowExact);
 
     private static MultiTargetParentScope? CompileStoredMultiParent(MetadataCatalog catalog,TableMetadata table,PageMetadata page,
-        bool checkbox,bool requireProject)
+        bool checkbox,bool requireProject,bool allowExact)
     {
         if(!Declared(table)||table.IsRongyu!=1||page.ConfigTableId!=table.Id)return null;
         var columns=ConditionColumns(catalog,table,allowLogical:false);
         var condition=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
-        if(!GlobalMultipleRelationTarget.IsStoredParentPage(table,page,condition,checkbox)||
+        if(!GlobalMultipleRelationTarget.IsStoredParentPage(table,page,condition,checkbox,allowExact)||
             requireProject&&!condition.Terms.Any(GlobalMultipleRelationTarget.IsProjectScope))return null;
         RequirePublishedSinglePage(catalog,table,page);
         var parent=MultiTargetParentScope.CompileStoredGlobalPage(catalog,table,condition,checkbox);
         if(parent is not {Logical:false}||parent.AdditionalTargets.Any(item=>item.Logical))
             throw new NotSupportedException("冗余全局多值候选必须绑定实际物理父记录。");
         RequireTarget(catalog,table,page,false,allowAccount:true,allowMultiParent:true,
-            allowStoredSingleParent:true,allowPhysicalMultiParent:true,checkboxParent:checkbox,publishedPhysicalParent:parent);
+            allowStoredSingleParent:true,allowPhysicalMultiParent:true,checkboxParent:checkbox,publishedPhysicalParent:parent,
+            allowExactSingle:allowExact&&DeclaresExactMulti(table,page));
         return parent;
     }
 
@@ -391,7 +395,7 @@ public static class GlobalCrossTableTarget
             checkbox:page.Extra.GetValueOrDefault("type").ToString()!="2",allowExact:allowExactSingle)||
             (!checkboxParent||allowStoredSingleParent)&&(IsSingleProjectParentPage(page,condition)||
                 IsProjectListParentPage(table,page,condition))||
-            allowStoredSingleParent&&GlobalMultipleRelationTarget.IsStoredProjectParentPage(table,page,condition,checkboxParent));
+            allowStoredSingleParent&&GlobalMultipleRelationTarget.IsStoredProjectParentPage(table,page,condition,checkboxParent,allowExactSingle));
         var multiParent=publishedPhysicalParent??(allowMultiParent&&((table.IsRongyu==0||allowStoredSingleParent)&&
             (condition.Variables.Any(AccountConditionVariables.IsSupported)||allowExactSingle&&DeclaresExactMulti(table,page)||
                 SelectionParentOnly(page,condition)||projectParentScope||allowPhysicalMultiParent&&UsesOnlyParentVariables(condition))||

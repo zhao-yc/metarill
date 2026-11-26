@@ -428,13 +428,18 @@ public static class NonRedundantReads
     /// <summary>多选当前读取保留实际发布页的逻辑范围和精确匹配依赖，由服务绑定当前账号权限。</summary>
     public static NonRedundantReadPlan CompileExactMultiLabel(MetadataCatalog metadata,string tableId,string pageId,string field,
         IReadOnlyList<string> outputs,IReadOnlyList<string> dependencies,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,
-        IReadOnlyList<string>? conditionFields=null)=>
-        GlobalCrossTableTarget.DeclaresExactMulti(metadata.ConfigTables.Single(table=>table.Id==tableId),
-            metadata.ConfigPages.Single(page=>page.Id==pageId&&page.ConfigTableId==tableId))
-            ?CompileGlobalExactSingleCandidate(metadata,tableId,pageId,outputs,dependencies,singleTargets,null,
-                (conditionFields??[]).Append(field).Distinct(StringComparer.Ordinal).ToArray())
-            :new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies,
-                singleTargets,conditionFields,exactMultiSelection:true));
+        IReadOnlyList<string>? conditionFields=null)
+    {
+        var table=metadata.ConfigTables.Single(item=>item.Id==tableId);
+        var page=metadata.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
+        // 冗余父范围使用多值当前读，保留实际父锁和每个物理父字段。
+        if(GlobalCrossTableTarget.DeclaresExactMulti(table,page)&&
+            GlobalCrossTableTarget.StoredMultiParent(metadata,table,page,allowExact:true) is null)
+            return CompileGlobalExactSingleCandidate(metadata,tableId,pageId,outputs,dependencies,singleTargets,null,
+                (conditionFields??[]).Append(field).Distinct(StringComparer.Ordinal).ToArray());
+        return new(MySqlNonRedundantReadCompiler.CompileScopedMultiLabel(metadata,tableId,pageId,field,outputs,dependencies,
+            singleTargets,conditionFields,exactMultiSelection:true));
+    }
 
     /// <summary>全局单选的结构按实际页面证明，调用端按本次授权追加类型化精确筛选。</summary>
     public static NonRedundantReadPlan CompileGlobalExactSingleCandidate(MetadataCatalog metadata,string tableId,string pageId,

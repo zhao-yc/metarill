@@ -137,7 +137,7 @@ internal static class FixedPageConditionCompilation
         page.Scopes.Any(scope=>scope.Source=="parent")&&
         GlobalMultipleRelationTarget.IsStoredParentPage(table.Source,page.Source,
             FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName)),
-            checkbox:page.Source.Extra.GetValueOrDefault("type").ToString()!="2");
+            checkbox:page.Source.Extra.GetValueOrDefault("type").ToString()!="2",allowExact:true);
 
     /// <summary>实际单值页须显式绑定项目条件；原下拉绑定的业务页也保留该范围。</summary>
     internal static bool HasGlobalProjectSingleScope(TableModel table,PageModel page)=>

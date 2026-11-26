@@ -188,7 +188,7 @@ public static partial class MySqlNonRedundantReadCompiler
                 (proof.UsesNonRedundantAccountPage||proof.UsesStoredStaticPage||proof.UsesNonRedundantPhysicalParentPage);
             var projectFixedScope=selectedScope is not null&&IsProjectFixedMultiPage(catalog,target,selectedScope,
                 checkboxAccount:checkbox,allowStoredTextParent:true);
-            var storedParent=selectedScope is null?null:GlobalCrossTableTarget.StoredMultiParent(catalog,target,selectedScope,checkbox);
+            var storedParent=selectedScope is null?null:GlobalCrossTableTarget.StoredMultiParent(catalog,target,selectedScope,checkbox,allowExact:!checkbox);
             var ordinaryForm=checkbox&&refreshFields is not null&&selectedScope is not null&&(sharedCheckbox||fixedParent is not null)
                 ?DatabaseCheckboxDefinition.Parse(relation.ControlDetail).AdditionalPhysicalFormConditions(catalog,target,selectedScope)
                 :null;

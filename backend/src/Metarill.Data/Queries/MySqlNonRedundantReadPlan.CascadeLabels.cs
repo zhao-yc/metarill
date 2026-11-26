@@ -45,8 +45,8 @@ public static partial class MySqlNonRedundantReadCompiler
                     !MultiNameStorageColumns.IsDerivedScalarLabel(target,column,storage)))continue;
                 var plan=selected is null?CompileMultiLabel(catalog,target.Id,field,[field],[],cacheOwner:null,relation:relation):
                     CompileScopedMultiLabel(catalog,target.Id,selected.Id,field,[field],[],
-                        exactMultiSelection:target.IsRongyu==0&&relation.ControlKind=="MultiSelectPage"&&
-                            selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0,
+                        exactMultiSelection:!checkbox&&selected.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0&&
+                            (target.IsRongyu==0||GlobalCrossTableTarget.StoredMultiParent(catalog,target,selected,allowExact:true) is not null),
                         storedExactCheckbox:relation.ControlKind=="MultiCheckBoxDatabase",
                         allowLiteralMultiScope:compoundPhysical||globalOverride||storedStatic);
                 pages.UnionWith(plan.CascadeLabelPages);
@@ -182,7 +182,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var page=candidates[0];
         return table.IsRongyu==0||
             stored&&(checkbox||pageId.Length>0)&&(StoredIdentityMultiPage(catalog,table,page,checkbox)||
-                GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,checkbox) is not null)||
+                GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,checkbox,allowExact:!checkbox) is not null)||
             checkbox&&IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true,allowStoredTextParent:true)||
             relation.ControlKind=="MultiSelectPage"&&IsProjectFixedMultiPage(catalog,table,page)?page:null;
     }
@@ -307,7 +307,7 @@ public static partial class MySqlNonRedundantReadCompiler
             GlobalMultipleRelationTarget.IsProjectPage(table,page,syntax,checkbox,allowExact:true)||
             GlobalMultipleRelationTarget.IsProjectParentPage(table,page,syntax,checkbox,allowExact:true)||
             (GlobalCrossTableTarget.Declared(table)
-                ?GlobalMultipleRelationTarget.IsStoredParentPage(table,page,syntax,checkbox)
+                ?GlobalMultipleRelationTarget.IsStoredParentPage(table,page,syntax,checkbox,allowExact:!checkbox)
                 :GlobalMultipleRelationTarget.IsStoredProjectParentPage(table,page,syntax,checkbox))||
             checkbox&&table.IsRongyu==0&&syntax.Terms.Any(term=>term.Values.Any(value=>
                 value.Kind==FixedConditionValueKind.Variable&&MultiTargetParentScope.IsParameter(value.Text))&&
@@ -368,8 +368,9 @@ public static partial class MySqlNonRedundantReadCompiler
                 MultiNamePathPage=page,
                 ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal)
             }.Compile(outputs,dependencies);
+        var storedParent=GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,storedExactCheckbox,allowExact:exactMultiSelection);
         var parent=(importPageType=="1"?ProjectScopedSingleRelationTarget.PageParent(catalog,table,page):null)
-            ??MultiParent(catalog,page,storedExactCheckbox);
+            ??storedParent??MultiParent(catalog,page,storedExactCheckbox);
         var extraFields=(importFields??[]).ToHashSet(StringComparer.Ordinal);
         if(exactMultiSelection)extraFields.Add(RequireExactMultiSelection(catalog,table,page,storedExactCheckbox));
         var crossFields=new HashSet<string>(StringComparer.Ordinal);
@@ -379,7 +380,7 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             var pageType=page.Extra.GetValueOrDefault("type").ToString();
             var typeMatches=storedExactCheckbox?pageType is "" or "0" or "1" or "2":pageType==importPageType;
-            if(table.IsRongyu!=0||table.IsView!=0||table.IsFunctionTable!=0||!typeMatches||
+            if(table.IsRongyu!=0&&!(exactMultiSelection&&storedParent is not null)||table.IsView!=0||table.IsFunctionTable!=0||!typeMatches||
                 !exactMultiSelection&&page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0)
                 throw new NotSupportedException("Excel 逻辑条件要求实际发布的普通非冗余选择页。");
             var members=catalog.ConfigColumns.Where(column=>column.ConfigTableId==tableId).ToArray();
@@ -390,10 +391,17 @@ public static partial class MySqlNonRedundantReadCompiler
                 CrossTableStorageColumns.IsLogicalPathField(table,members,name)).ToHashSet(StringComparer.Ordinal);
             _=SelfTreeConditionFields(catalog,table,page,declared,extraFields);
             importColumns=declared.Where(column=>extraFields.Contains(column.ColumnName)).ToArray();
+            if(table.IsRongyu==1)
+            {
+                // 冗余字典只发布实际物理列，精确匹配和值筛选不能隐式展开逻辑路径。
+                var storage=MetadataStoragePolicy.ForTable(catalog,table);
+                if(importColumns.Any(column=>!GlobalPhysicalRelationValue.IsScalar(storage,table,column)))
+                    throw new NotSupportedException("冗余精确多选的匹配和附加筛选必须使用实际物理标量。");
+            }
             if(crossFields.Count>0)crossBindings=CrossMembershipBindings(catalog,table,page,crossFields);
         }
         var projectFixedScope=IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:storedExactCheckbox,allowStoredTextParent:true);
-        var storedParent=GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,storedExactCheckbox);
+
         var pageJoins=ProjectScopedSingleRelationTarget.JoinedPageFields(catalog,table,page);
         var plan=new Builder(catalog,tableId,matching:true,multiLabel:true,cascadeLabelField:field,crossTables:crossBindings,
             scopedPhysicalCandidate:table.IsRongyu==1&&projectFixedScope,storedMultiParent:storedParent)
@@ -426,7 +434,9 @@ public static partial class MySqlNonRedundantReadCompiler
     {
         var field=ExactDataManageValues.Field(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString());
         var type=page.Extra.GetValueOrDefault("type").ToString();
-        if(field.Length==0||table.IsRongyu!=0&&!(storedCheckbox&&table.IsRongyu==1)||table.IsFunctionTable!=0||table.IsView!=0||
+        var storedExactParent=table.IsRongyu==1&&!storedCheckbox&&
+            GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,allowExact:true) is not null;
+        if(field.Length==0||table.IsRongyu!=0&&!(storedCheckbox&&table.IsRongyu==1||storedExactParent)||table.IsFunctionTable!=0||table.IsView!=0||
             page.ConfigTableId!=table.Id||type!="2"&&!(storedCheckbox&&type is "" or "0" or "1")||
             page.YzProjectId!=catalog.YzProjectId||table.YzProjectId!=catalog.YzProjectId||
             !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
@@ -447,7 +457,7 @@ public static partial class MySqlNonRedundantReadCompiler
         var columns=RelationStorageColumns.Expand(table,catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id));
         var syntax=FixedConditionPlan.Compile(page.WhereSql,columns.Select(column=>column.ColumnName));
         if(GlobalCrossTableTarget.Declared(table))
-            return GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,checkbox)??
+            return GlobalCrossTableTarget.StoredMultiParent(catalog,table,page,checkbox,allowExact:!checkbox)??
                 MultiTargetParentScope.CompileGlobalPage(catalog,table,syntax,checkbox);
         if(checkbox)return IsProjectFixedMultiPage(catalog,table,page,checkboxAccount:true,allowStoredTextParent:true)
             ?MultiTargetParentScope.CompileCheckboxPage(catalog,table,syntax,allowGlobalParent:true,allowStoredPhysicalParents:true)

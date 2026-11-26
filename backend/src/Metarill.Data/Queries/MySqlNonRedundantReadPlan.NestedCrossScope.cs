@@ -510,7 +510,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     GlobalMultipleRelationTarget.IsProjectPage(root,page,syntax,allowExact:exact);
             return MultiCandidateParent is {Logical:false}&&
                 (GlobalMultipleRelationTarget.IsProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox,allowExact:exact)||
-                    GlobalMultipleRelationTarget.IsStoredProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox));
+                    GlobalMultipleRelationTarget.IsStoredProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox,allowExact:exact));
         }
 
         /// <summary>目标页的条件与名称共用当前记录和联接，维护用途按来源行归属绑定。</summary>

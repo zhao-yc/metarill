@@ -112,7 +112,7 @@ internal static class MultiGlobalParentCompilation
         {
             // 同一个 type=2 页实际发布给复选时，须按复选合同识别显式自定义物理父字段。
             if(table.IsGlobal)return CheckboxPageParent(model,table,page)??
-                GlobalCrossTableTarget.StoredMultiParent(model.Catalog,table.Source,page.Source,checkbox);
+                GlobalCrossTableTarget.StoredMultiParent(model.Catalog,table.Source,page.Source,checkbox,allowExact:!checkbox);
             var catalog=model.Catalog;
             var publishedCheckbox=NonRedundantReads.IsPublishedCheckboxTarget(catalog,table.Source,page.Source.Id)&&
                 NonRedundantReads.IsProjectStoredCheckboxAccountPage(catalog,table.Source,page.Source);

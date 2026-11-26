@@ -23,6 +23,10 @@ public sealed class DerivedMultiNamesTests
     [InlineData(1,0,"account-derived-name-derived-match")]
     [InlineData(0,1,"physical",true)]
     [InlineData(1,1,"physical",true)]
+    [InlineData(0,1,"physical-unowned-parent",true)]
+    [InlineData(1,1,"physical-unowned-parent",true)]
+    [InlineData(0,1,"physical-project-parent",true)]
+    [InlineData(1,1,"physical-project-parent",true)]
     [InlineData(0,0,"physical",true)]
     [InlineData(0,0,"physical-unowned",true)]
     [InlineData(1,0,"account",true)]
@@ -36,7 +40,8 @@ public sealed class DerivedMultiNamesTests
         var derivedName=kind.Contains("derived-name",StringComparison.Ordinal);
         var derivedMatch=kind.Contains("derived-match",StringComparison.Ordinal);
         var account=kind.StartsWith("account",StringComparison.Ordinal);
-        var scoped=account&&targetMode==0;
+        var storedParent=kind.EndsWith("-parent",StringComparison.Ordinal);
+        var scoped=account&&targetMode==0||storedParent;
         var name=catalog.ConfigColumns.Single(item=>item.Id=="32");
         if(!derivedName)name.Extra.Clear();
         if(globalTarget)
@@ -47,7 +52,7 @@ public sealed class DerivedMultiNamesTests
                 catalog.ConfigTables.Single(item=>item.Id=="4").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
                 catalog.ConfigPages.Single(item=>item.Id=="401").WhereSql="";
             }
-            if(kind=="physical-unowned")
+            if(kind.StartsWith("physical-unowned",StringComparison.Ordinal))
             {
                 var project=catalog.ConfigColumns.Single(item=>item.ConfigTableId=="3"&&item.ColumnName=="yz_project_id");
                 catalog.ConfigPageColumns.RemoveAll(item=>item.ConfigColumnId==project.Id);
@@ -65,7 +70,12 @@ public sealed class DerivedMultiNamesTests
         catalog.ConfigColumns.Add(new(){Id="382",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
             ColumnName="store_id",LogicalType="int64"});
         var target=catalog.ConfigPages.Single(item=>item.Id=="301");
-        target.WhereSql=account?"store_id=@current_store_id AND flag=87":"";
+        target.WhereSql=kind switch
+        {
+            "physical-unowned-parent"=>"parent_id=@parentId AND name <> '停用字典'",
+            "physical-project-parent"=>"yz_project_id=@current_yz_project_id AND parent_id=@parentId AND name <> '停用字典'",
+            _=>account?"store_id=@current_store_id AND flag=87":""
+        };
         if(account)
         {
             catalog.ConfigColumns.Add(new(){Id="383",ConfigTableId="3",YzProjectId=catalog.YzProjectId,
@@ -133,19 +143,65 @@ public sealed class DerivedMultiNamesTests
                 var sql=plan.GetType().GetProperty("MySql",HiddenInstance)!.GetValue(plan)!;
                 var fields=Assert.IsAssignableFrom<IReadOnlyDictionary<string,string>>(sql.GetType().GetProperty("Expressions",HiddenInstance)!.GetValue(sql));
                 Assert.Contains("scope_code",fields.Keys);
-                Assert.Equal(scoped,plan.RequiresAccount);
+                Assert.Equal(account&&scoped,plan.RequiresAccount);
                 if(scoped)
                 {
                     var scope=Assert.IsType<string>(sql.GetType().GetProperty("Scope",HiddenInstance)!.GetValue(sql));
-                    Assert.Contains("b.`store_id`",scope);
-                    Assert.Contains("b.`flag`",scope);
+                    if(storedParent)
+                    {
+                        Assert.Contains("b.`parent_id`",scope);
+                        Assert.Contains("multi_exact_range_parent",scope);
+                        Assert.Equal("parent_id",sql.GetType().GetProperty("RequiredMultiParent",HiddenInstance)!.GetValue(sql));
+                        Assert.Equal(kind=="physical-project-parent",scope.Contains("b.`yz_project_id`",StringComparison.Ordinal));
+                        Assert.Contains("停用字典",Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(sql.GetType().GetField("constants",HiddenInstance)!.GetValue(sql)).Values);
+                    }
+                    else
+                    {
+                        Assert.Contains("b.`store_id`",scope);
+                        Assert.Contains("b.`flag`",scope);
+                    }
                     if(sourceMode==1)
                     {
                         var cache=Assert.IsType<NonRedundantReadPlan>(type.GetField("MultiCachePlan201_25_0",
                             System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
-                        Assert.True(cache.RequiresAccount);
+                        Assert.Equal(account,cache.RequiresAccount);
                         Assert.Contains("CurrentRowsAsync(MultiCachePlan201_25_0.BindAccount(actor),selectedFilters",save);
                     }
+                }
+            }
+            if(storedParent)
+            {
+                // 实际读计划或维护目录必须由来源行父键重算名称，无须继承操作人的角色过滤。
+                object sourceRead;
+                if(sourceMode==0)
+                {
+                    var reader=Assert.IsType<NonRedundantReadPlan>(type.GetField("ReadPlan201",
+                        System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
+                    sourceRead=reader.GetType().GetProperty("MySql",HiddenInstance)!.GetValue(reader)!;
+                }
+                else
+                {
+                    var maintenance=assembly.GetType(ns+".Generated.GeneratedRelationMaintenance",true)!;
+                    var published=Assert.IsType<Metarill.Data.Relations.RelationMaintenanceCatalog>(
+                        maintenance.GetProperty("Catalog")!.GetValue(null));
+                    Assert.Contains("multi_exact_range_target",published.MixedTargets);
+                    var plans=Assert.IsAssignableFrom<System.Collections.IDictionary>(
+                        published.GetType().GetProperty("Plans",HiddenInstance)!.GetValue(published));
+                    var plan=plans["2"]!;
+                    sourceRead=plan.GetType().GetProperty("Read")!.GetValue(plan)!;
+                }
+                var labels=Assert.IsType<string>(sourceRead.GetType().GetMethod("Expression",HiddenInstance)!
+                    .Invoke(sourceRead,["target_names"]));
+                Assert.Contains("b.`parent_id`",labels);
+                Assert.Contains("multi_exact_range_parent",labels);
+                Assert.Equal(kind=="physical-project-parent",labels.Contains("multi_value.`yz_project_id`",StringComparison.Ordinal));
+                Assert.DoesNotContain("`scope_code`",labels);
+                // 两种来源存储分别验证原前端完整包和独立宿主编译。
+                if((sourceMode==0)==(kind=="physical-unowned-parent"))
+                {
+                    var full=Path.Combine(directory,"app");
+                    Assert.True(new ApplicationPackager().Create(catalog,full,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+                    foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(full,operation);
                 }
             }
         }
