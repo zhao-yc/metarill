@@ -71,7 +71,15 @@ internal static class MultiSelectFieldRenderer
                     foreach(var peer in def.CompoundSourceDependencies)
                         result.AppendLine($"        if (Convert.ToString(entity.{peer.Property}, CultureInfo.InvariantCulture) != targetParentKey.ToString(CultureInfo.InvariantCulture)) throw new InvalidOperationException(\"多选来源父字段必须指向同一条记录。\");");
                 }
-                if(def.GlobalParent)result.AppendLine(MultiGlobalParentCompilation.Check("MultiGlobalParent"+suffix,"targetParentKey","true"));
+                if(def.GlobalParent)
+                {
+                    var plan="MultiGlobalParent"+suffix;
+                    if(def.LogicalParentBusinessKey is {} businessKey)
+                        result.AppendLine("        if (targetParentId != targetParentKey.ToString(CultureInfo.InvariantCulture)) throw new ArgumentException(\"多选目标父业务键必须使用规范正整数。\");")
+                            .AppendLine(MultiGlobalParentCompilation.CheckBusinessKey(plan,businessKey,"targetParentKey","true"));
+                    else
+                        result.AppendLine(MultiGlobalParentCompilation.Check(plan,"targetParentKey","true"));
+                }
                 foreach (var parent in def.TargetParents.Where(_=>!def.GlobalParent))
                 {
                     var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
