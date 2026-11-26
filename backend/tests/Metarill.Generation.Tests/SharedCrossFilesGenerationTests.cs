@@ -24,7 +24,10 @@ public sealed class SharedCrossFilesGenerationTests
     [InlineData(false,true,1)]
     [InlineData(false,true,2)]
     [InlineData(false,true,0,true)]
-    public async Task Full_shared_file_independent_exact_path_builds(bool selfTree,bool textKey=false,int physicalParents=0,bool globalRoot=false)
+    [InlineData(false,true,0,true,"list")]
+    [InlineData(false,true,0,true,"edit")]
+    public async Task Full_shared_file_independent_exact_path_builds(bool selfTree,bool textKey=false,int physicalParents=0,
+        bool globalRoot=false,string? exportMode=null)
     {
         var catalog=Catalog("shared_parent",textKey?"string":"int64",textKey?"string":"int64");
         var sourcePage=catalog.ConfigPages.Single(page=>page.Id==(globalRoot?"206":"202"));
@@ -77,6 +80,17 @@ public sealed class SharedCrossFilesGenerationTests
             LogicalType=textKey?"string":"int64",LinkConfigTableId=targetId,ControlKind="CascadeTree",ControlDetail=definition.ToJsonString()});
         catalog.ConfigPageColumns.Add(new(){Id=sourcePage.Id+"9501",YzProjectId=catalog.YzProjectId,
             ConfigPageId=sourcePage.Id,ConfigColumnId="9501",IsShow=1,IsEdit=1});
+        if(exportMode is not null)
+        {
+            sourcePage.IsImport=sourcePage.IsExport=1;
+            sourcePage.Extra["importMethod"]=JsonSerializer.SerializeToElement(exportMode=="list"?"OnlyNew":"OverWriteByFirstColumn");
+            sourcePage.Extra["exportMethod"]=JsonSerializer.SerializeToElement(exportMode);
+            catalog.ConfigColumns.Single(column=>column.Id=="22").SortNo=-1;
+            catalog.ConfigColumns.Add(new(){Id="9507",YzProjectId=catalog.YzProjectId,ConfigTableId="2",
+                ColumnName="detail_note",Name="详情专用备注",LogicalType="string"});
+            catalog.ConfigPageColumns.Add(new(){Id=sourcePage.Id+"9507",YzProjectId=catalog.YzProjectId,
+                ConfigPageId=sourcePage.Id,ConfigColumnId="9507",IsShow=0,IsEdit=1});
+        }
         sourcePage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(match);
         catalog.YzAdminTypes.Single(item=>item.Id=="5").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
 
@@ -219,6 +233,36 @@ public sealed class SharedCrossFilesGenerationTests
                 var scope=NonRedundantReads.CompilePageMembership(readCatalog,readTable,readPage,condition.Syntax.Fields,
                     condition.CrossFields,condition.SelfTreeFields,["id"],[],generatedRead.SingleTargets);
                 Assert.True(scope.RequiresAccount);
+            }
+            if(matchColumn=="isolated_country_id"&&modelPage.IsImport==1)
+            {
+                var generated=Path.Combine(directory,"backend/generated");
+                var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/SharedParentSourceService.g.cs"));
+                var controller=await File.ReadAllTextAsync(Path.Combine(generated,
+                    "Controllers/SharedParentSourcePage"+sourcePageId+"Controller.g.cs"));
+                Assert.Contains("[HttpPost(\"importDatas"+sourcePageId+"\")]",controller);
+                Assert.Contains("[HttpPost(\"initExport\")]",controller);
+                Assert.Contains("Actor(\"import\")",controller);
+                Assert.Contains("Actor(\"export\")",controller);
+                Assert.Contains("ValidateParents"+sourcePageId+"Async(request.ParentId, actor, cancellationToken",service);
+                Assert.Contains("CrossExcelResolve"+sourcePageId+"_9501Async",service);
+                Assert.Contains("CrossTableExcelPath.ResolveByKeyAsync",service);
+                Assert.Contains("ExcelCascadeIsolatedPlaceId(entity)",service);
+                Assert.Contains("ReadFilters"+sourcePageId+"(request,actor, \"export\")",service);
+                Assert.Contains("FixedReadFilter.ForCrossExact(\"isolated_country_id\"",service);
+                var headers=Assert.Single(service.Split('\n'),line=>line.TrimStart().StartsWith(
+                    "return new(\""+sourcePageId+"\",",StringComparison.Ordinal)&&line.TrimEnd().EndsWith(", rows);",StringComparison.Ordinal));
+                if(modelPage.Extra["exportMethod"].GetString()=="edit")
+                {
+                    Assert.Contains(JsonSerializer.Serialize("详情专用备注"),headers);
+                    Assert.Contains("PageImportError.AmbiguousOverwrite",service);
+                    Assert.Matches("Scope"+sourcePageId+@"\(actor,\s*request\.ParentId,\s*""import""",service);
+                }
+                else
+                {
+                    Assert.DoesNotContain(JsonSerializer.Serialize("详情专用备注"),headers);
+                    Assert.DoesNotContain("PageImportError.AmbiguousOverwrite",service);
+                }
             }
             var metadata=await File.ReadAllTextAsync(Path.Combine(directory,"backend/metadata/project.json"));
             var published=JsonSerializer.Deserialize<MetadataCatalog>(metadata,new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
