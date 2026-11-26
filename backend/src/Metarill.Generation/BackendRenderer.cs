@@ -300,7 +300,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var sharedRedundant=SharedRedundantParentCompilation.Enabled(model,table,page);
         var multiGlobal=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page);
         var buttonParent=page.Scopes.Any(scope=>scope.Source=="parent")&&BusinessRecordButtons(model,page).Count>0;
-        var supportsReadOnlyParent=multiGlobal is not null||FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page)||
+        var projectSelectionParent=ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source);
+        var supportsReadOnlyParent=multiGlobal is not null||projectSelectionParent is not null||FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page)||
             GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null||sharedRedundant||
             NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page)||buttonParent;
         var locking=supportsReadOnlyParent?"locking":"true";
@@ -320,6 +321,9 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var buttonParentKey)||buttonParentKey<=0||parentId!=buttonParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前业务按钮页要求规范正整数父键。\");");
         if(sharedRedundant)result.AppendLine("        ValidateActor(actor);").AppendLine($"        _=SharedR1ParentKey{page.Source.Id}(parentId);");
         else if(multiGlobal is not null)result.AppendLine("        ValidateActor(actor);");
+        if(projectSelectionParent is not null)
+            result.AppendLine("        ValidateActor(actor);")
+                .AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var selectionParentKey)||selectionParentKey<=0||parentId!=selectionParentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"当前单选页要求规范正整数parentId。\");");
         var checkedGlobalParent=false;
         var number = 0;
         foreach (var (column, source) in page.Scopes.Where(scope => scope.Source == "parent"))
@@ -341,6 +345,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             }
             if(GlobalCachedParentCompilation.ForColumn(model,table,page,column) is{} directGlobalParent){result.Append(GlobalCachedParentCompilation.Call(directGlobalParent,page,"parentId",locking));continue;}
             var globalParents=SharedGlobalParentCompilation.ForColumn(model,table,page,column);if(globalParents.Count>0){foreach(var globalParent in globalParents)result.Append(SharedGlobalParentCompilation.Call(globalParent,page,"parentId",locking));continue;}
+            if (projectSelectionParent?.HasTarget(column.Source.Id)==true&&column.Source.Id!=projectSelectionParent.Target.Id) continue;
             var parent = CrossTableWriteCompilation.ParentTarget(model,table,page,column) ?? model.Tables.SingleOrDefault(candidate => !string.IsNullOrWhiteSpace(column.Source.LinkConfigTableId) ? candidate.Source.Id == column.Source.LinkConfigTableId : candidate.Source.TableName + "_id" == column.Source.ColumnName)
                 ?? throw new InvalidOperationException("父范围字段缺少明确的目标表：" + column.Source.ColumnName);
             var project = parent.Columns.SingleOrDefault(candidate => candidate.Source.ColumnName == "yz_project_id");
@@ -349,7 +354,8 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
             else
             {
                 number++;
-                result.AppendLine($"        var parent{number} = session.Select<{parent.EntityType}>().Where(entity => entity.Id == long.Parse(parentId, CultureInfo.InvariantCulture)).Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
+                var key=projectSelectionParent?.Target.Id==column.Source.Id?"selectionParentKey":"long.Parse(parentId, CultureInfo.InvariantCulture)";
+                result.AppendLine($"        var parent{number} = session.Select<{parent.EntityType}>().Where(entity => entity.Id == {key}).Where(entity => entity.{project.Property} == {ScopeValue(project, "actor.ProjectId")});");
                 if (parent.Columns.Any(candidate => candidate.Source.ColumnName == "delete_no")) result.AppendLine($"        parent{number} = parent{number}.Where(entity => entity.DeleteNo == null);");
                 // 只投影父ID。写入持有当前读锁，导出复用同一快照。
                 if(supportsReadOnlyParent)
@@ -402,13 +408,14 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
         var selectionRows = FixedPageQueryCompilation.UsesStoredGlobalSelectionRows(model.Catalog, table, page);
         var storedGlobalParent = FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page);
         if (selectionRows&&!storedGlobalParent) GlobalCrossTableTarget.RequireAccountCandidate(model.Catalog, table.Source, page.Source);
-        var globalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
+        var physicalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
+            ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null||
             storedGlobalParent||
             GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null;
-        var snapshot=globalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
+        var snapshot=physicalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
         string ParentCheck(string key)=>SelectionPageRenderer.Enabled(page)
             ?$"await ValidateSelectionParents{suffix}Async({key}, actor, cancellationToken);"
-            :globalParent?$"await ValidateParents{suffix}Async({key}, actor, cancellationToken, locking:false);":"";
+            :physicalParent?$"await ValidateParents{suffix}Async({key}, actor, cancellationToken, locking:false);":"";
         var names = SelectionNameFilterCompilation.ForPage(model, table, page);
 
         var accountParent=SharedRedundantParentCompilation.HasAccountPath(model,table,page);
@@ -535,7 +542,7 @@ public sealed partial class {{table.Name}}Mapper(DatabaseSession session)
                 : CascadeTreeQueryCompilation.Async(page)?$"    public async Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => await {CascadeTreeQueryCompilation.Call(page)}.CountAsync(cancellationToken);":$"    public Task<long> Count{suffix}Async(PageRequest request, RuntimeActor actor, CancellationToken cancellationToken) => Query{suffix}(request, actor).CountAsync(cancellationToken);")
             .AppendLine("    /// <summary>明细读不到时保持数据不存在或无权限的统一语义。</summary>")
             .AppendLine($"    public {(snapshot?"Task":"async Task")}<{page.Name}Vo?> Detail{suffix}Async(long id, string? parentId, RuntimeActor actor, CancellationToken cancellationToken){(snapshot?$" => {GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<{page.Name}Vo?>(async () =>":"")}").AppendLine("    {")
-            .AppendLine(globalParent?"        "+ParentCheck("parentId"):"")
+            .AppendLine(physicalParent?"        "+ParentCheck("parentId"):"")
             .AppendLine($"        var entity = await Scope{suffix}(actor, parentId).Where(row => row.Id == id).ToOneAsync({PublishedReadProjectionCompilation.Expression(model, table, page)}, cancellationToken);")
             .AppendLine($"        return entity is null ? null : {RoleResult(model,table,page,"detail")};").AppendLine(snapshot?"    }, cancellationToken);":"    }");
         return result.ToString();

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Metarill.Core.Metadata;
 using Metarill.Data.Queries;
 
 namespace Metarill.Generation;
@@ -46,10 +47,11 @@ internal static class ExportRenderer
         if (!Enabled(page)) return "";
         var columns = Columns(page); var relations = Relations(model, page); var role = HasFixedRole(model,table,page); var admin = FixedAdmin(model,table,page);var multis=MultiNames(model,table,page);var checkboxes=table.Source.IsRongyu==0?DatabaseCheckboxCompilation.ForPage(model,table,page).Where(def=>IncludesColumn(page,def.Source)).ToArray():[];
         var crossDependencies=CrossTableExcelRenderer.ExportDependencies(model,table,page,columns);
-        var physicalGlobalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
+        var physicalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
+            ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null||
             FixedPageQueryCompilation.HasStoredGlobalSelectionParent(model.Catalog,table,page)||
             GlobalCachedParentCompilation.ForSelfTree(model,table,page) is not null;
-        var snapshot=physicalGlobalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page)||crossDependencies.Count>0;
+        var snapshot=physicalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page)||crossDependencies.Count>0;
         var contexts = relations.ToDictionary(relation => relation.SourceColumn.Source.Id, relation => ControlRenderer.RelationContext(page, relation, false));
         var dependencies = contexts.Values.Where(context => context.TargetParentField is not null).Select(context => table.Columns.Single(column => column.JsonName == context.TargetParentField)).Concat(relations.SelectMany(relation=>relation.Conditions?.Forms.Select(binding=>binding.Column)??[])).Concat(checkboxes.SelectMany(def=>def.Dependencies)).DistinctBy(column=>column.Source.Id);
         var result = new StringBuilder().AppendLine("    /// <summary>导出复用列表范围和固定列；关系名称另经真实授权和与候选相同的父范围读取。</summary>")
@@ -66,7 +68,7 @@ internal static class ExportRenderer
             if (relations.Length > 0) result.AppendLine($"        await ValidateOptionsSourceParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken);");
         }
         // 即使来源没有匹配行，也必须在同一快照内核对固定父归属。导出采用普通读。
-        if(physicalGlobalParent||crossDependencies.Count>0&&(SharedRedundantParentCompilation.Enabled(model,table,page)||
+        if(physicalParent||crossDependencies.Count>0&&(SharedRedundantParentCompilation.Enabled(model,table,page)||
             NonRedundantCrossParentCompilation.ChecksPhysicalParentOnExport(model,table,page)))
             result.AppendLine($"        await ValidateParents{page.Source.Id}Async(request.ParentId, actor, cancellationToken, locking: false);");
         var logicalReads=NonRedundantReadCompilation.Requires(model,table);

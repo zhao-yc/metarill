@@ -368,11 +368,12 @@ internal static class GeneratedNonRedundantReadCatalog
     private static string NonRedundantQuery(GenerationModel model,TableModel table,PageModel page)
     {
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);var suffix=page.Source.Id;var fixedQuery=FixedPageQueryCompilation.For(table,page);
-        var globalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null;
-        var snapshot=globalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
+        var physicalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
+            ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null;
+        var snapshot=physicalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
         string ParentCheck(string key,string readLock="false")=>SelectionPageRenderer.Enabled(page)
             ?$"await ValidateSelectionParents{suffix}Async({key},actor,cancellationToken);"
-            :globalParent?$"await ValidateParents{suffix}Async({key},actor,cancellationToken,locking:{readLock});":"";
+            :physicalParent?$"await ValidateParents{suffix}Async({key},actor,cancellationToken,locking:{readLock});":"";
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
         var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix,singleTargets:plan.SingleTargets.Count>0||plan.RequiresAccount);
         var crossCandidate=globalCandidate&&CrossTableWriteCompilation.ForService(model,table,page).Count>0;

@@ -650,11 +650,29 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("globalStoredExactCompoundOrdinary")]
     [InlineData("globalStoredTextExactCompoundOrdinary")]
     [InlineData("globalStoredNoProjectExactCompoundOrdinary")]
+    [InlineData("local_projectExactCompound")]
+    [InlineData("local_projectStoredExactCompound")]
+    [InlineData("local_projectExactCompoundOrdinary")]
+    [InlineData("local_projectStoredExactCompoundOrdinary")]
     public async Task Function_single_selection_uses_the_actual_target_page(string scenario)
     {
+        var localParent=scenario.StartsWith("local_",StringComparison.Ordinal);
+        if(localParent)scenario=scenario[6..];
         var ordinary=scenario.EndsWith("Ordinary",StringComparison.Ordinal);
         if(ordinary)scenario=scenario[..^8];
         var catalog=WithSingleSelection(Catalog(),scenario);
+        if(localParent)
+        {
+            // 让两个物理字段共享项目内主键，并开启实际用到同一数据范围的统计和导出。
+            catalog.ConfigTables.Single(table=>table.Id=="8").Extra.Remove("scopeKind");
+            catalog.ConfigColumns.Add(new(){Id="806",ConfigTableId="8",ColumnName="yz_project_id",LogicalType="int64"});
+            catalog.ConfigColumns.Single(column=>column.Id=="708").LogicalType="string";
+            var targetPage=catalog.ConfigPages.Single(page=>page.Id=="103");
+            targetPage.IsExport=1;
+            targetPage.Extra["isSum"]=JsonSerializer.SerializeToElement(1);
+            catalog.ConfigPageColumns.Add(new(){Id="103703",ConfigPageId="103",ConfigColumnId="703",
+                Extra=new(){["sumKind"]=JsonSerializer.SerializeToElement(1)}});
+        }
         if(ordinary)catalog.ConfigPages.Single(page=>page.Id=="103").Extra.Remove("exactDataManageMatchField");
         if(scenario=="globalStoredTextExactCompound")
             catalog.ConfigColumns.Single(column=>column.Id=="708").LogicalType="string";
@@ -688,12 +706,24 @@ public sealed class FunctionTableGenerationTests : IDisposable
             if(scenario=="logical")Assert.Contains("FixedReadFilter.ForCrossExact(\"assigned_area_name\"",service);
         }
         else if(scenario=="global")Assert.Contains("CandidateReadPlan103.BindAccount(actor)",service);
-        if(compound)
+        if(compound&&!localParent)
         {
             Assert.Contains("CompileMultiGlobalParent",service);
             Assert.Contains("PageMultiGlobalParent103.BindAccount(actor)",service);
         }
 
+        if(localParent)
+        {
+            Assert.Contains("readSession.InReadSnapshotAsync",controller);
+            Assert.True(System.Text.RegularExpressions.Regex.Matches(service,"ValidateParents103Async\\(request.ParentId,").Count>=3);
+            Assert.Contains("await ValidateParents103Async(parentId,",service);
+            Assert.Contains("entity.YzProjectId ==",service);
+            Assert.Contains("Where(entity => entity.DeleteNo == null)",service);
+            Assert.Contains("parentId!=selectionParentKey.ToString(CultureInfo.InvariantCulture)",service);
+            Assert.Contains(scenario.Contains("Stored",StringComparison.Ordinal)
+                ?"""ApplyTextParent(query,session,"other_scope_id",parentId!)"""
+                :"""FixedReadFilter.ForTextParent("other_scope_id",request.ParentId!)""",service);
+        }
         var sourceService=await File.ReadAllTextAsync(Path.Combine(generated,"Services/SummaryFormService.g.cs"));
         Assert.DoesNotContain("findNameIdReview39",sourceService);
         Assert.False(File.Exists(Path.Combine(generated,"Entities/SummaryForm.g.cs")));
