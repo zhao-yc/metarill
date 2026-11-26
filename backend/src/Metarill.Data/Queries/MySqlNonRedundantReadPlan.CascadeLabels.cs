@@ -94,7 +94,8 @@ public static partial class MySqlNonRedundantReadCompiler
         var bindings=crossFields.Count==0?[]:CrossMembershipBindings(catalog,table,page,crossFields);
         var plan=CompileRelationScope(catalog,table.Id,outputs,bindings,
             conditionFields.Concat(dependencies).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
-            deferCascadeNames:selfTreeFields.Count>0,singleTargets:singleTargets,conditionJoins:joinedFields);
+            deferCascadeNames:selfTreeFields.Count>0,singleTargets:singleTargets,conditionJoins:joinedFields,
+            conditionSourcePage:joinedFields.Count>0&&singleTargets is null?page:null);
         foreach(var field in joinedFields)
         {
             plan.RequireScalarLabelOrigin(field);

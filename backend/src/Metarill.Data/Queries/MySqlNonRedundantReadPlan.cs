@@ -249,7 +249,7 @@ public static partial class MySqlNonRedundantReadCompiler
         IReadOnlyList<NonRedundantCrossTableScope> crossTables, IReadOnlyList<string>? dependencies, bool deferCascadeNames, bool scopedPhysicalCandidate = false,
         IReadOnlyList<RedundantSharedParentPlan>? candidateParents=null,IReadOnlyList<NonRedundantSingleTargetScope>? singleTargets=null,
         IReadOnlyList<NonRedundantMultiTargetScope>? multiTargets=null,IReadOnlyList<string>? storedConditionCaches=null,
-        IReadOnlySet<string>? conditionJoins=null)
+        IReadOnlySet<string>? conditionJoins=null,PageMetadata? conditionSourcePage=null)
     {
         ArgumentNullException.ThrowIfNull(crossTables);
         ArgumentNullException.ThrowIfNull(catalog); ArgumentNullException.ThrowIfNull(outputNames);
@@ -262,7 +262,8 @@ public static partial class MySqlNonRedundantReadCompiler
             ProjectSingleTargets=(singleTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             ProjectMultiTargets=(multiTargets??[]).ToDictionary(binding=>binding.ColumnId,StringComparer.Ordinal),
             StoredConditionCaches=(storedConditionCaches??[]).ToFrozenSet(StringComparer.Ordinal),
-            ControlConditionJoins=conditionJoins??FrozenSet<string>.Empty
+            ControlConditionJoins=conditionJoins??FrozenSet<string>.Empty,
+            ConditionSourcePage=conditionSourcePage
         };
         return builder.Compile(outputNames,dependencies??[]);
     }

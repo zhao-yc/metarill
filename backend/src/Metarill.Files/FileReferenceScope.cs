@@ -53,13 +53,14 @@ internal static class FileReferenceScope
             var crossFields=new HashSet<string>(StringComparer.Ordinal);
             var selfTreeFields=new HashSet<string>(StringComparer.Ordinal);
             var syntax=FixedConditionPlan.Compile(page.WhereSql,declared.Select(column=>column.ColumnName));
+            var joinedFields=ProjectScopedSingleRelationTarget.JoinedTextPageFields(catalog,table,page);
             var redundant=RedundantSharedParents.Compile(catalog,table.Id,page.Id);
             foreach(var term in syntax.Terms)
             {
                 var column=declared.Single(candidate=>candidate.ColumnName==term.Field);
                 var crossField=CrossTableStorageColumns.IsLogicalPathField(table,declared,column.ColumnName);
                 var selfTree=CascadeTreeStorageColumns.IsLogicalNameField(table,declared,column.ColumnName);
-                var logical=crossField||selfTree;
+                var logical=crossField||selfTree||joinedFields.Contains(column.ColumnName);
                 var variables=term.Values.Where(value=>value.Kind==FixedConditionValueKind.Variable).ToArray();
                 if(variables.Length==0)
                 {
@@ -114,7 +115,7 @@ internal static class FileReferenceScope
             }
             var fields=constants.Select(term=>term.Field).Distinct(StringComparer.Ordinal).ToArray();
             var condition=constants.Count==0?null:FixedConditionSqlPlan.Compile(FixedConditionPlan.Compile(string.Join(" AND ",constants.Select(term=>term.ToDefinition())),fields),fields.ToDictionary(field=>field,field=>declared.Single(column=>column.ColumnName==field).LogicalType,StringComparer.Ordinal));
-            var membership=crossFields.Count==0&&selfTreeFields.Count==0?null:
+            var membership=crossFields.Count==0&&selfTreeFields.Count==0&&joinedFields.Count==0?null:
                 NonRedundantReads.CompilePageMembership(catalog,table,page,fields,crossFields,selfTreeFields);
             return new(result.AsReadOnly(),condition,Array.AsReadOnly(fields))
             {

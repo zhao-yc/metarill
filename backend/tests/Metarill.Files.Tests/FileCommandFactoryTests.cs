@@ -496,6 +496,95 @@ public sealed class FileCommandFactoryTests
         Assert.Equal(1,provider.Connections);
     }
 
+    /// <summary>附件范围用实际字典页和来源页联接常量，快照及当前读均保留同一组查询条件。</summary>
+    [Theory]
+    [InlineData(false,false,true)]
+    [InlineData(false,true,false)]
+    [InlineData(true,false,false)]
+    [InlineData(true,true,true)]
+    public async Task File_page_uses_joined_dictionary_conditions(bool stored,bool locking,bool visible)
+    {
+        const long recordId=9007199254740993L;
+        var catalog=JoinedConditionFileCatalog(stored);
+        var registry=new FileMetadataContext([catalog]);
+        var frozen=Assert.Single(registry.Catalogs);
+        var page=frozen.ConfigPages.Single(item=>item.Id=="101");
+        var scope=registry.PageScope(frozen,page);
+        Assert.True(registry.NeedsFileReadSnapshot);
+        Assert.Single(scope.Crosses);
+        var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(scope.LogicalConditionPlan);
+        var actor=new RuntimeActor(12,"测试",false,"1","3");
+        Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor));
+        actor=actor with{StoreId=29};
+        var provider=new Provider();
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline"},null,provider);
+        provider.Read=command=>
+        {
+            Assert.Same(session.CurrentTransaction,command.Transaction);
+            Assert.NotNull(command.Transaction);
+            Assert.Contains("`file_joined_scope_label`",command.CommandText);
+            Assert.Contains(".`store_id`",command.CommandText);
+            Assert.Contains(".`name`",command.CommandText);
+            Assert.DoesNotContain("b.`display_region`",command.CommandText);
+            Assert.Equal(locking,command.CommandText.Contains("FOR SHARE",StringComparison.Ordinal));
+            foreach(var expected in new object[]{recordId,29L,"停用","可下载"})
+                Assert.Contains(command.Parameters.Cast<DbParameter>(),parameter=>Equals(parameter.Value,expected)&&
+                    command.CommandText.Contains(parameter.ParameterName,StringComparison.Ordinal));
+            var data=new DataTable();
+            data.Columns.Add("id",typeof(long));
+            if(visible)data.Rows.Add(recordId);
+            return data.CreateDataReader();
+        };
+        Task<bool> Read()=>FilePageScope.MatchesAsync(session,plan.BindAccount(actor),scope.Condition!.BindAccount(actor),
+            recordId,actor.ProjectId,locking,default);
+        Assert.Equal(visible,locking?await session.InTransactionAsync(Read):await session.InReadSnapshotAsync(Read));
+        Assert.Equal(1,provider.Last?.Command?.Executions);
+    }
+
+    /// <summary>附件联接条件的别名必须落到非凭据终点。</summary>
+    [Fact]
+    public void File_joined_dictionary_condition_rejects_credential_terminal()
+    {
+        var catalog=JoinedConditionFileCatalog(stored:true);
+        catalog.ConfigColumns.Add(new(){Id="505",ConfigTableId="5",ColumnName="password",LogicalType="string",YzProjectId="1"});
+        catalog.ConfigColumns.Single(column=>column.Id=="19").Extra["columnFullName"]=
+            System.Text.Json.JsonSerializer.SerializeToElement("label_item.password");
+        Assert.Throws<NotSupportedException>(()=>FileReferenceScope.CompilePage(catalog,catalog.ConfigTables[0],catalog.ConfigPages[0]));
+    }
+
+    /// <summary>使用已有跨表祖先模型，联接目标通过实际页面限制门店和名称。</summary>
+    private static MetadataCatalog JoinedConditionFileCatalog(bool stored)
+    {
+        var catalog=FileCrossParentScopeTests.Catalog("file_joined_scope","string","string");
+        catalog.YzAdminTypes.Add(new(){Id="3",YzProjectId="1"});
+        foreach(var page in catalog.ConfigPages)page.YzAdminTypeId="3";
+        var tree=catalog.ConfigColumns.Single(column=>column.Id=="15");
+        var definition=System.Text.Json.Nodes.JsonNode.Parse(tree.ControlDetail)!;
+        definition["levels"]![0]!["idField"]="business_key";
+        tree.ControlDetail=definition.ToJsonString();
+        catalog.ConfigColumns.Add(new(){Id="209",ConfigTableId="2",ColumnName="business_key",LogicalType="string",YzProjectId="1",IsDbNotNull=1,ColumnLength="50"});
+        catalog.ConfigIndexes.Add(System.Text.Json.JsonSerializer.SerializeToElement(new{id="210",configTableId="2",isUnique=1}));
+        catalog.ConfigIndexColumns.Add(System.Text.Json.JsonSerializer.SerializeToElement(new{configIndexId="210",configColumnId="209"}));
+        catalog.ConfigColumns.Add(new(){Id="18",ConfigTableId="1",ColumnName="label_item_id",LogicalType="int64",YzProjectId="1",
+            ControlKind="List",LinkConfigTableId="5",ControlDetail="""{"tableId":"5","pageId":"501","nameField":"name"}""",
+            Extra={["linkConfigPageId"]=System.Text.Json.JsonSerializer.SerializeToElement("501")}});
+        catalog.ConfigColumns.Add(new(){Id="19",ConfigTableId="1",ColumnName="display_region",LogicalType="string",YzProjectId="1",
+            Extra={["isJoinColumn"]=System.Text.Json.JsonSerializer.SerializeToElement(1),
+            ["columnFullName"]=System.Text.Json.JsonSerializer.SerializeToElement("label_item.name")}});
+        catalog.ConfigTables.Add(new(){Id="5",TableName="file_joined_scope_label",IsRongyu=stored?1:0,YzProjectId="1"});
+        catalog.ConfigColumns.AddRange([
+            new(){Id="501",ConfigTableId="5",ColumnName="id",LogicalType="int64",YzProjectId="1",IsDbNotNull=1},
+            new(){Id="502",ConfigTableId="5",ColumnName="name",LogicalType="string",YzProjectId="1"},
+            new(){Id="503",ConfigTableId="5",ColumnName="yz_project_id",LogicalType="int64",YzProjectId="1"},
+            new(){Id="504",ConfigTableId="5",ColumnName="store_id",LogicalType="int64",YzProjectId="1"}
+        ]);
+        catalog.ConfigPages.Add(new(){Id="501",ConfigTableId="5",YzProjectId="1",YzAdminTypeId="3",
+            WhereSql="yz_project_id=@current_yz_project_id AND store_id=@current_store_id AND name <> '停用'"});
+        catalog.ConfigPageColumns.Add(new(){Id="f501502",ConfigPageId="501",ConfigColumnId="502",YzProjectId="1",IsShow=1});
+        catalog.ConfigPages[0].WhereSql+=" AND display_region='可下载'";
+        return catalog;
+    }
+
     /// <summary>固定测试身份只获一张来源页的精确数据范围，其他页拒绝。</summary>
     private sealed class JoinedFileAuthorization(RuntimeActor actor,bool unrestricted):IRuntimeAuthorization
     {
