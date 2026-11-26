@@ -46,10 +46,18 @@ public sealed class TextCascadeParentRelationTests
     [Theory]
     [InlineData(false,"OnlyNew","list")]
     [InlineData(true,"OverWriteByFirstColumn","edit")]
-    public async Task Sparse_integer_parent_with_independent_checkbox_compiles_original_pages(bool businessKey,string import,string export)
+    [InlineData(false,"OnlyNew","list",1,false)]
+    [InlineData(true,"OverWriteByFirstColumn","edit",1,false)]
+    [InlineData(false,"OnlyNew","list",1,true)]
+    [InlineData(true,"OverWriteByFirstColumn","edit",1,true)]
+    [InlineData(false,"OnlyNew","list",1,true,true)]
+    [InlineData(true,"OverWriteByFirstColumn","edit",1,false,true)]
+    public async Task Integer_parent_with_independent_checkbox_compiles_original_pages(bool businessKey,string import,string export,
+        int redundant=0,bool globalCountry=false,bool storedAsText=false)
     {
-        var catalog=Catalog(0,import,export);
-        foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "business_3" or "282"))
+        var catalog=Catalog(redundant,import,export);
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.Id=="business_3"||
+            column.Id=="282"&&!storedAsText))
         {
             column.LogicalType="int64";
             column.ColumnLength="";
@@ -61,13 +69,36 @@ public sealed class TextCascadeParentRelationTests
             control["levels"]![0]!["idField"]="id";
             source.ControlDetail=control.ToJsonString();
         }
+        if(globalCountry)
+        {
+            catalog.ConfigTables.Single(table=>table.Id=="3").Extra["scopeKind"]=JsonSerializer.SerializeToElement("global");
+            catalog.ConfigColumns.RemoveAll(column=>column.ConfigTableId=="3"&&column.ColumnName=="yz_project_id");
+            catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql="status=1 AND store_id=@current_store_id";
+            catalog.ConfigColumns.AddRange([
+                new(){Id="country_store",ConfigTableId="3",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId},
+                new(){Id="source_store",ConfigTableId="2",ColumnName="store_id",LogicalType="int64",YzProjectId=catalog.YzProjectId}
+            ]);
+            // 冗余名称传播按来源行的持久门店归属重算。
+            catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND store_id=@current_store_id";
+            catalog.ConfigIndexColumns.RemoveAll(column=>column.GetProperty("configIndexId").GetString()=="business_index_3"&&
+                column.GetProperty("configColumnId").GetString()!="business_3");
+        }
         var model=GenerationModel.Create(catalog,"Example.IntegerParentRelations");
         var table=model.Tables.Single(item=>item.Source.Id=="2");
         var page=Assert.Single(table.Pages);
         var field=table.Columns.Single(item=>item.Source.Id=="706");
+        var cascade=table.Columns.Single(item=>item.Source.Id=="25");
+        var path=CrossTableWriteCompilation.Resolve(model,table,page,cascade);
+        Assert.True(path.Definition is not null,path.Reason);
         var resolved=DatabaseCheckboxCompilation.Resolve(model,table,page,field);
-        Assert.True(resolved.Definition is {LogicalSourceParent:true,IndependentSourceParent:true},resolved.Reason);
-        Assert.DoesNotContain(resolved.Definition!.Scopes,scope=>scope.Source=="parent");
+        Assert.True(resolved.Definition is not null,resolved.Reason);
+        Assert.DoesNotContain(resolved.Definition.Scopes,scope=>scope.Source=="parent");
+        if(redundant==0)Assert.True(resolved.Definition is {LogicalSourceParent:true,IndependentSourceParent:true});
+        else
+        {
+            var binding=Assert.Single(RelationPropagationCompilation.Bindings(model),item=>item.Foreign.Source.Id=="706");
+            Assert.Equal("checkitem_names",binding.Cache.Source.ColumnName);
+        }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-integer-parent-relations");
@@ -81,13 +112,24 @@ public sealed class TextCascadeParentRelationTests
             var stop=service.IndexOf("return locking?query.ForUpdate():query;",start,StringComparison.Ordinal);
             Assert.True(stop>start);
             var scope=service[start..stop];
-            Assert.Contains("LogicalParentId201(parentId)",scope);
-            Assert.Contains("PathByKeyAsync(0,parentKey.ToString(CultureInfo.InvariantCulture),cancellationToken)",scope);
+            var parentReader=redundant==0?"LogicalParentId201(parentId)":"SharedR1ParentKey201(parentId)";
+            Assert.Contains(parentReader,scope);
+            Assert.Contains("CrossReader201_25(actor,locking,false)",scope);
+            var key=redundant==0?"parentKey":parentReader;
+            Assert.Contains($"PathByKeyAsync(0,{key}.ToString(CultureInfo.InvariantCulture),cancellationToken)",scope);
+            Assert.DoesNotContain("parentQuery=",scope);
+            if(globalCountry)Assert.Contains("store_id=@current_store_id",service);
             Assert.Contains("row.YzProjectId==long.Parse(actor.ProjectId",scope);
             Assert.DoesNotContain("row.CountryId",scope);
             Assert.Contains("ImportCheckbox201_706Async",service);
-            Assert.Contains("ExportCheckbox201_706Async(entities,actor,request.ParentId",service);
-            if(import=="OverWriteByFirstColumn")
+            if(redundant==0)Assert.Contains("ExportCheckbox201_706Async(entities,actor,request.ParentId",service);
+            else
+            {
+                // 冗余工作簿保存原 ID 数组，通过同一写入服务校验候选及更新名称副本。
+                Assert.Contains("DatabaseCheckboxValue.ProjectIds(DatabaseCheckboxValue.ReadWrite(cell))",service);
+                Assert.Contains("ValidateCheckbox201_706Async",service);
+            }
+            if(redundant==0&&import=="OverWriteByFirstColumn")
             {
                 Assert.Contains("ImportMatchesAsync(",service);
                 Assert.Contains("if(importMatches.Count>1)",service);
