@@ -65,7 +65,9 @@ internal static class DatabaseCheckboxRenderer
             }
             else if(def.IndependentSourceParent||def.SharedTextParent is not null)
             {
-                foreach(var path in SharedRedundantParentCompilation.ForColumn(model,table,page,def.SourceParent))
+                var paths=def.IndependentStoredSourcePaths.Count>0?def.IndependentStoredSourcePaths:
+                    SharedRedundantParentCompilation.ForColumn(model,table,page,def.SourceParent);
+                foreach(var path in paths)
                     result.Append(SharedRedundantParentCompilation.Call(path,page,"locking"));
             }
             else

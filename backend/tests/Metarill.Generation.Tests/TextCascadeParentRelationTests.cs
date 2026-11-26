@@ -52,12 +52,15 @@ public sealed class TextCascadeParentRelationTests
     [InlineData(true,"OverWriteByFirstColumn","edit",1,true)]
     [InlineData(false,"OnlyNew","list",1,true,true)]
     [InlineData(true,"OverWriteByFirstColumn","edit",1,false,true)]
+    [InlineData(false,"OnlyNew","list",1,false,false,true)]
+    [InlineData(true,"OverWriteByFirstColumn","edit",1,true,true,true)]
+    [InlineData(true,"OverWriteByFirstColumn","edit",1,false,false,true,true)]
     public async Task Integer_parent_with_independent_checkbox_compiles_original_pages(bool businessKey,string import,string export,
-        int redundant=0,bool globalCountry=false,bool storedAsText=false)
+        int redundant=0,bool globalCountry=false,bool storedAsText=false,bool compound=false,bool numericCascade=false)
     {
         var catalog=Catalog(redundant,import,export);
         foreach(var column in catalog.ConfigColumns.Where(column=>column.Id=="business_3"||
-            column.Id=="282"&&!storedAsText))
+            column.Id=="282"&&!storedAsText||numericCascade&&column.Id=="business_5"))
         {
             column.LogicalType="int64";
             column.ColumnLength="";
@@ -68,6 +71,24 @@ public sealed class TextCascadeParentRelationTests
             var control=System.Text.Json.Nodes.JsonNode.Parse(source.ControlDetail)!;
             control["levels"]![0]!["idField"]="id";
             source.ControlDetail=control.ToJsonString();
+        }
+        if(compound)
+        {
+            var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
+            var control=System.Text.Json.Nodes.JsonNode.Parse(source.ControlDetail)!;
+            var levels=control["levels"]!.AsArray();
+            levels.RemoveAt(2);
+            levels[0]!["columnPrefix"]="other_country";
+            levels[1]!["columnPrefix"]="other_area";
+            catalog.ConfigColumns.AddRange([
+                new(){Id="290",ConfigTableId="2",ColumnName="other_country_id",LogicalType="int64",
+                    LinkConfigTableId="3",YzProjectId=catalog.YzProjectId},
+                new(){Id="291",ConfigTableId="2",ColumnName="other_area_id",LogicalType="int64",ControlKind="CascadeTree",
+                    LinkConfigTableId="4",ControlDetail=control.ToJsonString(),YzProjectId=catalog.YzProjectId}
+            ]);
+            catalog.ConfigPageColumns.Add(new(){Id="201291",ConfigPageId="201",ConfigColumnId="291",IsShow=1,IsEdit=1,
+                YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPages.Single(page=>page.Id=="201").WhereSql+=" AND other_country_id=@parent_id";
         }
         if(globalCountry)
         {
@@ -93,6 +114,7 @@ public sealed class TextCascadeParentRelationTests
         var resolved=DatabaseCheckboxCompilation.Resolve(model,table,page,field);
         Assert.True(resolved.Definition is not null,resolved.Reason);
         Assert.DoesNotContain(resolved.Definition.Scopes,scope=>scope.Source=="parent");
+        if(compound)Assert.Equal(2,resolved.Definition.SourceScopeColumns.Count);
         if(redundant==0)Assert.True(resolved.Definition is {LogicalSourceParent:true,IndependentSourceParent:true});
         else
         {
@@ -100,6 +122,25 @@ public sealed class TextCascadeParentRelationTests
             Assert.Equal("checkitem_names",binding.Cache.Source.ColumnName);
         }
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
+        if(compound&&numericCascade)
+        {
+            // 同一张表的整数主键和业务键可能数值相同，生成时仍须拒绝混用。
+            var branch=catalog.ConfigColumns.Single(column=>column.Id=="291");
+            var original=branch.ControlDetail;
+            try
+            {
+                var control=System.Text.Json.Nodes.JsonNode.Parse(original)!;
+                control["levels"]![0]!["idField"]="id";
+                branch.ControlDetail=control.ToJsonString();
+                var wrong=GenerationModel.Create(catalog,model.Namespace);
+                var owner=wrong.Tables.Single(item=>item.Source.Id=="2");
+                var result=DatabaseCheckboxCompilation.Resolve(wrong,owner,Assert.Single(owner.Pages),
+                    owner.Columns.Single(item=>item.Source.Id=="706"));
+                Assert.Null(result.Definition);
+                Assert.Contains("同一个已发布父键",result.Reason);
+            }
+            finally { branch.ControlDetail=original; }
+        }
 
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-integer-parent-relations");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -115,8 +156,14 @@ public sealed class TextCascadeParentRelationTests
             var parentReader=redundant==0?"LogicalParentId201(parentId)":"SharedR1ParentKey201(parentId)";
             Assert.Contains(parentReader,scope);
             Assert.Contains("CrossReader201_25(actor,locking,false)",scope);
+            if(compound)
+            {
+                Assert.Contains("CrossReader201_291(actor,locking,false)",scope);
+                Assert.Contains("复选的来源父字段必须属于同一父记录",service);
+            }
             var key=redundant==0?"parentKey":parentReader;
-            Assert.Contains($"PathByKeyAsync(0,{key}.ToString(CultureInfo.InvariantCulture),cancellationToken)",scope);
+            Assert.Contains(numericCascade?$"PathAsync(0,{key},cancellationToken)":
+                $"PathByKeyAsync(0,{key}.ToString(CultureInfo.InvariantCulture),cancellationToken)",scope);
             Assert.DoesNotContain("parentQuery=",scope);
             if(globalCountry)Assert.Contains("store_id=@current_store_id",service);
             Assert.Contains("row.YzProjectId==long.Parse(actor.ProjectId",scope);

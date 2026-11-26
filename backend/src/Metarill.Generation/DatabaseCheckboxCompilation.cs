@@ -47,6 +47,7 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
     internal bool IndependentSourceParent { get; init; }
+    internal IReadOnlyList<SharedRedundantParentPath> IndependentStoredSourcePaths { get; init; } = [];
     internal ColumnModel? SharedTextParent { get; init; }
     internal ColumnModel? LogicalParentBusinessKey { get; init; }
     internal bool UsesPageTextParent=>LogicalSourceParent&&
@@ -358,13 +359,20 @@ internal static class DatabaseCheckboxCompilation
             var pageHasParent=logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true;
             var independentDictionary=physicalParents.Length==0&&!pageHasParent&&
                 namePage?.Scopes.Any(scope=>scope.Source=="parent")!=true;
-            // 冗余整数父来自已经发布的级联层位。独立字典只使用自己的范围。
-            var storedParentPath=independentDictionary&&textSource is null&&sourceScopeColumns is [var storedParent]
-                ?SharedRedundantParentCompilation.ForColumn(model,table,page,storedParent).SingleOrDefault():null;
+            // 独立字典不使用来源父参数。来源每个冗余级联父仍须走其实际发布层位。
+            var storedPaths=new Dictionary<string,SharedRedundantParentPath>(StringComparer.Ordinal);
+            if(independentDictionary&&table.Source.IsRongyu==1)
+                foreach(var column in sourceScopeColumns)
+                    if(SharedRedundantParentCompilation.ForColumn(model,table,page,column).SingleOrDefault() is {} path)
+                        storedPaths.Add(column.Source.Id,path);
+            // 同一个父参数不能同时指向同一表的主键和业务键，普通物理外键使用主键。
+            if(storedPaths.Count>0&&sourceScopeColumns.Select(column=>storedPaths.GetValueOrDefault(column.Source.Id)?.Level.AlternateKey?.Source.Id)
+                .Distinct(StringComparer.Ordinal).Skip(1).Any())
+                return Gap("独立复选字典的多个来源父范围须使用同一个已发布父键。");
             var sourceBindings=sourceScopeColumns.Select(column=>(Column:column,Path:NonRedundantCrossParentCompilation.Find(model,table,page,column))).ToArray();
             var parents=sourceBindings.Select(binding=>binding.Path is {} path?path.Read.Levels[path.Index].Target:
-                    binding.Column==textSource?SharedRedundantParentCompilation.ForColumn(model,table,page,binding.Column).Single().Level.Target:
-                    storedParentPath?.Level.Target??Parent(binding.Column))
+                    storedPaths.GetValueOrDefault(binding.Column.Source.Id)?.Level.Target??
+                    (binding.Column==textSource?SharedRedundantParentCompilation.ForColumn(model,table,page,binding.Column).Single().Level.Target:Parent(binding.Column)))
                 .DistinctBy(parent=>parent.Source.Id).ToArray();
             if(parents.Length>1)return Gap("多个来源范围必须绑定同一真实父表。");
             // 目标只有一个 parentId；用可还原的逻辑键作为来源代表，其他同父范围仍逐条验证。
@@ -385,7 +393,7 @@ internal static class DatabaseCheckboxCompilation
                     Metarill.Data.Queries.NonRedundantReads.RequireCompoundGlobalSourceParent(model.Catalog,target.Source.Id,namePage!.Source.Id,owner);
                 sourceParent=sourceScopeColumns.Single(column=>column.Source.Id==owner.Column.Id);
             }
-            var independentSourceParent=independentDictionary&&(logicalSource||textSource is not null||storedParentPath is not null);
+            var independentSourceParent=independentDictionary&&(logicalSource||textSource is not null||storedPaths.Count>0);
             if(textSource is not null&&!independentSourceParent&&sharedTextParent is null)
                 return Gap("复选目标父尚未证明使用与来源相同的文本业务键。");
             if(logicalSource&&!independentSourceParent&&physicalParents.Length==0&&!pageHasParent)
@@ -576,7 +584,8 @@ internal static class DatabaseCheckboxCompilation
                 HasExactPhysicalParentScope=exactPhysicalParent,
                 HasStoredStaticScope=storedStaticPage,
                 HasProjectStoredAccountScope=projectStoredAccount,
-                CompoundPhysicalSource=ordinaryCompoundSource||projectStoredAccount&&sourceScopeColumns.Length>1,
+                CompoundPhysicalSource=ordinaryCompoundSource||
+                    (projectStoredAccount||storedPaths.Count>0)&&sourceScopeColumns.Length>1,
                 ProjectFormScope=projectForm is not null,
                 GlobalRealtimeNameOverride=globalRealtimeNameOverride,
                 GlobalPageOverride=globalPageOverride,
@@ -584,6 +593,7 @@ internal static class DatabaseCheckboxCompilation
                     logicalPage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column)),
                 ExactTarget=exactTarget,
                 IndependentSourceParent=independentSourceParent,
+                IndependentStoredSourcePaths=storedPaths.Values.DistinctBy(path=>(path.Read.Source.Source.Id,path.Index)).ToArray(),
                 SharedTextParent=sharedTextParent,
                 LogicalParentBusinessKey=logicalParentBusinessKey,
                 LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)

@@ -121,6 +121,15 @@ internal static class CrossTableReadCompilation
             if(parents.Length==0)continue;
             if(parents.Length>1)
             {
+                // 末级使用文本键时，冗余页的多个整数父仍可由各自的物理级联计划证明。
+                if(table.Source.IsRongyu==1)
+                {
+                    var plans=Metarill.Data.Queries.RedundantSharedParents.Compile(model.Catalog,table.Source.Id,page.Source.Id);
+                    var actual=parents.Select(column=>plans.GetValueOrDefault(column.Source.Id)?.Levels.LastOrDefault()).ToArray();
+                    if(actual.Any(level=>level is null||level.TextKey)||
+                        actual.Select(level=>(level!.TableId,level.KeyColumn)).Distinct().Count()!=1)return false;
+                    continue;
+                }
                 // 固定字典可声明多个逻辑父级，但不得把不同文本键解释为同一个请求父参数。
                 var syntax=FixedConditionPlan.Compile(page.Source.WhereSql,table.Columns.Select(column=>column.Source.ColumnName));
                 if(MultiTargetParentScope.CompileSelectionPage(model.Catalog,table.Source,syntax)
