@@ -381,7 +381,7 @@ public static partial class MySqlNonRedundantReadCompiler
         private bool SharedStoredMultiTextParent { get; init; }
         private RedundantSharedParentPlan? StoredMultiTextPath { get; init; }
 
-        /// <summary>普通父表沿用实际项目范围。文本级联父由已验证的完整路径确定可见性。</summary>
+        /// <summary>父表沿用实际项目范围。逻辑父按已发布的业务键核对存在性，文本路径沿用完整可见性证明。</summary>
         private string MultiParentPredicate(MultiTargetParentScope parent,string target)
         {
             if(MultiParentOwner is {} role&&SelectedMultiPage is {} page)
@@ -405,8 +405,9 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!parent.Global&&!textPath)
             {
                 var alias=aliasPrefix+"multi_parent";
-                Use(parent.Parent,Column(parent.Parent,"id"));
-                var key=alias+".`id`";
+                var parentKey=parent.LogicalAlternateKey(catalog,root)??Column(parent.Parent,"id");
+                Use(parent.Parent,parentKey);
+                var key=alias+"."+Q(parentKey.ColumnName);
                 var same=parent.Target.LogicalType=="string"?"BINARY CAST("+key+" AS CHAR)=BINARY ("+target+")":key+"="+target;
                 predicate="EXISTS (SELECT 1 FROM "+Q(parent.Parent.TableName)+" "+alias+" WHERE "+same+" AND "+key+">0 AND "+Scope(parent.Parent,alias)+PublishedJoinLock+")";
             }

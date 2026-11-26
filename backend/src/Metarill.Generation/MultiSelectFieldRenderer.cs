@@ -74,7 +74,8 @@ internal static class MultiSelectFieldRenderer
                 foreach (var parent in def.TargetParents.Where(_=>!def.GlobalParent))
                 {
                     var project = parent.Columns.Single(column => column.Source.ColumnName == "yz_project_id");
-                    result.AppendLine($"        var parentQuery = session.Select<{parent.EntityType}>().Where(row => row.Id == targetParentKey && row.{project.Property} == {Scope(project, "actor.ProjectId")});");
+                    var key=def.LogicalParentBusinessKey?.Property??"Id";
+                    result.AppendLine($"        var parentQuery = session.Select<{parent.EntityType}>().Where(row => row.{key} == targetParentKey && row.{project.Property} == {Scope(project, "actor.ProjectId")});");
                     if (parent.Columns.Any(column => column.Source.ColumnName == "delete_no")) result.AppendLine("        parentQuery = parentQuery.Where(row => row.DeleteNo == null);");
                     result.AppendLine("        if (!await parentQuery.AnyAsync(cancellationToken)) throw new InvalidOperationException(\"多选目标父记录不存在、已删除或不属于当前项目。\");");
                 }

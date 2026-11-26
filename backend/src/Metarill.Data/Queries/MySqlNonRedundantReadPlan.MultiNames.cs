@@ -341,8 +341,14 @@ public static partial class MySqlNonRedundantReadCompiler
                 if(parent is not null&&sourceParent is not null&&!sharedSparseTextParent&&storedTextPath is null)
                 {
                     var parentFields=nested.PhysicalReferences.Where(item=>item.Table==parent.Parent.TableName).Select(item=>item.Column.Name).ToHashSet(StringComparer.Ordinal);
+                    var alternate=parent.Global?null:parent.LogicalAlternateKey(catalog,target);
                     customReverse.Add(new(parent.Parent.TableName,from,owner+"."+Q(sourceParent.ColumnName),sourceParent.LogicalType,
-                        new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,parentFields}}));
+                        new Dictionary<string,IReadOnlySet<string>>(StringComparer.Ordinal){{output,parentFields}})
+                    {
+                        // 反查使用与来源持久父值相同的业务键，包含改键和删除事件的旧值。
+                        NodeKey=alternate is null?null:new(alternate.ColumnName,alternate.LogicalType,
+                            Column(parent.Parent,"yz_project_id").LogicalType)
+                    });
                 }
                 foreach(var reverse in nested.Reverse)
                 {

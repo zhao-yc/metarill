@@ -18,33 +18,43 @@ public sealed record MultiTargetParentScope(TableMetadata Parent,ColumnMetadata 
         Target.Id==columnId&&(!logicalOnly||Logical)||
         AdditionalTargets.Any(scope=>scope.Target.Id==columnId&&(!logicalOnly||scope.Logical));
 
-    /// <summary>多个稀疏层位只在实际使用同一个唯一文本业务键时共用文本父参数。</summary>
-    public bool HasCompoundLogicalTextKey(MetadataCatalog catalog,TableMetadata table)
+    /// <summary>实际级联层位使用已证唯一的业务列。普通物理父或级联主键沿用 id。</summary>
+    public ColumnMetadata? LogicalAlternateKey(MetadataCatalog catalog,TableMetadata table)
     {
-        if(!Logical||Global||AdditionalTargets.Count==0||table.IsRongyu!=0||
-            table.YzProjectId!=catalog.YzProjectId||Parent.YzProjectId!=catalog.YzProjectId)return false;
-        var controls=catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id&&column.ControlKind=="CascadeTree"&&
-            column.IsVirtualColumn==0).ToArray();
-        var keys=new HashSet<string>(StringComparer.Ordinal);
-        foreach(var scope in AdditionalTargets.Prepend(this))
+        if(!Logical)return null;
+        ColumnMetadata? result=null;
+        var found=false;
+        foreach(var control in catalog.ConfigColumns.Where(column=>column.ConfigTableId==table.Id&&
+            column.ControlKind=="CascadeTree"&&column.IsVirtualColumn==0))
         {
-            if(!scope.Logical||scope.Target.LogicalType!="string"||scope.Parent.Id!=Parent.Id)return false;
-            var found=false;
-            foreach(var control in controls)
-            {
-                var prefixes=CrossTableStorageColumns.LevelPrefixes(control);
-                var index=Array.FindIndex(prefixes.ToArray(),prefix=>prefix+"_id"==scope.Target.ColumnName);
-                if(index<0)continue;
-                using var detail=System.Text.Json.JsonDocument.Parse(control.ControlDetail);
-                if(CrossTableStorageColumns.AlternateLevelKey(catalog,Parent,detail.RootElement.GetProperty("levels")[index])
-                    is not {LogicalType:"string"} key)return false;
-                keys.Add(key.Id);
-                found=true;
-            }
-            if(!found||keys.Count!=1)return false;
+            var prefixes=CrossTableStorageColumns.LevelPrefixes(control);
+            var index=Array.FindIndex(prefixes.ToArray(),prefix=>prefix+"_id"==Target.ColumnName);
+            if(index<0)continue;
+            using var detail=System.Text.Json.JsonDocument.Parse(control.ControlDetail);
+            var key=CrossTableStorageColumns.AlternateLevelKey(catalog,Parent,detail.RootElement.GetProperty("levels")[index]);
+            if(found&&result?.Id!=key?.Id)throw Invalid();
+            result=key;
+            found=true;
         }
-        return true;
+        if(!found)throw Invalid();
+        return result;
     }
+
+    /// <summary>合并同父参数之前核对实际业务列；同表的代理主键和业务键代表不同值域。</summary>
+    public bool HasSameLogicalKey(MetadataCatalog catalog,TableMetadata table)
+    {
+        if(!Logical)return false;
+        var key=LogicalAlternateKey(catalog,table);
+        return AdditionalTargets.All(scope=>scope.Logical&&scope.Parent.Id==Parent.Id&&
+            scope.LogicalAlternateKey(catalog,table)?.Id==key?.Id);
+    }
+
+    /// <summary>多个稀疏层位只在实际使用同一个唯一文本业务键时共用文本父参数。</summary>
+    public bool HasCompoundLogicalTextKey(MetadataCatalog catalog,TableMetadata table)=>
+        Logical&&!Global&&AdditionalTargets.Count>0&&table.IsRongyu==0&&
+        table.YzProjectId==catalog.YzProjectId&&Parent.YzProjectId==catalog.YzProjectId&&
+        Target.LogicalType=="string"&&AdditionalTargets.All(scope=>scope.Target.LogicalType=="string")&&
+        LogicalAlternateKey(catalog,table) is {LogicalType:"string"}&&HasSameLogicalKey(catalog,table);
 
     /// <summary>原多选目标页可以用多个已证明的字段匹配同一业务父记录。</summary>
     public static MultiTargetParentScope? CompileSelectionPage(MetadataCatalog catalog,TableMetadata table,FixedConditionPlan condition,

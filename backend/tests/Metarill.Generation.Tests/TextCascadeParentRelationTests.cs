@@ -1965,6 +1965,20 @@ public sealed class TextCascadeParentRelationTests
                 Assert.Contains("多选停用",constants.Values);
                 Assert.Contains("复选停用",constants.Values);
                 Assert.Contains("字典停用",constants.Values);
+                if(parentType=="logical-int")
+                {
+                    var reverse=Assert.IsAssignableFrom<IEnumerable<object>>(
+                        compiled.GetType().GetProperty("Reverse",hidden)!.GetValue(compiled));
+                    var parentEvents=reverse.Where(item=>Equals(item.GetType().GetProperty("TargetTable")!.GetValue(item),
+                        "textrel_country")).ToArray();
+                    Assert.NotEmpty(parentEvents);
+                    Assert.All(parentEvents,item=>
+                    {
+                        var key=item.GetType().GetProperty("NodeKey",hidden)!.GetValue(item);
+                        Assert.NotNull(key);
+                        Assert.Equal("business_key",key.GetType().GetProperty("Column")!.GetValue(key));
+                    });
+                }
             }
         }
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-text-parent-joined-labels");
@@ -1999,6 +2013,18 @@ public sealed class TextCascadeParentRelationTests
             Assert.Contains("ImportMulti201_704Async",service);
             Assert.Contains("ImportCheckbox201_706Async",service);
             Assert.Contains("Export201Async",service);
+            if(parentType=="logical-int")
+            {
+                Assert.Contains("row.BusinessKey == targetParentKey",service);
+                Assert.DoesNotContain("row.Id == targetParentKey",service);
+                var checkboxStart=service.IndexOf(" CheckboxScope201_706Async(",StringComparison.Ordinal);
+                Assert.True(checkboxStart>=0);
+                var checkboxEnd=service.IndexOf("return query;",checkboxStart,StringComparison.Ordinal);
+                Assert.True(checkboxEnd>checkboxStart);
+                var checkboxScope=service[checkboxStart..checkboxEnd];
+                Assert.Contains("CrossReader201_25(actor,locking,false).PathAsync(0,",checkboxScope);
+                Assert.DoesNotContain("row.Id==parentKey",checkboxScope);
+            }
             if(buildPackage)
                 foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
         }
@@ -2026,6 +2052,8 @@ public sealed class TextCascadeParentRelationTests
             if(parentType=="logical-int")
             {
                 Assert.Contains("`business_key`",from);
+                Assert.Contains("multi_parent.`business_key`=",scope);
+                Assert.DoesNotContain("multi_parent.`id`=",scope);
                 Assert.Equal("country_id",mysql.GetType().GetProperty("RequiredMultiParent",flags)!.GetValue(mysql));
             }
             if(!logicalParent)

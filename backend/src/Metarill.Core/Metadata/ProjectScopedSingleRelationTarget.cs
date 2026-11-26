@@ -88,7 +88,8 @@ public static class ProjectScopedSingleRelationTarget
         if(logicalParent is not {Logical:true,Global:false}||
             !(logicalParent.Target.LogicalType=="string"&&logicalParent.AdditionalTargets.Count==0||
                 localPage&&(logicalParent.Target.LogicalType=="int64"&&
-                    logicalParent.AdditionalTargets.All(scope=>scope is {Logical:true,Target.LogicalType:"int64"})||
+                    logicalParent.AdditionalTargets.All(scope=>scope.Target.LogicalType=="int64")&&
+                    logicalParent.HasSameLogicalKey(catalog,target)||
                     logicalParent.HasCompoundLogicalTextKey(catalog,target))))
             fields.Clear();
         return fields;

@@ -65,7 +65,13 @@ internal static class DatabaseCheckboxRenderer
             {
                 result.AppendLine("        if(!long.TryParse(parentId,NumberStyles.None,CultureInfo.InvariantCulture,out var parentKey)||parentKey<=0||parentId!=parentKey.ToString(CultureInfo.InvariantCulture))throw new ArgumentException(\"来源父ID必须为规范正整数字符串。\");");
                 if(def.GlobalParent)result.AppendLine(MultiGlobalParentCompilation.Check("CheckboxGlobalParent"+suffix,"parentKey","locking"));
-                foreach(var parent in def.SourceParents.Where(_=>!def.GlobalParent))
+                // 冗余来源持久保存的是级联业务键时，继续沿实际发布父路径验证及锁定。
+                var businessPaths=def.GlobalParent?[]:SharedRedundantParentCompilation.ForColumn(model,table,page,def.SourceParent)
+                    .Where(path=>path.Level.AlternateKey?.Source.LogicalType=="int64").ToArray();
+                foreach(var path in businessPaths)
+                    result.Append(SharedRedundantParentCompilation.Call(path,page,"locking"));
+                foreach(var parent in def.SourceParents.Where(parent=>!def.GlobalParent&&
+                    businessPaths.All(path=>path.Level.Target.Source.Id!=parent.Source.Id)))
                 {
                     var parentProject=parent.Columns.Single(column=>column.Source.ColumnName=="yz_project_id");
                     result.AppendLine($"        var parentQuery=session.Select<{parent.EntityType}>().Where(row=>row.Id==parentKey&&row.{parentProject.Property}=={Scope(parentProject,"actor.ProjectId")});");

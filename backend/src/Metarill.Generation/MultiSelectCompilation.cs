@@ -9,6 +9,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
 {
     internal bool LogicalSourceParent { get; init; }
     internal ColumnModel? SharedTextParent { get; init; }
+    internal ColumnModel? LogicalParentBusinessKey { get; init; }
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal bool PublishedPhysicalSource { get; init; }
     internal bool UsesPageRead { get; init; }
@@ -175,6 +176,10 @@ internal static class MultiSelectCompilation
                     .DistinctBy(parent => parent.Source.Id).ToArray();
             if (scopedParent?.Global!=true&&targetParents.Any(parent => !parent.Columns.Any(column => column.Source.ColumnName == "yz_project_id"))) return Gap("目标父表未声明项目归属。");
             if(scopedParent?.Global==true)_=Metarill.Data.Queries.NonRedundantReads.CompileMultiGlobalParent(model.Catalog,target.Source.Id,targetPage.Source.Id);
+            // 来源父参数进入固定字典时，存在性校验必须使用同一实际整数业务键。
+            var logicalParentBusinessKey=scopedParent is {Global:false,Logical:true}&&
+                scopedParent.LogicalAlternateKey(model.Catalog,target.Source) is {LogicalType:"int64"} key
+                ?targetParents.Single().Columns.Single(column=>column.Source.Id==key.Id):null;
             var same = targetParents.Length > 0 && sourceParents.SequenceEqual(targetParents.Select(parent => parent.Source.Id).Order());
             if(same&&sharedTextParent is null&&CrossTableReadCompilation.TextSourceParent(model,table,page) is not null)
                 return Gap("多选目标父尚未证明使用与来源相同的文本业务键。");
@@ -263,6 +268,7 @@ internal static class MultiSelectCompilation
                 {
                     LogicalSourceParent=logicalSourceParent,
                     SharedTextParent=sharedTextParent,
+                    LogicalParentBusinessKey=logicalParentBusinessKey,
                     CompoundSourceDependencies=compoundSourceDependencies,
                     PublishedPhysicalSource=publishedPhysicalSource,
                     GlobalParent=scopedParent?.Global==true,
