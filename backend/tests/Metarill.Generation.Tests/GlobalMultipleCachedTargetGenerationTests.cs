@@ -832,9 +832,19 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
     public Task Global_business_checkbox_uses_derived_static_dictionary(int mode,string projectType,bool unfiltered)=>
         VerifyGlobalBusinessCheckboxDictionary(mode,projectType,unfiltered,targetStorage:0,derivedName:true);
 
+    /// <summary>带行项目的全局业务复选保留实际精确字典范围，字典项目和业务项目分别证明。</summary>
+    [Theory]
+    [InlineData("int64",0,false,null,false)]
+    [InlineData("string",2,true,"store_id",false)]
+    [InlineData("string",2,false,null,true)]
+    [InlineData("int64",2,false,null,false,true)]
+    public Task Global_business_checkbox_uses_exact_nonredundant_dictionary(string projectType,int exactType,
+        bool projectScoped,string? accountField,bool derivedName,bool idLabel=false)=>
+        VerifyGlobalBusinessCheckboxDictionary(0,projectType,false,projectScoped,targetStorage:0,accountField,derivedName,exactType,idLabel);
+
     /// <summary>从同一实际生成代码验证字典候选、原筛选及非冗余和冗余名称。</summary>
     private static async Task VerifyGlobalBusinessCheckboxDictionary(int mode,string projectType,bool unfiltered,
-        bool projectScoped=false,int targetStorage=1,string? accountField=null,bool derivedName=false)
+        bool projectScoped=false,int targetStorage=1,string? accountField=null,bool derivedName=false,int exactType=-1,bool idLabel=false)
     {
         const string app="Example.StaticGlobalCheckbox";
         var catalog=derivedName?GlobalMultipleDerivedTargetGenerationTests.Catalog(mode,false,"string"):PhysicalLabelCatalog(mode,false);
@@ -854,7 +864,21 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
         dictionary.Extra.Remove("type");
         dictionary.WhereSql=unfiltered?"":"status=17";
         if(projectScoped)dictionary.WhereSql=WithCurrentProject(dictionary.WhereSql);
+        if(exactType>=0)
+        {
+            dictionary.Extra["type"]=JsonSerializer.SerializeToElement(exactType);
+            dictionary.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
+            catalog.ConfigColumns.Add(new(){Id="109",ConfigTableId="1",YzProjectId="100",ColumnName="scope_code",LogicalType="string"});
+            foreach(var admin in catalog.YzAdminTypes)
+                admin.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        }
         var source=catalog.ConfigColumns.Single(column=>column.Id=="38");
+        if(idLabel)
+        {
+            source.ControlDetail=source.ControlDetail.Replace("\"nameField\":\"caption\"","\"nameField\":\"id\"",StringComparison.Ordinal);
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="40");
+            catalog.ConfigPageColumns.RemoveAll(field=>field.ConfigColumnId=="40");
+        }
         catalog.ConfigPageColumns.Single(field=>field.Id=="3038").Extra["isSearch"]=JsonSerializer.SerializeToElement(1);
         if(!unfiltered)
             source.Extra["filterControlKind"]=JsonSerializer.SerializeToElement("CheckBox");
@@ -882,7 +906,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(field))!;
             copy.Id="31"+copy.ConfigColumnId;
             copy.ConfigPageId="31";
-            if(copy.ConfigColumnId=="38")
+            if(copy.ConfigColumnId=="38"&&!idLabel)
                 copy.Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"short_caption"}""");
             catalog.ConfigPageColumns.Add(copy);
         }
@@ -923,7 +947,16 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
                 Assert.Contains($"ImportCheckbox{id}_38Async",code);
                 Assert.Contains($"Export{id}Async",code);
             }
-            Assert.Equal(accountField is not null,code.Contains("CheckboxGlobalCondition30_38.BindAccount(actor)",StringComparison.Ordinal));
+            if(exactType<0)
+                Assert.Equal(accountField is not null,code.Contains("CheckboxGlobalCondition30_38.BindAccount(actor)",StringComparison.Ordinal));
+            else
+            {
+                Assert.Contains("""ResolveExactDataManage("10", "list", "real_name")""",code);
+                Assert.Contains("scope_code",code);
+                Assert.Contains("DerivedCheckboxRows30_38Async",code);
+                Assert.Contains("DerivedCheckboxRows31_38Async",code);
+                if(idLabel)Assert.Contains("name=DatabaseCheckboxValue.ReadId(item)",code);
+            }
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             var service=assembly.GetType(app+".Generated.Services.CachedConsumerService",true)!;
             const BindingFlags hidden=BindingFlags.NonPublic;
@@ -957,7 +990,7 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             Assert.Contains("`delete_no`",sql);
             // 派生候选的实际查询由固定读取计划执行；前面的 FreeSql 入口负责认证和当前事务检查。
             var scope=sql;
-            if(derivedName)
+            if(derivedName||exactType>=0)
             {
                 var plan=MySql("DerivedCheckboxPlan30_38");
                 scope=Assert.IsType<string>(plan.GetType().GetProperty("Scope",BindingFlags.Instance|hidden)!.GetValue(plan));
@@ -980,8 +1013,25 @@ public sealed class GlobalMultipleCachedTargetGenerationTests
             }
             if(mode==0)
             {
-                CheckName(MySql("ReadPlan30"),fullNames,fullField);
-                CheckName(MySql("ReadPlan31"),fullNames,"short_caption");
+                if(idLabel)
+                {
+                    AssertOwnedScope(MySql("ReadPlan30"));
+                    AssertOwnedScope(MySql("ReadPlan31"));
+                    var plan=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(
+                        service.GetField("DerivedCheckboxPlan30_38",BindingFlags.Static|hidden)!.GetValue(null));
+                    Assert.Equal("id",Assert.Single(plan.OutputTypes).Key);
+                }
+                else
+                {
+                    CheckName(MySql("ReadPlan30"),fullNames,fullField);
+                    CheckName(MySql("ReadPlan31"),fullNames,"short_caption");
+                }
+                if(exactType>=0)
+                {
+                    var full=Path.Combine(directory,"app");
+                    Assert.True(new ApplicationPackager().Create(catalog,full,app,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+                    foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(full,operation);
+                }
             }
             else
             {

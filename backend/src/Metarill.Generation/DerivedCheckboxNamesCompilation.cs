@@ -10,8 +10,9 @@ internal static class DerivedCheckboxNamesCompilation
     internal static IReadOnlyList<string> Require(GenerationModel model,TableModel owner,DatabaseCheckboxModel def,
         IReadOnlyList<ColumnModel>? cachedLabels=null)
     {
-        // 精确父字典按主键显示时仍需要当前读核对父键及角色范围，无需生成名称副本。
-        if(def.Names is null&&!(def.Name.IsId&&def.HasStoredGlobalParentScope&&def.ExactTarget is not null))
+        // 精确字典按主键显示时仍需要当前读核对字典和角色范围，无需生成名称副本。
+        if(def.Names is null&&!(def.Name.IsId&&def.ExactTarget is not null&&
+            (def.HasStoredGlobalParentScope||UsesGlobalExactPage(def))))
             throw new InvalidOperationException("按主键显示的复选不需要派生名称计划。");
         if(owner.Source.IsRongyu is not(0 or 1)||def.Target.Source.IsRongyu!=0&&!def.HasStoredGlobalParentScope||
             def.Target.Source.IsView!=0||def.Target.Source.IsFunctionTable!=0||
@@ -97,7 +98,7 @@ internal static class DerivedCheckboxNamesCompilation
         {
             var published=def.NameTargetPage!;
             return "CompileGlobalExactSingleCandidate("+JsonSerializer.Serialize(def.Target.Source.Id)+","+
-                JsonSerializer.Serialize(published.Source.Id)+","+Fields(["id",field])+","+Fields(dependencies)+
+                JsonSerializer.Serialize(published.Source.Id)+","+Fields(outputs)+","+Fields(dependencies)+
                 NonRedundantReadCompilation.SingleTargetArgument(ExactNameTargets(model,def,def.ExactTarget!),"singleTargets")+
                 ",listFields:"+Fields([field])+")";
         }

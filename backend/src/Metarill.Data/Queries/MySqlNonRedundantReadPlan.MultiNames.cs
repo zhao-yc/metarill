@@ -61,6 +61,7 @@ public static partial class MySqlNonRedundantReadCompiler
             string? name=null;
             var storedGlobalStatic=false;
             var globalAccountPage=false;
+            var globalExactCheckboxPage=false;
             if(relation.ControlKind=="MultiCheckBoxDatabase")
             {
                 var baseline=DatabaseCheckboxDefinition.Parse(relation.ControlDetail);
@@ -88,6 +89,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     pageId=globalPageId=published.Page.Id;
                     storedGlobalStatic=GlobalCrossTableTarget.Declared(table)&&published.UsesStoredStaticPage;
                     globalAccountPage=published.UsesNonRedundantAccountPage||published.UsesPhysicalParentPage;
+                    globalExactCheckboxPage=published.UsesNonRedundantExactCheckboxPage;
                 }
                 name=CheckboxPageNameOverride(table,relation,target,selected,baseline,definition,globalPageId,defaultGlobalPage,storedGlobalStatic);
             }
@@ -122,7 +124,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     IsProjectOnlyStoredMultiSelectPage(catalog,target,selected));
             var physicalNameOverride=name is not null&&target.IsRongyu==1&&!binding.ApplyPageScope;
             var globalOwnedCheckbox=checkbox&&binding.ApplyPageScope&&selected is not null&&
-                (storedGlobalStatic||globalAccountPage||StoredIdentityMultiPage(catalog,target,selected,checkbox:true)||
+                (storedGlobalStatic||globalAccountPage||globalExactCheckboxPage||StoredIdentityMultiPage(catalog,target,selected,checkbox:true)||
                     IsNonRedundantProjectMultiPage(catalog,target,selected,checkbox:true));
             if(table.IsRongyu!=0||target.IsRongyu!=0&&!scopedPhysicalCheckbox&&!storedMultiSelect&&!physicalNameOverride||
                 GlobalCrossTableTarget.Declared(table)&&!globalOwnedCheckbox||

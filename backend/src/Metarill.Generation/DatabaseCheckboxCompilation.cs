@@ -124,6 +124,7 @@ internal static class DatabaseCheckboxCompilation
             var storedStaticPage=false;
             var scopedGlobalAccountPage=false;
             var scopedGlobalParentPage=false;
+            var scopedGlobalExactPage=false;
             var globalPageOverride=false;
             if(target.IsGlobal&&!functionForm)
             {
@@ -147,14 +148,15 @@ internal static class DatabaseCheckboxCompilation
                 storedProjectPage=proof.UsesProjectPage;
                 scopedGlobalAccountPage=table.IsGlobal&&proof.UsesNonRedundantAccountPage;
                 scopedGlobalParentPage=proof.UsesPhysicalParentPage;
+                scopedGlobalExactPage=table.IsGlobal&&proof.UsesNonRedundantExactCheckboxPage;
                 storedStaticPage=table.IsGlobal&&proof.UsesStoredStaticPage;
-                if(globalPageOverride||storedAccountPage||storedProjectPage||storedStaticPage||scopedGlobalParentPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
+                if(globalPageOverride||storedAccountPage||storedProjectPage||storedStaticPage||scopedGlobalParentPage||scopedGlobalExactPage||NonRedundantReadCompilation.HasGlobalRowProject(target)||FixedPageConditionCompilation.HasMultiTargetScope(model,target,publishedGlobalPage,includeProjectFixedScope:false)||
                     GlobalPhysicalRelationValue.IsPublishedTypedCache(model.Catalog,MetadataStoragePolicy.ForTable(model.Catalog,target.Source),target.Source,proof.Name)||
                     table.Source.IsRongyu==1&&publishedGlobalPage.Condition is not null)
                     globalPage=publishedGlobalPage;
             }
             var storedIdentityPage=storedAccountPage||storedProjectPage||scopedGlobalAccountPage;
-            if(table.IsGlobal&&!storedIdentityPage&&!storedStaticPage&&!scopedGlobalParentPage)
+            if(table.IsGlobal&&!storedIdentityPage&&!storedStaticPage&&!scopedGlobalParentPage&&!scopedGlobalExactPage)
                 return Gap("全局业务来源必须绑定受支持的已发布字典页。");
             if(storedAccountPage&&table.Source.IsRongyu==1&&!functionForm&&
                 !baseline.HasSameCondition(definition,target.Columns.Select(column=>column.Source.ColumnName)))
@@ -530,7 +532,8 @@ internal static class DatabaseCheckboxCompilation
                 CompoundSourceDependencies=compoundGlobalSource
                     ?NonRedundantCrossParentCompilation.Dependencies(model,table,page,sourceScopeColumns):[],
                 GlobalParentPage=globalParentPage,
-                DerivedName=derived||logicalPage is not null||globalRealtimeNameOverride||sharedDerivedPageScope
+                // 全局业务的精确字典由固定查询合并实际字典条件与当前角色，物理显示名同样经过该计划。
+                DerivedName=derived||logicalPage is not null||globalRealtimeNameOverride||sharedDerivedPageScope||scopedGlobalExactPage
             };
             if(independentCache&&!CanSharePhysicalNames(result))
                 return Gap("多个物理名称副本要求同一固定目标范围。");

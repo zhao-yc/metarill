@@ -7,6 +7,7 @@ public sealed record GlobalMultipleRelationPlan(PageMetadata Page,ColumnMetadata
     public bool UsesStoredStaticPage { get; init; }
     public bool UsesProjectPage { get; init; }
     public bool UsesNonRedundantAccountPage { get; init; }
+    public bool UsesNonRedundantExactCheckboxPage { get; init; }
     public bool UsesNonRedundantPhysicalParentPage { get; init; }
     public bool UsesStoredPhysicalParentPage { get; init; }
     public bool UsesPhysicalParentPage=>UsesNonRedundantPhysicalParentPage||UsesStoredPhysicalParentPage;
@@ -209,6 +210,10 @@ public static class GlobalMultipleRelationTarget
         var storedStatic=(checkbox||pageId.Length>0)&&(target.IsRongyu==1||!scoped)&&IsStoredStaticPage(target,page,condition,checkbox);
         var projectPage=(checkbox||pageId.Length>0)&&IsProjectPage(target,page,condition,checkbox);
         var nonRedundantAccountPage=(checkbox||pageId.Length>0)&&IsNonRedundantAccountPage(target,page,condition,checkbox);
+        var exactPage=checkbox?GlobalCrossTableTarget.DeclaresExactPage(target,page):
+            GlobalCrossTableTarget.DeclaresExactMulti(target,page);
+        // 实时复选的字典权限由实际发布页证明，来源仍须具有物理行项目列。
+        var exactRealtimeCheckbox=checkbox&&exactPage&&!cached&&target.IsRongyu==0;
         // 普通与全局业务来源共用真实同父证明；固定字典可以只声明父范围和字面条件。
         var projectParentPage=IsProjectParentPage(target,page,condition,checkbox);
         var staticParentPage=GlobalCrossTableTarget.UsesOnlyParentVariables(condition);
@@ -239,14 +244,15 @@ public static class GlobalMultipleRelationTarget
         if(GlobalCrossTableTarget.Declared(owner))
         {
             // 业务来源仍按行项目隔离。物理副本只能使用维护时也能重现的固定字典范围。
-            if(!storedAccount&&!storedStatic&&!projectPage&&!nonRedundantAccountPage&&!physicalParentPage&&storedParent is null)throw new NotSupportedException("全局多值来源必须绑定受支持的已发布字典页。");
+            if(!storedAccount&&!storedStatic&&!projectPage&&!nonRedundantAccountPage&&!physicalParentPage&&
+                storedParent is null&&!exactRealtimeCheckbox)
+                throw new NotSupportedException("全局多值来源必须绑定受支持的已发布字典页。");
             GlobalDerivedRelationSource.RequireTable(catalog,owner);
         }
         if(cached&&checkbox&&(projectPage||storedParent is not null||GlobalCrossTableTarget.Declared(owner)&&(storedStatic||nonRedundantAccountPage))&&
             !checkboxDefinition!.IsCoveredByStaticPage(condition,expanded.Select(column=>column.ColumnName)))
             throw new NotSupportedException("全局复选的冗余名称要求控件条件由实际发布字典页覆盖。");
-        if(foreign.ControlKind=="MultiSelectPage"&&GlobalCrossTableTarget.DeclaresExactMulti(target,page)||
-            foreign.ControlKind=="MultiCheckBoxDatabase"&&GlobalCrossTableTarget.DeclaresExactPage(target,page))
+        if(exactPage)
             _=GlobalCrossTableTarget.ExactPageParent(catalog,target,page);
         else if(selfTreeScope)GlobalCrossTableTarget.RequireSelfTreeConditionCandidate(catalog,target,page,allowMultiParent:true,checkbox:checkbox);
         else if(projectPage)
@@ -282,6 +288,8 @@ public static class GlobalMultipleRelationTarget
         var key=columns.SingleOrDefault(column=>column.ColumnName=="id");if(key is null||key.LogicalType!="int64"||key.IsDbNotNull!=1||!Scalar(key))throw new InvalidOperationException("全局多值目标必须使用非空int64物理主键。");
         if(!scoped&&condition.Fields.Any(field=>!joinedFields.Contains(field)&&!Scalar(columns.Single(column=>column.ColumnName==field))))
             throw new NotSupportedException("全局多值目标页条件必须为非凭据物理标量。");
-        return new(page,name){UsesStoredStaticPage=storedStatic,UsesProjectPage=projectPage,UsesNonRedundantAccountPage=nonRedundantAccountPage,UsesNonRedundantPhysicalParentPage=physicalParentPage,UsesStoredPhysicalParentPage=storedParent is not null};
+        return new(page,name){UsesStoredStaticPage=storedStatic,UsesProjectPage=projectPage,UsesNonRedundantAccountPage=nonRedundantAccountPage,
+            UsesNonRedundantExactCheckboxPage=exactRealtimeCheckbox,UsesNonRedundantPhysicalParentPage=physicalParentPage,
+            UsesStoredPhysicalParentPage=storedParent is not null};
     }
 }
