@@ -44,6 +44,15 @@ public sealed class SharedCrossFilesGenerationTests
                 sourcePage.WhereSql+=" AND billing_country_id=@parent_id";
             }
         }
+        if(globalRoot&&physicalParents==1)
+        {
+            sourcePage.Extra["isSum"]=JsonSerializer.SerializeToElement(1);
+            catalog.ConfigColumns.Add(new(){Id="9508",YzProjectId=catalog.YzProjectId,ConfigTableId="2",
+                ColumnName="amount",Name="金额",LogicalType="decimal"});
+            catalog.ConfigPageColumns.Add(new(){Id=sourcePage.Id+"9508",YzProjectId=catalog.YzProjectId,
+                ConfigPageId=sourcePage.Id,ConfigColumnId="9508",IsShow=1,
+                Extra=new(){["sumKind"]=JsonSerializer.SerializeToElement(1)}});
+        }
         var cascade=catalog.ConfigColumns.Single(column=>column.Id=="25");
         var definition=JsonNode.Parse(cascade.ControlDetail)!;
         var targetId=cascade.LinkConfigTableId;
@@ -105,6 +114,8 @@ public sealed class SharedCrossFilesGenerationTests
                 var proof=CrossTableWriteCompilation.Resolve(model,source,page,control);
                 Assert.True(proof.Definition is not null,page.Source.Id+" "+proof.Reason);
             }
+            if(globalRoot&&physicalParents==1)
+                AssertGlobalPhysicalParentReadGuards(model,sourcePage.Id);
         }
 
         string[] storage=physicalParents switch
@@ -115,6 +126,31 @@ public sealed class SharedCrossFilesGenerationTests
         };
         await AssertFullSharedFileExactPlan(catalog,sourcePage.Id,
             selfTree?"tree_name":textKey?"isolated_country_id":"isolated_country_name",false,storage);
+    }
+
+    /// <summary>各原读取入口必须先核对实际父页，写后详情仍在当前事务中读取。</summary>
+    private static void AssertGlobalPhysicalParentReadGuards(GenerationModel model,string pageId)
+    {
+        var service=Assert.Single(BackendRenderer.Render(model),file=>file.Path=="Services/SharedParentSourceService.g.cs").Content;
+        string Body(string name)
+        {
+            var method=System.Text.RegularExpressions.Regex.Match(service,
+                @"(?m)^    (?:public|private|internal) [^(\r\n]+?\b"+name+@"\(");
+            Assert.True(method.Success,"未生成方法："+name);
+            var next=service.IndexOf("\n    ///",method.Index,StringComparison.Ordinal);
+            return next<0?service[method.Index..]:service[method.Index..next];
+        }
+
+        var parent="ValidateParents"+pageId+"Async";
+        foreach(var method in new[]{"Page","Count","Statistics"})
+        {
+            var body=Body(method+pageId+"Async");
+            Assert.Contains("InReadSnapshotAsync",body);
+            Assert.Contains(parent+"(request.ParentId,actor,cancellationToken,locking:false)",body);
+            Assert.True(body.IndexOf(parent,StringComparison.Ordinal)<body.IndexOf("new NonRedundantReader",StringComparison.Ordinal));
+        }
+        Assert.Contains("InReadSnapshotAsync",Body("Detail"+pageId+"Async"));
+        Assert.Contains(parent+"(parentId,actor,cancellationToken,locking:currentRead)",Body("ReadDetail"+pageId+"Async"));
     }
 
     /// <summary>普通、物理父键及逻辑父级的完整应用均按当前发布页编译附件范围。</summary>

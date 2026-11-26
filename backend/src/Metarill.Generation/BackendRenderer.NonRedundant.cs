@@ -364,16 +364,24 @@ internal static class GeneratedNonRedundantReadCatalog
         return "CandidateReadPlan"+page.Source.Id+(bindAccount?".BindAccount(actor)":"");
     }
 
+    /// <summary>列表与聚合共享物理父发布证明，避免汇总另开快照时漏验实际父页。</summary>
+    private static bool HasNonRedundantPhysicalReadParent(GenerationModel model,TableModel table,PageModel page)=>
+        MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
+        ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null;
+
+    /// <summary>分页、计数、详情与汇总使用同一父校验入口，只有私有当前读可请求锁。</summary>
+    private static string NonRedundantReadParentCheck(PageModel page,bool physicalParent,string key,string readLock="false")=>
+        SelectionPageRenderer.Enabled(page)
+            ?$"await ValidateSelectionParents{page.Source.Id}Async({key},actor,cancellationToken);"
+            :physicalParent?$"await ValidateParents{page.Source.Id}Async({key},actor,cancellationToken,locking:{readLock});":"";
+
     /// <summary>普通父范围沿物理键，稀疏跨表父范围沿固定逻辑链；公开读取与私有当前锁分开。</summary>
     private static string NonRedundantQuery(GenerationModel model,TableModel table,PageModel page)
     {
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);var suffix=page.Source.Id;var fixedQuery=FixedPageQueryCompilation.For(table,page);
-        var physicalParent=MultiGlobalParentCompilation.PhysicalScopeTarget(model,table,page) is not null||
-            ProjectScopedSingleRelationTarget.PhysicalSelectionParent(model.Catalog,table.Source,page.Source) is not null;
+        var physicalParent=HasNonRedundantPhysicalReadParent(model,table,page);
         var snapshot=physicalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
-        string ParentCheck(string key,string readLock="false")=>SelectionPageRenderer.Enabled(page)
-            ?$"await ValidateSelectionParents{suffix}Async({key},actor,cancellationToken);"
-            :physicalParent?$"await ValidateParents{suffix}Async({key},actor,cancellationToken,locking:{readLock});":"";
+        string ParentCheck(string key,string readLock="false")=>NonRedundantReadParentCheck(page,physicalParent,key,readLock);
         var globalCandidate=NonRedundantReadCompilation.GlobalSelectionPage(table,page);
         var readPlan=NonRedundantCrossTableCompilation.BoundPlan(model,table,page,"ReadPlan"+suffix,singleTargets:plan.SingleTargets.Count>0||plan.RequiresAccount);
         var crossCandidate=globalCandidate&&CrossTableWriteCompilation.ForService(model,table,page).Count>0;
@@ -566,7 +574,10 @@ internal static class GeneratedNonRedundantReadCatalog
         var plan=NonRedundantReadCompilation.ForPage(model,table,page);
         var listPlan=NonRedundantListReadPlan(model,table,page,plan);
         var listCondition=globalCandidate?"":FixedPageConditionCompilation.ReadArgument(page);
-        var result=new StringBuilder().AppendLine("    /// <summary>派生值在SQL完整范围内聚合，当前页统计仍折叠原VO。</summary>").AppendLine($"    internal {(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(CascadeTreeQueryCompilation.Snapshot(model,table,page)?$"=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async()=>":"")}").AppendLine("    {").AppendLine("        var statistics=new Dictionary<string,object?>(StringComparer.Ordinal);");
+        var physicalParent=definitions.Count>0&&HasNonRedundantPhysicalReadParent(model,table,page);
+        var snapshot=physicalParent||CascadeTreeQueryCompilation.Snapshot(model,table,page);
+        var result=new StringBuilder().AppendLine("    /// <summary>派生值在SQL完整范围内聚合，当前页统计仍折叠原VO。</summary>").AppendLine($"    internal {(snapshot?"Task":"async Task")}<Dictionary<string,object?>> Statistics{suffix}Async(PageRequest request,RuntimeActor actor,PageResult<{page.Name}Vo> page,CancellationToken cancellationToken){(snapshot?$"=>{GlobalCachedSourceCompilation.ReadSession(model)}.InReadSnapshotAsync<Dictionary<string,object?>>(async()=>":"")}").AppendLine("    {").AppendLine("        var statistics=new Dictionary<string,object?>(StringComparer.Ordinal);");
+        if(physicalParent)result.AppendLine("        "+NonRedundantReadParentCheck(page,true,"request.ParentId"));
         if(definitions.Count==0)result.AppendLine("        await Task.CompletedTask;");
         var sums=definitions.Where(definition=>definition.Kind==1).ToArray();
         var batchSums=sums.Any(definition=>definition.Column.Type.TrimEnd('?')!="double");
@@ -594,6 +605,6 @@ internal static class GeneratedNonRedundantReadCatalog
             else
             {result.AppendLine($"        var {local}=new Dictionary<string,object?>();if(page.Records.Count>0){local}[\"currentPage\"]=LegacyStatisticsMath.Percentage(page.Records.LongCount(row=>row.{column.Property}==2),page.Records.Count);").AppendLine($"        if(page.Total>0){{var filters={NonRedundantFilterCall(model,table,page,globalCandidate:globalCandidate)};filters.Add(new({Literal(column.Source.ColumnName)},FixedReadComparison.Equal,2));var matches=await new NonRedundantReader(session).StatisticsAsync({listPlan},filters,Array.Empty<string>(),cancellationToken,actor.ProjectId{listCondition});{local}[\"total\"]=LegacyStatisticsMath.Percentage(matches.Total,page.Total);}}").AppendLine($"        statistics[{key}]={local};");}
         }
-        return result.AppendLine("        return statistics;").AppendLine(CascadeTreeQueryCompilation.Snapshot(model,table,page)?"    },cancellationToken);":"    }").ToString();
+        return result.AppendLine("        return statistics;").AppendLine(snapshot?"    },cancellationToken);":"    }").ToString();
     }
 }
