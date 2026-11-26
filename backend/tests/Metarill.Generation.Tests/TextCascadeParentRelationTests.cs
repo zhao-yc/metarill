@@ -365,9 +365,14 @@ public sealed class TextCascadeParentRelationTests
     [Theory]
     [InlineData("OnlyNew","list")]
     [InlineData("OverWriteByFirstColumn","edit")]
-    public async Task Sparse_same_text_parent_scopes_single_relations(string import,string export)
+    [InlineData("OnlyNew","list",true,false)]
+    [InlineData("OnlyNew","list",true,true)]
+    [InlineData("OverWriteByFirstColumn","edit",true,true)]
+    public async Task Sparse_same_text_parent_scopes_single_relations(string import,string export,bool compound=false,bool globalCountry=false)
     {
         var catalog=Catalog(0,import,export);
+        if(globalCountry)ConfigureGlobalTextAncestor(catalog);
+        if(compound)AddSecondTextAncestor(catalog);
         foreach(var id in new[]{"81","82"})
         {
             ScopeTarget(catalog,id);
@@ -387,6 +392,12 @@ public sealed class TextCascadeParentRelationTests
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var plan=Metarill.Data.Queries.NonRedundantReads.CompileCrossPageCandidate(catalog,"81","810",["id"],[]);
         AssertTextParentSql(plan);
+        if(globalCountry)
+        {
+            const long storeId=9007199254740993;
+            plan=plan.BindAccount(new Metarill.Core.Security.RuntimeActor(7,"门店合成账号",false,catalog.YzProjectId,"5"){StoreId=storeId});
+            AssertTextParentSql(plan,storeId);
+        }
         using var session=new Metarill.Data.DatabaseSession(new(){ExpectedDatabase="offline",
             ConnectionString="Server=127.0.0.1;Port=1;Database=offline;User ID=unused"});
         foreach(var key in new[]{"001","1","Country-A"})
@@ -397,6 +408,26 @@ public sealed class TextCascadeParentRelationTests
         }
         Assert.Throws<ArgumentException>(()=>Metarill.Data.Queries.NonRedundantCrossTableScopeSql.ApplyCandidate(
             session.Select<ScopeRow>(),session,plan,"same_text_parent",catalog.YzProjectId,false," "));
+        if(compound)
+        {
+            var branch=catalog.ConfigColumns.Single(column=>column.Id=="291");
+            var original=branch.ControlDetail;
+            try
+            {
+                var wrong=System.Text.Json.Nodes.JsonNode.Parse(original)!;
+                wrong["levels"]![0]!["idField"]="id";
+                branch.ControlDetail=wrong.ToJsonString();
+                var invalid=GenerationModel.Create(catalog,model.Namespace);
+                var invalidSource=invalid.Tables.Single(item=>item.Source.Id=="2");
+                var invalidPage=Assert.Single(invalidSource.Pages);
+                var invalidBranch=invalidSource.Columns.Single(column=>column.Source.Id=="25");
+                var rejected=CrossTableWriteCompilation.Resolve(invalid,invalidSource,invalidPage,invalidBranch);
+                Assert.Null(rejected.Definition);
+                Assert.Contains("文本业务键要求",rejected.Reason);
+            }
+            finally { branch.ControlDetail=original; }
+        }
+
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-sparse-same-text-parent");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
@@ -409,6 +440,30 @@ public sealed class TextCascadeParentRelationTests
             Assert.Contains("OptionsScope201_702Async(logicalRelationParentId, null, actor, cancellationToken, true, false",service);
             Assert.Contains("ImportRelation201_700Async",service);
             Assert.Contains("ImportRelation201_702Async",service);
+            Assert.Contains("Export201Async",service);
+            if(compound)
+            {
+                foreach(var branch in new[]{"25","291"})
+                {
+                    Assert.Contains($"CrossReader201_{branch}(actor,false,false).PathByKeyAsync(0,LogicalParentId201(parentId)",service);
+                    Assert.Contains($"CrossReader201_{branch}(actor,locking,false).PathByKeyAsync(0,LogicalParentId201(parentId)",service);
+                }
+                Assert.Contains("\"country_id\",\"mt_parent_0\",parentId!,actor.ProjectId,locking",service);
+                Assert.Contains("\"other_country_id\",\"mt_parent_1\",parentId!,actor.ProjectId,locking",service);
+                Assert.Contains("await VerifyLogicalParent201Async(",service);
+                Assert.DoesNotContain("out var sourceParentKey",service);
+                if(globalCountry)Assert.Contains("LogicalParentPlan201.BindAccount(actor)",service);
+
+                var detail=Path.Combine(directory,"frontend/pages/yzp/textrel_source-detail-201.vue");
+                var vue=await File.ReadAllTextAsync(detail);
+                Assert.Contains("ref=\"selectPageDialog702\"",vue);
+                Assert.Contains(":parent_id=\"parent_id\"",vue);
+                var probe=NonRedundantApplicationFixture.Start("node",directory);
+                probe.ArgumentList.Add(Path.Combine(NonRedundantApplicationFixture.TestDirectory(),"CrossTableTextParentVueProbe.mjs"));
+                probe.ArgumentList.Add(detail);
+                probe.ArgumentList.Add("0007-Ab+字段&值#北% ");
+                await NonRedundantApplicationFixture.RunAsync(probe);
+            }
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
@@ -2619,7 +2674,7 @@ public sealed class TextCascadeParentRelationTests
     }
 
     /// <summary>固定候选以真实业务键关联父路径，同时避免将业务键与整数主键再比较。</summary>
-    private static void AssertTextParentSql(Metarill.Data.Queries.NonRedundantReadPlan plan)
+    private static void AssertTextParentSql(Metarill.Data.Queries.NonRedundantReadPlan plan,long? storeId=null)
     {
         const System.Reflection.BindingFlags flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
         var mysql=plan.GetType().GetProperty("MySql",flags)!.GetValue(plan)!;
@@ -2627,6 +2682,12 @@ public sealed class TextCascadeParentRelationTests
         var from=Assert.IsType<string>(mysql.GetType().GetProperty("From",flags)!.GetValue(mysql));
         Assert.Contains("`business_key`",from);
         Assert.DoesNotContain("multi_parent.`id`",scope);
+        if(storeId is {} expectedStore)
+        {
+            var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(mysql.GetType()
+                .GetProperty("Constants",flags)!.GetValue(mysql));
+            Assert.Contains(expectedStore,parameters.Values);
+        }
     }
 
     /// <summary>使用无行项目列的全局文本父，所有父读取都应用已发布门店范围。</summary>

@@ -169,7 +169,7 @@ internal static class RelationCompilation
             // 附加联接沿实际字典页解析；共用文本父键时仍需证明来源和目标的业务键。
             var textParent=source.Source.ControlKind=="List"&&target.Source.IsRongyu==0&&!string.IsNullOrWhiteSpace(where)
                 ?SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowSparseTarget:true)??
-                    NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage)
+                    NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowCompoundSource:true)
                 :null;
             var globalList=source.Source.ControlKind=="List"&&!functionForm&&target.IsGlobal&&target.Source.IsRongyu==0;
             var (scopes, conditions) = RelationConditionsCompilation.Compile(model,owner,page,target,where,
@@ -213,7 +213,8 @@ internal static class RelationCompilation
                 CrossTableReadCompilation.TextSourceParent(model,owner,page) is not null)
             {
                 sharedTextParent=textParent??SharedRedundantParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowSparseTarget:true)??
-                    NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,allowStoredTarget:true);
+                    NonRedundantCrossParentCompilation.CommonTextParent(model,owner,page,target,targetPage,
+                        allowStoredTarget:true,allowCompoundSource:true);
                 // 非冗余字典的联接名称交由实际发布页的固定投影证明，父键仍使用两页共同的文本业务键。
                 var nameStorage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source).Kind(name.Source);
                 if(sharedTextParent is null||binding.Declared||scopes.Any(scope=>scope.Source=="parent"&&scope.Column!=sharedTextParent)||

@@ -104,8 +104,8 @@ onPopSelect{{{id}}}(row) { this.permissionVersion++;if(this.{{{ro}}} || !this._s
 
         string SameParent()
         {
-            // 原单选按主键打开目标页，文本级联业务键不可直接用作目标主键。
-            if(CrossTableReadCompilation.TextSourceParent(c.Model,c.Table,c.Page) is not null&&
+            // 原弹层沿用关系已证明的父值，文本业务键不能作为目标主键验证。
+            if(relation?.SharedTextParent is null&&CrossTableReadCompilation.TextSourceParent(c.Model,c.Table,c.Page) is not null&&
                 SharedRedundantParentCompilation.CommonTextParent(c.Model,c.Table,c.Page,targetTable,target,allowSparseTarget:true) is null&&
                 NonRedundantCrossParentCompilation.CommonTextParent(c.Model,c.Table,c.Page,targetTable,target,allowStoredTarget:true) is null)
                 throw new NotSupportedException("原单选目标父尚未证明使用与来源相同的文本业务键。");
