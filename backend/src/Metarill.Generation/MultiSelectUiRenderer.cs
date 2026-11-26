@@ -18,7 +18,8 @@ internal static class MultiSelectUiRenderer
     /// <summary>只将通过发布证明的字段加入文本父名单；普通多选的原源码调用保持一致。</summary>
     internal static string TextParentArgument(IReadOnlyList<MultiSelectModel> defs)
     {
-        var fields=defs.Where(def=>def.SharedTextParent is not null).Select(def=>def.Source.JsonName).ToArray();
+        var fields = defs.Where(def => def.SharedTextParent is not null || def.FunctionTextParent)
+            .Select(def => def.Source.JsonName).ToArray();
         return fields.Length==0?"":","+JsonSerializer.Serialize(fields);
     }
     /// <summary>保留原选择事件并沿用有限高度滚动容器；工具栏不能随长列表移出视口，关闭时卸载草稿。</summary>

@@ -294,12 +294,16 @@ public sealed class FunctionTableGenerationTests : IDisposable
     [InlineData("physical")]
     [InlineData("nested")]
     [InlineData("logical")]
+    [InlineData("logicalText")]
+    [InlineData("logicalTextOrdinary")]
     public async Task Function_multiselect_uses_the_published_parent_and_exact_scope(string scenario)
     {
+        var textParent = scenario.StartsWith("logicalText", StringComparison.Ordinal);
+        var exact = scenario != "logicalTextOrdinary";
         var catalog=WithScopedCheckbox(WithCascades(Catalog()),scenario=="physical"?1:0);
         var target=catalog.ConfigPages.Single(page=>page.Id=="103");
         var name="name";
-        if(scenario=="logical")ConfigureDerivedCheckboxScope(catalog,"multi");
+        if (scenario == "logical" || textParent) ConfigureDerivedCheckboxScope(catalog, "multi");
         else if(scenario=="nested")
         {
             ConfigureDerivedCheckboxScope(catalog,"derived");
@@ -310,6 +314,8 @@ public sealed class FunctionTableGenerationTests : IDisposable
             catalog.ConfigPages.Single(page=>page.Id=="301").WhereSql+=" AND store_id=@current_store_id";
             catalog.ConfigPageColumns.Add(new(){Id="10319",ConfigPageId="103",ConfigColumnId="19",IsShow=1});
         }
+        if (textParent) ConfigureTextSelectionParent(catalog);
+        if (!exact) target.Extra.Remove("exactDataManageMatchField");
         target.Extra["type"]=JsonSerializer.SerializeToElement(2);
         catalog.ConfigColumns.Add(new(){Id="39",ConfigTableId="2",ColumnName="review_ids",LogicalType="string",
             ControlKind="MultiSelectPage",LinkConfigTableId="1",IsVirtualColumn=1,
@@ -324,7 +330,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
         var controller=await File.ReadAllTextAsync(Path.Combine(generated,"Controllers/CustomerPage103Controller.g.cs"));
         Assert.Contains("SelectionSelected103Async(request, Actor(\"list\")",controller);
         var code=await File.ReadAllTextAsync(Path.Combine(generated,"Services/CustomerService.g.cs"));
-        Assert.Contains("ResolveExactDataManage(\"103\", authorizationOperation, \"real_name\")",code);
+        Assert.Equal(exact, code.Contains("""ResolveExactDataManage("103", authorizationOperation, "real_name")""", StringComparison.Ordinal));
         var index=code.IndexOf(" SelectionSelected103Async(",StringComparison.Ordinal);
         Assert.True(index>=0);
         var selected=code[index..];
@@ -337,7 +343,12 @@ public sealed class FunctionTableGenerationTests : IDisposable
             Assert.Contains("ReadFilters103(new PageRequest{ParentId=request.ParentId}",selected);
         }
 
-        await VerifyVueAsync(output,"GeneratedFunctionScopedMultiProbe.mjs");
+        if (textParent)
+        {
+            Assert.Contains("PathByKeyAsync(0,LogicalParentId103(parentId),cancellationToken)", code);
+            Assert.Contains("""FixedReadFilter.ForTextTree("country_id",[request.ParentId!])""", code);
+        }
+        await VerifyVueAsync(output, "GeneratedFunctionScopedMultiProbe.mjs", textParent ? "text-parent" : null);
         await BuildFullAsync(output);
         if(scenario!="nested")return;
         var context=new AssemblyLoadContext("ScopedFunctionMulti."+Guid.NewGuid().ToString("N"),isCollectible:true);
@@ -665,32 +676,7 @@ public sealed class FunctionTableGenerationTests : IDisposable
         var textParent = scenario == "logicalText";
         if (textParent) scenario = "logical";
         var catalog=WithSingleSelection(Catalog(),scenario);
-        if (textParent)
-        {
-            // 本轮样本使用已发布的文本层位作为单选父级，复选配置由原有单独场景覆盖。
-            catalog.ConfigColumns.RemoveAll(field => field.Id == "38");
-            catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == "38");
-            catalog.ConfigColumns.Add(new()
-            {
-                Id = "16", ConfigTableId = "1", ColumnName = "country_id", LogicalType = "string",
-                ColumnLength = "50", LinkConfigTableId = "4"
-            });
-            var targetPath = catalog.ConfigColumns.Single(column => column.Id == "120");
-            CrossTableExcelLosslessGenerationTests.AddBusinessKeys(catalog, targetPath, primaryLevel: 1);
-            foreach (var id in new[] { "28", "29" })
-            {
-                var relation = catalog.ConfigColumns.Single(column => column.Id == id);
-                var definition = System.Text.Json.Nodes.JsonNode.Parse(relation.ControlDetail)!;
-                definition["levels"]![0]!["idField"] = "business_key";
-                relation.ControlDetail = definition.ToJsonString();
-            }
-            foreach (var id in new[] { "business_4", "506", "94" })
-            {
-                var column = catalog.ConfigColumns.Single(field => field.Id == id);
-                column.LogicalType = "string";
-                column.ColumnLength = "50";
-            }
-        }
+        if (textParent) ConfigureTextSelectionParent(catalog);
         if(localParent)
         {
             // 让两个物理字段共享项目内主键，并开启实际用到同一数据范围的统计和导出。
@@ -772,6 +758,34 @@ public sealed class FunctionTableGenerationTests : IDisposable
             RuntimeHelpers.RunClassConstructor(runtime.TypeHandle);
         }
         finally {context.Unload();}
+    }
+
+    /// <summary>原单选和多选共用同一个文本祖先，保留各自的发布页和目标权限。</summary>
+    private static void ConfigureTextSelectionParent(MetadataCatalog catalog)
+    {
+        // 复选配置由其他场景单独覆盖，避免将不同控件的父键协议混在同一个样本。
+        catalog.ConfigColumns.RemoveAll(field => field.Id == "38");
+        catalog.ConfigPageColumns.RemoveAll(field => field.ConfigColumnId == "38");
+        catalog.ConfigColumns.Add(new()
+        {
+            Id = "16", ConfigTableId = "1", ColumnName = "country_id", LogicalType = "string",
+            ColumnLength = "50", LinkConfigTableId = "4"
+        });
+        var targetPath = catalog.ConfigColumns.Single(column => column.Id == "120");
+        CrossTableExcelLosslessGenerationTests.AddBusinessKeys(catalog, targetPath, primaryLevel: 1);
+        foreach (var id in new[] { "28", "29" })
+        {
+            var relation = catalog.ConfigColumns.Single(column => column.Id == id);
+            var definition = System.Text.Json.Nodes.JsonNode.Parse(relation.ControlDetail)!;
+            definition["levels"]![0]!["idField"] = "business_key";
+            relation.ControlDetail = definition.ToJsonString();
+        }
+        foreach (var id in new[] { "business_4", "506", "94" })
+        {
+            var column = catalog.ConfigColumns.Single(field => field.Id == id);
+            column.LogicalType = "string";
+            column.ColumnLength = "50";
+        }
     }
 
     /// <summary>控件独有的条件不能在直达目标页时丢失，无法覆盖时拒绝打包。</summary>

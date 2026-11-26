@@ -12,10 +12,17 @@ assert.ok(targetImport)
 const listing=await load(targetImport[1])
 const form=mountGenerated(detail,{},{},{runtimeDirectory})
 const ids=['9007199254740993','9007199254740994']
-const parents=['9007199254742000','9007199254742001']
+const textParent=process.argv[3]==='text-parent'
+const parents=textParent?['0007-Ab','0008-aB']:['9007199254742000','9007199254742001']
 let target
 try {
  await form.flush()
+ form.state.openSelect39()
+ await form.flush()
+ assert.equal(form.targets.length,0)
+ assert.match(form.dialogs.at(-1).content,/先选择或保存父记录/)
+
+ form.state.entity.reviewCountryId=textParent?'   ':'0007'
  form.state.openSelect39()
  await form.flush()
  assert.equal(form.targets.length,0)
@@ -25,6 +32,7 @@ try {
  form.state.openSelect39()
  await form.flush()
  const earlier=form.targets.at(-1)
+ assert.ok(earlier,'有效父键应打开原多选列表')
  assert.equal(earlier.parent_id,parents[0])
  form.state.entity.reviewCountryId=parents[1]
  await form.flush()
@@ -61,6 +69,14 @@ try {
  assert.deepEqual(plain(form.state.entity.reviewIds),[ids[1]])
  const label=selectedNameField==='countryLabel'?'reviewCountryLabels':'reviewNames'
  assert.deepEqual(plain(form.state.entity[label]),['当前范围'])
+ form.state.customerButtonHandler63()
+ form.dialogs.at(-1).success({confirm:true})
+ await form.flush()
+ const command=form.requests.find(entry=>entry.options.url==='/admin/sys/config_button/execute')
+ const values=plain(command.options.data.entity)
+ assert.equal(values.reviewCountryId,parents[1])
+ assert.deepEqual(values.reviewIds,[ids[1]])
+ assert.deepEqual(values[label],['当前范围'])
  assert.equal(form.writes().length,0)
 } finally {
  target?.app.unmount()

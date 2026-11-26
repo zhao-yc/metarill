@@ -9,6 +9,7 @@ internal sealed record MultiSelectModel(ColumnModel Source, TableModel Target, P
 {
     internal bool LogicalSourceParent { get; init; }
     internal ColumnModel? SharedTextParent { get; init; }
+    internal bool FunctionTextParent { get; init; }
     internal ColumnModel? LogicalParentBusinessKey { get; init; }
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal bool PublishedPhysicalSource { get; init; }
@@ -237,8 +238,13 @@ internal static class MultiSelectCompilation
                 }
             }
             if (functionForm)
+            {
+                // 功能表没有来源业务行，直接沿实际发布字典页的父键协议读取候选及已选值。
+                var textParent = CrossTableReadCompilation.TextSourceParent(model, target, targetPage) is not null;
                 return new(new(source, target, targetPage, name, name.IsId ? null : SelectionDisplayFieldCompilation.FunctionFormNames(table, source, name), same,
-                    targetField, targetParents, Value("buttonText", "选择")){GlobalParent=scopedParent?.Global==true}, null);
+                    targetField, targetParents, Value("buttonText", "选择"))
+                    { GlobalParent = scopedParent?.Global == true, FunctionTextParent = textParent }, null);
+            }
 
             ColumnModel? names = null;
             if (!name.IsId)
