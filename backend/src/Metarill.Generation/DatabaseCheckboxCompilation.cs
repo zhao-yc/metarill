@@ -46,11 +46,13 @@ internal sealed record DatabaseCheckboxModel(ColumnModel Source,TableModel Targe
     internal ExactDataManageModel? ExactTarget { get; init; }
     internal IReadOnlyList<(CrossTableReadModel Read,int Index)> LogicalSourcePaths { get; init; } = [];
     internal bool LogicalSourceParent => LogicalSourcePaths.Count>0;
-    internal bool IndependentTextSource { get; init; }
+    internal bool IndependentSourceParent { get; init; }
     internal ColumnModel? SharedTextParent { get; init; }
     internal ColumnModel? LogicalParentBusinessKey { get; init; }
-    internal bool UsesPageTextParent=>LogicalSourceParent&&(IndependentTextSource||SharedTextParent is not null);
-    internal bool UsesPageParentForExport=>UsesPageTextParent||LogicalSourceParent&&LogicalParentBusinessKey is not null;
+    internal bool UsesPageTextParent=>LogicalSourceParent&&
+        (SharedTextParent is not null||IndependentSourceParent&&SourceParent?.Type=="string?");
+    internal bool UsesPageParentForExport=>LogicalSourceParent&&
+        (IndependentSourceParent||SharedTextParent is not null||LogicalParentBusinessKey is not null);
     internal IReadOnlyList<ColumnModel> SourceScopeColumns { get; init; } = [];
     internal IReadOnlyList<ColumnModel> CompoundSourceDependencies { get; init; } = [];
     internal PageModel? GlobalParentPage { get; init; }
@@ -377,11 +379,12 @@ internal static class DatabaseCheckboxCompilation
                 sourceParent=sourceScopeColumns.Single(column=>column.Source.Id==owner.Column.Id);
             }
             var pageHasParent=logicalPage?.Scopes.Any(scope=>scope.Source=="parent")==true;
-            var independentTextSource=textSource is not null&&physicalParents.Length==0&&!pageHasParent&&
+            // 独立字典不接收来源父键；来源的原级联权限仍在候选和写入中逐条核验。
+            var independentSourceParent=(logicalSource||textSource is not null)&&physicalParents.Length==0&&!pageHasParent&&
                 namePage?.Scopes.Any(scope=>scope.Source=="parent")!=true;
-            if(textSource is not null&&!independentTextSource&&sharedTextParent is null)
+            if(textSource is not null&&!independentSourceParent&&sharedTextParent is null)
                 return Gap("复选目标父尚未证明使用与来源相同的文本业务键。");
-            if(logicalSource&&!independentTextSource&&physicalParents.Length==0&&!pageHasParent)
+            if(logicalSource&&!independentSourceParent&&physicalParents.Length==0&&!pageHasParent)
                 return Gap("来源逻辑父键须对应明确的控件或目标页父范围。");
             PageModel? globalParentPage=null;
             if(projectStoredGlobalParent is not null)
@@ -524,7 +527,7 @@ internal static class DatabaseCheckboxCompilation
                 !NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column))&&
                 logicalBindings.Any(binding=>binding.Path is {} path&&path.Read.Levels[path.Index].AlternateKey?.Source.LogicalType=="int64"))
                 return Gap("全局复选的来源与目标父范围必须使用同一个已发布业务键。");
-            if(parents.Any(parent=>Protected(parent)||!(parent.IsGlobal&&(globalParentPage is not null||explicitGlobalPath||independentTextSource))&&!HasIdentity(model,parent)))
+            if(parents.Any(parent=>Protected(parent)||!(parent.IsGlobal&&(globalParentPage is not null||explicitGlobalPath||independentSourceParent))&&!HasIdentity(model,parent)))
                 return Gap("来源父须具有普通业务项目归属或实际全局层位证明。");
             // 原非冗余候选优先采用控件排序，省略时继承实际目标页排序。
             var orderBy=definition.OrderBy;
@@ -576,7 +579,7 @@ internal static class DatabaseCheckboxCompilation
                 RealtimeLogicalParentScope=realtimeRead&&exactTarget is null&&logicalPage is not null&&
                     logicalPage.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,logicalPage,scope.Column)),
                 ExactTarget=exactTarget,
-                IndependentTextSource=independentTextSource,
+                IndependentSourceParent=independentSourceParent,
                 SharedTextParent=sharedTextParent,
                 LogicalParentBusinessKey=logicalParentBusinessKey,
                 LogicalSourcePaths=logicalBindings.Select(binding=>binding.Path!.Value)

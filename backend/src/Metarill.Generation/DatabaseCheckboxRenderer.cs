@@ -63,7 +63,7 @@ internal static class DatabaseCheckboxRenderer
                         :MultiGlobalParentCompilation.Check(plan,"parentKey","locking"));
                 }
             }
-            else if(def.IndependentTextSource||def.SharedTextParent is not null)
+            else if(def.IndependentSourceParent||def.SharedTextParent is not null)
             {
                 foreach(var path in SharedRedundantParentCompilation.ForColumn(model,table,page,def.SourceParent))
                     result.Append(SharedRedundantParentCompilation.Call(path,page,"locking"));

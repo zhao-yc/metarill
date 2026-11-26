@@ -20,7 +20,7 @@ public sealed class TextCascadeParentRelationTests
         Assert.NotNull(CrossTableReadCompilation.TextSourceParent(model,table,page));
         Assert.Equal(2,RelationCompilation.ForPage(model,page,forExcel:true).Count);
         Assert.False(Assert.Single(MultiSelectCompilation.ForPage(model,table,page)).SameParent);
-        Assert.True(Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,page)).IndependentTextSource);
+        Assert.True(Assert.Single(DatabaseCheckboxCompilation.ForPage(model,table,page)).IndependentSourceParent);
         Assert.Empty(GenerationCapabilityAudit.Collect(model));
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-text-parent-relations");
         var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
@@ -37,6 +37,61 @@ public sealed class TextCascadeParentRelationTests
             Assert.Contains("ImportCheckbox201_706",service);
             Assert.Contains("Export201Async",service);
             if(redundant==0)Assert.Contains("ExportCheckbox201_706Async(entities,actor,request.ParentId",service);
+            foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
+        }
+        finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
+    }
+
+    /// <summary>整数级联父校验来源页，独立复选字典继续按自己的项目和发布范围读取。</summary>
+    [Theory]
+    [InlineData(false,"OnlyNew","list")]
+    [InlineData(true,"OverWriteByFirstColumn","edit")]
+    public async Task Sparse_integer_parent_with_independent_checkbox_compiles_original_pages(bool businessKey,string import,string export)
+    {
+        var catalog=Catalog(0,import,export);
+        foreach(var column in catalog.ConfigColumns.Where(column=>column.Id is "business_3" or "282"))
+        {
+            column.LogicalType="int64";
+            column.ColumnLength="";
+        }
+        if(!businessKey)
+        {
+            var source=catalog.ConfigColumns.Single(column=>column.Id=="25");
+            var control=System.Text.Json.Nodes.JsonNode.Parse(source.ControlDetail)!;
+            control["levels"]![0]!["idField"]="id";
+            source.ControlDetail=control.ToJsonString();
+        }
+        var model=GenerationModel.Create(catalog,"Example.IntegerParentRelations");
+        var table=model.Tables.Single(item=>item.Source.Id=="2");
+        var page=Assert.Single(table.Pages);
+        var field=table.Columns.Single(item=>item.Source.Id=="706");
+        var resolved=DatabaseCheckboxCompilation.Resolve(model,table,page,field);
+        Assert.True(resolved.Definition is {LogicalSourceParent:true,IndependentSourceParent:true},resolved.Reason);
+        Assert.DoesNotContain(resolved.Definition!.Scopes,scope=>scope.Source=="parent");
+        Assert.Empty(GenerationCapabilityAudit.Collect(model));
+
+        var boundary=Path.Combine(Path.GetTempPath(),"metarill-integer-parent-relations");
+        var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
+        try
+        {
+            new ApplicationPackager().Create(catalog,directory,model.Namespace,NonRedundantApplicationFixture.Root());
+            var service=await File.ReadAllTextAsync(Path.Combine(directory,"backend/generated/Services/TextrelSourceService.g.cs"));
+            var start=service.IndexOf("CheckboxScope201_706Async(string? parentId",StringComparison.Ordinal);
+            Assert.True(start>=0);
+            var stop=service.IndexOf("return locking?query.ForUpdate():query;",start,StringComparison.Ordinal);
+            Assert.True(stop>start);
+            var scope=service[start..stop];
+            Assert.Contains("LogicalParentId201(parentId)",scope);
+            Assert.Contains("PathByKeyAsync(0,parentKey.ToString(CultureInfo.InvariantCulture),cancellationToken)",scope);
+            Assert.Contains("row.YzProjectId==long.Parse(actor.ProjectId",scope);
+            Assert.DoesNotContain("row.CountryId",scope);
+            Assert.Contains("ImportCheckbox201_706Async",service);
+            Assert.Contains("ExportCheckbox201_706Async(entities,actor,request.ParentId",service);
+            if(import=="OverWriteByFirstColumn")
+            {
+                Assert.Contains("ImportMatchesAsync(",service);
+                Assert.Contains("if(importMatches.Count>1)",service);
+            }
             foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(directory,operation);
         }
         finally { await TestDirectoryCleanup.DeleteAsync(directory,boundary); }
