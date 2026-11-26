@@ -504,14 +504,16 @@ public static partial class MySqlNonRedundantReadCompiler
         {
             if(!GlobalCrossCandidate||SelectedMultiPage is not {} page)return false;
             var syntax=FixedConditionPlan.Compile(page.WhereSql,columns[root.Id].Keys);
-            var exact=AllowsExactMultiSelection&&GlobalCrossTableTarget.DeclaresExactMulti(root,page);
+            // 复选的精确发布页也可以显式声明项目；是否带行项目列不改变全局字典的默认范围。
+            var exact=AllowsStoredExactCheckbox?GlobalCrossTableTarget.DeclaresExactPage(root,page):
+                AllowsExactMultiSelection&&GlobalCrossTableTarget.DeclaresExactMulti(root,page);
             if(MultiCandidateParent is null)
                 return (exact||GlobalCrossTableTarget.PageJoinedConditionFields(catalog,root,page).Count>0)&&
-                    GlobalMultipleRelationTarget.IsProjectPage(root,page,syntax,allowExact:exact);
+                    GlobalMultipleRelationTarget.IsProjectPage(root,page,syntax,AllowsStoredExactCheckbox,allowExact:exact);
             return MultiCandidateParent is {Logical:false}&&
                 (GlobalMultipleRelationTarget.IsProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox,allowExact:exact)||
                     GlobalMultipleRelationTarget.IsStoredProjectParentPage(root,page,syntax,AllowsStoredExactCheckbox,
-                        allowExact:exact||AllowsStoredExactCheckbox&&GlobalCrossTableTarget.DeclaresExactPage(root,page)));
+                        allowExact:exact));
         }
 
         /// <summary>目标页的条件与名称共用当前记录和联接，维护用途按来源行归属绑定。</summary>

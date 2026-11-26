@@ -743,8 +743,12 @@ public sealed class DerivedCheckboxNamesTests
     [InlineData(0, true, "form", true, false, "joined")]
     [InlineData(0, false, "none", true, false, "joined", true)]
     [InlineData(0, false, "account-form", true, false, "joined", true)]
+    [InlineData(0, true, "project", true, false, "physical", false, 0)]
+    [InlineData(0, false, "none", true, false, "joined", false, 2, true)]
+    [InlineData(0, true, "none", true, false, "joined", true, 2, true)]
     public async Task Checkbox_global_business_names_follow_the_released_dictionary(
-        int storageMode,bool rowProject,string condition,bool explicitPage,bool derived,string alternateName="",bool alternateInnerPage=false)
+        int storageMode,bool rowProject,string condition,bool explicitPage,bool derived,string alternateName="",bool alternateInnerPage=false,
+        int exactPageType=-1,bool alternateDictionary=false)
     {
         const string ns="Example.GlobalCheckboxRead";
         var catalog=Catalog("checkbox_global_read",false);
@@ -757,6 +761,12 @@ public sealed class DerivedCheckboxNamesTests
         {
             name.Extra.Remove("isJoinColumn");
             name.Extra.Remove("columnFullName");
+        }
+        if(exactPageType>=0&&!derived&&alternateName=="physical")
+        {
+            // 纯物理场景没有中间联接，避免普通字典业务页发布夹具遗留的关联。
+            catalog.ConfigColumns.RemoveAll(column=>column.Id=="37");
+            catalog.ConfigPageColumns.RemoveAll(column=>column.ConfigColumnId=="37");
         }
         if(derived||alternateName=="joined")
         {
@@ -808,6 +818,32 @@ public sealed class DerivedCheckboxNamesTests
             _=>""
         };
         field.ControlDetail=JsonSerializer.Serialize(new{tableId="3",nameField="name",pageId=explicitPage?"301":null,whereSql=where});
+        var publishedProject=exactPageType==2&&rowProject;
+        if(exactPageType>=0)
+        {
+            if(alternateDictionary)
+            {
+                // 来源页切换发布页时，原字典的常量不得进入本页候选或名称投影。
+                var actual=JsonSerializer.Deserialize<PageMetadata>(JsonSerializer.Serialize(targetPage))!;
+                actual.Id="302";
+                targetPage.WhereSql="status=47";
+                targetPage.Extra["type"]=JsonSerializer.SerializeToElement(0);
+                catalog.ConfigPages.Add(actual);
+                foreach(var column in catalog.ConfigPageColumns.Where(item=>item.ConfigPageId=="301").ToArray())
+                {
+                    var copy=JsonSerializer.Deserialize<PageColumnMetadata>(JsonSerializer.Serialize(column))!;
+                    copy.Id="302"+copy.ConfigColumnId;
+                    copy.ConfigPageId="302";
+                    catalog.ConfigPageColumns.Add(copy);
+                }
+                targetPage=actual;
+            }
+            targetPage.Extra["type"]=JsonSerializer.SerializeToElement(exactPageType);
+            targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("scope_code");
+            if(publishedProject)targetPage.WhereSql+=" AND yz_project_id=@current_yz_project_id";
+            catalog.ConfigColumns.Add(new(){Id="3054",ConfigTableId=target.Id,YzProjectId=catalog.YzProjectId,ColumnName="scope_code",LogicalType="string"});
+            catalog.YzAdminTypes.Single().Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("real_name");
+        }
         PageColumnMetadata? labelSetting=null;
         if(alternateName.Length>0)
         {
@@ -822,10 +858,11 @@ public sealed class DerivedCheckboxNamesTests
                 label.Extra["columnFullName"]=JsonSerializer.SerializeToElement("company.caption");
             }
             catalog.ConfigColumns.Add(label);
-            labelSetting=new(){Id="3013053",ConfigPageId="301",ConfigColumnId=label.Id,YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=0};
+            labelSetting=new(){Id=targetPage.Id+"3053",ConfigPageId=targetPage.Id,ConfigColumnId=label.Id,YzProjectId=catalog.YzProjectId,IsShow=1,IsEdit=0};
             catalog.ConfigPageColumns.Add(labelSetting);
             catalog.ConfigPageColumns.Single(setting=>setting.ConfigPageId=="201"&&setting.ConfigColumnId==field.Id)
-                .Extra["controlDetail"]=JsonSerializer.SerializeToElement("""{"nameField":"short_label"}""");
+                .Extra["controlDetail"]=alternateDictionary?JsonSerializer.SerializeToElement(new{pageId=targetPage.Id,nameField="short_label"}):
+                    JsonSerializer.SerializeToElement("""{"nameField":"short_label"}""");
         }
         var model=GenerationModel.Create(catalog,ns);
         var source=model.Tables.Single(table=>table.Source.Id=="2");
@@ -833,13 +870,15 @@ public sealed class DerivedCheckboxNamesTests
         var resolved=DatabaseCheckboxCompilation.Resolve(model,source,page,source.Columns.Single(column=>column.Source.Id==field.Id));
         Assert.True(resolved.Definition is not null,resolved.Reason);
         var definition=Assert.Single(DatabaseCheckboxCompilation.ForPage(model,source,page));
-        Assert.Equal("301",definition.NameTargetPage?.Source.Id);
+        Assert.Equal(targetPage.Id,definition.NameTargetPage?.Source.Id);
+        if(exactPageType>=0)
+            Assert.Equal("scope_code",Assert.IsType<ExactDataManageModel>(definition.ExactTarget).Column.Source.ColumnName);
         Assert.Equal(alternateName.Length>0?"short_label":"name",definition.Name.Source.ColumnName);
         var view=NonRedundantReadCompilation.ForPage(model,source,page);
         var binding=Assert.Single(view.MultiTargets);
         Assert.True(binding.ApplyPageScope);
         Assert.Equal(condition!="none",binding.ApplyControlScope);
-        Assert.Equal("301",binding.TargetPageId);
+        Assert.Equal(targetPage.Id,binding.TargetPageId);
 
         var names=definition.Names.Source.ColumnName;
         var plan=NonRedundantReadCompilation.CompilePage(model,source,["id",names],[names],[],view.SingleTargets,view.MultiTargets);
@@ -854,13 +893,14 @@ public sealed class DerivedCheckboxNamesTests
         var predicate=Read<IReadOnlyDictionary<string,string>>("ArrayNamePredicates")[names];
         var constants=Read<IReadOnlyDictionary<string,object?>>("Constants");
         var status=Assert.Single(constants,pair=>Equals(pair.Value,48));
+        if(alternateDictionary)Assert.DoesNotContain(47,constants.Values);
         Assert.Equal(account,constants.Values.Contains(manager));
         foreach(var command in new[]{scope,output,predicate})
         {
             Assert.Contains("multi_value.`status`",command);
             Assert.Contains("multi_value.`delete_no` IS NULL",command);
             Assert.Contains(status.Key,command);
-            Assert.Equal(condition=="project",command.Contains("multi_value.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
+            Assert.Equal(condition=="project"||publishedProject,command.Contains("multi_value.`yz_project_id`=@project_scope_number",StringComparison.Ordinal));
             Assert.Equal(condition is "form" or "account-form",command.Contains("multi_value.`segment`=b.`segment`",StringComparison.Ordinal));
             if(account)
             {
@@ -887,7 +927,12 @@ public sealed class DerivedCheckboxNamesTests
         Assert.Contains("CheckboxOptions201_25Async",generated);
         Assert.Contains("ValidateCheckbox201_25Async",generated);
         Assert.Contains("ExportCheckbox201_25Async",ExportRenderer.Service(model,source,page));
-        if(alternateName.Length>0)Assert.Contains("CompileScopedCheckboxLabel",generated);
+        if(alternateName.Length>0&&exactPageType<0)Assert.Contains("CompileScopedCheckboxLabel",generated);
+        if(exactPageType>=0)
+        {
+            Assert.Contains($"ResolveExactDataManage(\"{targetPage.Id}\", \"list\", \"real_name\")",generated);
+            Assert.Contains("scope_code",generated);
+        }
         if(account||alternateName.Length>0)
         {
             var boundary=Path.Combine(Path.GetTempPath(),"metarill-global-checkbox-compiled");
@@ -911,6 +956,29 @@ public sealed class DerivedCheckboxNamesTests
                     var candidate=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service
                         .GetField("DerivedCheckboxPlan201_25",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
                     Assert.Contains("short_label",candidate.OutputTypes.Keys);
+                    if(exactPageType>=0)
+                    {
+                        var candidateSql=candidate.GetType().GetProperty("MySql",hidden)!.GetValue(candidate)!;
+                        var candidateConstants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(candidateSql.GetType()
+                            .GetProperty("Constants",hidden)!.GetValue(candidateSql));
+                        Assert.Contains(48,candidateConstants.Values);
+                        Assert.DoesNotContain(47,candidateConstants.Values);
+                        if(publishedProject)
+                            Assert.Contains("b.`yz_project_id`=@project_scope_number",Assert.IsType<string>(candidateSql.GetType()
+                                .GetProperty("Scope",hidden)!.GetValue(candidateSql)));
+                        var export=Assert.IsType<Metarill.Data.Queries.NonRedundantReadPlan>(service
+                            .GetField("ExportReadPlan201",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.GetValue(null));
+                        var exportSql=export.GetType().GetProperty("MySql",hidden)!.GetValue(export)!;
+                        var exportConstants=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(exportSql.GetType()
+                            .GetProperty("Constants",hidden)!.GetValue(exportSql));
+                        Assert.Contains(48,exportConstants.Values);
+                        Assert.DoesNotContain(47,exportConstants.Values);
+                        Assert.NotNull(service.GetMethod("Import201Async"));
+                        Assert.NotNull(service.GetMethod("Export201Async"));
+                        var full=Path.Combine(directory,"app");
+                        Assert.True(new ApplicationPackager().Create(catalog,full,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);
+                        foreach(var operation in new[]{"restore","build"})await NonRedundantApplicationFixture.BuildAsync(full,operation);
+                    }
                     if(alternateName=="joined")
                     {
                         Assert.Contains("label_enabled",expressions[names]);

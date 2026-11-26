@@ -416,8 +416,13 @@ public static class NonRedundantReads
             singleTargets,exactMultiSelection:exact,storedExactCheckbox:true,allowLiteralMultiScope:true));
 
     /// <summary>保留全局复选名称的实际内层页，精简目录据此重建相同候选与回显范围。</summary>
-    public static IReadOnlySet<string> PublishedGlobalCheckboxNamePages(MetadataCatalog metadata,string tableId,string pageId,string field)=>
-        CompileScopedCheckboxLabel(metadata,tableId,pageId,field,["id",field],[],false).MySql.CascadeLabelPages;
+    public static IReadOnlySet<string> PublishedGlobalCheckboxNamePages(MetadataCatalog metadata,string tableId,string pageId,string field)
+    {
+        var table=metadata.ConfigTables.Single(item=>item.Id==tableId);
+        var page=metadata.ConfigPages.Single(item=>item.Id==pageId&&item.ConfigTableId==tableId);
+        return CompileScopedCheckboxLabel(metadata,tableId,pageId,field,["id",field],[],
+            GlobalCrossTableTarget.DeclaresExactPage(table,page)).MySql.CascadeLabelPages;
+    }
 
     /// <summary>Excel 附加条件以宿主发布的逻辑表达式匹配，绑定值仍由真实导入上下文提供。</summary>
     public static NonRedundantReadPlan CompileMultiImportLabel(MetadataCatalog metadata,string tableId,string pageId,string field,

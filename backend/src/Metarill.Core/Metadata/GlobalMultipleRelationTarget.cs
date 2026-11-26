@@ -118,7 +118,9 @@ public static class GlobalMultipleRelationTarget
         (checkbox?page.Extra.GetValueOrDefault("type").ToString() is "" or "0" or "1" or "2":
             page.Extra.GetValueOrDefault("type").ToString()=="2")&&
         (string.IsNullOrWhiteSpace(page.Extra.GetValueOrDefault("exactDataManageMatchField").ToString())||
-            allowExact&&!checkbox&&table.IsRongyu==0&&GlobalCrossTableTarget.DeclaresExactMulti(table,page));
+            allowExact&&table.IsRongyu==0&&(checkbox
+                ?GlobalCrossTableTarget.DeclaresExactPage(table,page)
+                :GlobalCrossTableTarget.DeclaresExactMulti(table,page)));
 
     /// <summary>全局字典的显式项目范围仅接受真实项目列与当前认证项目的等值。</summary>
     public static bool IsProjectScope(FixedConditionTerm term)=>

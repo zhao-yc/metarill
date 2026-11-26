@@ -143,10 +143,12 @@ public static partial class MySqlNonRedundantReadCompiler
             if(!GlobalCrossTableTarget.Declared(target)&&PhysicalTextMultiLabel(target,original)&&PhysicalTextMultiLabel(target,label))
                 return label.ColumnName;
             var fixedPage=globalPageId??(baseline.PageId.Length>0?baseline.PageId:Text(relation,"linkConfigPageId"));
-            // 全局页已按来源配置重证。精确字典的显示文本仍需物理父键和该页的发布字段证明。
+            // 全局页已按来源配置重证。非冗余精确字典可沿该页固定联接，冗余字典继续使用物理父键。
             var storedParent=globalPageId is not null&&selected is not null&&
                 GlobalCrossTableTarget.StoredMultiParent(catalog,target,selected,checkbox:true,allowExact:true) is not null;
             var exactPage=selected?.Extra.GetValueOrDefault("exactDataManageMatchField").ToString().Length>0;
+            var globalExact=globalPageId is not null&&selected is not null&&target.IsRongyu==0&&
+                GlobalCrossTableTarget.DeclaresExactPage(target,selected);
             var storedGlobal=target.IsRongyu==1&&(storedGlobalStatic||globalPageId is not null&&selected is not null&&
                 (StoredIdentityMultiPage(catalog,target,selected,checkbox:true)||storedParent));
             bool TextLabel(ColumnMetadata column)=>storedGlobal
@@ -155,7 +157,7 @@ public static partial class MySqlNonRedundantReadCompiler
                     ?GlobalMultipleRelationTarget.IsPublishedCheckboxText(catalog,target,column,selected)
                     :PhysicalTextMultiLabel(target,column)||MultiNameStorageColumns.IsDerivedCheckboxText(target,storage[target.Id],column);
             if(table.IsRongyu!=0||target.IsRongyu!=0&&!storedGlobal||selected is null||
-                selected.Id!=fixedPage||exactPage&&!storedParent||
+                selected.Id!=fixedPage||exactPage&&!storedParent&&!globalExact||
                 definition.TableId.Length>0&&definition.TableId!=target.Id||
                 definition.Table.Length>0&&definition.Table!=target.TableName||
                 !TextLabel(original)||!TextLabel(label)||!MySqlPublishedRelationCondition.CheckboxLabelPublished(catalog,selected.Id,label.Id))

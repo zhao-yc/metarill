@@ -229,10 +229,11 @@ internal static class DatabaseCheckboxCompilation
                 namePage!.Scopes.Any(scope=>scope.Source=="parent"&&NonRedundantCrossParentCompilation.Managed(model,target,namePage,scope.Column));
             if(usesNameOverride)
             {
-                // 非冗余精确复选沿该来源页实际发布的物理父字典投影文本。
+                // 非冗余精确复选沿实际发布页投影已开放的物理或固定联接文本。
+                var globalExactName=target.IsGlobal&&target.Source.IsRongyu==0&&exactTarget is not null;
                 var realtimeFixedName=table.Source.IsRongyu==0&&
                     (target.Source.IsRongyu==0||storedIdentityPage||storedStaticPage||scopedGlobalParentPage)&&
-                    (exactTarget is null||scopedGlobalParentPage&&target.Source.IsRongyu==1)&&
+                    (exactTarget is null||globalExactName||scopedGlobalParentPage&&target.Source.IsRongyu==1)&&
                     namePage is not null&&(namePage.Source.Id==fixedPage||globalPageOverride);
                 var storage=MetadataStoragePolicy.ForTable(model.Catalog,target.Source);
                 bool TextLabel(ColumnModel label)=>target.IsGlobal&&realtimeFixedName&&target.Source.IsRongyu==0
