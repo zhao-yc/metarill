@@ -1,8 +1,10 @@
 using System.Text;
 using System.Text.Json;
+using Metarill.Data.Queries;
+
 namespace Metarill.Generation;
 
-/// <summary>派生名称的候选、导入、导出共用固定目标计划和原范围验证，不建立另一套授权。</summary>
+/// <summary>派生名称的候选、导入、导出复用已发布目标及原范围验证。</summary>
 internal static class DerivedRelationNamesRenderer
 {
     /// <summary>公共候选使用原来源/目标页面授权；此处只绑定服务端身份、真实父及已声明表单值。</summary>
@@ -177,6 +179,30 @@ internal static class DerivedRelationNamesRenderer
 """;
     }
 
+    /// <summary>把 Excel 独有的逻辑字段编入单独计划，避免它们的账号依赖影响普通候选。</summary>
+    private static string GlobalExactImportDeclaration(GenerationModel model, RelationModel relation,
+        ExactDataManageModel exact, RelationConditionModel condition, string planName)
+    {
+        var targetId = relation.Target.Source.Id;
+        var pageId = relation.TargetPage.Source.Id;
+        var outputs = relation.NameColumn.IsId ? new[] { "id" } : ["id", relation.NameColumn.Source.ColumnName];
+        var dependencies = relation.TargetPage.Scopes.Concat(relation.Scopes).Select(scope => scope.Column.Source.ColumnName)
+            .Concat(relation.Conditions?.Syntax.Fields ?? []).Distinct(StringComparer.Ordinal).ToArray();
+        var fields = condition.Syntax.Fields.Concat(relation.Conditions?.Syntax.Fields ?? []).Distinct(StringComparer.Ordinal).ToArray();
+        var targets = DerivedRelationNamesCompilation.ProjectCandidateTargets(model, relation, exact, forImport: true);
+        _ = NonRedundantReads.CompileGlobalExactSingleCandidate(model.Catalog, targetId, pageId,
+            outputs, dependencies, targets, null, fields);
+        var targetArgument = NonRedundantReadCompilation.SingleTargetArgument(targets, "singleTargets");
+        static string Columns(IReadOnlyList<string> columns) => "new string[]{" + string.Join(",", columns.Select(Literal)) + "}";
+        return $$"""
+    /// <summary>Excel 当前读使用实际发布页的精确范围及导入专用投影。</summary>
+    private static readonly NonRedundantReadPlan {{planName}}=
+        global::{{model.Namespace}}.Generated.GeneratedNonRedundantReadCatalog.CompileGlobalExactSingleCandidate(
+            {{Literal(targetId)}},{{Literal(pageId)}},{{Columns(outputs)}},{{Columns(dependencies)}}{{targetArgument}},listFields:{{Columns(fields)}});
+
+""";
+    }
+
     /// <summary>Excel按名称类型绑定同一范围的当前读，零个或重名均拒绝整批。</summary>
     internal static string Import(GenerationModel model,RelationModel relation,PageModel page,ImportDependencyPlan dependency)
     {
@@ -192,6 +218,12 @@ internal static class DerivedRelationNamesRenderer
         var importCondition=relation.ImportCondition;
         var conditionName="SingleImportCondition"+suffix;
         var importDeclaration=importCondition is null?"":RelationConditionsCompilation.Declaration(importCondition,conditionName);
+        var readPlan="DerivedOptionsPlan"+suffix;
+        if(DerivedRelationNamesCompilation.UsesSeparateGlobalExactImportPlan(relation))
+        {
+            readPlan="DerivedImportPlan"+suffix;
+            importDeclaration+=GlobalExactImportDeclaration(model,relation,exact!,importCondition!,readPlan);
+        }
         var sameParent=ControlRenderer.RelationContext(page,relation,false).SameParent;
         var targetParent=mapped is not null?"targetParent.ToString()":sameParent?"parentId":"null";
         var importBinding=importCondition is null?"":RelationConditionsCompilation.BindImport(importCondition,conditionName,targetParent);
@@ -224,7 +256,7 @@ internal static class DerivedRelationNamesRenderer
 {{(mapped is null?"":"        if(!relationContext.TryGetValue("+Literal(mapped.JsonName)+",out var targetParent)||targetParent.ValueKind==JsonValueKind.Null||string.IsNullOrWhiteSpace(targetParent.ToString()))throw PageImportException.Input(PageImportError.Relation);")}}
         var scope=await DerivedOptionsScope{{suffix}}Async(parentId,{{targetParent}},actor,cancellationToken{{RelationConditionsCompilation.ImportArgument(relation)}}{{lockParents}});
 {{importBinding}}{{addMatchFilter}}
-        var rows=await new NonRedundantReader(session).PageAsync(DerivedOptionsPlan{{suffix}}{{bindParent}},scope.Filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId,condition:{{scopedCondition}},currentRead:true);
+        var rows=await new NonRedundantReader(session).PageAsync({{readPlan}}{{bindParent}},scope.Filters,[new("id")],1,2,cancellationToken,projectId:actor.ProjectId,condition:{{scopedCondition}},currentRead:true);
         if(rows.Records.Count!=1)throw PageImportException.Input(PageImportError.Relation);
         return JsonSerializer.SerializeToElement(NonRedundantReads.Value<long>(rows.Records[0],"id").ToString(CultureInfo.InvariantCulture));
     }

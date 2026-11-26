@@ -920,8 +920,11 @@ public sealed class ExactDataManageGenerationTests
     [InlineData(1,0,true,false,false,false,true,3,false,true)]
     [InlineData(0,0,true,true,false,false,true,4,false,true)]
     [InlineData(1,0,true,true,false,false,true,4,true,true)]
+    [InlineData(0,0,false,false,false,true,true,1,false,false,true)]
+    [InlineData(1,0,false,false,false,true,true,1,false,false,true)]
     public async Task Single_exact_scope_uses_physical_or_joined_match(int sourceMode,int targetMode,bool joined,bool parent,bool hidden,
-        bool selection=false,bool importCondition=false,int globalTarget=0,bool joinedPage=false,bool joinedControl=false)
+        bool selection=false,bool importCondition=false,int globalTarget=0,bool joinedPage=false,bool joinedControl=false,
+        bool joinedImport=false)
     {
         const string ns="Example.ListExactMatch";
         var catalog=RedundantMultiNameCacheTests.Published(RelationOptionsContractTests.Catalog());
@@ -963,11 +966,12 @@ public sealed class ExactDataManageGenerationTests
         if(globalTarget is 2 or 3&&!selection)targetPage.Extra["type"]=JsonSerializer.SerializeToElement(0);
         if(globalTarget!=0&&parent&&importCondition)where+=" AND parent_name <> '排除导入'";
         if(joinedControl)where+=" AND parent_name <> '控件排除'";
+        if(joinedImport)where="parent_name <> '仅导入排除'";
         sourceField.ControlDetail=JsonSerializer.Serialize(new{tableId="3",pageId="301",nameField="name",whereSql=where});
         catalog.YzAdminTypes.Single().Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement("realName");
         targetPage.Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(match);
         catalog.ConfigColumns.Add(new(){Id="38",ConfigTableId="3",YzProjectId=catalog.YzProjectId,ColumnName="rank_no",LogicalType="int64"});
-        if(joined||joinedPage)
+        if(joined||joinedPage||joinedImport)
         {
             catalog.ConfigTables.Single(table=>table.Id=="1").IsRongyu=0;
             var parentColumn=catalog.ConfigColumns.Single(column=>column.Id=="36");
@@ -1025,7 +1029,8 @@ public sealed class ExactDataManageGenerationTests
             Assert.Contains("""ResolveExactDataManage("301", "list", "real_name")""",serviceText);
             Assert.Contains("actor, cancellationToken, true, false",serviceText);
             Assert.Contains(joined?"ExactDataManageSql.ApplyDerived":"ExactDataManageSql.Apply(",serviceText);
-            var visible=!hidden&&(!selection||sourceMode==0||targetMode==0&&parent||globalTarget!=0);
+            // 已发布的物理父范围也会为冗余字典生成公开候选入口。
+            var visible=!hidden&&(!selection||sourceMode==0||parent||globalTarget!=0);
             Assert.Equal(visible,serviceText.Contains("public Task<PageResult<GeneratedOption>> OptionsPage201_25Async",StringComparison.Ordinal));
             Assert.Equal(importCondition&&selection,serviceText.Contains("scope.Condition.And(importCondition)",StringComparison.Ordinal));
             if(!hidden)
@@ -1040,6 +1045,27 @@ public sealed class ExactDataManageGenerationTests
             var plan=Assert.IsType<NonRedundantReadPlan>(type.GetField("DerivedOptionsPlan201_25",plans)!.GetValue(null));
             Assert.Equal(new[]{"id","name"},plan.OutputTypes.Keys.Order());
             var actor=new RuntimeActor(19,"下拉权限测试",false,catalog.YzProjectId,targetPage.YzAdminTypeId){StoreId=9007199254741987};
+            if(joinedImport)
+            {
+                var withoutStore=actor with {StoreId=null};
+                Assert.False(plan.RequiresAccount);
+                Assert.Same(plan,plan.BindAccount(withoutStore));
+                var importPlan=Assert.IsType<NonRedundantReadPlan>(type.GetField("DerivedImportPlan201_25",plans)!.GetValue(null));
+                Assert.Equal(plan.OutputTypes.Keys.Order(),importPlan.OutputTypes.Keys.Order());
+                Assert.True(importPlan.RequiresAccount);
+                Assert.Throws<UnauthorizedAccessException>(()=>importPlan.BindAccount(withoutStore));
+                var importSql=typeof(NonRedundantReadPlan).GetProperty("MySql",internals)!.GetValue(importPlan.BindAccount(actor))!;
+                var expression=Assert.IsType<string>(importSql.GetType().GetMethod("Expression",internals)!.Invoke(importSql,["parent_name"]));
+                Assert.Contains(".`name`",expression);
+                var parameters=Assert.IsAssignableFrom<IReadOnlyDictionary<string,object?>>(
+                    importSql.GetType().GetProperty("Constants",internals)!.GetValue(importSql));
+                Assert.Contains("源页限定",parameters.Values);
+                Assert.Contains(actor.StoreId,parameters.Values);
+                Assert.Contains("PageAsync(DerivedImportPlan201_25.BindAccount(actor),scope.Filters",serviceText);
+                Assert.Contains("scope.Condition.And(importCondition),currentRead:true",serviceText);
+                Assert.Contains("relationAuthorization.RequirePagePermission(\"201\", \"import\");",serviceText);
+                actor=withoutStore;
+            }
             if(joined||joinedPage||globalTarget>=3)Assert.Throws<UnauthorizedAccessException>(()=>plan.BindAccount(actor with {StoreId=null}));
             var mysql=typeof(NonRedundantReadPlan).GetProperty("MySql",internals)!.GetValue(plan.BindAccount(actor))!;
             var sql=Assert.IsType<string>(mysql.GetType().GetMethod("Expression",internals)!.Invoke(mysql,[match]));
@@ -1131,7 +1157,7 @@ public sealed class ExactDataManageGenerationTests
                     Assert.Throws<NotSupportedException>(()=>NonRedundantReads.CompileGlobalExactSingleMatch(catalog,target.Id,targetPage.Id,"id"));
                 }
             }
-            if(joinedPage||joinedControl)
+            if(joinedPage||joinedControl||joinedImport)
             {
                 var app=Path.Combine(directory,"app");
                 Assert.True(new ApplicationPackager().Create(catalog,app,ns,NonRedundantApplicationFixture.Root()).FrontendIncluded);

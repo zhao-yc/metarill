@@ -130,6 +130,8 @@ internal static partial class BackendRenderer
                 .SelectMany(plan=>plan.Levels).Where(level=>level.DerivedOrder).SelectMany(level=>NamePages(
                     CascadeTargetOrderCompilation.OrderTargets(model,level.Target,level.Page,level.Name,level.Order,level.DerivedOrder))))
             .Concat(checkboxOrders.SelectMany(NamePages))
+            .Concat(fixedSingleImports.Where(DerivedRelationNamesCompilation.UsesSeparateGlobalExactImportPlan)
+                .SelectMany(relation=>NamePages(DerivedRelationNamesCompilation.ProjectCandidateTargets(model,relation,forImport:true))))
             .Concat(relations.Where(relation => relation.IndependentOrder.Count > 0)
                 .SelectMany(relation => NamePages(DerivedRelationNamesCompilation.CandidateOrderTargets(model, relation))))
             .ToHashSet(StringComparer.Ordinal);
