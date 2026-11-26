@@ -12,7 +12,7 @@ internal static class CrossTableFrontendProof
             field.ConfigPageId == page.Source.Id && field.ConfigColumnId == source.Source.Id)
             ?.Extra.GetValueOrDefault("controlDetail").ToString();
 
-    /// <summary>页面的分隔符和显式同名属性沿原配置，其余层级定义与存储及传播一致。</summary>
+    /// <summary>页面显示和排序沿原配置，节点、父字段及存储槽与传播定义一致。</summary>
     internal static bool KeepsStorageDefinition(GenerationModel model, PageModel page, ColumnModel source) =>
         CrossTableStorageColumns.KeepsDefinition(source.Source.ControlDetail, PageOverride(model, page, source));
 

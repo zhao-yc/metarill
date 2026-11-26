@@ -28,13 +28,14 @@ public sealed class CrossTableExcelSharedGenerationTests
     [InlineData("shared-r0")][InlineData("short-r0")][InlineData("derived-r1")][InlineData("derived-global-r1")][InlineData("derived-short-r0")]
     [InlineData("shared-r1",null,"edit")][InlineData("derived-global-r1",null,"edit")]
     [InlineData("shared-r1"," > ","edit",true)][InlineData("shared-r0",null,"edit",true)]
+    [InlineData("shared-r1",null,"edit",false,true)][InlineData("shared-r0",null,"edit",false,true)]
     public async Task Shared_paths_compile_and_physical_R1_roundtrips_original_cells(string profile, string? displayJoiner = null,
-        string? exportMode = null,bool explicitAliases = false)
+        string? exportMode = null,bool explicitAliases = false,bool pagePresentation = false)
     {
         var definition=Definition(profile);var catalog=Catalog(profile);
         if(exportMode is not null)
             catalog.ConfigPages.Single(page=>page.Id=="201").Extra["exportMethod"]=JsonSerializer.SerializeToElement(exportMode);
-        if (displayJoiner is not null || explicitAliases)
+        if (displayJoiner is not null || explicitAliases || pagePresentation)
         {
             var control = catalog.ConfigColumns.Single(column => column.Id == "25");
             var overlay = JsonNode.Parse(control.ControlDetail)!.AsObject();
@@ -46,12 +47,30 @@ public sealed class CrossTableExcelSharedGenerationTests
                     level["idPropertyName"]=MetadataNames.Camel(prefix+"_id");
                     level["namePropertyName"]=MetadataNames.Camel(prefix+"_name");
                 }
+            if(pagePresentation)
+            {
+                var level=overlay["levels"]![0]!.AsObject();
+                var key=(level["key"]??level["table"])!.GetValue<string>();
+                overlay["labels"]=new JsonObject{[key]="页面国家"};
+                level["orderBy"]="name desc";
+                level["idField"]="id";
+                level["nameField"]="name";
+                level["parentField"]=null;
+            }
             var field = catalog.ConfigPageColumns.Single(column => column.ConfigPageId == "201" && column.ConfigColumnId == "25");
             field.Extra["controlDetail"] = JsonSerializer.SerializeToElement(overlay.ToJsonString());
         }
         var before=JsonSerializer.Serialize(catalog);
         var model=GenerationModel.Create(catalog,Namespace);var source=model.Tables.Single(table=>table.Source.Id=="2");var page=Assert.Single(source.Pages);
         var group=Assert.Single(SharedCrossTableCompilation.ForPage(model,source,page).Groups);Assert.Equal(2,group.Plans.Count);
+        if(pagePresentation)
+        {
+            var plan=Assert.Single(group.Plans,item=>item.Read.Source.Source.Id=="25").Read;
+            Assert.Equal(new[]{("name",true),("id",false)},plan.Levels[0].Order
+                .Select(item=>(item.Column.Source.ColumnName,item.Descending)));
+            var sibling=Assert.Single(group.Plans,item=>item.Read.Source.Source.Id!="25").Read;
+            Assert.DoesNotContain(sibling.Levels[0].Order,item=>item.Column.Source.ColumnName=="name"&&item.Descending);
+        }
         var proof=CrossTableExcelApplicationPreparer.RequireCurrent(catalog,Namespace);
         Assert.Empty(proof.Gaps);
         Assert.Empty(GenerationCapabilityAudit.Collect(GenerationModel.Create(proof.Baseline,Namespace)));
@@ -64,12 +83,24 @@ public sealed class CrossTableExcelSharedGenerationTests
             var partial=Path.Combine(generated,"Services/SharedExcelSourceService.cs");await File.AppendAllTextAsync(partial,"\n// 共享Excel保留的手写扩展。\n");var bytes=await File.ReadAllBytesAsync(partial);
             new CSharpGenerator().Generate(catalog,generated,Namespace);Assert.Equal(bytes,await File.ReadAllBytesAsync(partial));Assert.Equal(before,JsonSerializer.Serialize(catalog));
             new FrontendPackager().Validate(catalog);
-            if(explicitAliases)
+            if(explicitAliases||pagePresentation)
             {
-                var package=new ApplicationPackager().Create(catalog,Path.Combine(directory,"application"),
-                    Namespace,NonRedundantApplicationFixture.Root());
+                var destination=Path.Combine(directory,"application");
+                var package=new ApplicationPackager().Create(catalog,destination,Namespace,NonRedundantApplicationFixture.Root());
                 Assert.Equal(ApplicationPackageMode.FullApplication,package.Mode);
                 Assert.True(package.FrontendIncluded);
+                if(pagePresentation)
+                {
+                    var detail=await File.ReadAllTextAsync(Path.Combine(destination,"frontend/pages/yzp/shared_excel_source-detail-201.vue"));
+                    var control=Regex.Match(detail,@"<yzp-cascade-tree\b[^>]*request-url='[^']*/cascadeTreeOptions25'[^>]*>");
+                    Assert.True(control.Success,"完整包未生成原级联控件。");
+                    var definitionText=Regex.Match(control.Value,@":definition='([^']+)'");
+                    Assert.True(definitionText.Success,"原级联控件缺少定义。");
+                    using var pageDefinition=JsonDocument.Parse(System.Net.WebUtility.HtmlDecode(definitionText.Groups[1].Value));
+                    Assert.Equal("页面国家",Assert.Single(pageDefinition.RootElement.GetProperty("labels").EnumerateObject()).Value.GetString());
+                    var service=await File.ReadAllTextAsync(Path.Combine(generated,"Services/SharedExcelSourceService.g.cs"));
+                    Assert.Contains(".OrderByDescending(row=>row.Name).OrderBy(row=>row.Id)",service);
+                }
             }
             if (definition.Redundant == 1 && definition.Derived)
             {

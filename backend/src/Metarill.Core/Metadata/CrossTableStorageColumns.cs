@@ -8,7 +8,7 @@ namespace Metarill.Core.Metadata;
 public static class CrossTableStorageColumns
 {
     public const string ReservedIdPrefix="__mt_auto_cross_";
-    /// <summary>页面可改变分隔符或显式声明默认属性，实际层级仍使用表级固定定义。</summary>
+    /// <summary>页面可配置显示和候选顺序，实际节点与父字段仍使用表级固定定义。</summary>
     public static bool KeepsDefinition(string tableDetail, string? pageDetail)
     {
         if (string.IsNullOrWhiteSpace(pageDetail))
@@ -21,19 +21,34 @@ public static class CrossTableStorageColumns
             return false;
         baseline.Remove("displayJoiner");
         effective.Remove("displayJoiner");
-        RemoveDefaultLevelProperties(baseline);
-        RemoveDefaultLevelProperties(effective);
+        NormalizePagePresentation(baseline);
+        NormalizePagePresentation(effective);
         return JsonNode.DeepEquals(baseline, effective);
     }
 
-    /// <summary>原页面以列前缀生成 JSON 属性。空回退和显式同名不会改变实际字段。</summary>
-    private static void RemoveDefaultLevelProperties(JsonObject definition)
+    /// <summary>排序和标题仅用于页面。原编辑器补齐的默认业务列与省略方式等效。</summary>
+    private static void NormalizePagePresentation(JsonObject definition)
     {
         if (definition["levels"] is not JsonArray levels)
             return;
 
+        var titles = definition["labels"];
+        if (titles is null || titles is JsonObject labels && labels.All(label => label.Value?.GetValueKind() == JsonValueKind.String))
+            definition.Remove("labels");
+
+        // 根层没有上级。只合并缺省和空值，真实父字段始终保留供比较。
+        if (levels.FirstOrDefault() is JsonObject root)
+            RemoveDefaultProperty(root, "parentField", "");
+
         foreach (var level in levels.OfType<JsonObject>())
         {
+            var order = level["orderBy"];
+            if (order is null || order.GetValueKind() == JsonValueKind.String)
+                level.Remove("orderBy");
+
+            RemoveDefaultProperty(level, "idField", "id");
+            RemoveDefaultProperty(level, "nameField", "name");
+
             var prefix = level["columnPrefix"] ?? level["table"];
             if (prefix is not JsonValue value || !value.TryGetValue<string>(out var name) || string.IsNullOrEmpty(name))
                 continue;

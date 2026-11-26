@@ -56,6 +56,29 @@ public sealed class CrossTableStorageColumnsTests
         Assert.False(CrossTableStorageColumns.KeepsDefinition(baseline,overlay.ToJsonString()));
     }
 
+    /// <summary>标题和排序不进入物理路径比较，但实际业务键和目标名称变更仍有差异。</summary>
+    [Fact]
+    public void Page_presentation_does_not_change_the_fixed_path()
+    {
+        var baseline=Catalog().ConfigColumns[2].ControlDetail;
+        var overlay=JsonNode.Parse(baseline)!;
+        var level=overlay["levels"]![0]!.AsObject();
+        overlay["labels"]=new JsonObject{["country"]="页面国家"};
+        level["orderBy"]="name desc";
+        level["idField"]="id";
+        level["nameField"]="name";
+        level["parentField"]=null;
+        Assert.True(CrossTableStorageColumns.KeepsDefinition(baseline,overlay.ToJsonString()));
+        level["idField"]="business_key";
+        Assert.False(CrossTableStorageColumns.KeepsDefinition(baseline,overlay.ToJsonString()));
+        level["idField"]="id";
+        level["nameField"]="other_name";
+        Assert.False(CrossTableStorageColumns.KeepsDefinition(baseline,overlay.ToJsonString()));
+        level["nameField"]="name";
+        level["orderBy"]=25;
+        Assert.False(CrossTableStorageColumns.KeepsDefinition(baseline,overlay.ToJsonString()));
+    }
+
     /// <summary>存储层只需要来源表及结构定义，目标访问权限留给固定生成计划。</summary>
     private static MetadataCatalog Catalog(string type="string")
     {
