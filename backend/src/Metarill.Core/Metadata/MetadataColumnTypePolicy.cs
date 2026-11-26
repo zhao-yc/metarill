@@ -12,7 +12,7 @@ public static class MetadataColumnTypePolicy
             && string.Equals(currentPhysical,originalPhysical,StringComparison.Ordinal) && string.Equals(currentLogical,originalLogical,StringComparison.Ordinal);
 
     /// <summary>无关编辑保持有效逻辑类型；显式逻辑值严格校验，旧物理类型推导保留原命名规则。</summary>
-    public static string Resolve(string columnName,string? logicalType,string? physicalType,bool creating,bool logicalSubmitted,bool physicalSubmitted)
+    public static string Resolve(string columnName,string? logicalType,string? physicalType,bool creating,bool logicalSubmitted,bool physicalSubmitted,bool allowTextCascadeLeaf=false)
     {
         // 即使同时提交逻辑类型，明确提交的未知物理值也不能借逻辑值绕过检查。
         var mapped=physicalSubmitted ? FromPhysical(physicalType) : null;
@@ -25,14 +25,19 @@ public static class MetadataColumnTypePolicy
         // 原表单只用int表示整数；仅已知物理类型推导时保持原ID/排序归一，不覆盖显式逻辑值或已有错误值。
         if(inferred)
         {
-            if(columnName=="id" || columnName.EndsWith("_id",StringComparison.Ordinal)) result="int64";
+            if(IsIdentifierField(columnName) && !(allowTextCascadeLeaf && result == "string" && columnName != "id")) result="int64";
             if(columnName=="sort_no") result="int32";
         }
-        if((columnName=="id" || columnName.EndsWith("_id",StringComparison.Ordinal)) && result!="int64")
+        // 原级联可选择文本节点键。仅该叶子保留已选文本类型，主键和普通外键继续使用 int64。
+        var textCascade = allowTextCascadeLeaf && result == "string" && columnName.EndsWith("_id",StringComparison.Ordinal) &&
+            (string.IsNullOrEmpty(physicalType) || (mapped ?? FromPhysical(physicalType)) == "string");
+        if(IsIdentifierField(columnName) && result!="int64" && !textCascade)
             throw new ArgumentException("标识字段的逻辑类型必须为int64。");
         if(columnName=="sort_no" && result!="int32") throw new ArgumentException("排序字段的逻辑类型必须为int32。");
         return result;
     }
+
+    private static bool IsIdentifierField(string columnName) => columnName == "id" || columnName.EndsWith("_id",StringComparison.Ordinal);
 
     /// <summary>显式逻辑类型使用固定元数据词表，不归一化未知、空值或大小写错误。</summary>
     private static string RequireLogical(string? value) => IsSupportedLogicalType(value) ? value! : throw new ArgumentException("字段逻辑类型无效。");

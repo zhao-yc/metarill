@@ -11,7 +11,46 @@ internal static class ConfigurationCascadeRules
     /// <summary>页面可清空覆盖以继承表级定义。显式设置须满足原自树或跨表的字段约束。</summary>
     internal static void ValidatePageOverride(string detail, string columnName, string logicalType)
     {
-        if (string.IsNullOrWhiteSpace(detail)) return;
+        if (!string.IsNullOrWhiteSpace(detail)) ValidateDefinition(detail, columnName, logicalType);
+    }
+
+    /// <summary>表字段必须有实际定义。显式辅助字段可沿用，系统字段及不兼容的已有列不能被接管。</summary>
+    internal static void ValidateTableField(string detail, string columnName, string logicalType,
+        IEnumerable<ColumnMetadata> declaredColumns)
+    {
+        if (string.IsNullOrWhiteSpace(detail)) throw Error("控件明细不能为空。");
+        var prefixes = ValidateDefinition(detail, columnName, logicalType);
+        var slots = new Dictionary<string, (string Name, bool IsId)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var prefix in prefixes)
+        {
+            var id = prefix + "_id";
+            var name = prefix + "_name";
+            slots.Add(id, (id, true));
+            slots.Add(name, (name, false));
+        }
+
+        foreach (var name in slots.Keys)
+        {
+            var normalized = name.ToLowerInvariant();
+            if (!MetadataValidation.IsIdentifier(name) || IndexWorkbenchRules.SystemColumn(normalized) ||
+                normalized is "insert_user_id" or "update_user_id" or "insert_manager_name" or "update_manager_name" or "yz_project_name")
+                throw Error("受管列不能使用系统字段或无效列名：" + name);
+        }
+
+        foreach (var column in declaredColumns)
+        {
+            if (!slots.TryGetValue(column.ColumnName, out var slot)) continue;
+            // 同名显式列须满足存储合同。共享层仍由完整生成计划核对各分支的实际路径。
+            var joined = column.Extra.TryGetValue("isJoinColumn", out var join) && (join.ValueKind == JsonValueKind.True || join.ToString() == "1");
+            if (column.ColumnName != slot.Name || column.IsVirtualColumn != 0 ||
+                (slot.IsId ? joined || column.LogicalType is not ("string" or "int64") : column.LogicalType != "string"))
+                throw Error("受管列与已有字段类型或存储属性冲突：" + column.ColumnName);
+        }
+    }
+
+    /// <summary>保存与批量预检共用定义解析，返回用于核对实体辅助列的前缀。</summary>
+    private static IReadOnlyList<string> ValidateDefinition(string detail, string columnName, string logicalType)
+    {
         if (logicalType is not ("string" or "int64") || !columnName.EndsWith("_id", StringComparison.Ordinal))
             throw Error("叶子必须为字符串或 int64 的 _id 字段。");
 
@@ -26,12 +65,11 @@ internal static class ConfigurationCascadeRules
                     if (!definition.TryGetProperty("selfTree", out var tree))
                         throw Error("缺少 selfTree 定义。");
                     ValidateTree(tree);
-                    break;
+                    return [columnName[..^3]];
                 case "crossTable":
                     if (!definition.TryGetProperty("levels", out var levels) || levels.ValueKind != JsonValueKind.Array || levels.GetArrayLength() < 2)
                         throw Error("跨表级联至少需要两级配置。");
-                    ValidateLevels(levels, columnName);
-                    break;
+                    return ValidateLevels(levels, columnName);
                 default:
                     throw Error("sourceMode 必须为 selfTree 或 crossTable。");
             }
@@ -54,7 +92,7 @@ internal static class ConfigurationCascadeRules
     }
 
     /// <summary>同一目标表可重复出现，层标识和来源字段前缀仍须独立，且末级匹配原叶子字段。</summary>
-    private static void ValidateLevels(JsonElement levels, string columnName)
+    private static IReadOnlyList<string> ValidateLevels(JsonElement levels, string columnName)
     {
         var keys = new HashSet<string>(StringComparer.Ordinal);
         var prefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -72,6 +110,7 @@ internal static class ConfigurationCascadeRules
 
         if (lastPrefix + "_id" != columnName)
             throw Error("跨表级联的末级字段前缀必须与当前叶子字段一致。");
+        return prefixes.ToArray();
     }
 
     /// <summary>先校验原字段和排序格式，具体目标列及发布范围继续由生成器根据项目目录解析。</summary>

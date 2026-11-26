@@ -1,4 +1,5 @@
 using Metarill.Core.Contracts;
+using Metarill.Core.Metadata;
 using System.Globalization;
 using System.Text.Json;
 using Metarill.Core.Persistence;
@@ -96,6 +97,24 @@ public sealed partial class MetadataWorkbenchBusiness
                 row.ControlDetail=JsonSerializer.Serialize(new{table=row.JoinTable,tableId=id.ToString(CultureInfo.InvariantCulture),nameField,whereSql=Value("whereSql"),orderBy=Value("orderBy")},JsonDefaults.Options);
             }
         }
+        // 全批列名和类型可用于识别显式辅助字段，保存时仍由同一配置事务重验。
+        if (rows.Any(row => row.ControlKind == "CascadeTree" && row.Errors.Count == 0))
+        {
+            var declared = hasPhysicalSchema ? scope.Columns.Select(MetadataRepository.DecodeRow<ColumnMetadata>).ToArray() : [];
+            var pending = hasPhysicalSchema ? rows.Where(row => row.Errors.Count == 0)
+                .Select(row => new ColumnMetadata { ColumnName = row.ColumnName, LogicalType = row.LogicalType }).ToArray() : [];
+            foreach (var row in rows.Where(row => row.ControlKind == "CascadeTree" && row.Errors.Count == 0))
+                try
+                {
+                    ConfigurationCascadeRules.ValidateTableField(row.ControlDetail, row.ColumnName, row.LogicalType,
+                        declared.Concat(pending.Where(column => column.ColumnName != row.ColumnName)));
+                }
+                catch (BusinessRuleException error)
+                {
+                    BatchColumnParser.Error(row, "controlDetail", "INVALID_RELATION", error.Message);
+                }
+        }
+
         // 保存沿用同一事务中核对的最大排序号，预检为首条超限输入返回行错误。
         var maximum = scope.Columns.Count == 0 ? 0 :
             scope.Columns.Max(row => Convert.ToInt32(row.GetValueOrDefault("sort_no") ?? 0, CultureInfo.InvariantCulture));

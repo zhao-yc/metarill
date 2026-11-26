@@ -117,8 +117,21 @@ public sealed partial class ConfigurationMutationObserver(SqlRowStore store,Meta
         var column=SqlRowStore.Text(row,"column_name");Metarill.Core.Metadata.MetadataValidation.RequireIdentifier(column);
         if((await store.ReadAsync("config_column",new Dictionary<string,object?>{{"config_table_id",tableId},{"column_name",column}},token)).Count!=1)throw new InvalidOperationException("同表字段名不能重复。");
         var originalType=SqlRowStore.Text(row,"logical_type");
+        var cascade = SqlRowStore.Text(row, "control_kind") == "CascadeTree";
         var type=Metarill.Core.Metadata.MetadataColumnTypePolicy.Resolve(column,originalType,SqlRowStore.Text(row,"column_type"),context.IsCreate,
-            context.SubmittedFields.ContainsKey("logical_type"),context.SubmittedFields.ContainsKey("column_type"));
+            context.SubmittedFields.ContainsKey("logical_type"),context.SubmittedFields.ContainsKey("column_type"),allowTextCascadeLeaf:cascade);
+        if (cascade && (context.IsCreate || context.SubmittedFields.Keys.Any(key =>
+            key is "control_kind" or "control_detail" or "column_name" or "logical_type" or "column_type" or "config_table_id")))
+        {
+            var table = tables[0];
+            var entityTable = SqlRowStore.Id(table, "is_view") == 0 && SqlRowStore.Id(table, "is_function_table") == 0;
+            var declared = entityTable
+                ? (await store.ReadAsync("config_column", new Dictionary<string,object?> { ["config_table_id"] = tableId, ["yz_project_id"] = project }, token))
+                    .Where(candidate => SqlRowStore.Id(candidate) != context.RecordId)
+                    .Select(MetadataRepository.DecodeRow<ColumnMetadata>)
+                : Enumerable.Empty<ColumnMetadata>();
+            ConfigurationCascadeRules.ValidateTableField(SqlRowStore.Text(row, "control_detail"), column, type, declared);
+        }
         // 无关配置编辑不能从空物理类型重推逻辑类型，也不追加无效果的类型写入。
         if(!string.Equals(type,originalType,StringComparison.Ordinal))
             await store.UpdateAsync("config_column",context.RecordId,new Dictionary<string,object?>{{"logical_type",type}},token);

@@ -124,6 +124,105 @@ public sealed partial class ConfigurationMaterializedValueTests
     }
 
 
+    [Theory]
+    [InlineData("", null, "控件明细不能为空")]
+    [InlineData("""{"sourceMode":"selfTree","selfTree":{"table":"department","parentField":"parent_code","orderBy":"name sideways"}}""", null, "orderBy")]
+    [InlineData("""{"sourceMode":"selfTree","selfTree":{"table":"department","parentField":"parent_code"}}""", "int32", "department_name")]
+    [InlineData("""{"levels":[{"table":"country","columnPrefix":"yz_project"},{"table":"department","parentField":"country_id"}]}""", null, "yz_project_id")]
+    public async Task Table_cascade_edit_rejects_invalid_definitions_and_incompatible_columns(string detail,string? explicitNameType,string message)
+    {
+        using var f=new Fixture();
+        var field=f.Get("config_column",20);
+        field["column_name"]="department_id";
+        field["column_type"]="bigint";
+        field["logical_type"]="int64";
+        if(explicitNameType is not null)
+            f.Add("config_column",Row(("id",21L),("config_table_id",10L),("yz_project_id",1L),
+                ("column_name","department_name"),("logical_type",explicitNameType)));
+        var before=f.Snapshot();
+        var patch=new Dictionary<string,object?>{{"control_kind","CascadeTree"},{"control_detail",detail}};
+        var error=await Assert.ThrowsAsync<BusinessRuleException>(()=>f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_column",20,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",20,patch));
+            return true;
+        }));
+        Assert.Contains(message,error.Message);
+        Assert.Equal(before,f.Snapshot());
+    }
+
+    [Fact]
+    public async Task Table_cascade_edit_preserves_text_leaf_selected_in_the_original_type_field()
+    {
+        using var f=new Fixture();
+        var field=f.Get("config_column",20);
+        field["column_name"]="department_id";
+        field["column_type"]="bigint";
+        field["logical_type"]="int64";
+        var detail="""{"sourceMode":"selfTree","selfTree":{"table":"department","idField":"department_code","parentField":"parent_code"}}""";
+        var patch=new Dictionary<string,object?>{{"control_kind","CascadeTree"},{"control_detail",detail},{"column_type","nvarchar"}};
+        await f.Session.InTransactionAsync(async()=>
+        {
+            Assert.Equal(1,await f.Store.UpdateAsync("config_column",20,patch));
+            await f.Observer.BeforeCommitAsync(f.Context("config_column",20,patch));
+            return true;
+        });
+        var saved=f.Get("config_column",20);
+        Assert.Equal("string",saved["logical_type"]);
+        Assert.Equal(detail,saved["control_detail"]);
+    }
+
+    [Fact]
+    public async Task Batch_cascade_previews_same_batch_conflicts_and_saves_text_leaf_with_explicit_name()
+    {
+        using var f=new Fixture();
+        var workbench=new MetadataWorkbenchBusiness(f.Store,f.Authorization,f.Registry,f.Ids,f.Observer);
+        const string content="""
+            [{"name":"部门","columnName":"department_id","columnType":"nvarchar","columnLength":"50","controlKind":"CascadeTree",
+              "controlDetail":{"sourceMode":"selfTree","selfTree":{"table":"department","idField":"department_code","parentField":"parent_code"}}},
+             {"name":"部门名称","columnName":"department_name","columnType":"int"}]
+            """;
+        var invalid=JsonSerializer.SerializeToElement(new { config_table_id="10",content });
+        var before=f.Snapshot();
+        var preview=await workbench.PreviewBatchColumnsAsync(invalid);
+        Assert.False(preview.Valid);
+        var error=Assert.Single(preview.Rows[0].Errors);
+        Assert.Equal("controlDetail",error.Field);
+        Assert.Contains("department_name",error.Message);
+        await Assert.ThrowsAsync<BatchColumnValidationException>(()=>workbench.SaveBatchColumnsAsync(invalid));
+        Assert.Equal(before,f.Snapshot());
+
+        var valid=JsonSerializer.SerializeToElement(new { config_table_id="10",content=content.Replace("\"columnType\":\"int\"","\"columnType\":\"nvarchar\"",StringComparison.Ordinal) });
+        Assert.True((await workbench.PreviewBatchColumnsAsync(valid)).Valid);
+        await workbench.SaveBatchColumnsAsync(valid);
+        var saved=Assert.Single(f.Provider.Rows["config_column"],row=>SqlRowStore.Text(row,"column_name")=="department_id");
+        Assert.Equal("string",saved["logical_type"]);
+        Assert.Single(f.Provider.Rows["config_column"],row=>SqlRowStore.Text(row,"column_name")=="department_name");
+    }
+
+
+    [Fact]
+    public async Task Batch_cascade_preserves_two_branches_with_a_shared_ancestor()
+    {
+        using var f=new Fixture();
+        var workbench=new MetadataWorkbenchBusiness(f.Store,f.Authorization,f.Registry,f.Ids,f.Observer);
+        const string content="""
+            [{"name":"地区","columnName":"region_id","columnType":"bigint","controlKind":"CascadeTree",
+              "controlDetail":{"levels":[{"table":"country"},{"table":"region","parentField":"country_id"}]}},
+             {"name":"仓库","columnName":"warehouse_id","columnType":"bigint","controlKind":"CascadeTree",
+              "controlDetail":{"levels":[{"table":"country"},{"table":"warehouse","parentField":"country_id"}]}},
+             {"name":"国家标识","columnName":"country_id","columnType":"bigint","controlKind":""},
+             {"name":"国家名称","columnName":"country_name","columnType":"nvarchar"}]
+            """;
+        var request=JsonSerializer.SerializeToElement(new { config_table_id="10",content });
+        var preview=await workbench.PreviewBatchColumnsAsync(request);
+        Assert.True(preview.Valid,JsonSerializer.Serialize(preview));
+        await workbench.SaveBatchColumnsAsync(request);
+        Assert.Single(f.Provider.Rows["config_column"],row=>SqlRowStore.Text(row,"column_name")=="country_id");
+        Assert.Equal(2,f.Provider.Rows["config_column"].Count(row=>SqlRowStore.Text(row,"control_kind")=="CascadeTree"));
+    }
+
+
     [Fact]
     public async Task Real_sort_workbench_and_copy_page_use_current_target_values()
     {

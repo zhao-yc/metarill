@@ -148,7 +148,7 @@ internal static class BatchColumnParser
         try
         {
             MetadataColumnTypePolicy.Resolve(row.ColumnName, row.LogicalType, row.ColumnType,
-                creating: true, logicalSubmitted: true, physicalSubmitted: true);
+                creating: true, logicalSubmitted: true, physicalSubmitted: true, allowTextCascadeLeaf: row.ControlKind == "CascadeTree");
         }
         catch (ArgumentException error)
         {
