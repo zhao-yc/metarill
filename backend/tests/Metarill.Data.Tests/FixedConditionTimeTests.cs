@@ -41,6 +41,33 @@ public sealed partial class FixedConditionSqlTests
         Assert.Throws<ArgumentOutOfRangeException>(() => plan.Render(provider, values, "time_form", provider.QuoteIdentifier));
     }
 
+    /// <summary>物理和联接精确范围经原 FreeSql 入口绑定时间参数，驱动范围仍在命令前校验。</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Exact_time_is_parameterized_in_both_mysql_query_shapes(bool derived)
+    {
+        const string text="-30:01:02.123456";
+        var value=SqlTimeValue.ParseText(text)!.Value;
+        using var session=Session();
+        var catalog=NonRedundantReadTests.Catalog("mt_exact_time","mt_exact_time_target");
+        catalog.ConfigColumns.Single(column=>column.Id=="18").LogicalType="time";
+        catalog.ConfigColumns.Single(column=>column.Id=="22").LogicalType="time";
+        string Apply(params object?[] values)
+        {
+            if(!derived)return Metarill.Data.Queries.ExactDataManageSql.Apply(
+                session.Select<Row>(),session,"duration","exact_time",values).ToSql();
+            var plan=Metarill.Data.Queries.NonRedundantReads.CompileMatch(catalog,"1","grand_label");
+            return Metarill.Data.Queries.ExactDataManageSql.ApplyDerived(session.Select<Row>(),session,plan,
+                "grand_label","exact_time",values,catalog.YzProjectId,locking:false).ToSql();
+        }
+        var sql=Apply(value);
+        Assert.Contains(derived?"@exact_time_value_0":"@exact_time_0",sql);
+        Assert.DoesNotContain(text,sql);
+        Assert.Throws<ArgumentOutOfRangeException>(()=>Apply(TimeSpan.FromHours(839)));
+        Assert.Throws<ArgumentException>(()=>Apply(value+TimeSpan.FromTicks(1)));
+    }
+
     /// <summary>日数、偏移和超出MySQL范围在构造SQL前明确拒绝，不交给服务器截断。</summary>
     [Theory][InlineData("1.06:00:00")][InlineData("12:34:56Z")][InlineData("839:00:00")][InlineData("838:59:59.000001")]
     public void Invalid_time_fixed_conditions_fail_before_orm(string text)

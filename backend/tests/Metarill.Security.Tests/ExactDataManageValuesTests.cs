@@ -45,6 +45,29 @@ public sealed class ExactDataManageValuesTests
         Assert.Throws<ArgumentException>(()=>Required("2147483648").Read<int>());
         Assert.Throws<NotSupportedException>(()=>Required(1).ReadLogical("json"));
     }
+    /// <summary>精确时间同时识别已认证的TIME列、旧JSON数组及总小时格式。</summary>
+    [Fact]
+    public void Exact_time_preserves_microseconds_and_total_hours()
+    {
+        var expected=TimeSpan.FromHours(-30)-TimeSpan.FromTicks(1234560);
+        var match=ExactDataManageIdentity.Capture(new Dictionary<string,object?>{{"exact_data_manage_match_field","shiftTime"}},
+            new Dictionary<string,object?>{{"shift_time",expected}});
+        Assert.Equal("shift_time",match.Field);
+        Assert.Equal("-30:00:00.123456",match.Value?.GetString());
+        Assert.Equal(expected,Assert.Single(new ExactDataManageValues(true,match.Value).ReadLogical("time")));
+        Assert.Equal(new object?[]{expected,TimeSpan.FromHours(12)},
+            Required("""["-30:00:00.123456",null,"12:00","12:00:00"]""").ReadLogical("time"));
+        Assert.Empty(Required(null).ReadLogical("time"));
+    }
+    /// <summary>亚微秒、天数格式和数值不能被截断或转换为可命中的时间。</summary>
+    [Theory]
+    [InlineData("12:34:56.1234561")]
+    [InlineData("1.06:00:00")]
+    [InlineData("12:34:56Z")]
+    [InlineData("[12]")]
+    public void Exact_time_rejects_ambiguous_values(string input) =>
+        Assert.Throws<ArgumentException>(()=>Required(input).ReadLogical("time"));
+
     /// <summary>仅规范字段名的大小写与下划线，不解释SQL、括号或属性路径。</summary>
     [Theory]
     [InlineData("real_name","real_name")][InlineData("realName","real_name")]

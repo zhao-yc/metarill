@@ -4,6 +4,7 @@ using System.Security;
 using System.Text.Json;
 using Metarill.Core.Metadata;
 using Metarill.Core.Security;
+using Metarill.Data;
 using Metarill.Data.Queries;
 using Metarill.Runtime.Persistence;
 
@@ -32,7 +33,7 @@ internal static class FileReferenceReadAuthorization
             try{authorization.RequireFileSourcePagePermission(page.Id);}
             catch(Exception denied)when(denied is UnauthorizedAccessException or SecurityException){continue;}
             FilePageScope scope;IReadOnlyList<FileParentScope> scopes;ExactFileScope? exact;FixedConditionSqlPlan? condition;NonRedundantReadPlan? logicalScope;
-            try{scope=registry.PageScope(catalog,page);scopes=scope.Parents;condition=scope.Condition?.BindAccount(actor);logicalScope=scope.LogicalConditionPlan?.BindAccount(actor);exact=ExactScope(registry,catalog,physical,page,authorization);}
+            try{scope=registry.PageScope(catalog,page);scopes=scope.Parents;condition=scope.Condition?.BindAccount(actor);logicalScope=scope.LogicalConditionPlan?.BindAccount(actor);exact=ExactScope(registry,catalog,physical,page,authorization,store.Session.Provider);}
             catch(Exception denied)when(denied is NotSupportedException or ArgumentException or UnauthorizedAccessException or SecurityException){continue;}
             var referenceFilters = new Dictionary<string,object?>
             {
@@ -96,7 +97,7 @@ internal static class FileReferenceReadAuthorization
         if (logicalScope is not null &&
             !await FilePageScope.MatchesAsync(store.Session, logicalScope, condition, recordId, actor.ProjectId, true, token))
             throw new UnauthorizedAccessException("文件记录不在本页固定范围。");
-        var exact = ExactScope(registry, catalog, physical, page, authorization, update: true);
+        var exact = ExactScope(registry, catalog, physical, page, authorization, store.Session.Provider, update: true);
         var projection = exact is { Derived:true }?registry.DerivedExactPlan(catalog,page,field)?.BindAccount(actor):null;
         var row = await ReadRecordAsync(store, table, physical, field, scope, exact, projection, recordId,
             FileReferenceScope.PositiveId(actor.ProjectId), logicalScope is null ? condition : null, token,
@@ -111,7 +112,7 @@ internal static class FileReferenceReadAuthorization
 
     private sealed record ExactFileScope(ColumnMetadata Column,IReadOnlyList<object?> Values,bool Derived,bool Shared);
     /// <summary>文件真实引用另附来源页的查询精确范围，不能只看页面动作；值经同一逻辑类型转换并参数化。</summary>
-    private static ExactFileScope? ExactScope(FileMetadataContext registry,MetadataCatalog catalog,IReadOnlyList<ColumnMetadata> physical,PageMetadata page,IRuntimeAuthorization authorization,bool update=false)
+    private static ExactFileScope? ExactScope(FileMetadataContext registry,MetadataCatalog catalog,IReadOnlyList<ColumnMetadata> physical,PageMetadata page,IRuntimeAuthorization authorization,IDatabaseProvider provider,bool update=false)
     {
         if(ExactDataManageValues.Field(Configured(page)).Length==0)return null;
         var (column,derived,shared,_)=registry.ExactField(catalog,page);
@@ -121,7 +122,11 @@ internal static class FileReferenceReadAuthorization
         var managerField=ExactDataManageValues.Field(Configured(admin));
         var scope=update?authorization.ResolveExactDataManage(page.Id,"update",managerField):
             authorization.ResolveFileSourceExactDataManage(page.Id,managerField);
-        return scope.IsRequired?new(column,scope.ReadLogical(column.LogicalType),derived,shared):null;
+        if(!scope.IsRequired)return null;
+        var values=scope.ReadLogical(column.LogicalType);
+        // 先校验账号时间。无效值按原来源拒绝分支处理，不能交给数据库舍入。
+        foreach(var value in values.OfType<TimeSpan>())provider.ValidateTimeValue(value);
+        return new(column,values,derived,shared);
         /// <summary>损坏声明不能静默解释为未配置。</summary>
         static string Configured(MetadataRecord record)=>!record.Extra.TryGetValue("exactDataManageMatchField",out var value)||value.ValueKind==JsonValueKind.Null?"":value.ValueKind==JsonValueKind.String?value.GetString()??"":throw new NotSupportedException("精确管理字段声明无效。");
     }

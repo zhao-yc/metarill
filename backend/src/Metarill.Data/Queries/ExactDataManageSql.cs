@@ -44,7 +44,7 @@ public static class ExactDataManageSql
         var names=new List<string>();
         foreach(var value in values)
         {
-            if(value is not(string or long or int or decimal or double or bool or DateTime))throw new ArgumentException("精确管理只接受已转换的非空标量参数。");
+            ValidateValue(provider,value);
             var name=parameterPrefix+"_value_"+names.Count;parameters.Add(name,value);names.Add(provider.ParameterPlaceholder(name));
         }
         // 生成Mapper从创建时固定使用a；保持同名，不能在已有lambda后改名。
@@ -61,6 +61,19 @@ public static class ExactDataManageSql
         }
         return query.As(outer).Where(sql,parameters);
     }
+    /// <summary>原 ORM 的物理列和联接范围使用相同的精确时间参数校验。</summary>
+    private static void ValidateValue(IDatabaseProvider provider,object? value)
+    {
+        if(value is TimeSpan time)
+        {
+            provider.ValidateTimeValue(time);
+            if(time.Ticks%TimeSpan.TicksPerMicrosecond!=0)
+                throw new ArgumentException("精确管理时间不能超过微秒精度。");
+        }
+        else if(value is not(string or long or int or decimal or double or bool or DateTime))
+            throw new ArgumentException("精确管理只接受已转换的非空标量参数。");
+    }
+
     /// <summary>只接收生成期固定物理列/前缀；值永不进入SQL语法，空集合固定不匹配。</summary>
     public static ISelect<T> Apply<T>(ISelect<T> query,DatabaseSession session,string column,string parameterPrefix,IReadOnlyList<object?> values)where T:class
     {
@@ -70,7 +83,7 @@ public static class ExactDataManageSql
         var parameters=new Dictionary<string,object?>();var names=new List<string>();
         foreach(var value in values)
         {
-            if(value is not(string or long or int or decimal or double or bool or DateTime))throw new ArgumentException("精确管理只接受已转换的非空标量参数。");
+            ValidateValue(provider,value);
             var name=parameterPrefix+"_"+parameters.Count;parameters.Add(name,value);names.Add(provider.ParameterPlaceholder(name));
         }
         // Where的对象重载识别参数字典；DbParameter数组会被当普通对象而丢失绑定。

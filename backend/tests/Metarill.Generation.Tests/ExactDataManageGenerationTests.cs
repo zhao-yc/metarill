@@ -16,10 +16,17 @@ public sealed class ExactDataManageGenerationTests
 {
     /// <summary>普通及含联接读取模型实际编译；隐藏匹配依赖只附加到SQL，不进入VO。</summary>
     [Theory]
-    [InlineData(false)][InlineData(true)]
-    public async Task Actual_generated_scope_is_parameterized_and_operation_specific(bool nonredundant)
+    [InlineData(false,false)][InlineData(true,false)][InlineData(false,true)][InlineData(true,true)]
+    public async Task Actual_generated_scope_is_parameterized_and_operation_specific(bool nonredundant,bool timeMatch)
     {
-        var catalog=Catalog(nonredundant);var model=GenerationModel.Create(catalog,"Example.ExactScope");var table=model.Tables.Single(table=>table.Source.Id=="1");var page=table.Pages.Single(page=>page.Source.Id=="101");
+        var catalog=Catalog(nonredundant);
+        var matchName=timeMatch?"shift_time":Match(nonredundant);
+        if(timeMatch)
+        {
+            catalog.ConfigColumns.Add(new(){Id="194800",ConfigTableId="1",ColumnName=matchName,LogicalType="time",YzProjectId=catalog.YzProjectId});
+            catalog.ConfigPages.Single(item=>item.Id=="101").Extra["exactDataManageMatchField"]=JsonSerializer.SerializeToElement(matchName);
+        }
+        var model=GenerationModel.Create(catalog,"Example.ExactScope");var table=model.Tables.Single(table=>table.Source.Id=="1");var page=table.Pages.Single(page=>page.Source.Id=="101");
         var boundary=Path.Combine(Path.GetTempPath(),"metarill-exact-scope");var directory=Path.Combine(boundary,Guid.NewGuid().ToString("N"));
         try
         {
@@ -30,24 +37,27 @@ public sealed class ExactDataManageGenerationTests
             var assembly=await GeneratedRelationOptionsMySqlTests.BuildGenerated(directory);
             using var session=new DatabaseSession(new(){Provider="mysql",ExpectedDatabase="metarill_business_test",ConnectionString="Server=127.0.0.1;Database=metarill_business_test;User ID=unused;Password=unused;"});
             var actor=new RuntimeActor(1,"离线范围",false,catalog.YzProjectId,page.Source.YzAdminTypeId);var authorization=new Authorization(actor);
+            var matchText=timeMatch?"""["-30:01:02.123456","12:00:00"]""":"""["只允许甲","只允许乙"]""";
+            authorization.Value=matchText;
             var entity=assembly.GetType(model.Namespace+".Generated.Entities."+table.Name,true)!;var serviceType=assembly.GetType(model.Namespace+".Generated.Services."+table.Name+"Service",true)!;
             var mapper=Activator.CreateInstance(assembly.GetType(model.Namespace+".Generated.Mappers."+table.Name+"Mapper",true)!,[session]);
             var service=Activator.CreateInstance(serviceType,[session,mapper,new SnowflakeIdGenerator(862),Array.Empty<IRecordMutationObserver>(),Array.Empty<IRecordMutationGuard>(),authorization])!;
             var scope=serviceType.GetMethod("Scope101",BindingFlags.Instance|BindingFlags.NonPublic)!;var parent=nonredundant?"71":null;
             string Sql(string operation)=>(string)typeof(ExactDataManageGenerationTests).GetMethod(nameof(TypedSql),BindingFlags.NonPublic|BindingFlags.Static)!.MakeGenericMethod(entity).Invoke(null,[scope.Invoke(service,[actor,parent,operation])!])!;
-            var sql=Sql("update");Assert.Contains("`"+Match(nonredundant)+"`",sql);Assert.DoesNotContain("只允许甲",sql);Assert.DoesNotContain("只允许乙",sql);Assert.Contains("IN",sql,StringComparison.OrdinalIgnoreCase);Assert.Equal("update",authorization.LastOperation);
-            authorization.Restricted=false;var wide=Sql("detail");Assert.DoesNotContain("`"+Match(nonredundant)+"` IN",wide,StringComparison.OrdinalIgnoreCase);Assert.Equal("detail",authorization.LastOperation);
+            var sql=Sql("update");Assert.Contains("`"+matchName+"`",sql);Assert.DoesNotContain("只允许甲",sql);Assert.DoesNotContain("只允许乙",sql);Assert.DoesNotContain("-30:01:02.123456",sql);Assert.Contains("IN",sql,StringComparison.OrdinalIgnoreCase);Assert.Equal("update",authorization.LastOperation);
+            authorization.Restricted=false;var wide=Sql("detail");Assert.DoesNotContain("`"+matchName+"` IN",wide,StringComparison.OrdinalIgnoreCase);Assert.Equal("detail",authorization.LastOperation);
             authorization.Restricted=true;authorization.Value="[]";var empty=System.Text.RegularExpressions.Regex.Replace(Sql("delete"),@"\s+","");Assert.True(empty.Contains("1=2")||empty.Contains("1=0")||empty.Contains("0=1"));
-            authorization.Value="[\"只允许甲\",\"只允许乙\"]";
+            authorization.Value=matchText;
             if(nonredundant)
             {
                 Assert.Null(serviceType.GetMethod("MutationResult101Async",BindingFlags.Public|BindingFlags.Instance));
                 var mutationResult=serviceType.GetMethod("MutationResult101Async",BindingFlags.NonPublic|BindingFlags.Instance)!;
                 await Assert.ThrowsAsync<InvalidOperationException>(async()=>await (Task)mutationResult.Invoke(service,[1L,parent,actor,CancellationToken.None])!);
                 Assert.DoesNotContain(serviceType.GetMethods(),method=>method.GetParameters().Any(parameter=>parameter.Name=="authorizationOperation"));
-                var compiled=NonRedundantReadCompilation.ForPage(model,table,page);Assert.Contains(Match(true),compiled.Dependencies);Assert.DoesNotContain(compiled.Outputs,output=>output.Storage==Match(true));
+                var compiled=NonRedundantReadCompilation.ForPage(model,table,page);Assert.Contains(matchName,compiled.Dependencies);Assert.DoesNotContain(compiled.Outputs,output=>output.Storage==matchName);
                 var filters=(List<FixedReadFilter>)serviceType.GetMethod("ReadFilters101",BindingFlags.NonPublic|BindingFlags.Instance)!.Invoke(service,[new PageRequest{ParentId=parent},actor,"export"])!;
-                var exact=Assert.Single(filters,filter=>filter.Field==Match(true));Assert.Equal(FixedReadComparison.In,exact.Comparison);Assert.Equal(new object?[]{"只允许甲","只允许乙"},Assert.IsAssignableFrom<IReadOnlyList<object?>>(exact.Value));Assert.Equal("export",authorization.LastOperation);
+                var exact=Assert.Single(filters,filter=>filter.Field==matchName);Assert.Equal(FixedReadComparison.In,exact.Comparison);var expected=timeMatch?new object?[]{SqlTimeValue.ParseText("-30:01:02.123456"),TimeSpan.FromHours(12)}:["只允许甲","只允许乙"];
+                Assert.Equal(expected,Assert.IsAssignableFrom<IReadOnlyList<object?>>(exact.Value));Assert.Equal("export",authorization.LastOperation);
             }
             else
             {

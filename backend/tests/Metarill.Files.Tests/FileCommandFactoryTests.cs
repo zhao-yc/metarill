@@ -713,8 +713,65 @@ public sealed class FileCommandFactoryTests
         return catalog;
     }
 
+    /// <summary>原附件更新校验对物理和联接TIME字段使用原写事务及有类型的微秒参数。</summary>
+    [Theory]
+    [InlineData(false,true)]
+    [InlineData(true,true)]
+    [InlineData(false,false)]
+    [InlineData(true,false)]
+    public async Task File_exact_time_uses_typed_values_in_current_read(bool derived,bool valid)
+    {
+        var catalog=FileSharedCrossParentScopeTests.JoinedExactCatalog(derived,"unparented");
+        var source=catalog.ConfigPages.Single(item=>item.Id=="102");
+        if(derived)
+        {
+            catalog.ConfigColumns.Add(new(){Id="66",ConfigTableId="6",ColumnName="shift_time",LogicalType="time",YzProjectId="1"});
+            var match=catalog.ConfigColumns.Single(item=>item.Id=="20");
+            match.LogicalType="time";
+            match.Extra["columnFullName"]=System.Text.Json.JsonSerializer.SerializeToElement("branch.shift_time");
+        }
+        else
+        {
+            source.Extra["exactDataManageMatchField"]=System.Text.Json.JsonSerializer.SerializeToElement("shiftTime");
+            catalog.ConfigColumns.Add(new(){Id="69",ConfigTableId="1",ColumnName="shift_time",LogicalType="time",YzProjectId="1"});
+        }
+        var registry=new FileMetadataContext([catalog]);
+        var frozen=Assert.Single(registry.Catalogs);
+        var page=frozen.ConfigPages.Single(item=>item.Id==source.Id);
+        var table=frozen.ConfigTables.Single(item=>item.Id==page.ConfigTableId);
+        var physical=registry.PhysicalColumns(frozen,table);
+        var file=physical.Single(item=>item.ColumnName=="attachments");
+        var actor=new RuntimeActor(12,"测试",false,"1","900"){StoreId=21};
+        var text=valid?"-30:01:02.123456":"839:00:00";
+        var authorization=new JoinedFileAuthorization(actor,false,text);
+        var provider=new Provider();
+        using var session=new DatabaseSession(new(){ExpectedDatabase="offline"},null,provider);
+        var store=new SqlRowStore(session,frozen);
+        provider.Read=command=>
+        {
+            Assert.Same(session.CurrentTransaction,command.Transaction);
+            Assert.NotNull(command.Transaction);
+            Assert.Contains("`shift_time`",command.CommandText);
+            Assert.DoesNotContain(text,command.CommandText);
+            Assert.Contains(command.Parameters.Cast<DbParameter>(),parameter=>
+                Equals(parameter.Value,Metarill.Core.Contracts.SqlTimeValue.ParseText(text))&&
+                command.CommandText.Contains(parameter.ParameterName,StringComparison.Ordinal));
+            Assert.EndsWith(derived?"FOR SHARE":"FOR UPDATE",command.CommandText,StringComparison.Ordinal);
+            return new DataTable().CreateDataReader();
+        };
+        await session.InTransactionAsync(async()=>
+        {
+            Task Check()=>FileReferenceReadAuthorization.RequireCurrentUpdateScopeAsync(store,registry,authorization,
+                frozen,table,page,file,physical,registry.PageScope(frozen,page),97,actor,default);
+            if(valid)await Assert.ThrowsAsync<UnauthorizedAccessException>(Check);
+            else await Assert.ThrowsAsync<ArgumentOutOfRangeException>(Check);
+            return true;
+        });
+        Assert.Equal(valid?1:0,provider.Last?.Command?.Executions??0);
+    }
+
     /// <summary>固定测试身份只获一张来源页的精确数据范围，其他页拒绝。</summary>
-    private sealed class JoinedFileAuthorization(RuntimeActor actor,bool unrestricted):IRuntimeAuthorization
+    private sealed class JoinedFileAuthorization(RuntimeActor actor,bool unrestricted,string permittedValue="分组甲"):IRuntimeAuthorization
     {
         public RuntimeActor RequireActor()=>actor;
         public void RequirePagePermission(string pageId,string operation)
@@ -725,7 +782,7 @@ public sealed class FileCommandFactoryTests
         {
             RequirePagePermission(pageId,operation);
             return unrestricted?ExactDataManageValues.Unrestricted:
-                new(true,System.Text.Json.JsonSerializer.SerializeToElement("分组甲"));
+                new(true,System.Text.Json.JsonSerializer.SerializeToElement(permittedValue));
         }
     }
 
@@ -1165,6 +1222,7 @@ public sealed class FileCommandFactoryTests
         public DbCommand CreateCommand(DbConnection connection){Commands++;return connection.CreateCommand();}
         public string QuoteIdentifier(string name)=>new MySqlDatabaseProvider().QuoteIdentifier(name);public string ParameterPlaceholder(string name)=>"@"+name;
         public string BuildSelectForUpdate(string sql)=>new MySqlDatabaseProvider().BuildSelectForUpdate(sql);
+        public void ValidateTimeValue(TimeSpan value)=>new MySqlDatabaseProvider().ValidateTimeValue(value);
         public ValueTask<DbTransaction> BeginReadSnapshotAsync(DbConnection connection,CancellationToken cancellationToken=default)
             =>connection.BeginTransactionAsync(IsolationLevel.RepeatableRead,cancellationToken);
     }

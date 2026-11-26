@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Metarill.Core.Contracts;
 using Metarill.Core.Security;
 using Metarill.Runtime.Persistence;
 
@@ -13,7 +14,11 @@ public static class ExactDataManageIdentity
         string field;try{field=ExactDataManageValues.Field(publishedField??SqlRowStore.Text(admin,"exact_data_manage_match_field"));}catch(ArgumentException){return ("",null);}
         if(field.Length==0||field is "password" or "salt" or "token" or "token_hash" or "old_password")return ("",null);
         var matches=account.Where(item=>string.Equals(item.Key,field,StringComparison.OrdinalIgnoreCase)).ToArray();
-        return matches.Length==1?(field,JsonSerializer.SerializeToElement(matches[0].Value)):(field,null);
+        if(matches.Length!=1)return (field,null);
+        var matchValue=matches[0].Value;
+        // 数据库 TIME 统一使用总小时文本，避免驱动值跨日后变成 .NET 天数格式。
+        if(matchValue is TimeSpan time)matchValue=SqlTimeValue.Format(time);
+        return (field,JsonSerializer.SerializeToElement(matchValue));
     }
     /// <summary>每个操作独立决策；匹配字段和已认证后台声明不符时拒绝，不能换用请求字段或任意账号值。</summary>
     public static ExactDataManageValues Resolve(AuthenticatedIdentity identity,string pageId,string operation,string managerField)

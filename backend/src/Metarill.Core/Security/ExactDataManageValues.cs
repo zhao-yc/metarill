@@ -39,6 +39,7 @@ public sealed record ExactDataManageValues([property:JsonIgnore] bool IsRequired
         "decimal" or "money" or "number"=>Read<decimal>().Cast<object?>().ToArray(),
         "double"=>Read<double>().Cast<object?>().ToArray(),
         "date" or "datetime" or "timestamp"=>Read<DateTime>().Cast<object?>().ToArray(),
+        "time"=>Read<TimeSpan>().Cast<object?>().ToArray(),
         "string" or "varchar" or "text"=>Read<string>().Cast<object?>().ToArray(),
         _=>throw new NotSupportedException("精确管理匹配字段的逻辑类型尚未支持。")
     };
@@ -67,9 +68,20 @@ public sealed record ExactDataManageValues([property:JsonIgnore] bool IsRequired
         else if(type==typeof(double)&&Metarill.Core.Contracts.ExactNumericValue.TryDouble(text,out var real))result=real;
         else if(type==typeof(bool)&&(text is "1" or "0"||bool.TryParse(text,out _)))result=text=="1"||text!="0"&&bool.Parse(text);
         else if(type==typeof(DateTime)&&DateTime.TryParse(text,CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out var date))result=date;
+        else if(type==typeof(TimeSpan)&&value.ValueKind==JsonValueKind.String)result=Time(text);
         else throw Invalid();
         return (T)result;
     }
+    /// <summary>精确范围不得把亚微秒值截断成另一条可匹配的已保存时间。</summary>
+    private static TimeSpan Time(string text)
+    {
+        long? nanoseconds;
+        try{nanoseconds=Metarill.Core.Contracts.SqlTimeValue.ParseNanoseconds(text);}
+        catch(JsonException){throw Invalid();}
+        if(nanoseconds is not {} value||value%1_000!=0)throw Invalid();
+        return TimeSpan.FromTicks(value/100);
+    }
+
     /// <summary>固定拒绝信息不能泄露账号匹配值或驱动参数。</summary>
     private static ArgumentException Invalid()=>new("精确数据管理匹配值不符合目标字段定义。");
 }
