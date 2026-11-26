@@ -56,7 +56,9 @@ public static class GlobalCrossTableTarget
             !ReferenceEquals(catalog.ConfigPages.SingleOrDefault(item=>item.Id==page.Id),page)||
             !catalog.YzAdminTypes.Any(admin=>admin.Id==page.YzAdminTypeId&&admin.YzProjectId==catalog.YzProjectId))
             throw new NotSupportedException("全局精确范围必须属于当前项目实际发布的业务页或选择页及后台。");
-        var parent=SingleParent(catalog,table,page,allowLogical:true,allowExactSingle:true);
+        // 页面固定联接与精确字段分别验证，二者共用发布目录和循环检测。
+        var joinedFields=PageJoinedConditionFields(catalog,table,page,resolving);
+        var parent=SingleParent(catalog,table,page,allowLogical:true,allowExactSingle:true,joinedFields:joinedFields);
         if(parent is null)
         {
             var columns=ConditionColumns(catalog,table,allowLogical:true);
@@ -64,7 +66,7 @@ public static class GlobalCrossTableTarget
             var tree=fields.Any(field=>CascadeTreeStorageColumns.IsLogicalNameField(table,columns,field));
             var logical=tree||fields.Any(field=>CrossTableStorageColumns.IsLogicalPathField(table,columns,field));
             RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0,allowLogical:logical,
-                allowSelfTree:tree,allowExactSingle:true);
+                allowSelfTree:tree,allowExactSingle:true,joinedFields:joinedFields);
         }
         var value=page.Extra["exactDataManageMatchField"];
         var field=value.ValueKind==JsonValueKind.String?ExactDataManageValues.Field(value.GetString()):"";
