@@ -31,7 +31,10 @@ internal static class MultiGlobalParentCompilation
             ForeignValidationRenderer.Target(model,column)?.Source.Id==table.Source.Id&&
             owner.Pages.Any(source=>ProjectSinglePage(model,source,column,table)?.Source.Id==page.Source.Id))))
             return null;
-        var parent=DerivedRelationNamesCompilation.SingleParent(model,table,page);
+        // 精确多选或业务字典同样是实际发布页，父级校验沿精确范围入口识别。
+        var parent=GlobalCrossTableTarget.DeclaresExactPage(table.Source,page.Source)
+            ?GlobalCrossTableTarget.ExactPageParent(model.Catalog,table.Source,page.Source)
+            :DerivedRelationNamesCompilation.SingleParent(model,table,page);
         if(parent is not {Global:true})return null;
         if(!table.IsGlobal&&parent.AdditionalTargets.Count>0)
             _=NonRedundantReads.MultiGlobalParentPageId(model.Catalog,table.Source.Id,page.Source.Id);

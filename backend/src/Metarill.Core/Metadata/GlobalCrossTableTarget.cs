@@ -60,7 +60,6 @@ public static class GlobalCrossTableTarget
         var joinedFields=PageJoinedConditionFields(catalog,table,page,resolving);
         // 页面校验兼容复选的显式物理父键，各关系入口仍按自己的控件角色核对来源。
         var parent=StoredMultiParent(catalog,table,page,checkbox:true,allowExact:true);
-        parent??=SingleParent(catalog,table,page,allowLogical:true,allowExactSingle:true,joinedFields:joinedFields);
         if(parent is null)
         {
             var columns=ConditionColumns(catalog,table,allowLogical:true);
@@ -72,13 +71,14 @@ public static class GlobalCrossTableTarget
             var checkboxPage=!DeclaresExactMulti(table,page);
             var projectMulti=GlobalMultipleRelationTarget.IsProjectPage(table,page,condition,checkboxPage,allowExact:true);
             var storedMultiAccount=GlobalMultipleRelationTarget.IsStoredExactMultiAccountPage(table,page,condition,checkboxPage);
-            // 普通精确字典页也可作为复选页发布。显式父列必须解析为同一实际记录。
-            if(table.IsRongyu==0&&!logical&&MultiTargetParentScope.CompileGlobalPage(catalog,table,condition,checkbox:true)
-                is {Logical:false} physicalParent&&physicalParent.AdditionalTargets.All(scope=>!scope.Logical))
-                parent=physicalParent;
-            RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0||storedMultiAccount,allowLogical:logical,
-                allowSelfTree:tree,allowExactSingle:true,allowStoredProject:projectMulti,
-                allowPhysicalMultiParent:parent is not null,checkboxParent:true,publishedPhysicalParent:parent,joinedFields:joinedFields);
+            // 先证明物理父键，再走逻辑单选父范围，避免账号条件把精确复选页误归为普通单选。
+            var physicalParent=table.IsRongyu==0&&!logical&&MultiTargetParentScope.CompileGlobalPage(catalog,table,condition,checkbox:true)
+                is {Logical:false} binding&&binding.AdditionalTargets.All(scope=>!scope.Logical)?binding:null;
+            parent=physicalParent??SingleParent(catalog,table,page,allowLogical:true,allowExactSingle:true,joinedFields:joinedFields);
+            if(parent is null||physicalParent is not null)
+                RequireTarget(catalog,table,page,true,allowAccount:table.IsRongyu==0||storedMultiAccount,allowLogical:logical,
+                    allowSelfTree:tree,allowExactSingle:true,allowStoredProject:projectMulti,
+                    allowPhysicalMultiParent:physicalParent is not null,checkboxParent:true,publishedPhysicalParent:physicalParent,joinedFields:joinedFields);
         }
         var value=page.Extra["exactDataManageMatchField"];
         var field=value.ValueKind==JsonValueKind.String?ExactDataManageValues.Field(value.GetString()):"";

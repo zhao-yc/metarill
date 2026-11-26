@@ -261,6 +261,8 @@ public static class GlobalMultipleRelationTarget
         // 普通与全局业务来源共用真实同父证明；固定字典可以只声明父范围和字面条件。
         var projectParentPage=IsProjectParentPage(target,page,condition,checkbox,allowExact:exactPage);
         var staticParentPage=GlobalCrossTableTarget.UsesOnlyParentVariables(condition);
+        // 精确字典可由物理门店或商户限定，普通业务来源仍需证明同一持久父键。
+        var exactAccountParentPage=exactPage&&UsesAccountAndParent(condition);
         var physicalParentPage=false;
         var storedParent=(checkbox||pageId.Length>0)
             ?GlobalCrossTableTarget.StoredMultiParent(catalog,target,page,checkbox,allowExact:true):null;
@@ -273,7 +275,7 @@ public static class GlobalMultipleRelationTarget
             if(sourceParent.LogicalPages.Count>0)
                 throw new NotSupportedException("冗余全局字典要求已发布来源的实际物理父键。");
         }
-        if((GlobalCrossTableTarget.Declared(owner)||projectParentPage||staticParentPage)&&
+        if((GlobalCrossTableTarget.Declared(owner)||projectParentPage||staticParentPage||exactAccountParentPage)&&
             (checkbox||pageId.Length>0)&&target.IsRongyu==0&&!scoped&&IsPublishedMultiPage(target,page,checkbox,allowExact:exactPage)&&
             (projectParentPage||staticParentPage||condition.Variables.Any(AccountConditionVariables.IsSupported))&&
             MultiTargetParentScope.CompileGlobalPage(catalog,target,condition,checkbox) is {Logical:false} parent&&
